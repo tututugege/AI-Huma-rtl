@@ -17,7 +17,9 @@ LIST=$ROOT/build/lockstep_multi.progs
 if [ -n "${PROGS:-}" ]; then cp "$PROGS" "$LIST"; else
   { ls $G/tests/*/*.bin $G/vm/*/*.bin; for p in /tmp/big/dhrystone.bin /tmp/big/coremark.bin /Users/ruyaoh/personal/llm4trace/third_party/tututugege/baseline-sim/src/baremetal/float-test/float_test.bin; do [ -f "$p" ] && echo "$p"; done; } > "$LIST"
 fi
-PLUG=""; for m in "${MODS[@]}"; do PLUG="$PLUG:$ROOT/build/lock_$m/lock_$m.dylib"; done; PLUG=${PLUG#:}
+PLUG=""; for m in "${MODS[@]}"; do
+  if [ -f "$ROOT/build/lock_$m/lock_$m.dylib" ]; then PLUG="$PLUG:$ROOT/build/lock_$m/lock_$m.dylib"; else echo "SKIPPED $m: no plugin (build failed, see build/lock_$m/*.log)"; fi
+done; PLUG=${PLUG#:}
 RES=$ROOT/build/lockstep_multi.csv; : > "$RES"
 run_one() {
   p=$1; name=$(basename "$p" .bin)
