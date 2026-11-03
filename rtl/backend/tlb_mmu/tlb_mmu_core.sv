@@ -67,7 +67,12 @@ module tlb_mmu_core import tlb_mmu_pkg::*; #(
   );
 
   // translate: only a usable response is retired early; cancel: every matching response is consumed; fence: nothing
-  assign early_consume = fence ? 1'b0 : (cancel ? early_done : early_refill_ok);
+  // The ITLB (FETCH) path of the reference has no early retirement in translate mode (TlbMmu::translate goes straight into
+  // top_comb; only translate_lsu_ports calls consume_completed_walk_refill first), so a completed walk is retired by the
+  // fetch lane that asks for its page, or by a cancel.
+  logic early_in_translate;
+  assign early_in_translate = FETCH ? 1'b0 : early_refill_ok;
+  assign early_consume = fence ? 1'b0 : (cancel ? early_done : early_in_translate);
 
   // ---- lane chain (lane 0 has priority) ----
   tlb_mmu_chain_t chain [LANES+1];
@@ -76,7 +81,7 @@ module tlb_mmu_core import tlb_mmu_pkg::*; #(
   tlb_mmu_chain_t chain_start;
   always_comb begin
     chain_start.walk = early_consume ? '0 : walk_q;
-    chain_start.refill_valid = early_refill_ok;
+    chain_start.refill_valid = early_refill_ok && (cancel || !FETCH);
     chain_start.refill = early_refill;
     chain_start.resp_valid = ptw_resp_valid && !early_consume;
   end
