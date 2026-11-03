@@ -9,8 +9,8 @@
 /Users/ruyaoh/personal/tututugege-trace/build/vm/vm-sfence-perm-test/vm_sfence_perm_test.bin|100000
 /Users/ruyaoh/personal/tututugege-trace/build/vm/vm-sum-fetch-test/vm_sum_fetch_test.bin|100000
 # extra baremetal programs shipped with the reference simulator
-/Users/ruyaoh/personal/llm4trace/third_party/tututugege/baseline-sim/src/baremetal/float-test/float_test.bin|100000
-/Users/ruyaoh/personal/llm4trace/third_party/tututugege/baseline-sim/src/baremetal/sha-test.bin|100000
-/Users/ruyaoh/personal/llm4trace/third_party/tututugege/baseline-sim/src/baremetal/cjpeg.bin|100000
-/Users/ruyaoh/personal/llm4trace/third_party/tututugege/baseline-sim/src/baremetal/linear_alg-mid-100x100-sp.bin|100000
-/Users/ruyaoh/personal/llm4trace/third_party/tututugege/baseline-sim/src/baremetal/parser-125k.bin|100000
+/Users/ruyaoh/personal/llm4trace/third_party/tututugege/baseline-sim/src/baremetal/float-test/float_test.bin|30000
+/Users/ruyaoh/personal/llm4trace/third_party/tututugege/baseline-sim/src/baremetal/sha-test.bin|30000
+/Users/ruyaoh/personal/llm4trace/third_party/tututugege/baseline-sim/src/baremetal/cjpeg.bin|30000
+/Users/ruyaoh/personal/llm4trace/third_party/tututugege/baseline-sim/src/baremetal/linear_alg-mid-100x100-sp.bin|30000
+/Users/ruyaoh/personal/llm4trace/third_party/tututugege/baseline-sim/src/baremetal/parser-125k.bin|30000

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Record a module against the standard program set: all gate tests + scripts/progs.txt, JOBS in parallel.
 #   usage: record_all.sh <module>
-#   env  GATE_CYCLES (default 30000), JOBS (default 2), EXTRA_ONLY=1 (record only scripts/progs.txt entries and keep existing traces)
+#   env  GATE_CYCLES (default 30000), JOBS (default 2), EXTRA_ONLY=1 (record only scripts/progs.txt entries and keep existing traces), SKIP_EXISTING=1
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 MOD=$1
