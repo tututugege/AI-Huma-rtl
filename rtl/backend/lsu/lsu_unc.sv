@@ -7,12 +7,12 @@
 module lsu_unc
   import lsu_pkg::*;
 (
+  input  logic             clk,
+  input  logic             rst_n,
   input  logic             valid_post_resp,     // after comb_mmio_in cleared it
-  input  logic             is_load_q,
-  input  logic [31:0]      addr_q,
-  input  logic [31:0]      wdata_q,
-  input  logic [2:0]       func3_q,
-  input  logic [RIW-1:0]   idx_q,
+  output logic             valid_q,             // registers (cur.uncached_unit)
+  output logic             is_load_q,
+  output logic [RIW-1:0]   idx_q,
   // comb_stlf: an MMIO load takes the unit
   input  logic             ld_set,
   input  logic [31:0]      ld_addr,
@@ -40,6 +40,8 @@ module lsu_unc
   output logic [2:0]       func3_o,
   output logic [RIW-1:0]   idx_o
 );
+  logic [31:0] addr_q, wdata_q;
+  logic [2:0]  func3_q;
 
   logic        v2, is_load2, v_flush, v_kill;
   logic [31:0] addr2;
@@ -64,6 +66,19 @@ module lsu_unc
   assign wdata_o   = st_set ? st_wdata : wdata_q;
   assign func3_o   = st_set ? st_func3 : func32;
   assign idx_o     = st_set ? st_idx : idx2;
+
+  // the request data is only meaningful while valid: written when a request is taken, kept otherwise
+  always_ff @(posedge clk) begin
+    if (!rst_n) valid_q <= 1'b0;
+    else        valid_q <= valid_o;
+    if (ld_set || st_set) begin
+      is_load_q <= is_load_o;
+      addr_q    <= addr_o;
+      wdata_q   <= wdata_o;
+      func3_q   <= func3_o;
+      idx_q     <= idx_o;
+    end
+  end
 
 endmodule
 
