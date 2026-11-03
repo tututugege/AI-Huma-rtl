@@ -1,0 +1,289 @@
+--- a/axi-interconnect-kit/axi_interconnect/AXI_Interconnect.cpp	2026-11-03 20:58:22
++++ b/axi-interconnect-kit/axi_interconnect/AXI_Interconnect.cpp	2026-11-03 20:58:22
+@@ -8,6 +8,7 @@
+  */
+ 
+ #include "AXI_Interconnect.h"
++#include "axi_tap.h"
+ #include "axi_dual_port_route_shape.h"
+ #include "axi_mmio_map.h"
+ #include <algorithm>
+@@ -26,9 +27,40 @@
+ extern void pmem_write(uint32_t paddr, uint32_t data);
+ #endif
+ 
++AxiTap g_ttg_axi_tap;
++void ttg_axi_tap_enable() { g_ttg_axi_tap.on = true; }
++
+ namespace axi_interconnect {
++using ::g_ttg_axi_tap;
+ 
++
+ namespace {
++// ---- recording tap (refsim only, copies values, never writes interconnect state) ----
++inline void tap_rd_req(AxiTapReq &d, const ReadMasterPort_t &p) {
++  d.valid = p.req.valid; d.addr = p.req.addr; d.size = p.req.total_size; d.id = p.req.id; d.bypass = p.req.bypass;
++}
++inline void tap_wr_req(AxiTapWReq &d, const WriteMasterPort_t &p) {
++  d.valid = p.req.valid; d.addr = p.req.addr; d.size = p.req.total_size; d.id = p.req.id; d.bypass = p.req.bypass;
++  for (int w = 0; w < TTG_AXI_RW; ++w) d.wdata[w] = p.req.wdata[w];
++  d.wstrb = static_cast<uint64_t>(p.req.wstrb);
++}
++inline void tap_slave(AxiTapDdrSlave &d, const sim_ddr::SimDDR_IO_t &io) {
++  d.arready = io.ar.arready; d.rvalid = io.r.rvalid; d.rid = io.r.rid; d.rresp = io.r.rresp; d.rlast = io.r.rlast;
++  for (int w = 0; w < 8; ++w) d.rdata[w] = axi_compat::get_u32(io.r.rdata, w);
++  d.awready = io.aw.awready; d.wready = io.w.wready; d.bvalid = io.b.bvalid; d.bid = io.b.bid; d.bresp = io.b.bresp;
++}
++inline void tap_master(AxiTapDdrMaster &d, const sim_ddr::SimDDR_IO_t &io) {
++  d.arvalid = io.ar.arvalid; d.arid = io.ar.arid; d.araddr = io.ar.araddr; d.arlen = io.ar.arlen;
++  d.arsize = io.ar.arsize; d.arburst = io.ar.arburst; d.rready = io.r.rready;
++  d.awvalid = io.aw.awvalid; d.awid = io.aw.awid; d.awaddr = io.aw.awaddr; d.awlen = io.aw.awlen;
++  d.awsize = io.aw.awsize; d.awburst = io.aw.awburst;
++  d.wvalid = io.w.wvalid; d.wlast = io.w.wlast; d.bready = io.b.bready;
++  for (int w = 0; w < 8; ++w) d.wdata[w] = axi_compat::get_u32(io.w.wdata, w);
++  d.wstrb = static_cast<uint32_t>(io.w.wstrb);
++}
++}  // namespace
++
++namespace {
+ constexpr uint8_t kInvalidAxiReadId = 0xFF;
+ constexpr uint8_t kAxiIdMask = static_cast<uint8_t>(
+     AXI_DUAL_PORT_AXI_ID_MASK_FOR_WIDTH(sim_ddr::AXI_ID_WIDTH));
+@@ -1669,8 +1701,18 @@
+ // Phase 1: Output signals for masters (run BEFORE cpu.cycle())
+ // Sets: port.resp.valid/data, port.req.ready (from register), DDR rready
+ void AXI_Interconnect::comb_outputs() {
++  if (g_ttg_axi_tap.on) {
++    AxiTapTick &T = g_ttg_axi_tap.t[g_ttg_axi_tap.cur];
++    T = AxiTapTick{};
++    T.valid = true;
++    for (int i = 0; i < NUM_READ_MASTERS; ++i) tap_rd_req(T.a_rd[i], read_ports[i]);
++    for (int i = 0; i < NUM_WRITE_MASTERS; ++i) tap_wr_req(T.a_wr[i], write_ports[i]);
++    tap_slave(T.d_ddr, axi_ddr_io);
++    tap_slave(T.d_mmio, axi_mmio_io);
++  }
+   prepare_llc_inputs(false);
+   llc.comb();
++  if (g_ttg_axi_tap.on) g_ttg_axi_tap.t[g_ttg_axi_tap.cur].llc_ext_out1 = llc.io.ext_out;
+ 
+   // Response path: DDR → masters
+   comb_read_response();
+@@ -1760,16 +1802,44 @@
+       }
+     }
+   }
++  if (g_ttg_axi_tap.on) {
++    AxiTapTick &T = g_ttg_axi_tap.t[g_ttg_axi_tap.cur];
++    for (int i = 0; i < NUM_READ_MASTERS; ++i) {
++      T.o1_rd_resp_valid[i] = read_ports[i].resp.valid; T.o1_rd_resp_id[i] = read_ports[i].resp.id;
++      for (int w = 0; w < TTG_AXI_RW; ++w) T.o1_rd_resp_data[i][w] = read_ports[i].resp.data[w];
++      T.o1_rd_req_ready[i] = read_ports[i].req.ready; T.o1_rd_accepted[i] = read_ports[i].req.accepted;
++      T.o1_rd_accepted_id[i] = read_ports[i].req.accepted_id;
++    }
++    for (int i = 0; i < NUM_WRITE_MASTERS; ++i) {
++      T.o1_wr_req_ready[i] = write_ports[i].req.ready; T.o1_wr_accepted[i] = write_ports[i].req.accepted;
++      T.o1_wr_resp_valid[i] = write_ports[i].resp.valid; T.o1_wr_resp_id[i] = write_ports[i].resp.id;
++      T.o1_wr_resp_resp[i] = write_ports[i].resp.resp;
++    }
++    T.o1_ddr_rready = axi_ddr_io.r.rready; T.o1_ddr_bready = axi_ddr_io.b.bready;
++    T.o1_mmio_rready = axi_mmio_io.r.rready; T.o1_mmio_bready = axi_mmio_io.b.bready;
++  }
+ }
+ 
+ // Phase 2: Input signals from masters (run AFTER cpu.cycle())
+ // Processes: port.req.valid/addr, drives DDR AR/AW/W
+ void AXI_Interconnect::comb_inputs() {
++  if (g_ttg_axi_tap.on) {
++    AxiTapTick &T = g_ttg_axi_tap.t[g_ttg_axi_tap.cur];
++    for (int i = 0; i < NUM_READ_MASTERS; ++i) { tap_rd_req(T.b_rd[i], read_ports[i]); T.b_rd_resp_ready[i] = read_ports[i].resp.ready; }
++    for (int i = 0; i < NUM_WRITE_MASTERS; ++i) { tap_wr_req(T.b_wr[i], write_ports[i]); T.b_wr_resp_ready[i] = write_ports[i].resp.ready; }
++  }
+   comb_read_arbiter();
+   comb_write_request();
+   if (llc_enabled() || mode_transition_needs_flush()) {
+     prepare_llc_inputs(true);
+     llc.comb();
++  }
++  if (g_ttg_axi_tap.on) {
++    AxiTapTick &T = g_ttg_axi_tap.t[g_ttg_axi_tap.cur];
++    for (int i = 0; i < NUM_READ_MASTERS; ++i) T.o2_rd_req_ready[i] = read_ports[i].req.ready;
++    for (int i = 0; i < NUM_WRITE_MASTERS; ++i) T.o2_wr_req_ready[i] = write_ports[i].req.ready;
++    tap_master(T.o2_ddr, axi_ddr_io);
++    tap_master(T.o2_mmio, axi_mmio_io);
+   }
+ }
+ 
+--- a/axi-interconnect-kit/axi_interconnect/include/axi_tap.h	1970-01-01 08:00:00
++++ b/axi-interconnect-kit/axi_interconnect/include/axi_tap.h	2026-11-03 20:58:22
+@@ -0,0 +1,87 @@
++// Read-only recording tap of the AXI interconnect + LLC (added for the RTL trace harness, refsim only).
++//
++// One CPU cycle = 16 ticks (tick 0 = cycle(), ticks 1..15 = run_extra_axi_subsystem_ticks()); the interconnect and
++// the LLC run on every tick. Per tick the AXI_Interconnect runs   comb_outputs -> (masters drive) -> comb_inputs -> seq
++// and the tap records, with names a_* / b_* / o1_* / o2_* / d_*:
++//   a_*   master request fields as visible to comb_outputs()   (stale: whatever the previous driver left in the ports)
++//   d_*   DDR slave-side signals (arready/rvalid/.../bvalid) as sampled at comb_outputs()  (= inputs from sim_ddr)
++//   o1_*  outputs after comb_outputs(): resp valid/id/data, req.accepted(+id), write resp, DDR rready/bready
++//   b_*   master request fields as seen by comb_inputs() (the real per-tick requests) + resp.ready
++//   o2_*  outputs after comb_inputs(): req.ready, DDR AR/AW/W channels (what sim_ddr receives)
++// Active only when $TTG_REC_END is set (same switch as the DCache-domain tap); it only COPIES values.
++// spec expressions:  TTG_AXI.t[TTG_MS.cur].<field>
++#pragma once
++#include "AXI_Interconnect.h"
++#include <cstdint>
++
++constexpr int TTG_AXI_TICKS = 16;
++constexpr int TTG_AXI_RD = 4;   // read masters
++constexpr int TTG_AXI_WR = 2;   // write masters
++constexpr int TTG_AXI_RW = 16;  // words visible per upstream data beat (64 B)
++
++struct AxiTapReq {  // one master read request (as seen on read_ports[i].req)
++  bool valid = false;
++  uint32_t addr = 0;
++  uint8_t size = 0, id = 0;
++  bool bypass = false;
++};
++struct AxiTapWReq {
++  bool valid = false;
++  uint32_t addr = 0;
++  uint32_t wdata[TTG_AXI_RW] = {};
++  uint64_t wstrb = 0;
++  uint8_t size = 0, id = 0;
++  bool bypass = false;
++};
++struct AxiTapDdrSlave {  // sim_ddr -> interconnect
++  bool arready = false, rvalid = false, awready = false, wready = false, bvalid = false, rlast = false;
++  uint8_t rid = 0, bid = 0, rresp = 0, bresp = 0;
++  uint32_t rdata[8] = {};
++};
++struct AxiTapDdrMaster {  // interconnect -> sim_ddr
++  bool arvalid = false, awvalid = false, wvalid = false, wlast = false, rready = false, bready = false;
++  uint8_t arid = 0, arlen = 0, arsize = 0, arburst = 0, awid = 0, awlen = 0, awsize = 0, awburst = 0;
++  uint32_t araddr = 0, awaddr = 0;
++  uint32_t wdata[8] = {};
++  uint32_t wstrb = 0;
++};
++
++struct AxiTapTick {
++  bool valid = false;
++  // ---- as seen at comb_outputs ----
++  AxiTapReq a_rd[TTG_AXI_RD];
++  AxiTapWReq a_wr[TTG_AXI_WR];
++  AxiTapDdrSlave d_ddr, d_mmio;
++  // ---- outputs after comb_outputs ----
++  bool o1_rd_resp_valid[TTG_AXI_RD] = {};
++  uint8_t o1_rd_resp_id[TTG_AXI_RD] = {};
++  uint32_t o1_rd_resp_data[TTG_AXI_RD][TTG_AXI_RW] = {};
++  bool o1_rd_req_ready[TTG_AXI_RD] = {};
++  bool o1_rd_accepted[TTG_AXI_RD] = {};
++  uint8_t o1_rd_accepted_id[TTG_AXI_RD] = {};
++  bool o1_wr_req_ready[TTG_AXI_WR] = {};
++  bool o1_wr_accepted[TTG_AXI_WR] = {};
++  bool o1_wr_resp_valid[TTG_AXI_WR] = {};
++  uint8_t o1_wr_resp_id[TTG_AXI_WR] = {};
++  uint8_t o1_wr_resp_resp[TTG_AXI_WR] = {};
++  bool o1_ddr_rready = false, o1_ddr_bready = false, o1_mmio_rready = false, o1_mmio_bready = false;
++  // ---- as seen at comb_inputs ----
++  AxiTapReq b_rd[TTG_AXI_RD];
++  bool b_rd_resp_ready[TTG_AXI_RD] = {};
++  AxiTapWReq b_wr[TTG_AXI_WR];
++  bool b_wr_resp_ready[TTG_AXI_WR] = {};
++  // ---- outputs after comb_inputs ----
++  bool o2_rd_req_ready[TTG_AXI_RD] = {};
++  bool o2_wr_req_ready[TTG_AXI_WR] = {};
++  AxiTapDdrMaster o2_ddr, o2_mmio;
++  // ---- LLC ext_out after the first comb() (comb_outputs); compared with the final one in tests ----
++  axi_interconnect::AXI_LLC_ExtOut_t llc_ext_out1;
++};
++
++struct AxiTap {
++  bool on = false;
++  int cur = 0;  // tick being captured
++  AxiTapTick t[TTG_AXI_TICKS];
++};
++extern AxiTap g_ttg_axi_tap;
++#define TTG_AXI g_ttg_axi_tap
+--- a/rv_simu_mmu_v2.cpp	2026-11-03 20:58:22
++++ b/rv_simu_mmu_v2.cpp	2026-11-03 20:58:22
+@@ -1,5 +1,6 @@
+ #include "ttg_rec_hook.h"
+ #include "memsys_tap.h"
++void ttg_axi_tap_enable();  // defined in AXI_Interconnect.cpp
+ 
+ #include <dlfcn.h>
+ namespace ttg_ms_end {  // end-of-cycle plugin hook (memory-subsystem lockstep): plugin symbol ttg_rec_cycle_end
+@@ -9,12 +10,24 @@
+     const char *p = std::getenv("TTG_REC_END");
+     if (!p || !*p) return nullptr;
+     g_ttg_ms_tap.on = true;
++    ttg_axi_tap_enable();
+     void *h = dlopen(p, RTLD_NOW | RTLD_LOCAL);
+     if (!h) { std::fprintf(stderr, "TTG_REC_END: dlopen failed: %s\n", dlerror()); std::exit(1); }
+     return reinterpret_cast<Fn>(dlsym(h, "ttg_rec_cycle_end"));
+   }();
+   if (fn) fn(cpu, n);
+ }
++// per-tick callback of the same plugin (optional symbol ttg_axi_tick), called after the tick's axi_subsystem_seq
++using TickFn = void (*)(SimCpu *, int);
++inline void tick(SimCpu *cpu, int t) {
++  static TickFn fn = []() -> TickFn {
++    const char *p = std::getenv("TTG_REC_END");
++    if (!p || !*p) return nullptr;
++    void *h = dlopen(p, RTLD_NOW | RTLD_LOCAL);
++    return h ? reinterpret_cast<TickFn>(dlsym(h, "ttg_axi_tick")) : nullptr;
++  }();
++  if (fn) fn(cpu, t);
++}
+ }  // namespace ttg_ms_end
+ #include <cstdint>
+ #include <cstdio>
+@@ -30,6 +43,7 @@
+ // internal AXI/LLC/DDR state.
+ #define private public
+ #include "AXI_Interconnect.h"
++#include "axi_tap.h"
+ #undef private
+ 
+ #include "BackTop.h"
+@@ -216,6 +230,9 @@
+   llc_cfg.ways = CONFIG_AXI_LLC_WAYS;
+   llc_cfg.mshr_num = CONFIG_AXI_LLC_MSHR_NUM;
+   llc_cfg.lookup_latency = CONFIG_AXI_LLC_LOOKUP_LATENCY;
++  // test knobs (unset = reference behaviour): shrink the LLC so evictions / victim write-backs happen
++  if (const char *kb = std::getenv("TTG_LLC_KB")) llc_cfg.size_bytes = std::strtoull(kb, nullptr, 0) << 10;
++  if (const char *w = std::getenv("TTG_LLC_WAYS")) llc_cfg.ways = static_cast<uint32_t>(std::strtoul(w, nullptr, 0));
+   return llc_cfg;
+ }
+ 
+@@ -735,6 +752,7 @@
+   capture_axi_cpu_boundary_state(cpu, cpu_boundary_state);
+   for (uint32_t tick = 1; tick < CONFIG_AXI_SUBSYSTEM_FREQ_DIV; ++tick) {
+     g_ttg_ms_tap.cur = static_cast<int>(tick);
++    g_ttg_axi_tap.cur = static_cast<int>(tick);
+     mask_axi_cpu_boundary_for_internal_tick(cpu);
+     axi_subsystem_comb_outputs(cpu);
+     if (kDcacheFastDomainEnabled) {
+@@ -748,6 +766,7 @@
+       cpu.mem_subsystem.dcache_fast_seq(false);
+     }
+     axi_subsystem_seq(cpu);
++    ttg_ms_end::tick(&cpu, static_cast<int>(tick));
+     accumulate_axi_cpu_boundary_state(cpu, cpu_boundary_state);
+   }
+   restore_axi_cpu_boundary_state(cpu, cpu_boundary_state);
+@@ -1078,6 +1097,7 @@
+ void SimCpu::cycle() {
+   FRONTEND_HOST_PROFILE_SCOPE(SimCycle);
+   g_ttg_ms_tap.cur = 0;
++  g_ttg_axi_tap.cur = 0;
+   g_ttg_ms_tap.cycle = ctx.perf.cycle + 1;
+   ctx.perf.cycle++;
+   // BackTop inputs are combinational wires. Re-drive the only intentionally
+@@ -1175,6 +1195,7 @@
+   {
+     FRONTEND_HOST_PROFILE_SCOPE(SimAxiSeq);
+     axi_subsystem_seq(*this);
++    ttg_ms_end::tick(this, 0);
+     run_extra_axi_subsystem_ticks(*this);
+   }
+   ttg_ms_end::call(this, ctx.perf.cycle);
