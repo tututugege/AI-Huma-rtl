@@ -13,7 +13,7 @@ assert s.count(old) >= 1, "pattern not found"
 open(p, "w").write(s.replace(old, new, 1))
 EOF
 FILES=()
-while IFS= read -r f; do FILES+=("$f"); done < <(cd "$T" && { find rtl/common -name 'ttg_*.sv' ! -name ttg_cfg_pkg.sv | sort; find rtl -path rtl/common -prune -o -name '*.sv' -print | sort; })
-( cd "$T" && bash "$MAIN/scripts/hbuild.sh" "spec/$MOD.io" "$T/build" rtl/common/ttg_cfg_pkg.sv "${FILES[@]}" ) 2>&1 | tail -1
+while IFS= read -r f; do FILES+=("$f"); done < <(bash "$MAIN/scripts/rtl_files.sh" "$T")
+( cd "$T" && bash "$MAIN/scripts/hbuild.sh" "spec/$MOD.io" "$T/build" "${FILES[@]}" ) 2>&1 | tail -1
 for t in "$@"; do echo -n "$t: "; "$T/build/replay" "$W/traces/$MOD/$t.trc" | head -3 | tr '\n' ' '; echo; done
 rm -rf "$T"

@@ -100,7 +100,9 @@ def parse(path):
             if when and d == 'in':
                 sys.exit(f'{path}:{ln}: "when" is only valid on outputs')
             fields.append(Field(d, name, int(w), dl, when, expr, wide))
-            norm.append(' '.join(line.split()))  # the recorder expression is not part of the interface hash
+            # the hash covers the trace LAYOUT only: direction, name, width, dims. Neither the recorder expression nor
+            # `when` (a compare rule) is part of it, so relaxing/tightening a compare rule never invalidates traces.
+            norm.append(f'{d} {name} {w} {"".join(f"[{x}]" for x in dl)}')
     if mod is None:
         sys.exit(f'{path}: missing "module <name>"')
     byname = {f.name: f for f in fields}
