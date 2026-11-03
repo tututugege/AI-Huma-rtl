@@ -27,7 +27,6 @@ module tlb_mmu_store import tlb_mmu_pkg::*; #(
 
   logic [ENTRIES-1:0]  entry_valid_q, entry_valid_d;
   tlb_mmu_entry_t      entry_q [ENTRIES];
-  tlb_mmu_entry_t      entry_d [ENTRIES];
   logic [SLOT_W-1:0]   repl_q, repl_d;
   logic                write_en;
 
@@ -37,13 +36,11 @@ module tlb_mmu_store import tlb_mmu_pkg::*; #(
   always_comb begin
     entry_valid_d = entry_valid_q;
     repl_d = repl_q;
-    for (int i = 0; i < ENTRIES; i++) entry_d[i] = entry_q[i];
     if (fence) begin
       entry_valid_d = '0;
       repl_d = '0;
     end else if (write_en) begin
       entry_valid_d[repl_q] = 1'b1;
-      entry_d[repl_q] = refill;
       repl_d = repl_q + SLOT_W'(1);
     end
   end
@@ -52,12 +49,16 @@ module tlb_mmu_store import tlb_mmu_pkg::*; #(
     if (!rst_n) begin
       entry_valid_q <= '0;
       repl_q <= '0;
-      for (int i = 0; i < ENTRIES; i++) entry_q[i] <= '0;
     end else begin
       entry_valid_q <= entry_valid_d;
       repl_q <= repl_d;
-      for (int i = 0; i < ENTRIES; i++) entry_q[i] <= entry_d[i];
     end
+  end
+
+  // Entry payload is a memory: written only by a refill (not in a fence cycle). No reset: an entry is only
+  // consumed while its valid bit is set, and valid is reset/cleared above.
+  always_ff @(posedge clk) begin
+    if (write_en) entry_q[repl_q] <= refill;
   end
 
   assign entry_valid = entry_valid_q;

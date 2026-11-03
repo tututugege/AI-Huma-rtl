@@ -7,7 +7,6 @@ module pre_idu_ftq_pc import ttg_cfg_pkg::*; import pre_idu_pkg::*; #(
   parameter int NPORT = FTQ_PRF_PC_PORT_NUM + FTQ_ROB_PC_PORT_NUM + COMMIT_WIDTH
 ) (
   input  logic                         clk,
-  input  logic                         rst_n,
   input  logic                         wr_en,
   input  logic [FTQ_IDX_WIDTH-1:0]     wr_idx,
   input  logic [31:0]                  wr_slot_pc [BACKEND_FETCH_WIDTH],
@@ -21,22 +20,8 @@ module pre_idu_ftq_pc import ttg_cfg_pkg::*; import pre_idu_pkg::*; #(
 );
 
   logic [31:0]                    slot_pc_q [FTQ_SIZE][BACKEND_FETCH_WIDTH];
-  logic [31:0]                    slot_pc_d [FTQ_SIZE][BACKEND_FETCH_WIDTH];
   logic [BACKEND_FETCH_WIDTH-1:0] pred_taken_q [FTQ_SIZE];
-  logic [BACKEND_FETCH_WIDTH-1:0] pred_taken_d [FTQ_SIZE];
   logic [31:0]                    next_pc_q [FTQ_SIZE];
-  logic [31:0]                    next_pc_d [FTQ_SIZE];
-
-  // Ref: comb_accept_front (ftq_lookup_entries_1[alloc_idx] = entry)
-  always_comb begin
-    for (int e = 0; e < FTQ_SIZE; e++) begin
-      for (int s = 0; s < BACKEND_FETCH_WIDTH; s++) begin
-        slot_pc_d[e][s] = (wr_en && wr_idx == FTQ_IDX_WIDTH'(e)) ? wr_slot_pc[s] : slot_pc_q[e][s];
-      end
-      pred_taken_d[e] = (wr_en && wr_idx == FTQ_IDX_WIDTH'(e)) ? wr_pred_taken : pred_taken_q[e];
-      next_pc_d[e]    = (wr_en && wr_idx == FTQ_IDX_WIDTH'(e)) ? wr_next_pc : next_pc_q[e];
-    end
-  end
 
   // Ref: comb_ftq_lookup_prf / comb_ftq_lookup_rob / comb_commit_info (pc, pred_taken) -- reads the registered state
   always_comb begin
@@ -47,19 +32,13 @@ module pre_idu_ftq_pc import ttg_cfg_pkg::*; import pre_idu_pkg::*; #(
     end
   end
 
+  // Ref: comb_accept_front (ftq_lookup_entries_1[alloc_idx] = entry). Memory write; no reset: an entry is only read
+  // for an instruction that was allocated into it.
   always_ff @(posedge clk) begin
-    if (!rst_n) begin
-      for (int e = 0; e < FTQ_SIZE; e++) begin
-        for (int s = 0; s < BACKEND_FETCH_WIDTH; s++) slot_pc_q[e][s] <= '0;
-        pred_taken_q[e] <= '0;
-        next_pc_q[e]    <= '0;
-      end
-    end else begin
-      for (int e = 0; e < FTQ_SIZE; e++) begin
-        for (int s = 0; s < BACKEND_FETCH_WIDTH; s++) slot_pc_q[e][s] <= slot_pc_d[e][s];
-        pred_taken_q[e] <= pred_taken_d[e];
-        next_pc_q[e]    <= next_pc_d[e];
-      end
+    if (wr_en) begin
+      for (int s = 0; s < BACKEND_FETCH_WIDTH; s++) slot_pc_q[wr_idx][s] <= wr_slot_pc[s];
+      pred_taken_q[wr_idx] <= wr_pred_taken;
+      next_pc_q[wr_idx]    <= wr_next_pc;
     end
   end
 

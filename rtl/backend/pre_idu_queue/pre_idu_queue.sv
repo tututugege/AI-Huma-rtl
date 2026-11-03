@@ -184,14 +184,14 @@ module pre_idu_queue import ttg_cfg_pkg::*; import pre_idu_pkg::*; (
   );
 
   pre_idu_ftq_pc u_pc (
-    .clk, .rst_n, .wr_en(alloc), .wr_idx(ftq_tail), .wr_slot_pc(front_slot_pc), .wr_pred_taken(front_pred_taken),
+    .clk, .wr_en(alloc), .wr_idx(ftq_tail), .wr_slot_pc(front_slot_pc), .wr_pred_taken(front_pred_taken),
     .wr_next_pc(front2pre_predict_next_fetch_address),
     .rd_idx(pc_rd_idx), .rd_offset(pc_rd_offset), .rd_pc(pc_rd_pc), .rd_pred_taken(pc_rd_pred_taken),
     .rd_next_pc(pc_rd_next_pc)
   );
 
   pre_idu_ftq_meta u_meta (
-    .clk, .rst_n, .wr_en(alloc), .wr_idx(ftq_tail), .wr_meta,
+    .clk, .wr_en(alloc), .wr_idx(ftq_tail), .wr_meta,
     .rd_idx(rob_commit_commit_entry_uop_ftq_idx), .rd_offset(rob_commit_commit_entry_uop_ftq_offset), .rd_meta
   );
 

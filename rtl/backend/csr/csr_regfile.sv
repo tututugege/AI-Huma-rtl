@@ -49,6 +49,7 @@ module csr_regfile
       end
     end
 
+    logic        regs_we;
     logic [31:0] merged;
     always_comb begin
       merged = regs_q[r];
@@ -57,6 +58,8 @@ module csr_regfile
     end
 
     if (r == R_MIP) begin : g_mip
+      assign regs_we = trap_wr_en[r] | commit_hit | inj_external_valid | inj_supervisor_external_valid
+                     | inj_timer_valid;
       always_comb begin
         regs_d[r] = merged;
         if (inj_external_valid)            regs_d[r][MIP_MEIP] = inj_external;
@@ -64,12 +67,13 @@ module csr_regfile
         if (inj_timer_valid)               regs_d[r][MIP_MTIP] = inj_timer;
       end
     end else begin : g_other
+      assign regs_we   = trap_wr_en[r] | commit_hit;
       assign regs_d[r] = merged;
     end
 
     always_ff @(posedge clk) begin
       if (!rst_n) regs_q[r] <= (r == R_MISA) ? MISA_RESET : 32'd0;
-      else        regs_q[r] <= regs_d[r];
+      else if (regs_we) regs_q[r] <= regs_d[r];
     end
   end
 
