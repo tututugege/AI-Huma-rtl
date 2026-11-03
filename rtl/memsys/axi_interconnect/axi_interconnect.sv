@@ -70,6 +70,9 @@ module axi_interconnect
   output logic [511:0] m_rd_resp_data [4],
   output logic m_rd_accepted [4],
   output logic [3:0] m_rd_accepted_id [4],
+  output logic m_rd_acc_new [4],
+  output logic [3:0] m_rd_acc_new_id [4],
+  output logic m_wr_acc_new [2],
   output logic m_wr_accepted [2],
   output logic m_wr_resp_valid [2],
   output logic [3:0] m_wr_resp_id [2],
@@ -203,7 +206,8 @@ module axi_interconnect
     .lo_rd_ready(lo_rd_req_ready), .lo_wr_ready(lo_wr_req_ready),
     .up_v, .up_addr, .up_id, .stg_rd_v, .stg_rd_id, .stg_rd_any, .stg_rd_addr, .stg_wr_v,
     .li_addr, .li_size, .li_id, .li_byp, .li_wdata, .li_wstrb,
-    .acc_o1_rd(acc_q_rd), .acc_o1_id(acc_id_q), .acc_o1_wr(acc_q_wr)
+    .acc_o1_rd(acc_q_rd), .acc_o1_id(acc_id_q), .acc_o1_wr(acc_q_wr),
+    .acc_new_rd(m_rd_acc_new), .acc_new_id(m_rd_acc_new_id), .acc_new_wr(m_wr_acc_new)
   );
 
   // ---------------- DDR read side ----------------

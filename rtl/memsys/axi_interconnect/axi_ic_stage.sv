@@ -42,7 +42,11 @@ module axi_ic_stage
   // accepted flags for the master ports (comb_outputs of the NEXT tick)
   output logic          acc_o1_rd [NR],
   output logic [3:0]    acc_o1_id [NR],
-  output logic          acc_o1_wr [NW]
+  output logic          acc_o1_wr [NW],
+  // accepted-this-tick (the interconnect's accepted STATE after this tick's seq, before the CPU-boundary restore)
+  output logic          acc_new_rd [NR],
+  output logic [3:0]    acc_new_id [NR],
+  output logic          acc_new_wr [NW]
 );
   typedef struct packed {
     logic v;
@@ -206,10 +210,13 @@ module axi_ic_stage
     for (int w = 0; w < NW; w++) stk_wr_d[w] = (phase0 ? 1'b0 : stk_wr_q[w]) || wr_acc[w];
   end
   for (genvar m = 0; m < NR; m++) begin : g_o1r
+    assign acc_new_rd[m] = rd_new[m];
+    assign acc_new_id[m] = rd_id[m];
     assign acc_o1_rd[m] = (m != MASTER_DCACHE_R && phase0) ? stk_rd_q[m] : nat_rd_q[m];
     assign acc_o1_id[m] = (m != MASTER_DCACHE_R && phase0) ? stk_id_q[m] : nat_id_q[m];
   end
   for (genvar w = 0; w < NW; w++) begin : g_o1w
+    assign acc_new_wr[w] = wr_acc[w];
     assign acc_o1_wr[w] = (w != MASTER_DCACHE_W && phase0) ? stk_wr_q[w] : nat_wr_q[w];
   end
 
