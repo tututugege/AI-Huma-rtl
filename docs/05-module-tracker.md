@@ -29,13 +29,17 @@
 | Csr | 已合并 | 681（586） | 77 | 15/15（6 仅随机）| 真实程序对 CSR 覆盖很薄，随机 trace 作用大 |
 | PreIduQueue（含 InstructionBuffer、FTQ）| 已合并 | 664（561） | 77 | 18/18（5 仅随机）| 含真实隐含依赖 `flush_prev_q`（见 04）；spec 里有 3 个多余的"限定输出"待清理 |
 | Isu（含 IssueQueue）| 已合并 | 944（1119） | 77（已删，需重录） | 16/17（1 等价）| 唤醒矩阵换位图；MUL 管线 kill 逻辑在当前配置下不可验证 |
-| Exu / Fu | 未开始 | | | | 分析进行中；FP 网表需脚本转换 |
-| FP 网表 fadd/fmul | 未开始 | | | | 脚本转换 + 对照验证 |
-| RealLsu | 未开始 | | | | |
-| TlbMmu | 未开始 | | | | |
+| TlbMmu（仅 DTLB；核心参数化可复用于 ITLB，未验证）| 已合并 | 633（~400 生效，C++ 共 3400）| 79 | 34/34（20 仅随机，2 仅 stale）| 真实程序仅 7 次 walk、9 次 fence，几乎全靠随机 trace；PTW 输出靠镜像结构体读适配器（布局依赖） |
+| Exu 整数 FU：alu/bru/agu/sdu/csr_fu/mul/div | 已合并 | ~1350（C++ 730）| 每组 73+3~4 | 47/47（11 仅随机）| 多出的行数来自真正的迭代除法器与压缩乘法流水；恒定字段由 exu_ctrl 补 |
+| FPU（手写）| 已合并 | 1180（C++ 380）| 81 | 35 中 33（2 等价）| 对 softfloat 组合差分 18 类×1200 万向量 0 不一致；网表仅作可选交叉验证（`tests/fpu/netlist_ref/`），未进 rtl |
+| exu_ctrl（Exu 仲裁/收集/旁路/清除）| 进行中 | | | | |
+| RealLsu | 进行中 | | | | |
 
 ### 待办（基础设施与遗留）
 
+- `make cfg` 导出前端专有常量（FIFO 深度、TAGE 位宽、`PTAB_SIZE`）、MUL/DIV 实例数（现手写在 `front_pkg`、`exu_fu_pkg`）。
+- exu_ctrl 集成需补上各 FU 被删的恒定字段（FPU/MUL/DIV 的 `op`，BRU/CSR 的 `result=0`，`diag_val`/`mispred`/`br_taken`/`page_fault_inst`/`flush_pipe` 恒 0）。
+- 参考模型里给 `MemSubsystemPtwWalkPortAdapter` 加只读访问函数，去掉 TlbMmu 录制的镜像结构体布局依赖。
 - PreIduQueue：删除 spec 里 3 个多余的"限定输出"（`ftq_commit_info_resp_valid*`），改用 `when` 引用输入；需重录。
 - `gen_cfg_pkg.py` 导出 `GLOBAL_IQ_CONFIG`（队列深度）、`GLOBAL_ISSUE_PORT_CONFIG`（端口能力表），Isu 目前手写了这两张表并有一致性检查。
 - `mutcheck.sh` 要区分"变异无法构建"与"变异存活"。
@@ -45,13 +49,13 @@
 
 ## 前端
 
-| 模块 | C++ 来源 | 状态 | trace | 变异 | 偏差 | 备注 |
-| --- | --- | --- | --- | --- | --- | --- |
-| fetch_address_FIFO / instruction_FIFO / PTAB / front2back_FIFO | front-end/fifo/*.cpp | 未开始 | | | | |
-| predecode / predecode_checker | front-end/predecode*.cpp | 未开始 | | | | |
-| BPU（TAGE/BTB/SC/loop/类型预测） | front-end/BPU/ | 未开始 | | | | |
-| ICache | front-end/icache/ | 未开始 | | | | |
-| 前端顶层 | front-end/front_top.cpp | 未开始 | | | | 需先还原数据流（04 第 3.2 节） |
+| 模块 | 分支/合并 | RTL 行数 | trace | 变异 | 备注 |
+| --- | --- | --- | --- | --- | --- |
+| predecode / predecode_checker / sequential_next_pc | 已合并 | 共 853（front_basic 全部 8 个模块合计）| 73 真实 + 生成 | 34/34（10 仅生成 trace）| 纯函数用 C++ golden + 穷举/随机 |
+| 4 个 FIFO（共用 `front_fifo`）+ front_ctrl | 已合并 | 同上 | 同上 | 同上 | 8 个 full/empty latch 不建；`base_pc` 只存 lane 0（集成层展开）；默认配置下 SC-L/loop 元数据恒 0 |
+| BPU（TAGE/BTB/SC/loop/类型预测） | 未开始 | | | | 约 6k 行，分析报告对其内部"未核实" |
+| ICache（含存储侧端口）| 未开始 | | | | 需第二个录制点；comb/seq 熔合与冲刷拍一拍推进两步需评审 |
+| 前端顶层 front_top | 未开始 | | | | 依赖以上全部 |
 
 ## 访存子系统
 

@@ -10,6 +10,7 @@ mkdir -p "$ROOT/build"
 LST=$ROOT/build/progs.$MOD.lst
 { [ -n "${EXTRA_ONLY:-}" ] || ls $GATE/*/*.bin; grep -v '^#' "$ROOT/scripts/progs.txt" | cut -d'|' -f1; } | while read -r p; do [ -f "$p" ] && echo "$p"; done > "$LST" || true
 bash "$ROOT/scripts/record.sh" "$MOD" >/dev/null          # generate + compile the recorder once
-[ -n "${EXTRA_ONLY:-}" ] || rm -f "$ROOT/traces/$MOD"/*.trc
+# remove only the traces of the programs about to be re-recorded; generated traces (rand_*, exh_*, ...) are kept
+[ -n "${EXTRA_ONLY:-}" ] || while read -r p; do rm -f "$ROOT/traces/$MOD/$(basename "$p" .bin).trc"; done < "$LST"
 xargs -P "${JOBS:-2}" -I{} bash "$ROOT/scripts/record_one.sh" "$MOD" {} < "$LST"
 echo "traces in $ROOT/traces/$MOD: $(ls "$ROOT/traces/$MOD" | wc -l) programs"
