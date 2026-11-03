@@ -17,7 +17,7 @@
 | [fpu](modules/fpu.md) | green | 22/1180 | 1/21 | trace 回放 + back_top 整程序 68/68 + softfloat 差分 | 33/35（2 等价） | 手写，非网表 |
 | [idu](modules/idu.md) | green | 11/823 | 1/48 | 68/68 | 9/9 |  |
 | [isu](modules/isu.md) | green | 10/944 | 1/60 | trace 回放 + back_top 整程序 68/68 | 16/17（1 等价） | trace 需重录 |
-| [lsu](modules/lsu.md) | partial | 34/3211 | 1/111 | 68/68（经 back_top） | 15/25（10 存活） | 3 个生成文件待手写重构 |
+| [lsu](modules/lsu.md) | partial | 33/3259 | 1/111 | lsu 68/68；随机 12/12；back_top 冒烟 8/8（整程序 68 未重跑） | 重构后新 127 个变异体已建好（tests/lsu/mut_lsu.py），仅跑了前 14 个（10 杀死、4 筛选集存活待判），其余未跑；原 10 个存活变异体仍未结案 | 已手写重构（表项模块 + 队列操作链，无生成文件）；变异检查被协调者叫停 |
 | [pre_idu_queue](modules/pre_idu_queue.md) | green | 7/632 | 1/67 | 68/68 | 18/18（5 仅随机） | 含 FTQ 与指令缓冲；3 个冗余限定输出待删 |
 | [prf](modules/prf.md) | green | 7/498 | 1/71 | 68/68 (整程序) | 10/10（6 仅随机） | Prf 寄存器堆+旁路+唤醒 |
 | [ren](modules/ren.md) | green | 12/967 | 1/66 | 68/68 | 12/12（5 仅随机） | 需重录 trace（src1_areg 输出） |
@@ -43,4 +43,10 @@
 | [peripheral_axi](modules/peripheral_axi.md) | green | 3/247 | 1/33 | 68/68 | 26 个中 24 杀死，2 等价 | 真实程序几乎不走该路径 |
 | [ptw_walk](modules/ptw_walk.md) | green | 4/389 | 1/21 | 68/68 | 29 个中 28 杀死，1 等价 | 只翻默认配置下活着的部分 |
 
-合计：267 个 RTL 文件，26483 行（不含 `rtl/common` 与 `ttg_cfg_pkg`）。
+## 整核（前后端 + 访存）
+
+| 模块 | 状态 | RTL（文件/行） | spec（个/字段） | 整程序锁步 | 变异 | 备注 |
+| --- | --- | --- | --- | --- | --- | --- |
+| [soc_top](modules/soc_top.md) | green | 3/753 | 1/96 | 闭环（RTL 整核）周期数与参考一致：65 个程序（≤23 万周期）全部相等 | 未跑 | core_top + mem_top；测试平台 tb/soc（Verilator）+ 参考的 SimDDR/PhysMemory/PeripheralModel |
+
+合计：269 个 RTL 文件，27284 行（不含 `rtl/common` 与 `ttg_cfg_pkg`）。

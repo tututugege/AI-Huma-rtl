@@ -8,7 +8,7 @@ Never edit 05-module-tracker.md by hand: change the module note and rerun `make 
 import glob, os, re, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-AREAS = [('backend', '后端'), ('frontend', '前端'), ('memsys', '访存子系统'), ('uncore', 'uncore（AXI 互连 / LLC）')]
+AREAS = [('backend', '后端'), ('frontend', '前端'), ('memsys', '访存子系统'), ('core', '整核（前后端 + 访存）'), ('uncore', 'uncore（AXI 互连 / LLC）')]
 
 
 def front_matter(path):

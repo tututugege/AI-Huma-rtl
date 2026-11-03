@@ -9,8 +9,8 @@
 | M1 后端整体 `back_top`（含 LSU）整程序锁步 | 完成 | 68 个程序逐拍一致 |
 | M2 前端各块 + `front_top` + 前后端联调 `core_top` | 完成 | 68 个程序逐拍一致（边界为存储侧口、退休流） |
 | M3 访存 CPU 域 + DCache 域（16 倍频） | 完成 | 各模块 68 个程序 16 tick 锁步一致 |
-| M4 AXI 互连 + LLC | 进行中 | 同上 |
-| M5 整核闭环：RTL 核 + RTL 访存 + testbench（DDR/MMIO）对照参考模型周期数 | 未开始 | gate 测试与大程序周期数逐一相等 |
+| M4 AXI 互连 + LLC | 完成 | 同上 |
+| M5 整核闭环：RTL 核 + RTL 访存 + testbench（DDR/MMIO）对照参考模型周期数 | 基本完成 | 65 个程序周期数逐一相等；`memory-stress`（154 万周期）等 3 个未跑，见 modules/soc_top.md |
 | M6 质量：断言、覆盖率、定向/随机测试、清理 | 未开始 | 见下 |
 
 ## M4/M5 的已知事项

@@ -265,6 +265,7 @@ int main(int argc, char **argv) {
           }
         }
     }
+#ifdef SOC_TB_DEBUG
     if (std::getenv("SOC_TB_TICK") && cycles + 1 >= std::strtoull(std::getenv("SOC_TB_TICK"), nullptr, 0)) {
       auto *R = top->rootp;
       std::fprintf(stderr, "  t%02d dcin_ld_v3=%d icache_req=%d | dc_ld_resp_v3=%d retry3=%d | route: ic_resp_v=%d miss=%d\n", phase,
@@ -276,6 +277,7 @@ int main(int argc, char **argv) {
       auto *Rt = top->rootp;
       if (top->env_wr_en && top->env_region == 1) write_uncached_ram(top->env_wr_addr, top->env_wr_data, top->env_wr_func3);
     }
+#endif
     ddr.seq();
     top->clk = 1;
     if (phase == 0) top->clk_cpu = 1;

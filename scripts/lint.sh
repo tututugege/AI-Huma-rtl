@@ -18,7 +18,7 @@ fi
 
 vlint() {   # vlint <top> <files...>
   local top=$1; shift
-  local out; out=$(verilator --lint-only -Wall --top-module "$top" -Irtl/common "${PKGS[@]}" ${NOPRIMS:+} $( [ -n "${NOPRIMS:-}" ] || printf "%s " "${PRIMS[@]}" ) "$@" 2>&1 || true)
+  local out; out=$(verilator --lint-only -Wall ${VLINT_EXTRA:-} --top-module "$top" -Irtl/common "${PKGS[@]}" ${NOPRIMS:+} $( [ -n "${NOPRIMS:-}" ] || printf "%s " "${PRIMS[@]}" ) "$@" 2>&1 || true)
   if echo "$out" | grep -qE "^%(Warning|Error)"; then echo "$out" | grep -E "^%(Warning|Error)" -A3 | head -24; echo "LINT FAIL: top=$top"; return 1; fi
 }
 
@@ -33,9 +33,11 @@ for d in "${DIRS[@]}"; do
   n=$((n + ${#allf[@]}))
   [ ${#files[@]} -gt 0 ] || continue   # packages only: linted through the modules that use them
   base=$(basename "$d")
-  if [ "$base" = back_top ] || [ "$base" = core_top ]; then
+  if [ "$base" = back_top ] || [ "$base" = core_top ] || [ "$base" = soc_top ] || [ "$base" = mem_top ]; then
     # assembly of several modules from other directories: compile against all RTL, top = back_top
     ALL=(); while IFS= read -r f; do ALL+=("$f"); done < <(bash "$TOOLS/rtl_files.sh" . | grep -v '_pkg\.sv$' | grep -v -e '^rtl/common/')
+    # soc_top/mem_top: the interconnect<->LLC handshake is one struct-granularity UNOPTFLAT (no real loop, simulates fine)
+    case "$base" in soc_top|mem_top) export VLINT_EXTRA=-Wno-UNOPTFLAT;; *) unset VLINT_EXTRA;; esac
     vlint "$base" "${ALL[@]}" || exit 1
   elif [ "$base" = front_top ]; then
     FT=(); while IFS= read -r f; do FT+=("$f"); done < <(find rtl/frontend rtl/backend/tlb_mmu -name '*.sv' ! -name '*_pkg.sv' | sort)
