@@ -24,7 +24,7 @@
 - SystemVerilog-2017，**必须能被 Verilator 5.x 无警告编译**。
 - 只用 `logic`、`always_ff`、`always_comb`、`typedef struct packed`、`typedef enum logic [N-1:0]`、`localparam`、`function automatic`、`generate for/if`、`package`。
 - 禁止：`initial`、`#延时`、`force/release`、`$random`、`$display/$finish/$stop`、`always`（裸）、`always @*`、锁存器、三态、`inout`、层次化引用、`wire x = ...` 隐式声明、`interface/modport`（端口一律平铺）、`class`、`program`、动态数组/队列/关联数组/字符串。
-- 断言仅允许放在 `` `ifndef SYNTHESIS `` 内的 `assert property`，且不得影响仿真结果。
+- 断言只允许放在 `` `ifndef SYNTHESIS `` 内（`assert property` 或带 `$error` 的即时断言），且不得影响仿真结果；用于表达"参数必须是 2 的幂"这类前提，以及"C++ 里不可达的状态"。
 
 ## 2. 文件与命名（S1 S2 S3 S9）
 
@@ -89,6 +89,13 @@ end
 2. 参考模型里的录制点（见 02 流程）。
 3. `make lint` 干净、`scripts/replay.sh <module>` 对所有指定 trace 通过。
 4. 至少 3 个变异体检查（见 02 流程第 6 步）。
+
+## 8.5 lint 豁免（仅限以下三种，其余一律不允许）
+
+1. `*_pkg.sv` 里的 `/* verilator lint_off UNUSEDPARAM */`（包里的常量被别的文件使用，单独 lint 包时会误报）。
+2. 端口位宽由 spec/参考模型规定、但高位确实不用时，在该端口附近用**局部** `lint_off UNUSEDSIGNAL` 并写明原因（如 `rob2dis.enq_idx` 的高位）。
+3. 通用原语的输出端口未被某个实例使用时，用具名的空连接 `.any()`，不要用豁免。
+每处豁免必须带注释，评审逐个核对。
 
 ## 9. 评审清单
 

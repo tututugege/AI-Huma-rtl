@@ -101,6 +101,9 @@ NON_TARGET = {'if', 'else', 'for', 'while', 'case', 'begin', 'end', 'int', 'logi
 
 def targets(body):
     for m in ASSIGN.finditer(body):
+        # a `<=` / `=` inside parentheses is a comparison or a for-loop header, never a statement
+        if body.count('(', 0, m.start(1)) - body.count(')', 0, m.start(1)) > 0:
+            continue
         lhs = m.group(1)
         base = re.match(r'[A-Za-z_]\w*', lhs).group(0)
         if base in NON_TARGET:
