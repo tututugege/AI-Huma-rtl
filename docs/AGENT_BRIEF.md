@@ -1,5 +1,7 @@
 # 翻译任务书（给负责单个模块的 agent）
 
+> **重要（后加）**：先读 `docs/06-equivalence-policy.md`。目标是"有意义的行为一致"，**不要迁就 C++ 的怪行为**（残留值、越界读、恒 0 字段、调试字段），RTL 应当比 C++ 简单得多。下面第 2、6 步里关于 `when`/禁止放宽的字样以 06 为准。
+
 你负责把参考模型里的**一个模块**翻成 SystemVerilog，并与参考模型**逐拍对照通过**。先通读 `docs/01-rtl-coding-standard.md`（尤其第 0 节）、`docs/02-development-flow.md`、`docs/03-harness.md`、`docs/04-cpp-to-rtl-mapping.md`，然后按下面执行。
 
 ## 你在哪、有什么
