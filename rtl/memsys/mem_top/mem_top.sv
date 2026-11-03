@@ -124,7 +124,7 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
   localparam int NST_ = LSU_STA_COUNT;
 
   // ---- tick phase: 0 = the CPU tick, 15 = the last one of the cycle ----
-  logic [3:0] phase_q;
+  logic [3:0] phase_q /*verilator public_flat_rw*/;
   always_ff @(posedge clk) begin
     if (!rst_n) phase_q <= 4'd0;
     else        phase_q <= phase_q + 4'd1;

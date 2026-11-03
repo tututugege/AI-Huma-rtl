@@ -40,3 +40,12 @@ note: core_top + mem_top；测试平台 tb/soc（Verilator）+ 参考的 SimDDR/
 - `axi_subsys` 内互连↔LLC 经结构体有一个粒度上的 UNOPTFLAT，装配顶 lint 对其放宽。
 - 外设 AXI 路径（`env_region=0` 且 MMIO）仍只被随机验证；测试平台没有 SD 卡/DMA 模型。
 - 12 位以内的外设 `resp.ready` 在 tick 0 的"陈旧值"细节（适配器通道 1、2 的写回）没有在 `mem_axi` 复刻，外设 AXI 路径不被触发所以不可观察。
+
+## 空闲 tick 跳过（测试平台加速）
+
+16 倍频访存域里大多数 fast tick 无事发生。`tb/soc/soc_tb.cpp` 在每个 CPU 周期的 tick 1 之后给 Verilated 状态做快照，tick 2 之后若
+(a) 状态逐字节相同（忽略 Verilator 临时变量 `__Vdfg*/__Vtemp*/__Vdly*`、≥1 MiB 的 RAM 数组即 LLC 数据，以及 `phase_q`）且
+(b) SimDDR 空闲（队列空、各 cooldown 为 0），则 tick 3–14 不可能改变任何东西，直接把 `phase_q` 置 15 再跑 tick 15。
+`SOC_TB_NOSKIP=1` 关闭。掩码由 `tools/gen_skipmask.py` 在 `tb/soc/build.sh` 中从 clang 布局生成。
+结果：dhrystone 前 2 万周期 59 s → 23 s（约 2.5×，85% 的周期被跳过）；65 个程序周期数仍全部与参考相等。
+注意：LLC 数据数组不参与比较，假设它只在控制状态变化时写入；若将来 LLC 出现读改写类的原地更新需重新评估。

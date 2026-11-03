@@ -20,4 +20,9 @@ verilator --cc --exe --build -j "${JOBS:-6}" -Wno-fatal -Wno-lint -Wno-style -Wn
   --top-module soc_top -Mdir obj -CFLAGS "-O2 ${DEBUG:+-DSOC_TB_DEBUG} -std=c++2a -w $INC -I$ROOT/harness/include -I$ROOT/tb/soc" \
   -LDFLAGS "$OUT/SimDDR.o $OUT/PhysMemory.o" \
   "$ROOT/tb/soc/soc_tb.cpp" "${FILES[@]}" -o soc_tb > build.log 2>&1 || { grep -E "error:|%Error" build.log | grep -v "Command Failed" | head -12 | cut -c1-200; echo "BUILD FAILED, see $OUT/build.log"; exit 1; }
+# idle-tick skip: byte ranges of Verilator scratch temporaries (ignored by the fixed-point compare)
+VI=$(verilator --getenv VERILATOR_ROOT)/include
+echo '#include "Vsoc_top___024root.h"' > obj/lay.cpp
+clang++ -std=c++2a -w -Iobj -I"$VI" -I"$VI/vltstd" -Xclang -fdump-record-layouts -fsyntax-only obj/lay.cpp > obj/layout.txt 2>&1 || true
+python3 "$ROOT/tools/gen_skipmask.py" obj/layout.txt "$OUT/skipmask.txt"
 ls -la "$OUT/obj/soc_tb" | awk '{print "built", $9}'

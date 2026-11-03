@@ -6,7 +6,9 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <algorithm>
 #include <cstring>
+#include <string>
 #include <fstream>
 #include <vector>
 
@@ -18,7 +20,12 @@
 #include "soc_probe.inc"
 
 #include "PhysMemory.h"
+#include <deque>
+#include <queue>
+#include <vector>
+#define private public   // idle probe reads SimDDR queues/cooldowns (test-bench only)
 #include "SimDDR.h"
+#undef private
 #include "config.h"
 #include "mmio_address_map.h"
 #include "IO.h"
@@ -297,6 +304,30 @@ int main(int argc, char **argv) {
     ++ticks;
   };
 
+  std::vector<std::pair<size_t, size_t>> skipmask;   // scratch-temporary byte ranges of the Verilated root (build/soc/skipmask.txt)
+  {
+    std::string exe = argv[0];
+    std::ifstream mf(exe.substr(0, exe.rfind('/')) + "/../skipmask.txt");
+    size_t o, s;
+    while (mf >> o >> s) skipmask.push_back({o, s});
+    const auto *base = reinterpret_cast<const uint8_t *>(top->rootp);
+    skipmask.push_back({size_t(reinterpret_cast<const uint8_t *>(&top->rootp->soc_top__DOT__u_mem__DOT__phase_q) - base), 1});
+    std::sort(skipmask.begin(), skipmask.end());
+  }
+  std::vector<std::pair<size_t, size_t>> keep;   // complement: the bytes snapshotted and compared
+  {
+    size_t pos = 0;
+    for (const auto &m : skipmask) { if (m.first > pos) keep.push_back({pos, m.first - pos}); pos = std::max(pos, m.first + m.second); }
+    if (pos < sizeof(*top->rootp)) keep.push_back({pos, sizeof(*top->rootp) - pos});
+  }
+  const bool fast_skip = std::getenv("SOC_TB_NOSKIP") == nullptr && !skipmask.empty();
+  std::vector<uint8_t> snap(sizeof(*top->rootp));
+  unsigned long long skipped_cycles = 0;
+  auto ddr_idle = [&]() {
+    return !ddr.w_active && ddr.w_pending.empty() && ddr.w_data_fifo.empty() && ddr.w_resp_queue.empty() &&
+           ddr.r_transactions.empty() && ddr.w_accept_cooldown == 0 && ddr.w_drain_cooldown == 0 && !ddr.w_drain_mode &&
+           ddr.backend_turnaround_cooldown == 0 && !ddr.backend_switch_pending;
+  };
   // reset: 3 CPU cycles
   top->rst_n = 0; top->clk = 0; top->clk_cpu = 0;
   top->interrupt_inject_external_irq_pending = 0; top->interrupt_inject_external_irq_pending_valid = 1;
@@ -316,12 +347,26 @@ int main(int argc, char **argv) {
     for (int p = 0; p < kTicks; ++p) {
       tick(p);
       if (p == 0 && done) break;
+      if (p == 1 && fast_skip) { for (const auto &k : keep) std::memcpy(snap.data() + k.first, reinterpret_cast<const uint8_t *>(top->rootp) + k.first, k.second); }
+      if (p == 2 && fast_skip && ddr_idle()) {
+        // fixed point: model state identical across a whole tick (phase counter aside) and the DDR model is idle
+        // -> ticks 3..14 change nothing; jump the phase counter to 15
+        auto *R = top->rootp;
+        bool same = true;
+        for (const auto &k : keep)
+          if (std::memcmp(snap.data() + k.first, reinterpret_cast<const uint8_t *>(R) + k.first, k.second)) { same = false; break; }
+        if (same) {
+          R->soc_top__DOT__u_mem__DOT__phase_q = 15;
+          p = 14; ++skipped_cycles;
+        }
+      }
     }
     ++cycles;
   }
   if (compare_fail) std::printf("FIRST MISMATCH at cycle %llu (see above)\n", (unsigned long long)cycles + 1);
   std::printf("RTL sim-time(cycle)= %llu, committed= %llu%s\n", (unsigned long long)cycles, (unsigned long long)committed,
               done ? "" : "  (NO EBREAK within the cycle cap)");
+  if (std::getenv("SOC_TB_NOSKIP") == nullptr) std::fprintf(stderr, "idle-skipped cycles: %llu of %llu\n", skipped_cycles, (unsigned long long)cycles);
   delete top;
   return compare_fail ? 3 : (done ? 0 : 1);
 }
