@@ -6,7 +6,7 @@
 # compared" or the first mismatch (cycle, field, values, inputs) and exits 1.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-MOD=$1; PROG=$2; CYC=${3:-}
+MOD=$1; PROG=${2:-}; CYC=${3:-}
 REF=${REFSIM:-/Users/ruyaoh/personal/tututugege-rtl/refsim}
 SPEC=$ROOT/spec/$MOD.io; [ -f "$SPEC" ] || { echo "missing $SPEC"; exit 2; }
 OUT=$ROOT/build/lock_$MOD; mkdir -p "$OUT"
@@ -26,6 +26,7 @@ if [ -z "${NOBUILD:-}" ]; then
     -I"$ROOT/harness/include" -I"$OUT" "$OUT/${MOD}_lock.cpp" "$OUT/obj/libV${TOP}.a" "$OUT/obj/libverilated.a" -o "$OUT/lock_${MOD}.dylib" 2>"$OUT/dylib.log" \
     || { echo "PLUGIN BUILD FAILED, see $OUT/dylib.log"; head -20 "$OUT/dylib.log"; exit 1; }
 fi
+[ -z "${BUILD_ONLY:-}" ] || { echo "built $OUT/lock_${MOD}.dylib"; exit 0; }
 cd "$REF"
 if [ -n "$CYC" ]; then export TTG_REC_N=$CYC; fi
 TTG_REC="$OUT/lock_${MOD}.dylib" build/simulator "$PROG" 2>&1 | grep -aE "LOCKSTEP|MISMATCH|inputs this cycle|^    " | head -60
