@@ -31,7 +31,11 @@ for d in "${DIRS[@]}"; do
   n=$((n + ${#allf[@]}))
   [ ${#files[@]} -gt 0 ] || continue   # packages only: linted through the modules that use them
   base=$(basename "$d")
-  if [ "$d" = rtl/common ]; then
+  if [ "$base" = back_top ]; then
+    # assembly of several modules from other directories: compile against all RTL, top = back_top
+    ALL=(); while IFS= read -r f; do ALL+=("$f"); done < <(bash "$TOOLS/rtl_files.sh" . | grep -v '_pkg\.sv$' | grep -v -e '^rtl/common/')
+    vlint back_top "${ALL[@]}" || exit 1
+  elif [ "$d" = rtl/common ]; then
     for f in "${files[@]}"; do NOPRIMS=1 vlint "$(basename "$f" .sv)" "$f" || exit 1; done
   elif [ -f "$d/$base.sv" ] || find "$d" -name "$base.sv" | grep -q .; then
     # one top named like the directory: its sub-modules are linted through the hierarchy
