@@ -1,0 +1,142 @@
+--- a/MemSubSystem/MemSubsystem.cpp
++++ b/MemSubSystem/MemSubsystem.cpp
+@@ -1,4 +1,5 @@
+ #include "MemSubsystem.h"
++#include "memsys_tap.h"
+ #include "PhysMemory.h"
+ #include "config.h"
+ #include "icache/GenericTable.h"
+@@ -253,6 +254,8 @@
+ #else
+ struct AxiKitRuntime {};
+ #endif
++
++MemTap g_ttg_ms_tap;
+ 
+ class MemSubsystemPtwMemPortAdapter : public PtwMemPort {
+ public:
+@@ -824,6 +827,15 @@
+ }
+ 
+ void MemSubsystem::dcache_domain_comb_outputs() {
++  if (g_ttg_ms_tap.on) {
++    MemTapTick &T = g_ttg_ms_tap.t[g_ttg_ms_tap.cur];
++    T = MemTapTick{};
++    T.valid = true;
++    T.slow = (g_ttg_ms_tap.cur == 0);
++    T.req = *dcache_.in.lsu2dcache;   // note: for tick 0 the real request is filled later (comb_inputs)
++    T.mshr_in = mshr_axi_in;
++    T.wb_in = wb_axi_in;
++  }
+   // Consume same-cycle AXI feedback before publishing DCache-facing state.
+   // This lets a just-returned MSHR line or just-retired WB entry be visible
+   // to the DCache in this CPU cycle instead of waiting for the next seq edge.
+@@ -991,6 +1003,12 @@
+ 
+   mshr_.comb_outputs_axi();
+   wb_.comb_outputs_axi();
++  if (g_ttg_ms_tap.on) {
++    MemTapTick &T = g_ttg_ms_tap.t[g_ttg_ms_tap.cur];
++    T.req = *dcache_.in.lsu2dcache;
++    T.mshr_out = mshr_axi_out;
++    T.wb_out = wb_axi_out;
++  }
+ }
+ 
+ void MemSubsystem::dcache_domain_seq(bool sample_mshr_perf) {
+@@ -1045,6 +1063,7 @@
+   capture_dcache_raw_response();
+   forward_pending_response_from_fill();
+   publish_pending_dcache_response();
++  if (g_ttg_ms_tap.on) g_ttg_ms_tap.t[0].resp_pub = dcache_resp_route_;
+ 
+   mem_route_block.comb_response();
+ }
+--- a/rv_simu_mmu_v2.cpp
++++ b/rv_simu_mmu_v2.cpp
+@@ -1,4 +1,21 @@
+ #include "ttg_rec_hook.h"
++#include "memsys_tap.h"
++
++#include <dlfcn.h>
++namespace ttg_ms_end {  // end-of-cycle plugin hook (memory-subsystem lockstep): plugin symbol ttg_rec_cycle_end
++using Fn = void (*)(SimCpu *, uint64_t);
++inline void call(SimCpu *cpu, uint64_t n) {
++  static Fn fn = []() -> Fn {
++    const char *p = std::getenv("TTG_REC_END");
++    if (!p || !*p) return nullptr;
++    g_ttg_ms_tap.on = true;
++    void *h = dlopen(p, RTLD_NOW | RTLD_LOCAL);
++    if (!h) { std::fprintf(stderr, "TTG_REC_END: dlopen failed: %s\n", dlerror()); std::exit(1); }
++    return reinterpret_cast<Fn>(dlsym(h, "ttg_rec_cycle_end"));
++  }();
++  if (fn) fn(cpu, n);
++}
++}  // namespace ttg_ms_end
+ #include <cstdint>
+ #include <cstdio>
+ #include <cstdlib>
+@@ -717,6 +734,7 @@
+   AxiCpuBoundaryState cpu_boundary_state{};
+   capture_axi_cpu_boundary_state(cpu, cpu_boundary_state);
+   for (uint32_t tick = 1; tick < CONFIG_AXI_SUBSYSTEM_FREQ_DIV; ++tick) {
++    g_ttg_ms_tap.cur = static_cast<int>(tick);
+     mask_axi_cpu_boundary_for_internal_tick(cpu);
+     axi_subsystem_comb_outputs(cpu);
+     if (kDcacheFastDomainEnabled) {
+@@ -1059,6 +1077,8 @@
+ 
+ void SimCpu::cycle() {
+   FRONTEND_HOST_PROFILE_SCOPE(SimCycle);
++  g_ttg_ms_tap.cur = 0;
++  g_ttg_ms_tap.cycle = ctx.perf.cycle + 1;
+   ctx.perf.cycle++;
+   // BackTop inputs are combinational wires. Re-drive the only intentionally
+   // retained payload from an explicit top-level register before producers run.
+@@ -1157,6 +1177,7 @@
+     axi_subsystem_seq(*this);
+     run_extra_axi_subsystem_ticks(*this);
+   }
++  ttg_ms_end::call(this, ctx.perf.cycle);
+   ctx.perf.perf_maybe_capture_simtime_snapshot();
+ 
+   if (ctx.exit_reason != ExitReason::NONE) {
+--- a/MemSubSystem/include/memsys_tap.h
++++ b/MemSubSystem/include/memsys_tap.h
+@@ -0,0 +1,36 @@
++// Read-only recording tap of the memory subsystem (added for the RTL trace harness, refsim only).
++//
++// One CPU cycle = 16 "ticks" (tick 0 = the normal cycle(), ticks 1..15 = run_extra_axi_subsystem_ticks()).
++// The DCache domain (RealDcache + MSHR + WriteBuffer + response latch/forward) runs on every tick, so its
++// boundary is recorded per tick. Active only when $TTG_REC_END is set; it only COPIES values.
++//   spec expressions:  TTG_MS.cur  (tick being replayed, 0..15)
++//                      TTG_MS.t[TTG_MS.cur].<field>
++#pragma once
++#include "IO.h"
++#include "MSHR.h"
++#include "WriteBuffer.h"
++#include <cstdint>
++
++constexpr int TTG_MS_TICKS = 16;
++
++struct MemTapTick {
++  bool valid = false;           // captured this tick
++  bool slow = false;            // tick 0 (CPU-cycle tick: LSU requests injected, route block active)
++  // ---- DCache-domain inputs (after bridges, before dcache_domain_comb_outputs) ----
++  LsuDcacheIO req{};            // request actually presented to DCache this tick (empty on ticks 1..15)
++  MshrAxiIn mshr_in{};
++  WbAxiIn wb_in{};
++  // ---- outputs ----
++  DcacheLsuIO resp_pub{};       // dcache_resp_route_ (published on tick 0 only)
++  MshrAxiOut mshr_out{};        // after dcache_domain_comb_inputs
++  WbAxiOut wb_out{};
++};
++
++struct MemTap {
++  bool on = false;
++  int cur = 0;                  // tick index being captured / replayed
++  uint64_t cycle = 0;
++  MemTapTick t[TTG_MS_TICKS];
++};
++extern MemTap g_ttg_ms_tap;
++#define TTG_MS g_ttg_ms_tap
