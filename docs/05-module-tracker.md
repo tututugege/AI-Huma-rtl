@@ -60,7 +60,7 @@
 | --- | --- | --- | --- | --- | --- |
 | predecode / predecode_checker / sequential_next_pc | 已合并 | 共 853（front_basic 全部 8 个模块合计）| 73 真实 + 生成 | 34/34（10 仅生成 trace）| 纯函数用 C++ golden + 穷举/随机 |
 | 4 个 FIFO（共用 `front_fifo`）+ front_ctrl | 已合并 | 同上 | 同上 | 同上 | 8 个 full/empty latch 不建；`base_pc` 只存 lane 0（集成层展开）；默认配置下 SC-L/loop 元数据恒 0 |
-| BPU（TAGE/BTB/SC/loop/类型预测） | 未开始 | | | | 约 6k 行，分析报告对其内部"未核实" |
+| BPU（类型预测/BTB/TAGE/历史+RAS/更新队列/控制；默认配置下生效部分）| 已合并 | 2025（C++ 约 6088）| 整程序锁步 73 程序×6 spec 每个 2709 万拍；协调者独立复核 408 条通过 | 38/38（13 仅随机更新流）| 存储阵列用同步写异步读原语 `bpu_mem`（成为规范 01 §3.1）；PRNG 默认配置下无需复刻；BTB 未命中目标 `bank_pc+4` 必须复刻；SC-L/loop/NLP/2-ahead 为死代码未翻译 |
 | ICache（含存储侧端口）| 未开始 | | | | 需第二个录制点；comb/seq 熔合与冲刷拍一拍推进两步需评审 |
 | 前端顶层 front_top | 未开始 | | | | 依赖以上全部 |
 

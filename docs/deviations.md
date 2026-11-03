@@ -33,6 +33,11 @@ RTL 与参考模型在任何一拍、任何一位上不同，都必须登记在�
 | S-19 | exu_int | MulUnit | 接受新项后流水满且较老项被 flush 杀掉、槽里的指令没被杀，同一条 MUL 可被第二次接受 | 保持；exu_ctrl 集成时留意 |
 | S-20 | exu_int | DivUnit | 接受判忙在 consume 之前：完成并被 consume 的同一拍不接新活 | 保持；Exu 侧不要假设同拍可接 |
 | S-21 | front_basic | `bpu_icache_read_ready` | 名字有误导：实为"取指地址 FIFO 没满且 bpu_can_run" | 沿用 C++ 含义 |
+| S-22 | BPU | `BTB_top.h` `btb_pred_output_comb` | BTB 未命中目标是 `bank_pc + 4`（`bank_pc = pc>>3`），不是 `pc + 4`；会改变取指地址 | 按位复刻 |
+| S-23 | BPU | 更新队列 | 同拍同 bank 多条提交只收第一条，其余静默丢弃，而 `update_queue_full` 写死 false | 保持 |
+| S-24 | BPU | BHT | `bht_hist_t` 实为 `uint8_t`，BHT 运算按 8 位截断 | 保持 |
+| S-25 | BPU | TAGE | 复位后 tag 表全 0，tag=0 与 hash 出的 0 tag 会"命中" | 保持 |
+| S-26 | BPU | TAGE useful 清除 | `reset_cnt[23]` 相关模式需约 800 万次/bank 更新才触发，所有验证都没走到，RTL 已实现但**未验证** | 保持；待补专项 |
 
 ## 申请流程
 
