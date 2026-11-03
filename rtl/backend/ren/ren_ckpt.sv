@@ -24,7 +24,6 @@ module ren_ckpt
   localparam int EW = $bits(rat_t) + PRF_IDX_WIDTH;
 
   logic [EW-1:0] entry_q [NB];
-  logic [EW-1:0] entry_d [NB];
   logic [EW-1:0] wr_entry [N];
   logic [NB-1:0] rd_sel;
   logic [EW-1:0] rd_entry;
@@ -41,12 +40,11 @@ module ren_ckpt
       assign hit[i] = wr_valid[i] & (wr_br_id[i] == br_tag_t'(b));
     end
     ren_last_write #(.N(N), .W(EW)) u_lw (.hit(hit), .data(wr_entry), .any(hit_any), .value(hit_value));
-    assign entry_d[b] = hit_any ? hit_value : entry_q[b];
     assign rd_sel[b]  = (rd_br_id == br_tag_t'(b));
 
     always_ff @(posedge clk) begin
       if (!rst_n) entry_q[b] <= '0;
-      else        entry_q[b] <= entry_d[b];
+      else if (hit_any) entry_q[b] <= hit_value;   // per-tag write enable, last (highest) slot wins
     end
   end
 
