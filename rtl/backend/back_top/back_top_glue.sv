@@ -26,6 +26,7 @@ module back_top_glue
   input  logic [4:0]  dis2rob_uop_type [DECODE_WIDTH],
   input  logic [6:0]  dis2rob_uop_func7 [DECODE_WIDTH],
   input  logic [31:0] csr_status_mstatus,
+  input  logic [6:0]  rob_commit_commit_entry_uop_func7 [COMMIT_WIDTH],
   output logic        out_mispred,
   output logic        out_stall,
   output logic [31:0] out_redirect_pc,
@@ -34,7 +35,8 @@ module back_top_glue
   output logic        csr_status_mstatus_mxr,
   output logic        csr_status_mstatus_sum,
   output logic        csr_status_mstatus_mprv,
-  output logic [1:0]  csr_status_mstatus_mpp
+  output logic [1:0]  csr_status_mstatus_mpp,
+  output logic [4:0]  rob_commit_commit_entry_uop_amo_op [COMMIT_WIDTH]
 );
 
   // Ref: BackTop::comb, "Normal case" / flush branch. Valid when out_mispred (SimCpu reads it only then).
@@ -62,6 +64,15 @@ module back_top_glue
     assign dis2rob_uop_tma_mem_commit_is_store[i] =
         (dis2rob_uop_type[i] == INST_TYPE_W'(INST_STORE)) ||
         ((dis2rob_uop_type[i] == INST_TYPE_W'(INST_AMO)) && (dis2rob_uop_func7[i][6:2] != AMO_LR));
+  end
+
+  // LSU reads the AMO sub-opcode of committed stores (RealLsu::comb_stq_commit): amo_op = func7[6:2]
+  for (genvar i = 0; i < COMMIT_WIDTH; i++) begin : g_amo
+    assign rob_commit_commit_entry_uop_amo_op[i] = rob_commit_commit_entry_uop_func7[i][6:2];
+  end
+  logic [1:0] func7_low_unused [COMMIT_WIDTH];  // lint: func7[1:0] is not read
+  for (genvar i = 0; i < COMMIT_WIDTH; i++) begin : g_f7
+    assign func7_low_unused[i] = rob_commit_commit_entry_uop_func7[i][1:0];
   end
 
   // mstatus bits: MXR=19, SUM=18, MPRV=17, MPP=12:11 (TlbMmu.cpp / lsu2mmu_io.csr_status.mstatus)

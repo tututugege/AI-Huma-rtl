@@ -49,6 +49,11 @@ INSTANCES = [
     ('dtlb', 'tlb_mmu', 'tlb_mmu', 'TlbMmu, DTLB instance (back-end/Lsu/TlbMmu.cpp)'),
     ('glue', 'back_top_glue', None, 'BackTop-level glue (back-end/BackTop.cpp), see back_top_glue.sv'),
 ]
+LSU_INST = ('lsu', 'lsu', 'lsu', 'RealLsu (back-end/Lsu/RealLsu.cpp)')
+FULL = '--full' in sys.argv            # step 2: RealLsu included, boundary = front end + memory subsystem
+if FULL:
+    INSTANCES.insert(-1, LSU_INST)
+TOP_NAME = 'back_top' if FULL else 'back_top_nolsu'
 INST_MOD = {i: m for i, m, _, _ in INSTANCES}
 INST_SPEC = {i: s for i, _, s, _ in INSTANCES}
 INST_DESC = {i: d for i, _, _, d in INSTANCES}
@@ -73,6 +78,7 @@ GLUE_IN = {
     'br_latch_redirect_pc': (32, []), 'dec_bcast_mispred': (1, []), 'pre2front_ready': (1, []),
     'rob_commit_commit_entry_valid': (1, [8]), 'rob_commit_commit_entry_uop_diag_val': (32, [8]),
     'dis2rob_uop_type': (5, [8]), 'dis2rob_uop_func7': (7, [8]), 'csr_status_mstatus': (32, []),
+    'rob_commit_commit_entry_uop_func7': (7, [8]),
 }
 GLUE_OUT = {
     'out_mispred': (1, []), 'out_stall': (1, []), 'out_redirect_pc': (32, []),
@@ -80,6 +86,7 @@ GLUE_OUT = {
     'dis2rob_uop_tma_mem_commit_is_store': (1, [8]),
     'csr_status_mstatus_mxr': (1, []), 'csr_status_mstatus_sum': (1, []), 'csr_status_mstatus_mprv': (1, []),
     'csr_status_mstatus_mpp': (2, []),
+    'rob_commit_commit_entry_uop_amo_op': (5, [8]),   # LSU reads amo_op = func7[6:2] of the committed store
 }
 # Boundary spec of the glue outputs that leave the back end: wire -> (when wire or None, @ expression)
 GLUE_EXPORT = {
@@ -124,9 +131,23 @@ EXPORT = [
 # nets that never leave the chip even though they match an EXPORT pattern above
 NOT_EXPORTED = {'csr_status_mstatus_mxr', 'csr_status_mstatus_sum', 'csr_status_mstatus_mprv', 'csr_status_mstatus_mpp'}
 
+if FULL:
+    EXPORT = [
+        r'^pre2front_(ready|fire)$',
+        r'^ftq_commit_info_resp_.*$',
+        r'^rob_commit_commit_entry_(valid|uop_(dest_areg|dest_en|type|br_taken|page_fault_inst|page_fault_load|'
+        r'page_fault_store|stq_idx|stq_flag|rob_idx|rob_flag|tma_mem_commit_is_store))$',
+        r'^commit_extra_.*$',
+        r'^rob_bcast_(flush|fence|fence_i|exception|mret|sret|pc)$',
+        r'^csr_status_(sstatus|mstatus|satp|privilege)$',
+        r'^lsu2dcache_.*$', r'^peripheral_req_.*$',
+        r'^ptw_walk_(req_.*|resp_consumed|flush)$',
+        r'^out_.*$',
+    ]
 IN_GROUPS = [  # (regex, comment) in order: first match wins
     (r'^(front2pre_.*|front_stall)$', 'front end -> back end (SimCpu: BackTop::in, FrontPreIO; held registers front2back_hold live in SimCpu)'),
     (r'^interrupt_inject_.*$', 'interrupt injection (MemSubsystem -> Csr)'),
+    (r'^(peripheral_resp_.*|dcache2lsu_.*)$', 'MemSubsystem -> LSU (BackTop::in.peripheral_resp / dcache2lsu)'),
     (r'^lsu2mmu_.*$', 'LSU -> DTLB request bus (RealLsu::comb_tlb_out)'),
     (r'^ptw_walk_.*$', 'MemSubsystem PTW walk port -> DTLB'),
     (r'^lsu2.*$', 'LSU -> back end (RealLsu outputs lsu2dis / lsu2rob / lsu2exe)'),
@@ -136,6 +157,7 @@ OUT_GROUPS = [
     (r'^(rob_commit_.*)$', 'ROB commit: SimCpu commit_sync / front end, and LSU (amo_op, stq_idx)'),
     (r'^(rob_bcast_.*|dec_bcast_.*)$', 'ROB / Idu broadcasts: SimCpu (flush, fence, difftest) and LSU'),
     (r'^(dis2lsu_.*|exe2lsu_.*)$', 'to LSU (RealLsu inputs dis2lsu / exe2lsu)'),
+    (r'^(lsu2dcache_.*|peripheral_req_.*)$', 'LSU -> MemSubsystem (Back_out.lsu2dcache / peripheral_req)'),
     (r'^mmu2lsu_.*$', 'DTLB -> LSU response bus'),
     (r'^ptw_walk_.*$', 'DTLB -> MemSubsystem PTW walk port'),
 ]
@@ -488,6 +510,8 @@ def gen_spec(name, mods, nets, sel, S, note):
 
 
 EXU_BODY = r'''
+  // Unread FU-side signals below are intentional (single-cycle FUs' complete/ready, exu2fu fields no FU reads, e.g. mc_op).
+  /* verilator lint_off UNUSEDSIGNAL */
   // ---- functional-unit side of exu_ctrl (names as in spec/exu_ctrl.io)
   logic [31:0] fu_alu_result [ALU_NUM];
   logic [31:0] fu_agu_result [LSU_AGU_COUNT];
@@ -560,7 +584,7 @@ EXU_BODY = r'''
   logic alu_consume [ALU_NUM];
   assign alu_consume = '{default: 1'b0};
   alu_bank u_alu (
-    .clk(clk), .en(exu2fu_alu_en), .consume(alu_consume), .op(exu2fu_alu_op), .func3(exu2fu_alu_func3),
+    .clk(clk), .rst_n(rst_n), .en(exu2fu_alu_en), .consume(alu_consume), .op(exu2fu_alu_op), .func3(exu2fu_alu_func3),
     .func7(exu2fu_alu_func7), .src1_is_pc(exu2fu_alu_src1_is_pc), .src2_is_imm(exu2fu_alu_src2_is_imm),
     .pc(exu2fu_alu_pc), .imm(exu2fu_alu_imm), .src1_rdata(exu2fu_alu_src1_rdata), .src2_rdata(exu2fu_alu_src2_rdata),
     .complete(alu_complete), .ready(alu_ready), .result(fu_alu_result)
@@ -571,7 +595,7 @@ EXU_BODY = r'''
   logic bru_consume [BRU_NUM];
   assign bru_consume = '{default: 1'b0};
   bru_bank u_bru (
-    .clk(clk), .en(exu2fu_bru_en), .consume(bru_consume), .op(exu2fu_bru_op), .func3(exu2fu_bru_func3),
+    .clk(clk), .rst_n(rst_n), .en(exu2fu_bru_en), .consume(bru_consume), .op(exu2fu_bru_op), .func3(exu2fu_bru_func3),
     .src1_en(exu2fu_bru_src1_en), .src1_rdata(exu2fu_bru_src1_rdata), .src2_rdata(exu2fu_bru_src2_rdata),
     .pc(exu2fu_bru_pc), .imm(exu2fu_bru_imm), .ftq_pred_taken(exu2fu_bru_ftq_pred_taken),
     .ftq_next_pc(exu2fu_bru_ftq_next_pc), .complete(bru_complete), .ready(bru_ready), .br_taken(fu_bru_br_taken),
@@ -583,7 +607,7 @@ EXU_BODY = r'''
   logic agu_consume [LSU_AGU_COUNT];
   assign agu_consume = '{default: 1'b0};
   agu_bank u_agu (
-    .clk(clk), .en(exu2fu_agu_en), .consume(agu_consume), .src1_rdata(exu2fu_agu_src1_rdata), .imm(exu2fu_agu_imm),
+    .clk(clk), .rst_n(rst_n), .en(exu2fu_agu_en), .consume(agu_consume), .src1_rdata(exu2fu_agu_src1_rdata), .imm(exu2fu_agu_imm),
     .complete(agu_complete), .ready(agu_ready), .result(fu_agu_result)
   );
 
@@ -596,7 +620,7 @@ EXU_BODY = r'''
     assign sdu_amo_op[i] = exu2fu_sdu_func7[i][6:2];  // Fu.h SduUnit reads func7 >> 2
   end
   sdu_bank u_sdu (
-    .clk(clk), .en(exu2fu_sdu_en), .consume(sdu_consume), .is_atomic(exu2fu_sdu_is_atomic), .amo_op(sdu_amo_op),
+    .clk(clk), .rst_n(rst_n), .en(exu2fu_sdu_en), .consume(sdu_consume), .is_atomic(exu2fu_sdu_is_atomic), .amo_op(sdu_amo_op),
     .src1_rdata(exu2fu_sdu_src1_rdata), .src2_rdata(exu2fu_sdu_src2_rdata), .complete(sdu_complete),
     .ready(sdu_ready), .result(fu_sdu_result)
   );
@@ -720,6 +744,8 @@ EXU_BODY = r'''
     .out_inst_dest_en(fu_mc_dest_en[MC_FPU]), .out_inst_rob_idx(fu_mc_rob_idx[MC_FPU])
   );
 
+  /* verilator lint_on UNUSEDSIGNAL */
+
   // The FU contract exu_ctrl relies on: single-cycle FUs complete exactly when enabled.
 `ifndef SYNTHESIS
   for (genvar i = 0; i < ALU_NUM; i++) begin : g_chk_alu
@@ -765,6 +791,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--report', action='store_true')
     ap.add_argument('--write', action='store_true')
+    ap.add_argument('--full', action='store_true')
     ap.add_argument('--asm')
     ap.add_argument('--inst')
     ap.add_argument('--out')
@@ -791,12 +818,13 @@ def main():
         exu_ports = mods['exu']
         open(os.path.join(bt_dir, 'exu.sv'), 'w').write(gen_exu(exu_ports))
         sel = set(order)
-        sv, S = gen_top('back_top_nolsu', mods, nets, sel, order)
-        open(os.path.join(bt_dir, 'back_top_nolsu.sv'), 'w').write(sv)
-        open(os.path.join(ROOT, 'spec/back_top_nolsu.io'), 'w').write(
-            gen_spec('back_top_nolsu', mods, nets, sel, S,
+        sv, S = gen_top(TOP_NAME, mods, nets, sel, order)
+        open(os.path.join(bt_dir, TOP_NAME + '.sv'), 'w').write(sv)
+        open(os.path.join(ROOT, f'spec/{TOP_NAME}.io'), 'w').write(
+            gen_spec(TOP_NAME, mods, nets, sel, S,
+                     'Whole back end incl. RealLsu: boundary = front end + memory subsystem (SimCpu).' if FULL else
                      'Back end without RealLsu: everything between the front end / memory subsystem / LSU and the commit side.'))
-        print(f'wrote exu.sv, back_top_nolsu.sv ({sv.count(chr(10))} lines), spec/exu.io, spec/back_top_nolsu.io '
+        print(f'wrote exu.sv, {TOP_NAME}.sv ({sv.count(chr(10))} lines), spec/exu.io, spec/{TOP_NAME}.io '
               f'(inputs {len(S["top_in"])}, outputs {len(S["top_out"])})')
     if a.asm:
         sel = set(a.inst.split(','))
