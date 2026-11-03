@@ -20,7 +20,6 @@ module dispatch_core
   input  logic                          rob_stall,
   input  logic [ROB_LINE_W-1:0]         rob_enq_line,   // ROB line the group will occupy
   input  logic                          rob_enq_flag,
-  output logic                          rob_valid [NUM_SLOTS],
   output logic                          dis_fire  [NUM_SLOTS],
   output dis_inst_t                     rob_inst  [NUM_SLOTS],
   output dis_res_t                      rob_res   [NUM_SLOTS],
@@ -86,11 +85,12 @@ module dispatch_core
   logic [STQ_PORTS-1:0]     st_port_sel [NUM_SLOTS];
   logic [LDQ_PORTS-1:0]     ld_port_sel [NUM_SLOTS];
   dis_res_t                 res [NUM_SLOTS];
+  logic                     lsu_ok [NUM_SLOTS];   // load/store got its LSU entry
 
   dispatch_lsu_alloc u_lsu_alloc (
     .inst_valid(inst_valid), .is_load(is_load), .is_store(is_store), .stq_tail(stq_tail),
     .stq_tail_flag(stq_tail_flag), .stq_free(stq_free), .ldq_free(ldq_free),
-    .ldq_alloc_idx(ldq_alloc_idx), .ldq_alloc_valid(ldq_alloc_valid), .rob_valid(rob_valid),
+    .ldq_alloc_idx(ldq_alloc_idx), .ldq_alloc_valid(ldq_alloc_valid), .lsu_ok(lsu_ok),
     .stq_idx(stq_idx), .stq_flag(stq_flag), .ldq_idx(ldq_idx),
     .st_port_sel(st_port_sel), .ld_port_sel(ld_port_sel));
 
@@ -127,7 +127,7 @@ module dispatch_core
     .wake_valid(wake_valid), .wake_preg(wake_preg), .src_preg(src_preg), .woken(woken_all));
 
   dispatch_src_busy u_src_busy (
-    .busy_table(busy_table), .inst(alloc_inst), .rob_valid(rob_valid),
+    .busy_table(busy_table), .inst(alloc_inst), .inst_valid(inst_valid),
     .woken1(woken1), .woken2(woken2), .busy1(busy1), .busy2(busy2));
 
   // ---- comb_dispatch: uop split and IQ port allocation ----
@@ -136,7 +136,6 @@ module dispatch_core
   logic [CPLT_MASK_W-1:0]  expect_mask [NUM_SLOTS];
   logic [IQ_PORT_W-1:0]    port_idx [NUM_SLOTS][IQ_NUM];
   logic                    fit [NUM_SLOTS];
-  logic                    brk_before [NUM_SLOTS];
 
   for (genvar i = 0; i < NUM_SLOTS; i++) begin : g_decompose
     dis_iss_uop_t lane_uop [IQ_NUM];
@@ -165,11 +164,11 @@ module dispatch_core
 
   dispatch_iq_alloc u_iq_alloc (
     .inst_valid(inst_valid), .has_iq(has_iq), .ready_num(ready_num),
-    .port_idx(port_idx), .fit(fit), .brk_before(brk_before));
+    .port_idx(port_idx), .fit(fit));
 
   // ---- comb_fire ----
   dispatch_fire_ctl u_fire_ctl (
-    .inst_valid(inst_valid), .rob_valid(rob_valid), .fit(fit), .is_csr_like(is_csr_like),
+    .inst_valid(inst_valid), .lsu_ok(lsu_ok), .fit(fit), .is_csr_like(is_csr_like),
     .is_amo(is_amo), .is_wfi(is_wfi), .rob_ready(rob_ready), .rob_empty(rob_empty),
     .rob_stall(rob_stall), .rob_flush(rob_flush), .dec_mispred(dec_mispred),
     .dis_fire(dis_fire), .dis2ren_ready(dis2ren_ready));
@@ -197,12 +196,12 @@ module dispatch_core
     .clk(clk), .rst_n(rst_n), .wake_valid(wake_valid), .wake_preg(wake_preg),
     .set_valid(busy_set_valid), .set_preg(busy_set_preg), .busy_q(busy_table));
 
-  // ---- outputs towards the ROB: expect_mask only for lanes that were fitted in comb_dispatch ----
+  // ---- outputs towards the ROB (consumed only for lanes that fire) ----
   always_comb begin
     for (int i = 0; i < NUM_SLOTS; i++) begin
       rob_inst[i] = alloc_inst[i];
       rob_res[i]  = res[i];
-      rob_expect_mask[i] = (inst_valid[i] && !brk_before[i] && fit[i]) ? expect_mask[i] : '0;
+      rob_expect_mask[i] = expect_mask[i];
     end
   end
 

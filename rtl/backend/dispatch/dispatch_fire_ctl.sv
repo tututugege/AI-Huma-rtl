@@ -10,7 +10,7 @@ module dispatch_fire_ctl
   import dis_pkg::*;
 (
   input  logic       inst_valid  [NUM_SLOTS],
-  input  logic       rob_valid   [NUM_SLOTS],   // LSU entries granted (dis2rob.valid)
+  input  logic       lsu_ok   [NUM_SLOTS],   // LSU entries granted
   input  logic       fit         [NUM_SLOTS],   // IQ ports available
   input  logic       is_csr_like [NUM_SLOTS],
   input  logic       is_amo      [NUM_SLOTS],
@@ -41,7 +41,7 @@ module dispatch_fire_ctl
     // Ref: Dispatch::comb_fire step 1 (basic_fire, CSR / atomic serialisation)
     always_comb begin
       serialize_block = (is_csr_like[i] || is_amo[i]) && (!rob_empty || |(valid_vec & OLDER));
-      fire_ideal[i]   = rob_valid[i] && fit[i] && rob_ready && !global_flush && !serialize_block;
+      fire_ideal[i]   = inst_valid[i] && lsu_ok[i] && fit[i] && rob_ready && !global_flush && !serialize_block;
       stop_here[i]    = inst_valid[i] && (!fire_ideal[i] || is_amo[i] || is_wfi[i]);
       dis_fire[i]     = fire_ideal[i] && !(|(stop_here & OLDER));
     end

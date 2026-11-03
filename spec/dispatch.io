@@ -1,6 +1,8 @@
 # Dispatch (back-end/Dispatch.cpp). Generated once by a helper script; committed as a plain spec.
 # Omitted on purpose: tma/dbg (perf/debug), ren2dis expect_mask/cplt_mask/src2_areg (dead: overwritten or never read).
-# Stale fields of dis2iss/dis2lsu (C++ never clears them) are guarded by `when`.
+# Outputs are compared only where a consumer reads them: dis2rob.uop when dis_fire (Rob::comb_fire),
+# dis2iss uop when req valid (Isu::comb_enq), dis2lsu payload when the alloc request is set (RealLsu::comb_dis2lsu).
+# Dropped (no consumer / constant 0): dis2rob.valid, dis2rob.uop.{br_mask,ldq_idx,mispred,br_taken,flush_pipe,cplt_mask}.
 module dispatch
 
 in  ren2dis_valid 1 [8] @ bt.ren2dis.valid[i0]
@@ -51,35 +53,28 @@ in  rob_bcast_flush 1 @ bt.rob_bcast.flush
 in  dec_bcast_mispred 1 @ bt.dec_bcast.mispred
 in  dec_bcast_clear_mask 64 @ bt.dec_bcast.clear_mask
 out dis2ren_ready 1 @ bt.dis2ren.ready
-out dis2rob_valid 1 [8] @ bt.dis2rob.valid[i0]
 out dis2rob_dis_fire 1 [8] @ bt.dis2rob.dis_fire[i0]
-out dis2rob_uop_diag_val 32 [8] @ bt.dis2rob.uop[i0].diag_val
-out dis2rob_uop_dest_areg 6 [8] @ bt.dis2rob.uop[i0].dest_areg
-out dis2rob_uop_src1_areg 6 [8] @ bt.dis2rob.uop[i0].src1_areg
-out dis2rob_uop_dest_preg 7 [8] @ bt.dis2rob.uop[i0].dest_preg
-out dis2rob_uop_old_dest_preg 7 [8] @ bt.dis2rob.uop[i0].old_dest_preg
-out dis2rob_uop_ftq_idx 6 [8] @ bt.dis2rob.uop[i0].ftq_idx
-out dis2rob_uop_ftq_offset 4 [8] @ bt.dis2rob.uop[i0].ftq_offset
-out dis2rob_uop_ftq_is_last 1 [8] @ bt.dis2rob.uop[i0].ftq_is_last
-out dis2rob_uop_mispred 1 [8] @ bt.dis2rob.uop[i0].mispred
-out dis2rob_uop_br_taken 1 [8] @ bt.dis2rob.uop[i0].br_taken
-out dis2rob_uop_type 5 [8] @ bt.dis2rob.uop[i0].type
-out dis2rob_uop_dest_en 1 [8] @ bt.dis2rob.uop[i0].dest_en
-out dis2rob_uop_is_atomic 1 [8] @ bt.dis2rob.uop[i0].is_atomic
-out dis2rob_uop_func3 3 [8] @ bt.dis2rob.uop[i0].func3
-out dis2rob_uop_func7 7 [8] @ bt.dis2rob.uop[i0].func7
-out dis2rob_uop_imm 32 [8] @ bt.dis2rob.uop[i0].imm
-out dis2rob_uop_br_mask 64 [8] @ bt.dis2rob.uop[i0].br_mask
-out dis2rob_uop_rob_idx 7 [8] @ bt.dis2rob.uop[i0].rob_idx
-out dis2rob_uop_stq_idx 6 [8] @ bt.dis2rob.uop[i0].stq_idx
-out dis2rob_uop_stq_flag 1 [8] @ bt.dis2rob.uop[i0].stq_flag
-out dis2rob_uop_ldq_idx 6 [8] @ bt.dis2rob.uop[i0].ldq_idx
-out dis2rob_uop_expect_mask 3 [8] @ bt.dis2rob.uop[i0].expect_mask
-out dis2rob_uop_cplt_mask 3 [8] @ bt.dis2rob.uop[i0].cplt_mask
-out dis2rob_uop_rob_flag 1 [8] @ bt.dis2rob.uop[i0].rob_flag
-out dis2rob_uop_page_fault_inst 1 [8] @ bt.dis2rob.uop[i0].page_fault_inst
-out dis2rob_uop_illegal_inst 1 [8] @ bt.dis2rob.uop[i0].illegal_inst
-out dis2rob_uop_flush_pipe 1 [8] @ bt.dis2rob.uop[i0].flush_pipe
+out dis2rob_uop_diag_val 32 [8] when dis2rob_dis_fire @ bt.dis2rob.uop[i0].diag_val
+out dis2rob_uop_dest_areg 6 [8] when dis2rob_dis_fire @ bt.dis2rob.uop[i0].dest_areg
+out dis2rob_uop_src1_areg 6 [8] when dis2rob_dis_fire @ bt.dis2rob.uop[i0].src1_areg
+out dis2rob_uop_dest_preg 7 [8] when dis2rob_dis_fire @ bt.dis2rob.uop[i0].dest_preg
+out dis2rob_uop_old_dest_preg 7 [8] when dis2rob_dis_fire @ bt.dis2rob.uop[i0].old_dest_preg
+out dis2rob_uop_ftq_idx 6 [8] when dis2rob_dis_fire @ bt.dis2rob.uop[i0].ftq_idx
+out dis2rob_uop_ftq_offset 4 [8] when dis2rob_dis_fire @ bt.dis2rob.uop[i0].ftq_offset
+out dis2rob_uop_ftq_is_last 1 [8] when dis2rob_dis_fire @ bt.dis2rob.uop[i0].ftq_is_last
+out dis2rob_uop_type 5 [8] when dis2rob_dis_fire @ bt.dis2rob.uop[i0].type
+out dis2rob_uop_dest_en 1 [8] when dis2rob_dis_fire @ bt.dis2rob.uop[i0].dest_en
+out dis2rob_uop_is_atomic 1 [8] when dis2rob_dis_fire @ bt.dis2rob.uop[i0].is_atomic
+out dis2rob_uop_func3 3 [8] when dis2rob_dis_fire @ bt.dis2rob.uop[i0].func3
+out dis2rob_uop_func7 7 [8] when dis2rob_dis_fire @ bt.dis2rob.uop[i0].func7
+out dis2rob_uop_imm 32 [8] when dis2rob_dis_fire @ bt.dis2rob.uop[i0].imm
+out dis2rob_uop_rob_idx 7 [8] when dis2rob_dis_fire @ bt.dis2rob.uop[i0].rob_idx
+out dis2rob_uop_stq_idx 6 [8] when dis2rob_dis_fire @ bt.dis2rob.uop[i0].stq_idx
+out dis2rob_uop_stq_flag 1 [8] when dis2rob_dis_fire @ bt.dis2rob.uop[i0].stq_flag
+out dis2rob_uop_expect_mask 3 [8] when dis2rob_dis_fire @ bt.dis2rob.uop[i0].expect_mask
+out dis2rob_uop_rob_flag 1 [8] when dis2rob_dis_fire @ bt.dis2rob.uop[i0].rob_flag
+out dis2rob_uop_page_fault_inst 1 [8] when dis2rob_dis_fire @ bt.dis2rob.uop[i0].page_fault_inst
+out dis2rob_uop_illegal_inst 1 [8] when dis2rob_dis_fire @ bt.dis2rob.uop[i0].illegal_inst
 out dis2iss_req_valid 1 [5] [8] @ bt.dis2iss.req[i0][i1].valid
 out dis2iss_req_uop_dest_preg 7 [5] [8] when dis2iss_req_valid @ bt.dis2iss.req[i0][i1].uop.dest_preg
 out dis2iss_req_uop_src1_preg 7 [5] [8] when dis2iss_req_valid @ bt.dis2iss.req[i0][i1].uop.src1_preg
@@ -107,13 +102,13 @@ out dis2iss_req_uop_ldq_idx 6 [5] [8] when dis2iss_req_valid @ bt.dis2iss.req[i0
 out dis2iss_req_uop_rob_flag 1 [5] [8] when dis2iss_req_valid @ bt.dis2iss.req[i0][i1].uop.rob_flag
 out dis2iss_req_uop_op 5 [5] [8] when dis2iss_req_valid @ bt.dis2iss.req[i0][i1].uop.op
 out dis2lsu_alloc_req 1 [8] @ bt.dis2lsu.alloc_req[i0]
-out dis2lsu_br_mask 64 [8] @ bt.dis2lsu.br_mask[i0]
+out dis2lsu_br_mask 64 [8] when dis2lsu_alloc_req @ bt.dis2lsu.br_mask[i0]
 out dis2lsu_func3 3 [8] when dis2lsu_alloc_req @ bt.dis2lsu.func3[i0]
 out dis2lsu_rob_idx 7 [8] when dis2lsu_alloc_req @ bt.dis2lsu.rob_idx[i0]
 out dis2lsu_rob_flag 1 [8] when dis2lsu_alloc_req @ bt.dis2lsu.rob_flag[i0]
 out dis2lsu_stq_flag 1 [8] when dis2lsu_alloc_req @ bt.dis2lsu.stq_flag[i0]
 out dis2lsu_ldq_alloc_req 1 [8] @ bt.dis2lsu.ldq_alloc_req[i0]
-out dis2lsu_ldq_br_mask 64 [8] @ bt.dis2lsu.ldq_br_mask[i0]
+out dis2lsu_ldq_br_mask 64 [8] when dis2lsu_ldq_alloc_req @ bt.dis2lsu.ldq_br_mask[i0]
 out dis2lsu_ldq_idx 6 [8] when dis2lsu_ldq_alloc_req @ bt.dis2lsu.ldq_idx[i0]
 out dis2lsu_ldq_rob_idx 7 [8] when dis2lsu_ldq_alloc_req @ bt.dis2lsu.ldq_rob_idx[i0]
 out dis2lsu_ldq_rob_flag 1 [8] when dis2lsu_ldq_alloc_req @ bt.dis2lsu.ldq_rob_flag[i0]

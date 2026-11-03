@@ -43,19 +43,11 @@ module dispatch_inst_stage
       new_inst.br_mask = ren_inst[i].br_mask & ~clear_mask;
     end
 
-    // Ref: Dispatch::comb_pipeline  (flush/mispred > ready > hold; the un-selected case keeps inst_r)
+    // Ref: Dispatch::comb_pipeline. Payload is only meaningful while valid: always take the new group
+    // when ready, else the refreshed held payload; flush/mispred just drops valid.
     always_comb begin
-      valid_d[i] = 1'b0;
-      inst_d[i]  = inst_q[i];
-      if (kill) begin
-        valid_d[i] = 1'b0;
-      end else if (ready) begin
-        valid_d[i] = ren_valid[i];
-        inst_d[i]  = new_inst;
-      end else begin
-        valid_d[i] = held_valid;
-        if (held_valid) inst_d[i] = held_inst;
-      end
+      valid_d[i] = !kill && (ready ? ren_valid[i] : held_valid);
+      inst_d[i]  = ready ? new_inst : held_inst;
     end
   end
 

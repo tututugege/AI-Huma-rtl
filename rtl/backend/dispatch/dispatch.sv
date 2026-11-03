@@ -60,7 +60,6 @@ module dispatch
   input  logic dec_bcast_mispred,
   input  logic [63:0] dec_bcast_clear_mask,
   output logic dis2ren_ready,
-  output logic dis2rob_valid [8],
   output logic dis2rob_dis_fire [8],
   output logic [31:0] dis2rob_uop_diag_val [8],
   output logic [5:0] dis2rob_uop_dest_areg [8],
@@ -70,25 +69,19 @@ module dispatch
   output logic [5:0] dis2rob_uop_ftq_idx [8],
   output logic [3:0] dis2rob_uop_ftq_offset [8],
   output logic dis2rob_uop_ftq_is_last [8],
-  output logic dis2rob_uop_mispred [8],
-  output logic dis2rob_uop_br_taken [8],
   output logic [4:0] dis2rob_uop_type [8],
   output logic dis2rob_uop_dest_en [8],
   output logic dis2rob_uop_is_atomic [8],
   output logic [2:0] dis2rob_uop_func3 [8],
   output logic [6:0] dis2rob_uop_func7 [8],
   output logic [31:0] dis2rob_uop_imm [8],
-  output logic [63:0] dis2rob_uop_br_mask [8],
   output logic [6:0] dis2rob_uop_rob_idx [8],
   output logic [5:0] dis2rob_uop_stq_idx [8],
   output logic dis2rob_uop_stq_flag [8],
-  output logic [5:0] dis2rob_uop_ldq_idx [8],
   output logic [2:0] dis2rob_uop_expect_mask [8],
-  output logic [2:0] dis2rob_uop_cplt_mask [8],
   output logic dis2rob_uop_rob_flag [8],
   output logic dis2rob_uop_page_fault_inst [8],
   output logic dis2rob_uop_illegal_inst [8],
-  output logic dis2rob_uop_flush_pipe [8],
   output logic dis2iss_req_valid [5] [8],
   output logic [6:0] dis2iss_req_uop_dest_preg [5] [8],
   output logic [6:0] dis2iss_req_uop_src1_preg [5] [8],
@@ -131,7 +124,6 @@ module dispatch
   logic                          ren_valid [NUM_SLOTS];
   dis_inst_t                     ren_inst  [NUM_SLOTS];
   logic                          core_ready;
-  logic                          rob_valid [NUM_SLOTS];
   logic                          dis_fire  [NUM_SLOTS];
   dis_inst_t                     rob_inst  [NUM_SLOTS];
   dis_res_t                      rob_res   [NUM_SLOTS];
@@ -208,7 +200,7 @@ module dispatch
     .ren_valid(ren_valid), .ren_inst(ren_inst), .dis2ren_ready(core_ready),
     .rob_ready(rob2dis_ready), .rob_empty(rob2dis_empty), .rob_stall(rob2dis_stall),
     .rob_enq_line(rob2dis_enq_idx[ROB_LINE_W-1:0]), .rob_enq_flag(rob2dis_rob_flag),
-    .rob_valid(rob_valid), .dis_fire(dis_fire), .rob_inst(rob_inst), .rob_res(rob_res),
+    .dis_fire(dis_fire), .rob_inst(rob_inst), .rob_res(rob_res),
     .rob_expect_mask(rob_expect_mask), .ready_num(ready_num), .req_valid(req_valid), .req_uop(req_uop),
     .stq_tail(lsu2dis_stq_tail), .stq_tail_flag(lsu2dis_stq_tail_flag), .stq_free(lsu2dis_stq_free),
     .ldq_free(lsu2dis_ldq_free), .ldq_alloc_idx(ldq_alloc_idx), .ldq_alloc_valid(ldq_alloc_valid),
@@ -223,7 +215,6 @@ module dispatch
   always_comb begin
     dis2ren_ready = core_ready;
     for (int i = 0; i < NUM_SLOTS; i++) begin
-      dis2rob_valid[i]    = rob_valid[i];
       dis2rob_dis_fire[i] = dis_fire[i];
       dis2rob_uop_diag_val[i] = rob_inst[i].diag_val;
       dis2rob_uop_dest_areg[i] = rob_inst[i].dest_areg;
@@ -238,7 +229,6 @@ module dispatch
       dis2rob_uop_func3[i] = rob_inst[i].func3;
       dis2rob_uop_func7[i] = rob_inst[i].func7;
       dis2rob_uop_imm[i] = rob_inst[i].imm;
-      dis2rob_uop_br_mask[i] = rob_inst[i].br_mask;
       dis2rob_uop_page_fault_inst[i] = rob_inst[i].page_fault_inst;
       dis2rob_uop_illegal_inst[i] = rob_inst[i].illegal_inst;
       dis2rob_uop_type[i]        = rob_inst[i].itype;
@@ -246,12 +236,7 @@ module dispatch
       dis2rob_uop_rob_flag[i]    = rob_res[i].rob_flag;
       dis2rob_uop_stq_idx[i]     = rob_res[i].stq_idx;
       dis2rob_uop_stq_flag[i]    = rob_res[i].stq_flag;
-      dis2rob_uop_ldq_idx[i]     = rob_res[i].ldq_idx;
       dis2rob_uop_expect_mask[i] = rob_expect_mask[i];
-      dis2rob_uop_cplt_mask[i]   = '0;    // the ROB receives instructions with nothing completed
-      dis2rob_uop_mispred[i]     = 1'b0;  // mispred / br_taken / flush_pipe are only set by later ROB updates
-      dis2rob_uop_br_taken[i]    = 1'b0;
-      dis2rob_uop_flush_pipe[i]  = 1'b0;
     end
   end
 

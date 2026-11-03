@@ -5,7 +5,7 @@
 //   * stores take consecutive STQ entries from stq_tail while the queue has free entries;
 //   * loads take the LSU-provided free LDQ entries ldq_alloc_idx[0..], one per load, in order;
 //   * every load also records the STQ position of the youngest older store (stq_idx/stq_flag).
-// A load/store that gets no entry marks its lane not valid for the ROB (rob_valid = 0).
+// A load/store that gets no entry has lsu_ok = 0 and cannot fire.
 module dispatch_lsu_alloc
   import ttg_cfg_pkg::*;
   import dis_pkg::*;
@@ -19,7 +19,7 @@ module dispatch_lsu_alloc
   input  logic [LDQ_FREE_W-1:0]     ldq_free,
   input  logic [LDQ_IDX_WIDTH-1:0]  ldq_alloc_idx   [LDQ_PORTS],
   input  logic                      ldq_alloc_valid [LDQ_PORTS],
-  output logic                      rob_valid  [NUM_SLOTS],
+  output logic                      lsu_ok  [NUM_SLOTS],
   output logic [STQ_IDX_WIDTH-1:0]  stq_idx    [NUM_SLOTS],
   output logic                      stq_flag   [NUM_SLOTS],
   output logic [LDQ_IDX_WIDTH-1:0]  ldq_idx    [NUM_SLOTS],
@@ -47,53 +47,24 @@ module dispatch_lsu_alloc
     ttg_popcount #(.N(NUM_SLOTS)) u_st_rank (.bits(want_st & OLDER), .count(st_rank[i]));
   end
 
-  // ---- LDQ: the k-th load is granted iff port conditions hold for ports 0..k (all older loads granted) ----
-  logic [LDQ_PORTS-1:0] ldq_port_ok;      // per-port availability
-  logic [LDQ_PORTS-1:0] ldq_port_missing; // ports that cannot be used
-  logic [LDQ_PORTS-1:0] ldq_first_missing;
-  logic                 ldq_any_missing;
-  logic [LDQ_PORTS-1:0] ldq_granted_upto; // ports 0..k all usable
-
-  always_comb begin
-    for (int k = 0; k < LDQ_PORTS; k++) begin
-      ldq_port_ok[k] = (LDQ_FREE_W'(k) < ldq_free) && (k < IQ_DISPATCH_WIDTH) && ldq_alloc_valid[k];
-    end
-    ldq_port_missing = ~ldq_port_ok;
-  end
-
-  ttg_first_set #(.N(LDQ_PORTS)) u_ldq_first_missing (
-    .req(ldq_port_missing), .onehot(ldq_first_missing), .any(ldq_any_missing));
-
-  always_comb begin
-    // bits strictly below the first missing port; all ports if none is missing
-    ldq_granted_upto = ldq_any_missing ? (ldq_first_missing - LDQ_PORTS'(1)) : '1;
-  end
-
   // ---- per-lane results ----
+  // A lane can only fire when every older lane fired, so each lane is judged on its own rank:
+  //   store: free STQ entries > rank;   load: LDQ port `rank` is usable (free count and valid from the LSU).
   for (genvar i = 0; i < NUM_SLOTS; i++) begin : g_lane
-    logic                     ld_granted;
-    logic                     st_granted;
-    logic [STQ_FREE_W-1:0]    older_stores_granted;  // stores before this lane that got an entry
-    logic [STQ_POS_W-1:0]     stq_pos;
+    logic                 ld_granted;
+    logic                 st_granted;
+    logic [STQ_POS_W-1:0] stq_pos;    // STQ ring position after the older stores of the group
 
     // Ref: Dispatch::comb_alloc (load_alloc_count / store_alloc_count conditions)
     always_comb begin
-      ld_granted = want_ld[i] && ldq_granted_upto[ld_rank[i][LDQ_PORT_W-1:0]];
-      st_granted = want_st[i] && (STQ_FREE_W'(st_rank[i]) < stq_free) && (st_rank[i] < RANK_W'(STQ_PORTS));
-      older_stores_granted = (STQ_FREE_W'(st_rank[i]) < stq_free) ? STQ_FREE_W'(st_rank[i]) : stq_free;
-      stq_pos = STQ_POS_W'(stq_tail) + STQ_POS_W'(older_stores_granted);
-    end
-
-    always_comb begin
-      rob_valid[i] = inst_valid[i] && (!is_load[i] || ld_granted) && (!is_store[i] || st_granted);
-      // a load always records the STQ position; a pure store only when it was granted a slot
-      stq_idx[i]  = '0;
-      stq_flag[i] = 1'b0;
-      if (want_ld[i] || st_granted) begin
-        stq_idx[i]  = stq_pos[STQ_IDX_WIDTH-1:0];
-        stq_flag[i] = stq_tail_flag ^ stq_pos[STQ_IDX_WIDTH];
-      end
-      ldq_idx[i] = ld_granted ? ldq_alloc_idx[ld_rank[i][LDQ_PORT_W-1:0]] : '0;
+      ld_granted = want_ld[i] && (LDQ_FREE_W'(ld_rank[i]) < ldq_free) && ldq_alloc_valid[ld_rank[i][LDQ_PORT_W-1:0]];
+      st_granted = want_st[i] && (STQ_FREE_W'(st_rank[i]) < stq_free);
+      stq_pos    = STQ_POS_W'(stq_tail) + STQ_POS_W'(st_rank[i]);
+      lsu_ok[i] = (!want_ld[i] || ld_granted) && (!want_st[i] || st_granted);
+      // memory ops record their STQ position (loads: youngest older store); other ops carry 0
+      stq_idx[i]  = (is_load[i] || is_store[i]) ? stq_pos[STQ_IDX_WIDTH-1:0] : '0;
+      stq_flag[i] = (is_load[i] || is_store[i]) && (stq_tail_flag ^ stq_pos[STQ_IDX_WIDTH]);
+      ldq_idx[i]  = is_load[i] ? ldq_alloc_idx[ld_rank[i][LDQ_PORT_W-1:0]] : '0;
       st_port_sel[i] = st_granted ? (STQ_PORTS'(1) << st_rank[i][STQ_PORT_W-1:0]) : '0;
       ld_port_sel[i] = ld_granted ? (LDQ_PORTS'(1) << ld_rank[i][LDQ_PORT_W-1:0]) : '0;
     end
