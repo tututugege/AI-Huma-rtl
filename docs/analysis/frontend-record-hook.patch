@@ -1,0 +1,330 @@
+diff --git a/harness/tools/iogen.py b/harness/tools/iogen.py
+index 8d69e68..edb6421 100755
+--- a/harness/tools/iogen.py
++++ b/harness/tools/iogen.py
+@@ -212,6 +212,7 @@ def gen_rec(mod, fields, in_bytes, out_bytes):
+     L.append('#include "SimCpu.h"')
+     L.append('#undef private')
+     L.append('#undef protected')
++    L.append('#if __has_include("front_tap.h")\n#include "front_tap.h"  // refsim front-end tap: TTG_FT\n#endif')
+     L.append(f'#include "{mod}_fields.h"')
+     L.append('using namespace ttg_io;')
+     L.append('namespace {')
+diff --git a/refhook/front_tap.h b/refhook/front_tap.h
+new file mode 100644
+index 0000000..2bf316b
+--- /dev/null
++++ b/refhook/front_tap.h
+@@ -0,0 +1,112 @@
++// Read-only recording tap of the front-end (added for the RTL trace harness, refsim only).
++//
++// front_comb_calc() (front-end/front_top.cpp) evaluates the front-end in ONE call per cycle, but most of the
++// interesting signals (icache outputs, BPU output, FIFO read results, predecode / checker results, bypass
++// decisions) are function-local variables that are gone when the recording hook runs (after BackTop::comb()).
++// With TTG_REC set, front_comb_calc() copies those locals into g_ttg_front_tap right before returning.
++// The tap only COPIES values; it never feeds anything back (checked: cycle counts are bit-identical).
++//
++// Spec expressions read it through TTG_FT (= g_ttg_front_tap), e.g.
++//     out ptab_wr_en 1 @ TTG_FT.ptab_req.push_write_en
++//     in  pop_en 1     @ TTG_FT.ptab_req.pop_en
++#pragma once
++#include "front_IO.h"
++#include "front_module.h"
++#include "predecode_checker.h"
++#include "train_IO.h"
++#include <cstdint>
++
++// Flat copy of BPU_TOP::OutputPayload (avoids pulling BPU/BPU.h into every translation unit).
++struct FrontTapBpuOut {
++  fetch_addr_t fetch_address;
++  wire1_t icache_read_valid;
++  fetch_addr_t predict_next_fetch_address;
++  wire1_t PTAB_write_enable;
++  wire1_t pred_dir[FETCH_WIDTH];
++  wire1_t alt_pred[FETCH_WIDTH];
++  pcpn_t pcpn[FETCH_WIDTH];
++  pcpn_t altpcpn[FETCH_WIDTH];
++  tage_tag_t tage_tags[FETCH_WIDTH][TN_MAX];
++  tage_idx_t tage_idxs[FETCH_WIDTH][TN_MAX];
++  wire1_t sc_used[FETCH_WIDTH];
++  wire1_t sc_pred[FETCH_WIDTH];
++  tage_scl_meta_sum_t sc_sum[FETCH_WIDTH];
++  tage_scl_meta_idx_t sc_idx[FETCH_WIDTH][BPU_SCL_META_NTABLE];
++  wire1_t loop_used[FETCH_WIDTH];
++  wire1_t loop_hit[FETCH_WIDTH];
++  wire1_t loop_pred[FETCH_WIDTH];
++  tage_loop_meta_idx_t loop_idx[FETCH_WIDTH];
++  tage_loop_meta_tag_t loop_tag[FETCH_WIDTH];
++  pc_t pred_base_pc;
++  wire1_t update_queue_full;
++  wire1_t two_ahead_valid;
++  fetch_addr_t two_ahead_target;
++  wire1_t mini_flush_req;
++  wire1_t mini_flush_correct;
++  fetch_addr_t mini_flush_target;
++};
++
++struct FrontTap {
++  uint64_t count = 0;   // number of front_comb_calc() calls that filled the tap
++  // ---- stage 1/2: global control and read enables -------------------------------------------------------
++  wire1_t global_reset = false;
++  wire1_t global_refetch = false;
++  fetch_addr_t refetch_address = 0;
++  wire1_t icache_ready = false;               // icache_peek_ready()
++  wire1_t fetch_addr_fifo_read_enable_slot0 = false;
++  wire1_t inst_fifo_read_enable = false;      // == predecode_can_run_old
++  wire1_t ptab_read_enable = false;
++  wire1_t front2back_read_enable = false;
++  // ---- stage 3: FIFO read results (before any write of this cycle) --------------------------------------
++  fetch_address_FIFO_out fa_out0{};            // saved_fetch_addr_fifo_out_0
++  // ---- stage 4/5: BPU and fetch_address_FIFO write -----------------------------------------------------
++  wire1_t bpu_stall = false;
++  wire1_t bpu_can_run = false;
++  FrontTapBpuOut bpu_out{};
++  wire1_t normal_write_enable = false;
++  wire1_t can_bypass_fetch_to_icache = false;
++  fetch_address_FIFO_out fa_out_final{};       // fetch_addr_fifo_out after the (optional) write call
++  // ---- stage 6: icache (main icache_comb_calc call; snapshot taken right after it) ---------------------
++  icache_in icache_in{};
++  icache_out icache_out{};
++  wire1_t icache_slot0_data_valid = false;
++  // ---- stage 7: instruction_FIFO write / predecode bypass ---------------------------------------------
++  wire1_t can_bypass_icache_to_predecode = false;
++  wire1_t use_icache_to_predecode_bypass = false;
++  wire1_t predecode_source_valid = false;
++  wire1_t predecode_can_run = false;
++  instruction_FIFO_out saved_fifo_out{};       // instruction_FIFO head (or icache bypass) feeding the checker
++  PTAB_out saved_ptab_out{};                   // PTAB head feeding the checker / front2back write
++  // ---- stage 8: PTAB write, checker, front2back write ---------------------------------------------------
++  wire1_t ptab_can_write = false;
++  predecode_checker_in checker_in{};
++  predecode_checker_out checker_out{};
++  wire1_t do_predecode_flush = false;
++  fetch_addr_t predecode_flush_address = 0;
++  wire1_t front2back_can_write = false;
++  wire1_t can_bypass_front2back_to_output = false;
++  wire1_t use_front2back_output_bypass = false;
++  front2back_FIFO_out saved_front2back_fifo_out{};
++  front2back_FIFO_out bypass_front2back_fifo_out{};
++  // ---- accumulated per-FIFO requests (what front_seq_write will apply: clear -> push -> pop) ----------
++  FetchAddrCombOut fetch_addr_req{};
++  InstructionCombOut inst_req{};
++  PtabCombOut ptab_req{};
++  Front2BackCombOut front2back_req{};
++  // ---- FIFO state at the START of the cycle (== seq_read snapshots) ------------------------------------
++  fetch_address_FIFO_read_data fa_rd{};
++  instruction_FIFO_read_data inst_rd{};
++  PTAB_read_data ptab_rd{};
++  front2back_FIFO_read_data f2b_rd{};
++  // ---- registered flags (latches) seen by this cycle, and the values they take next cycle ---------------
++  wire1_t predecode_refetch_q = false;
++  fetch_addr_t predecode_refetch_address_q = 0;
++  wire1_t full_q[4] = {}, empty_q[4] = {};     // order: fetch_addr, instruction, ptab, front2back
++  wire1_t next_full[4] = {}, next_empty[4] = {};
++};
++
++extern bool g_ttg_front_tap_on;     // true iff $TTG_REC is set (so normal runs pay nothing)
++extern FrontTap g_ttg_front_tap;
++#define TTG_FT (g_ttg_front_tap)
++// Used inside front_comb_calc(): runs the statements only when recording.
++#define TTG_TAP(...) do { if (g_ttg_front_tap_on) { __VA_ARGS__ } } while (0)
+diff --git a/refhook/front_top_tap.patch b/refhook/front_top_tap.patch
+new file mode 100644
+index 0000000..238394d
+--- /dev/null
++++ b/refhook/front_top_tap.patch
+@@ -0,0 +1,178 @@
++--- a/front-end/front_top.cpp	2026-11-03 14:49:54
+++++ b/front-end/front_top.cpp	2026-11-03 14:49:54
++@@ -1,6 +1,7 @@
++ #include "BPU/BPU.h"
++ #include "front_IO.h"
++ #include "front_module.h"
+++#include "front_tap.h"
++ #include "host_profile.h"
++ #include "predecode.h"
++ #include "predecode_checker.h"
++@@ -22,6 +23,9 @@
++ // ============================================================================
++ // 全局状态（寄存器锁存值）
++ // ============================================================================
+++bool g_ttg_front_tap_on = (std::getenv("TTG_REC") != nullptr && *std::getenv("TTG_REC") != 0);
+++FrontTap g_ttg_front_tap;
+++
++ static bool predecode_refetch = false;
++ static uint32_t predecode_refetch_address = 0;
++ static uint32_t front_sim_time = 0;
++@@ -937,6 +941,40 @@
++     output.bpu_in.icache_read_ready = input.icache_ready;
++ }
++ 
+++static uint64_t g_ttg_front_tap_seq = 0;
+++static void ttg_front_tap_copy_bpu(FrontTapBpuOut &d, const BPU_TOP::OutputPayload &o) {
+++    d.fetch_address = o.fetch_address;
+++    d.icache_read_valid = o.icache_read_valid;
+++    d.predict_next_fetch_address = o.predict_next_fetch_address;
+++    d.PTAB_write_enable = o.PTAB_write_enable;
+++    for (int i = 0; i < FETCH_WIDTH; i++) {
+++        d.pred_dir[i] = o.out_pred_dir[i];
+++        d.alt_pred[i] = o.out_alt_pred[i];
+++        d.pcpn[i] = o.out_pcpn[i];
+++        d.altpcpn[i] = o.out_altpcpn[i];
+++        for (int j = 0; j < TN_MAX; j++) {
+++            d.tage_tags[i][j] = o.out_tage_tags[i][j];
+++            d.tage_idxs[i][j] = o.out_tage_idxs[i][j];
+++        }
+++        d.sc_used[i] = o.out_sc_used[i];
+++        d.sc_pred[i] = o.out_sc_pred[i];
+++        d.sc_sum[i] = o.out_sc_sum[i];
+++        for (int t = 0; t < BPU_SCL_META_NTABLE; ++t) d.sc_idx[i][t] = o.out_sc_idx[i][t];
+++        d.loop_used[i] = o.out_loop_used[i];
+++        d.loop_hit[i] = o.out_loop_hit[i];
+++        d.loop_pred[i] = o.out_loop_pred[i];
+++        d.loop_idx[i] = o.out_loop_idx[i];
+++        d.loop_tag[i] = o.out_loop_tag[i];
+++    }
+++    d.pred_base_pc = o.out_pred_base_pc;
+++    d.update_queue_full = o.update_queue_full;
+++    d.two_ahead_valid = o.two_ahead_valid;
+++    d.two_ahead_target = o.two_ahead_target;
+++    d.mini_flush_req = o.mini_flush_req;
+++    d.mini_flush_correct = o.mini_flush_correct;
+++    d.mini_flush_target = o.mini_flush_target;
+++}
+++
++ static void accumulate_fetch_addr_req(FetchAddrCombOut &acc,
++                                       const FetchAddrCombOut &step) {
++     acc.clear_fifo |= step.clear_fifo;
++@@ -1054,6 +1092,7 @@
++     }
++     front_stats.cycles++;
++     front_state_req.valid = false;
+++    TTG_TAP(g_ttg_front_tap = FrontTap{}; g_ttg_front_tap.count = ++g_ttg_front_tap_seq;);
++     
++     // ========================================================================
++     // 阶段 0: 初始化所有模块的输入输出结构
++@@ -1419,6 +1458,7 @@
++ #if !FRONTEND_ENABLE_FETCH_TO_ICACHE_BYPASS
++         can_bypass_fetch_to_icache = false;
++ #endif
+++        TTG_TAP(g_ttg_front_tap.normal_write_enable = normal_write_enable;);
++         if (can_bypass_fetch_to_icache) {
++             front_stats.bypass_fetch_to_icache_opportunity_cycles++;
++         }
++@@ -1502,6 +1542,7 @@
++         }
++         
++         icache_comb_calc(&icache_in, &icache_out);
+++        TTG_TAP(g_ttg_front_tap.icache_in = icache_in; g_ttg_front_tap.icache_out = icache_out;);
++         if (icache_out.perf_req_fire) {
++             front_stats.icache_req_fire_cycles++;
++         }
++@@ -1561,6 +1602,7 @@
++ #if !FRONTEND_ENABLE_ICACHE_TO_PREDECODE_BYPASS
++         can_bypass_icache_to_predecode = false;
++ #endif
+++        TTG_TAP(g_ttg_front_tap.can_bypass_icache_to_predecode = can_bypass_icache_to_predecode;);
++         if (can_bypass_icache_to_predecode) {
++             front_stats.bypass_icache_to_predecode_opportunity_cycles++;
++             ptab_in.reset = global_reset;
++@@ -1747,9 +1789,11 @@
++             checker_input_in.fifo_out = saved_fifo_out;
++             checker_input_in.ptab_out = saved_ptab_out;
++             front_checker_input_comb(checker_input_in, checker_input_out);
+++            TTG_TAP(g_ttg_front_tap.checker_in = checker_input_out.checker_in;);
++             predecode_checker_read_data checker_rd{};
++             predecode_checker_seq_read(&checker_input_out.checker_in, &checker_rd);
++             predecode_checker_comb(checker_rd, checker_out);
+++            TTG_TAP(g_ttg_front_tap.checker_out = checker_out;);
++             
++             DEBUG_LOG_SMALL_4("[predecode on] seq_next_pc: %x, predict_next: %x\n",
++                               saved_fifo_out.seq_next_pc,
++@@ -1834,6 +1878,13 @@
++             front_state_req.next_predecode_refetch = false;
++             front_state_req.next_predecode_refetch_address = 0;
++         }
+++        TTG_TAP(
+++            g_ttg_front_tap.ptab_can_write = ptab_can_write;
+++            g_ttg_front_tap.front2back_can_write = front2back_can_write;
+++            g_ttg_front_tap.can_bypass_front2back_to_output = can_bypass_front2back_to_output;
+++            g_ttg_front_tap.do_predecode_flush = do_predecode_flush;
+++            g_ttg_front_tap.predecode_flush_address = predecode_flush_address;
+++        );
++     }
++     
++     {
++@@ -2008,6 +2059,58 @@
++         front_deadlock_snapshot.front2back = front2back_fifo_out;
++         front_deadlock_snapshot.out = *out_ptr;
++         req.out_regs = out;
+++        TTG_TAP(
+++            FrontTap &t = g_ttg_front_tap;
+++            t.global_reset = global_reset;
+++            t.global_refetch = global_refetch;
+++            t.refetch_address = refetch_address;
+++            t.icache_ready = icache_ready;
+++            t.fetch_addr_fifo_read_enable_slot0 = fetch_addr_fifo_read_enable_slot0;
+++            t.inst_fifo_read_enable = inst_fifo_read_enable;
+++            t.ptab_read_enable = ptab_read_enable;
+++            t.front2back_read_enable = front2back_read_enable;
+++            t.fa_out0 = saved_fetch_addr_fifo_out_0;
+++            t.bpu_stall = bpu_stall;
+++            t.bpu_can_run = bpu_can_run;
+++            ttg_front_tap_copy_bpu(t.bpu_out, bpu_output);
+++            t.can_bypass_fetch_to_icache = can_bypass_fetch_to_icache;
+++            t.fa_out_final = fetch_addr_fifo_out;
+++            t.icache_slot0_data_valid = icache_slot0_data_valid;
+++            t.use_icache_to_predecode_bypass = use_icache_to_predecode_bypass;
+++            t.predecode_source_valid = predecode_source_valid;
+++            t.predecode_can_run = predecode_can_run;
+++            t.saved_fifo_out = saved_fifo_out;
+++            t.saved_ptab_out = saved_ptab_out;
+++            t.use_front2back_output_bypass = use_front2back_output_bypass;
+++            t.saved_front2back_fifo_out = saved_front2back_fifo_out;
+++            t.bypass_front2back_fifo_out = bypass_front2back_fifo_out;
+++            t.fetch_addr_req = fetch_addr_fifo_req;
+++            t.inst_req = fifo_req;
+++            t.ptab_req = ptab_req;
+++            t.front2back_req = front2back_fifo_req;
+++            t.fa_rd = rd.fetch_addr_fifo_rd_snapshot;
+++            t.inst_rd = rd.fifo_rd_snapshot;
+++            t.ptab_rd = rd.ptab_rd_snapshot;
+++            t.f2b_rd = rd.front2back_fifo_rd_snapshot;
+++            t.predecode_refetch_q = rd.predecode_refetch_snapshot;
+++            t.predecode_refetch_address_q = rd.predecode_refetch_address_snapshot;
+++            t.full_q[0] = rd.fetch_addr_fifo_full_latch_snapshot;
+++            t.full_q[1] = rd.fifo_full_latch_snapshot;
+++            t.full_q[2] = rd.ptab_full_latch_snapshot;
+++            t.full_q[3] = rd.front2back_fifo_full_latch_snapshot;
+++            t.empty_q[0] = rd.fetch_addr_fifo_empty_latch_snapshot;
+++            t.empty_q[1] = rd.fifo_empty_latch_snapshot;
+++            t.empty_q[2] = rd.ptab_empty_latch_snapshot;
+++            t.empty_q[3] = rd.front2back_fifo_empty_latch_snapshot;
+++            t.next_full[0] = front_state_req.next_fetch_addr_fifo_full;
+++            t.next_full[1] = front_state_req.next_fifo_full;
+++            t.next_full[2] = front_state_req.next_ptab_full;
+++            t.next_full[3] = front_state_req.next_front2back_fifo_full;
+++            t.next_empty[0] = front_state_req.next_fetch_addr_fifo_empty;
+++            t.next_empty[1] = front_state_req.next_fifo_empty;
+++            t.next_empty[2] = front_state_req.next_ptab_empty;
+++            t.next_empty[3] = front_state_req.next_front2back_fifo_empty;
+++        );
++     }
++ }
++ 
+diff --git a/scripts/refsim_setup.sh b/scripts/refsim_setup.sh
+index 8ac08db..301167f 100755
+--- a/scripts/refsim_setup.sh
++++ b/scripts/refsim_setup.sh
+@@ -22,5 +22,11 @@ if 'ttg_rec_hook.h' not in s:
+     open(p, 'w').write(s)
+     print("hook inserted")
+ PY
++# Front-end recording tap (read-only copies of front_comb_calc locals; active only when $TTG_REC is set).
++cp "$ROOT/refhook/front_tap.h" "$REF/front-end/front_tap.h"
++if ! grep -q 'front_tap.h' "$REF/front-end/front_top.cpp"; then
++  (cd "$REF" && patch -p1 < "$ROOT/refhook/front_top_tap.patch") || { echo "front_top_tap.patch failed"; exit 1; }
++  echo "front tap inserted"
++fi
+ cd "$REF" && gmake LDFLAGS="-lz" -j8 2>&1 | grep -E " error|Linking|Nothing" || true
+ ls -la "$REF/build/simulator" | awk '{print $6,$7,$8,$9}'
