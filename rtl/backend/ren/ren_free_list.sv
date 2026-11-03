@@ -66,11 +66,12 @@ module ren_free_list
   end
 
   // ---- pointers. Ref: Ren::comb_fire end ----
-  // flush: head <- head_commit (after this cycle's commits); mispredict: head <- checkpoint, tail rolled back
-  // to its old value (C++ `free_tail_1 = free_tail`, so this cycle's reclaim is not appended; mirrors C++).
+  // flush: head <- head_commit (after this cycle's commits); mispredict: head <- checkpoint. Reclaim always
+  // appends at tail (C++ rolls tail back on mispredict, but only matters if a commit coincides with a mispredict,
+  // which makes the C++ free-list sanity check fail: unreachable, not replicated).
   always_comb begin
     head_commit_d = head_commit_q + preg_t'(reclaim_total);
-    tail_d        = (mispred & ~flush) ? tail_q : tail_q + preg_t'(reclaim_total);
+    tail_d        = tail_q + preg_t'(reclaim_total);
     if (flush)         head_d = head_commit_d;
     else if (mispred)  head_d = ckpt_head;
     else               head_d = head_q + preg_t'(alloc_count);

@@ -2,6 +2,8 @@
 `default_nettype none
 
 // Rename pipeline register: holds the decoded group until every valid slot has fired.
+// Payload of an invalid slot is don't-care (downstream only reads ren2dis fields while ren2dis_valid), so the
+// payload simply follows take_new and the resolved-branch bits are cleared from every slot unconditionally.
 module ren_inst_pipe
   import ttg_cfg_pkg::*;
   import ren_pkg::*;
@@ -25,32 +27,24 @@ module ren_inst_pipe
 
   assign valid = valid_q;
 
-  // priority: kill (keep payload, drop valid) > take_new (sample, clear mask unconditionally)
-  //           > hold (valid slots only get their mask cleared)
-  for (genvar i = 0; i < N; i++) begin : g_slot
-    always_comb begin
-      inst[i]    = inst_q[i];
-      inst_d[i]  = inst_q[i];
-      valid_d[i] = valid_q[i] & ~fire[i];
-      if (kill) begin
-        valid_d[i] = 1'b0;
-      end else if (take_new) begin
-        valid_d[i]         = dec_valid[i];
-        inst_d[i]          = dec_uop[i];
-        inst_d[i].br_mask  = dec_uop[i].br_mask & ~clear_mask;
-      end else if (valid_d[i]) begin
-        inst_d[i].br_mask  = inst_q[i].br_mask & ~clear_mask;
-      end
+  always_comb begin
+    for (int i = 0; i < N; i++) begin
+      inst[i]   = inst_q[i];
+      inst_d[i] = take_new ? dec_uop[i] : inst_q[i];
+      inst_d[i].br_mask = inst_d[i].br_mask & ~clear_mask;
     end
+    if (kill)          valid_d = '0;
+    else if (take_new) valid_d = dec_valid;
+    else               valid_d = valid_q & ~fire;
+  end
 
-    always_ff @(posedge clk) begin
-      if (!rst_n) begin
-        valid_q[i] <= 1'b0;
-        inst_q[i]  <= '0;
-      end else begin
-        valid_q[i] <= valid_d[i];
-        inst_q[i]  <= inst_d[i];
-      end
+  always_ff @(posedge clk) begin
+    if (!rst_n) begin
+      valid_q <= '0;
+      inst_q  <= '{default: '0};
+    end else begin
+      valid_q <= valid_d;
+      inst_q  <= inst_d;
     end
   end
 

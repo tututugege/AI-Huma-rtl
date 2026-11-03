@@ -7,8 +7,6 @@ package ren_pkg;
 
   // back-end/include/types.h: INST_TYPE_COUNT = 20 -> bit_width_for_count = 5
   localparam int INST_TYPE_WIDTH = 5;
-  // back-end/include/base_types.h
-  localparam int ROB_CPLT_MASK_WIDTH = 3;
   // architectural registers 0..ARF_NUM-1 plus one extra RAT entry (index ARF_NUM)
   localparam int RAT_NUM = ARF_NUM + 1;
   // InstType enum values used by Ren (types.h)
@@ -22,7 +20,8 @@ package ren_pkg;
   typedef logic [BR_MASK_WIDTH-1:0] br_mask_t;
   typedef preg_t [RAT_NUM-1:0] rat_t;
 
-  // one decoded instruction as held in the Rename pipeline register (DecRenIO::DecRenInst, no tma/dbg)
+  // one decoded instruction as held in the Rename pipeline register (DecRenIO::DecRenInst; only fields with a
+  // consumer: tma/dbg and the always-zero expect_mask/cplt_mask are dropped)
   typedef struct packed {
     logic [31:0] diag_val;
     areg_t dest_areg;
@@ -44,15 +43,33 @@ package ren_pkg;
     br_tag_t br_id;
     br_mask_t br_mask;
     logic [CSR_IDX_WIDTH-1:0] csr_idx;
-    logic [ROB_CPLT_MASK_WIDTH-1:0] expect_mask;
-    logic [ROB_CPLT_MASK_WIDTH-1:0] cplt_mask;
     logic page_fault_inst;
     logic illegal_inst;
   } ren_inst_t;
 
-  // renamed instruction sent to Dispatch (RenDisIO::RenDisInst; src*_busy are always 0 in Ren)
+  // renamed instruction sent to Dispatch: only the fields Dispatch/ROB/IQs consume (src*_areg, src*_busy, and
+  // the masks are not consumed downstream); meaningful only while ren2dis_valid
   typedef struct packed {
-    ren_inst_t inst;
+    logic [31:0] diag_val;
+    areg_t dest_areg;
+    logic [FTQ_IDX_WIDTH-1:0] ftq_idx;
+    logic [FTQ_OFFSET_WIDTH-1:0] ftq_offset;
+    logic ftq_is_last;
+    logic [INST_TYPE_WIDTH-1:0] inst_type;
+    logic dest_en;
+    logic src1_en;
+    logic src2_en;
+    logic is_atomic;
+    logic src1_is_pc;
+    logic src2_is_imm;
+    logic [2:0] func3;
+    logic [6:0] func7;
+    logic [31:0] imm;
+    br_tag_t br_id;
+    br_mask_t br_mask;
+    logic [CSR_IDX_WIDTH-1:0] csr_idx;
+    logic page_fault_inst;
+    logic illegal_inst;
     preg_t dest_preg;
     preg_t src1_preg;
     preg_t src2_preg;

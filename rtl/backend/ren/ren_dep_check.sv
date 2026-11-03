@@ -2,7 +2,8 @@
 `default_nettype none
 
 // Within one rename group, a source/old-dest that names the same areg as an older slot's destination takes that
-// slot's newly allocated preg instead of the RAT value; the nearest older writer wins; writes to x0 never bypass.
+// slot's newly allocated preg instead of the RAT value; the nearest older writer wins. (The decoder never sets
+// dest_en for x0, so no x0 special case is needed.)
 module ren_dep_check
   import ttg_cfg_pkg::*;
   import ren_pkg::*;
@@ -23,10 +24,10 @@ module ren_dep_check
   output preg_t        src2_preg [N]
 );
 
-  // older slot j can be bypassed from: valid, writes a register, and is not x0
+  // older slot j can be bypassed from: valid and writes a register
   logic [N-2:0] producer;     // the youngest slot is never an older producer
   for (genvar j = 0; j < N - 1; j++) begin : g_prod
-    assign producer[j] = inst_valid[j] & dest_en[j] & (dest_areg[j] != areg_t'(0));
+    assign producer[j] = inst_valid[j] & dest_en[j];
   end
 
   for (genvar i = 0; i < N; i++) begin : g_slot

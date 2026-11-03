@@ -115,8 +115,16 @@ module ren_core
   );
 
   for (genvar i = 0; i < N; i++) begin : g_out
-    assign ren2dis_uop[i] = '{inst: inst[i], dest_preg: alloc_reg[i], src1_preg: src1_preg[i],
-                              src2_preg: src2_preg[i], old_dest_preg: old_dest_preg[i]};
+    assign ren2dis_uop[i] = '{diag_val: inst[i].diag_val, dest_areg: inst[i].dest_areg, ftq_idx: inst[i].ftq_idx,
+                              ftq_offset: inst[i].ftq_offset, ftq_is_last: inst[i].ftq_is_last,
+                              inst_type: inst[i].inst_type, dest_en: inst[i].dest_en, src1_en: inst[i].src1_en,
+                              src2_en: inst[i].src2_en, is_atomic: inst[i].is_atomic,
+                              src1_is_pc: inst[i].src1_is_pc, src2_is_imm: inst[i].src2_is_imm,
+                              func3: inst[i].func3, func7: inst[i].func7, imm: inst[i].imm, br_id: inst[i].br_id,
+                              br_mask: inst[i].br_mask, csr_idx: inst[i].csr_idx,
+                              page_fault_inst: inst[i].page_fault_inst, illegal_inst: inst[i].illegal_inst,
+                              dest_preg: alloc_reg[i], src1_preg: src1_preg[i], src2_preg: src2_preg[i],
+                              old_dest_preg: old_dest_preg[i]};
   end
 
   // ---- commit side ----

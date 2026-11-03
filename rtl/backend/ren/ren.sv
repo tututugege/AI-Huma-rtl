@@ -29,8 +29,6 @@ module ren
   input  logic [BR_TAG_WIDTH-1:0] dec2ren_uop_br_id [DECODE_WIDTH],
   input  logic [BR_MASK_WIDTH-1:0] dec2ren_uop_br_mask [DECODE_WIDTH],
   input  logic [CSR_IDX_WIDTH-1:0] dec2ren_uop_csr_idx [DECODE_WIDTH],
-  input  logic [ROB_CPLT_MASK_WIDTH-1:0] dec2ren_uop_expect_mask [DECODE_WIDTH],
-  input  logic [ROB_CPLT_MASK_WIDTH-1:0] dec2ren_uop_cplt_mask [DECODE_WIDTH],
   input  logic dec2ren_uop_page_fault_inst [DECODE_WIDTH],
   input  logic dec2ren_uop_illegal_inst [DECODE_WIDTH],
   input  logic dec_bcast_mispred,
@@ -53,8 +51,6 @@ module ren
   output logic ren2dis_valid [DECODE_WIDTH],
   output logic [31:0] ren2dis_uop_diag_val [DECODE_WIDTH],
   output logic [AREG_IDX_WIDTH-1:0] ren2dis_uop_dest_areg [DECODE_WIDTH],
-  output logic [AREG_IDX_WIDTH-1:0] ren2dis_uop_src1_areg [DECODE_WIDTH],
-  output logic [AREG_IDX_WIDTH-1:0] ren2dis_uop_src2_areg [DECODE_WIDTH],
   output logic [FTQ_IDX_WIDTH-1:0] ren2dis_uop_ftq_idx [DECODE_WIDTH],
   output logic [FTQ_OFFSET_WIDTH-1:0] ren2dis_uop_ftq_offset [DECODE_WIDTH],
   output logic ren2dis_uop_ftq_is_last [DECODE_WIDTH],
@@ -71,16 +67,12 @@ module ren
   output logic [BR_TAG_WIDTH-1:0] ren2dis_uop_br_id [DECODE_WIDTH],
   output logic [BR_MASK_WIDTH-1:0] ren2dis_uop_br_mask [DECODE_WIDTH],
   output logic [CSR_IDX_WIDTH-1:0] ren2dis_uop_csr_idx [DECODE_WIDTH],
-  output logic [ROB_CPLT_MASK_WIDTH-1:0] ren2dis_uop_expect_mask [DECODE_WIDTH],
-  output logic [ROB_CPLT_MASK_WIDTH-1:0] ren2dis_uop_cplt_mask [DECODE_WIDTH],
   output logic ren2dis_uop_page_fault_inst [DECODE_WIDTH],
   output logic ren2dis_uop_illegal_inst [DECODE_WIDTH],
   output logic [PRF_IDX_WIDTH-1:0] ren2dis_uop_dest_preg [DECODE_WIDTH],
   output logic [PRF_IDX_WIDTH-1:0] ren2dis_uop_src1_preg [DECODE_WIDTH],
   output logic [PRF_IDX_WIDTH-1:0] ren2dis_uop_src2_preg [DECODE_WIDTH],
-  output logic [PRF_IDX_WIDTH-1:0] ren2dis_uop_old_dest_preg [DECODE_WIDTH],
-  output logic ren2dis_uop_src1_busy [DECODE_WIDTH],
-  output logic ren2dis_uop_src2_busy [DECODE_WIDTH]
+  output logic [PRF_IDX_WIDTH-1:0] ren2dis_uop_old_dest_preg [DECODE_WIDTH]
 );
 
   logic [DECODE_WIDTH-1:0] dec_valid;
@@ -112,42 +104,33 @@ diag_val: dec2ren_uop_diag_val[i],
                           br_id: dec2ren_uop_br_id[i],
                           br_mask: dec2ren_uop_br_mask[i],
                           csr_idx: dec2ren_uop_csr_idx[i],
-                          expect_mask: dec2ren_uop_expect_mask[i],
-                          cplt_mask: dec2ren_uop_cplt_mask[i],
                           page_fault_inst: dec2ren_uop_page_fault_inst[i],
                           illegal_inst: dec2ren_uop_illegal_inst[i]};
-
     assign ren2dis_valid[i] = out_valid[i];
-    assign ren2dis_uop_diag_val[i] = out_uop[i].inst.diag_val;
-    assign ren2dis_uop_dest_areg[i] = out_uop[i].inst.dest_areg;
-    assign ren2dis_uop_src1_areg[i] = out_uop[i].inst.src1_areg;
-    assign ren2dis_uop_src2_areg[i] = out_uop[i].inst.src2_areg;
-    assign ren2dis_uop_ftq_idx[i] = out_uop[i].inst.ftq_idx;
-    assign ren2dis_uop_ftq_offset[i] = out_uop[i].inst.ftq_offset;
-    assign ren2dis_uop_ftq_is_last[i] = out_uop[i].inst.ftq_is_last;
-    assign ren2dis_uop_type[i] = out_uop[i].inst.inst_type;
-    assign ren2dis_uop_dest_en[i] = out_uop[i].inst.dest_en;
-    assign ren2dis_uop_src1_en[i] = out_uop[i].inst.src1_en;
-    assign ren2dis_uop_src2_en[i] = out_uop[i].inst.src2_en;
-    assign ren2dis_uop_is_atomic[i] = out_uop[i].inst.is_atomic;
-    assign ren2dis_uop_src1_is_pc[i] = out_uop[i].inst.src1_is_pc;
-    assign ren2dis_uop_src2_is_imm[i] = out_uop[i].inst.src2_is_imm;
-    assign ren2dis_uop_func3[i] = out_uop[i].inst.func3;
-    assign ren2dis_uop_func7[i] = out_uop[i].inst.func7;
-    assign ren2dis_uop_imm[i] = out_uop[i].inst.imm;
-    assign ren2dis_uop_br_id[i] = out_uop[i].inst.br_id;
-    assign ren2dis_uop_br_mask[i] = out_uop[i].inst.br_mask;
-    assign ren2dis_uop_csr_idx[i] = out_uop[i].inst.csr_idx;
-    assign ren2dis_uop_expect_mask[i] = out_uop[i].inst.expect_mask;
-    assign ren2dis_uop_cplt_mask[i] = out_uop[i].inst.cplt_mask;
-    assign ren2dis_uop_page_fault_inst[i] = out_uop[i].inst.page_fault_inst;
-    assign ren2dis_uop_illegal_inst[i] = out_uop[i].inst.illegal_inst;
+    assign ren2dis_uop_diag_val[i] = out_uop[i].diag_val;
+    assign ren2dis_uop_dest_areg[i] = out_uop[i].dest_areg;
+    assign ren2dis_uop_ftq_idx[i] = out_uop[i].ftq_idx;
+    assign ren2dis_uop_ftq_offset[i] = out_uop[i].ftq_offset;
+    assign ren2dis_uop_ftq_is_last[i] = out_uop[i].ftq_is_last;
+    assign ren2dis_uop_type[i] = out_uop[i].inst_type;
+    assign ren2dis_uop_dest_en[i] = out_uop[i].dest_en;
+    assign ren2dis_uop_src1_en[i] = out_uop[i].src1_en;
+    assign ren2dis_uop_src2_en[i] = out_uop[i].src2_en;
+    assign ren2dis_uop_is_atomic[i] = out_uop[i].is_atomic;
+    assign ren2dis_uop_src1_is_pc[i] = out_uop[i].src1_is_pc;
+    assign ren2dis_uop_src2_is_imm[i] = out_uop[i].src2_is_imm;
+    assign ren2dis_uop_func3[i] = out_uop[i].func3;
+    assign ren2dis_uop_func7[i] = out_uop[i].func7;
+    assign ren2dis_uop_imm[i] = out_uop[i].imm;
+    assign ren2dis_uop_br_id[i] = out_uop[i].br_id;
+    assign ren2dis_uop_br_mask[i] = out_uop[i].br_mask;
+    assign ren2dis_uop_csr_idx[i] = out_uop[i].csr_idx;
+    assign ren2dis_uop_page_fault_inst[i] = out_uop[i].page_fault_inst;
+    assign ren2dis_uop_illegal_inst[i] = out_uop[i].illegal_inst;
     assign ren2dis_uop_dest_preg[i] = out_uop[i].dest_preg;
     assign ren2dis_uop_src1_preg[i] = out_uop[i].src1_preg;
     assign ren2dis_uop_src2_preg[i] = out_uop[i].src2_preg;
     assign ren2dis_uop_old_dest_preg[i] = out_uop[i].old_dest_preg;
-    assign ren2dis_uop_src1_busy[i] = 1'b0;  // Ren never sets the busy bits (Dispatch fills them)
-    assign ren2dis_uop_src2_busy[i] = 1'b0;
   end
 
   for (genvar k = 0; k < COMMIT_WIDTH; k++) begin : g_commit
