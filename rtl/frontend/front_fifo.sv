@@ -31,7 +31,6 @@ module front_fifo #(
   localparam int CNT_W = $clog2(DEPTH + 1);
 
   logic [W-1:0]     mem_q [DEPTH];
-  logic [W-1:0]     mem_d [DEPTH];
   logic [PTR_W-1:0] rd_ptr_q;
   logic [PTR_W-1:0] rd_ptr_d;
   logic [PTR_W-1:0] wr_ptr_q;
@@ -52,7 +51,6 @@ module front_fifo #(
     wr_ptr_d          = wr_ptr_q + PTR_W'(wr_en);
     // after a clear the queue is empty, so the read pointer meets the write pointer (a push lands on the head)
     rd_ptr_d          = clear ? wr_ptr_q : rd_ptr_q + PTR_W'(rd_valid);
-    for (int s = 0; s < DEPTH; s++) mem_d[s] = (wr_en && wr_ptr_q == PTR_W'(s)) ? wdata : mem_q[s];
   end
 
   always_ff @(posedge clk) begin
@@ -60,13 +58,16 @@ module front_fifo #(
       rd_ptr_q <= '0;
       wr_ptr_q <= '0;
       count_q  <= '0;
-      for (int s = 0; s < DEPTH; s++) mem_q[s] <= '0;
     end else begin
       rd_ptr_q <= rd_ptr_d;
       wr_ptr_q <= wr_ptr_d;
       count_q  <= count_d;
-      for (int s = 0; s < DEPTH; s++) mem_q[s] <= mem_d[s];
     end
+  end
+
+  // Storage: written like a memory (no reset: only entries between rd_ptr and wr_ptr are ever read as valid data)
+  always_ff @(posedge clk) begin
+    if (wr_en) mem_q[wr_ptr_q] <= wdata;
   end
 
 `ifndef SYNTHESIS
