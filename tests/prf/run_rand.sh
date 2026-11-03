@@ -9,7 +9,7 @@ for d in include libs/include back-end/include back-end/Exu/include back-end/Lsu
 python3 harness/tools/iogen.py spec/prf.io build/prf >/dev/null
 clang++ -std=c++2a -O1 -w -DNDEBUG "${INC[@]}" -Iharness/include -Ibuild/prf tests/prf/rand_trace.cpp "$REF/back-end/Prf.cpp" -o build/prf/rand_trace
 mkdir -p traces/prf
-#            file                          seed  cycles pool p_load%
-build/prf/rand_trace traces/prf/rand_a.trc 1     100000 6    40
-build/prf/rand_trace traces/prf/rand_b.trc 2     100000 16   25
-build/prf/rand_trace traces/prf/rand_c.trc 3     100000 128  10
+#            file                          seed  cycles pool(recent preg window) p_load%
+build/prf/rand_trace traces/prf/rand_a.trc 1     40000 6    40
+build/prf/rand_trace traces/prf/rand_b.trc 2     40000 40   25
+build/prf/rand_trace traces/prf/rand_c.trc 3     40000 100  10

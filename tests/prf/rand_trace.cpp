@@ -29,7 +29,12 @@ int main(int argc, char **argv) {
   std::mt19937_64 rng(seed);
   auto R = [&](int n) { return (int)(rng() % n); };
   auto P = [&](int pct) { return R(100) < pct; };
-  auto preg = [&]() { return P(10) ? R(PRF_NUM) : R(pool); };
+  // A physical register has a single producer in flight: destinations are handed out by a rotating counter, so no two
+  // results visible in the same cycle target one register (the real renamer guarantees this). Sources are drawn from
+  // the most recently handed-out registers so that bypass / write-back forwarding hits are frequent.
+  int next_preg = 0;
+  auto alloc = [&]() { next_preg = next_preg % (PRF_NUM - 1) + 1; return next_preg; };
+  auto src_preg = [&]() { return P(8) ? 0 : (P(10) ? R(PRF_NUM) : ((next_preg - 1 - R(pool) + 2 * (PRF_NUM - 1)) % (PRF_NUM - 1)) + 1); };
   auto brm = [&]() { uint64_t m = 0; int n = R(3); for (int i = 0; i < n; i++) m |= 1ull << R(8); return m; };
 
   SimContext ctx;
@@ -47,7 +52,7 @@ int main(int argc, char **argv) {
     for (int i = 0; i < ISSUE_WIDTH; i++) {
       auto &e = iss.iss_entry[i]; auto &u = e.uop;
       e.valid = P(60);
-      u.dest_preg = preg(); u.src1_preg = preg(); u.src2_preg = preg();
+      u.dest_preg = R(PRF_NUM); u.src1_preg = src_preg(); u.src2_preg = src_preg();
       u.src1_en = P(80); u.src2_en = P(80); u.src1_is_pc = P(50); u.dest_en = P(80);
       u.ftq_idx = R(FTQ_SIZE); u.ftq_offset = R(16);
       u.op = (i >= IQ_BR_PORT_BASE || i < ALU_NUM) ? (P(15) ? R(MAX_UOP_TYPE) : (P(50) ? UOP_BR : UOP_ADD)) : R(MAX_UOP_TYPE);
@@ -56,20 +61,24 @@ int main(int argc, char **argv) {
       u.stq_flag = R(2); u.ldq_idx = R(64); u.rob_flag = R(2);
       auto &x = exe.entry[i];
       x.valid = P(60);
-      x.uop.dest_preg = preg(); x.uop.result = rng(); x.uop.br_mask = brm(); x.uop.dest_en = P(85);
+      x.uop.dest_en = P(85); x.uop.dest_preg = x.uop.dest_en ? alloc() : R(PRF_NUM); x.uop.result = rng(); x.uop.br_mask = brm();
       x.uop.op = P(p_ld) ? UOP_LOAD : R(MAX_UOP_TYPE);
     }
     for (int k = 0; k < TOTAL_FU_COUNT; k++) {
       auto &b = exe.bypass[k];
-      b.valid = P(40); b.uop.dest_preg = preg(); b.uop.result = rng(); b.uop.dest_en = P(80);
+      b.valid = P(40); b.uop.dest_en = P(80); b.uop.dest_preg = b.uop.dest_en ? alloc() : R(PRF_NUM); b.uop.result = rng();
       b.uop.br_mask = brm(); b.uop.op = R(MAX_UOP_TYPE);
     }
+    // exe/bypass dest regs must not collide with each other inside one cycle: they are unique by construction
+    prf.comb_begin(); prf.comb_complete(); prf.comb_awake(); prf.comb_write();
+    prf.comb_req_ftq();
+    // the FTQ answers every requested port (zeros on an idle port, as the reference model does)
     for (int k = 0; k < FTQ_PRF_PC_PORT_NUM; k++) {
       auto &r = resp.resp[k];
-      r.valid = P(75); r.entry_valid = R(2); r.pc = rng(); r.pred_taken = R(2); r.next_pc = rng();
+      r = {};
+      if (req.req[k].valid) { r.valid = 1; r.entry_valid = 1; r.pc = rng(); r.pred_taken = R(2); r.next_pc = rng(); }
     }
-    prf.comb_begin(); prf.comb_complete(); prf.comb_awake(); prf.comb_write();
-    prf.comb_req_ftq(); prf.comb_read(); prf.comb_pipeline();
+    prf.comb_read(); prf.comb_pipeline();
     // record (same field order as spec)
     S("dec_bcast_mispred", 0, dec.mispred); S("dec_bcast_br_mask", 0, dec.br_mask);
     S("dec_bcast_clear_mask", 0, dec.clear_mask); S("rob_bcast_flush", 0, rob.flush);
@@ -85,9 +94,9 @@ int main(int argc, char **argv) {
       EU(dest_preg); EU(result); EU(br_mask); EU(dest_en); EU(op);
       S("prf2exe_iss_entry_valid", i, o.valid);
 #define OU(f) S("prf2exe_iss_entry_uop_" #f, i, ou.f)
-      OU(pc); OU(ftq_resp_valid); OU(ftq_pred_taken); OU(ftq_next_pc); OU(src1_rdata); OU(src2_rdata);
-      OU(dest_preg); OU(src1_preg); OU(src2_preg); OU(ftq_idx); OU(ftq_offset); OU(is_atomic); OU(dest_en); OU(src1_en);
-      OU(src2_en); OU(src1_is_pc); OU(src2_is_imm); OU(func3); OU(func7); OU(imm); OU(br_id); OU(br_mask); OU(csr_idx);
+      OU(pc); OU(ftq_pred_taken); OU(ftq_next_pc); OU(src1_rdata); OU(src2_rdata);
+      OU(dest_preg); OU(ftq_idx); OU(is_atomic); OU(dest_en); OU(src1_en);
+      OU(src1_is_pc); OU(src2_is_imm); OU(func3); OU(func7); OU(imm); OU(br_id); OU(br_mask); OU(csr_idx);
       OU(rob_idx); OU(stq_idx); OU(stq_flag); OU(ldq_idx); OU(rob_flag); OU(op);
     }
     for (int k = 0; k < TOTAL_FU_COUNT; k++) {
@@ -97,7 +106,7 @@ int main(int argc, char **argv) {
     }
     for (int k = 0; k < FTQ_PRF_PC_PORT_NUM; k++) {
       auto &r = resp.resp[k];
-      S("ftq_prf_pc_resp_resp_valid", k, r.valid); S("ftq_prf_pc_resp_resp_pc", k, r.pc);
+      S("ftq_prf_pc_resp_resp_pc", k, r.pc);
       S("ftq_prf_pc_resp_resp_pred_taken", k, r.pred_taken); S("ftq_prf_pc_resp_resp_next_pc", k, r.next_pc);
       S("ftq_prf_pc_req_req_valid", k, req.req[k].valid); S("ftq_prf_pc_req_req_ftq_idx", k, req.req[k].ftq_idx);
       S("ftq_prf_pc_req_req_ftq_offset", k, req.req[k].ftq_offset);

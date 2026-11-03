@@ -47,7 +47,6 @@ module prf import ttg_cfg_pkg::*; #(
   input  logic [PRF_IDX_WIDTH-1:0] exe2prf_bypass_uop_dest_preg [TOTAL_FU_COUNT],
   input  logic [31:0] exe2prf_bypass_uop_result [TOTAL_FU_COUNT],
   input  logic exe2prf_bypass_uop_dest_en [TOTAL_FU_COUNT],
-  input  logic ftq_prf_pc_resp_resp_valid [FTQ_PRF_PC_PORT_NUM],
   input  logic [31:0] ftq_prf_pc_resp_resp_pc [FTQ_PRF_PC_PORT_NUM],
   input  logic ftq_prf_pc_resp_resp_pred_taken [FTQ_PRF_PC_PORT_NUM],
   input  logic [31:0] ftq_prf_pc_resp_resp_next_pc [FTQ_PRF_PC_PORT_NUM],
@@ -58,20 +57,15 @@ module prf import ttg_cfg_pkg::*; #(
   output logic [PRF_IDX_WIDTH-1:0] prf_awake_wake_preg [LSU_LOAD_WB_WIDTH],
   output logic prf2exe_iss_entry_valid [ISSUE_WIDTH],
   output logic [31:0] prf2exe_iss_entry_uop_pc [ISSUE_WIDTH],
-  output logic prf2exe_iss_entry_uop_ftq_resp_valid [ISSUE_WIDTH],
   output logic prf2exe_iss_entry_uop_ftq_pred_taken [ISSUE_WIDTH],
   output logic [31:0] prf2exe_iss_entry_uop_ftq_next_pc [ISSUE_WIDTH],
   output logic [31:0] prf2exe_iss_entry_uop_src1_rdata [ISSUE_WIDTH],
   output logic [31:0] prf2exe_iss_entry_uop_src2_rdata [ISSUE_WIDTH],
   output logic [PRF_IDX_WIDTH-1:0] prf2exe_iss_entry_uop_dest_preg [ISSUE_WIDTH],
-  output logic [PRF_IDX_WIDTH-1:0] prf2exe_iss_entry_uop_src1_preg [ISSUE_WIDTH],
-  output logic [PRF_IDX_WIDTH-1:0] prf2exe_iss_entry_uop_src2_preg [ISSUE_WIDTH],
   output logic [FTQ_IDX_WIDTH-1:0] prf2exe_iss_entry_uop_ftq_idx [ISSUE_WIDTH],
-  output logic [FTQ_OFFSET_WIDTH-1:0] prf2exe_iss_entry_uop_ftq_offset [ISSUE_WIDTH],
   output logic prf2exe_iss_entry_uop_is_atomic [ISSUE_WIDTH],
   output logic prf2exe_iss_entry_uop_dest_en [ISSUE_WIDTH],
   output logic prf2exe_iss_entry_uop_src1_en [ISSUE_WIDTH],
-  output logic prf2exe_iss_entry_uop_src2_en [ISSUE_WIDTH],
   output logic prf2exe_iss_entry_uop_src1_is_pc [ISSUE_WIDTH],
   output logic prf2exe_iss_entry_uop_src2_is_imm [ISSUE_WIDTH],
   output logic [2:0] prf2exe_iss_entry_uop_func3 [ISSUE_WIDTH],
@@ -89,118 +83,88 @@ module prf import ttg_cfg_pkg::*; #(
 );
 
   localparam int LANES = ISSUE_WIDTH;
+  localparam logic [UOP_TYPE_WIDTH-1:0] UOP_LOAD = UOP_TYPE_WIDTH'(3);   // enum UopType: UOP_LOAD
 
-  // ---- adaptation: per-lane vectors / [src][lane] arrays ----
-  logic                     src_en_arr   [2][LANES];
-  logic [PRF_IDX_WIDTH-1:0] src_preg_arr [2][LANES];
-  logic [31:0]              rf_rdata     [2][LANES];
-  logic [31:0]              src_rdata    [2][LANES];
-
-  logic [LANES-1:0]         wb_valid_q;
-  logic [LANES-1:0]         wb_dest_en_q;
-  logic [PRF_IDX_WIDTH-1:0] wb_dest_preg_q [LANES];
-  logic [31:0]              wb_result_q    [LANES];
-  logic [BR_MASK_WIDTH-1:0] wb_br_mask_q   [LANES];
-  logic [UOP_TYPE_WIDTH-1:0] wb_op_q       [LANES];
-
-  logic [TOTAL_FU_COUNT-1:0] fu_valid_vec;
-  logic [TOTAL_FU_COUNT-1:0] fu_dest_en_vec;
-
-  logic [FTQ_PRF_PC_PORT_NUM-1:0] resp_valid_vec;
-  logic [FTQ_PRF_PC_PORT_NUM-1:0] resp_pred_taken_vec;
+  // ---- adaptation: per-lane vectors and [src][lane] arrays ----
+  logic [LANES-1:0]          exe_valid_vec, exe_dest_en_vec, exe_is_load_vec;
+  logic [LANES-1:0]          wb_wen_q, wb_is_load_q;
+  logic [PRF_IDX_WIDTH-1:0]  wb_dest_preg_q [LANES];
+  logic [31:0]               wb_result_q    [LANES];
+  logic [BR_MASK_WIDTH-1:0]  wb_br_mask_q   [LANES];
+  logic [TOTAL_FU_COUNT-1:0] fu_wen_vec;
+  logic                      src_en_arr   [2][LANES];
+  logic [PRF_IDX_WIDTH-1:0]  src_preg_arr [2][LANES];
+  logic [31:0]               rf_rdata     [2][LANES];
+  logic [31:0]               src_rdata    [2][LANES];
+  logic [PRF_NUM-1:0]        reg_wr_en;
+  logic [31:0]               reg_wr_data  [PRF_NUM];
+  logic [ALU_NUM-1:0]        alu_valid_vec, alu_src1_is_pc_vec;
+  logic [BRU_NUM-1:0]        br_valid_vec;
+  logic [UOP_TYPE_WIDTH-1:0] alu_op [ALU_NUM];
+  logic [UOP_TYPE_WIDTH-1:0] br_op  [BRU_NUM];
   logic [FTQ_PRF_PC_PORT_NUM-1:0] req_valid_vec;
-  logic [LANES-1:0]               lane_ftq_resp_valid;
-  logic [LANES-1:0]               lane_ftq_pred_taken;
-  logic [31:0]                    lane_pc          [LANES];
-  logic [31:0]                    lane_ftq_next_pc [LANES];
   logic [LSU_LOAD_WB_WIDTH-1:0]   wake_valid_vec;
 
-  logic [PRF_NUM-1:0]       reg_wr_en;
-  logic [31:0]              reg_wr_data [PRF_NUM];
-
-  for (genvar i = 0; i < LANES; i++) begin : g_adapt
-    assign src_en_arr[0][i]        = iss2prf_iss_entry_uop_src1_en[i];
-    assign src_en_arr[1][i]        = iss2prf_iss_entry_uop_src2_en[i];
-    assign src_preg_arr[0][i]      = iss2prf_iss_entry_uop_src1_preg[i];
-    assign src_preg_arr[1][i]      = iss2prf_iss_entry_uop_src2_preg[i];
+  for (genvar i = 0; i < LANES; i++) begin : g_lane
+    assign exe_valid_vec[i]   = exe2prf_entry_valid[i];
+    assign exe_dest_en_vec[i] = exe2prf_entry_uop_dest_en[i];
+    assign exe_is_load_vec[i] = exe2prf_entry_uop_op[i] == UOP_LOAD;
+    assign src_en_arr[0][i]   = iss2prf_iss_entry_uop_src1_en[i];
+    assign src_en_arr[1][i]   = iss2prf_iss_entry_uop_src2_en[i];
+    assign src_preg_arr[0][i] = iss2prf_iss_entry_uop_src1_preg[i];
+    assign src_preg_arr[1][i] = iss2prf_iss_entry_uop_src2_preg[i];
     assign prf2exe_iss_entry_valid[i]          = iss2prf_iss_entry_valid[i];
-    assign prf2exe_iss_entry_uop_pc[i]         = lane_pc[i];
-    assign prf2exe_iss_entry_uop_ftq_resp_valid[i] = lane_ftq_resp_valid[i];
-    assign prf2exe_iss_entry_uop_ftq_pred_taken[i] = lane_ftq_pred_taken[i];
-    assign prf2exe_iss_entry_uop_ftq_next_pc[i]    = lane_ftq_next_pc[i];
     assign prf2exe_iss_entry_uop_src1_rdata[i] = src_rdata[0][i];
     assign prf2exe_iss_entry_uop_src2_rdata[i] = src_rdata[1][i];
-      assign prf2exe_iss_entry_uop_dest_preg[i] = iss2prf_iss_entry_uop_dest_preg[i];
-      assign prf2exe_iss_entry_uop_src1_preg[i] = iss2prf_iss_entry_uop_src1_preg[i];
-      assign prf2exe_iss_entry_uop_src2_preg[i] = iss2prf_iss_entry_uop_src2_preg[i];
-      assign prf2exe_iss_entry_uop_ftq_idx[i] = iss2prf_iss_entry_uop_ftq_idx[i];
-      assign prf2exe_iss_entry_uop_ftq_offset[i] = iss2prf_iss_entry_uop_ftq_offset[i];
-      assign prf2exe_iss_entry_uop_is_atomic[i] = iss2prf_iss_entry_uop_is_atomic[i];
-      assign prf2exe_iss_entry_uop_dest_en[i] = iss2prf_iss_entry_uop_dest_en[i];
-      assign prf2exe_iss_entry_uop_src1_en[i] = iss2prf_iss_entry_uop_src1_en[i];
-      assign prf2exe_iss_entry_uop_src2_en[i] = iss2prf_iss_entry_uop_src2_en[i];
-      assign prf2exe_iss_entry_uop_src1_is_pc[i] = iss2prf_iss_entry_uop_src1_is_pc[i];
-      assign prf2exe_iss_entry_uop_src2_is_imm[i] = iss2prf_iss_entry_uop_src2_is_imm[i];
-      assign prf2exe_iss_entry_uop_func3[i] = iss2prf_iss_entry_uop_func3[i];
-      assign prf2exe_iss_entry_uop_func7[i] = iss2prf_iss_entry_uop_func7[i];
-      assign prf2exe_iss_entry_uop_imm[i] = iss2prf_iss_entry_uop_imm[i];
-      assign prf2exe_iss_entry_uop_br_id[i] = iss2prf_iss_entry_uop_br_id[i];
-      assign prf2exe_iss_entry_uop_br_mask[i] = iss2prf_iss_entry_uop_br_mask[i];
-      assign prf2exe_iss_entry_uop_csr_idx[i] = iss2prf_iss_entry_uop_csr_idx[i];
-      assign prf2exe_iss_entry_uop_rob_idx[i] = iss2prf_iss_entry_uop_rob_idx[i];
-      assign prf2exe_iss_entry_uop_stq_idx[i] = iss2prf_iss_entry_uop_stq_idx[i];
-      assign prf2exe_iss_entry_uop_stq_flag[i] = iss2prf_iss_entry_uop_stq_flag[i];
-      assign prf2exe_iss_entry_uop_ldq_idx[i] = iss2prf_iss_entry_uop_ldq_idx[i];
-      assign prf2exe_iss_entry_uop_rob_flag[i] = iss2prf_iss_entry_uop_rob_flag[i];
-      assign prf2exe_iss_entry_uop_op[i] = iss2prf_iss_entry_uop_op[i];
+    assign prf2exe_iss_entry_uop_dest_preg[i] = iss2prf_iss_entry_uop_dest_preg[i];
+    assign prf2exe_iss_entry_uop_ftq_idx[i] = iss2prf_iss_entry_uop_ftq_idx[i];
+    assign prf2exe_iss_entry_uop_is_atomic[i] = iss2prf_iss_entry_uop_is_atomic[i];
+    assign prf2exe_iss_entry_uop_dest_en[i] = iss2prf_iss_entry_uop_dest_en[i];
+    assign prf2exe_iss_entry_uop_src1_en[i] = iss2prf_iss_entry_uop_src1_en[i];
+    assign prf2exe_iss_entry_uop_src1_is_pc[i] = iss2prf_iss_entry_uop_src1_is_pc[i];
+    assign prf2exe_iss_entry_uop_src2_is_imm[i] = iss2prf_iss_entry_uop_src2_is_imm[i];
+    assign prf2exe_iss_entry_uop_func3[i] = iss2prf_iss_entry_uop_func3[i];
+    assign prf2exe_iss_entry_uop_func7[i] = iss2prf_iss_entry_uop_func7[i];
+    assign prf2exe_iss_entry_uop_imm[i] = iss2prf_iss_entry_uop_imm[i];
+    assign prf2exe_iss_entry_uop_br_id[i] = iss2prf_iss_entry_uop_br_id[i];
+    assign prf2exe_iss_entry_uop_br_mask[i] = iss2prf_iss_entry_uop_br_mask[i];
+    assign prf2exe_iss_entry_uop_csr_idx[i] = iss2prf_iss_entry_uop_csr_idx[i];
+    assign prf2exe_iss_entry_uop_rob_idx[i] = iss2prf_iss_entry_uop_rob_idx[i];
+    assign prf2exe_iss_entry_uop_stq_idx[i] = iss2prf_iss_entry_uop_stq_idx[i];
+    assign prf2exe_iss_entry_uop_stq_flag[i] = iss2prf_iss_entry_uop_stq_flag[i];
+    assign prf2exe_iss_entry_uop_ldq_idx[i] = iss2prf_iss_entry_uop_ldq_idx[i];
+    assign prf2exe_iss_entry_uop_rob_flag[i] = iss2prf_iss_entry_uop_rob_flag[i];
+    assign prf2exe_iss_entry_uop_op[i] = iss2prf_iss_entry_uop_op[i];
   end
-
   for (genvar k = 0; k < TOTAL_FU_COUNT; k++) begin : g_fu
-    assign fu_valid_vec[k]   = exe2prf_bypass_valid[k];
-    assign fu_dest_en_vec[k] = exe2prf_bypass_uop_dest_en[k];
+    assign fu_wen_vec[k] = exe2prf_bypass_valid[k] && exe2prf_bypass_uop_dest_en[k];
   end
-
-  for (genvar k = 0; k < FTQ_PRF_PC_PORT_NUM; k++) begin : g_port
-    assign resp_valid_vec[k]       = ftq_prf_pc_resp_resp_valid[k];
-    assign resp_pred_taken_vec[k]  = ftq_prf_pc_resp_resp_pred_taken[k];
-    assign ftq_prf_pc_req_req_valid[k] = req_valid_vec[k];
-  end
-
   for (genvar k = 0; k < LSU_LOAD_WB_WIDTH; k++) begin : g_wake
     assign prf_awake_wake_valid[k] = wake_valid_vec[k];
   end
 
-  // ---- write-back stage registers ----
-  logic exe_valid_arr [LANES];
-  logic exe_dest_en_arr2 [LANES];
-  for (genvar i = 0; i < LANES; i++) begin : g_exe_arr
-    assign exe_valid_arr[i]    = exe2prf_entry_valid[i];
-    assign exe_dest_en_arr2[i] = exe2prf_entry_uop_dest_en[i];
-  end
-
-  prf_wb_pipe #(.UOP_TYPE_WIDTH(UOP_TYPE_WIDTH), .LANES(LANES)) u_wb_pipe (
+  // ---- write-back stage ----
+  prf_wb_pipe #(.LANES(LANES)) u_wb_pipe (
     .clk, .rst_n,
     .flush            (rob_bcast_flush),
     .bcast_mispred    (dec_bcast_mispred),
     .bcast_br_mask    (dec_bcast_br_mask),
     .bcast_clear_mask (dec_bcast_clear_mask),
-    .exe_valid        (exe_valid_arr),
+    .exe_valid        (exe_valid_vec),
+    .exe_dest_en      (exe_dest_en_vec),
+    .exe_is_load      (exe_is_load_vec),
     .exe_dest_preg    (exe2prf_entry_uop_dest_preg),
     .exe_result       (exe2prf_entry_uop_result),
     .exe_br_mask      (exe2prf_entry_uop_br_mask),
-    .exe_dest_en      (exe_dest_en_arr2),
-    .exe_op           (exe2prf_entry_uop_op),
-    .wb_valid_q, .wb_dest_preg_q, .wb_result_q, .wb_br_mask_q, .wb_dest_en_q, .wb_op_q
+    .wb_wen_q, .wb_is_load_q, .wb_dest_preg_q, .wb_result_q, .wb_br_mask_q
   );
 
-  // ---- register file + write arbitration ----
+  // ---- register file + write ports ----
   prf_write_arb #(.LANES(LANES), .NREG(PRF_NUM)) u_write_arb (
-    .wb_valid     (wb_valid_q),
-    .wb_dest_en   (wb_dest_en_q),
+    .wb_wen       (wb_wen_q),
     .wb_dest_preg (wb_dest_preg_q),
     .wb_result    (wb_result_q),
-    .reg_wr_en,
-    .reg_wr_data
+    .reg_wr_en, .reg_wr_data
   );
 
   prf_regfile #(.NREG(PRF_NUM), .LANES(LANES)) u_regfile (
@@ -209,102 +173,64 @@ module prf import ttg_cfg_pkg::*; #(
     .rd_data (rf_rdata)
   );
 
-  // ---- operand read with bypass ----
-  prf_read_ports #(.LANES(LANES), .FU_NUM(TOTAL_FU_COUNT)) u_read_ports (
-    .src_en       (src_en_arr),
-    .src_preg     (src_preg_arr),
-    .rf_data      (rf_rdata),
-    .wb_valid     (wb_valid_q),
-    .wb_dest_en   (wb_dest_en_q),
-    .wb_dest_preg (wb_dest_preg_q),
-    .wb_result    (wb_result_q),
-    .fu_valid     (fu_valid_vec),
-    .fu_dest_en   (fu_dest_en_vec),
-    .fu_dest_preg (exe2prf_bypass_uop_dest_preg),
-    .fu_result    (exe2prf_bypass_uop_result),
-    .rdata        (src_rdata)
-  );
+  // ---- operand read ports with bypass: 2 per issue lane ----
+  for (genvar s = 0; s < 2; s++) begin : g_src
+    for (genvar i = 0; i < LANES; i++) begin : g_rd
+      prf_bypass #(.WB_LANES(LANES), .FU_NUM(TOTAL_FU_COUNT)) u_bypass (
+        .src_en       (src_en_arr[s][i]),
+        .src_preg     (src_preg_arr[s][i]),
+        .rf_data      (rf_rdata[s][i]),
+        .wb_wen       (wb_wen_q),
+        .wb_dest_preg (wb_dest_preg_q),
+        .wb_result    (wb_result_q),
+        .fu_wen       (fu_wen_vec),
+        .fu_dest_preg (exe2prf_bypass_uop_dest_preg),
+        .fu_result    (exe2prf_bypass_uop_result),
+        .rdata        (src_rdata[s][i])
+      );
+    end
+  end
 
-  // ---- FTQ PC read ports (ALU lanes and branch lanes only) ----
-  logic [ALU_NUM-1:0]             alu_valid_vec, alu_src1_is_pc_vec, alu_ftq_resp_valid, alu_ftq_pred_taken;
-  logic [BRU_NUM-1:0]             br_valid_vec, br_ftq_resp_valid, br_ftq_pred_taken;
-  logic [UOP_TYPE_WIDTH-1:0]      alu_op [ALU_NUM];
-  logic [UOP_TYPE_WIDTH-1:0]      br_op  [BRU_NUM];
-  logic [FTQ_IDX_WIDTH-1:0]       alu_ftq_idx [ALU_NUM];
-  logic [FTQ_IDX_WIDTH-1:0]       br_ftq_idx  [BRU_NUM];
-  logic [FTQ_OFFSET_WIDTH-1:0]    alu_ftq_offset [ALU_NUM];
-  logic [FTQ_OFFSET_WIDTH-1:0]    br_ftq_offset  [BRU_NUM];
-  logic [31:0]                    alu_pc [ALU_NUM];
-  logic [31:0]                    alu_ftq_next_pc [ALU_NUM];
-  logic [31:0]                    br_pc  [BRU_NUM];
-  logic [31:0]                    br_ftq_next_pc  [BRU_NUM];
-
-  for (genvar i = 0; i < ALU_NUM; i++) begin : g_alu_in
+  // ---- FTQ PC read: ALU lanes -> ports 0.., branch lanes -> next ports; answers go straight back to the lane ----
+  for (genvar i = 0; i < ALU_NUM; i++) begin : g_alu_pc
     assign alu_valid_vec[i]      = iss2prf_iss_entry_valid[IQ_ALU_PORT_BASE+i];
     assign alu_src1_is_pc_vec[i] = iss2prf_iss_entry_uop_src1_is_pc[IQ_ALU_PORT_BASE+i];
     assign alu_op[i]             = iss2prf_iss_entry_uop_op[IQ_ALU_PORT_BASE+i];
-    assign alu_ftq_idx[i]        = iss2prf_iss_entry_uop_ftq_idx[IQ_ALU_PORT_BASE+i];
-    assign alu_ftq_offset[i]     = iss2prf_iss_entry_uop_ftq_offset[IQ_ALU_PORT_BASE+i];
   end
-  for (genvar i = 0; i < BRU_NUM; i++) begin : g_br_in
-    assign br_valid_vec[i]  = iss2prf_iss_entry_valid[IQ_BR_PORT_BASE+i];
-    assign br_op[i]         = iss2prf_iss_entry_uop_op[IQ_BR_PORT_BASE+i];
-    assign br_ftq_idx[i]    = iss2prf_iss_entry_uop_ftq_idx[IQ_BR_PORT_BASE+i];
-    assign br_ftq_offset[i] = iss2prf_iss_entry_uop_ftq_offset[IQ_BR_PORT_BASE+i];
+  for (genvar i = 0; i < BRU_NUM; i++) begin : g_br_pc
+    assign br_valid_vec[i] = iss2prf_iss_entry_valid[IQ_BR_PORT_BASE+i];
+    assign br_op[i]        = iss2prf_iss_entry_uop_op[IQ_BR_PORT_BASE+i];
   end
 
   prf_pc_port #(.UOP_TYPE_WIDTH(UOP_TYPE_WIDTH), .NALU(ALU_NUM), .NBR(BRU_NUM)) u_pc_port (
-    .alu_valid          (alu_valid_vec),
-    .alu_op,
-    .alu_src1_is_pc     (alu_src1_is_pc_vec),
-    .alu_ftq_idx,
-    .alu_ftq_offset,
-    .br_valid           (br_valid_vec),
-    .br_op,
-    .br_ftq_idx,
-    .br_ftq_offset,
-    .resp_valid         (resp_valid_vec),
-    .resp_pc            (ftq_prf_pc_resp_resp_pc),
-    .resp_pred_taken    (resp_pred_taken_vec),
-    .resp_next_pc       (ftq_prf_pc_resp_resp_next_pc),
-    .req_valid          (req_valid_vec),
-    .req_ftq_idx        (ftq_prf_pc_req_req_ftq_idx),
-    .req_ftq_offset     (ftq_prf_pc_req_req_ftq_offset),
-    .alu_pc,
-    .alu_ftq_resp_valid,
-    .alu_ftq_pred_taken,
-    .alu_ftq_next_pc,
-    .br_pc,
-    .br_ftq_resp_valid,
-    .br_ftq_pred_taken,
-    .br_ftq_next_pc
+    .alu_valid (alu_valid_vec), .alu_op, .alu_src1_is_pc (alu_src1_is_pc_vec),
+    .br_valid  (br_valid_vec),  .br_op,
+    .req_valid (req_valid_vec)
   );
 
-  // lanes outside the ALU / branch groups never get a PC answer
-  for (genvar i = 0; i < LANES; i++) begin : g_lane_pc
-    if (i >= IQ_ALU_PORT_BASE && i < IQ_ALU_PORT_BASE + ALU_NUM) begin : g_alu
-      assign lane_pc[i]             = alu_pc[i-IQ_ALU_PORT_BASE];
-      assign lane_ftq_resp_valid[i] = alu_ftq_resp_valid[i-IQ_ALU_PORT_BASE];
-      assign lane_ftq_pred_taken[i] = alu_ftq_pred_taken[i-IQ_ALU_PORT_BASE];
-      assign lane_ftq_next_pc[i]    = alu_ftq_next_pc[i-IQ_ALU_PORT_BASE];
-    end else if (i >= IQ_BR_PORT_BASE && i < IQ_BR_PORT_BASE + BRU_NUM) begin : g_br
-      assign lane_pc[i]             = br_pc[i-IQ_BR_PORT_BASE];
-      assign lane_ftq_resp_valid[i] = br_ftq_resp_valid[i-IQ_BR_PORT_BASE];
-      assign lane_ftq_pred_taken[i] = br_ftq_pred_taken[i-IQ_BR_PORT_BASE];
-      assign lane_ftq_next_pc[i]    = br_ftq_next_pc[i-IQ_BR_PORT_BASE];
-    end else begin : g_none
-      assign lane_pc[i]             = '0;
-      assign lane_ftq_resp_valid[i] = 1'b0;
-      assign lane_ftq_pred_taken[i] = 1'b0;
-      assign lane_ftq_next_pc[i]    = '0;
+  for (genvar p = 0; p < FTQ_PRF_PC_PORT_NUM; p++) begin : g_port
+    localparam int LANE = (p < ALU_NUM) ? IQ_ALU_PORT_BASE + p : IQ_BR_PORT_BASE + (p - ALU_NUM);
+    assign ftq_prf_pc_req_req_valid[p]      = req_valid_vec[p];
+    assign ftq_prf_pc_req_req_ftq_idx[p]    = iss2prf_iss_entry_uop_ftq_idx[LANE];
+    assign ftq_prf_pc_req_req_ftq_offset[p] = iss2prf_iss_entry_uop_ftq_offset[LANE];
+    assign prf2exe_iss_entry_uop_pc[LANE]             = ftq_prf_pc_resp_resp_pc[p];
+    assign prf2exe_iss_entry_uop_ftq_pred_taken[LANE] = ftq_prf_pc_resp_resp_pred_taken[p];
+    assign prf2exe_iss_entry_uop_ftq_next_pc[LANE]    = ftq_prf_pc_resp_resp_next_pc[p];
+  end
+  // lanes without a PC port never receive a PC
+  for (genvar i = 0; i < LANES; i++) begin : g_nopc
+    if (!((i >= IQ_ALU_PORT_BASE && i < IQ_ALU_PORT_BASE + ALU_NUM) ||
+          (i >= IQ_BR_PORT_BASE && i < IQ_BR_PORT_BASE + BRU_NUM))) begin : g_tie
+      assign prf2exe_iss_entry_uop_pc[i]             = '0;
+      assign prf2exe_iss_entry_uop_ftq_pred_taken[i] = 1'b0;
+      assign prf2exe_iss_entry_uop_ftq_next_pc[i]    = '0;
     end
   end
 
   // ---- load wake-up ----
-  prf_awake #(.UOP_TYPE_WIDTH(UOP_TYPE_WIDTH), .LANES(LANES), .WAKE_NUM(LSU_LOAD_WB_WIDTH)) u_awake (
-    .wb_valid       (wb_valid_q),
-    .wb_dest_en     (wb_dest_en_q),
-    .wb_op          (wb_op_q),
+  prf_awake #(.LANES(LANES), .WAKE_NUM(LSU_LOAD_WB_WIDTH)) u_awake (
+    .wb_wen         (wb_wen_q),
+    .wb_is_load     (wb_is_load_q),
     .wb_dest_preg   (wb_dest_preg_q),
     .wb_br_mask     (wb_br_mask_q),
     .bcast_mispred  (dec_bcast_mispred),
