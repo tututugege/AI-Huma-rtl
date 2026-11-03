@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Whole-program lock-step of MANY modules at once: one reference run per program checks every module in the same pass.
 #   usage: lockstep_multi.sh <module>...           env: PROGS (file with one .bin per line; default: all gate + vm + big),
-#                                                     BIG_CYCLES (default 4000000), JOBS (programs in parallel, default 3), NOBUILD=1
+#                                                     BIG_CYCLES (default 300000: dhrystone/coremark are truncated, gate programs are shorter), JOBS (programs in parallel, default 3), NOBUILD=1
 # Needs REFSIM=<tree built with the multi-plugin hook> (default: refsim_tap).  Result matrix: build/lockstep_multi.csv
 set -uo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 export REFSIM=${REFSIM:-$ROOT/refsim_tap}
-BIG=${BIG_CYCLES:-4000000}
+BIG=${BIG_CYCLES:-300000}
 MODS=("$@")
 G=/Users/ruyaoh/personal/tututugege-trace/build
 if [ -z "${NOBUILD:-}" ]; then

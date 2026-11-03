@@ -25,6 +25,7 @@ SCREEN = [G + '/tests/smc-div/smc-div.bin', G + '/vm/vm-sum-fetch-test/vm_sum_fe
           G + '/vm/vm-pagefault-test/vm_pagefault_test.bin', G + '/tests/add-longlong/add-longlong.bin',
           G + '/tests/atomic-boundary/atomic-boundary.bin', G + '/tests/interrupt-vectored/interrupt-vectored.bin',
           '/tmp/big/dhrystone.bin']
+FULL_CAP = int(os.environ.get('FULL_CAP', '300000'))   # survivors: whole set but capped (a mutant that needs 4M cycles to show is a coverage gap anyway)
 SCREEN_CAP = {'/tmp/big/dhrystone.bin': 300000}
 
 # (name, file, old, new)  -- every `old` must occur in the file
@@ -128,7 +129,7 @@ def do_mutant(m, env, workdir, full):
         for prog in SCREEN:
             if not os.path.exists(prog):
                 continue
-            fail, mm = lockstep_one(T, keep, prog, SCREEN_CAP.get(prog, 4000000), env)
+            fail, mm = lockstep_one(T, keep, prog, SCREEN_CAP.get(prog, 400000), env)
             if fail:
                 return name, 'KILLED', f'{os.path.basename(prog)}: {fail.split("LOCKSTEP FAIL back_top: ")[-1]} | {mm}'
         if not full:
@@ -138,7 +139,7 @@ def do_mutant(m, env, workdir, full):
         for prog in progs:
             if prog in SCREEN or not os.path.exists(prog):
                 continue
-            fail, mm = lockstep_one(T, keep, prog, 4000000, env)
+            fail, mm = lockstep_one(T, keep, prog, FULL_CAP, env)
             if fail:
                 return name, 'KILLED(full)', f'{os.path.basename(prog)}: {fail.split("LOCKSTEP FAIL back_top: ")[-1]} | {mm}'
         return name, 'SURVIVED', ''
@@ -153,12 +154,16 @@ def main():
     ap.add_argument('--only', default='')
     ap.add_argument('--swaps', type=int, default=14)
     ap.add_argument('--seed', type=int, default=7)
+    ap.add_argument('--skip', default='', help='comma list of mutant names already done')
     ap.add_argument('--no-full', action='store_true', help='do not run survivors on the whole program set')
     a = ap.parse_args()
     muts = TARGETED + swap_mutants(a.swaps, a.seed)
     if a.only:
         keep = set(a.only.split(','))
         muts = [m for m in muts if m[0] in keep]
+    if a.skip:
+        sk = set(a.skip.split(','))
+        muts = [m for m in muts if m[0] not in sk]
     if a.dry:
         for name, f, old, new in muts:
             s = open(os.path.join(ROOT, f)).read()
