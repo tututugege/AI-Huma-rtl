@@ -45,11 +45,11 @@ package axi_llc_qry_pkg;
   // ---- pending-line queries ----
   function automatic logic victim_line_pending(input st_t s, input addr_t line);
     logic p;
-    logic [1:0] sl;
+    vq_idx_t sl;
     p = s.vwb.valid && s.vwb.addr == line;
     for (int i = 0; i < VQD; i++) begin
-      sl = s.rvq.head + 2'(i);
-      if (3'(i) < s.rvq.cnt && s.rvq.ent[sl].valid && s.rvq.ent[sl].addr == line) p = 1'b1;
+      sl = s.rvq.head + vq_idx_t'(i);
+      if (vq_cnt_t'(i) < s.rvq.cnt && s.rvq.ent[sl].valid && s.rvq.ent[sl].addr == line) p = 1'b1;
     end
     for (int m = 0; m < NW; m++) begin
       if (s.wc[m].valid && s.wc[m].cpend && s.wc[m].vdirty && s.wc[m].vaddr == line) p = 1'b1;
@@ -90,11 +90,11 @@ package axi_llc_qry_pkg;
   // read_victim_snapshot_present
   function automatic logic victim_snapshot_present(input st_t s, input addr_t vaddr);
     logic p;
-    logic [1:0] sl;
+    vq_idx_t sl;
     p = (vaddr != 32'd0) && s.vwb.valid && !s.vwb.forw && s.vwb.addr == vaddr;
     for (int i = 0; i < VQD; i++) begin
-      sl = s.rvq.head + 2'(i);
-      if (vaddr != 32'd0 && 3'(i) < s.rvq.cnt && s.rvq.ent[sl].valid && s.rvq.ent[sl].addr == vaddr) p = 1'b1;
+      sl = s.rvq.head + vq_idx_t'(i);
+      if (vaddr != 32'd0 && vq_cnt_t'(i) < s.rvq.cnt && s.rvq.ent[sl].valid && s.rvq.ent[sl].addr == vaddr) p = 1'b1;
     end
     return p;
   endfunction
@@ -166,18 +166,19 @@ package axi_llc_qry_pkg;
   // ---- enqueue_read_victim_snapshot: already queued counts as success ----
   function automatic logic victim_queued(input st_t s, input logic [3:0] owner, input addr_t vaddr);
     logic dup;
-    logic [1:0] sl;
+    vq_idx_t sl;
     dup = 1'b0;
     for (int i = 0; i < VQD; i++) begin
-      sl = s.rvq.head + 2'(i);
-      if (3'(i) < s.rvq.cnt && s.rvq.ent[sl].valid && s.rvq.ent[sl].owner == owner && s.rvq.ent[sl].addr == vaddr)
+      sl = s.rvq.head + vq_idx_t'(i);
+      if (vq_cnt_t'(i) < s.rvq.cnt && s.rvq.ent[sl].valid && s.rvq.ent[sl].owner == owner &&
+          s.rvq.ent[sl].addr == vaddr)
         dup = 1'b1;
     end
     return dup;
   endfunction
 
   function automatic logic enq_victim_ok(input st_t s, input logic [3:0] owner, input addr_t vaddr);
-    return victim_queued(s, owner, vaddr) || s.rvq.cnt < 3'(VQD);
+    return victim_queued(s, owner, vaddr) || s.rvq.cnt < vq_cnt_t'(VQD);
   endfunction
 
   function automatic st_t enq_victim_apply(input st_t s, input logic [3:0] owner, input addr_t vaddr,
@@ -189,8 +190,8 @@ package axi_llc_qry_pkg;
       o.rvq.ent[s.rvq.tail].owner = owner;
       o.rvq.ent[s.rvq.tail].addr = vaddr;
       o.rvq.ent[s.rvq.tail].data = data;
-      o.rvq.tail = s.rvq.tail + 2'd1;
-      o.rvq.cnt = s.rvq.cnt + 3'd1;
+      o.rvq.tail = s.rvq.tail + vq_idx_t'(1);
+      o.rvq.cnt = s.rvq.cnt + vq_cnt_t'(1);
     end
     return o;
   endfunction

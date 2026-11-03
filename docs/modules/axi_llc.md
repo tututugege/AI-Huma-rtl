@@ -57,7 +57,7 @@ The 12: dcache-conflict-writeback, dcache-mshr-pressure, memory-stress-small, me
 vm_pagefault_test, coremark, dhrystone.  The small geometries exercise dirty victims of read misses (global write-back slot, queue, the duplicate
 re-issue quirk), write misses with victim write-back (`write_ctx_victim_dirty` 48-73 k ticks), write hits on lines chosen as victims of in-flight
 refills, and same-set table writes inside the 3-tick lookup window (`write_same_set_in_window_age2/3` 21-53 ticks).
-Measured maxima (stat plugin, 12 programs x 3 small geometries, plus the 68-program 4 MiB run): read_resp_q count 1 (RQD=2), read_victim_wb_q 2 (VQD=4),
+Measured maxima (stat plugin, 12 programs x 3 small geometries, plus the 68-program 4 MiB run): read_resp_q count 1 (RQD=2), read_victim_wb_q 2 in the 68 programs (VQD raised from 4 to 8 after random traffic reached 7, see 5.2),
 write_q 0 at tick end (WQD=2), r_pending 8, MSHR in use 8, `drop_resp_credit` 0, lookup delivery latency always 3 (65752+65864+97661 deliveries).
 
 ### Mutants (one build holds all; `tests/axi_llc/mut_llc.py`, selector TTG_MUT=K through DPI)
@@ -93,6 +93,14 @@ Run first on 5 programs at 32 KiB/16w x 150000 cycles; survivors re-run on the 1
 * 1088-1090: non-DCache masters may not have two MSHRs.
 * 2079-2105: a write hit on the way an in-flight refill is going to replace updates that MSHR's victim snapshot.
 * comb() #1 vs #2: identical ext_out in every tick (see section 1); nothing to reproduce.
+
+## 5.2 Random-traffic verification (added by the interconnect work)
+`tests/axi_llc/rand_axi.cpp` drives the reference AXI_Interconnect + LLC + sim_ddr with random DCache reads/writes, ICache reads (line and 4-byte
+bypass) and peripheral bypass reads (`rand_run.sh axi_subsys|axi_llc <seed> <cycles>`, `rand_all.sh`).  Bypass writes and partial strobes are switched off
+(`RAND_PWR=0 RAND_PARTIAL=0`: not implemented here).  `axi_subsys` 4 seeds x 3 small geometries (8KB/4w, 16KB/2w, 32KB/16w), 30000 cycles each: 12/12 PASS.
+Random traffic reached a read-victim queue depth of 7 (the 68 programs: 2): `VQD` became 8 (head/tail 3 bits, count 4 bits, `vq_idx_t/vq_cnt_t`).
+Mutants on random traffic (8KB/4w, 3 seeds, `mut_llc_rand.sh`): 1-8, 10, 12, 15, 16 killed; 15 (per-master MSHR limit) and 16 (read hit word offset) are NEW kills;
+9 survived; 11 equivalent; 13 (partial strobe) and 14 (write round robin) need the unimplemented bypass/partial writes.  Total: 13 of 16 killed.
 
 ## 5.1 Open issues / not verified
 Partial-line and bypass writes (peripheral write master), partial-line write miss (C++ MSHR write refill merge, 2343-2405), MSHR-owned victim write response (1547-1584),

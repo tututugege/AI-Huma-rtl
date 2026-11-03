@@ -1,5 +1,5 @@
 --- a/axi-interconnect-kit/axi_interconnect/AXI_Interconnect.cpp	2026-11-03 20:58:22
-+++ b/axi-interconnect-kit/axi_interconnect/AXI_Interconnect.cpp	2026-11-03 22:14:23
++++ b/axi-interconnect-kit/axi_interconnect/AXI_Interconnect.cpp	2026-11-03 23:00:53
 @@ -8,6 +8,7 @@
   */
  
@@ -68,7 +68,7 @@
  
    // Response path: DDR → masters
    comb_read_response();
-@@ -1760,16 +1802,64 @@
+@@ -1760,16 +1802,72 @@
        }
      }
    }
@@ -110,6 +110,14 @@
 +    for (int i = 0; i < NUM_WRITE_MASTERS; ++i) T.o2_wr_req_ready[i] = write_ports[i].req.ready;
 +    tap_master(T.o2_ddr, axi_ddr_io);
 +    tap_master(T.o2_mmio, axi_mmio_io);
++    T.dbg_ar_blocked_by_write = llc.io.ext_out.mem.read_req_valid &&
++                                has_external_pending_write_hazard(llc.io.ext_out.mem.read_req_addr);
++    T.dbg_aw_blocked_by_read = llc.io.ext_out.mem.write_req_valid &&
++                               has_external_pending_read_hazard(llc.io.ext_out.mem.write_req_addr);
++    for (int i = 0; i < NUM_WRITE_MASTERS; ++i)
++      T.dbg_wr_blocked_by_read[i] =
++          write_ports[i].req.valid &&
++          has_same_line_read_hazard(AXI_LLC::line_addr(llc_config, static_cast<uint32_t>(write_ports[i].req.addr)));
 +    T.llc_in2 = llc.io.ext_in;
 +    T.llc_out2 = llc.io.ext_out;
 +    const auto &R = llc.io.regs;
@@ -134,8 +142,8 @@
  }
  
 --- a/axi-interconnect-kit/axi_interconnect/include/axi_tap.h	1970-01-01 08:00:00
-+++ b/axi-interconnect-kit/axi_interconnect/include/axi_tap.h	2026-11-03 22:14:23
-@@ -0,0 +1,111 @@
++++ b/axi-interconnect-kit/axi_interconnect/include/axi_tap.h	2026-11-03 23:00:53
+@@ -0,0 +1,115 @@
 +// Read-only recording tap of the AXI interconnect + LLC (added for the RTL trace harness, refsim only).
 +//
 +// One CPU cycle = 16 ticks (tick 0 = cycle(), ticks 1..15 = run_extra_axi_subsystem_ticks()); the interconnect and
@@ -232,6 +240,10 @@
 +  bool o2_rd_req_ready[TTG_AXI_RD] = {};
 +  bool o2_wr_req_ready[TTG_AXI_WR] = {};
 +  AxiTapDdrMaster o2_ddr, o2_mmio;
++  // ---- coverage diagnostics (computed at the end of comb_inputs, not part of any RTL boundary) ----
++  bool dbg_ar_blocked_by_write = false;   // LLC read request present but blocked: pending DDR write to the same line
++  bool dbg_aw_blocked_by_read = false;    // LLC write request present but blocked: pending DDR read of the same line
++  bool dbg_wr_blocked_by_read[TTG_AXI_WR] = {};  // master write request blocked by a same-line read in flight
 +  // ---- LLC boundary (final comb() of the tick: the one whose reg_write becomes the next state) ----
 +  axi_interconnect::AXI_LLC_ExtIn_t llc_in2;
 +  axi_interconnect::AXI_LLC_ExtOut_t llc_out2;
@@ -248,7 +260,7 @@
 +extern AxiTap g_ttg_axi_tap;
 +#define TTG_AXI g_ttg_axi_tap
 --- a/rv_simu_mmu_v2.cpp	2026-11-03 20:58:22
-+++ b/rv_simu_mmu_v2.cpp	2026-11-03 22:14:23
++++ b/rv_simu_mmu_v2.cpp	2026-11-03 23:00:53
 @@ -1,20 +1,37 @@
  #include "ttg_rec_hook.h"
  #include "memsys_tap.h"

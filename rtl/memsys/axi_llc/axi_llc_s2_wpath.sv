@@ -19,7 +19,7 @@ module axi_llc_s2_wpath
   function automatic ch_t mem_write_resp(input st_t rr, input ch_t cc);
     ch_t c;
     logic [0:0] mm;
-    logic [1:0] h;
+    vq_idx_t h;
     c = cc;
     c.n.vwb = '0;
     if (rr.vwb.forw) begin
@@ -40,10 +40,10 @@ module axi_llc_s2_wpath
       end
     end else if (rr.vwb.slot == SLOT_INV) begin
       h = rr.rvq.head;
-      if (rr.rvq.cnt != 3'd0 && rr.rvq.ent[h].valid && rr.rvq.ent[h].addr == rr.vwb.addr) begin
+      if (rr.rvq.cnt != vq_cnt_t'(0) && rr.rvq.ent[h].valid && rr.rvq.ent[h].addr == rr.vwb.addr) begin
         c.n.rvq.ent[h].valid = 1'b0;
-        c.n.rvq.head = h + 2'd1;
-        c.n.rvq.cnt = rr.rvq.cnt - 3'd1;
+        c.n.rvq.head = h + vq_idx_t'(1);
+        c.n.rvq.cnt = rr.rvq.cnt - vq_cnt_t'(1);
       end
     end else begin
       c.bad = 1'b1;  // victim response for an MSHR-owned slot: never observed
@@ -117,7 +117,7 @@ module axi_llc_s2_wpath
         c.n.wc[m] = '0;
       end
     end
-    if (!c.n.vwb.valid && rr.rvq.cnt != 3'd0 && rr.rvq.ent[rr.rvq.head].valid) begin
+    if (!c.n.vwb.valid && rr.rvq.cnt != vq_cnt_t'(0) && rr.rvq.ent[rr.rvq.head].valid) begin
       c.n.vwb.valid = 1'b1;
       c.n.vwb.issued = 1'b0;
       c.n.vwb.forw = 1'b0;

@@ -6,5 +6,5 @@ mkdir -p "$OUT"; rm -f "$OUT"/*.stat
 export AXS_N=${AXS_N:-300000}
 run1() { p=$1; n=$(basename "$p" .bin); (cd "$REF" && env $EXTRA_ENV TTG_REC_END="$PLUG" ./build/simulator "$p" 2>/dev/null | grep -a "^AXS " > "$OUT/$n.stat"); }
 export -f run1
-cat "$S/progs68.txt" | xargs -P4 -I{} bash -c 'run1 {}'
+cat "$S/axi_progs68.txt" | xargs -P${STAT_JOBS:-4} -I{} bash -c 'run1 {}'
 echo finished

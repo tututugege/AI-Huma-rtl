@@ -257,6 +257,9 @@ extern "C" void ttg_axi_tick(SimCpu *cpu, int tick) {
     if (to.data.enable && to.data.write) ev("table_data_writes");
     if (to.repl.enable && to.repl.write) ev("table_repl_writes");
   }
+  if (T.dbg_ar_blocked_by_write) ev("HAZ_ar_blocked_by_pending_write");
+  if (T.dbg_aw_blocked_by_read) ev("HAZ_aw_blocked_by_pending_read");
+  for (int i = 0; i < TTG_AXI_WR; ++i) if (T.dbg_wr_blocked_by_read[i]) ev("HAZ_wr_accept_blocked_by_read_m" + std::to_string(i));
   // ---------- CPU-boundary tick-0 view of non-dcache masters ----------
   if (tick == 0) {
     if (ic.read_ports[0].req.valid) ev("icache_req_cycles");

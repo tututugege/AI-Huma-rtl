@@ -20,7 +20,7 @@ MUTANTS = [
     (3, 'axi_llc_s4_mem.sv', "          c.tdirty = 1'b0;\n          c.trepl", "          c.tdirty = 1'b1;\n          c.trepl", "refill installed dirty"),
     (4, 'axi_llc_s3_lookup.sv', "      c.n.ms[fi].vdirty = vd;\n      c.n.ms[fi].vdone", "      c.n.ms[fi].vdirty = 1'b0;\n      c.n.ms[fi].vdone", "read-miss victim dirtiness dropped"),
     (5, 'axi_llc_qry_pkg.sv', "s.vwb.valid && s.vwb.addr == line", "1'b0", "global victim slot ignored by victim_line_pending"),
-    (6, 'axi_llc_s2_wpath.sv', "!c.n.vwb.valid && rr.rvq.cnt != 3'd0", "!c.n.vwb.valid && c.n.rvq.cnt != 3'd0", "queue reload uses new count (removes the duplicate-issue quirk)"),
+    (6, 'axi_llc_s2_wpath.sv', "!c.n.vwb.valid && rr.rvq.cnt != vq_cnt_t'(0)", "!c.n.vwb.valid && c.n.rvq.cnt != vq_cnt_t'(0)", "queue reload uses new count (removes the duplicate-issue quirk)"),
     (7, 'axi_llc_s1_rresp.sv', "rr.rr[m].valid && rr.rr[m].fresh", "rr.rr[m].valid && 1'b0", "fresh flag ignored (response consumed in the tick it appears)"),
     (8, 'axi_llc_tables.sv', "pv_q[2]", "pv_q[1]", "table delivery after 2 ticks instead of 3"),
     (9, 'axi_llc_s3_lookup.sv', "miss_write(rr, ii, c, inv, iw)", "miss_write(rr, ii, c, 1'b0, iw)", "write miss never prefers an invalid way"),

@@ -200,7 +200,7 @@ module axi_llc
     assert property (@(posedge clk) disable iff (!rst_n) c5.n.wq[w].cnt < 2'(WQD))
       else $error("axi_llc: write queue full");
   end
-  assert property (@(posedge clk) disable iff (!rst_n) c5.n.rvq.cnt < 3'(VQD))
+  assert property (@(posedge clk) disable iff (!rst_n) c5.n.rvq.cnt < vq_cnt_t'(VQD))
       else $error("axi_llc: victim queue full");
 `endif
 endmodule

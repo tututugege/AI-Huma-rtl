@@ -28,7 +28,8 @@ package axi_llc_pkg;
   localparam int TAGW  = 32 - 6 - SB;
   localparam int RQD   = 2;               // read response queue depth per master (C++ 32, observed max 1)
   localparam int WQD   = 2;               // write request queue depth per master (C++ 32, observed 0 at tick end)
-  localparam int VQD   = 4;               // read victim write-back queue depth (C++ 32, observed max 2)
+  localparam int VQD   = 8;               // read victim write-back queue depth (C++ 32; 68 programs: max 2; random: 5)
+  localparam int VQW   = $clog2(VQD);
   localparam logic [3:0] SLOT_INV = 4'hF; // AXI_LLC_INVALID_VICTIM_MSHR_SLOT
   /* verilator lint_on UNUSEDPARAM */
 
@@ -92,9 +93,12 @@ package axi_llc_pkg;
     line_t data;
   } rvq_ent_t;
 
+  typedef logic [VQW-1:0] vq_idx_t;
+  typedef logic [VQW:0]   vq_cnt_t;
+
   typedef struct packed {
-    logic [2:0] cnt;
-    logic [1:0] head, tail;
+    vq_cnt_t cnt;
+    vq_idx_t head, tail;
     rvq_ent_t [VQD-1:0] ent;
   } rvq_t;
 
