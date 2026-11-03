@@ -12,7 +12,7 @@
 1. ICache = **一个 FSM（`icache_module_n::ICache`，5 个状态，实际可达 4 个）+ 三张表（tag/valid/data，64 组 × 8 路 × 64B 行，寄存器堆式零延迟读）+ 一个 ITLB（`TlbMmu`，64 项，复用 `tlb_mmu_core`）+ 取指组切片胶合**。
    默认配置 `ICACHE_LOOKUP_LATENCY=0`，"SRAM 延迟查表"那一半（`lookup_pending_r`、`lookup_pc_r`、`lookup_index_r`、`req_index_r` 的独立存储）整体是死代码（第 7 节）。
 2. `ICacheCompactKernel.h`（2373 行）、`ICacheLookupMetaPackKernel.h`、`ICacheTopTrueGlueKernel.h` 是**机器生成的位级布尔网表**，是 `comb_core`/`eval_true_glue` 的打包版，**真正生效**（`CONFIG_QM3_ICACHE_USE_NATIVE_GENERATOR=0`，`comb_via_compact_io_generator` 用内核输出，`comb_core` 只在一份拷贝上跑来算 perf）。
-   [已验证] 在 `refsim_k`（副本里加了对拍）里把内核输出与原生 `comb_core` 输出逐字段比较（输出、表写口、全部寄存器写回），smc-div、dhrystone/coremark 前若干万次调用 0 不一致；
+   [已验证] 在 `refsim_k`（副本里加了对拍）里把内核输出与原生 `comb_core` 输出逐字段比较（输出、表写口、全部寄存器写回），smc-div 与 dhrystone **跑完全程**（1176 万次 comb 调用）0 不一致；
    **翻译以可读的 `eval_state_machine`/`lookup` 为准**，整程序锁步是最终裁判。
 3. 一次 CPU 周期里 `icache_comb_calc` 被调用 **1 次，谓词预译码冲刷拍调用 2 次**（第二次 `invalidate_req`；125 万拍里 3267 次，占 0.26%，68 个程序全部出现 **[已验证]**）。
    每次调用都"求值 + 推进状态"（comb+seq 熔合）。**第 5 节**给出合并规则：`R2 = invalidate ? K(R1) : R1`，`R1 = kill ? K(R0) : N(R0)`，其中 `K` 是"杀死流水"（`refetch=1, flush=0`）的小函数；
@@ -146,7 +146,9 @@ SWAP_IN 里 `mem_gnt` 时 `mem_resp_data_r<=mem_resp_data_w; replace_idx<=replac
 **注意** `req_valid_r` 为真时不论 FSM 在哪个状态（含 `SWAP_IN` 等内存）都发 ITLB 请求；ITLB 命中时无副作用，未命中时会启动/推进走表。RTL 照做（参考实现，登记）。
 `translate_valid = !refetch && mmu_req_valid`，`vaddr = {vtag,12'b0}`、`type=0`（取指）。结果映射：`OK ⇒ ppn_valid=1, ppn=paddr>>12`；`FAULT ⇒ ppn_valid=1, page_fault=1`；`RETRY ⇒ ppn_valid=0`。
 
-## 5. 难点 1：`icache_comb_calc` 熔合 comb+seq，冲刷拍被调用两次（单独成节，**需评审**）
+## 5. 难点 1：`icache_comb_calc` 熔合 comb+seq，冲刷拍被调用两次
+
+> 协调者决定：不复刻 C++ 的调用结构，只要求每个周期在边界上**最终可观察**的行为功能等价；本节方案已定稿并实现（不需评审）。
 
 ### 5.1 这一拍里到底发生了什么
 
@@ -211,16 +213,10 @@ SWAP_IN 里 `mem_gnt` 时 `mem_resp_data_r<=mem_resp_data_w; replace_idx<=replac
 6. **验证**：整程序锁步（冲刷拍 3267 次，按 R1 状态分布见第 10 节）+ 随机生成器的"冲刷拍"定向激励（驱动参考的 `icache_comb_calc` 两次调用，随机 R1 状态/端口值，覆盖 `K` 的三个 SWAP_IN 分支、CANCEL_WAIT、WAIT_DCACHE、探针请求、txid 位图变化）。
    变异：把 `K(R1)` 覆盖层去掉（只用 `R1`）、把 `K` 作用在 `R0` 而不是 `R1`、让存储侧输出取第一步，必须被抓到。
 
-### 5.5 决策点与备选方案（供评审）
+### 5.5 定稿
 
-| | 方案 A（本方案，**已选**）| 方案 B | 方案 C |
-| --- | --- | --- | --- |
-| 做法 | `R2 = invalidate ? K(R1) : R1`，`K` 是 R1 上的覆盖层，存储侧输出取最后一步 | 直接给出 `R2` 对 `R0`/输入的闭式（把 `K(N(R0))` 展开成按状态的规则表）| RTL 里例化两份完整 FSM（`N` 两次），第二份输入置 kill |
-| 优点 | 与 C++ 一一对应，`K` 只有一份小逻辑，可单独录制/随机/变异 | 组合深度最浅 | 最直接 |
-| 缺点 | `K(R1)` 在 `N` 之后，组合路径变长一点（只经过少量位）| 展开项多（`N` 的每个出口 × `K` 的每个入口），易错，难变异 | 违背"单次组合 + 单次时序"，面积翻倍 |
-| 评审关注 | **`K` 作用在 `R1` 而不是 `R0`**（冲刷拍里 FSM 刚收了一个新请求/刚进 `SWAP_IN` 时 `R1` 与 `R0` 不同）；`K` 在 `SWAP_IN` 发探针请求这一参考行为是否保留 | | |
-
-> 若评审认为"冲刷拍在 SWAP_IN 里重新发探针请求"是参考模型 bug，不应复刻，可以只改 `K.out.dc_req_valid`（RTL 一行），但需同时改参考的探针推进语义，因为 `K` 里 `step_dcache_probe()` 同时改了 `reg_write.dcache_probe_inflight_r`（随后被 `reset_dcache_probe_regs` 覆盖），所以行为上只有端口上多一个周期的 `dcache_req_valid`。当前实现按参考，不改。
+采用 5.3 的方案：`R2 = invalidate ? K(R1) : R1`，`K` 作为 `R1` 上的覆盖层（对"主调用刚收了新请求 / 刚进 `SWAP_IN`"的情形 `R1≠R0`，必须作用在 `R1` 上）。
+冲刷拍里第一步的瞬态输出（被第二步覆盖的 AXI/DCache 请求）不复刻；边界取周期末环境实际看到的值。`K` 在 `SWAP_IN` 发探针请求这一点是**最终值**的一部分（探针请求留在端口上被 DCache 读走），所以保留。
 
 ## 6. 难点 2：存储侧端口的录制点
 
@@ -286,9 +282,11 @@ SWAP_IN 里 `mem_gnt` 时 `mem_resp_data_r<=mem_resp_data_w; replace_idx<=replac
 `tlb_mmu_core` 参数已有 `FETCH/LANES/ENTRIES`；DTLB 路径已验证。ITLB 的调用方式有三处不同，必须在 RTL 里体现并单独验证：
 1. **模式不互斥**：DTLB 每拍恰好三选一（fence > cancel > translate）。ICache 里是三个独立 `if`：`flush()`（`itlb_flush`）、`cancel_pending_walk()`（`refetch`）、`translate`（`!refetch && mmu_req_valid`）。`cancel` 与 `translate` 因 `!refetch` 互斥；`fence`（flush）与 `translate` 同拍时，C++ 先 `flush()`（写 `flush_pending_`、清 walk/refill、`flush_client()`），再 `translate()`（读未清的 TLB 内容、`walk_comb_` 已清、PTW 适配器被 `flush_client` 改写成 `req_ready=1, resp_valid=0`）。
    [已验证] 125 万拍里 `itlb_flush` 9 次，**全部与 `refetch` 同拍**（`itlb_flush && !refetch` = 0，`itlb_flush && translate` = 0）：SFENCE.VMA 的 `rob_bcast.fence` 与 `flush` 同拍（`BackTop.cpp:339`）。RTL 取 `mode = fence > cancel > translate`（与 DTLB 核心相同），并加仿真断言 `itlb_flush ⇒ refetch`；**这是一个前提（假设），写进笔记；随机生成器只在满足该前提时产生 `itlb_flush`**。如评审认为不可接受，需给 `tlb_mmu_core` 增加 `FETCH` 下"fence 与 translate 并存"模式（参考实现行为怪异：翻译用到旧 TLB 内容、并向 PTW 发出一个会被 flush 吃掉的请求）。
-2. **单口、`type=0`**：`LANES=1`、`ACC_FETCH`（`FETCH=1` 已处理）；`effective_priv` 对取指不看 MPRV。
-3. **结果编码**：`RES_HIT/FAULT/MISS` → `ppn_valid/page_fault`（第 4.3 节）。ITLB 响应在 `vaddr` 的低 12 位是 0，`paddr >> 12` 即 ppn（超级页合成 `compose_paddr` 已含 `vaddr_low` = 0）。
-4. 复位值：`TlbMmu` 构造里 `flush_pending_=true; seq()`，即复位后 TLB 全空、`repl=0`、walk 空（与 `tlb_mmu_store` 复位一致）。
+2. **没有"提前回填/提前消费"**：`translate_lsu_ports`（DTLB）在翻译前先调 `consume_completed_walk_refill(false)`；ITLB 的 `translate()` 直接进 `top_comb`，translate 拍里已回的 walk 响应只由请求该页的取指口消费。
+   `cancel` 拍两者相同（`cancel_pending_walk()` 先消费）。`tlb_mmu_core` 的 `FETCH` 参数据此关掉 translate 拍的 `early_consume/early_refill`（随机生成器第 8512 拍首先抓到，真实程序没有）。
+3. **单口、`type=0`**：`LANES=1`、`ACC_FETCH`（`FETCH=1` 已处理）；`effective_priv` 对取指不看 MPRV。
+4. **结果编码**：`RES_HIT/FAULT/MISS` → `ppn_valid/page_fault`（第 4.3 节）。ITLB 响应在 `vaddr` 的低 12 位是 0，`paddr >> 12` 即 ppn（超级页合成 `compose_paddr` 已含 `vaddr_low` = 0）。
+5. 复位值：`TlbMmu` 构造里 `flush_pending_=true; seq()`，即复位后 TLB 全空、`repl=0`、walk 空（与 `tlb_mmu_store` 复位一致）。
 `itlb` 的 PTW 口输出在冲刷拍的第二步不变化（ITLB 只被第一步触发）。
 
 ## 10. 覆盖盲区与补充计划
