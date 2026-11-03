@@ -44,6 +44,7 @@ out ren2dec_ready 1 @ bt.ren2dec.ready
 out ren2dis_valid 1 [8] @ bt.ren2dis.valid[i0]
 out ren2dis_uop_diag_val 32 [8] when ren2dis_valid @ bt.ren2dis.uop[i0].diag_val
 out ren2dis_uop_dest_areg 6 [8] when ren2dis_valid @ bt.ren2dis.uop[i0].dest_areg
+out ren2dis_uop_src1_areg 6 [8] when ren2dis_valid @ bt.ren2dis.uop[i0].src1_areg
 out ren2dis_uop_ftq_idx 6 [8] when ren2dis_valid @ bt.ren2dis.uop[i0].ftq_idx
 out ren2dis_uop_ftq_offset 4 [8] when ren2dis_valid @ bt.ren2dis.uop[i0].ftq_offset
 out ren2dis_uop_ftq_is_last 1 [8] when ren2dis_valid @ bt.ren2dis.uop[i0].ftq_is_last

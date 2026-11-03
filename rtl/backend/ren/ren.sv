@@ -51,6 +51,7 @@ module ren
   output logic ren2dis_valid [DECODE_WIDTH],
   output logic [31:0] ren2dis_uop_diag_val [DECODE_WIDTH],
   output logic [AREG_IDX_WIDTH-1:0] ren2dis_uop_dest_areg [DECODE_WIDTH],
+  output logic [AREG_IDX_WIDTH-1:0] ren2dis_uop_src1_areg [DECODE_WIDTH],
   output logic [FTQ_IDX_WIDTH-1:0] ren2dis_uop_ftq_idx [DECODE_WIDTH],
   output logic [FTQ_OFFSET_WIDTH-1:0] ren2dis_uop_ftq_offset [DECODE_WIDTH],
   output logic ren2dis_uop_ftq_is_last [DECODE_WIDTH],
@@ -109,6 +110,7 @@ diag_val: dec2ren_uop_diag_val[i],
     assign ren2dis_valid[i] = out_valid[i];
     assign ren2dis_uop_diag_val[i] = out_uop[i].diag_val;
     assign ren2dis_uop_dest_areg[i] = out_uop[i].dest_areg;
+    assign ren2dis_uop_src1_areg[i] = out_uop[i].src1_areg;
     assign ren2dis_uop_ftq_idx[i] = out_uop[i].ftq_idx;
     assign ren2dis_uop_ftq_offset[i] = out_uop[i].ftq_offset;
     assign ren2dis_uop_ftq_is_last[i] = out_uop[i].ftq_is_last;
