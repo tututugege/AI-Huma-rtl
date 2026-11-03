@@ -3,7 +3,7 @@
 #   usage: lockstep_ticks.sh <module> <program.bin> [cycles]   env REFSIM = refsim tree patched with docs/analysis/memsys-record-hook.patch
 # The generated lock plugin's ttg_rec_cycle (one comparison + one RTL clock) is called for tick 0..15 of every CPU cycle by
 # harness/include/ttg_ticks_end.cpp (symbol ttg_rec_cycle_end, driven through $TTG_REC_END).  [cycles] counts CPU cycles.
-# Same options as lockstep.sh: BUILD_ONLY, NOBUILD, VFLAGS, EXTRA_CPP, COVERAGE.   Prints LOCKSTEP PASS <mod>: N cycles compared (N counts TICKS).
+# Same options as lockstep.sh: BUILD_ONLY, NOBUILD, VFLAGS, EXTRA_CPP, COVERAGE; TICKS_END=<cpp> replaces the end-of-cycle hook (random campaign: dcache_rand.sh).   Prints LOCKSTEP PASS <mod>: N cycles compared (N counts TICKS).
 # The Verilated RTL is compiled into a plugin loaded by the instrumented reference simulator; every cycle the reference's
 # module-boundary values drive the RTL and every RTL output is compared at once. Prints "LOCKSTEP PASS <mod>: N cycles
 # compared" or the first mismatch (cycle, field, values, inputs) and exits 1.
@@ -26,7 +26,7 @@ if [ -z "${NOBUILD:-}" ]; then
            axi-interconnect-kit/include axi-interconnect-kit/axi_interconnect/include \
            axi-interconnect-kit/sim_ddr/include axi-interconnect-kit/mmio/include; do INC="$INC -I$REF/$d"; done
   clang++ -std=c++2a -O2 -w -fPIC -shared -undefined dynamic_lookup -DNDEBUG ${COVERAGE:+-DTTG_COVERAGE} $INC -I"$VINC" -I"$VINC/vltstd" -I"$OUT/obj" \
-    -include memsys_tap.h -I"$ROOT/harness/include" -I"$OUT" "$OUT/${MOD}_lock.cpp" "$ROOT/harness/include/ttg_ticks_end.cpp" ${EXTRA_CPP:-} "$OUT/obj/libV${TOP}.a" "$OUT/obj/libverilated.a" -o "$OUT/lock_${MOD}.dylib" 2>"$OUT/dylib.log" \
+    -include memsys_tap.h -I"$ROOT/harness/include" -I"$OUT" "$OUT/${MOD}_lock.cpp" "${TICKS_END:-$ROOT/harness/include/ttg_ticks_end.cpp}" ${EXTRA_CPP:-} "$OUT/obj/libV${TOP}.a" "$OUT/obj/libverilated.a" -o "$OUT/lock_${MOD}.dylib" 2>"$OUT/dylib.log" \
     || { echo "PLUGIN BUILD FAILED, see $OUT/dylib.log"; head -20 "$OUT/dylib.log"; exit 1; }
 fi
 [ -z "${BUILD_ONLY:-}" ] || { echo "built $OUT/lock_${MOD}.dylib"; exit 0; }

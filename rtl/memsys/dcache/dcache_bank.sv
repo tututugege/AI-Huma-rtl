@@ -1,10 +1,9 @@
 `default_nettype none
 // Ref: MemSubSystem/DcacheConfig.cpp  Dcache_Read/Dcache_Write/write_dcache_line
-// One of the 16 DCache banks (bank = set & 15): 16 rows x 4 ways of tag/valid/dirty/data + 16 PLRU words.
-// One asynchronous read port (address = row); synchronous write ports: line fill (1), store word write (NST), PLRU
-// (NSLOT+1).
-// The parent guarantees that at most one requester is active per bank per tick (bank grant of dcache_s1), so ports
-// never collide.
+// One of the 16 DCache banks (bank = set & 15): 16 rows x 4 ways of tag/valid/dirty/data + 16 PLRU words.  One
+// asynchronous read port (address = row); synchronous write ports: line fill (1), store word write (NST), PLRU
+// (NSLOT+1).  The parent guarantees at most one requester per bank per tick (bank grant of dcache_s1), so the
+// ports never collide.
 module dcache_bank
   import dcache_pkg::*;
 (

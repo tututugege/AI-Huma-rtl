@@ -1,7 +1,7 @@
 `default_nettype none
 // Ref: MemSubSystem/WriteBuffer.cpp  find_wb_entry
-// Youngest WriteBuffer entry (ring: head = oldest, count entries) holding a line: the C++ scans from head and
-// keeps the LAST match.
+// Youngest WriteBuffer entry (ring: head = oldest, count entries) holding a line: the C++ scans from head and keeps
+// the LAST match.
 module dcache_wb_find
   import dcache_pkg::*;
 (

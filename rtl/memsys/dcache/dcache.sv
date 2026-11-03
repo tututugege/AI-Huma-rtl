@@ -1,9 +1,8 @@
 `default_nettype none
-// Ref: MemSubSystem/RealDcache.cpp RealDcache; MemSubSystem/MSHR.cpp MSHR; MemSubSystem/WriteBuffer.cpp
-// WriteBuffer; MemSubSystem/MemSubsystem.cpp dcache_domain_*
+// Ref: MemSubSystem/RealDcache.cpp RealDcache; MSHR.cpp MSHR; WriteBuffer.cpp WriteBuffer; MemSubsystem.cpp
 // DCache domain top: port adaptation and wiring only (docs/modules/dcache.md).  One clock edge per fast tick;
-// `cpu_phase0` marks tick 0 of
-// the CPU cycle (LSU requests are only presented, and the response only published, on that tick).
+// `cpu_phase0` marks tick 0 of the CPU cycle (LSU requests are only presented, and the response only published,
+// on that tick).
 module dcache
   import dcache_pkg::*;
 (
@@ -130,10 +129,10 @@ module dcache
   logic [31:0]          s2ld_data [NLD];
   logic [1:0]           s2ld_replay [NLD], ld_lu_way [NLD];
   logic [CNT_W-1:0]     ld_alloc_cnt;
-  logic [NST-1:0]       st_mreq, st_pw, st_lu, st_fm, st_mrg, s2st_valid;
+  logic [NST-1:0]       st_mreq, st_pw, st_lu, st_mrg, s2st_valid;
   logic [1:0]           s2st_replay [NST], st_pw_way [NST];
   logic                 fill_valid, fill_dirty, fill_done, evict_valid;
-  logic [1:0]           fill_way_eff, fill_way_tgt;
+  logic [1:0]           fill_way_tgt;
   logic [LINE_BITS-1:0] fill_data, evict_data;
   logic [MSHR_IDW-1:0]  fill_done_id;
   logic [LINE_W-1:0]    evict_line;
@@ -185,18 +184,16 @@ module dcache
     .retry_issue(retry_issue[NSLOT-1:NLD]),
     .rd_valid(st_rd_valid), .rd_tag(st_rd_tag), .wb_mrg_ok(wb_mrg_ok), .wb_mrg_busy(wb_mrg_busy),
     .find_hit(mshr_find_hit[NSLOT-1:NLD]), .free_rem(mshr_free - ld_alloc_cnt),
-    .fr_valid(fr_valid), .fr_line(fr_line), .same_fill(same_fill), .s2f_valid(s2f_valid),
-    .s2f_set(s2f_line[SET_W-1:0]), .fill_valid(fill_valid), .fill_way_eff(fill_way_eff),
+    .fr_valid(fr_valid), .fr_line(fr_line),
     .resp_valid(s2st_valid), .resp_replay(s2st_replay), .mreq_en(st_mreq), .pw_en(st_pw), .pw_way(st_pw_way),
-    .lu_en(st_lu), .fm_en(st_fm), .mrg_en(st_mrg)
+    .lu_en(st_lu), .mrg_en(st_mrg)
   );
 
   dcache_s2_fill u_fill (
     .s2f_valid(s2f_valid), .s2f_id(s2f_id), .s2f_dirty(s2f_dirty), .s2f_line(s2f_line), .s2f_data(s2f_data),
     .fs_valid(fs_valid), .fs_dirty(fs_dirty), .fs_tag(fs_tag), .fs_line(fs_line), .fs_plru(fs_plru),
     .wb_has_room(wb_free != '0),
-    .fm_en(st_fm), .fm_word(st_word), .fm_data(slot_data), .fm_strb(slot_strb),
-    .fill_valid(fill_valid), .fill_way_eff(fill_way_eff), .fill_way_tgt(fill_way_tgt), .fill_dirty(fill_dirty),
+    .fill_valid(fill_valid), .fill_way_tgt(fill_way_tgt), .fill_dirty(fill_dirty),
     .fill_data(fill_data), .fill_done(fill_done), .fill_done_id(fill_done_id),
     .evict_valid(evict_valid), .evict_line(evict_line), .evict_data(evict_data)
   );
@@ -268,10 +265,11 @@ module dcache
 `ifndef SYNTHESIS
   dcache_cover u_cover (
     .clk(clk), .rst_n(rst_n), .phase0(cpu_phase0), .mshr_free(mshr_free), .wb_free(wb_free),
-    .slot_valid(slot_valid), .slot_replayed(slot_replayed), .retry_issue(retry_issue), .pend_valid(pend_valid),
-    .s2f_valid(s2f_valid), .same_fill(same_fill), .fill_valid(fill_valid), .evict_valid(evict_valid),
+    .slot_valid(slot_valid), .slot_replayed(slot_replayed), .slot_addr(slot_addr), .retry_issue(retry_issue),
+    .pend_valid(pend_valid), .s2f_valid(s2f_valid), .same_fill(same_fill), .fill_valid(fill_valid),
+    .evict_valid(evict_valid),
     .byp_hit(byp_hit), .wb_mrg_ok(wb_mrg_ok), .wb_mrg_busy(wb_mrg_busy), .mshr_find_hit(mshr_find_hit),
-    .ld_mreq(ld_mreq), .st_mreq(st_mreq), .st_fm(st_fm), .st_mrg(st_mrg),
+    .ld_mreq(ld_mreq), .st_mreq(st_mreq), .st_mrg(st_mrg),
     .s2ld_valid(s2ld_valid), .s2ld_replay(s2ld_replay), .s2st_valid(s2st_valid), .s2st_replay(s2st_replay),
     .ld_lu(ld_lu), .st_pw(st_pw), .mshr_req_valid(mshr_req_valid), .mshr_resp_valid(mshr_resp_valid),
     .wb_req_valid(wb_req_valid), .wb_resp_valid(wb_resp_valid), .fr_valid(fr_valid)

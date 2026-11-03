@@ -1,15 +1,11 @@
 `default_nettype none
-// Ref: MemSubSystem/MSHR.cpp  class MSHR (comb_inputs_axi, comb_outputs_dcache, comb_inputs_dcache,
-// comb_outputs_axi, seq)
-// Miss status holding registers: 8 entries {valid, issued, line, merged-store dirty/data/strobe} + one AXI
-// response hold slot.
-// Tick order (merged from the C++ in-place `nxt` updates):
-// A: AXI accept marks the entry issued; an R response is taken into the hold slot when it is free and matches an
-// issued entry;
-//      find/free/fill_req are read from this state.
-// B: the fill acknowledge releases the hold slot's entry; requests allocate / merge (dcache_mshr_alloc); AXI
-// request/ready outputs
-//      are derived from the final state (the entry allocated this tick can already be sent).
+// Ref: MemSubSystem/MSHR.cpp  class MSHR (comb_inputs_axi, comb_outputs_dcache, comb_inputs_dcache, ...)
+// Miss status holding registers: 8 entries {valid, issued, line, merged-store dirty/data/strobe} + one AXI response
+// hold slot.  Tick order (merged from the C++ in-place `nxt` updates):
+//   A: an AXI accept marks the entry issued; an R response is taken into the hold slot when it is free and matches
+//      an issued entry; find/free/fill_req are read from this state.
+//   B: the fill acknowledge releases the hold slot's entry; requests allocate / merge (dcache_mshr_alloc); the AXI
+//      request and ready outputs come from the final state (an entry allocated this tick can already be sent).
 // mshr_count of the C++ equals popcount(valid) and is not kept.
 module dcache_mshr
   import dcache_pkg::*;

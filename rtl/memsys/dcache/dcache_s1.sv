@@ -1,12 +1,9 @@
 `default_nettype none
-// Ref: MemSubSystem/RealDcache.cpp  RealDcache::stage1_comb / seq (S1S2Reg, bank_retry_cur/nxt, fill_write snapshot)
-// Stage 1 of the DCache: picks one request per LSU port (real request, else the pending hidden bank-conflict
-// retry, else a new one),
-// grants banks (fill snapshot first, then load 0..3, store 0..3; a later request to a taken bank is `replayed`),
-// and owns the
-// stage-1 -> stage-2 registers: 8 slots, the icache probe port, and the fill snapshot `s2f` (+ the hidden retry
-// latches).
-// Slot payload of an invalid slot is don't-care (no consumer), so it is rewritten every tick.
+// Ref: MemSubSystem/RealDcache.cpp  RealDcache::stage1_comb / seq (S1S2Reg, bank_retry_cur/nxt, fill snapshot)
+// Stage 1: picks one request per LSU port (real request, else the pending hidden bank-conflict retry, else a new
+// one), grants banks (fill snapshot first, then load 0..3, store 0..3; a later request to a taken bank is
+// `replayed`) and owns the stage-1 -> stage-2 registers: 8 slots, the icache probe port, the fill snapshot `s2f`
+// and the hidden retry latches.  The payload of an invalid slot is don't-care, so it is rewritten every tick.
 module dcache_s1
   import dcache_pkg::*;
 (

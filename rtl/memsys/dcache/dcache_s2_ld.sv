@@ -1,9 +1,9 @@
 `default_nettype none
 // Ref: MemSubSystem/RealDcache.cpp  RealDcache::stage2_comb (load ports)
-// Stage 2, load side (pure combinational). Priority for a granted load: WriteBuffer bypass > cache hit (updates PLRU) >
-// ICache probe (lookup only) > MSHR hit > MSHR full > allocate a new MSHR entry (replays later as MSHR_HIT).
-// Replayed (bank-conflict) loads answer CONFLICT/retry, except the LSU ones whose hidden retry is issued by
-// dcache_s1 (no response).
+// Stage 2, load side (pure combinational).  Priority for a granted load: WriteBuffer bypass > cache hit (updates
+// PLRU) > ICache probe (lookup only) > MSHR hit > MSHR full > allocate a new MSHR entry (replays later as
+// MSHR_HIT).  Replayed (bank-conflict) loads answer CONFLICT/retry, except the LSU ones whose hidden retry is
+// issued by dcache_s1 (no response).
 module dcache_s2_ld
   import dcache_pkg::*;
 (

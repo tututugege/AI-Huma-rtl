@@ -1,16 +1,12 @@
 `default_nettype none
 // Ref: MemSubSystem/MemSubsystem.cpp  capture_dcache_raw_response / forward_pending_response_from_fill /
-// publish_pending_dcache_response /
-//      clear_pending_dcache_response
+//      publish_pending_dcache_response / clear_pending_dcache_response
 // Response latch of the DCache domain.  Every port keeps ONE pending response (and the request it answers:
-// line/word, store data) that is
-// collected over the 16 ticks of a CPU cycle; the response of tick 0 is the one published to the CPU domain, after
-// which the latch is
-// cleared.  While a response waits for an MSHR fill (MSHR_HIT / MSHR_FULL) and the MSHR presents the fill of the
-// same line, the response
-// is turned into a HIT: a load takes the fill word, a store is merged into the fill data (and marks it dirty) -
-// the merged fill data is
-// what dcache_s1 then snapshots.
+// line/word, store data), collected over the 16 ticks of a CPU cycle; the response of tick 0 is the one published
+// to the CPU domain, after which the latch is cleared.  While a response waits for an MSHR fill (MSHR_HIT /
+// MSHR_FULL) and the MSHR presents the fill of the same line, the response becomes a HIT: a load takes the fill
+// word, a store is merged into the fill data (and marks it dirty); the merged fill data is what dcache_s1 then
+// snapshots.
 module dcache_resp
   import dcache_pkg::*;
 (
@@ -140,6 +136,28 @@ module dcache_resp
       end
     end
   end
+`ifndef SYNTHESIS
+  // coverage: forwarding paths
+  logic fwd_ld, fwd_ld_full, fwd_st, fwd_st_full;
+  always_comb begin
+    fwd_ld = 1'b0; fwd_ld_full = 1'b0; fwd_st = 1'b0; fwd_st_full = 1'b0;
+    for (int i = 0; i < NLD; i++)
+      if (ldv_a[i] && fr_valid && ldrp_a[i][1] && ldaddr_a[i][29:OFF_W-2] == fr_line) begin
+        fwd_ld = 1'b1;
+        if (ldrp_a[i] == RP_MSHR_FULL) fwd_ld_full = 1'b1;
+      end
+    for (int i = 0; i < NST; i++)
+      if (stv_a[i] && fr_valid && strp_a[i][1] && staddr_a[i][29:OFF_W-2] == fr_line) begin
+        fwd_st = 1'b1;
+        if (strp_a[i] == RP_MSHR_FULL) fwd_st_full = 1'b1;
+      end
+  end
+  cover property (@(posedge clk) disable iff (!rst_n) fwd_ld);
+  cover property (@(posedge clk) disable iff (!rst_n) fwd_ld_full);
+  cover property (@(posedge clk) disable iff (!rst_n) fwd_st);
+  cover property (@(posedge clk) disable iff (!rst_n) fwd_st_full);
+`endif
+
   assign frf_data  = frd_f;
   assign frf_dirty = frdirty_f;
 

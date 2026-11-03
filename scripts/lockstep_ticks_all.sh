@@ -19,10 +19,10 @@ fi
 RES=$ROOT/build/lockt_all_$MOD.csv; : > "$RES"
 run_one() {
   p=$1; name=$(basename "$p" .bin)
-  out=$( cd "$REFSIM" && TTG_REC_END="$DYL" TTG_REC_N=$((BIG * 16)) build/simulator "$p" 2>&1 | grep -aE "^LOCKSTEP|MISMATCH" | head -4 | tr '\n' ' ' )
+  out=$( cd "$REFSIM" && TTG_REC_END="$DYL" TTG_REC_N=$((BIG * 16)) build/simulator "$p" 2>&1 | grep -aE "^LOCKSTEP|MISMATCH|%Error" | head -4 | tr '\n' ' ' )
   echo "$name $out" >> "$RES"
 }
 export -f run_one; export REFSIM BIG RES DYL
 xargs -P "${JOBS:-3}" -I{} bash -c 'run_one {}' < "$LIST"
-echo "== programs: $(wc -l < "$LIST" | tr -d ' '); PASS: $(grep -c 'LOCKSTEP PASS' "$RES"); FAIL: $(grep -c 'LOCKSTEP FAIL' "$RES"); no-result: $(grep -vc 'LOCKSTEP' "$RES")"
-grep -v "LOCKSTEP PASS" "$RES" | head -20
+echo "== programs: $(wc -l < "$LIST" | tr -d ' '); PASS: $(grep -c 'LOCKSTEP PASS' "$RES" | tr -d ' '); FAIL: $(grep -c 'LOCKSTEP FAIL' "$RES"); no-result: $(grep -vc 'LOCKSTEP' "$RES"); with %Error (assertion stop): $(grep -c '%Error' "$RES")"
+grep -v "LOCKSTEP PASS" "$RES" | head -20; grep "%Error" "$RES" | head -5

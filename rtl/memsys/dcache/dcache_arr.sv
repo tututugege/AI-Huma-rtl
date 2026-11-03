@@ -1,12 +1,10 @@
 `default_nettype none
 // Ref: MemSubSystem/DcacheConfig.cpp  Dcache_Read/Dcache_Write; RealDcache.cpp stage1 bank grant
-// DCache arrays as 16 banks (dcache_bank). Requesters of the read ports: NSLOT LSU slots (granted slots only) and
-// the fill snapshot
-// (the victim-selection read of the line being filled).  The bank grant of dcache_s1 guarantees one requester per
-// bank per tick, so each
-// bank sees a single read address (OR of the requesters mapped to it).  Writes of one tick (store words, PLRU
-// touches, line fill) are in
-// distinct banks too (they belong to the same grant round), so no write ordering exists.
+// DCache arrays as 16 banks (dcache_bank).  Requesters of the read ports: the NSLOT LSU slots (granted ones only)
+// and the fill snapshot (victim-selection read of the line being filled).  The bank grant of dcache_s1 guarantees
+// one requester per bank per tick, so each bank sees a single read address (the OR of the requesters mapped to
+// it).  The writes of one tick (store words, PLRU touches, line fill) belong to the same grant round and are in
+// distinct banks too, so no write ordering exists.
 module dcache_arr
   import dcache_pkg::*;
 (

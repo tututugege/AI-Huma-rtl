@@ -1,15 +1,13 @@
 `default_nettype none
-// Ref: MemSubSystem/WriteBuffer.cpp  class WriteBuffer (comb_inputs_axi, comb_outputs_dcache, comb_inputs_dcache,
-// comb_outputs_axi, seq)
-// 8-entry ring of evicted dirty lines (head = oldest, count, send flag while a write is outstanding).
-// Tick order (merged from the C++ in-place `nxt` updates):
-//   A: AXI accept sets send, the B response pops the head and clears send (a response wins over a same-tick accept);
-// free = 8 - count; load bypass (youngest same-line entry, data before this tick's merges); store merge into the
-// youngest same-line
-//      entry (busy when it is the head and a write is outstanding), ports in order, later wins.
-// B: the evicted line from stage 2 is appended at head+count; the AXI write request is the head when no write is
-// outstanding
-//      (its data already contains this tick's merges / append).
+// Ref: MemSubSystem/WriteBuffer.cpp  class WriteBuffer (comb_inputs_axi, comb_outputs_dcache, comb_inputs_dcache, ...)
+// 8-entry ring of evicted dirty lines (head = oldest, count, `send` while a write is outstanding).  Tick order (merged
+// from the C++ in-place `nxt` updates):
+//   A: an AXI accept sets send, the B response pops the head and clears send (a response wins over a same-tick
+//      accept); free = 8 - count; load bypass (youngest same-line entry, data as before this tick's merges); store
+//      merge into the youngest same-line entry (busy when it is the head and a write is outstanding), ports in order,
+//      later wins.
+//   B: the evicted line from stage 2 is appended at head+count; the AXI write request is the head when no write is
+//      outstanding (its data already contains this tick's merges / append).
 module dcache_wb
   import dcache_pkg::*;
 (

@@ -1,13 +1,10 @@
 `default_nettype none
-// Ref: MemSubSystem/RealDcache.cpp  RealDcache::stage2_comb (fill part: victim selection, dirty write-back,
-// fill_write, fill_resp)
-// Stage 2, fill side: the snapshot `s2f` (line returned by the MSHR, one tick old) picks a victim way in its set
-// (first invalid way, else tree-PLRU); a valid dirty victim is pushed to the WriteBuffer, which must have room,
-// otherwise the fill
-// is not performed this tick (and not acknowledged: the snapshot is held and retried).  Stores that hit the line
-// being filled are
-// merged into the fill data here (`fm_*`, only when stage 2 already handles that very fill; otherwise dcache_s1
-// merges them later).
+// Ref: MemSubSystem/RealDcache.cpp  RealDcache::stage2_comb (fill part: victim, write-back, fill_write, fill_resp)
+// Stage 2, fill side: the snapshot `s2f` (the line returned by the MSHR, one tick old) picks a victim way in its
+// set (first invalid way, else tree-PLRU).  A valid dirty victim is pushed to the WriteBuffer, which must have room;
+// otherwise the fill is not performed this tick and not acknowledged (the snapshot is held and retried).  Stores to
+// the line of the fill in stage 2 never reach stage 2 in the same tick (the fill owns that bank, so they were
+// denied), hence the fill data is exactly the snapshot.
 module dcache_s2_fill
   import dcache_pkg::*;
 (
@@ -23,14 +20,8 @@ module dcache_s2_fill
   input  logic [LINE_BITS-1:0] fs_line  [WAYS],
   input  logic [2:0]           fs_plru,
   input  logic                 wb_has_room,
-  // stores merged into the outgoing fill write
-  input  logic [NST-1:0]       fm_en,
-  input  logic [WORD_W-1:0]    fm_word  [NST],
-  input  logic [31:0]          fm_data  [NST],
-  input  logic [3:0]           fm_strb  [NST],
   // fill write (array write + mshr_fill wakeup)
   output logic                 fill_valid,
-  output logic [1:0]           fill_way_eff,         // C++ fill_write.way_idx: victim, but 0 while the fill is stalled
   // way actually written: the way already holding the tag, else the victim
   output logic [1:0]           fill_way_tgt,
   output logic                 fill_dirty,
@@ -84,18 +75,11 @@ module dcache_s2_fill
   assign evict_valid  = s2f_valid && victim_dirty && wb_has_room;
   assign fill_done    = fill_valid;
   assign fill_done_id = s2f_id;
-  assign fill_way_eff = fill_valid ? victim : 2'd0;
   assign evict_line   = {fs_tag[victim], fill_set};
   assign evict_data   = fs_line[victim];
 
-  always_comb begin
-    fill_data  = s2f_data;
-    fill_dirty = s2f_dirty;
-    for (int p = 0; p < NST; p++) if (fm_en[p]) begin
-      fill_data  = line_merge(fill_data, fm_word[p], fm_data[p], fm_strb[p]);
-      fill_dirty = 1'b1;
-    end
-  end
+  assign fill_data  = s2f_data;
+  assign fill_dirty = s2f_dirty;
 
 endmodule
 `default_nettype wire

@@ -63,38 +63,41 @@ MSHR（8×{valid, issued, line26, dirty, 512b 合并数据, 64b 合并 strobe} +
 8. MSHR 释放（`fill_resp.done`）→ 分配/合并（8 个请求口按序，同行并入同一项，空项按下标取；`dcache_mshr_alloc` 用“前面口是否已经分配”的链表达）→ WB 压入（`dirty_info`，条目 `(head_a+count_a)%8`）。
 9. AXI 输出：MSHR = 第一个 `valid && !issued` 项（含本拍新分配项）；`resp_ready = resp_valid ? accepted_this : !hold_valid_after_B`；WB = `!send_a && count>0` 的 head（数据含本拍合并/压入）。
 
-### 3.1 stage2 分类（`dcache_s2`，纯组合）
+### 3.1 stage2 分类（`dcache_s2_ld/st/fill`，纯组合）
 - 隐藏重试（replayed && bank 冲突 && `req_id[31]==0` && 该口重试锁存空）→ **不产生响应**，下一拍重发（`dcache_s1` 内部消化）；否则 replayed → `CONFLICT`（load 同时 `retry=1`）。
 - load：WB 旁路 > cache 命中（更新 LRU）> ICache 探针（只查不分配，`CONFLICT`）> MSHR 命中 → `MSHR_HIT` > 无空项 → `MSHR_FULL` > 分配 + `MSHR_HIT`。
-- store：与正在到达的填充同行 → `HIT` 并并入填充（stage2 同拍已在处理该填充时直接改写 `fill_write.data`，否则经合并线进下一拍快照）> cache 命中（命中路 == 正在写的填充路 → `CONFLICT`，否则 pendingwrite + LRU + `HIT`）> WB 合并成功 `HIT` / busy `CONFLICT` > MSHR 已有项 → 合并请求 `HIT`（不占空项计数）> 无空项 `MSHR_FULL` > 分配 `HIT`。
+- store：与本拍到达的填充请求同行 → `HIT` 并并入下一拍填充快照（`mrg_*`）> cache 命中（pendingwrite + LRU + `HIT`）> WB 合并成功 `HIT` / busy `CONFLICT` > MSHR 已有项 → 合并请求 `HIT`（不占空项计数）> 无空项 `MSHR_FULL` > 分配 `HIT`。
 - 空项计数链：`free_in` 起，load0..3 再 store0..3，每个“占空项”的分配口减 1（同一行两个口各减 1，仍只占一项——复刻）。
-- 填充：`s2f.valid` 时选牺牲路（第一个无效路，否则 PLRU）；牺牲行有效且脏：WB 有空 → 写回 + 填充 + `done`，WB 满 → 本拍不填充、不 done（脏行不丢，保持 `s2f`，下拍重试）；否则直接填充 + `done`。
-  `fill_write.way_idx` 在填充无效（停顿）时为 0——stage2 的 store“命中填充路”判定读它，复刻（§4）。
+- 填充：`s2f.valid` 时选牺牲路（第一个无效路，否则 PLRU）；牺牲行有效且脏：WB 有空 → 写回 + 填充 + `done`，WB 满 → 本拍不填充、不 done（脏行不丢，保持 `s2f`，下拍重试）；否则直接填充 + `done`。填充写的路 = 已持有同 tag 的有效路，否则牺牲路。
 
 ## 4. 与 C++ 的差异点、隐含依赖、简化清单
 **不复刻（总原则 §0，边界上每 tick 可观察行为等价）**
 1. 调用结构：`stage2_comb/stage1_comb/MSHR/WB` 的就地 `nxt` 改写、`comb_outputs`/`comb_inputs` 两个半拍、`dcache_fast_comb` 的空请求替换 → 合并为“每 tick 一次”的单个组合 + 一次时钟沿。
-2. `dcache_dcachereadreq/bypass_req/merge_req/find_req` 等 stage1→stage2 的请求结构体：由 `s1s2` 槽（valid && !replayed）推出，不建寄存器。
-3. `bank_conflict` 字段（槽与响应）：恒等于 `replayed`，响应里的 `bank_conflict` 无读者（grep 全仓库只有 perf 读）→ 删除。`DcacheLsuIO.mshr_fill_addr` 低 6 位恒 0，输出 `{line, 6'b0}`。
+2. `dcachereadreq/bypass_req/merge_req/find_req` 等 stage1→stage2 的请求结构体：由 `s1s2` 槽（valid && !replayed）推出，不建寄存器。
+3. `bank_conflict` 字段（槽与响应）：恒等于 `replayed`，响应里的 `bank_conflict` 无读者（全仓库只有 perf 读）→ 删除。`mshr_fill_addr` 低 6 位恒 0，输出 `{line, 6'b0}`。
 4. `MSHR_STATE.mshr_count`：每次 valid 置位/清零都同步增减，恒等于 `popcount(valid)` → 删除。`MSHREntry/MSHRFINDResp.hit`、`MSHR_FILLReq.id/way_idx`、`DcacheMSHRIO.find_req.set/tag`（=槽地址）等冗余字段不建。
 5. `lsu_origin`、`perf_replay`、alloc/start cycle、COUNT_L1D_*：只喂 perf，删除。`Assert` 溢出检查、`CheckAddr`（被注释）、`dump_debug_state`：不翻译。
 6. AXI 常量字段：`req_total_size=63`、WB `req_id=0`、`req_wstrb=全 1`、WB `resp_ready=1`、MSHR/WB `req_ready`（输入，无读者）→ 不在 spec 中，集成时接常量。
-7. `store.strb` 8 位 → 4 位：`apply_strobe` 只用低 4 位；MSHR 的 `merged_store_strb |= strb` 的“是否非零”判断也只看低 4 位（`lockstep_ticks` 的诊断确认上 4 位从未置位）。
+7. `store.strb` 8 位 → 4 位：`apply_strobe` 只用低 4 位；MSHR 的 `merged_store_strb` 按字节记录（`|=` 后“非零”只用于决定是否覆盖，覆盖本身按字节 strobe，等价）。`lockstep_ticks` 的诊断（`TTG_TICK_STAT=1`）确认 strb 上 4 位从未置位。
 8. 响应 payload 放宽（`when`）：`ld_resp_{data,id,retry,replay}` `when ld_resp_valid`；`st_resp_{replay,id}` `when st_resp_valid`（读者均在 `valid` 保护下，见 §1）；`mshr_fill_addr when mshr_fill`；AXI 地址/数据/id `when req_valid`。
+9. **不可达分支（证明后不复刻，原 C++ 有）**：(a) stage2 里“store 与正在 stage2 的填充同行 → 直接并入 `out.fill_write.data`”（`RealDcache.cpp:633-635`）；(b) stage2 里“store 命中的路 == `fill_write.way_idx` 且同组 → `CONFLICT`”（`:657-663`，连同“填充停顿时 `way_idx` 为 0”的怪行为）。
+   证明：stage2 在 tick t 处理的填充 `s2f` 是在 tick t-1 的 stage1 里快照（或停顿保持）的，该拍填充**占用其所在 bank**（`fillout_granted`），而 tick t 的 stage2 里的 store 槽是 tick t-1 授权的——授权给与填充同 bank 的请求在 t-1 就被拒（`replayed`），不会以 `!replayed` 到达 stage2。(a) 需要“同行”（同 bank），(b) 需要“同组”（同 bank），都被拒。`dcache_arr` 的 `assert property`（每 tick 每 bank 至多一个请求者，包含填充快照读）在 68 个程序、3 个定向程序和 14.4M tick 的随机激励中始终成立，覆盖点 `st_fm` 恒为 0。
+   `store 与填充同行 → HIT 并入下一拍快照`（`fill_req_merge_wires`，即 `mrg_*`）可达（填充请求第一次出现在 tick t，store 在 t-1 授权），已复刻并覆盖（随机激励覆盖点 `st_mrg`>0，真实程序 0）。
 
 **必须复刻的“怪行为”（登记疑点）**
-- D1（疑点）：WB 满且牺牲行脏时，stage2 `fill_write.valid=false` 但 `way_idx` 仍为 0；同拍 stage2 的 store“命中的路 == `fill_write.way_idx` 且同组”会把 way 0 命中的 store 判为 `CONFLICT`（`RealDcache.cpp:657`）。RTL 取 `fill_way_eff = fill_valid ? victim : 0`。
-- D2：`dirty_info.valid` 在 WB 满时被丢弃的注释自相矛盾（`:470-473`），代码行为 = 本拍填充不做、保持 `s2f` 重试，脏行不丢。按代码。
+- D2：WB 满且牺牲行脏时 `dirty_info.valid` 被丢弃的注释自相矛盾（`:470-473`），代码行为 = 本拍填充不做、保持 `s2f` 重试，脏行不丢。按代码。
 - D3：load 口 `LSU_LDU_COUNT-1` 被路由块用于 PTW/ICache；ICache 探针（`icache_req==i`）miss 回 `CONFLICT` 且 `retry=0`、不分配 MSHR。
 - D4：load 的 WB 旁路优先于 cache 命中，且命中不更新 LRU；store 与 MSHR 填充同行判断先于 cache 命中判断；WB 合并在“阵列命中”之前对 WB 本身生效（即便 store 同时命中 cache，WB 里同行副本也被改写，复刻）。
 - D5：`free` 计数链对同一行的两个口各减 1（只占一项），可能产生保守的 `MSHR_FULL`。
 - D6：MSHR 释放与分配同拍时，被释放项的下标可被同拍分配复用（“按下标最小空项”在释放之后计算）；store 的 `find_resp.valid` 为 A 半拍结果，B 半拍该项若被 `fill_resp.done` 释放，则同一个 store 请求在 B 半拍重新分配一项。
 - D7：`s2f` 保持（`hold`）时，stage1 仍占用填充所在 bank（`fillout_granted`）；`same_fill_in_s2 && fill_write.valid` 时不占用也不重新快照。
+- D8：同拍内 load 的“从填充转发”读到的是合并 store 之前的填充数据，store 的转发合并按口序累积到同一份填充数据（C++ `forward_pending_response_from_fill` 顺序），再被 stage1 快照。
 
 **隐含依赖（RTL 靠结构保证、已写成断言/注释）**
-- 每个 tick 内 8 个 LSU 槽 + 填充快照的**授权在互不相同的 bank**（`try_grant_bank` 构造保证）。因此同拍的 9 个读、4 个 pendingwrite、9 个 LRU 触碰、1 个填充写落在 9 个不同的 bank / 组，不存在同组多写的顺序问题（C++ 的 `Dcache_Write` 顺序无可观察性）；每个 bank 一个读口。
-- pending 响应锁存每口每 CPU 周期至多 1 次写入（C++ `Assert`）：重试被 `blocked` 抑制保证；RTL 在 `ifndef SYNTHESIS` 里用时钟采样断言检查。
+- 每个 tick 内 8 个 LSU 槽 + 填充快照的**授权在互不相同的 bank**（`try_grant_bank` 构造保证）。因此同拍的 9 个读、4 个 pendingwrite、9 个 LRU 触碰、1 个填充写落在 9 个不同的 bank / 组，不存在同组多写的顺序问题（C++ 的 `Dcache_Write` 顺序无可观察性）；每个 bank 一个读口（`dcache_arr` 内 `assert property`）。
+- pending 响应锁存每口每 CPU 周期至多 1 次写入（C++ `Assert`）：重试被 `blocked` 抑制保证；RTL 在 `dcache_resp` 里用时钟采样断言检查。
 - `s2f.valid` 时 `Dcache_Read` 的 `fillout.set_idx == s2f.set`（快照读地址 = `s2f.set`，无需单独寄存）。
+- 复位：状态全部清零 = C++ `init()`（唯一例外 `s1s2.icache_req` 初值 C++ 在第一拍的 stage1 才置为 4，RTL 复位为 0；复位后第一个周期槽全空，不可观察）。
 
 ## 5. 验证
 见文末“验证记录”（整程序 16-tick 锁步、变异检查、覆盖）。

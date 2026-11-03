@@ -1,7 +1,7 @@
 `default_nettype none
 // Ref: MemSubSystem/RealDcache.cpp RealDcache (verification aid, no hardware)
-// Functional coverage points of the DCache domain: which of the C++ paths listed in docs/modules/dcache.md section 5
-// the lock-step runs reach.  Simulation only (counted by `verilator --coverage-user`); no state, drives nothing.
+// Functional coverage points of the DCache domain (which of the C++ paths listed in docs/modules/dcache.md
+// section 5 the lock-step runs reach).  Simulation only (counted by `verilator --coverage-user`); no state.
 module dcache_cover
   import dcache_pkg::*;
 (
@@ -12,6 +12,7 @@ module dcache_cover
   input  logic [CNT_W-1:0]     wb_free,
   input  logic [NSLOT-1:0]     slot_valid,
   input  logic [NSLOT-1:0]     slot_replayed,
+  input  logic [31:0]          slot_addr [NSLOT],
   input  logic [NSLOT-1:0]     retry_issue,
   input  logic [NSLOT-1:0]     pend_valid,
   input  logic                 s2f_valid,
@@ -24,7 +25,6 @@ module dcache_cover
   input  logic [NSLOT-1:0]     mshr_find_hit,
   input  logic [NLD-1:0]       ld_mreq,
   input  logic [NST-1:0]       st_mreq,
-  input  logic [NST-1:0]       st_fm,
   input  logic [NST-1:0]       st_mrg,
   input  logic [NLD-1:0]       s2ld_valid,
   input  logic [1:0]           s2ld_replay [NLD],
@@ -39,13 +39,18 @@ module dcache_cover
   input  logic                 fr_valid
 );
 
-  logic ld_full, st_full, ld_mhit, st_find, st_conf;
+  logic ld_full, st_full, ld_mhit, st_find, st_conf, req_bank_conflict;
   always_comb begin
     ld_full = 1'b0;
     st_full = 1'b0;
     ld_mhit = 1'b0;
     st_find = 1'b0;
     st_conf = 1'b0;
+    req_bank_conflict = 1'b0;
+    for (int j = 1; j < NSLOT; j++)
+      for (int i = 0; i < j; i++)
+        if (slot_valid[j] && slot_replayed[j] && slot_valid[i] && !slot_replayed[i] &&
+            slot_addr[i][OFF_W +: BANK_W] == slot_addr[j][OFF_W +: BANK_W]) req_bank_conflict = 1'b1;
     for (int i = 0; i < NLD; i++) begin
       if (s2ld_valid[i] && s2ld_replay[i] == RP_MSHR_FULL) ld_full = 1'b1;
       if (s2ld_valid[i] && s2ld_replay[i] == RP_MSHR_HIT && !ld_mreq[i]) ld_mhit = 1'b1;
@@ -110,9 +115,6 @@ module dcache_cover
   // retry blocked by a pending response
   cover property (@(posedge clk) disable iff (!rst_n)
     |pend_valid && |retry_issue);
-  // store merged into the fill write
-  cover property (@(posedge clk) disable iff (!rst_n)
-    |st_fm);
   // store merged into the next snapshot
   cover property (@(posedge clk) disable iff (!rst_n)
     |st_mrg);
@@ -134,6 +136,9 @@ module dcache_cover
     wb_req_valid && wb_resp_valid);
   cover property (@(posedge clk) disable iff (!rst_n)
     fr_valid && phase0);
+  // request denied because an earlier request owns its bank
+  cover property (@(posedge clk) disable iff (!rst_n)
+    req_bank_conflict);
 `endif
 
 endmodule
