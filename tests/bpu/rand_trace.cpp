@@ -35,6 +35,16 @@ struct Lane { uint32_t pc; bool pred, alt; int pcpn, altpcpn; int tags[4], idxs[
 static std::vector<uint32_t> pool;   // pc pool (word aligned)
 static long cv_drop, cv_tage_upd, cv_reset, cv_usealt, cv_alloc, cv_tage_hit, cv_btb_upd, cv_tc, cv_mode, cv_idir_pred, cv_ras_s, cv_ras_a, cv_ras_full, cv_refetch, cv_pred;
 
+// Crafted conflict regions (aliasing in the hashed tables is what exercises victim selection / replacement):
+//  BTB: bank pc word pw = pc>>5; idx = (pw ^ pw>>8 ^ pw>>16 ^ pw>>24) & 255 -> pw=(k<<8)|(c^k) keeps idx == c for every k while
+//       the tag (pw>>8)&255 == k differs: more than 4 different tags in one set of every bank.
+//  type table: set = pw & 511, tag = (pw>>9) & 255 -> pw=(j<<9)|s: several tags in one set (2 ways).
+static void add_group(uint32_t pw) { uint32_t base = pw << 5; for (int w = 0; w < 8; w++) pool.push_back(base + 4u * w); }
+static void add_conflicts() {
+  uint32_t c = (uint32_t)(R64() & 255), s = (uint32_t)(R64() & 511);
+  for (int k = 1; k <= 7; k++) add_group((k << 8) | ((c ^ k) & 255));
+  for (int j = 1; j <= 4; j++) add_group((j << 9) | s);
+}
 static void make_pool(int regions) {
   pool.clear();
   for (int r = 0; r < regions; r++) {
@@ -43,6 +53,7 @@ static void make_pool(int regions) {
     if (r == 1) base = 0xFFFFFF80u;            // addresses near 2^32
     for (int w = 0; w < 32; w++) pool.push_back(base + 4u * w);
   }
+  if (R(2)) add_conflicts();
 }
 static uint32_t pool_pc() { return pool[R((int)pool.size())]; }
 // synthetic static program

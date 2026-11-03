@@ -23,13 +23,13 @@ module bpu_type import bpu_pkg::*; (
   logic [TP_TAG_W-1:0] pred_tag  [NLANE];
   logic [TP_TAG_W-1:0] upd_tag   [NCOMMIT];
   logic [TP_MEM_W-1:0] rd_addr   [NRD];
-  logic [15:0]         rd_data0  [NRD];
-  logic [15:0]         rd_data1  [NRD];
-  logic [15:0]         pred_entry [NLANE][TP_WAYS];
-  logic [15:0]         upd_entry_rd [NCOMMIT][TP_WAYS];
+  tp_entry_t           rd_data0  [NRD];
+  tp_entry_t           rd_data1  [NRD];
+  tp_entry_t           pred_entry [NLANE][TP_WAYS];
+  tp_entry_t           upd_entry_rd [NCOMMIT][TP_WAYS];
   logic                lane_we    [NCOMMIT];
   logic [0:0]          lane_way   [NCOMMIT];
-  logic [15:0]         lane_entry [NCOMMIT];
+  tp_entry_t           lane_entry [NCOMMIT];
   logic                wr_en0     [NCOMMIT];
   logic                wr_en1     [NCOMMIT];
   /* verilator lint_off UNUSEDSIGNAL */
@@ -61,11 +61,11 @@ module bpu_type import bpu_pkg::*; (
     end
   end
 
-  bpu_mem #(.W(16), .DEPTH(1 << TP_MEM_W), .N_RD(NRD), .N_WR(NCOMMIT)) u_way0 (
+  bpu_mem #(.T(tp_entry_t), .DEPTH(1 << TP_MEM_W), .N_RD(NRD), .N_WR(NCOMMIT)) u_way0 (
     .clk(clk), .rst_n(rst_n), .rd_addr(rd_addr), .rd_data(rd_data0),
     .wr_en(wr_en0), .wr_addr(upd_addr), .wr_data(lane_entry)
   );
-  bpu_mem #(.W(16), .DEPTH(1 << TP_MEM_W), .N_RD(NRD), .N_WR(NCOMMIT)) u_way1 (
+  bpu_mem #(.T(tp_entry_t), .DEPTH(1 << TP_MEM_W), .N_RD(NRD), .N_WR(NCOMMIT)) u_way1 (
     .clk(clk), .rst_n(rst_n), .rd_addr(rd_addr), .rd_data(rd_data1),
     .wr_en(wr_en1), .wr_addr(upd_addr), .wr_data(lane_entry)
   );
@@ -75,7 +75,7 @@ module bpu_type import bpu_pkg::*; (
     /* verilator lint_off UNUSEDSIGNAL */
     logic       pred_unused_we;
     logic [0:0] pred_unused_way;
-    logic [15:0] pred_unused_entry;
+    tp_entry_t   pred_unused_entry;
     /* verilator lint_on UNUSEDSIGNAL */
     bpu_type_lane u_lane (
       .tag(pred_tag[l]), .way_entry(pred_entry[l]), .actual_type(BR_NONCTL),

@@ -3,11 +3,14 @@
 
 // Fetch-group generation: base pc, the 8 lane pcs and which of them lie before the end of the (64-byte) cache line
 // group, the control outputs and the fetch pc register.
-//   base     = refetch ? refetch_address : pc
+//   base     = pc                                          (C++: refetch ? refetch_address : pc, see below)
 //   boundary = base+32, cut to the line start when base+32 crosses a 64-byte line
-//   lane i   : pc_i = base + 4i, valid if pc_i < boundary (32-bit unsigned compare, like the C++), bank = pc_i[4:2]
-//   going_to_do_pred = icache_read_ready || refetch        (pc_can_send_to_icache is constant 1)
+//   lane i   : pc_i = base + 4i, valid if pc_i < boundary (32-bit unsigned compare as in C++), bank = pc_i[4:2]
+//   going_to_do_pred = icache_read_ready       (C++: icache_read_ready || refetch; pc_can_send_to_icache is constant 1)
 //   pc next  = refetch ? refetch_address : going_to_do_pred ? next_pc : pc
+// The C++ also predicts from refetch_address in a refetch cycle (going_to_do_pred forced on).  That prediction is
+//   going_to_do_pred = icache_read_ready     (C++: icache_read_ready || refetch; pc_can_send_to_icache is constant 1)
+// has no side effect, and the speculative state it would update is overwritten by the refetch.  So the RTL ignores it.
 module bpu_ctrl import bpu_pkg::*; import ttg_cfg_pkg::*; (
   input  logic                clk,
   input  logic                rst_n,
@@ -32,14 +35,14 @@ module bpu_ctrl import bpu_pkg::*; import ttg_cfg_pkg::*; (
   logic [31:0] base_plus;
 
   always_comb begin
-    pred_base         = refetch ? refetch_address : pc_q;
+    pred_base         = pc_q;
     base_plus         = pred_base + GROUP_BYTES;
     boundary          = ((pred_base & LINE_MASK) != (base_plus & LINE_MASK)) ? (base_plus & LINE_MASK) : base_plus;
     for (int i = 0; i < NLANE; i++) begin
       lane_pc[i]    = pred_base + 32'(4 * i);
       lane_valid[i] = (lane_pc[i] < boundary);
     end
-    going_to_do_pred  = icache_read_ready || refetch;
+    going_to_do_pred  = icache_read_ready;
     icache_read_valid = !refetch;
     ptab_write_enable = going_to_do_pred && !refetch;
     pc_d              = refetch ? refetch_address : (going_to_do_pred ? next_pc : pc_q);

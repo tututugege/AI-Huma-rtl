@@ -26,6 +26,13 @@ package bpu_pkg;
   localparam int TP_SET_W = 9;                // 512 sets per bank
   localparam int TP_TAG_W = 8;
   localparam int TP_MEM_W = BANK_W + TP_SET_W;
+  // table entry: the C++ entry's 2-bit confidence counter is dead (only read by the unused pred_confident output)
+  typedef struct packed {
+    logic               valid;
+    logic [TP_TAG_W-1:0] tag;
+    logic [2:0]         br_type;
+    logic [1:0]         age;
+  } tp_entry_t;
 
   // ---- TAGE ----
   localparam int TN      = 4;                 // tagged tables (TN_MAX)

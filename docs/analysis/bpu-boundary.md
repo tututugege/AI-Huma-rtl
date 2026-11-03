@@ -96,7 +96,7 @@ bank 的"bank pc"= `pc >> 3`（`bank_pc_comb`：`BPU_BANK_NUM=8` → 右移 3，
 
 ### 3.2 类型预测器（`TypePredictor.h`，`bpu_type`）
 
-- 存储 `table[8 bank][512 set][2 way]`，条目 `{valid, tag[8], type[3], conf[2], age[2]}`（16 位），复位全 0。
+- 存储 `table[8 bank][512 set][2 way]`，C++ 条目 `{valid, tag[8], type[3], conf[2], age[2]}`（16 位），复位全 0。**`conf` 是死状态**（唯一读者是 `pred_confident` 输出，BPU 不读；变异检查中"conf 饱和值"变异无法被任何输出抓到，由此发现），RTL 条目只存 14 位。
 - **预测**（8 路，lane i 有效时）：`bank=pc[4:2]`，`set=(pc>>5)&511`，`tag=(pc>>14)&255`；两路里第一个 `valid && tag==` 命中者给出 `type`，未命中 `BR_NONCTL(4)`。
 - **更新**（8 个提交 lane，**直接用本拍 `in_upd_*`，不经更新队列**，读旧表）：命中→改写该路，未命中→选空路（第一个 `!valid`），否则 `age` 最小路（并列取低路）；
   `actual==NONCTL`：命中则**清空该条（写全 0）**，未命中不写；否则 `type` 相同则 `conf/age` 饱和加 1，不同则 `type=actual, conf=1, age=1`。
@@ -166,7 +166,7 @@ lane i（`going_to_do_pred && do_pred[i]`）：`p_type`=类型预测器输出；
 | `sram_delay_*`、`sram_prng_state`（TAGE `0x13579bdf`，BTB `0x2468ace1`）、`xorshift32_comb` | `SRAM_DELAY_ENABLE` 未定义；`*_prng_state_next = rd.sram_prng_state` 恒不变，xorshift 函数无调用点。**任务书提到的"BTB PRNG 必须按位复刻"在默认配置下不存在随机行为**（TAGE 分配用的是 4 位 LSFR，已复刻）|
 | TAGE：`sc_ctr_table`、SC-Lite、`scl_*`、`loop_*`、`path_in`、`ghr_in`、`pred_sc_*` | `ENABLE_TAGE_SC_L/SC_LITE/LOOP_PRED/SC_PATH=0`。`ghr_in` 只被 SC-L 读；`sc_used_in/loop_used_in` 恒 0（`provider_used` 恒真）|
 | BTB：`btb_type_idx`、`type_idx`、`r_type`、`sram_*`、BTB `tc_idx` 第一次 `gen_index_pre` | `BTB_TYPE_ENTRY_NUM` 无存储；其余无人读 |
-| 类型预测器 `pred_hit/pred_confident` 输出 | BPU 只读 `pred_type` |
+| 类型预测器 `pred_hit/pred_confident` 输出，条目 `conf` | BPU 只读 `pred_type`；`conf` 只被 `pred_confident` 读 |
 | `pc_can_send_to_icache` | 复位 true，唯一写入是写 true；[已验证] 全程恒 1，`icache_read_valid = !refetch` |
 | `update_queue_full`、队列 `count>=Q_DEPTH`、`q_wr/rd_ptr`、`PATH` | 见 §3.6；`PATH` 只被 SC-L 路径读 |
 | `Arch/Spec_GHR` 的 119..255 位 | FH 更新只读到 `GHR[118]`（TAGE 不读 GHR，见上）|
@@ -176,7 +176,7 @@ lane i（`going_to_do_pred && do_pred[i]`）：`p_type`=类型预测器输出；
 
 | 部件 | 数组 | 大小 | 读口 | 写口 |
 | --- | --- | --- | --- | --- |
-| 类型预测 | `table[8][512][2]×16b` | 131 Kb | 16（8 预测 + 8 更新）| 8（后 lane 覆盖）|
+| 类型预测 | `table[8][512][2]×14b`（`conf` 死，不存）| 115 Kb | 16（8 预测 + 8 更新）| 8（后 lane 覆盖）|
 | BTB（×8） | `btb tag/bta/valid/useful[4][256]` | 45 Kb | 2（预测/更新）| 1 |
 | | `bht[128]×8b`，`tc/tc_pre[2][128]×46b`，`tc_mode[128]×3b` | 24 Kb | 预测 1 + 更新 2（含两次间接读）| 各 1 |
 | TAGE（×8） | `base[1024]×2b`，`tag/cnt/useful[4][1024]` | 55 Kb | 预测 1 + 更新 1（`useful` 另有清行读 1）| 各 1（`useful` 2：更新+清行）|
