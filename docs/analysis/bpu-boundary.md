@@ -170,7 +170,7 @@ lane i（`going_to_do_pred && do_pred[i]`）：`p_type`=类型预测器输出；
 | `pc_can_send_to_icache` | 复位 true，唯一写入是写 true；[已验证] 全程恒 1，`icache_read_valid = !refetch` |
 | `update_queue_full`、队列 `count>=Q_DEPTH`、`q_wr/rd_ptr`、`PATH` | 见 §3.6；`PATH` 只被 SC-L 路径读 |
 | `Arch/Spec_GHR` 的 119..255 位 | FH 更新只读到 `GHR[118]`（TAGE 不读 GHR，见上）|
-| `refetch` 拍的预测结果 | `fetch_address` 受 `icache_read_valid=!refetch` 保护，PTAB 写受 `PTAB_write_enable` 保护；预测本身**没有副作用**（读不改状态；Spec 被 refetch 覆盖）。RTL 仍按 C++ 用 `refetch_address` 作 base 计算（保持子部件录制一致），只是输出 `when` |
+| `refetch` 拍的预测结果 | `fetch_address` 受 `icache_read_valid=!refetch` 保护，PTAB 写受 `PTAB_write_enable` 保护；预测本身**没有副作用**（读不改状态；Spec 被 refetch 覆盖）。**RTL 不翻译**这条路径（`base=pc`、`going_to_do_pred=icache_read_ready`）；变异检查里"去掉 `|| refetch`"抓不到，印证了不可观察 |
 
 ## 5. 状态规模
 
@@ -225,6 +225,6 @@ Spec≠Arch GHR 的拍数 947354。**盲区**（需随机流补）：RAS 满/溢
 
 ## 9. 风险与待决
 
-- 体量：6000 行 C++；RTL 预计 4–5 千行。阵列都是 SRAM 式，用 `bpu_mem`（同步写、异步读）而不是 `mem_d` 全拷贝（8 bank × 10^5 位，全拷贝会让 Verilator 慢 100 倍）。
+- 体量：6000 行 C++；RTL 实际 ~2000 行（含 19 个文件）。阵列都是 SRAM 式，用 `bpu_mem`（同步写、异步读）而不是 `mem_d` 全拷贝（8 bank × 10^5 位，全拷贝会让 Verilator 慢 100 倍）。
 - `bank_pc = pc>>3` 与 BTB miss 目标 `bank_pc+4` 是 C++ 的怪行为但有意义，复刻并登记 `docs/modules/bpu.md`。
 - 随机流生成器直接驱动参考 `BPU_TOP` 类；合法性约束见 `docs/modules/bpu.md`（更新必须是"曾预测过的 PC"？——C++ 并不要求，TAGE 元数据任意值都能算，因此约束只需保证类型/索引在位宽内）。

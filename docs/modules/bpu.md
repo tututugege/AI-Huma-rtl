@@ -40,7 +40,7 @@
 
 C++ 的 `bpu_comb_calc` 是 pre-read → data-read → post-read → submodule-read → core-comb；因为所有存储"读旧值、沿上写"，RTL 就是一次组合求值：
 
-1. `bpu_ctrl`：`base = refetch ? refetch_address : pc_q`；`boundary`；`lane_pc/lane_valid`；`going_to_do_pred = icache_read_ready || refetch`。
+1. `bpu_ctrl`：`base = pc_q`（C++ 在 refetch 拍用 `refetch_address`，见 §4.4 第 5 条）；`boundary`；`lane_pc/lane_valid`；`going_to_do_pred = icache_read_ready`（C++：`|| refetch`）。
 2. `bpu_type`：8 个预测 lane 读表得 `lane_type`（同拍的 8 个更新 lane 读同一旧表，写在沿上，后 lane 覆盖）。
 3. 每个 bank 的请求：第 i 个 lane 落在 `pc_i[4:2]` 号 bank（一个取指组 8 个 lane 恰好覆盖 8 个 bank），`bank_pc = pc_i >> 3`，`type` 为该 lane 的类型。
 4. TAGE：`idx/tag` 由 Spec FH 与 bank pc 得到 → 读表 → provider/alt；BTB：BTB 组、BHT→TC 索引→TC/TC-pre/mode → 目标。
@@ -83,7 +83,7 @@ C++ 的 `bpu_comb_calc` 是 pre-read → data-read → post-read → submodule-r
 2. SRAM 延迟模型。
 3. `assert(out_pred_base_pc == fetch_address)` 等自检。
 4. NLP / 2-ahead / mini-flush 整套（`ENABLE_2AHEAD` 未定义）。
-5. `refetch` 拍的预测结果：无副作用、输出被 `icache_read_valid/PTAB_write_enable` 屏蔽（RTL 仍按 `refetch_address` 作 base 计算，保持子部件录制一致，只是顶层不比较）。
+5. `refetch` 拍的预测：C++ 在 refetch 拍强制 `going_to_do_pred` 并以 `refetch_address` 为 base 预测。该预测**不可观察**：`fetch_address` / PTAB 载荷分别被 `icache_read_valid = !refetch`、`PTAB_write_enable` 屏蔽，查询无副作用（读表不改状态；LSFR/`reset_cnt`/`use_alt` 只在更新时变），Spec 历史/RAS 被 refetch 覆盖。RTL 因此用 `pc_q` 作 base、`going_to_do_pred = icache_read_ready`（只影响 refetch 拍的内部量）。注意：由此 `bpu_type/bpu_hist` 等子 spec 的 refetch 拍输入与顶层 RTL 内部信号不同，但各子模块自己的锁步是用 C++ 录到的输入驱动的，不受影响。
 
 ### 4.5 提醒集成者
 - BPU 每拍恰好求值一次，包括 `icache_read_ready=0`（被反压）的拍：此时不预测，但提交更新照常进队/更新历史。
@@ -99,4 +99,85 @@ C++ 的 `bpu_comb_calc` 是 pre-read → data-read → post-read → submodule-r
 ### 5.1 spec（字段数）
 `bpu` 23、`bpu_type` 6、`bpu_btb` 9、`bpu_tage` 17、`bpu_hist` 14、`bpu_uq` 21（含输入输出；顶层输入 13 项、输出 10 项）。全部有 `@` 表达式，可录制/可锁步。
 
-RESULTS_PLACEHOLDER
+### 5.2 整程序实时锁步（主验证）
+`REFSIM=…/refsim_tap bash scripts/lockstep_multi.sh bpu bpu_type bpu_btb bpu_tage bpu_hist bpu_uq`：6 个 spec 在同一遍参考模拟里同时逐拍比对（RTL 编成插件挂进参考模拟器，BPU 状态从复位开始连续学习）。
+
+| 程序集 | 个数 | 每个 spec 比对拍数 | 结果 |
+| --- | --- | --- | --- |
+| 61 个 gate 测试 | 61 | 91 ~ 1,541,195（合计 2,060,221）| 全 PASS |
+| vm 测试（asid / pagefault / sum_fetch / sfence_perm）| 4 | 68,737 / 29,412 / 2,694 / 38,695 | 全 PASS |
+| dhrystone（跑完）| 1 | 3,911,612 | PASS |
+| coremark（上限 400 万拍）| 1 | 4,000,000 | PASS |
+| float_test / coremark10 | 2 | 2,005 / 976,652 | PASS |
+| sha-test / cjpeg / linear_alg / parser-125k（上限 400 万拍）| 4 | 各 4,000,000 | PASS |
+| **合计** | **73** | **27,090,028**（每个 spec）| **73 × 6 spec 全 PASS，0 失配** |
+
+以上是最终 RTL（含"丢弃 conf、忽略 refetch 拍预测"两处简化之后）的结果：68 个标准程序 × 6 spec = 408 条 PASS，另 5 个大程序（coremark10、sha-test、cjpeg、linear_alg、parser-125k）× 6 spec = 30 条 PASS，0 失配（共 73 程序、每个 spec 27,090,028 拍）。简化之前的 RTL 版本也各跑过一遍同样的程序集（全 PASS）。另用 `scripts/record.sh bpu` 录 trace + `scripts/replay.sh` 回放（dhrystone 2 万拍）确认录制/回放路径可用。
+
+### 5.3 随机更新流（补覆盖，顶层 `bpu.io`）
+`tests/bpu/rand_trace.cpp`（`bash tests/bpu/run_rand.sh <拍数> <种子>…`）：直接驱动**真实的参考类 `BPU_TOP`**（调用方式同 `front_top.cpp`：`bpu_seq_read; bpu_comb_calc; bpu_seq_write`），
+把同一输入序列和参考输出写成 trace，用回放器验证 RTL。**激励合法性依据**：
+- `br_type∈0..5`、`pcpn/altpcpn∈0..4`、pc 4 字节对齐；`sc_*/loop_*` 输入恒 0（BPU 从不输出非 0，真实后端发不出非 0）。更新元数据（`pred_dir/alt_pred/pcpn/tags/idxs`）要么取自 BPU 自己刚输出的预测（"真实模式"：软件后端把已预测的取指组留在飞行队列里，按序提交，类型/目标/方向由一个静态合成程序决定），要么完全随机（"压力模式"；C++ 对任意值都能算，idx 按位宽截断）。
+- `refetch` 配任意 4 字节对齐地址：池内地址、跨 32B 组/64B 行的地址、接近 2^32 的地址（C++ 与 RTL 都 32 位回绕）；无效提交 lane 的负载填垃圾（模型必须忽略）。
+- 5 个阶段（每 3000 拍切换）：真实 / 压力（小 pc 池、随机元数据、稠密提交 → 同 bank 丢弃、类型表冲突）/ 调用返回密集（RAS 深度超过 32）/ refetch 密集 / 真实 + 反压。
+- **构造冲突池**：BTB 的 `pw=(k<<8)|(c^k)`（同组多 tag，超过 4 路，触发 victim/useful 替换）；类型表 `pw=(j<<9)|s`（同组多 tag，超过 2 路）。真实程序碰不到这两类替换。
+- 覆盖（每 10 万拍）：预测 ~5.2 万拍、refetch ~2.4 万、被同 bank 丢弃的提交 lane ~5 万、TAGE 更新 ~7.5 万（分配 ~2.2 万，`useful` 清行 ~40 次，use-alt 写 ~1.6 千）、BTB 更新 ~26 万、TC 写 ~1.1 万、`tc_mode` 写 ~3 千、RAS Spec/Arch 都满到 32（Spec 满的拍数 ~3.3 万）。
+- 结果：种子 1、11、21、22（20k/100k/100k/100k 拍）、31、32、33（各 20 万拍）全部 PASS（共 ~87 万拍）。
+
+### 5.4 变异检查
+38 个变异分布在所有子部件：类型预测器 6、BTB 8、TAGE 9、历史/RAS 6、更新队列 3、控制/组合 6。三档验证：
+(1) dhrystone 前 30 万拍整程序锁步（用对应子 spec，顶层变异用顶层 spec）；(2) 前一档没抓到的再用 coremark 150 万拍；(3) 随机流（3 个种子 × 10 万拍，顶层 spec）。
+
+**38 个变异里：dhrystone 锁步抓到 20，coremark 再抓到 5，随机流抓到 38（全部）；只靠随机流（构造冲突/满深度/反压）才能抓到的 13 个**：
+类型表的替换/清除/age（5）、BTB 的 victim 并列选择与 `useful` 饱和与 IDIRECT 的 useful 初值（3）、`tc_mode` 阈值与递减下限（2）、BHT 目标签名（1）、hash 的第三项折叠（1）、RAS 满栈写槽（1）。
+真实程序的工作集小，BTB/类型表不会"同组装满再替换"，RAS 不会深于 4（见分析 §8），这些只能靠构造激励。
+变异记录工具：`tests/bpu/mutants.txt`、`mut.sh`（锁步）、`run_mut.sh`、`run_mut_replay.sh`（trace 回放）。
+
+| # | 子部件 | 文件 | 变异 | dhrystone 30 万拍锁步 | coremark 150 万拍锁步（仅复测前者未抓到的）| 随机流（3×10 万拍）|
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | bpu_type | `bpu_type_lane.sv` | `(way_entry[1].age < way_entry[0].age) ? 1'b1 : 1'b0` → `(way_entry[1].age <= way_entry[0].age) ? 1'b1 : 1'b0` | 未抓到 | 未抓到 | 抓到 out_tage_tags[0][0]@371 |
+| 2 | bpu_type | `bpu_type_lane.sv` | `upd_we        = (actual_type != BR_NONCTL) \|\| hit;` → `upd_we        = (actual_type != BR_NONCTL);` | 未抓到 | 未抓到 | 抓到 predict_next_fetch_address@173 |
+| 3 | bpu_type | `bpu_type.sv` | `upd_tag[l]  = upd_pc[l][5 + TP_SET_W +: TP_TAG_W];` → `upd_tag[l]  = upd_pc[l][4 + TP_SET_W +: TP_TAG_W];` | 未抓到 | 抓到 pred_type[1]@226 | 抓到 out_tage_tags[0][1]@63 |
+| 4 | bpu_type | `bpu_type_lane.sv` | `old_age + 2'd1) : 2'd1;` → `old_age + 2'd1) : 2'd0;` | 未抓到 | 未抓到 | 抓到 predict_next_fetch_address@1460 |
+| 5 | bpu_type | `bpu_type_lane.sv` | `(old_age == 2'd3) ? 2'd3 : old_age` → `(old_age == 2'd2) ? 2'd2 : old_age` | 未抓到 | 未抓到 | 抓到 predict_next_fetch_address@3503 |
+| 6 | bpu_type | `bpu_type_lane.sv` | `if (actual_type == BR_NONCTL) upd_entry = '0;` → `if (actual_type == BR_NONCTL) upd_entry = upd_entry;` | 未抓到 | 未抓到 | 抓到 out_pred_dir[5]@9073 |
+| 7 | bpu_btb | `bpu_pkg.sv` | `if (3 * w < 32) m = m ^ (x >> (3 * w));` → `if (3 * w < 24) m = m ^ (x >> (3 * w));` | 未抓到 | 未抓到 | 抓到 predict_next_fetch_address@173 |
+| 8 | bpu_btb | `bpu_btb_upd.sv` | `if (btb_set[w].useful <= btb_set[victim].useful) victim = 2'(...` → `if (btb_set[w].useful < btb_set[victim].useful) victim = 2'(w);` | 未抓到 | 未抓到 | 抓到 predict_next_fetch_address@3342 |
+| 9 | bpu_btb | `bpu_btb_pkg.sv` | `if (correct) return (cur == 3'd7) ? 3'd7 : cur + 3'd1;` → `if (correct) return (cur == 3'd6) ? 3'd6 : cur + 3'd1;` | 未抓到 | 未抓到 | 抓到 predict_next_fetch_address@2911 |
+| 10 | bpu_btb | `bpu_btb_pkg.sv` | `TC_MODE_BIAS = 3'd3` → `TC_MODE_BIAS = 3'd4` | 未抓到 | 未抓到 | 抓到 predict_next_fetch_address@20418 |
+| 11 | bpu_btb | `bpu_btb_pred.sv` | `pc_plus4 = pc + 32'd4;` → `pc_plus4 = {pc[28:0], 3'b000} + 32'd4;` | 抓到 pred_target[2]@1 | — | 抓到 predict_next_fetch_address@89 |
+| 12 | bpu_btb | `bpu_btb_pkg.sv` | `(t ^ (t >> 11) ^ (t >> 19)) ^ SALT_BHT_UPD` → `(t ^ (t >> 11)) ^ SALT_BHT_UPD` | 未抓到 | 未抓到 | 抓到 predict_next_fetch_address@4561 |
+| 13 | bpu_btb | `bpu_btb_upd.sv` | `btb_wdata.useful = (upd_br_type == BR_IDIRECT) ? 3'd0 :` → `btb_wdata.useful = (upd_br_type == BR_IDIRECT) ? 3'd1 :` | 未抓到 | 未抓到 | 抓到 predict_next_fetch_address@30154 |
+| 14 | bpu_btb | `bpu_btb_upd.sv` | `(tc_mode_old > 3'd0) ? tc_mode_old - 3'd1 : 3'd0` → `(tc_mode_old > 3'd1) ? tc_mode_old - 3'd1 : 3'd1` | 未抓到 | 未抓到 | 抓到 predict_next_fetch_address@19621 |
+| 15 | bpu_tage | `bpu_tage_pred.sv` | `idx[i] = fh[0][i][T_IDX_W-1:0] ^ pc_idx;` → `idx[i] = fh[1][i][T_IDX_W-1:0] ^ pc_idx;` | 抓到 idx_out[0][1]@355 | — | 抓到 out_tage_idxs[0][1]@16 |
+| 16 | bpu_tage | `bpu_tage_pred.sv` | `match[i] = (rd_tag[i] == tag[i]);` → `match[i] = (rd_tag[i][6:0] == tag[i][6:0]);` | 抓到 pcpn_out[0]@294 | — | 抓到 out_pcpn[3]@215 |
+| 17 | bpu_tage | `bpu_tage_upd.sv` | `cnt_wdata[i] = real_dir ? ((rd_cnt[i] == 3'd7) ? 3'd7 : rd_cn...` → `cnt_wdata[i] = real_dir ? ((rd_cnt[i] == 3'd6) ? 3'd6 : rd_cn...` | 未抓到 | 抓到 alt_pred_out[2]@8922 | 抓到 out_pred_dir[4]@24439 |
+| 18 | bpu_tage | `bpu_tage_upd.sv` | `(lsfr_rand == 2'd0 \|\| lsfr_rand == 2'd3)` → `(lsfr_rand == 2'd0)` | 抓到 pcpn_out[1]@657 | — | 抓到 out_pcpn[5]@1022 |
+| 19 | bpu_tage | `bpu_tage_pred.sv` | `prefer_alt    = (use_alt_ctr <= 4'd8);` → `prefer_alt    = (use_alt_ctr < 4'd8);` | 未抓到 | 抓到 pred_out[1]@3046 | 抓到 out_pred_dir[7]@4316 |
+| 20 | bpu_tage | `bpu_tage_upd.sv` | `{reset_row_useful[i][1], 1'b0}` → `{reset_row_useful[i][0], 1'b0}` | 未抓到 | 抓到 pcpn_out[2]@130207 | 抓到 out_pcpn[6]@26799 |
+| 21 | bpu_tage | `bpu_tage_upd.sv` | `lsfr_next = {lsfr[2:0], lsfr[0] ^ lsfr[3]};` → `lsfr_next = {lsfr[2:0], lsfr[1] ^ lsfr[3]};` | 抓到 pcpn_out[1]@657 | — | 抓到 out_pred_dir[5]@1130 |
+| 22 | bpu_tage | `bpu_tage_upd.sv` | `cnt_wdata[i]    = real_dir ? 3'd4 : 3'd3;` → `cnt_wdata[i]    = real_dir ? 3'd4 : 3'd2;` | 抓到 pred_out[1]@1414 | — | 抓到 out_pred_dir[7]@1690 |
+| 23 | bpu_tage | `bpu_tage_bank.sv` | `use_alt_q   <= 4'd7;` → `use_alt_q   <= 4'd8;` | 未抓到 | 抓到 pred_out[1]@3046 | 抓到 out_pred_dir[7]@4316 |
+| 24 | bpu_uq | `bpu_uq.sv` | `(base_pc[l][BANK_W + 1:2] == BANK_W'(b))` → `(base_pc[l][BANK_W:1] == BANK_W'(b))` | 抓到 q_valid[1]@37 | — | 抓到 predict_next_fetch_address@60 |
+| 25 | bpu_uq | `bpu_uq.sv` | `.req(lane_to_bank), .onehot(first_lane)` → `.req(lane_to_bank & 8'h7F), .onehot(first_lane)` | 抓到 q_valid[6]@86 | — | 抓到 predict_next_fetch_address@174 |
+| 26 | bpu_uq | `bpu_uq.sv` | `tage_en[b]   = valid_q && (head_q.br_type == BR_DIRECT);` → `tage_en[b]   = valid_q;` | 抓到 tage_en[0]@19 | — | 抓到 out_alt_pred[7]@101 |
+| 27 | bpu_hist | `bpu_hist_step.sv` | `localparam int SH = G % L;` → `localparam int SH = (G + 1) % L;` | 抓到 fh[0][0]@355 | — | 抓到 out_tage_tags[0][0]@16 |
+| 28 | bpu_hist | `bpu_hist.sv` | `arch_mispred[l] = arch_apply[l] && (pred_dir[l] != actual_dir...` → `arch_mispred[l] = arch_apply[l] && (pred_dir[l] == actual_dir...` | 抓到 fh[0][0]@229 | — | 抓到 out_tage_tags[0][1]@21 |
+| 29 | bpu_hist | `bpu_hist.sv` | `before_taken[l] = (l == 0) ? 1'b0 : \|(taken_lane & ((NLANE'(1...` → `before_taken[l] = 1'b0;` | 抓到 fh[0][0]@828 | — | 抓到 out_tage_tags[0][0]@94 |
+| 30 | bpu_hist | `bpu_ras_step.sv` | `wr_slot    = full ? base : base + count[RAS_PTR_W-1:0];` → `wr_slot    = full ? base + RAS_PTR_W'(1) : base + count[RAS_P...` | 未抓到 | 未抓到 | 抓到 predict_next_fetch_address@3036 |
+| 31 | bpu_hist | `bpu_ras.sv` | `if (refetch) spec_stk_d[j] = arch_stk_d[j];` → `` | 抓到 ras_top@87 | — | 抓到 predict_next_fetch_address@72 |
+| 32 | bpu_hist | `bpu_ras_step.sv` | `else if (pop && count != '0) count_next = count - RAS_CNT_W'(...` → `else if (pop) count_next = count - RAS_CNT_W'(1);` | 抓到 ras_has@349 | — | 抓到 predict_next_fetch_address@364 |
+| 33 | bpu | `bpu_ctrl.sv` | `localparam logic [31:0] LINE_MASK = ~32'(ICACHE_LINE_SIZE - 1);` → `localparam logic [31:0] LINE_MASK = ~32'(GROUP_BYTES - 1);` | 抓到 predict_next_fetch_address@13 | — | 抓到 predict_next_fetch_address@4 |
+| 34 | bpu | `bpu_ctrl.sv` | `lane_valid[i] = (lane_pc[i] < boundary);` → `lane_valid[i] = (lane_pc[i] <= boundary);` | 抓到 out_pcpn[7]@14 | — | 抓到 out_pcpn[3]@5 |
+| 35 | bpu | `bpu_ctrl.sv` | `ptab_write_enable = going_to_do_pred && !refetch;` → `ptab_write_enable = going_to_do_pred;` | 抓到 ptab_write_enable@12 | — | 抓到 ptab_write_enable@2 |
+| 36 | bpu | `bpu_pred.sv` | `lane_target[i] = (lane_type[i] == BR_RET && ras_has) ? ras_to...` → `lane_target[i] = (lane_type[i] == BR_RET && ras_has) ? ras_to...` | 抓到 predict_next_fetch_address@260 | — | 抓到 predict_next_fetch_address@72 |
+| 37 | bpu | `bpu_pred.sv` | `assign next_pc = any_taken ? first_target : boundary;` → `assign next_pc = any_taken ? first_target : boundary + 32'd4;` | 抓到 predict_next_fetch_address@1 | — | 抓到 predict_next_fetch_address@1 |
+| 38 | bpu | `bpu.sv` | `tage_pred_pc_idx[b] = bank_pc[b][T_BASE_W + 1:2];` → `tage_pred_pc_idx[b] = bank_pc[b][T_BASE_W:1];` | 抓到 out_pcpn[4]@1 | — | 抓到 out_pcpn[4]@1 |
+
+**发现的无效/等价**：
+- 变异"类型预测器 `conf` 饱和值"在所有三档里都无法被抓到，追查发现 `conf` 只被 `pred_confident` 读而 BPU 不读 → **`conf` 是死状态，已从 RTL 删除**（条目 14 位）。
+- 变异"BTB 索引 hash 的 salt 常数"是**等价变异**（XOR 常数只是索引重命名，任何激励都抓不到），已换成"去掉 hash 的第三折叠项"。
+- 变异"`going_to_do_pred = ready \|\| refetch` 去掉 `\|\| refetch`"在随机流里抓不到，追查发现 refetch 拍的预测**不可观察**（输出被 `icache_read_valid/PTAB_write_enable` 屏蔽、查询无副作用、Spec 被 refetch 覆盖）→ RTL 采纳该简化（C++ 的 `\|\| refetch` 与"refetch 拍用 `refetch_address` 作 base"都不翻译，§4.4 第 5 条）。
+
+### 5.5 lint
+`bash scripts/lint.sh rtl/frontend/bpu` 干净（svlint S1–S12 + `verilator -Wall`，含 UNOPTFLAT）。文件 ≤400 行（最大 190）、`always_comb` ≤60 行、无 break/while、无层次引用。
