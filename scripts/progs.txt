@@ -1,0 +1,4 @@
+# Standard program set for traces (path|cycle cap). Gate tests are the 66 programs under tututugege-trace/build/tests.
+/tmp/big/dhrystone.bin|300000
+/tmp/big/coremark.bin|300000
+/tmp/big/cm/coremark10.bin|300000

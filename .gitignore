@@ -3,3 +3,4 @@ traces/
 *.vcd
 *.fst
 __pycache__/
+refsim/

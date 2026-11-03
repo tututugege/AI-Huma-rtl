@@ -23,7 +23,8 @@
 
 ## 3 录制 trace
 
-- 在参考模型的**录制分支**加钩子（只读，见 03 第 4 节），并先验证加钩子后周期数不变。
+- 参考模型已有只读录制钩子（`refsim/`，由 `scripts/refsim_setup.sh` 生成，周期数已验证与原版一致）。你只需要在 spec 的每个字段后写 `@ <C++ 表达式>`（见 03 第 4 节），然后：
+  `bash scripts/record_all.sh <module>` 录制全部标准程序（每个程序只录开头 N 拍，因为 RTL 从复位开始）。
 - 最小程序集合（每个模块都要）：
   1. `build/tests` 里的 61 个 gate 测试（覆盖面广、短）；
   2. dhrystone、coremark（热路径、长）；
@@ -33,8 +34,9 @@
 
 ## 4 写 RTL
 
-- 严格遵守 [01-rtl-coding-standard.md](01-rtl-coding-standard.md)；翻译规则见 [04-cpp-to-rtl-mapping.md](04-cpp-to-rtl-mapping.md)。
-- 一次只翻一个模块，**先逐行直译，再谈优化**。不要"顺手改进"，不要合并/拆分 C++ 里的阶段。
+- 严格遵守 [01-rtl-coding-standard.md](01-rtl-coding-standard.md)（尤其第 0 节：硬件结构，不是逐行翻译）；翻译规则见 [04-cpp-to-rtl-mapping.md](04-cpp-to-rtl-mapping.md)。
+- **先写设计笔记** `docs/modules/<mod>.md`（模板见 `docs/modules/TEMPLATE.md`），再写 RTL。
+- 行为（每拍每位）与 C++ 一致，结构按硬件功能重新组织；等价性由 trace 保证，不靠"代码长得像"。理解了 C++ 的一拍内数据流之后，用并行/优先级结构表达。
 - `make lint` 必须干净。
 
 ## 5 回放到绿

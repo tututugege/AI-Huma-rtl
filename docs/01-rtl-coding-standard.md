@@ -2,6 +2,23 @@
 
 本规范是**强制**的。机器能查的由 `harness/tools/svlint.py`（规则 S1–S9）和 `verilator -Wall`（全部警告为错误）检查，`make lint` 必须干净才能提交；机器查不了的由评审人按本文逐条核对。
 
+## 0 设计原则（强制，评审第一项）
+
+**RTL 不是 C++ 的逐行翻译。** 行为必须与参考模型逐拍一致（由 trace 保证），但**结构必须是硬件结构**。
+
+1. **先写设计笔记再写 RTL**：`docs/modules/<mod>.md`（模板见 `docs/modules/TEMPLATE.md`）。写清：框图、每个状态数组的含义和大小、读写端口数、关键组合路径、C++ 数据结构到硬件结构的对应、一拍内的数据流。没有设计笔记不评审。
+2. **三层结构**：
+   - 顶层 `<mod>.sv`：只做端口适配——把 spec 规定的平铺端口打包/拆包成内部 struct，实例化核心子模块。不放逻辑。
+   - 核心子模块：按硬件功能拆分（例：重命名拆成 RAT、空闲表、组内依赖检查、checkpoint 各一个模块），内部可用 packed struct / enum。
+   - 通用原语：`rtl/common/ttg_*.sv`（find-first-set、独热 mux、popcount 等）。新原语先放在本模块目录并以模块名为前缀（`ren_xxx.sv`），由协调者统一提升到 common。
+3. **用硬件构造表达并行**：优先级选择用 `ttg_first_set`；多路选择用独热 mux；"数前面有几个"用前缀和/popcount；队列用读写指针+满空标志。**禁止**把 C++ 的"for 循环 + break + 运行计数器"搬进 `always_comb`（S11 检查）。
+4. **体量上限**：一个文件 ≤ 400 行，一个 `always_comb` ≤ 60 行（S10 检查）。超了说明该拆模块或拆成具名阶段，而不是放宽限制。
+5. **命名表达含义**：信号名说明它是什么（`free_preg_onehot`、`rename_group_conflict`），不用 `tmp`、`flag1`、`cnt2`；一个信号一个含义，不复用变量。
+6. **全参数化**：车道数、深度、位宽都是参数或来自 `ttg_cfg_pkg`；用 `generate for` 展开车道，不手工复制粘贴 N 份。
+7. **状态集中**：每个状态数组一个明确的"写端口"逻辑块；写冲突的优先级写成显式规则并注释对应的 C++ 行为。
+8. **不得为了通过 trace 放宽比较或改 spec 的 `when`**（见 02 第 5 步）。
+
+
 ## 1. 语言子集
 
 - SystemVerilog-2017，**必须能被 Verilator 5.x 无警告编译**。
@@ -62,7 +79,7 @@ end
 
 ## 7. 注释与可追溯性
 
-- 每个模块文件头写：对应的 C++ 源文件和类（`// Ref: back-end/Rob.cpp  class Rob`），参考模型提交号。
+- 每个模块文件头 20 行内必须有一行 `// Ref: back-end/Rob.cpp  class Rob`（S12 检查），可附参考模型提交号。
 - 每个 `always_comb` 段落前注明对应的 C++ 函数名（`// Ref: Rob::comb_commit`）。
 - 与 C++ 行为的任何差异（哪怕是"明显的 bug"）都要在 `deviations.md` 登记，并在代码处写 `// DEVIATION D-<n>`。**默认不允许有偏差**。
 
@@ -75,6 +92,8 @@ end
 
 ## 9. 评审清单
 
+- [ ] 有设计笔记；顶层只做端口适配；按硬件功能拆分了子模块
+- [ ] 无 C++ 式循环/break/运行计数器；每个文件 ≤400 行、每个 always_comb ≤60 行
 - [ ] 文件头有 Ref 注释；每个 `always_comb` 有 Ref 函数名
 - [ ] 无手写位宽魔数；常量来自 `ttg_cfg_pkg`
 - [ ] 所有寄存器有复位，复位值与 C++ `init()` 一致

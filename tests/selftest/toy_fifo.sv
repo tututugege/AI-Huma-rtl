@@ -1,3 +1,4 @@
+// Ref: (harness selftest only) tests/selftest/toy_golden.cpp
 // Toy 4-entry FIFO, used only to validate the harness. Written to the project RTL standard.
 `default_nettype none
 

@@ -70,27 +70,32 @@ FAIL toy_fifo: first mismatch at record 9 (cycle 9), 1 field(s)
   waveform of records 0..9 written to build/toy_fifo/fail_x.vcd
 ```
 
-## 4. 参考模型侧录制
+## 4. 参考模型侧录制（已自动化）
 
-1. 用 `iogen.py` 生成 `<mod>_fields.h`，放进参考模型的录制分支。
-2. 在参考模型每拍 comb 结束处读取模块端口，用 `ttg::TraceWriter`（`harness/include/trace_format.h`）写入：
+参考模型的副本 `refsim/` 已经带有只读钩子：每个 CPU 周期在 `BackTop::comb()` 之后、任何时序更新之前，调用 `$TTG_REC` 指定的插件。插件由 spec 自动生成，**不需要手写录制代码，也不需要重新编译模拟器**。
 
-```cpp
-#include "toy_fifo_fields.h"            // 由 spec 生成
-using namespace ttg_io;
-static ttg::TraceWriter<decltype(kFields)> tw("traces/rob/boot.trc", kModule, kInBytes, kOutBytes,
-                                              kSpecHash, kFields);
+在 spec 的每个字段后加 `@ <表达式>`：
 
-// 每拍，BackTop::comb() 之后、seq() 之前：
-tw.set(F_push_valid, 0, push_valid);          // 标量：elem=0
-tw.set(F_slot_data, i, slot[i].data);          // 数组：elem = 行优先扁平下标
-tw.set_words(F_blob, 0, words, 3);             // >64 位：小端 32 位字
-tw.commit(cycle, in_reset ? ttg::kFlagReset : 0);
+```
+in  inst_valid 1  [8] @ bt.dec2ren.inst[i0].valid     # 表达式里可用 cpu(SimCpu&) bt(BackTop&) i0 i1..(各维下标)
+out rob_idx    7  [8] @ bt.ren2dis.inst[i0].rob_idx
+in  big_meta   96     @w bt.x.meta.words               # @w：返回 uint32_t 小端字指针，任意位宽
 ```
 
-3. 录制钩子**只读**：加了钩子后参考模型的周期数必须与原来完全一致（用 02 流程的周期校验）。
-4. trace 放 `traces/<module>/<程序名>.trc`，不入库；`docs/05-module-tracker.md` 里记录每个模块用哪些程序录制。
-5. 一个模块要用**多种程序**录制（见 02 流程第 3 步的最小集合），单一程序覆盖不到的分支用专项/随机激励补。
+- 能读私有成员（插件编译时 `private` 当作 public）。
+- 要么每个字段都有 `@`，要么都没有（后者只能回放，不能录制）。`@` 表达式不参与接口哈希。
+
+命令：
+
+```bash
+bash scripts/record.sh <module> prog.bin...     # 录指定程序，CYCLES 环境变量控制拍数（默认 200000）
+bash scripts/record_all.sh <module>             # 录全部标准程序：61 个 gate 测试 + dhrystone/coremark，4 路并行
+```
+
+- **只录程序开头的 CYCLES 拍**：RTL 从复位开始，trace 不能从中途开始。录满后插件会直接结束模拟器（否则大程序会被整个跑完，原版很慢）。
+- 每个 trace 开头是 3 个复位拍（输入 0，不比较输出），所以 RTL 的复位状态必须等于参考模型 `init()` 之后的状态。
+- 共享的 `refsim/` 只读；多个 agent 可同时运行（实测并行录制无冲突）。
+- trace 放 `traces/<module>/<程序名>.trc`，不入库。
 
 ## 5. Harness 自检（`make selftest`）
 

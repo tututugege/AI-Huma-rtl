@@ -12,6 +12,7 @@ PKG=rtl/common/ttg_cfg_pkg.sv
 for f in "${FILES[@]}"; do
   [ "$f" = "$PKG" ] && continue
   top=$(basename "$f" .sv)
-  verilator --lint-only -Wall --top-module "$top" -Irtl/common $PKG $(find rtl -name '*.sv' ! -path "$f" ! -path "$PKG" | sort) "$f" 2>&1 | grep -E "^%(Warning|Error)" && { echo "LINT FAIL: $f"; exit 1; } || true
+  out=$(verilator --lint-only -Wall --top-module "$top" -Irtl/common $PKG $(find rtl -name '*.sv' ! -path "$f" ! -path "$PKG" | sort) "$f" 2>&1 || true)
+  if echo "$out" | grep -qE "^%(Warning|Error)"; then echo "$out" | grep -E "^%(Warning|Error)" -A3 | head -20; echo "LINT FAIL: $f"; exit 1; fi
 done
 echo "lint ok (${#FILES[@]} files)"

@@ -59,7 +59,7 @@ fi
 
 echo "== svlint rules"
 lint_out=$(python3 harness/tools/svlint.py tests/selftest/lint_bad.sv || true)
-for r in S1 S2 S4 S5 S6 S7 S8 S9; do
+for r in S1 S2 S4 S5 S6 S7 S8 S9 S11 S12; do
   echo "$lint_out" | grep -q " $r " && echo "  ok: $r flagged" || { echo "  FAIL: svlint did not flag $r"; fail=1; }
 done
 python3 harness/tools/svlint.py tests/selftest/toy_fifo.sv && echo "  ok: clean toy_fifo passes svlint" || { echo "  FAIL: toy_fifo flagged"; fail=1; }

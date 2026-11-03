@@ -13,4 +13,5 @@ module wrong_name (input wire clk, input logic a, output logic b);
     b <= a;
   end
   initial $display("hi");
+  always_comb begin while (a) b = a; end
 endmodule

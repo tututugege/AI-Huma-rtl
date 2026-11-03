@@ -89,6 +89,9 @@ class TraceWriter {
     }
     mask_elem(base, f.width, f.ebytes);
   }
+  void flush() {
+    if (f_) std::fflush(f_);
+  }
   void commit(uint64_t cycle, uint8_t flags = 0) {
     std::fwrite(&cycle, 8, 1, f_);
     std::fwrite(&flags, 1, 1, f_);
