@@ -66,6 +66,16 @@ else
   echo "  FAIL: changed spec did not build"; fail=1
 fi
 
+echo "== when on an input"
+sed 's/^out pop_data   8  when pop_valid/out pop_data   8  when pop_ready/' tests/selftest/toy_fifo.io > "$B/toy_fifo_inwhen.io"
+mkdir -p "$B/inwhen"
+if bash scripts/hbuild.sh "$B/toy_fifo_inwhen.io" "$B/inwhen" tests/selftest/toy_fifo.sv >/dev/null 2>&1; then
+  out=$("$B/inwhen/replay" traces/toy.trc 2>&1 | tail -1)
+  echo "$out" | grep -q '^PASS' && echo "  ok: when on an input field works" || { echo "  FAIL: $out"; fail=1; }
+else
+  echo "  FAIL: spec with input when did not build"; fail=1
+fi
+
 echo "== svlint rules"
 lint_out=$(python3 harness/tools/svlint.py tests/selftest/lint_bad.sv || true)
 for r in S1 S2 S4 S5 S6 S7 S8 S9 S11 S12; do

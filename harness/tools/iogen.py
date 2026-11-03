@@ -8,7 +8,7 @@ Outputs (into <outdir>):
 Spec grammar (one item per line, '#' starts a comment):
   module <name>
   in  <name> <width> [dim]...            # module input
-  out <name> <width> [dim]... [when <v>] # module output; compared only where <v> is true
+  out <name> <width> [dim]... [when <v>] # module output; compared only where <v> (1-bit input or output) is true
   ... @ <c++ expr>                       # optional (all fields or none): how the reference simulator
                                          # reads this signal, see "Recorder" below
 
@@ -17,7 +17,7 @@ Rules
     `logic [W-1:0] name [D0][D1]...` (W == 1 -> `logic name`).
   * Every array element occupies ceil(W/8) whole bytes in the trace record (little endian,
     row-major element order), inputs first as one record part, outputs second.
-  * `when <v>`: <v> is a 1-bit signal of the same dims (element-wise) or a scalar.
+  * `when <v>`: <v> is a 1-bit input or output of the same dims (element-wise) or a scalar.
 
 Recorder (only if every field has an `@` expression): iogen also writes <mod>_rec.cpp, a plugin for the
 instrumented reference simulator (refsim). Inside <expr> the following names exist:
@@ -109,8 +109,8 @@ def parse(path):
     for f in fields:
         if f.when:
             v = byname.get(f.when)
-            if v is None or v.dir != 'out' or v.width != 1:
-                sys.exit(f'{path}: {f.name}: "when {f.when}" must name a 1-bit output')
+            if v is None or v.width != 1:
+                sys.exit(f'{path}: {f.name}: "when {f.when}" must name a 1-bit field (input or output)')
             if v.nelem != 1 and v.dims != f.dims:
                 sys.exit(f'{path}: {f.name}: "when {f.when}" must be scalar or have the same dims')
     off = {'in': 0, 'out': 0}

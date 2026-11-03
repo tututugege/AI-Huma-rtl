@@ -94,7 +94,7 @@ end
 
 1. `*_pkg.sv` 里的 `/* verilator lint_off UNUSEDPARAM */`（包里的常量被别的文件使用，单独 lint 包时会误报）。
 2. 端口位宽由 spec/参考模型规定、但高位确实不用时，在该端口附近用**局部** `lint_off UNUSEDSIGNAL` 并写明原因（如 `rob2dis.enq_idx` 的高位）。
-3. 通用原语的输出端口未被某个实例使用时，用具名的空连接 `.any()`，不要用豁免。
+3. 通用原语的输出端口未被某个实例使用时：接到一个**具名**哑信号，并在该信号声明处加局部 `/* verilator lint_off UNUSEDSIGNAL */`（写明原因）。空连接 `.any()` 会被 `-Wall` 的 PINCONNECTEMPTY 拒绝，不要用。
 每处豁免必须带注释，评审逐个核对。
 
 ## 9. 评审清单

@@ -138,7 +138,8 @@ int compare(const Rec &r, const uint8_t *got, int max_print, bool quiet, size_t 
       if (f.when >= 0) {
         const auto &w = kFields[f.when];
         int we = (w.nelem == 1) ? 0 : e;
-        if (!(r.out[w.byte_off + we * w.ebytes] & 1)) continue;
+        const std::vector<uint8_t> &src = w.is_out ? r.out : r.in;  // the qualifier may be an input or an output
+        if (!(src[w.byte_off + we * w.ebytes] & 1)) continue;
       }
       std::vector<uint8_t> a(&r.out[f.byte_off + e * f.ebytes], &r.out[f.byte_off + e * f.ebytes] + f.ebytes);
       std::vector<uint8_t> b(got + f.byte_off + e * f.ebytes, got + f.byte_off + (e + 1) * f.ebytes);
