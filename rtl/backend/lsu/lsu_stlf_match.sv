@@ -17,14 +17,7 @@ module lsu_stlf_match
   input  logic [RIW-1:0]   stq_head,
   input  logic             stq_head_flag,
   input  st_state_t        st_st        [SQ],
-  input  logic [SQ-1:0]    st_suppress,
-  input  logic [SQ-1:0]    st_paddr_valid,
-  input  logic [31:0]      st_paddr     [SQ],
-  input  logic [2:0]       st_func3     [SQ],
-  input  logic [SQ-1:0]    st_data_valid,
-  input  logic [31:0]      st_data      [SQ],
-  input  logic [SQ-1:0]    st_is_lrsc,
-  input  logic [SQ-1:0]    st_sc_pass,
+  input  stq_fld_t         st_fld       [SQ],
   output logic [RCW-1:0]   older_cnt,           // stores older than the load = distance head -> snapshot
   output logic             res_retry,
   output logic             res_fwd,             // neither retry nor fwd: DCache
@@ -45,13 +38,13 @@ module lsu_stlf_match
     logic [1:0] cls;
     logic       is_alloc, covers_ok;
     assign older[s]    = {1'b0, RIW'(RIW'(s) - stq_head)} < age_dist;
-    assign cls         = stlf_class(ld_paddr, ld_func3[1:0], st_paddr[s], st_func3[s][1:0]);
+    assign cls         = stlf_class(ld_paddr, ld_func3[1:0], st_fld[s].paddr, st_fld[s].func3[1:0]);
     assign is_alloc    = st_st[s] == ST_ALLOCATED;
-    assign covers_ok   = !(st_is_lrsc[s] && !st_sc_pass[s]) && st_data_valid[s];
-    assign decider[s]  = older[s] && !st_suppress[s] && (is_alloc || !st_paddr_valid[s] || cls != 2'd0);
-    assign retry_slot[s] = is_alloc || !st_paddr_valid[s] || cls == 2'd2 || !covers_ok;
-    assign paddr_in[s] = st_paddr[s];
-    assign data_in[s]  = st_data[s];
+    assign covers_ok   = !(st_fld[s].lrsc && !st_fld[s].sc_pass) && st_fld[s].data_valid;
+    assign decider[s]  = older[s] && !st_fld[s].suppress && (is_alloc || !st_fld[s].paddr_valid || cls != 2'd0);
+    assign retry_slot[s] = is_alloc || !st_fld[s].paddr_valid || cls == 2'd2 || !covers_ok;
+    assign paddr_in[s] = st_fld[s].paddr;
+    assign data_in[s]  = st_fld[s].data;
   end
 
   // youngest decider = highest position (head order) among the deciders

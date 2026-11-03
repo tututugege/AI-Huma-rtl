@@ -1,45 +1,31 @@
 // Ref: back-end/Lsu/RealLsu.cpp  RealLsu  (comb_exe2lsu: handle_load_req)
 `default_nettype none
 
+// G: load address requests of the EXU.  Matches on the ROB tag only; the entry state is not looked at
+// (C++ overwrites whatever it is).
 module lsu_exe_in_ld
   import lsu_pkg::*;
 (
   input  logic [NLD-1:0]   req_valid,
   input  logic [31:0]      req_result    [NLD],      // virtual address
-  input  logic [6:0]       req_dest_preg [NLD],
+  input  logic [PRFW-1:0]  req_dest_preg [NLD],
   input  logic [2:0]       req_func3     [NLD],
   input  logic [NLD-1:0]   req_is_atomic,
   input  logic [4:0]       req_amo_op    [NLD],
-  input  logic [6:0]       req_rob_idx   [NLD],
+  input  logic [ROBW-1:0]  req_rob_idx   [NLD],
   input  logic             req_rob_flag  [NLD],
   input  logic [SQW-1:0]   req_stq_idx   [NLD],      // STQ tail snapshot at dispatch
   input  logic             req_stq_flag  [NLD],
   input  logic [LQW-1:0]   req_ldq_idx   [NLD],
-  input  logic [6:0]       ld_rob_idx    [LQ],
-  input  logic [LQ-1:0]    ld_rob_flag,
-  input  lsu_ring_t        wmld_i,
-  input  ld_state_t        ld_st_i       [LQ],
-  input  logic [31:0]      ld_vaddr_i    [LQ],
-  input  logic [6:0]       ld_dest_i     [LQ],
-  input  logic [2:0]       ld_func3_i    [LQ],
-  input  logic [SQW-1:0]   ld_snap_idx_i [LQ],
-  input  logic [LQ-1:0]    ld_snap_flag_i,
-  input  logic [LQ-1:0]    ld_lrsc_i,
-  output lsu_ring_t        wmld_o,
-  output ld_state_t        ld_st_o       [LQ],
-  output logic [31:0]      ld_vaddr_o    [LQ],
-  output logic [6:0]       ld_dest_o     [LQ],
-  output logic [2:0]       ld_func3_o    [LQ],
-  output logic [SQW-1:0]   ld_snap_idx_o [LQ],
-  output logic [LQ-1:0]    ld_snap_flag_o,
-  output logic [LQ-1:0]    ld_lrsc_o
+  input  ldq_fld_t         fld_q         [LQ],
+  output ldq_agu_t         ev            [LQ],
+  output lsu_rop_t         wmld_op                    // wait_mmu_ldq append
 );
 
-  // matches on the ROB tag only; the entry state is not looked at (C++ overwrites whatever it is)
   logic [NLD-1:0] hit;
   for (genvar p = 0; p < NLD; p++) begin : g_hit
-    assign hit[p] = req_valid[p] && ld_rob_idx[req_ldq_idx[p]] == req_rob_idx[p] &&
-                    ld_rob_flag[req_ldq_idx[p]] == req_rob_flag[p];
+    assign hit[p] = req_valid[p] && fld_q[req_ldq_idx[p]].rob_idx == req_rob_idx[p] &&
+                    fld_q[req_ldq_idx[p]].rob_flag == req_rob_flag[p];
   end
 
   for (genvar e = 0; e < LQ; e++) begin : g_entry
@@ -48,27 +34,32 @@ module lsu_exe_in_ld
       assign sel[p] = hit[p] && req_ldq_idx[p] == LQW'(e);
     end
     always_comb begin
-      ld_st_o[e]        = (|sel) ? LD_WAIT_TLB : ld_st_i[e];
-      ld_vaddr_o[e]     = ld_vaddr_i[e];
-      ld_dest_o[e]      = ld_dest_i[e];
-      ld_func3_o[e]     = ld_func3_i[e];
-      ld_snap_idx_o[e]  = ld_snap_idx_i[e];
-      ld_snap_flag_o[e] = ld_snap_flag_i[e];
-      ld_lrsc_o[e]      = ld_lrsc_i[e];
+      ev[e]    = '0;
+      ev[e].go = |sel;
       for (int p = NLD - 1; p >= 0; p--) begin
         if (sel[p]) begin
-          ld_vaddr_o[e]     = req_result[p];
-          ld_dest_o[e]      = req_dest_preg[p];
-          ld_func3_o[e]     = req_func3[p];
-          ld_snap_idx_o[e]  = req_stq_idx[p];
-          ld_snap_flag_o[e] = req_stq_flag[p];
-          ld_lrsc_o[e]      = req_is_atomic[p] && req_amo_op[p] == AMO_LR;
+          ev[e].vaddr     = req_result[p];
+          ev[e].dest      = req_dest_preg[p];
+          ev[e].func3     = req_func3[p];
+          ev[e].snap_idx  = req_stq_idx[p];
+          ev[e].snap_flag = req_stq_flag[p];
+          ev[e].lrsc      = req_is_atomic[p] && req_amo_op[p] == AMO_LR;
         end
       end
     end
   end
 
-  lsu_ring_app #(.NA(NLD)) u_wmld (.ring_i(wmld_i), .app_en(hit), .app_idx(req_ldq_idx), .ring_o(wmld_o));
+  logic [WIN-1:0]          a_en;
+  logic [WIN-1:0][RIW-1:0] a_idx;
+  always_comb begin
+    a_en  = '0;
+    a_idx = '0;
+    for (int p = 0; p < NLD; p++) begin
+      a_en[p]  = hit[p];
+      a_idx[p] = req_ldq_idx[p];
+    end
+  end
+  assign wmld_op = rop_app(a_en, a_idx);
 
 endmodule
 
