@@ -45,12 +45,8 @@ module idu import ttg_cfg_pkg::*; (
   output logic [BR_TAG_WIDTH-1:0]     dec2ren_uop_br_id [DECODE_WIDTH],
   output logic [BR_MASK_WIDTH-1:0]    dec2ren_uop_br_mask [DECODE_WIDTH],
   output logic [CSR_IDX_WIDTH-1:0]    dec2ren_uop_csr_idx [DECODE_WIDTH],
-  output logic [2:0]                  dec2ren_uop_expect_mask [DECODE_WIDTH],
-  output logic [2:0]                  dec2ren_uop_cplt_mask [DECODE_WIDTH],
   output logic                        dec2ren_uop_page_fault_inst [DECODE_WIDTH],
   output logic                        dec2ren_uop_illegal_inst [DECODE_WIDTH],
-  output logic                        dec2ren_uop_tma_is_cache_miss [DECODE_WIDTH],
-  output logic                        dec2ren_uop_tma_is_ret [DECODE_WIDTH],
   output logic                        dec2ren_uop_tma_mem_commit_is_load [DECODE_WIDTH],
   output logic                        dec2ren_uop_tma_mem_commit_is_store [DECODE_WIDTH],
   // dec_bcast
@@ -64,10 +60,7 @@ module idu import ttg_cfg_pkg::*; (
   // br_latch (read directly by BackTop / PreIduQueue)
   output logic                        br_latch_mispred,
   output logic [31:0]                 br_latch_redirect_pc,
-  output logic [ROB_IDX_WIDTH-1:0]    br_latch_redirect_rob_idx,
-  output logic [BR_TAG_WIDTH-1:0]     br_latch_br_id,
-  output logic [FTQ_IDX_WIDTH-1:0]    br_latch_ftq_idx,
-  output logic [BR_MASK_WIDTH-1:0]    br_latch_clear_mask
+  output logic [FTQ_IDX_WIDTH-1:0]    br_latch_ftq_idx
 );
 
   // ---- internal nets ----
@@ -95,9 +88,6 @@ module idu import ttg_cfg_pkg::*; (
     assign dec2ren_uop_br_id[i]   = lane_br_id[i];
     assign dec2ren_uop_br_mask[i] = lane_br_mask[i];
     assign idu_consume_fire[i]    = consume_fire_vec[i];
-    assign dec2ren_uop_expect_mask[i]    = '0;    // Idu never sets these (set by Dispatch)
-    assign dec2ren_uop_cplt_mask[i]      = '0;
-    assign dec2ren_uop_tma_is_cache_miss[i] = 1'b0;
 
     idu_decoder u_dec (
       .entry_valid(pre_issue_entries_valid[i]), .entry_inst(pre_issue_entries_inst[i]),
@@ -112,7 +102,7 @@ module idu import ttg_cfg_pkg::*; (
       .uop_src1_is_pc(dec2ren_uop_src1_is_pc[i]), .uop_src2_is_imm(dec2ren_uop_src2_is_imm[i]),
       .uop_func3(dec2ren_uop_func3[i]), .uop_func7(dec2ren_uop_func7[i]), .uop_imm(dec2ren_uop_imm[i]),
       .uop_csr_idx(dec2ren_uop_csr_idx[i]), .uop_page_fault_inst(dec2ren_uop_page_fault_inst[i]),
-      .uop_illegal_inst(dec2ren_uop_illegal_inst[i]), .uop_tma_is_ret(dec2ren_uop_tma_is_ret[i]),
+      .uop_illegal_inst(dec2ren_uop_illegal_inst[i]),
       .uop_tma_mem_commit_is_load(dec2ren_uop_tma_mem_commit_is_load[i]),
       .uop_tma_mem_commit_is_store(dec2ren_uop_tma_mem_commit_is_store[i]), .is_branch(lane_is_branch[i])
     );
@@ -150,12 +140,12 @@ module idu import ttg_cfg_pkg::*; (
   );
 
   idu_br_cp #(.DW(DECODE_WIDTH), .NTAG(BR_MASK_WIDTH)) u_cp (
-    .clk(clk), .rst_n(rst_n), .rob_flush(rob_bcast_flush), .clear_mask(clear_eff), .wr_tag_oh(lane_commit_oh),
+    .clk(clk), .rst_n(rst_n), .clear_mask(clear_eff), .wr_tag_oh(lane_commit_oh),
     .wr_data(lane_cp_mask), .rd_br_id(latch_br_id), .rd_data(mispred_ckpt)
   );
 
   idu_bcast u_bcast (
-    .clk(clk), .rst_n(rst_n), .latch_mispred(latch_mispred), .latch_redirect_rob_idx(latch_rob_idx),
+    .latch_mispred(latch_mispred), .latch_redirect_rob_idx(latch_rob_idx),
     .latch_br_id(latch_br_id), .latch_clear_mask(latch_clear_mask), .mispred(dec_bcast_mispred),
     .br_mask(dec_bcast_br_mask), .br_id(dec_bcast_br_id), .redirect_rob_idx(dec_bcast_redirect_rob_idx),
     .clear_mask(dec_bcast_clear_mask)
@@ -163,9 +153,6 @@ module idu import ttg_cfg_pkg::*; (
 
   // br_latch outputs
   assign br_latch_mispred          = latch_mispred;
-  assign br_latch_redirect_rob_idx = latch_rob_idx;
-  assign br_latch_br_id            = latch_br_id;
-  assign br_latch_clear_mask       = latch_clear_mask;
 
 endmodule
 

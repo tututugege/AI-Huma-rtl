@@ -5,7 +5,7 @@
 // (including t itself). Entry 0 does not exist (tag 0 is never allocated) and reads as zero.
 //   * every non-flush cycle: resolved bits (clear_mask) are removed from every entry
 //   * a firing lane writes the checkpoint of its tag (overrides the clear, written value is already clear-free)
-//   * ROB flush: entries keep their value (the reference model returns before touching them)
+//   * a ROB flush needs no special case: entries are rewritten when a tag is next allocated before they are read
 module idu_br_cp #(
   parameter int DW   = 8,
   parameter int NTAG = 64,
@@ -13,7 +13,6 @@ module idu_br_cp #(
 ) (
   input  logic            clk,
   input  logic            rst_n,
-  input  logic            rob_flush,
   input  logic [NTAG-1:0] clear_mask,                // bit 0 ignored by the caller
   input  logic [NTAG-1:0] wr_tag_oh [DW],            // tag written by lane i (zero = no write)
   input  logic [NTAG-1:0] wr_data [DW],
@@ -38,7 +37,7 @@ module idu_br_cp #(
     end
     ttg_onehot_mux #(.N(DW), .W(NTAG)) u_wr (.sel(lane_sel), .data(wr_data), .out(wr_val));
     assign wr_any  = |lane_sel;
-    assign cp_nxt[t] = rob_flush ? cp_cur[t] : (wr_any ? wr_val : (cp_cur[t] & ~clear_mask));
+    assign cp_nxt[t] = wr_any ? wr_val : (cp_cur[t] & ~clear_mask);
 
     logic [NTAG-1:0] entry_q;
     always_ff @(posedge clk) begin

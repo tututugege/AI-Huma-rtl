@@ -109,7 +109,7 @@ int main(int argc, char **argv) {
       exu2id.mispred = true;
       uint32_t t = 0;
       if (inflight && !chance(p_junk[prof])) { do t = rnd() & 63; while (!((inflight >> t) & 1)); }
-      else t = rnd() & 63;
+      else t = 0;   // br_id 0 (JAL-like); a free-tag br_id is unreachable (stale checkpoint)
       exu2id.br_id = t;
       exu2id.clear_mask |= 1ull << t;
       exu2id.redirect_pc = rnd(); exu2id.redirect_rob_idx = rnd() & 127; exu2id.ftq_idx = rnd() & 63;
@@ -140,9 +140,7 @@ int main(int argc, char **argv) {
       W.set(F_dec2ren_uop_func3, i, u.func3); W.set(F_dec2ren_uop_func7, i, u.func7);
       W.set(F_dec2ren_uop_imm, i, u.imm); W.set(F_dec2ren_uop_br_id, i, u.br_id);
       W.set(F_dec2ren_uop_br_mask, i, u.br_mask); W.set(F_dec2ren_uop_csr_idx, i, u.csr_idx);
-      W.set(F_dec2ren_uop_expect_mask, i, u.expect_mask); W.set(F_dec2ren_uop_cplt_mask, i, u.cplt_mask);
       W.set(F_dec2ren_uop_page_fault_inst, i, u.page_fault_inst); W.set(F_dec2ren_uop_illegal_inst, i, u.illegal_inst);
-      W.set(F_dec2ren_uop_tma_is_cache_miss, i, u.tma.is_cache_miss); W.set(F_dec2ren_uop_tma_is_ret, i, u.tma.is_ret);
       W.set(F_dec2ren_uop_tma_mem_commit_is_load, i, u.tma.mem_commit_is_load);
       W.set(F_dec2ren_uop_tma_mem_commit_is_store, i, u.tma.mem_commit_is_store);
       W.set(F_idu_consume_fire, i, consume.fire[i]);
@@ -155,8 +153,7 @@ int main(int argc, char **argv) {
     W.set(F_dec_bcast_br_id, 0, dec_bcast.br_id); W.set(F_dec_bcast_redirect_rob_idx, 0, dec_bcast.redirect_rob_idx);
     W.set(F_dec_bcast_clear_mask, 0, dec_bcast.clear_mask);
     W.set(F_br_latch_mispred, 0, idu.br_latch.mispred); W.set(F_br_latch_redirect_pc, 0, idu.br_latch.redirect_pc);
-    W.set(F_br_latch_redirect_rob_idx, 0, idu.br_latch.redirect_rob_idx); W.set(F_br_latch_br_id, 0, idu.br_latch.br_id);
-    W.set(F_br_latch_ftq_idx, 0, idu.br_latch.ftq_idx); W.set(F_br_latch_clear_mask, 0, idu.br_latch.clear_mask);
+    W.set(F_br_latch_ftq_idx, 0, idu.br_latch.ftq_idx);
     W.commit(cyc + 3);
     idu.seq();
   }

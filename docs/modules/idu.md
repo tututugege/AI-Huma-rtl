@@ -27,33 +27,45 @@
 - comb_fire 全用当拍状态：mispred 回收用状态里的 now_br_mask 与 cp[br_id]（非清除后值）；清除后再被 alloc 覆盖（alloc 优先于 clear）。
 - 分配的 tag 取自 tag_vec（未含本拍 clear 释放的 tag）。
 
-## 4. 与 C++ 的差异点和隐含依赖
-- 无行为差异。需登记的参考模型怪异行为：
-  1. (3.1 stale) `dec_bcast.redirect_rob_idx` 仅在 latch.mispred 时写，否则保留上拍值（从不清零）→ `idu_bcast` 里 `redirect_rob_idx_hold_q`。
-  2. 丢弃（tag 不足）的 lane：uop 字段仍是译码结果，只有 valid/br_id/br_mask 被清零；非法/无效 entry 的 uop 全 0。
-  3. flush 时 br_mask_cp 不清除也不更新（保持原值）；mispred 时仍做 clear_mask 对 cp 的清除。
-  4. mispred 周期 dec2ren.valid 不被修改（可能已分配 tag），但 fire 全 0、tag 不提交。
-  5. clear_mask 的 bit0（JAL 等 br_id=0 的已解析分支）被状态逻辑忽略，但原样广播；br_id=0 的 mispred 会用 cp[0]=0 回收全部在飞 tag（C++ 同，随机 trace 覆盖，真实程序未出现）。
-  6. AMO(非 LR/SC)且 rd=x0 → dest_areg=32，dest_en 保持 1；LR/SC rd=x0 → dest_en=0。
-  7. 系统指令：src2_is_imm=csr 立即数形式(funct3[2]&(f3[0]|f3[1]))对所有 SYSTEM 指令生效；未知 CSR 译成 NOP，访问 time/timeh 置 illegal。
-  8. MAX_BR_PER_CYCLE=DECODE_WIDTH=8，上限不会额外生效；alloc 参数化保留。
+## 4. 简化（06 等价性原则）：消费者核对 + 放宽 / 删除 / 不复刻
+### 4.1 放宽为 `when`（RTL 无效时直通，不清零、不保持）
+| 字段 | 限定 | 消费者核对 |
+| --- | --- | --- |
+| dec2ren_uop_*（全部 uop 字段，含 br_id/br_mask） | dec2ren_valid | 唯一读取点 Ren.cpp:393-394 把 uop 连同 valid 采样到 inst_r，之后 Ren/Dispatch 均以 inst_valid 限定（Ren.cpp:109,121,179 等） |
+| dec_bcast_redirect_rob_idx | dec_bcast_mispred | 仅 Rob.cpp:639-659，位于 `if (mispred && !flush)` 内 |
+| dec_bcast_br_mask | dec_bcast_mispred | Prf.cpp:8 is_killed 先判 mispred；Isu.cpp:444/473、Exu.cpp:346-349 均 flush_br/mispred 限定 |
+| dec_bcast_br_id | dec_bcast_mispred | 仅 Ren.cpp:342-343，mispred 分支内 |
+| br_latch_redirect_pc | br_latch_mispred | BackTop.cpp:346 → rv_simu_mmu_v2.cpp:1167/1438 均 `mispred \|\| flush` 才读；flush 时用别的来源 |
+| br_latch_ftq_idx | br_latch_mispred | PreIduQueue.cpp:225-227 在 `else if (mispred)` 内 |
+严格比较：dec2ren_valid、idu_consume_fire、dec_bcast_mispred、dec_bcast_clear_mask、br_latch_mispred，以及 valid 时的全部 uop 字段。
+### 4.2 删除的字段
+- dec2ren expect_mask / cplt_mask：Idu 恒 0，Dispatch.cpp:99/217 自行赋值。
+- dec2ren tma.is_cache_miss：Idu 恒 0，无读取点；tma.is_ret：只在 types.h:223 拷贝，无读取点。保留 tma.mem_commit_is_load/store（Rob.cpp:26,30）。
+- br_latch br_id / redirect_rob_idx / clear_mask 输出：无外部读取点（外部只读 mispred、redirect_pc、ftq_idx）；它们的作用经 dec_bcast 体现。
+### 4.3 选择不复刻的 C++ 行为
+1. `dec_bcast.redirect_rob_idx` 在非 mispred 时保留旧值：无消费者 → 删除 hold 寄存器。
+2. 无效 entry 的 uop 全 0、tag 不足被丢弃 lane 的 br_id/br_mask 清零而其余字段保留：均被 valid 保护 → 直通。
+3. br_latch 其余负载在 flush 时清零：只有 mispred 与 clear_mask 影响状态，仅这两个被 flush 清零；负载无条件打拍。
+4. flush 时 br_mask_cp 保持不变：flush 后在飞掩码为 0，checkpoint 在 tag 再次分配时才会被读到 → 不特殊处理（clear 每拍照做，写口覆盖）。随机 trace 的 mispred br_id 因此限定为在飞 tag 或 0（空闲 tag 的 br_id 不可达）。
+5. mispred 拍 dec2ren.valid 不变（可能带着预分配 tag）：valid 是严格输出，所以仍与 C++ 一致，没有额外硬件。
+### 4.4 仍严格复刻（有意义，含疑点）
+- 疑点：br_id=0 的 mispred 用 cp[0]=0，回收所有在飞 tag（含更老的）。真实程序未出现，随机 trace 覆盖；按 06 第 5 节保持 C++ 行为，请协调者登记 deviations 疑点栏。
+- clear_mask 的 bit0 被状态逻辑忽略但原样广播。
+- AMO rd=x0 → dest_areg=32；未知 CSR 译 NOP、time/timeh 置 illegal；SYSTEM 的 src2_is_imm 规则；page-fault entry 译成全 0 NOP（保守复刻，未逐字段核对 Ren 对 NOP 字段的读取）。
+- tag 从 tag_vec（未含本拍 clear 的释放）分配；alloc 优先于 clear。
 
 ## 5. 验证
-- spec：`spec/idu.io`（55 字段，无 `when`）。
-- trace：`traces/idu/` 64 个真实程序（61 gate + dhrystone/coremark/coremark10；gate 每个最多 100000 拍，大程序 300000 拍）共 1,323,970 条；
-  另 8 条受约束随机 trace `rand0-7`（`tb/idu/gen_rand.cpp` 直接驱动参考模型 Idu 类，`bash tb/idu/build_gen.sh`，`build/tb/gen_rand out.trc seed 60000 profile`），共 480,000 条。
-- 真实程序覆盖到：valid 0/1、ready 0/1、flush、EXU mispred(23445 次)、clear_mask(含 bit0)、一组最多 6 个分支、在飞分支最多 54、各 InstType（缺 SFENCE_VMA）、AMO LR/SC/其它、CSR 寄存器形式、is_ret、dec_bcast 保持。
-  真实程序**未覆盖**：page-fault entry、tag 不足 stall、AMO rd=x0、CSR 立即数形式、SFENCE_VMA、br_id=0 的 mispred、mispred 与 flush 同拍、mispred 时 ready=1、issue 组内空洞。这些全部由随机 trace 覆盖（stall 72320 拍，page fault 63147 个，最多 63 个在飞）。
-- 变异（均已被抓到，括号为首个抓到的 trace/字段/记录号）：
-  - M1 rank 含自身（add-longlong, dec2ren_uop_br_id[0], rec 56）
-  - M2 younger_tags 取反（add-longlong, dec2ren_uop_br_mask[0], rec 126）
-  - M3 fire 忽略 latch_mispred（rand0, idu_consume_fire[0], rec 5）—— 仅随机 trace 能抓到
-  - M4 去掉 redirect_rob_idx 保持（add-longlong, dec_bcast_redirect_rob_idx, rec 62）
-  - M5 AMO rd=x0 改名条件错（rand0, dec2ren_uop_dest_areg[7], rec 4）—— 仅随机
-  - M6 cp 清除失效（add-longlong, dec2ren_uop_br_mask[0], rec 259）
-  - M7 time CSR 不置 illegal（rand0, illegal_inst[5], rec 4）—— 仅随机
-  - M8 page fault 仍译码（rand0, dest_areg[0], rec 12）—— 仅随机
-  - M9 clear bit0 不屏蔽（add-longlong, br_id[3], rec 112）
-  - M10 immB 位序错（add-longlong, imm[2], rec 199）
-  - M11 丢弃 lane 的 br_mask 不清零（rand1, br_mask[3], rec 294）—— 仅随机
-  - M12 CSR 立即数形式不屏蔽 src2_en（rand0, src2_en[6], rec 12）—— 仅随机
+- spec：`spec/idu.io`（48 字段；34 个输出中 dec2ren_uop_*、dec_bcast 3 个、br_latch 2 个带 when）。
+- trace：`traces/idu/` 64 个真实程序（gate ≤30000 拍，dhrystone/coremark/coremark10 100000 拍）+ 8 个随机 trace，共 981,741 条，全部 PASS。随机 trace：`bash tb/idu/build_gen.sh`；`build/tb/gen_rand out.trc seed 60000 profile(0-7)`，直接驱动参考 Idu 类。
+- 真实程序未覆盖（由随机 trace 补）：page-fault entry、tag 不足 stall、AMO rd=x0、CSR 立即数形式、SFENCE_VMA、br_id=0 mispred、mispred 与 flush 同拍、mispred 时 ready=1、发射组空洞。
+- 变异（均被严格比较字段抓到）：
+  - 分支 rank 含自身（add-longlong，dec2ren_uop_br_id[0]，rec 56）
+  - younger_tags 取反（add-longlong，dec2ren_uop_br_mask[0]，rec 130）
+  - fire 忽略 latch_mispred（rand0，idu_consume_fire[0]，rec 11）
+  - AMO rd=x0 条件错（rand0，dec2ren_uop_dest_areg[7]，rec 4）
+  - time CSR 不置 illegal（rand0，illegal_inst[5]，rec 4）
+  - page-fault 仍译码（rand0，dest_areg[1]，rec 34）
+  - clear bit0 不屏蔽（add-longlong，br_id[3]，rec 112）
+  - immB 位序错（add-longlong，imm[2]，rec 199）
+  - dec_bcast br_id 位错（add-longlong，dec_bcast_br_mask，rec 61；when 字段在 mispred 时仍被比较）
+  - 另有一个 `x & ~(x-1)` 的“变异”实为等价改写，已弃用。

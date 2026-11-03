@@ -1,12 +1,9 @@
 // Ref: back-end/Idu.cpp  class Idu::comb_branch
 `default_nettype none
 
-// Broadcast of the latched branch resolution (dec_bcast). The reference model only writes redirect_rob_idx when the
-// latched branch mispredicted; otherwise dec_bcast keeps the value of the last cycle (the signal is never cleared),
-// so the last driven value is kept in a register (stale-read dependency, see docs/modules/idu.md section 4).
+// Broadcast of the latched branch resolution (dec_bcast). Consumers read br_mask / br_id / redirect_rob_idx only
+// under mispred, so those pass straight through; clear_mask is always consumed.
 module idu_bcast import ttg_cfg_pkg::*; (
-  input  logic                        clk,
-  input  logic                        rst_n,
   input  logic                        latch_mispred,
   input  logic [ROB_IDX_WIDTH-1:0]    latch_redirect_rob_idx,
   input  logic [BR_TAG_WIDTH-1:0]     latch_br_id,
@@ -18,23 +15,13 @@ module idu_bcast import ttg_cfg_pkg::*; (
   output logic [BR_MASK_WIDTH-1:0]    clear_mask
 );
 
-  logic [ROB_IDX_WIDTH-1:0] redirect_rob_idx_hold_q, redirect_rob_idx_hold_d;
-  logic [BR_MASK_WIDTH-1:0] mispred_tag_oh;
-
   // Ref: Idu::comb_branch
   always_comb begin
-    mispred_tag_oh          = BR_MASK_WIDTH'(1) << latch_br_id;
-    mispred                 = latch_mispred;
-    br_mask                 = mispred_tag_oh & {BR_MASK_WIDTH{latch_mispred}};
-    br_id                   = latch_br_id & {BR_TAG_WIDTH{latch_mispred}};
-    redirect_rob_idx        = latch_mispred ? latch_redirect_rob_idx : redirect_rob_idx_hold_q;
-    clear_mask              = latch_clear_mask;
-    redirect_rob_idx_hold_d = redirect_rob_idx;
-  end
-
-  always_ff @(posedge clk) begin
-    if (!rst_n) redirect_rob_idx_hold_q <= '0;
-    else        redirect_rob_idx_hold_q <= redirect_rob_idx_hold_d;
+    mispred          = latch_mispred;
+    br_mask          = BR_MASK_WIDTH'(1) << latch_br_id;
+    br_id            = latch_br_id;
+    redirect_rob_idx = latch_redirect_rob_idx;
+    clear_mask       = latch_clear_mask;
   end
 
 endmodule

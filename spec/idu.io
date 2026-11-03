@@ -21,49 +21,42 @@ in  exu2id_br_id 6 @ bt.exu2id.br_id
 in  exu2id_ftq_idx 6 @ bt.exu2id.ftq_idx
 in  exu2id_clear_mask 64 @ bt.exu2id.clear_mask
 
-# ---- outputs: dec2ren (rename input group) ----
+# ---- outputs: dec2ren (rename input group); uop payload only meaningful when the lane is valid ----
 out dec2ren_valid 1 [8] @ bt.dec2ren.valid[i0]
-out dec2ren_uop_diag_val 32 [8] @ bt.dec2ren.uop[i0].diag_val
-out dec2ren_uop_dest_areg 6 [8] @ bt.dec2ren.uop[i0].dest_areg
-out dec2ren_uop_src1_areg 6 [8] @ bt.dec2ren.uop[i0].src1_areg
-out dec2ren_uop_src2_areg 6 [8] @ bt.dec2ren.uop[i0].src2_areg
-out dec2ren_uop_ftq_idx 6 [8] @ bt.dec2ren.uop[i0].ftq_idx
-out dec2ren_uop_ftq_offset 4 [8] @ bt.dec2ren.uop[i0].ftq_offset
-out dec2ren_uop_ftq_is_last 1 [8] @ bt.dec2ren.uop[i0].ftq_is_last
-out dec2ren_uop_type 5 [8] @ bt.dec2ren.uop[i0].type
-out dec2ren_uop_dest_en 1 [8] @ bt.dec2ren.uop[i0].dest_en
-out dec2ren_uop_src1_en 1 [8] @ bt.dec2ren.uop[i0].src1_en
-out dec2ren_uop_src2_en 1 [8] @ bt.dec2ren.uop[i0].src2_en
-out dec2ren_uop_is_atomic 1 [8] @ bt.dec2ren.uop[i0].is_atomic
-out dec2ren_uop_src1_is_pc 1 [8] @ bt.dec2ren.uop[i0].src1_is_pc
-out dec2ren_uop_src2_is_imm 1 [8] @ bt.dec2ren.uop[i0].src2_is_imm
-out dec2ren_uop_func3 3 [8] @ bt.dec2ren.uop[i0].func3
-out dec2ren_uop_func7 7 [8] @ bt.dec2ren.uop[i0].func7
-out dec2ren_uop_imm 32 [8] @ bt.dec2ren.uop[i0].imm
-out dec2ren_uop_br_id 6 [8] @ bt.dec2ren.uop[i0].br_id
-out dec2ren_uop_br_mask 64 [8] @ bt.dec2ren.uop[i0].br_mask
-out dec2ren_uop_csr_idx 12 [8] @ bt.dec2ren.uop[i0].csr_idx
-out dec2ren_uop_expect_mask 3 [8] @ bt.dec2ren.uop[i0].expect_mask
-out dec2ren_uop_cplt_mask 3 [8] @ bt.dec2ren.uop[i0].cplt_mask
-out dec2ren_uop_page_fault_inst 1 [8] @ bt.dec2ren.uop[i0].page_fault_inst
-out dec2ren_uop_illegal_inst 1 [8] @ bt.dec2ren.uop[i0].illegal_inst
-out dec2ren_uop_tma_is_cache_miss 1 [8] @ bt.dec2ren.uop[i0].tma.is_cache_miss
-out dec2ren_uop_tma_is_ret 1 [8] @ bt.dec2ren.uop[i0].tma.is_ret
-out dec2ren_uop_tma_mem_commit_is_load 1 [8] @ bt.dec2ren.uop[i0].tma.mem_commit_is_load
-out dec2ren_uop_tma_mem_commit_is_store 1 [8] @ bt.dec2ren.uop[i0].tma.mem_commit_is_store
+out dec2ren_uop_diag_val 32 [8] when dec2ren_valid @ bt.dec2ren.uop[i0].diag_val
+out dec2ren_uop_dest_areg 6 [8] when dec2ren_valid @ bt.dec2ren.uop[i0].dest_areg
+out dec2ren_uop_src1_areg 6 [8] when dec2ren_valid @ bt.dec2ren.uop[i0].src1_areg
+out dec2ren_uop_src2_areg 6 [8] when dec2ren_valid @ bt.dec2ren.uop[i0].src2_areg
+out dec2ren_uop_ftq_idx 6 [8] when dec2ren_valid @ bt.dec2ren.uop[i0].ftq_idx
+out dec2ren_uop_ftq_offset 4 [8] when dec2ren_valid @ bt.dec2ren.uop[i0].ftq_offset
+out dec2ren_uop_ftq_is_last 1 [8] when dec2ren_valid @ bt.dec2ren.uop[i0].ftq_is_last
+out dec2ren_uop_type 5 [8] when dec2ren_valid @ bt.dec2ren.uop[i0].type
+out dec2ren_uop_dest_en 1 [8] when dec2ren_valid @ bt.dec2ren.uop[i0].dest_en
+out dec2ren_uop_src1_en 1 [8] when dec2ren_valid @ bt.dec2ren.uop[i0].src1_en
+out dec2ren_uop_src2_en 1 [8] when dec2ren_valid @ bt.dec2ren.uop[i0].src2_en
+out dec2ren_uop_is_atomic 1 [8] when dec2ren_valid @ bt.dec2ren.uop[i0].is_atomic
+out dec2ren_uop_src1_is_pc 1 [8] when dec2ren_valid @ bt.dec2ren.uop[i0].src1_is_pc
+out dec2ren_uop_src2_is_imm 1 [8] when dec2ren_valid @ bt.dec2ren.uop[i0].src2_is_imm
+out dec2ren_uop_func3 3 [8] when dec2ren_valid @ bt.dec2ren.uop[i0].func3
+out dec2ren_uop_func7 7 [8] when dec2ren_valid @ bt.dec2ren.uop[i0].func7
+out dec2ren_uop_imm 32 [8] when dec2ren_valid @ bt.dec2ren.uop[i0].imm
+out dec2ren_uop_br_id 6 [8] when dec2ren_valid @ bt.dec2ren.uop[i0].br_id
+out dec2ren_uop_br_mask 64 [8] when dec2ren_valid @ bt.dec2ren.uop[i0].br_mask
+out dec2ren_uop_csr_idx 12 [8] when dec2ren_valid @ bt.dec2ren.uop[i0].csr_idx
+out dec2ren_uop_page_fault_inst 1 [8] when dec2ren_valid @ bt.dec2ren.uop[i0].page_fault_inst
+out dec2ren_uop_illegal_inst 1 [8] when dec2ren_valid @ bt.dec2ren.uop[i0].illegal_inst
+out dec2ren_uop_tma_mem_commit_is_load 1 [8] when dec2ren_valid @ bt.dec2ren.uop[i0].tma.mem_commit_is_load
+out dec2ren_uop_tma_mem_commit_is_store 1 [8] when dec2ren_valid @ bt.dec2ren.uop[i0].tma.mem_commit_is_store
 
-# ---- outputs: dec_bcast and idu_consume ----
+# ---- outputs: dec_bcast (br_mask/br_id/redirect_rob_idx only read under mispred) and idu_consume ----
 out dec_bcast_mispred 1 @ bt.dec_bcast.mispred
-out dec_bcast_br_mask 64 @ bt.dec_bcast.br_mask
-out dec_bcast_br_id 6 @ bt.dec_bcast.br_id
-out dec_bcast_redirect_rob_idx 7 @ bt.dec_bcast.redirect_rob_idx
+out dec_bcast_br_mask 64 when dec_bcast_mispred @ bt.dec_bcast.br_mask
+out dec_bcast_br_id 6 when dec_bcast_mispred @ bt.dec_bcast.br_id
+out dec_bcast_redirect_rob_idx 7 when dec_bcast_mispred @ bt.dec_bcast.redirect_rob_idx
 out dec_bcast_clear_mask 64 @ bt.dec_bcast.clear_mask
 out idu_consume_fire 1 [8] @ bt.idu_consume.fire[i0]
 
-# ---- outputs: br_latch register, read directly by BackTop (redirect_pc) and PreIduQueue (mispred, ftq_idx) ----
+# ---- outputs: br_latch (BackTop reads redirect_pc, PreIduQueue reads mispred/ftq_idx, both only under mispred) ----
 out br_latch_mispred 1 @ bt.idu->br_latch.mispred
-out br_latch_redirect_pc 32 @ bt.idu->br_latch.redirect_pc
-out br_latch_redirect_rob_idx 7 @ bt.idu->br_latch.redirect_rob_idx
-out br_latch_br_id 6 @ bt.idu->br_latch.br_id
-out br_latch_ftq_idx 6 @ bt.idu->br_latch.ftq_idx
-out br_latch_clear_mask 64 @ bt.idu->br_latch.clear_mask
+out br_latch_redirect_pc 32 when br_latch_mispred @ bt.idu->br_latch.redirect_pc
+out br_latch_ftq_idx 6 when br_latch_mispred @ bt.idu->br_latch.ftq_idx

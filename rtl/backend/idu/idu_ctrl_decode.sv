@@ -20,7 +20,6 @@ module idu_ctrl_decode (
   output logic        illegal_inst,
   output logic        is_branch,
   output logic [6:0]  imm_sel,            // one-hot (or none): U, J, I, B, S, CSR-rs1-field, FP-rs2-field
-  output logic        tma_is_ret,
   output logic        tma_mem_commit_is_load,
   output logic        tma_mem_commit_is_store
 );
@@ -117,25 +116,9 @@ module idu_ctrl_decode (
     amo_op  = inst[31:27];
   end
 
-  // ---- opcode one-hot ----
-  logic op_lui, op_auipc, op_jal, op_jalr, op_branch, op_load, op_store, op_opimm, op_op, op_fence, op_system;
-  logic op_amo, op_fp, op_known;
-
-  assign op_lui    = (opcode == OPC_LUI);
-  assign op_auipc  = (opcode == OPC_AUIPC);
-  assign op_jal    = (opcode == OPC_JAL);
-  assign op_jalr   = (opcode == OPC_JALR);
-  assign op_branch = (opcode == OPC_BRANCH);
-  assign op_load   = (opcode == OPC_LOAD);
-  assign op_store  = (opcode == OPC_STORE);
-  assign op_opimm  = (opcode == OPC_OPIMM);
-  assign op_op     = (opcode == OPC_OP);
-  assign op_fence  = (opcode == OPC_FENCE);
-  assign op_system = (opcode == OPC_SYSTEM);
-  assign op_amo    = (opcode == OPC_AMO);
-  assign op_fp     = (opcode == OPC_FP);
-  assign op_known  = op_lui | op_auipc | op_jal | op_jalr | op_branch | op_load | op_store | op_opimm | op_op |
-                     op_fence | op_system | op_amo | op_fp;
+  logic op_system, fp_unary_f7;
+  assign op_system   = (opcode == OPC_SYSTEM);
+  assign fp_unary_f7 = (funct7 == 7'h60) | (funct7 == 7'h68) | (funct7 == 7'h2C) | (funct7 == 7'h70);  // no rs2 operand
 
   // ---- SYSTEM opcode sub-decode ----
   logic [NUM_KNOWN_CSR-1:0] csr_hit;
@@ -162,19 +145,19 @@ module idu_ctrl_decode (
   // ---- class one-hot (mutually exclusive by construction; SYSTEM encodings differ in funct7/imm) ----
   logic [NCLS-1:0] cls;
 
-  assign cls[CLS_LUI]      = op_lui;
-  assign cls[CLS_AUIPC]    = op_auipc;
-  assign cls[CLS_JAL]      = op_jal;
-  assign cls[CLS_JALR]     = op_jalr;
-  assign cls[CLS_BR]       = op_branch;
-  assign cls[CLS_LOAD]     = op_load;
-  assign cls[CLS_STORE]    = op_store;
-  assign cls[CLS_OPIMM]    = op_opimm;
-  assign cls[CLS_OP_ALU]   = op_op & ~((funct7 == 7'd1));
-  assign cls[CLS_OP_MUL]   = op_op & (funct7 == 7'd1) & ~funct3[2];
-  assign cls[CLS_OP_DIV]   = op_op & (funct7 == 7'd1) & funct3[2];
-  assign cls[CLS_FENCE]    = op_fence & (funct3 != 3'b001);
-  assign cls[CLS_FENCE_I]  = op_fence & (funct3 == 3'b001);
+  assign cls[CLS_LUI]      = (opcode == OPC_LUI);
+  assign cls[CLS_AUIPC]    = (opcode == OPC_AUIPC);
+  assign cls[CLS_JAL]      = (opcode == OPC_JAL);
+  assign cls[CLS_JALR]     = (opcode == OPC_JALR);
+  assign cls[CLS_BR]       = (opcode == OPC_BRANCH);
+  assign cls[CLS_LOAD]     = (opcode == OPC_LOAD);
+  assign cls[CLS_STORE]    = (opcode == OPC_STORE);
+  assign cls[CLS_OPIMM]    = (opcode == OPC_OPIMM);
+  assign cls[CLS_OP_ALU]   = (opcode == OPC_OP) & (funct7 != 7'd1);
+  assign cls[CLS_OP_MUL]   = (opcode == OPC_OP) & (funct7 == 7'd1) & ~funct3[2];
+  assign cls[CLS_OP_DIV]   = (opcode == OPC_OP) & (funct7 == 7'd1) & funct3[2];
+  assign cls[CLS_FENCE]    = (opcode == OPC_FENCE) & (funct3 != 3'b001);
+  assign cls[CLS_FENCE_I]  = (opcode == OPC_FENCE) & (funct3 == 3'b001);
   assign cls[CLS_CSR]      = sys_csr & csr_known;
   assign cls[CLS_CSR_NOP]  = sys_csr & ~csr_known;
   assign cls[CLS_ECALL]    = sys_plain & is_ecall;
@@ -184,11 +167,11 @@ module idu_ctrl_decode (
   assign cls[CLS_SRET]     = sys_plain & is_sret;
   assign cls[CLS_SFENCE]   = sys_plain & is_sfence;
   assign cls[CLS_SYS_NOP]  = sys_plain & ~(is_ecall | is_ebreak | is_mret | is_wfi | is_sret | is_sfence);
-  assign cls[CLS_AMO]      = op_amo & (amo_op != AMO_LR);
-  assign cls[CLS_AMO_LR]   = op_amo & (amo_op == AMO_LR);
-  assign cls[CLS_FP_UNARY] = op_fp & ((funct7 == 7'h60) | (funct7 == 7'h68) | (funct7 == 7'h2C) | (funct7 == 7'h70));
-  assign cls[CLS_FP]       = op_fp & ~((funct7 == 7'h60) | (funct7 == 7'h68) | (funct7 == 7'h2C) | (funct7 == 7'h70));
-  assign cls[CLS_ILLEGAL]  = ~op_known;
+  assign cls[CLS_AMO]      = (opcode == OPC_AMO) & (amo_op != AMO_LR);
+  assign cls[CLS_AMO_LR]   = (opcode == OPC_AMO) & (amo_op == AMO_LR);
+  assign cls[CLS_FP_UNARY] = (opcode == OPC_FP) & fp_unary_f7;
+  assign cls[CLS_FP]       = (opcode == OPC_FP) & ~fp_unary_f7;
+  assign cls[CLS_ILLEGAL]  = ~|cls[NCLS-2:0];   // opcode not listed above
 
   // ---- table lookup ----
   logic [ROMW-1:0] rom_word;
@@ -196,8 +179,8 @@ module idu_ctrl_decode (
 
   ttg_onehot_mux #(.N(NCLS), .W(ROMW)) u_rom_mux (.sel(cls), .data(ROM), .out(rom_word));
 
-  // ---- assemble outputs (Ref: tail of Idu::decode: AMO rd==0 rename, dest_areg==0 kills dest_en, TMA flags) ----
-  logic amo_rd_x0_rename, imm_i_zero;
+  // ---- outputs (Ref: tail of Idu::decode: AMO rd==0 rename, dest_areg==0 kills dest_en, load/store flags) ----
+  logic amo_rd_x0_rename;
 
   always_comb begin
     {uop_type, rom_dest_en, src1_en, rom_src2_en, src1_is_pc, rom_src2_is_imm, is_atomic, rom_func3_zero,
@@ -213,8 +196,6 @@ module idu_ctrl_decode (
     src1_areg    = rom_src1_zero ? 6'd0 : {1'b0, rs1_idx};
     src2_areg    = {1'b0, inst[24:20]};
     illegal_inst = rom_illegal | (cls[CLS_CSR_NOP] & csr_is_time);
-    imm_i_zero   = (csr_idx == 12'd0);
-    tma_is_ret   = cls[CLS_JALR] & (rs1_idx == 5'd1) & (rd_idx == 5'd0) & imm_i_zero;
     tma_mem_commit_is_load  = cls[CLS_LOAD] | ((cls[CLS_AMO] | cls[CLS_AMO_LR]) & (amo_op != AMO_SC));
     tma_mem_commit_is_store = cls[CLS_STORE] | cls[CLS_AMO];
   end

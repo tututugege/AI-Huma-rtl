@@ -1,7 +1,8 @@
 // Ref: back-end/Idu.cpp  class Idu (br_latch / br_latch_1, Idu::comb_fire first lines, Idu::seq)
 `default_nettype none
 
-// One-cycle latch of the branch resolution from EXU. A ROB flush clears it (br_latch_1 = {}).
+// One-cycle latch of the branch resolution from EXU. Only mispred and clear_mask steer state, so only those are
+// cleared by a ROB flush; the payload (pc, rob idx, tag, ftq idx) is only read under mispred and is captured as is.
 module idu_br_latch import ttg_cfg_pkg::*; (
   input  logic                        clk,
   input  logic                        rst_n,
@@ -21,47 +22,43 @@ module idu_br_latch import ttg_cfg_pkg::*; (
 );
 
   logic                        mispred_q, mispred_d;
-  logic [31:0]                 redirect_pc_q, redirect_pc_d;
-  logic [ROB_IDX_WIDTH-1:0]    redirect_rob_idx_q, redirect_rob_idx_d;
-  logic [BR_TAG_WIDTH-1:0]     br_id_q, br_id_d;
-  logic [FTQ_IDX_WIDTH-1:0]    ftq_idx_q, ftq_idx_d;
   logic [BR_MASK_WIDTH-1:0]    clear_mask_q, clear_mask_d;
+  logic [31:0]                 redirect_pc_q;
+  logic [ROB_IDX_WIDTH-1:0]    redirect_rob_idx_q;
+  logic [BR_TAG_WIDTH-1:0]     br_id_q;
+  logic [FTQ_IDX_WIDTH-1:0]    ftq_idx_q;
 
-  // Ref: Idu::comb_fire  (if (!flush) br_latch_1 = *exu2id; else br_latch_1 = {})
+  // Ref: Idu::comb_fire  (flush -> br_latch_1 = {})
   always_comb begin
-    mispred_d          = exu_mispred          & ~rob_flush;
-    redirect_pc_d      = exu_redirect_pc      & {32{~rob_flush}};
-    redirect_rob_idx_d = exu_redirect_rob_idx & {ROB_IDX_WIDTH{~rob_flush}};
-    br_id_d            = exu_br_id            & {BR_TAG_WIDTH{~rob_flush}};
-    ftq_idx_d          = exu_ftq_idx          & {FTQ_IDX_WIDTH{~rob_flush}};
-    clear_mask_d       = exu_clear_mask       & {BR_MASK_WIDTH{~rob_flush}};
+    mispred_d    = exu_mispred & ~rob_flush;
+    clear_mask_d = exu_clear_mask & {BR_MASK_WIDTH{~rob_flush}};
   end
 
   // Ref: Idu::seq
   always_ff @(posedge clk) begin
     if (!rst_n) begin
       mispred_q          <= 1'b0;
+      clear_mask_q       <= '0;
       redirect_pc_q      <= '0;
       redirect_rob_idx_q <= '0;
       br_id_q            <= '0;
       ftq_idx_q          <= '0;
-      clear_mask_q       <= '0;
     end else begin
       mispred_q          <= mispred_d;
-      redirect_pc_q      <= redirect_pc_d;
-      redirect_rob_idx_q <= redirect_rob_idx_d;
-      br_id_q            <= br_id_d;
-      ftq_idx_q          <= ftq_idx_d;
       clear_mask_q       <= clear_mask_d;
+      redirect_pc_q      <= exu_redirect_pc;
+      redirect_rob_idx_q <= exu_redirect_rob_idx;
+      br_id_q            <= exu_br_id;
+      ftq_idx_q          <= exu_ftq_idx;
     end
   end
 
   assign mispred          = mispred_q;
+  assign clear_mask       = clear_mask_q;
   assign redirect_pc      = redirect_pc_q;
   assign redirect_rob_idx = redirect_rob_idx_q;
   assign br_id            = br_id_q;
   assign ftq_idx          = ftq_idx_q;
-  assign clear_mask       = clear_mask_q;
 
 endmodule
 
