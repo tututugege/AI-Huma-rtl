@@ -23,7 +23,7 @@ if [ -z "${NOBUILD:-}" ]; then
            axi-interconnect-kit/include axi-interconnect-kit/axi_interconnect/include \
            axi-interconnect-kit/sim_ddr/include axi-interconnect-kit/mmio/include; do INC="$INC -I$REF/$d"; done
   clang++ -std=c++2a -O2 -w -fPIC -shared -undefined dynamic_lookup -DNDEBUG ${COVERAGE:+-DTTG_COVERAGE} $INC -I"$VINC" -I"$VINC/vltstd" -I"$OUT/obj" \
-    -I"$ROOT/harness/include" -I"$OUT" "$OUT/${MOD}_lock.cpp" "$OUT/obj/libV${TOP}.a" "$OUT/obj/libverilated.a" -o "$OUT/lock_${MOD}.dylib" 2>"$OUT/dylib.log" \
+    -I"$ROOT/harness/include" -I"$OUT" "$OUT/${MOD}_lock.cpp" ${EXTRA_CPP:-} "$OUT/obj/libV${TOP}.a" "$OUT/obj/libverilated.a" -o "$OUT/lock_${MOD}.dylib" 2>"$OUT/dylib.log" \
     || { echo "PLUGIN BUILD FAILED, see $OUT/dylib.log"; head -20 "$OUT/dylib.log"; exit 1; }
 fi
 [ -z "${BUILD_ONLY:-}" ] || { echo "built $OUT/lock_${MOD}.dylib"; exit 0; }

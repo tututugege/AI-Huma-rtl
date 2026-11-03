@@ -80,3 +80,10 @@
 | AXI_LLC | axi-interconnect-kit/axi_interconnect/AXI_LLC.cpp | 未决 | 需先定 16 倍频方案 |
 | AXI_Interconnect | 同上 | 未决 | |
 | DDR / MMIO / PhysMemory | | testbench | 不翻译 |
+
+## back_top 集成层变异检查（scripts/mut_backtop_fast.py，一次构建、运行时选变异体）
+
+18 个变异体（赋值/端口连接类）：11 被杀死，7 存活（仅在 12 个短门禁程序×15 万拍上复跑，存活 ≠ 等价）：
+`glue_mxr_sum_swap`、`exu_flush_mask_mul`、`exu_mul_func3`、`const_src1_busy`、`const_dis2rob_mispred`、`swap_06_ren2dis_uop_src1_busy`、`swap_09_rob_commit_commit_entry_uop_amo_op`。
+待办：逐个判定等价（src1_busy、dis2rob_mispred、amo_op 的下游消费者）或补测试（MXR/SUM 不同的 vm 用例、乘法冲刷、mulh 类）。
+未纳入快速流程（localparam/if 类，仍在 mut_backtop.py）：epc_trap、pc_plus4、redirect_sel、diag_override_off 此前已杀死；mul/div/fpu 映射：fpu 已杀死，mul/div 对称 bank 疑似等价。
