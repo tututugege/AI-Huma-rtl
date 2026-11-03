@@ -28,6 +28,7 @@ module back_top_glue
   input  logic [31:0] csr_status_mstatus,
   input  logic [6:0]  rob_commit_commit_entry_uop_func7 [COMMIT_WIDTH],
   output logic        out_mispred,
+  output logic        out_no_mispred,  // qualifies out_stall in the boundary spec (stall is stale on redirect cycles)
   output logic        out_stall,
   output logic [31:0] out_redirect_pc,
   output logic [31:0] out_commit_entry_uop_diag_val [COMMIT_WIDTH],
@@ -48,6 +49,7 @@ module back_top_glue
   end
 
   assign out_mispred     = rob_bcast_flush | dec_bcast_mispred;
+  assign out_no_mispred  = ~out_mispred;
   assign out_stall       = ~pre2front_ready;
   assign out_redirect_pc = rob_bcast_flush ? flush_redirect_pc : br_latch_redirect_pc;
 

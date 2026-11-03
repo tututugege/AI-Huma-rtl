@@ -81,7 +81,7 @@ GLUE_IN = {
     'rob_commit_commit_entry_uop_func7': (7, [8]),
 }
 GLUE_OUT = {
-    'out_mispred': (1, []), 'out_stall': (1, []), 'out_redirect_pc': (32, []),
+    'out_mispred': (1, []), 'out_no_mispred': (1, []), 'out_stall': (1, []), 'out_redirect_pc': (32, []),
     'out_commit_entry_uop_diag_val': (32, [8]),
     'dis2rob_uop_tma_mem_commit_is_store': (1, [8]),
     'csr_status_mstatus_mxr': (1, []), 'csr_status_mstatus_sum': (1, []), 'csr_status_mstatus_mprv': (1, []),
@@ -91,7 +91,10 @@ GLUE_OUT = {
 # Boundary spec of the glue outputs that leave the back end: wire -> (when wire or None, @ expression)
 GLUE_EXPORT = {
     'out_mispred': (None, 'bt.out.mispred'),
-    'out_stall': (None, 'bt.out.stall'),
+    # Back_out.stall is only written in BackTop's no-flush branch (stale otherwise); every reader masks it with the registered
+    # refetch (= mispred||flush of the same cycle): rv_simu_mmu_v2.cpp:1214 (!stall || refetch), front2back_hold_comb (returns early)
+    'out_no_mispred': (None, '(uint64_t)!bt.out.mispred'),
+    'out_stall': ('out_no_mispred', 'bt.out.stall'),
     'out_redirect_pc': ('out_mispred', 'bt.out.redirect_pc'),
     'out_commit_entry_uop_diag_val': ('rob_commit_commit_entry_valid', 'bt.out.commit_entry[i0].uop.diag_val'),
 }
