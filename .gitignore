@@ -4,3 +4,4 @@ traces/
 *.fst
 __pycache__/
 refsim/
+.DS_Store
