@@ -1,0 +1,67 @@
+// Ref: front-end/front_top.cpp  front_read_enable_comb, front_bpu_control_comb, front_comb_calc (S5, S9-S11, S14)
+`default_nettype none
+
+// Combinational read/write enables, BPU gating and the front2back output bypass of the front-end.
+// Everything is a function of the start-of-cycle FIFO flags plus a few same-cycle producer signals.
+// Simplifications against the C++ (all proven by the exhaustive replay against a literal transcription):
+//  - front.in.reset (global_reset) is 1 only inside FrontTop::init(); rst_n replaces it: no "& !reset" terms;
+//  - predecode_can_run already contains !f2b_full, so front2back_can_write == predecode_can_run;
+//  - the bypass condition's "!saved_front2back.valid" is implied by f2b_empty (an empty queue has no head);
+//  - compiled-out paths (slot1, mini flush, 2-ahead, the two icache bypasses, dummy PTAB entries) are not built.
+module front_ctrl_enables (
+  input  logic global_refetch,
+  input  logic be_refetch,
+  input  logic be_fifo_read_enable,
+  input  logic icache_ready,
+  input  logic fa_full,
+  input  logic fa_empty,
+  input  logic inst_empty,
+  input  logic ptab_full,
+  input  logic ptab_empty,
+  input  logic f2b_full,
+  input  logic f2b_empty,
+  input  logic bpu_icache_read_valid,
+  input  logic bpu_ptab_write_enable,
+  input  logic checker_flush_enable,
+  output logic fa_rd_en,
+  output logic predecode_can_run,
+  output logic bpu_can_run,
+  output logic bpu_icache_read_ready,
+  output logic fa_wr_en,
+  output logic ptab_wr_en,
+  output logic f2b_wr_en,
+  output logic f2b_use_bypass,
+  output logic front_out_valid,
+  output logic do_predecode_flush
+);
+
+  logic bpu_stall;
+  logic f2b_head_valid;   // front2back FIFO read port shows a stored entry (its refetch is the backend's only)
+
+  // Ref: front_read_enable_comb (fetch_addr read, predecode_can_run_old = inst FIFO / PTAB read enable)
+  always_comb begin
+    fa_rd_en          = icache_ready && !fa_empty && !global_refetch;
+    predecode_can_run = !inst_empty && !ptab_empty && !f2b_full && !global_refetch;
+  end
+
+  // Ref: front_bpu_control_comb; S5 (fetch_addr write); S9 (PTAB write)
+  always_comb begin
+    bpu_stall             = fa_full || ptab_full;
+    bpu_can_run           = !bpu_stall || global_refetch;
+    bpu_icache_read_ready = !fa_full && bpu_can_run;
+    fa_wr_en              = bpu_icache_read_valid && bpu_can_run;
+    ptab_wr_en            = bpu_ptab_write_enable && !ptab_full && !global_refetch;
+  end
+
+  // Ref: S10 (flush decision), S11 (front2back write / output bypass), S14 (output valid)
+  always_comb begin
+    do_predecode_flush = predecode_can_run && checker_flush_enable;
+    f2b_use_bypass     = be_fifo_read_enable && f2b_empty && predecode_can_run;
+    f2b_wr_en          = predecode_can_run && !f2b_use_bypass;
+    f2b_head_valid     = be_fifo_read_enable && !be_refetch && !f2b_empty;
+    front_out_valid    = f2b_head_valid || f2b_use_bypass;
+  end
+
+endmodule
+
+`default_nettype wire
