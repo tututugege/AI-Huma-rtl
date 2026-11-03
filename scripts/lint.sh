@@ -35,6 +35,10 @@ for d in "${DIRS[@]}"; do
     # assembly of several modules from other directories: compile against all RTL, top = back_top
     ALL=(); while IFS= read -r f; do ALL+=("$f"); done < <(bash "$TOOLS/rtl_files.sh" . | grep -v '_pkg\.sv$' | grep -v -e '^rtl/common/')
     vlint back_top "${ALL[@]}" || exit 1
+  elif [ "$base" = icache ]; then
+    # icache instantiates the ITLB (tlb_mmu_core) from rtl/backend/tlb_mmu: compile against both directories
+    IC=(); while IFS= read -r f; do IC+=("$f"); done < <(find rtl/frontend/icache rtl/backend/tlb_mmu -name '*.sv' ! -name '*_pkg.sv' | sort)
+    vlint icache "${IC[@]}" || exit 1
   elif [ "$d" = rtl/common ]; then
     for f in "${files[@]}"; do NOPRIMS=1 vlint "$(basename "$f" .sv)" "$f" || exit 1; done
   elif [ -f "$d/$base.sv" ] || find "$d" -name "$base.sv" | grep -q .; then
