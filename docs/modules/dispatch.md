@@ -52,4 +52,4 @@ C++ → 硬件：`dispatch_cache/dispatch_success_flags/stq_port_owner/ldq_port_
 - spec：`spec/dispatch.io`（简化后 114 行）。
 - trace：61 个 gate 测试各 8000 拍 + dhrystone/coremark 各 60000 拍 + 3 个随机 trace（`tests/dispatch/rand_trace.cpp`，驱动参考类 Dispatch，各 30000 拍），共 66 个，全部 PASS。随机 trace 补到了真实程序覆盖不到的：每个 IQ 的 ready_num<需求（IQ 满）、SFENCE_VMA、紧张的 STQ/LDQ、flush/mispred 风暴、全部 AMO 种类。
 - 变异（严格比较字段首个失败，trace/字段/cycle）：M1 CSR/AMO 不看更老 fire：atomic-boundary，dis2rob_dis_fire[4]，101；M2 STQ 回绕进位：coremark，dis2rob_uop_stq_flag[1]，1338；M3 组内 RAW：add-longlong，dis2iss_req_uop_src1_busy，74；M4 IQ 容量 `<=`：rand_a，dis2rob_dis_fire[3]，9；M6 WFI 不独占：rand_a，dis2ren_ready，4；M12 STQ 授予 `<=`：matmul_fpu，dis2rob_dis_fire[4]，164；另有 M5/M7/M8/M10/M11/M13/M14/M15/M16/M18 均被抓。没抓到：M9（LDQ 授予 `<=`：被冗余的 ldq_alloc_valid 屏蔽，等价）。M17 因 lint 未使用信号构建失败，不计。有效变异 17 个，抓到 16 个。
-- 简化前后行数：RTL 1334 → 1268 行（主要减少在 lsu_alloc/iq_alloc/inst_stage/src_busy 的逻辑；端口声明占 top 的大部分）；spec 119 → 114 行（字段 114 → 107 个）；trace 每拍输出 2017 B → 约 1900 B。
+- 简化前后行数：RTL 1334 → 1268 行（主要减少在 lsu_alloc/iq_alloc/inst_stage/src_busy 的逻辑；端口声明占 top 的大部分）；spec 119 → 114 行（字段 114 → 107 个）；trace 每拍约 2440 B → 2328 B。
