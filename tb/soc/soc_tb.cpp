@@ -43,6 +43,11 @@ void load_image(const char *path) {
   pmem_write(0x4, 0x83e005b7);
   pmem_write(0x8, 0x800002b7);
   pmem_write(0xc, 0x00028067);
+  // BackTop::seed_uart_io_words: UART status registers as seen by MMIO reads
+  constexpr uint32_t kLsr = 0x20u | 0x40u, kMsr = 0x10u | 0x20u | 0x80u;
+  pmem_write(UART_ADDR_BASE + 0x00u, (0x01u | 0xc0u) << 16);
+  pmem_write(UART_ADDR_BASE + 0x04u, 0x00000003u | (kLsr << 8) | (kMsr << 16));
+  pmem_write(UART_ADDR_BASE + 0x08u, 0);
 }
 
 // ---- optional per-cycle comparison with a core_top trace recorded from the reference (scripts/record.sh core_top prog) ----
@@ -82,8 +87,7 @@ const char *input_gate(const char *name) {
       {"dcache2lsu_load_resps_data", "dcache2lsu_load_resps_valid"}, {"dcache2lsu_load_resps_replay", "dcache2lsu_load_resps_valid"},
       {"dcache2lsu_load_resps_req_id", "dcache2lsu_load_resps_valid"},
       {"dcache2lsu_store_resps_replay", "dcache2lsu_store_resps_valid"}, {"dcache2lsu_store_resps_req_id", "dcache2lsu_store_resps_valid"},
-      {"dcache2lsu_mshr_fill_line", "dcache2lsu_mshr_fill"}, {"peripheral_resp_mmio_rdata", "peripheral_resp_ready"},
-      {"peripheral_resp_is_mmio", "peripheral_resp_ready"}};
+      {"dcache2lsu_mshr_fill_line", "dcache2lsu_mshr_fill"}, {"peripheral_resp_mmio_rdata", "peripheral_resp_is_mmio"}};
   for (auto &g : kGate) if (!std::strcmp(g[0], name)) return g[1];
   return nullptr;
 }
