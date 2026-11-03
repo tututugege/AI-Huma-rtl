@@ -212,6 +212,7 @@ def gen_rec(mod, fields, in_bytes, out_bytes):
     L.append('#include "SimCpu.h"')
     L.append('#undef private')
     L.append('#undef protected')
+    L.append('#if __has_include("front_tap.h")\n#include "front_tap.h"  // refsim front-end tap: TTG_FT\n#endif')
     L.append(f'#include "{mod}_fields.h"')
     L.append('using namespace ttg_io;')
     L.append('namespace {')
