@@ -39,6 +39,8 @@
 
 ### 待办（基础设施与遗留）
 
+- **存储阵列写法整改**（01 第 3.1 节）：Prf 寄存器堆、前端 FIFO 存储、Ren 检查点表、Csr 寄存器堆、TlbMmu TLB 阵列、PreIduQueue 的 FTQ 与指令缓冲、乘法流水；RealLsu 的 SSA 版本链（`st_v1..v5`）随 RealLsu 手写重构一起处理。
+
 - **清理 tma 边带**：从 Idu/Ren/Dispatch/Rob 与 back_top 删除 `tma_mem_commit_is_load/store`（只服务于模拟器的提交记账，见 06 第 8 节），各模块重新回放/锁步。
 - **PMU 单独设计**：硬件友好的事件计数，独立于逐拍对照（06 第 8 节）。
 - `make cfg` 导出前端专有常量（FIFO 深度、TAGE 位宽、`PTAB_SIZE`）、MUL/DIV 实例数（现手写在 `front_pkg`、`exu_fu_pkg`）。
