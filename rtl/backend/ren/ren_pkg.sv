@@ -47,11 +47,14 @@ package ren_pkg;
     logic illegal_inst;
   } ren_inst_t;
 
-  // renamed instruction sent to Dispatch: only the fields Dispatch/ROB/IQs consume (src*_areg, src*_busy, and
-  // the masks are not consumed downstream); meaningful only while ren2dis_valid
+  // renamed instruction sent to Dispatch: only the fields Dispatch/ROB/IQs consume (src2_areg, src*_busy, and
+  // the masks are not consumed downstream); meaningful only while ren2dis_valid.
+  // src1_areg IS consumed: Dispatch -> Rob keeps it and Rob::commit_extra hands it to the front end (RET detection),
+  // found only at BackTop integration (docs/modules/back_top.md, finding I-1).
   typedef struct packed {
     logic [31:0] diag_val;
     areg_t dest_areg;
+    areg_t src1_areg;
     logic [FTQ_IDX_WIDTH-1:0] ftq_idx;
     logic [FTQ_OFFSET_WIDTH-1:0] ftq_offset;
     logic ftq_is_last;
