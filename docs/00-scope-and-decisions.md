@@ -29,6 +29,7 @@
 | A：核 | 前端（BPU、ICache、FIFO 群）、后端（Idu/Ren/Dispatch/Isu/Exu/Prf/Rob/Csr/Lsu/TLB）| RTL，逐拍对照 |
 | B：访存 | DCache、MSHR、PTW、write buffer、LLC、AXI interconnect | RTL，逐拍对照 |
 | C：平台 | DDR 模型、MMIO/UART、PhysMemory、DMA、difftest、checkpoint | 留在 testbench（行为模型），不要求翻译；但其对核的时序必须与参考模型一致 |
+| D：PMU / 性能统计 | `PerfCount.h`、TMA 归因 | **不翻译**；RTL 的 PMU 单独按硬件可实现性重新设计（见 06 第 8 节） |
 
 > 范围 B/C 的边界（LLC 与 interconnect 是否做成 RTL、16 倍频 AXI 子系统如何处理）尚未最终决定，决定后写入本节。
 

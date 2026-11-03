@@ -37,6 +37,8 @@
 
 ### 待办（基础设施与遗留）
 
+- **清理 tma 边带**：从 Idu/Ren/Dispatch/Rob 与 back_top 删除 `tma_mem_commit_is_load/store`（只服务于模拟器的提交记账，见 06 第 8 节），各模块重新回放/锁步。
+- **PMU 单独设计**：硬件友好的事件计数，独立于逐拍对照（06 第 8 节）。
 - `make cfg` 导出前端专有常量（FIFO 深度、TAGE 位宽、`PTAB_SIZE`）、MUL/DIV 实例数（现手写在 `front_pkg`、`exu_fu_pkg`）。
 - exu_ctrl 集成需补上各 FU 被删的恒定字段（FPU/MUL/DIV 的 `op`，BRU/CSR 的 `result=0`，`diag_val`/`mispred`/`br_taken`/`page_fault_inst`/`flush_pipe` 恒 0）。
 - 参考模型里给 `MemSubsystemPtwWalkPortAdapter` 加只读访问函数，去掉 TlbMmu 录制的镜像结构体布局依赖。

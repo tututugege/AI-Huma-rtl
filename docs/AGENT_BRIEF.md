@@ -53,3 +53,5 @@
 6. **工具**：package 文件命名 `*_pkg.sv`，工具会自动排在前面；`scripts/lint.sh` 的 `<=` 比较误报已修；断言与 lint 豁免见 `docs/01` 第 1 节与 8.5。需要主仓库新工具时 `git merge main`；不要改 scripts/harness/rtl/common/docs（除你自己的 `docs/modules/<mod>.md`）。
 7. **共享 scratchpad 会被其他 agent 覆盖**：临时文件放在 scratchpad 下你自己的子目录（`<scratchpad>/<mod>/`）。提交用 `git -c user.name=ruyaoh -c user.email=ruyaoh@nvidia.com commit`。
 8. **报告**：除原有项外，写出 RTL 行数 vs 参考模型 C++ 行数、spec 字段数、放宽/删除字段表、选择不复刻的 C++ 行为清单、只靠随机 trace 才能抓到的变异数量。
+
+9. **debug / perf / TMA 字段与 PMU**：见 `docs/06-equivalence-policy.md` 第 8 节。只服务可观测性（dbg、perf、`tma.*`）的字段不进 RTL 和 spec；按"谁读它"判断，不要按名字（`diag_val` 是功能字段）。
