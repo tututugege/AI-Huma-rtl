@@ -115,7 +115,8 @@ module ren_core
   );
 
   for (genvar i = 0; i < N; i++) begin : g_out
-    assign ren2dis_uop[i] = '{diag_val: inst[i].diag_val, dest_areg: inst[i].dest_areg, src1_areg: inst[i].src1_areg, ftq_idx: inst[i].ftq_idx,
+    assign ren2dis_uop[i] = '{diag_val: inst[i].diag_val, dest_areg: inst[i].dest_areg,
+                              src1_areg: inst[i].src1_areg, ftq_idx: inst[i].ftq_idx,
                               ftq_offset: inst[i].ftq_offset, ftq_is_last: inst[i].ftq_is_last,
                               inst_type: inst[i].inst_type, dest_en: inst[i].dest_en, src1_en: inst[i].src1_en,
                               src2_en: inst[i].src2_en, is_atomic: inst[i].is_atomic,

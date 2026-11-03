@@ -102,7 +102,7 @@ GLUE_EXPORT = {
 # Constant-driven wires: consumers read them but no module produces them (the producer deleted a constant-0 field, or the
 # C++ producer never writes it): wire -> reason
 CONSTS = {
-    'ren2dis_uop_src1_busy': 'Ren leaves it 0 (from_dec_ren_inst memsets); Dispatch recomputes busy (Dispatch.cpp:162)',
+    'ren2dis_uop_src1_busy': 'Ren leaves it 0; Dispatch recomputes busy (Dispatch.cpp:162)',
     'ren2dis_uop_src2_busy': 'same as src1_busy',
     'dis2rob_uop_mispred': 'Dispatch never sets it (0); Rob overwrites it at enqueue',
     'dis2rob_uop_br_taken': 'same',
@@ -121,7 +121,7 @@ EXPORT = [
     r'^pre2front_(ready|fire)$',
     r'^ftq_commit_info_resp_.*$',
     r'^rob_commit_commit_entry_(valid|uop_(dest_areg|dest_en|type|br_taken|page_fault_inst|page_fault_load|'
-    r'page_fault_store|func7|stq_idx|stq_flag|rob_idx|rob_flag|tma_mem_commit_is_store))$',
+    r'page_fault_store|func7|stq_idx|stq_flag|rob_idx|rob_flag))$',
     r'^commit_extra_.*$',
     r'^rob_bcast_(flush|fence|fence_i|exception|mret|sret|pc|head_.*)$',
     r'^dec_bcast_(mispred|br_mask|clear_mask)$',
@@ -139,7 +139,7 @@ if FULL:
         r'^pre2front_(ready|fire)$',
         r'^ftq_commit_info_resp_.*$',
         r'^rob_commit_commit_entry_(valid|uop_(dest_areg|dest_en|type|br_taken|page_fault_inst|page_fault_load|'
-        r'page_fault_store|stq_idx|stq_flag|rob_idx|rob_flag|tma_mem_commit_is_store))$',
+        r'page_fault_store|stq_idx|stq_flag|rob_idx|rob_flag))$',
         r'^commit_extra_.*$',
         r'^rob_bcast_(flush|fence|fence_i|exception|mret|sret|pc)$',
         r'^csr_status_(sstatus|mstatus|satp|privilege)$',
@@ -513,7 +513,7 @@ def gen_spec(name, mods, nets, sel, S, note):
 
 
 EXU_BODY = r'''
-  // Unread FU-side signals below are intentional (single-cycle FUs' complete/ready, exu2fu fields no FU reads, e.g. mc_op).
+  // Unread FU-side signals below are intentional (single-cycle FUs' complete/ready, exu2fu fields no FU reads).
   /* verilator lint_off UNUSEDSIGNAL */
   // ---- functional-unit side of exu_ctrl (names as in spec/exu_ctrl.io)
   logic [31:0] fu_alu_result [ALU_NUM];
@@ -580,8 +580,8 @@ EXU_BODY = r'''
 @@CTRL_CONNS@@
   );
 
-  // ---- single-cycle FUs (SingleCycleFU: complete == en, ready == !en || consume; exu_ctrl derives both itself, so consume
-  //      is tied low and the FUs' complete/ready outputs stay unread; only the computed fields come back)
+  // ---- single-cycle FUs (SingleCycleFU: complete == en, ready == !en || consume; exu_ctrl derives both itself,
+  //      so consume is tied low and the FUs' complete/ready outputs stay unread; only the computed fields come back)
   logic alu_complete [ALU_NUM];
   logic alu_ready [ALU_NUM];
   logic alu_consume [ALU_NUM];
@@ -610,7 +610,8 @@ EXU_BODY = r'''
   logic agu_consume [LSU_AGU_COUNT];
   assign agu_consume = '{default: 1'b0};
   agu_bank u_agu (
-    .clk(clk), .rst_n(rst_n), .en(exu2fu_agu_en), .consume(agu_consume), .src1_rdata(exu2fu_agu_src1_rdata), .imm(exu2fu_agu_imm),
+    .clk(clk), .rst_n(rst_n), .en(exu2fu_agu_en), .consume(agu_consume),
+    .src1_rdata(exu2fu_agu_src1_rdata), .imm(exu2fu_agu_imm),
     .complete(agu_complete), .ready(agu_ready), .result(fu_agu_result)
   );
 
@@ -623,13 +624,15 @@ EXU_BODY = r'''
     assign sdu_amo_op[i] = exu2fu_sdu_func7[i][6:2];  // Fu.h SduUnit reads func7 >> 2
   end
   sdu_bank u_sdu (
-    .clk(clk), .rst_n(rst_n), .en(exu2fu_sdu_en), .consume(sdu_consume), .is_atomic(exu2fu_sdu_is_atomic), .amo_op(sdu_amo_op),
+    .clk(clk), .rst_n(rst_n), .en(exu2fu_sdu_en), .consume(sdu_consume), .is_atomic(exu2fu_sdu_is_atomic),
+    .amo_op(sdu_amo_op),
     .src1_rdata(exu2fu_sdu_src1_rdata), .src2_rdata(exu2fu_sdu_src2_rdata), .complete(sdu_complete),
     .ready(sdu_ready), .result(fu_sdu_result)
   );
 
-  // The CSR FU (fu_idx 2) has no data path (impl_compute is empty, result 0, read data is muxed in by exu_ctrl) and only the
-  // single-cycle handshake, which exu_ctrl implements for the CSR slot itself: csr_fu is therefore not instantiated.
+  // The CSR FU (fu_idx 2) has no data path (impl_compute is empty, result 0, read data is muxed in by exu_ctrl)
+  // and only the single-cycle handshake, which exu_ctrl implements for the CSR slot itself: csr_fu is
+  // therefore not instantiated.
 
   // ---- multi-cycle FUs. exu_ctrl numbers them in Exu::units order {MUL(0), DIV(3), FPU(5), MUL(6), DIV(8)}.
   localparam int MC_MUL [MUL_NUM] = '{0, 3};
@@ -763,8 +766,8 @@ EXU_BODY = r'''
 
 def gen_exu(exu_ports):
     L = [HDR, '// Exu composite: exu_ctrl (Exu::comb_* without the functional units) + the 27 functional units (the CSR FU needs no',
-         '// hardware, see below). Boundary = spec/exu.io (generated from spec/exu_ctrl.io). FU-side glue below is hand-written text of',
-         '// the generator, see docs/modules/back_top.md for the contract with each FU.',
+         '// hardware, see below). Boundary = spec/exu.io (generated from spec/exu_ctrl.io). FU-side glue below is hand-written',
+         '// text of the generator, see docs/modules/back_top.md for the contract with each FU.',
          '`default_nettype none', '', 'module exu', '  import ttg_cfg_pkg::*;', '  import exu_fu_pkg::*;',
          '  import exu_ctrl_pkg::*;', '(', '  input  logic clk,', '  input  logic rst_n,']
     pl = []

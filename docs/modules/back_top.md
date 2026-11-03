@@ -20,7 +20,7 @@
 | 编号 | 现象（`--report`） | 根因 | 处理 |
 | --- | --- | --- | --- |
 | I-1 | `dispatch.ren2dis_uop_src1_areg` 无驱动 | Ren 笔记"下游没有读者"只 grep 了 `back-end/*.cpp` 的 `.cpp` 读取；实际经 Dispatch→`dis2rob.src1_areg`→Rob `commit_extra.src1_areg`→`rv_simu_mmu_v2.cpp:1407` 前端 RET 识别（BPU 训练）读取 | **修 Ren**：`ren2dis_uop_src1_areg` 作为输出加回（`ren_pkg/ren_core/ren`，`spec/ren.io` 加一个 `when ren2dis_valid` 字段；Ren 的 trace 需重录） |
-| I-2 | `rob.dis2rob_uop_tma_mem_commit_is_store` 无驱动 | Idu 算出 `tma.mem_commit_is_store`，Ren/Dispatch 都没带；它决定 SimCpu `commit_sync` 是否把 store 写入内存子系统（功能性） | 胶水：由 `dis2rob_uop_type/func7` 重新推导（STORE，或 AMO 且 amo_op≠LR，与 Idu.cpp:539 同式），不改 Rob/Dispatch |
+| I-2 | `rob.dis2rob_uop_tma_mem_commit_is_store` 无驱动 | Idu 算出 `tma.mem_commit_is_store`，Ren/Dispatch 都没带。按 06 第 8 节它只服务模拟器记账（`commit_sync`），**不进边界 spec，RTL 不要求产生** | 胶水由 `type/func7` 推导（Idu.cpp:539 同式），仅为了不让 Rob 输入悬空；**待清理**：Idu/Ren/Rob 的 tma 边带统一清理时删除此胶水 |
 | I-3 | `dispatch.ren2dis_uop_src{1,2}_busy`、`rob.dis2rob_uop_{mispred,br_taken,flush_pipe}`、`rob.exu2rob_entry_uop_{page_fault_inst,flush_pipe}` 无驱动 | 生产者因恒 0 / 被覆盖删字段（06 第 3 节），消费者端口仍在 | 常量 0（见 `CONSTS`，原因逐条写在生成文件里） |
 | I-4 | `exu_ctrl.prf2exe_iss_entry_uop_csr_idx` 维度 [] vs [22] | exu_ctrl 只收 CSR 槽 | 连接表达式取口 0 |
 | I-5 | `lsu` 需要 `rob_commit_..._amo_op`，Rob 输出 `func7` | 字段形式不同 | 胶水 `amo_op = func7[6:2]` |
@@ -44,8 +44,8 @@
 
 ## 5. 边界选择（SimCpu 侧 / 后端侧）
 - **边界取在 SimCpu 一侧**：`front2back_hold`（前端停顿时保持上一拍未被 fire 的前端包）和 `peripheral_resp_hold` 是 SimCpu 的寄存器；RTL 看到的 `front2pre_*` 就是 `BackTop::in` 在 `back.comb()` 时的值（含保持值）。`front2back_hold` 需要后端输出 `pre2front_fire`、`out_stall`、`out_mispred`、`rob_bcast_flush`，这些都在边界输出里。
-- 边界输出只含环境读取的字段：`back2front_comb`（`ftq_commit_info`、commit 的 type/br_taken/dest_en/dest_areg/diag_val、`commit_extra`）、`commit_sync`（stq_idx/flag、rob_idx/flag、`tma_mem_commit_is_store`、page_fault_*）、difftest 的 exception/mret/sret/`rob_bcast_pc`、`csr_status`、
-  （nolsu 另加 LSU 所读的 dis2lsu/exe2lsu/head_*/dec_bcast/rob_commit amo_op,stq_idx/DTLB 响应；full 里这些成为内部线网，换成 `lsu2dcache`/`peripheral_req`）和 PTW 口。
+- 边界输出只含环境读取的字段：`back2front_comb`（`ftq_commit_info`、commit 的 type/br_taken/dest_en/dest_areg/diag_val、`commit_extra`）、`commit_sync`（stq_idx/flag、rob_idx/flag、page_fault_*）、difftest 的 exception/mret/sret/`rob_bcast_pc`、`csr_status`、
+  （不含 `tma_*`/dbg/perf：有意不含；nolsu 另加 LSU 所读的 dis2lsu/exe2lsu/head_*/dec_bcast/rob_commit amo_op,stq_idx/DTLB 响应；full 里这些成为内部线网，换成 `lsu2dcache`/`peripheral_req`）和 PTW 口。
 - **未纳入边界（difftest 观测）**：`prf->reg_file_1`、`rename->arch_RAT_1`、`csr->CSR_RegFile_1`、`commit_entry[].uop.dbg.*`（difftest 用的调试元数据，RTL 不带）。整程序逐拍一致间接保证了它们，但没有直接比较。
 - `rob_commit_..._uop_mispred` 没有环境读取点（只有 perf 计数），不在边界；Rob 仍输出，在 back_top 里接到具名悬空线。
 

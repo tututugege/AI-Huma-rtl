@@ -103,6 +103,7 @@ module back_top_nolsu (
   output logic ftq_commit_info_resp_valid_t [8][4],
   output logic [31:0] out_commit_entry_uop_diag_val [8],
   output logic out_mispred,
+  output logic out_no_mispred,
   output logic [31:0] out_redirect_pc,
   output logic out_stall,
   output logic pre2front_fire [16],
@@ -191,7 +192,6 @@ module back_top_nolsu (
   output logic [6:0] rob_commit_commit_entry_uop_rob_idx [8],
   output logic rob_commit_commit_entry_uop_stq_flag [8],
   output logic [5:0] rob_commit_commit_entry_uop_stq_idx [8],
-  output logic rob_commit_commit_entry_uop_tma_mem_commit_is_store [8],
   output logic [4:0] rob_commit_commit_entry_uop_type [8],
   output logic rob_commit_commit_entry_valid [8]
 );
@@ -461,7 +461,7 @@ module back_top_nolsu (
   assign exu2rob_entry_uop_flush_pipe = '{default: '0};
   logic exu2rob_entry_uop_page_fault_inst [22];  // no writer in the back end (exu_ctrl.md 4.2 item 7): constant 0
   assign exu2rob_entry_uop_page_fault_inst = '{default: '0};
-  logic ren2dis_uop_src1_busy [8];  // Ren leaves it 0 (from_dec_ren_inst memsets); Dispatch recomputes busy (Dispatch.cpp:162)
+  logic ren2dis_uop_src1_busy [8];  // Ren leaves it 0; Dispatch recomputes busy (Dispatch.cpp:162)
   assign ren2dis_uop_src1_busy = '{default: '0};
   logic ren2dis_uop_src2_busy [8];  // same as src1_busy
   assign ren2dis_uop_src2_busy = '{default: '0};
@@ -480,6 +480,7 @@ module back_top_nolsu (
   logic nc_rob_bcast_trap_val_valid;
   logic [4:0] nc_rob_commit_commit_entry_uop_amo_op [8];
   logic nc_rob_commit_commit_entry_uop_mispred [8];
+  logic nc_rob_commit_commit_entry_uop_tma_mem_commit_is_store [8];
   /* verilator lint_on UNUSEDSIGNAL */
 
   // ================= pre: PreIduQueue (back-end/PreIduQueue.cpp)
@@ -1209,7 +1210,7 @@ module back_top_nolsu (
     .rob_commit_commit_entry_uop_page_fault_store(rob_commit_commit_entry_uop_page_fault_store),
     .rob_commit_commit_entry_uop_illegal_inst(rob_commit_commit_entry_uop_illegal_inst),
     .rob_commit_commit_entry_uop_type(rob_commit_commit_entry_uop_type),
-    .rob_commit_commit_entry_uop_tma_mem_commit_is_store(rob_commit_commit_entry_uop_tma_mem_commit_is_store),
+    .rob_commit_commit_entry_uop_tma_mem_commit_is_store(nc_rob_commit_commit_entry_uop_tma_mem_commit_is_store),
     .commit_extra_src1_areg(commit_extra_src1_areg),
     .commit_extra_imm(commit_extra_imm),
     .rob_bcast_flush(rob_bcast_flush),
@@ -1314,6 +1315,7 @@ module back_top_nolsu (
     .rob_commit_commit_entry_valid(rob_commit_commit_entry_valid),
     // outputs
     .out_mispred(out_mispred),
+    .out_no_mispred(out_no_mispred),
     .out_stall(out_stall),
     .out_redirect_pc(out_redirect_pc),
     .out_commit_entry_uop_diag_val(out_commit_entry_uop_diag_val),

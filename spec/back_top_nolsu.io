@@ -113,7 +113,6 @@ out rob_commit_commit_entry_uop_rob_flag 1 [8] when rob_commit_commit_entry_vali
 out rob_commit_commit_entry_uop_rob_idx 7 [8] when rob_commit_commit_entry_valid @ bt.rob_commit.commit_entry[i0].uop.rob_idx
 out rob_commit_commit_entry_uop_stq_flag 1 [8] when rob_commit_commit_entry_valid @ bt.rob_commit.commit_entry[i0].uop.stq_flag
 out rob_commit_commit_entry_uop_stq_idx 6 [8] when rob_commit_commit_entry_valid @ bt.rob_commit.commit_entry[i0].uop.stq_idx
-out rob_commit_commit_entry_uop_tma_mem_commit_is_store 1 [8] when rob_commit_commit_entry_valid @ bt.rob_commit.commit_entry[i0].uop.tma.mem_commit_is_store
 out rob_commit_commit_entry_uop_type 5 [8] when rob_commit_commit_entry_valid @ bt.rob_commit.commit_entry[i0].uop.type
 out rob_commit_commit_entry_valid 1 [8] @ bt.rob_commit.commit_entry[i0].valid
 out dis2lsu_alloc_req 1 [8] @ bt.dis2lsu.alloc_req[i0]
@@ -179,7 +178,8 @@ out ftq_commit_info_resp_valid_s 1 [8] [8] @ bt.rob_commit.commit_entry[i0].vali
 out ftq_commit_info_resp_valid_t 1 [8] [4] @ bt.rob_commit.commit_entry[i0].valid
 out out_commit_entry_uop_diag_val 32 [8] when rob_commit_commit_entry_valid @ bt.out.commit_entry[i0].uop.diag_val
 out out_mispred 1 @ bt.out.mispred
+out out_no_mispred 1 @ (uint64_t)!bt.out.mispred
 out out_redirect_pc 32 when out_mispred @ bt.out.redirect_pc
-out out_stall 1 @ bt.out.stall
+out out_stall 1 when out_no_mispred @ bt.out.stall
 out pre2front_fire 1 [16] @ bt.pre2front.fire[i0]
 out pre2front_ready 1 @ bt.pre2front.ready

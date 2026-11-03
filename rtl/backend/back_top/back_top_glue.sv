@@ -1,11 +1,11 @@
-// Ref: back-end/BackTop.cpp  BackTop::comb (tail: out.* and commit_entry), comb_lsu_mmu (mstatus fields), Idu.cpp:539 (store flag)
+// Ref: back-end/BackTop.cpp  BackTop::comb (tail: out.*, commit_entry), comb_lsu_mmu, Idu.cpp:539 (store flag)
 `default_nettype none
 
 // The few behaviours of BackTop that belong to no sub-module (docs/modules/back_top.md, "Glue"):
 //  * Back_out.{mispred, stall, redirect_pc}: what SimCpu/the front end see (BackTop.cpp:340-362)
 //  * the flush-time override of the committed slots' diag_val with the redirect pc (BackTop.cpp:364-372); it is applied
 //    only to the copy that leaves the back end (commit_entry), no back-end consumer reads diag_val of rob_commit
-//  * the store flag the Idu computes (tma.mem_commit_is_store) that Ren/Dispatch do not carry: re-derived from type/func7
+//  * the store flag the Idu computes (tma.mem_commit_is_store), not carried by Ren/Dispatch: re-derived from type/func7
 //  * the four mstatus bits the DTLB needs (LSU copies csr_status into lsu2mmu_io; here taken straight from Csr)
 module back_top_glue
   import ttg_cfg_pkg::*;
@@ -55,7 +55,8 @@ module back_top_glue
 
   // Ref: BackTop::comb, loop over COMMIT_WIDTH: valid slots get diag_val = redirect_pc while flushing
   for (genvar i = 0; i < COMMIT_WIDTH; i++) begin : g_commit
-    assign out_commit_entry_uop_diag_val[i] = rob_bcast_flush ? out_redirect_pc : rob_commit_commit_entry_uop_diag_val[i];
+    assign out_commit_entry_uop_diag_val[i] =
+        rob_bcast_flush ? out_redirect_pc : rob_commit_commit_entry_uop_diag_val[i];
   end
   // (rob_commit_commit_entry_valid only qualifies the diag_val in the boundary spec; the override itself is per slot)
   logic commit_valid_unused;  // lint: kept as a port so the glue's interface documents the qualification
