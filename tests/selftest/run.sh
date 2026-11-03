@@ -47,8 +47,17 @@ EOF
 done
 
 echo "== spec-change guard"
-# same ports, different compare rule (no `when`) -> different spec hash -> the old trace must be refused
-sed 's/^out pop_data   8  when pop_valid/out pop_data   8/' tests/selftest/toy_fifo.io > "$B/toy_fifo_changed.io"
+# a compare-rule change (no `when`) must NOT change the hash; a layout change (field order) must
+sed 's/^out pop_data   8  when pop_valid/out pop_data   8/' tests/selftest/toy_fifo.io > "$B/toy_fifo_rule.io"
+h1=$(python3 harness/tools/iogen.py tests/selftest/toy_fifo.io "$B/h1" | sed 's/.*hash=//'); h2=$(python3 harness/tools/iogen.py "$B/toy_fifo_rule.io" "$B/h2" | sed 's/.*hash=//')
+[ "$h1" = "$h2" ] && echo "  ok: compare-rule change keeps the hash" || { echo "  FAIL: when changes the hash"; fail=1; }
+python3 - "$B/toy_fifo_changed.io" <<'PY'
+import sys
+L = open('tests/selftest/toy_fifo.io').read().split('\n')
+i, j = [k for k, l in enumerate(L) if l.startswith('in  pop_ready') or l.startswith('in  flush')]
+L[i], L[j] = L[j], L[i]
+open(sys.argv[1], 'w').write('\n'.join(L))
+PY
 mkdir -p "$B/spec2"
 if bash scripts/hbuild.sh "$B/toy_fifo_changed.io" "$B/spec2" tests/selftest/toy_fifo.sv >/dev/null 2>&1; then
   out=$("$B/spec2/replay" traces/toy.trc 2>&1 || true)
