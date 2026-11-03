@@ -14,7 +14,7 @@ if [ -z "${NOBUILD:-}" ]; then
   python3 "$ROOT/harness/tools/iogen.py" "$SPEC" "$OUT" >/dev/null
   FILES=(); while IFS= read -r f; do FILES+=("$ROOT/$f"); done < <(bash "$ROOT/scripts/rtl_files.sh" "$ROOT")
   TOP=${MOD}_tbwrap
-  ( cd "$OUT" && verilator --cc --build -j 4 -Wall --x-assign 0 --x-initial 0 --top-module "$TOP" -Mdir obj \
+  ( cd "$OUT" && verilator --cc --build -j 4 -Wall ${VFLAGS:-} --x-assign 0 --x-initial 0 --top-module "$TOP" -Mdir obj \
       ${COVERAGE:+${COV_FLAGS:---coverage-line} --output-split 4000 --output-split-cfuncs 800} -CFLAGS "${COVERAGE:+-O0 }-O2 -fPIC" "$OUT/${TOP}.sv" "${FILES[@]}" >build.log 2>&1 ) || { echo "RTL BUILD FAILED ($MOD), see $OUT/build.log"; grep -E "%(Error|Warning)" "$OUT/build.log" | head -10; exit 1; }
   VINC=$(verilator --getenv VERILATOR_ROOT)/include
   INC=""
