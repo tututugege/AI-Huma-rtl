@@ -1,3 +1,14 @@
+---
+module: axi_cpu_port_adapter
+area: memsys
+rtl: rtl/memsys/axi_cpu_port_adapter
+spec: axi_cpu_port_adapter
+status: green
+lockstep: 68/68（16 tick）
+mutants: 20/20
+note: 
+---
+
 # axi_cpu_port_adapter 设计笔记（非 DCache AXI 主口的 CPU 边界适配）
 
 分析见 `docs/analysis/memsys-boundary.md` §2.5“CPU 侧视图”；录制点 `docs/analysis/memcpu-record-hook.md`。

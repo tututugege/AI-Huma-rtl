@@ -1,3 +1,14 @@
+---
+module: exu_ctrl
+area: backend
+rtl: rtl/backend/exu_ctrl
+spec: exu_ctrl*
+status: green
+lockstep: trace 回放 + back_top 整程序 68/68
+mutants: 11/11（2 仅随机）
+note: 
+---
+
 # exu_ctrl 设计笔记
 
 ## 1. 对应的 C++

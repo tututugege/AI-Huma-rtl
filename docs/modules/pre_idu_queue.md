@@ -1,3 +1,14 @@
+---
+module: pre_idu_queue
+area: backend
+rtl: rtl/backend/pre_idu_queue
+spec: pre_idu_queue*
+status: green
+lockstep: 68/68
+mutants: 18/18（5 仅随机）
+note: 含 FTQ 与指令缓冲；3 个冗余限定输出待删
+---
+
 # pre_idu_queue 设计笔记
 
 ## 1. 对应的 C++

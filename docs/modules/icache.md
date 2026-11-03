@@ -1,3 +1,14 @@
+---
+module: icache
+area: frontend
+rtl: rtl/frontend/icache
+spec: icache*
+status: green
+lockstep: 68/68×4 spec
+mutants: 33 个中 28 杀死，5 等价
+note: 含 ITLB
+---
+
 # icache 设计笔记（指令缓存 + ITLB + 访存侧接口）
 
 分析与边界见 `docs/analysis/icache-boundary.md`（功能分解、状态清单、一拍数据流、**冲刷拍双步合并规则（评审点）**、录制点、死代码、覆盖盲区）。

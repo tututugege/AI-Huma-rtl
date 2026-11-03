@@ -1,3 +1,14 @@
+---
+module: exu_int
+area: backend
+rtl: rtl/backend/exu_fu
+spec: alu_bank bru_bank agu_bank sdu_bank csr_fu mul_bank div_bank
+status: green
+lockstep: trace 回放 + back_top 整程序 68/68
+mutants: 47/47（11 仅随机）
+note: 整数 FU
+---
+
 # exu_int 设计笔记（Exu 整数类叶子功能单元：ALU / BRU / AGU / SDU / CSR FU / MUL / DIV）
 
 覆盖分析文档 `docs/analysis/exu-boundary.md` §6 的 E1–E4。FPU（fu 5）与 `exu_ctrl`/`exu` 不在本任务内。

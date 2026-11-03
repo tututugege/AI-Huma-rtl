@@ -1,3 +1,14 @@
+---
+module: isu
+area: backend
+rtl: rtl/backend/isu
+spec: isu*
+status: green
+lockstep: trace 回放 + back_top 整程序 68/68
+mutants: 16/17（1 等价）
+note: trace 需重录
+---
+
 # isu 设计笔记
 
 ## 1. 对应的 C++

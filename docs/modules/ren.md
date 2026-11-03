@@ -1,3 +1,14 @@
+---
+module: ren
+area: backend
+rtl: rtl/backend/ren
+spec: ren*
+status: green
+lockstep: 68/68
+mutants: 12/12（5 仅随机）
+note: 需重录 trace（src1_areg 输出）
+---
+
 # ren 设计笔记
 
 ## 1. 对应的 C++

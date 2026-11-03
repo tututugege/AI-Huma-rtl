@@ -1,3 +1,14 @@
+---
+module: back_top
+area: backend
+rtl: rtl/backend/back_top
+spec: back_top*
+status: green
+lockstep: 68/68（整程序）
+mutants: 集成层 11/18 杀死，7 待判定
+note: 后端整体，含 lsu
+---
+
 # back_top 设计笔记（后端集成：back_top_nolsu / back_top）
 
 ## 1. 范围与文件

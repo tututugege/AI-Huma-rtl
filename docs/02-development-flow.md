@@ -1,85 +1,54 @@
 # 02 开发流程
 
-每个模块都走同一条流水线。**任何一步未完成，不得进入下一步；模块在 `05-module-tracker.md` 里只有两种终态：绿（全部通过）或红（有未解决问题）。**
-
-## 流程总览
+每个模块走同一条流水线。**任何一步没完成不进入下一步；模块只有两种终态：`green`（全部通过）或有已知缺口并写进备注/路线图。** 进度表由模块笔记生成（[05](05-module-tracker.md)），不手改。
 
 ```
-1 读 C++ ─▶ 2 写 spec ─▶ 3 录制 trace ─▶ 4 写 RTL ─▶ 5 回放到绿 ─▶ 6 变异检查 ─▶ 7 评审合入 ─▶ 8 更新 tracker ─▶ 9 集成闭环
+0 分析边界 → 1 spec + 录制点 → 2 设计笔记 → 3 写 RTL → 4 整程序锁步到绿 → 5 变异检查 → 6 覆盖与补测 → 7 独立复核 → 8 合入 + 更新笔记头部
 ```
 
-## 1 读 C++，划定模块边界
+总原则（[06 第 0 节](06-equivalence-policy.md)）：只要求**边界上每拍可观察行为**与参考模型一致；参考模型的调用结构、一拍内调用次数、comb/seq 熔合、中间变量一律不复刻。
 
-- 找到该模块在参考模型里的类/函数、它的 `comb_*()` / `seq()`、它读写的所有外部信号（`wires->...`）。
-- 边界信号 = 模块读取的所有外部量（输入）+ 其他模块/顶层读取它的所有量（输出）。**输入必须是完整的**：漏掉一个隐含依赖，回放就会出现无法解释的分歧。
-- 参考模型的 shadow 钩子（`MOD(phase)`）和差分 harness 已经把后端各模块的边界划清楚了，优先参考。
-- 产出：模块笔记（写进 `05-module-tracker.md` 的备注，或 `docs/modules/<mod>.md`）。
+## 0 分析边界（大模块必做，小模块可并入第 1 步）
+- 读该模块的 C++ 及调用顺序（`BackTop.cpp` 的 `comb_stage_*`、`rv_simu_mmu_v2.cpp::cycle()`），列出：输入（读的所有外部量，**必须完整**）、输出（被谁读，含直接读成员的）、一拍内被调用几次、哪些路径在默认配置下是死代码（用覆盖插件在 68 个程序上统计，不凭读码判断）。
+- 产出放 `docs/analysis/<区域>-boundary.md`（格式参考已有几份）。结论分三档标注：**已验证**（有实验）/ **读码得出**（未实验）/ **未核实**。
 
-## 2 写 `spec/<module>.io`
+## 1 spec 与录制点
+- `spec/<module>.io`（格式见 [03](03-harness.md)）：每个字段写 `@ <C++ 表达式>`；不翻译 perf/debug/tma 字段（06 §8）；`when` 只用于"无效时无意义"的字段，且先核对所有消费者。
+- 参考模型里读不到的信号，写**只读录制点补丁**（`docs/analysis/<区域>-record-hook.patch`，用法写在同名 `.md`）：加钩子前后周期数与输出必须逐字节一致；先在自己的参考模型副本验证，**不改共享的 `refsim_tap`**，由协调者合入。
+- spec 一旦录制就冻结；改接口字段 = 重新录制。
 
-- 格式见 [03-harness.md](03-harness.md) 第 2 节；信号名取自 C++ 字段名，结构体嵌套用 `_` 连接（规范第 4 节）。
-- 评审点：`when` 只用于 C++ 确实"无效时无意义"的字段。
-- spec 一旦有 trace 录制，就视为冻结；改动 = 重新录制全部 trace。
+## 2 设计笔记（先于 RTL）
+`docs/modules/<module>.md`，模板 [TEMPLATE.md](modules/TEMPLATE.md)：头部 front-matter（供生成进度表）+ 五节（对应的 C++ / 硬件结构 / 一拍内数据流 / 与 C++ 的差异：放宽、删除、不复刻、消费者核对 / 验证）。
 
-## 3 录制 trace
+## 3 写 RTL
+- 规范 [01](01-rtl-coding-standard.md)：硬件结构，不是 C++ 逐行翻译；大存储器写成硬件存储器（§3.1）；`_q/_d` 两段式；文件 ≤400 行、`always_comb` ≤60 行；`// Ref:` 头注释；新原语放在自己的目录并以模块名为前缀。
+- `make lint`（svlint S1–S12 + verilator `-Wall`，目录级）必须干净。
 
-- 参考模型已有只读录制钩子（`refsim/`，由 `scripts/refsim_setup.sh` 生成，周期数已验证与原版一致）。你只需要在 spec 的每个字段后写 `@ <C++ 表达式>`（见 03 第 4 节），然后：
-  `bash scripts/record_all.sh <module>` 录制全部标准程序（每个程序只录开头 N 拍，因为 RTL 从复位开始）。
-- 最小程序集合（每个模块都要）：
-  1. `build/tests` 里的 61 个 gate 测试（覆盖面广、短）；
-  2. dhrystone、coremark（热路径、长）；
-  3. memory-stress、smc-div、smc-addi（边角：访存冲突、自修改代码）；
-  4. 该模块的专项：如 LSU/DCache 用 `dcache-conflict-writeback`，MMU 用 vm 测试，flush/mispredict 用分支压力测试。
-- 对每个模块记录"覆盖了什么"：用 trace 统计各输入组合/状态的命中（至少：每个 `valid` 类输入取过 0 和 1、队列满/空/回绕都出现过）。覆盖不到的路径用专项或随机激励补。
-
-## 4 写 RTL
-
-- 严格遵守 [01-rtl-coding-standard.md](01-rtl-coding-standard.md)（尤其第 0 节：硬件结构，不是逐行翻译）；翻译规则见 [04-cpp-to-rtl-mapping.md](04-cpp-to-rtl-mapping.md)。
-- **先写设计笔记** `docs/modules/<mod>.md`（模板见 `docs/modules/TEMPLATE.md`），再写 RTL。
-- 行为（每拍每位）与 C++ 一致，结构按硬件功能重新组织；等价性由 trace 保证，不靠"代码长得像"。理解了 C++ 的一拍内数据流之后，用并行/优先级结构表达。
-- `make lint` 必须干净。
-
-## 5 回放到绿
-
+## 4 整程序锁步到绿（主验证手段）
+RTL 编进插件，挂进参考模拟器，每拍用参考的边界值驱动 RTL 并比较**全部**输出：
 ```bash
-bash scripts/replay.sh <module>        # 对 traces/<module>/*.trc 全部回放
+BIG_CYCLES=300000 JOBS=4 bash scripts/lockstep_multi.sh <module>...      # 多模块一遍参考运行，68 个程序
+bash scripts/lockstep_ticks_all.sh <module>                              # 16 倍频的访存域模块（每周期 16 tick）
 ```
+- 标准程序集：61 个 gate + 4 个 vm + dhrystone + coremark（2 次迭代）+ float；大程序截断到 30 万拍。
+- 失败给出首个不一致的周期、字段、期望/实际值和当拍输入。**不得为了通过而放宽比较**；放宽只能依据 06（核对消费者、写进笔记）。
+- trace 回放（`scripts/record*.sh` + `replay.sh`）保留作**调试与随机激励**手段：随机生成器驱动参考的真实类，覆盖真实程序碰不到的路径。
 
-- 全部 trace 的每一拍每一位都一致才算过（`PASS <mod>: N records`）。
-- 出现 MISMATCH：先看第一个失败的周期和字段，用自动导出的 VCD 对照 C++ 源码定位。**不允许为了"让它过"而临时放宽比较**。放宽只能依据 [06-equivalence-policy.md](06-equivalence-policy.md)：先核对消费者、写进设计笔记，并且变异检查仍然有效。
-- 若分歧源于参考模型的怪异行为：先判断它是否"有意义"（06）。无意义的（残留值无人消费、不可达路径）→ 放宽/不复刻，并记录；有意义的（残留值被消费）→ 建成显式状态，按 04 第 3 节登记。
+## 5 变异检查（证明测试抓得住 bug）
+- 至少 8 个有意义的变异（比较条件、回绕、优先级、位宽、接线、常量…）。**用"一次构建、运行时选变异体"**（`TTG_MUT=k`，模板：`scripts/mut_backtop_fast.py`、`mut_memcpu.py`、`mut_dcache.py`），每个变异先在短程序上筛，幸存者只在 ≤12 个短程序 × 15 万拍复跑；**不要每个变异单独编译、不要全量程序**。
+- 抓不到的变异：判定**等价**（笔记里写论证）或**覆盖缺口**（补测试，回到第 6 步）。只有随机能抓的变异单独统计。
 
-## 6 变异检查（证明 trace 抓得住 bug）
+## 6 覆盖与补测
+记录真实程序覆盖不到的路径（满/空/回绕/冲刷/故障/竞争），用定向短程序或随机激励补；覆盖数据放 `docs/analysis/data/`，工具放 `docs/analysis/tools/`。断言与覆盖率的要求见 [07-roadmap.md](07-roadmap.md) M6。
 
-绿了之后，对 RTL 做至少 **3 个**有意义的变异（改比较条件、改回绕、改优先级、改一个位宽…），每个都必须被回放抓到。抓不到说明 trace 覆盖不足（回到第 3 步补 trace），而不是 RTL 没问题。变异记录写进 `05-module-tracker.md`。
+## 7 独立复核
+协调者（或另一个 agent）**自己重跑**锁步与 lint，不采信作者的汇报：看修改范围是否越界（`scripts/`、`harness/`、`rtl/common/`、`refsim*/` 只有协调者改）、变异表、疑点。
 
-## 7 评审合入
+## 8 合入
+- 提交信息：`rtl/<区域>: <模块> (green: <锁步结果>, mutants: n/m)`；协调者合入主线，更新笔记头部后 `make tracker`。
+- 一个提交只做一件事；harness/规范/文档改动与 RTL 改动分开。不合入红模块；改了 harness 必须跑 `make selftest`。
 
-- 评审人按规范第 9 节清单逐项核对，并重新运行 `make lint` 与第 5 步回放。
-- 提交信息：`rtl/<area>: <module> (green: <traces>, mutants: n/n)`。
-- 不允许合入红模块；不允许合入修改了 harness 却没跑 `make selftest` 的提交。
-
-## 8 更新 `05-module-tracker.md`
-
-状态、参考模型提交号、使用的 trace、变异数、偏差编号。
-
-## 9 集成与闭环
-
-- 若干模块绿了以后，按数据流成组集成（例：Ren+Dispatch+Isu），成组再录一份 trace（组边界）回放。
-- 最终：整核闭环——用 RTL 替换参考模型里的模块（Verilator 通过 C++ 接口接入），在 gate 测试和大程序上周期数与参考模型逐一相等。
-
-## 建议的模块顺序
-
-先易后难，先叶子后枢纽，每一步都能独立验收：
-
-1. 基础单元与小模块：`Prf`、`PreIduQueue`、`Csr`、`Ren`、`Idu`
-2. 后端核心：`Rob`、`Dispatch`、`Isu`/`IssueQueue`、`Exu`/`Fu`（含 FP 网表）
-3. 访存后端：`Lsu`、`TlbMmu`
-4. 前端：各 FIFO、`predecode`、BPU（TAGE/BTB/SC/loop）、ICache、前端顶层（需先把 `front_comb_calc` 还原成数据流）
-5. 访存子系统：`RealDcache`、`MSHR`、`WriteBuffer`、`PtwWalker`
-6. uncore：`AXI_LLC`、`AXI_Interconnect`（范围待定）
-
-## 分支与提交
-
-- 主线只接受绿模块。开发在 `rtl/<module>` 分支上进行。
-- 一个提交只做一件事；harness/规范/文档改动与 RTL 改动分开提交。
+## 并行协作约定
+- 每个 agent 一个独立 git worktree + 分支（`/Users/.../rtl-wt/<名>`，分支 `rtl/<名>`）；只改自己的目录、spec、笔记；共享脚本/补丁/参考模型的改动请求写进汇报，由协调者落地。
+- 合并顺序：先合不改共享文件的；录制补丁按依赖顺序合入共享 `refsim_tap`（合入时不能有别的回归在用它）。
+- 机器资源：14 核，各 agent `JOBS≤4`；不跑 400 万拍全量。

@@ -1,3 +1,14 @@
+---
+module: lsu
+area: backend
+rtl: rtl/backend/lsu
+spec: lsu*
+status: partial
+lockstep: 68/68（经 back_top）
+mutants: 15/25（10 存活）
+note: 3 个生成文件待手写重构
+---
+
 # lsu 设计笔记
 
 ## 1. 对应的 C++

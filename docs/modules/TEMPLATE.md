@@ -1,3 +1,14 @@
+---
+module: <module>
+area: backend | frontend | memsys | uncore
+rtl: <rtl 目录，多个用空格；*.sv 表示该目录下的文件>
+spec: <spec/ 下的名字，多个用空格，可带通配符>
+status: green | partial
+lockstep: <整程序锁步结果，如 68/68>
+mutants: <杀死/总数（仅随机 n，等价 n）>
+note: <一句话备注>
+---
+
 # <module> 设计笔记
 
 ## 1. 对应的 C++

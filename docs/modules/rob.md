@@ -1,3 +1,14 @@
+---
+module: rob
+area: backend
+rtl: rtl/backend/rob
+spec: rob*
+status: green
+lockstep: trace 回放 + back_top 整程序 68/68
+mutants: 10/11（1 等价）
+note: 
+---
+
 # rob 设计笔记
 
 ## 1. 对应的 C++

@@ -1,3 +1,14 @@
+---
+module: mem_route
+area: memsys
+rtl: rtl/memsys/mem_route
+spec: mem_route
+status: green
+lockstep: 68/68（16 tick）
+mutants: 31 个中 28 杀死，3 等价
+note: 
+---
+
 # mem_route 设计笔记（MemRouteBlock：LSU / ICache / PTW → DCache 第 3 号读口的路由）
 
 分析与边界见 `docs/analysis/memsys-boundary.md` §2.2、§4；录制点见 `docs/analysis/memcpu-record-hook.md`。本文是 RTL 设计笔记（先于 RTL 完成接口与规则，最终以实现为准）。

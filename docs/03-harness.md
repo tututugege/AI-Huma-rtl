@@ -1,5 +1,23 @@
 # 03 逐拍对照 Harness
 
+> 本节先说**现行的主路径：整程序实时锁步**；第 1 节起的 trace 回放是调试与随机激励用的辅助路径，两者共用同一份 `spec/<mod>.io`。
+
+## 0. 整程序实时锁步（主验证路径）
+
+```
+ 参考模拟器（带只读钩子）──每拍 comb 结束后──▶ 插件 lock_<mod>.dylib
+   按 spec 的 @ 表达式读边界值                       ├─ 用参考的输入驱动 Verilated RTL
+                                                      └─ 比较 RTL 全部输出 vs 参考输出（when 限定的不比）
+```
+- RTL 用 Verilator 编成动态库，被 `build/simulator` 通过 `TTG_REC` 加载；一遍参考运行可同时挂多个模块的插件（`TTG_REC=a.dylib:b.dylib`，`TTG_MULTI=1`），失败互不影响。
+- 命令：`scripts/lockstep.sh <mod> <prog>`（单个）、`lockstep_multi.sh <mod>...`（多模块×全部程序，`BIG_CYCLES` 默认 30 万）、`lockstep_all.sh`/`lockstep_batch.sh`（旧入口）。结果表在 `build/lockstep_multi.csv`，不一致样例在 `build/lockstep_multi.mismatch`。
+- **16 倍频访存域**：访存模块每个 CPU 周期 16 个 tick，用 `scripts/lockstep_ticks.sh`/`lockstep_ticks_all.sh`（`TTG_REC_END` 入口，对 tick 0..15 各调一次插件）；录制点在 `docs/analysis/memsys-record-hook.patch` 等。
+- 可选：`COVERAGE=1`（toggle 覆盖，`COV_FLAGS` 调整）；`VFLAGS=--assert` 打开时钟采样断言。
+- 录制点：`refsim_tap/` 是带多插件钩子与前端/访存 tap 的共享参考模型副本（只读）；`refhook/` 保存钩子源码与补丁；`scripts/refsim_setup.sh` 生成副本。**不要修改共享副本；新钩子写成补丁，由协调者合入。**
+- 变异：`scripts/mut_*.py`（一次构建、`TTG_MUT=k` 选变异体）。
+
+下面是 trace 回放路径（开环）。
+
 ## 1. 架构
 
 ```

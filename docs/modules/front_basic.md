@@ -1,3 +1,14 @@
+---
+module: front_basic
+area: frontend
+rtl: rtl/frontend/*.sv
+spec: predecode* sequential_next_pc fetch_addr_fifo inst_fifo ptab front2back_fifo front_ctrl
+status: green
+lockstep: 68/68
+mutants: 34/34（10 仅生成 trace）
+note: 预译码、4 个 FIFO、front_ctrl
+---
+
 # front_basic 设计笔记（前端基础模块）
 
 覆盖 8 个可回放模块（RTL 放 `rtl/frontend/`，spec 放 `spec/<模块>.io`，同名顶层）：

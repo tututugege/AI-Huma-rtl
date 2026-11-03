@@ -1,3 +1,14 @@
+---
+module: ptw_walk
+area: memsys
+rtl: rtl/memsys/ptw_walk
+spec: ptw_walk
+status: green
+lockstep: 68/68
+mutants: 29 个中 28 杀死，1 等价
+note: 只翻默认配置下活着的部分
+---
+
 # ptw_walk 设计笔记（MemPtwBlock 活着的部分：两个 walk 客户端共享一个页表遍历器）
 
 分析与边界见 `docs/analysis/memsys-boundary.md` §2.3；录制点 `docs/analysis/memcpu-record-hook.md`。

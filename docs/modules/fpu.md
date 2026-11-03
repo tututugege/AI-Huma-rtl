@@ -1,3 +1,14 @@
+---
+module: fpu
+area: backend
+rtl: rtl/backend/fpu
+spec: fpu*
+status: green
+lockstep: trace 回放 + back_top 整程序 68/68 + softfloat 差分
+mutants: 33/35（2 等价）
+note: 手写，非网表
+---
+
 # fpu 设计笔记（Exu 的浮点单元，分析文档 E5a–E5d）
 
 ## 1. 对应的 C++

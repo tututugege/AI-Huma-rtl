@@ -1,3 +1,14 @@
+---
+module: front_top
+area: frontend
+rtl: rtl/frontend/front_top rtl/core/core_top
+spec: front_top core_top
+status: green
+lockstep: 68/68（front_top、core_top）
+mutants: 30 个中 24 杀死，3 等价，3 覆盖缺口
+note: 前端顶层 + 前后端联调 core_top
+---
+
 # front_top 设计笔记（前端顶层）与 core_top（前后端联调）
 
 覆盖两个装配体：`front_top`（前端整体，spec/front_top.io）和 `core_top`（front_top + back_top + SimCpu 胶合，spec/core_top.io）。

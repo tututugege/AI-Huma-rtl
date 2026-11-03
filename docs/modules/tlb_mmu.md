@@ -1,3 +1,14 @@
+---
+module: tlb_mmu
+area: backend
+rtl: rtl/backend/tlb_mmu
+spec: tlb_mmu*
+status: green
+lockstep: 68/68 (DTLB+ITLB)
+mutants: 34/34（20 仅随机）
+note: ITLB 经 icache 验证
+---
+
 # tlb_mmu 设计笔记（后端 DTLB 实例）
 
 ## 1. 对应的 C++

@@ -1,3 +1,14 @@
+---
+module: prf
+area: backend
+rtl: rtl/backend/prf
+spec: prf*
+status: green
+lockstep: 68/68 (整程序)
+mutants: 10/10（6 仅随机）
+note: Prf 寄存器堆+旁路+唤醒
+---
+
 # prf 设计笔记
 
 ## 1. 对应的 C++

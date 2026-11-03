@@ -1,3 +1,14 @@
+---
+module: dispatch
+area: backend
+rtl: rtl/backend/dispatch
+spec: dispatch*
+status: green
+lockstep: trace 回放 + back_top 整程序 68/68
+mutants: 16/17（1 等价）
+note: 
+---
+
 # dispatch 设计笔记
 
 ## 1. 对应的 C++

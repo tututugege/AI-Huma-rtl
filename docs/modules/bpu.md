@@ -1,3 +1,14 @@
+---
+module: bpu
+area: frontend
+rtl: rtl/frontend/bpu
+spec: bpu*
+status: green
+lockstep: 68/68，独立复核 408/408
+mutants: 38/38（13 仅随机）
+note: TAGE/BTB/历史/RAS/更新队列
+---
+
 # bpu 设计笔记（分支预测单元）
 
 分析与边界见 `docs/analysis/bpu-boundary.md`（子部件、状态规模、死代码清单、录制方案）。本文是 RTL 设计笔记：硬件结构、一拍数据流、与 C++ 的差异、放宽/删除/不复刻清单、验证。

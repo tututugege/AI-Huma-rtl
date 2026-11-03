@@ -1,3 +1,14 @@
+---
+module: dcache
+area: memsys
+rtl: rtl/memsys/dcache
+spec: dcache
+status: green
+lockstep: 68/68（16 tick 锁步）
+mutants: 37 个中 33 杀死，4 等价
+note: DCache+MSHR+WB+响应锁存
+---
+
 # dcache 设计笔记（DCache 域：RealDcache + MSHR + WriteBuffer + 响应锁存/转发）
 
 边界与分析见 `docs/analysis/memsys-boundary.md` §2.1、录制点见 `docs/analysis/memsys-record-hook.md`。本文是 RTL 设计笔记（先于 RTL）。

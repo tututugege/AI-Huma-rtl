@@ -1,3 +1,14 @@
+---
+module: idu
+area: backend
+rtl: rtl/backend/idu
+spec: idu*
+status: green
+lockstep: 68/68
+mutants: 9/9
+note: 
+---
+
 # idu 设计笔记
 
 ## 1. 对应的 C++

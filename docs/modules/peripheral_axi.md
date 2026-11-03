@@ -1,3 +1,14 @@
+---
+module: peripheral_axi
+area: memsys
+rtl: rtl/memsys/peripheral_axi
+spec: peripheral_axi
+status: green
+lockstep: 68/68
+mutants: 26 个中 24 杀死，2 等价
+note: 真实程序几乎不走该路径
+---
+
 # peripheral_axi 设计笔记（PeripheralAxi：LSU MMIO / uncached 访问单元）
 
 分析与边界见 `docs/analysis/memsys-boundary.md` §2.4；录制点 `docs/analysis/memcpu-record-hook.md`。`PeripheralModel`（UART/CLINT/INTC/SD/boot/DMA/随机中断，805 行）、`PhysMemory` 留在 testbench，不翻。

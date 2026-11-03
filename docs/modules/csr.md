@@ -1,3 +1,14 @@
+---
+module: csr
+area: backend
+rtl: rtl/backend/csr
+spec: csr*
+status: green
+lockstep: 68/68
+mutants: 15/15（6 仅随机）
+note: 
+---
+
 # csr 设计笔记
 
 ## 1. 对应的 C++

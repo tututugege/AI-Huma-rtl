@@ -1,10 +1,12 @@
-.PHONY: selftest lint cfg clean prims
+.PHONY: selftest lint cfg clean prims tracker
 selftest:   ## validate the harness itself (clean RTL passes, seeded bugs are caught)
 	bash tests/selftest/run.sh
 lint:       ## style rules + verilator -Wall on rtl/
 	bash scripts/lint.sh
 cfg:        ## regenerate rtl/common/ttg_cfg_pkg.sv from the reference simulator config.h
 	bash scripts/gen_cfg.sh
+tracker:    ## regenerate docs/05-module-tracker.md from docs/modules/*.md front-matter
+	python3 scripts/gen_tracker.py
 clean:
 	rm -rf build traces
 
