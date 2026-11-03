@@ -78,7 +78,7 @@ module bpu_tage_bank import bpu_pkg::*; (
   );
 
   // ---- base counters ----
-  begin : g_base
+  if (1) begin : g_base
     logic       wr_en   [1];
     logic [T_BASE_W-1:0] wr_addr [1];
     logic [1:0] wr_data [1];

@@ -88,7 +88,7 @@ module bpu_btb_bank import bpu_pkg::*; import bpu_btb_pkg::*; (
   end
 
   // ---- BHT and TC mode (indexed by the BHT index) ----
-  begin : g_bht
+  if (1) begin : g_bht
     logic [BHT_W-1:0]  rd_addr [2];
     logic [BHT_DW-1:0] rd_data [2];
     logic              wr_en   [1];
@@ -109,7 +109,7 @@ module bpu_btb_bank import bpu_pkg::*; import bpu_btb_pkg::*; (
     assign upd_bht_data  = rd_data[1];
   end
 
-  begin : g_mode
+  if (1) begin : g_mode
     logic [BHT_W-1:0] rd_addr [2];
     logic [2:0]       rd_data [2];
     logic             wr_en   [1];
