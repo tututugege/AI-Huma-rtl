@@ -24,8 +24,8 @@ module bpu_mem #(
 
   T mem_q [DEPTH];
 
-  always_comb begin
-    for (int r = 0; r < N_RD; r++) rd_data[r] = mem_q[rd_addr[r]];
+  for (genvar r = 0; r < N_RD; r++) begin : g_rd
+    assign rd_data[r] = mem_q[rd_addr[r]];
   end
 
   always_ff @(posedge clk) begin
