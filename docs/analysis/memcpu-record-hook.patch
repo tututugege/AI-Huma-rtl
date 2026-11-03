@@ -1,0 +1,284 @@
+diff -urN a/MemSubSystem/MemSubsystem.cpp b/MemSubSystem/MemSubsystem.cpp
+--- a/MemSubSystem/MemSubsystem.cpp
++++ b/MemSubSystem/MemSubsystem.cpp
+@@ -1,6 +1,8 @@
+ #include "MemSubsystem.h"
+ #include "memsys_tap.h"
++#include "memcpu_tap.h"
+ #include "PhysMemory.h"
++#include "mmio_address_map.h"
+ #include "config.h"
+ #include "icache/GenericTable.h"
+ #include <assert.h>
+@@ -256,6 +258,12 @@
+ #endif
+ 
+ MemTap g_ttg_ms_tap;
++McTap g_ttg_mc;
++static const bool g_ttg_mc_on_init = [] {
++  const char *e = std::getenv("TTG_REC");
++  g_ttg_mc.on = e && *e;
++  return true;
++}();
+ 
+ class MemSubsystemPtwMemPortAdapter : public PtwMemPort {
+ public:
+@@ -1066,9 +1074,18 @@
+   if (g_ttg_ms_tap.on) g_ttg_ms_tap.t[0].resp_pub = dcache_resp_route_;
+ 
+   mem_route_block.comb_response();
++  if (g_ttg_mc.on) {
++    McCycle &C = g_ttg_mc.cur;
++    C.r_resp_in = dcache_resp_route_;
++    C.r_lsu_resp = *dcache2lsu;
++    C.r_icache_resp = *icache_resp;
++    C.r_events = ptw_events;
++    C.r_wakeup = wakeup;
++  }
+ }
+ 
+ void MemSubsystem::comb_inputs() {
++  if (g_ttg_mc.on) g_ttg_mc.cur.p_view = ptw_block.comb_outputs();
+   MemPtwBlock::PortIn ptw_port_in{};
+   {
+     const auto &dtlb_mem_in = dtlb_ptw_port_inst->comb_input();
+@@ -1105,6 +1122,11 @@
+   }
+   ptw_block.comb_begin(ptw_port_in);
+   const auto &ptw_out = ptw_block.comb_outputs();
++  if (g_ttg_mc.on) {
++    g_ttg_mc.cur.p_in = ptw_port_in;
++    g_ttg_mc.cur.p_issue = ptw_out.issue_walk_read;
++    g_ttg_mc.cur.p_addr = ptw_out.walk_read_addr;
++  }
+ 
+   ptw_walk_req.valid = ptw_out.issue_walk_read;
+   ptw_walk_req.addr = ptw_out.walk_read_addr;
+@@ -1120,6 +1142,16 @@
+       ptw_out.mem_req_addr[static_cast<size_t>(PtwClient::ITLB)];
+ 
+   mem_route_block.comb_request();
++  if (g_ttg_mc.on) {
++    McCycle &C = g_ttg_mc.cur;
++    C.r_lsu_req = *mem_route_block.in.lsu_req;
++    C.r_icache_req = *mem_route_block.in.icache_req;
++    C.r_walk_req = ptw_walk_req;
++    C.r_dtlb_req = ptw_dtlb_req;
++    C.r_itlb_req = ptw_itlb_req;
++    C.r_dcache_req = dcache_req_mux_;
++    C.r_grant = ptw_grant;
++  }
+   dcache_domain_comb_inputs();
+ 
+   MemPtwBlock::FeedbackIn ptw_feedback{};
+@@ -1181,14 +1213,29 @@
+     }
+   }
+ 
++  if (g_ttg_mc.on) g_ttg_mc.cur.p_fb = ptw_feedback;
+   ptw_block.comb_finish(ptw_feedback);
+ 
+   sync_ptw_port_outputs();
+ 
+   peripheral_axi_.in.read = peripheral_axi_read_in;
+   peripheral_axi_.in.write = peripheral_axi_write_in;
++  if (g_ttg_mc.on) {
++    McCycle &C = g_ttg_mc.cur;
++    C.q_req = *peripheral_req;
++    C.q_cur = peripheral_axi_.cur;
++    C.q_in = peripheral_axi_.in;
++    C.q_is_uncached = simulator_is_uncached_memory_addr(peripheral_req->mmio_addr);
++    C.q_is_modeled = PeripheralModel::is_modeled_mmio(peripheral_req->mmio_addr);
++  }
+   peripheral_axi_.comb_outputs();
+   peripheral_axi_.comb_inputs();
++  if (g_ttg_mc.on) {
++    McCycle &C = g_ttg_mc.cur;
++    C.q_out = peripheral_axi_.out;
++    C.q_resp = *peripheral_resp;
++    C.q_env_rdata = peripheral_axi_.nxt.rdata;
++  }
+ 
+   peripheral_axi_read_out = peripheral_axi_.out.read;
+   peripheral_axi_write_out = peripheral_axi_.out.write;
+@@ -1249,6 +1296,10 @@
+       dtlb_walk_port_inst->seq_input().flush;
+   ptw_seq_in.walk_client_flush[static_cast<size_t>(PtwClient::ITLB)] =
+       itlb_walk_port_inst->seq_input().flush;
++  if (g_ttg_mc.on) {
++    g_ttg_mc.cur.p_flush[0] = ptw_seq_in.walk_client_flush[0];
++    g_ttg_mc.cur.p_flush[1] = ptw_seq_in.walk_client_flush[1];
++  }
+   ptw_block.seq(ptw_seq_in);
+   dcache_domain_seq(true);
+   peripheral_model_.tick();
+diff -urN a/MemSubSystem/include/MemSubsystem.h b/MemSubSystem/include/MemSubsystem.h
+--- a/MemSubSystem/include/MemSubsystem.h
++++ b/MemSubSystem/include/MemSubsystem.h
+@@ -15,6 +15,7 @@
+ #include <memory>
+ #include <string>
+ #include <FrontTop.h>
++#include "memcpu_tap.h"  // TTG_MC: record tap of the CPU-phase memory blocks (rtl trace harness)
+ 
+ 
+ class SimContext;
+diff -urN a/MemSubSystem/include/memcpu_tap.h b/MemSubSystem/include/memcpu_tap.h
+--- a/MemSubSystem/include/memcpu_tap.h
++++ b/MemSubSystem/include/memcpu_tap.h
+@@ -0,0 +1,77 @@
++// Read-only recording tap of the CPU-phase memory blocks (added for the RTL trace harness, refsim only):
++// MemRouteBlock, MemPtwBlock (walk clients), PeripheralAxi and the CPU-boundary view of the non-DCache AXI master ports.
++//
++// Everything is COPIED at fixed points of one CPU cycle into `cur`; at the end of the cycle `cur` is published into `pub`
++// (and `cur` restarted).  A plugin called by the ordinary mid-cycle hook (ttg_rec::cycle, TTG_REC) in the NEXT cycle therefore
++// reads the complete, final values of the previous cycle from `pub`  (record k is replayed during cycle k+1; the first call sees
++// the idle initial record).  Active only when $TTG_REC is set (g_ttg_mc.on); otherwise every capture point is one bool test.
++//   spec expressions:  TTG_MC.pub.<field>
++#pragma once
++#include "FrontTop.h"
++#include "IO.h"
++#include "MemPtwBlock.h"
++#include "MemRouteBlock.h"
++#include "PeripheralAxi.h"
++#include <cstdint>
++
++// one non-DCache AXI master channel sampled in one internal tick (channel 0: read ICACHE, 1: read EXTRA, 2: write EXTRA)
++struct McAxiCh {
++  bool ready = false;        // port.req.ready (comb value of that tick)
++  bool accepted = false;     // interconnect read_req_accepted / write_req_accepted state after that tick's seq
++  uint8_t accepted_id = 0;   // read: read_req_accepted_id state;  write: port.req.id
++  bool resp_valid = false;   // port.resp.valid (comb value of that tick)
++  uint8_t resp_id = 0;
++  bool resp_ready = false;   // port.resp.ready as driven by the master (meaningful on tick 0)
++};
++struct McAxiTick {
++  McAxiCh ch[3];
++};
++
++struct McCycle {
++  // ---- MemRouteBlock: comb_response side (inputs = published DCache response, outputs = what LSU/ICache/PTW get) ----
++  DcacheLsuIO r_resp_in{};
++  DcacheLsuIO r_lsu_resp{};
++  ICacheMemPortResp r_icache_resp{};
++  PtwEvent r_events{};
++  ReplayWakeup r_wakeup{};
++  // ---- MemRouteBlock: comb_request side ----
++  DCacheReqPorts r_lsu_req{};
++  ICacheMemPortReq r_icache_req{};
++  PtwReq r_walk_req{}, r_dtlb_req{}, r_itlb_req{};
++  LsuDcacheIO r_dcache_req{};
++  PtwGrant r_grant{};
++  // ---- MemPtwBlock ----
++  MemPtwBlock::CombOut p_view{};        // state-only outputs the TLBs read at the start of the cycle (before comb_begin)
++  MemPtwBlock::PortIn p_in{};           // client inputs as latched by comb_begin
++  MemPtwBlock::FeedbackIn p_fb{};       // grant / event / wakeup as applied by comb_finish
++  bool p_issue = false;                 // issue_walk_read / walk_read_addr after comb_begin (what the route block sees)
++  uint32_t p_addr = 0;
++  bool p_flush[2] = {false, false};     // SeqIn.walk_client_flush
++  // ---- PeripheralAxi ----
++  PeripheralReqIO q_req{};
++  PeripheralAxiState q_cur{};           // state before comb_outputs/comb_inputs
++  PeripheralAxiIn q_in{};
++  PeripheralAxiOut q_out{};
++  PeripheralRespIO q_resp{};            // final value of *peripheral_resp after comb_inputs
++  bool q_is_uncached = false;           // address-map decode of q_req.mmio_addr (environment)
++  bool q_is_modeled = false;
++  uint32_t q_env_rdata = 0;             // read data the environment returned for a locally served read (nxt.rdata)
++  // ---- AXI CPU-boundary view (non-DCache masters), per internal tick, and the restored view after tick 15 ----
++  McAxiTick ax[16];
++  McAxiTick view{};                     // after restore_axi_cpu_boundary_state (only ready/accepted/id/resp_* / resp_ready used)
++  McAxiTick exp_view{};                 // = the view restored at the end of the PREVIOUS cycle (what the CPU reads at tick 0)
++  McCycle() {
++    for (int i = 0; i < 2; ++i) p_view.walk_clients[i].req_ready = true;
++    for (int i = 0; i < 2; ++i) p_view.mem_clients[i].req_ready = true;
++    q_resp.ready = true;
++  }
++};
++
++struct McTap {
++  bool on = false;
++  int t = 0;                 // internal tick being replayed by the 16-tick lock-step shell (adapter spec)
++  McCycle cur;
++  McCycle pub;
++};
++extern McTap g_ttg_mc;
++#define TTG_MC g_ttg_mc
+diff -urN a/rv_simu_mmu_v2.cpp b/rv_simu_mmu_v2.cpp
+--- a/rv_simu_mmu_v2.cpp
++++ b/rv_simu_mmu_v2.cpp
+@@ -1,5 +1,6 @@
+ #include "ttg_rec_hook.h"
+ #include "memsys_tap.h"
++#include "memcpu_tap.h"
+ 
+ #include <dlfcn.h>
+ namespace ttg_ms_end {  // end-of-cycle plugin hook (memory-subsystem lockstep): plugin symbol ttg_rec_cycle_end
+@@ -726,6 +727,34 @@
+   cpu.axi_mmio.seq();
+ }
+ 
++// memcpu tap: sample the three non-DCache channels (read ICACHE, read EXTRA, write EXTRA) exactly where
++// capture/accumulate_axi_cpu_boundary_state read them; `restored` samples the ports after restore (CPU view).
++void ttg_mc_sample_axi(SimCpu &cpu, McAxiTick &T, bool restored) {
++  if (!g_ttg_mc.on) return;
++  const int rd[2] = {axi_interconnect::MASTER_ICACHE, axi_interconnect::MASTER_EXTRA_R};
++  for (int k = 0; k < 2; ++k) {
++    const auto &p = cpu.axi_interconnect.read_ports[rd[k]];
++    McAxiCh &c = T.ch[k];
++    c.ready = p.req.ready;
++    c.accepted = restored ? p.req.accepted : cpu.axi_interconnect.read_req_accepted[rd[k]];
++    c.accepted_id = restored ? static_cast<uint8_t>(p.req.accepted_id)
++                             : cpu.axi_interconnect.read_req_accepted_id[rd[k]];
++    c.resp_valid = p.resp.valid;
++    c.resp_id = static_cast<uint8_t>(p.resp.id);
++    c.resp_ready = p.resp.ready;
++  }
++  const auto &w = cpu.axi_interconnect.write_ports[axi_interconnect::MASTER_EXTRA_W];
++  McAxiCh &c = T.ch[2];
++  c.ready = w.req.ready;
++  c.accepted = restored ? w.req.accepted
++                        : cpu.axi_interconnect.write_req_accepted[axi_interconnect::MASTER_EXTRA_W];
++  // write accepted_id is not part of the CPU view (the C++ never restores it): recorded as 0 there; raw ticks keep the port id
++  c.accepted_id = restored ? 0 : static_cast<uint8_t>(w.req.id);
++  c.resp_valid = w.resp.valid;
++  c.resp_id = static_cast<uint8_t>(w.resp.id);
++  c.resp_ready = w.resp.ready;
++}
++
+ void run_extra_axi_subsystem_ticks(SimCpu &cpu) {
+   if (CONFIG_AXI_SUBSYSTEM_FREQ_DIV <= 1u) {
+     return;
+@@ -733,6 +762,7 @@
+ 
+   AxiCpuBoundaryState cpu_boundary_state{};
+   capture_axi_cpu_boundary_state(cpu, cpu_boundary_state);
++  ttg_mc_sample_axi(cpu, g_ttg_mc.cur.ax[0], false);
+   for (uint32_t tick = 1; tick < CONFIG_AXI_SUBSYSTEM_FREQ_DIV; ++tick) {
+     g_ttg_ms_tap.cur = static_cast<int>(tick);
+     mask_axi_cpu_boundary_for_internal_tick(cpu);
+@@ -749,8 +779,10 @@
+     }
+     axi_subsystem_seq(cpu);
+     accumulate_axi_cpu_boundary_state(cpu, cpu_boundary_state);
++    ttg_mc_sample_axi(cpu, g_ttg_mc.cur.ax[tick], false);
+   }
+   restore_axi_cpu_boundary_state(cpu, cpu_boundary_state);
++  ttg_mc_sample_axi(cpu, g_ttg_mc.cur.view, true);
+ }
+ } // namespace
+ 
+@@ -1178,6 +1210,13 @@
+     run_extra_axi_subsystem_ticks(*this);
+   }
+   ttg_ms_end::call(this, ctx.perf.cycle);
++  if (g_ttg_mc.on) {  // publish this cycle's memcpu record (read by the plugin during the next cycle)
++    static McAxiTick last_view{};
++    g_ttg_mc.pub = g_ttg_mc.cur;
++    g_ttg_mc.pub.exp_view = last_view;
++    last_view = g_ttg_mc.cur.view;
++    g_ttg_mc.cur = McCycle{};
++  }
+   ctx.perf.perf_maybe_capture_simtime_snapshot();
+ 
+   if (ctx.exit_reason != ExitReason::NONE) {
