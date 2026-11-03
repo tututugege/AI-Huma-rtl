@@ -35,3 +35,4 @@
 - spec：`spec/peripheral_axi.io`（33 字段）。
 - 整程序锁步：68/68 PASS（真实流量：uncached 读 49036 / 写 48276、modeled 读 110 / 写 2222；`func3` 0/1/2/4/5 全有；请求到来时 `resp_valid` 为真而被忽略 49822 次）。
 - 随机生成器（`-DMOD_PERI`，驱动**真实** `PeripheralAxi.cpp` + 真实 `PeripheralModel`，`pmem_read/write` 打桩）：6 个 profile × 6 万拍全 PASS；覆盖（profile 0）：AXI 读完成 3296、AXI 写完成 3420、uncached 读/写各 ~1100、modeled 读/写各 ~1100、func3 0–7 全部（3/6/7 约 140 次）、忙时请求被忽略 19057 次；握手"杂波"（该状态下应被忽略的 accepted/resp_valid 脉冲）每个通道 2–15%。
+- 变异（`tests/memcpu/peripheral_axi_mutants.py`）：**26 个，24 个被杀**。真实程序锁步也杀的 5 个：空闲判定忽略 `resp_valid`、接受非 MMIO 请求、modeled 走 AXI、uncached 写扩到所有区域、本地读使能在写请求时也为真；**只靠随机才杀的 19 个**：全部 `fmt_*`（size/strobe/wdata 打包、LB/LH/LBU/LHU/默认的符号扩展）、AXI 通道互换、响应 ready 提前、写数据不屏蔽、写响应 rdata、func3/write 不锁存、答复持续两拍等——**peripheral 的 AXI 路径与 size/符号扩展在 68 个真实程序里完全没有被覆盖**，这些规则只有随机在证明。存活 2 个：`ctl_cpu_en_ignored`（锁步里 `cpu_en` 恒 1）与 `ctl_local_write_rdata`（环境契约：写请求时 `env_rdata` 恒 0，保护与否等价，见 §4）。

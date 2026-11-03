@@ -5,7 +5,7 @@
 // of a 16-tick cycle; the interconnect advances every tick.  Over the 16 ticks of a cycle this block folds the
 // interconnect's per-tick port values into the CPU view that is held for the whole NEXT cycle:
 //   ready          : OR over all ticks
-//   accepted / id  : sticky over all ticks, the id of the LAST accepted tick (tick 0 always contributes its id)
+//   accepted / id  : sticky over all ticks, the id of the LAST accepted tick (observable only under accepted)
 //   resp_valid / id: the response of the last tick, hidden when it belongs to the request accepted in this very cycle
 //   resp_ready     : the master's tick-0 ready, withheld when the response is new in the extra ticks or hidden
 // The view is registered at the end of tick 15 (phase_last).
@@ -39,7 +39,7 @@ module axi_cpu_port_chan import memcpu_pkg::*; #(
   always_comb begin
     ready_acc_n   = phase0 ? raw_ready    : (ready_acc_q || raw_ready);
     acc_n         = phase0 ? raw_accepted : (acc_q || raw_accepted);
-    acc_id_n      = (phase0 || raw_accepted) ? raw_accepted_id : acc_id_q;
+    acc_id_n      = raw_accepted ? raw_accepted_id : acc_id_q;   // id of the LAST accepted tick
     resp0_valid_n = phase0 ? raw_resp_valid : resp0_valid_q;
     resp0_id_n    = phase0 ? raw_resp_id    : resp0_id_q;
     resp0_ready_n = phase0 ? raw_resp_ready : resp0_ready_q;

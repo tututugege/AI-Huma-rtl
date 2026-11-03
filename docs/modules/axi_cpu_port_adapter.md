@@ -10,7 +10,7 @@
 快时钟域（每 tick 一个沿），3 个通道（0 = ICache 读、1 = 外设读、2 = 外设写；NUM_*_MASTERS 里的 DCache 口和未用的 UNCORE_LSU_R 不经适配器）。`axi_cpu_port_chan` 一个通道，`axi_cpu_port_adapter` 例化 3 份。
 | 状态 | 含义 |
 | --- | --- |
-| `ready_acc, acc, acc_id` | 本周期各 tick 的 `ready`(OR) / `accepted`(粘滞) / 最近一次 accepted 的 id（tick 0 无条件取 id）|
+| `ready_acc, acc, acc_id` | 本周期各 tick 的 `ready`(OR) / `accepted`(粘滞) / 最近一次 accepted 的 id（C++ 在 tick 0 无条件取 id，但 id 只在 accepted 时可观察——互连在非 accepted 时 id 恒 0——所以 RTL 只在 accepted 的 tick 装载 id，**简化，等价**）|
 | `resp0_valid, resp0_id, resp0_ready` | tick 0 的响应有效/id、主设备 `resp.ready` |
 | `view_*`（6 个寄存器）| 周期末（`phase_last`）装载的 CPU 视图，整个下一周期保持 |
 `phase0`/`phase_last`（tick 0 / tick 15）由 SoC 顶层相位计数器给出。装载公式（tick 15 的组合值）：`ready = ready_acc|raw_ready`；`accepted = acc|raw_accepted`，`id` 同；`hide = accepted & raw_resp_valid & (raw_resp_id == id)`（同 id 的响应在 accepted 首次出现的那个周期被抑制）；`resp_valid = raw_resp_valid & !hide`；`resp_id = raw_resp_id`；`resp_ready = resp0_ready & !(resp_is_new | hide)`，`resp_is_new = raw_resp_valid & !(resp0_valid & resp0_id==raw_resp_id)`（响应是在额外 tick 里才出现的）。
@@ -26,3 +26,5 @@
 - spec：`spec/axi_cpu_port_adapter.io`（14 字段，数组 [3]），**每 tick 一条记录**（16/周期）。16-tick 外壳 `tb/memcpu/axi_shell.cpp`（`-Dttg_rec_cycle=ttg_rec_cycle_gen` 改名 + 导出真入口）使其用已有的 `lockstep.sh/lockstep_multi.sh` 在整程序里实时锁步。
 - 整程序：68/68 PASS（真实流量：ICache accepted 总在 tick 0 的 seq 里；同 id 抑制 1238 次，`ready` 混合 5169 次；外设两个通道从不 ready/accepted）。
 - 随机：`gen_rand`（`-DMOD_AXI`）直接调用**从 `rv_simu_mmu_v2.cpp` 逐字抽出**的 `capture/accumulate/restore_axi_cpu_boundary_state` 与 `mask_axi_cpu_boundary_for_internal_tick`（`build_gen.sh` 用 python 切片），在假的互连口结构上驱动每 tick 的 ready/accepted/id/resp：6 个 profile × 8000 周期（12.8 万 tick 记录）全 PASS。覆盖（profile 0，8000 周期）：通道 0/1/2 各 ~1550 次 accepted（tick 0 仅 ~90，其余晚到）、`resp` 被隐藏 213/200/107 次、`resp.ready` 被扣留 ~680 次、额外 tick 才出现的响应 ~1100 次、accepted id 非零。
+- 变异（`tests/memcpu/axi_cpu_port_adapter_mutants.py`）：**20 个，20 个全被杀**（13 个真实程序锁步也杀：ready 不 OR / 不每周期复位、accepted 不粘滞 / 不复位、accepted id 不更新、同 id 抑制丢失或缺 accept 条件或比 tick-0 id、`resp.ready` 取最后 tick、视图每 tick 更新 / 在 tick 0 更新、通道串线）；7 个只有随机杀：最后一次 accepted 的 id（"后者赢"，需要同周期两个 accepted tick）、同 id 抑制不比较 id、`resp.ready` 的"额外 tick 才出现的响应"扣留和"被隐藏的响应"扣留两条、tick-0 响应有效取最后 tick、写通道 accepted id 误导出。
+  **随机首先暴露的是我自己的变异体的等价性**：`acc_id` 在 tick 0 无条件装载（C++）不可观察——存活后简化了 RTL 并补了"同周期两个 accepted tick"和"第二个响应换 id"两类随机激励（真实程序里这两种都不出现：`resp_id_changed_t0_t15 = 0`）。

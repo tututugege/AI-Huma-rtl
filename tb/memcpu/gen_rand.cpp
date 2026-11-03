@@ -342,34 +342,39 @@ int main(int argc, char **argv) {
   for (uint64_t cyc = 1; cyc <= cycles; ++cyc) {
     McCycle &P = g_ttg_mc.pub;
     P = McCycle{};
-    struct Ch { int acc_tick; int acc_id; int resp_from; int resp_id; bool resp0_ready; } ch[3];
+    struct Ch { int acc_tick; int acc_id; int acc_tick2; int acc_id2; int resp_from; int resp_id; int resp_from2; int resp_id2; bool resp0_ready; } ch[3];
     for (int k = 0; k < 3; ++k) {
       ch[k].acc_tick = chance(p_acc[prof]) ? int(rnd() % 16) : -1;
       ch[k].acc_id = int(rnd() % 4);
       ch[k].resp_from = chance(p_resp[prof]) ? (chance(400) ? 0 : int(rnd() % 16)) : 99;
       ch[k].resp_id = chance(400) ? ch[k].acc_id : int(rnd() % 4);
       ch[k].resp0_ready = chance(600);
+      ch[k].acc_tick2 = ch[k].acc_tick >= 0 && ch[k].acc_tick < 15 && chance(100) ? ch[k].acc_tick + 1 + int(rnd() % (15 - ch[k].acc_tick)) : -1;   // a second accepted tick (last id wins)
+      ch[k].acc_id2 = int(rnd() % 4);
+      ch[k].resp_from2 = ch[k].resp_from < 15 && chance(150) ? ch[k].resp_from + 1 + int(rnd() % (15 - ch[k].resp_from)) : 99;      // a different response takes over
+      ch[k].resp_id2 = int(rnd() % 4);
     }
     // sets the comb values of tick t into the ports (what the interconnect model does in comb_outputs / seq)
     auto drive = [&](int t) {
       for (int k = 0; k < 2; ++k) {
         auto &p = cpu.axi_interconnect.read_ports[rd[k]];
         p.req.ready = chance(p_rdy[prof]);
-        const bool acc = ch[k].acc_tick == t;
+        const bool acc = ch[k].acc_tick == t || ch[k].acc_tick2 == t;
+        const int aid = ch[k].acc_tick2 == t ? ch[k].acc_id2 : ch[k].acc_id;
         cpu.axi_interconnect.read_req_accepted[rd[k]] = acc;
-        cpu.axi_interconnect.read_req_accepted_id[rd[k]] = acc ? ch[k].acc_id : (chance(50) ? r32() & 3 : 0);
+        cpu.axi_interconnect.read_req_accepted_id[rd[k]] = acc ? aid : (chance(50) ? r32() & 3 : 0);
         p.req.accepted = acc; p.req.accepted_id = cpu.axi_interconnect.read_req_accepted_id[rd[k]];
         const bool rv = t >= ch[k].resp_from && (t == ch[k].resp_from || chance(p_hold[prof]));
-        p.resp.valid = rv; p.resp.id = rv ? ch[k].resp_id : (r32() & 3);
+        p.resp.valid = rv; p.resp.id = rv ? (t >= ch[k].resp_from2 ? ch[k].resp_id2 : ch[k].resp_id) : (r32() & 3);
       }
       auto &w = cpu.axi_interconnect.write_ports[wrm];
       w.req.ready = chance(p_rdy[prof]);
-      const bool acc = ch[2].acc_tick == t;
+      const bool acc = ch[2].acc_tick == t || ch[2].acc_tick2 == t;
       cpu.axi_interconnect.write_req_accepted[wrm] = acc;
       w.req.accepted = acc;
       if (t == 0) w.req.id = ch[2].acc_id;               // ticks 1..15: masked to 0 by mask_axi_cpu_boundary_for_internal_tick
       const bool rv = t >= ch[2].resp_from && (t == ch[2].resp_from || chance(p_hold[prof]));
-      w.resp.valid = rv; w.resp.id = rv ? ch[2].resp_id : (r32() & 3);
+      w.resp.valid = rv; w.resp.id = rv ? (t >= ch[2].resp_from2 ? ch[2].resp_id2 : ch[2].resp_id) : (r32() & 3);
     };
     AxiCpuBoundaryState st{};
     drive(0);

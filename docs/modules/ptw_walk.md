@@ -57,3 +57,5 @@ TLB 在下一周期读到的 `req_ready/resp_*` 是步骤 1–7 之后的寄存�
 - 随机生成器（`-DMOD_PTW`，驱动**真实** `MemPtwBlock`，TLB 客户端按 `PtwWalkPortAdapter` 语义行为：只在 `req_ready` 时发请求、只在 `resp_valid` 时消费、冲刷随机；路由反馈按真实时序：授权后下一拍事件，id 与相邻请求交错；PTE 含全部 V/R/W/X 组合、超级页对齐/错位）：6 个 profile × 6 万拍全 PASS。覆盖（profile 0）：授权 23751、事件 19015（其中 walk 空闲 2780、id 不匹配 833）、L1 指针 4987、故障发布 5593、L1 叶 2335、L0 叶 2524、等待中 wakeup 6257、空闲 wakeup 464、冲刷活着的 walk 1362（其中等待中 789）。
   **随机首先抓出的问题是生成器的**（陈旧 id 取了很久以前的授权，4 位 id 恰好与现行 id 相差 16，产生别名）——说明 4 位 id 的前提（陈旧事件只来自上一拍请求）是必要的，已改成真实时序并在 §4.1 与 `mem_route.md` §4.3 写明。
 - 变异：见下表（`tests/memcpu/ptw_walk_mutants.py`）。
+  **29 个变异体，28 个被杀**（11 个真实程序锁步也杀：地址切片 `vpn[19:10]/[9:0]`、ppn 切片、`l1_ppn` 移位、root 不锁存、指针后状态、grant 后状态、发布到错误客户端、`resp_consumed` 忽略、冲刷保留 `resp_valid`、fault 时保留 level）；17 个只有随机能杀（PTE 各类故障、超级页对齐检查（只有 `rand1` 第 43112 条记录才杀——对齐位 `ppn[10]` 偶发，较弱）、陈旧事件 id、事件在非等待态、wakeup 忽略、冲刷任意客户端、忙时选择、`rr` 不翻转、冲刷保留 pending/inflight、忙时锁存请求）。1 个存活 = `engine_cpu_en_ignored`（锁步里 `cpu_en` 恒 1，等价）。
+  **只靠随机才杀的变异：17/29**——真实程序对 PTW 的覆盖不足以证明这些规则（唯一来源是随机生成器，它驱动真实 `MemPtwBlock` C++ 类）。
