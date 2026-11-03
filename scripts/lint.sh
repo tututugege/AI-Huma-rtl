@@ -31,10 +31,13 @@ for d in "${DIRS[@]}"; do
   n=$((n + ${#allf[@]}))
   [ ${#files[@]} -gt 0 ] || continue   # packages only: linted through the modules that use them
   base=$(basename "$d")
-  if [ "$base" = back_top ]; then
+  if [ "$base" = back_top ] || [ "$base" = core_top ]; then
     # assembly of several modules from other directories: compile against all RTL, top = back_top
     ALL=(); while IFS= read -r f; do ALL+=("$f"); done < <(bash "$TOOLS/rtl_files.sh" . | grep -v '_pkg\.sv$' | grep -v -e '^rtl/common/')
-    vlint back_top "${ALL[@]}" || exit 1
+    vlint "$base" "${ALL[@]}" || exit 1
+  elif [ "$base" = front_top ]; then
+    FT=(); while IFS= read -r f; do FT+=("$f"); done < <(find rtl/frontend rtl/backend/tlb_mmu -name '*.sv' ! -name '*_pkg.sv' | sort)
+    vlint front_top "${FT[@]}" || exit 1
   elif [ "$base" = icache ]; then
     # icache instantiates the ITLB (tlb_mmu_core) from rtl/backend/tlb_mmu: compile against both directories
     IC=(); while IFS= read -r f; do IC+=("$f"); done < <(find rtl/frontend/icache rtl/backend/tlb_mmu -name '*.sv' ! -name '*_pkg.sv' | sort)
