@@ -141,7 +141,7 @@ def gen_wrapper(mod, fields, in_bytes, out_bytes):
     L.append('  input  wire clk,')
     L.append('  input  wire rst_n,')
     L.append(f'  input  wire [{in_bytes * 8 - 1}:0] in_bits,')
-    L.append(f'  output logic [{out_bytes * 8 - 1}:0] out_bits')
+    L.append(f'  output wire  [{out_bytes * 8 - 1}:0] out_bits')
     L.append(');')
     for f in fields:
         L.append('  ' + sv_decl(f))
@@ -155,15 +155,16 @@ def gen_wrapper(mod, fields, in_bytes, out_bytes):
     conns = ['    .clk(clk)', '    .rst_n(rst_n)'] + [f'    .{f.name}({f.name})' for f in fields]
     L.append(',\n'.join(conns))
     L.append('  );')
-    L.append('  always_comb begin')
-    L.append("    out_bits = '0;")
+    # one continuous assign per element; the unused high bits of each byte-aligned element are tied to 0
     for f in fields:
         if f.dir != 'out':
             continue
+        pad = f.ebytes * 8 - f.width
         for k, idx in enumerate(f.elem_indices()):
             lo = (f.byte_off + k * f.ebytes) * 8
-            L.append(f'    out_bits[{lo} +: {f.width}] = {elem_ref(f, idx)};')
-    L.append('  end')
+            L.append(f'  assign out_bits[{lo} +: {f.width}] = {elem_ref(f, idx)};')
+            if pad:
+                L.append(f"  assign out_bits[{lo + f.width} +: {pad}] = {pad}'d0;")
     L.append('endmodule')
     L.append('`default_nettype wire')
     return '\n'.join(L) + '\n'

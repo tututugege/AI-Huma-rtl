@@ -12,8 +12,7 @@ OUT=$(cd "$OUT" && pwd)
 MOD=$(python3 "$ROOT/harness/tools/iogen.py" "$SPEC" "$OUT" | cut -d: -f1)
 TOP=${MOD}_tbwrap
 # -Wall is fatal on purpose: RTL has to be lint clean to be replayed.
-# --replication-limit: the generated wrapper clears out_bits with '0, which is wider than the default 8192 for big modules
-verilator --cc --exe --build -j 4 --trace -Wall --replication-limit 1000000 \
+verilator --cc --exe --build -j 4 --trace -Wall \
   --x-assign 0 --x-initial 0 --top-module "$TOP" \
   -Mdir "$OUT/obj" -o replay \
   -CFLAGS "-std=c++17 -O1 -DTOP_HDR=\\\"V${TOP}.h\\\" -DTOP_T=V${TOP} -DFIELDS_HDR=\\\"${MOD}_fields.h\\\" -I$ROOT/harness/include -I$OUT" \
