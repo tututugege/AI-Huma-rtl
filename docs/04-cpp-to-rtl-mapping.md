@@ -55,7 +55,11 @@ C++ 里同一变量被后面的语句覆盖（"后写者赢"）。RTL 里在 `al
 
 | 模块 | 信号 | 类型（3.1/3.2/3.3） | 读取点 | 写入点 | RTL 处理 | 状态 |
 | --- | --- | --- | --- | --- | --- | --- |
-| （暂无） | | | | | | |
+| PreIduQueue | `rob_bcast.flush` | 3.1 | `comb_accept_front` 读到上一拍值 | `Rob::comb_commit`（Rob.cpp:179-182），`rob_bcast` 是 BackTop 跨拍成员 | 显式寄存器 `flush_prev_q`（flush 后第一拍 ready 为 0；flush 当拍 ready 可为 1，fire 随后被清）| 已实现并验证 |
+| Rob | `exu2rob` | 核对：非 stale | `Rob::comb_complete` | `Exu::comb_exec` 在其之前写入，之后不再改 | 无需寄存器（BackTop 注释里的 Known issue 只在 `CONFIG_BE_IO_CLEAR_AT_COMB_BEGIN=1` 下出现）| 已核对 |
+| Ren | `rob_bcast.flush` | 核对：非 stale | `Ren::comb_fire` | `Rob::comb_commit` 更早 | 无需寄存器 | 已核对 |
+| Idu | `dec_bcast.redirect_rob_idx` | 无消费者的残留 | 只在 Rob 误预测分支读 | `Idu::comb_branch` 仅误预测时写 | 不建 hold 寄存器，`when dec_bcast_mispred` | 已简化 |
+| 闭环注意 | `commit_entry[i].uop.diag_val` | BackTop 行为 | `BackTop.cpp` flush 时覆盖为 `redirect_pc` | | Rob 边界上是 Rob 自己的值；闭环集成时该覆盖应放在 Rob 之外 | 待集成 | |
 
 ## 4. 时钟域
 

@@ -24,7 +24,7 @@
 - SystemVerilog-2017，**必须能被 Verilator 5.x 无警告编译**。
 - 只用 `logic`、`always_ff`、`always_comb`、`typedef struct packed`、`typedef enum logic [N-1:0]`、`localparam`、`function automatic`、`generate for/if`、`package`。
 - 禁止：`initial`、`#延时`、`force/release`、`$random`、`$display/$finish/$stop`、`always`（裸）、`always @*`、锁存器、三态、`inout`、层次化引用、`wire x = ...` 隐式声明、`interface/modport`（端口一律平铺）、`class`、`program`、动态数组/队列/关联数组/字符串。
-- 断言只允许放在 `` `ifndef SYNTHESIS `` 内（`assert property` 或带 `$error` 的即时断言），且不得影响仿真结果；用于表达"参数必须是 2 的幂"这类前提，以及"C++ 里不可达的状态"。
+- 断言只允许放在 `` `ifndef SYNTHESIS `` 内，且不得影响仿真结果；用于表达"参数必须是 2 的幂"这类前提，以及"C++ 里不可达的状态"。**运行期断言必须是时钟采样的** `assert property (@(posedge clk) ...)`；`always_comb` 里的立即断言会在 Verilator 求值的中间态误触发（Isu 已踩过，曾让 10 个 trace 误中止）。只有编译期的参数一致性检查可以用 `$error`。
 
 ## 2. 文件与命名（S1 S2 S3 S9）
 
