@@ -15,14 +15,6 @@ module prf_regfile import ttg_cfg_pkg::*; #(
 );
 
   logic [31:0] reg_file_q [NREG];
-  logic [31:0] reg_file_d [NREG];
-
-  // Ref: Prf::comb_begin + comb_write
-  always_comb begin
-    for (int p = 0; p < NREG; p++) begin
-      reg_file_d[p] = reg_wr_en[p] ? reg_wr_data[p] : reg_file_q[p];
-    end
-  end
 
   // Ref: Prf::comb_read (register file part)
   always_comb begin
@@ -33,11 +25,12 @@ module prf_regfile import ttg_cfg_pkg::*; #(
     end
   end
 
-  always_ff @(posedge clk) begin
-    if (!rst_n) begin
-      for (int p = 0; p < NREG; p++) reg_file_q[p] <= '0;
-    end else begin
-      for (int p = 0; p < NREG; p++) reg_file_q[p] <= reg_file_d[p];
+  // Ref: Prf::comb_begin + comb_write  (each register has its own write enable; reset value 0 kept: x0 and
+  // never-written registers are read by the reference model)
+  for (genvar p = 0; p < NREG; p++) begin : g_reg
+    always_ff @(posedge clk) begin
+      if (!rst_n)            reg_file_q[p] <= '0;
+      else if (reg_wr_en[p]) reg_file_q[p] <= reg_wr_data[p];
     end
   end
 
