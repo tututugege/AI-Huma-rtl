@@ -1,10 +1,10 @@
-# AXI interconnect core (AXI_Interconnect.cpp, LLC-enabled live paths) one tick per record, 16 records per CPU cycle (scripts/lockstep_ticks_axi.sh).
+# AXI interconnect core (AXI_Interconnect.cpp, LLC-enabled live paths) -- core only, the LLC is outside one tick per record, 16 records per CPU cycle (scripts/lockstep_ticks_axi.sh).
 # The LLC is OUTSIDE this module: its outputs (lo_*, hz_*) are inputs here, what the interconnect drives into it (li_*) are outputs.
 # Master side = the per-tick values of read_ports[]/write_ports[] (b_* taps = comb_inputs time); the stale "a_*" values the C++ reads at comb_outputs
 # time are NOT inputs: they are derived inside (DCache masters: previous tick's request, zero on tick 0; ICache: this tick's; others zero), see
 # docs/modules/axi_interconnect.md section 3.  DDR side = sim_ddr (slave outputs sampled at comb_outputs time).  MMIO port: never active (DDR_BASE=0).
 # Not in the spec: mode / mapped_offset / invalidate controls (constants), MMIO channels (tied off), AXI ID bits above 6, LLC mem-side ready consts.
-module axi_ic
+module axi_interconnect
 
 in  phase0 1 @ (TTG_MS.cur == 0)
 # ---- masters ----
@@ -27,7 +27,6 @@ in  d_arready 1 @ TTG_AXI.t[TTG_MS.cur].d_ddr.arready
 in  d_rvalid 1 @ TTG_AXI.t[TTG_MS.cur].d_ddr.rvalid
 in  d_rid 6 @ TTG_AXI.t[TTG_MS.cur].d_ddr.rid & 0x3f
 in  d_rdata 256 @w TTG_AXI.t[TTG_MS.cur].d_ddr.rdata
-in  d_rlast 1 @ TTG_AXI.t[TTG_MS.cur].d_ddr.rlast
 in  d_awready 1 @ TTG_AXI.t[TTG_MS.cur].d_ddr.awready
 in  d_wready 1 @ TTG_AXI.t[TTG_MS.cur].d_ddr.wready
 in  d_bvalid 1 @ TTG_AXI.t[TTG_MS.cur].d_ddr.bvalid
@@ -66,10 +65,6 @@ in  hz_mshr_is_write 1 [8] @ TTG_AXI.t[TTG_MS.cur].llc_regs.mshr_is_write[i0]
 in  hz_mshr_master 2 [8] @ TTG_AXI.t[TTG_MS.cur].llc_regs.mshr_master[i0]
 in  hz_mshr_id 4 [8] @ TTG_AXI.t[TTG_MS.cur].llc_regs.mshr_id[i0]
 in  hz_mshr_line 32 [8] @ TTG_AXI.t[TTG_MS.cur].llc_regs.mshr_line_addr[i0]
-in  hz_wctx_valid 1 [2] @ TTG_AXI.t[TTG_MS.cur].llc_regs.write_ctx_valid[i0]
-in  hz_wctx_line 32 [2] @ TTG_AXI.t[TTG_MS.cur].llc_regs.write_ctx_line_addr[i0]
-in  hz_wresp_valid 1 [2] @ TTG_AXI.t[TTG_MS.cur].llc_regs.write_resp_valid[i0]
-in  hz_wresp_line 32 [2] @ TTG_AXI.t[TTG_MS.cur].llc_regs.write_resp_line_addr[i0]
 
 # ==== outputs ====
 # comb_outputs() results
@@ -85,8 +80,10 @@ out m_wr_resp_resp 2 [2] when m_wr_resp_valid @ TTG_AXI.t[TTG_MS.cur].o1_wr_resp
 out d_rready 1 @ TTG_AXI.t[TTG_MS.cur].o1_ddr_rready
 out d_bready 1 @ TTG_AXI.t[TTG_MS.cur].o1_ddr_bready
 # comb_inputs() results
-out m_rd_req_ready 1 [4] @ TTG_AXI.t[TTG_MS.cur].o2_rd_req_ready[i0]
-out m_wr_req_ready 1 [2] @ TTG_AXI.t[TTG_MS.cur].o2_wr_req_ready[i0]
+# req.ready: only the ICache (0) and peripheral (3) read ports and the peripheral write port (1) are consumed (DCache ignores it)
+out m_rd0_req_ready 1 @ TTG_AXI.t[TTG_MS.cur].o2_rd_req_ready[0]
+out m_rd3_req_ready 1 @ TTG_AXI.t[TTG_MS.cur].o2_rd_req_ready[3]
+out m_wr1_req_ready 1 @ TTG_AXI.t[TTG_MS.cur].o2_wr_req_ready[1]
 out d_arvalid 1 @ TTG_AXI.t[TTG_MS.cur].o2_ddr.arvalid
 out d_arid 6 when d_arvalid @ TTG_AXI.t[TTG_MS.cur].o2_ddr.arid & 0x3f
 out d_araddr 32 when d_arvalid @ TTG_AXI.t[TTG_MS.cur].o2_ddr.araddr
