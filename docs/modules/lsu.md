@@ -4,9 +4,9 @@ area: backend
 rtl: rtl/backend/lsu
 spec: lsu*
 status: partial
-lockstep: 68/68（经 back_top）
-mutants: 15/25（10 存活）
-note: 3 个生成文件待手写重构
+lockstep: lsu 68/68；随机 12/12；back_top 冒烟 8/8（整程序 68 未重跑）
+mutants: 重构后新 127 个变异体已建好（tests/lsu/mut_lsu.py），仅跑了前 14 个（10 杀死、4 筛选集存活待判），其余未跑；原 10 个存活变异体仍未结案
+note: 已手写重构（表项模块 + 队列操作链，无生成文件）；变异检查被协调者叫停
 ---
 
 # lsu 设计笔记
@@ -73,53 +73,56 @@ seq                                  cur = nxt
 
 ## 2. 硬件结构
 
+重构依据见 `docs/analysis/lsu-structure.md`（每个字段的"事件 → 更新"规则表）。
+
 ```
- cur 寄存器 (lsu_state) ──► lsu_cur_info ──► lsu2dis / lsu2rob
-        │
-        ▼  (SSA 链，每个阶段一个子模块，输出该阶段改写的数组的新版本)
- B lsu_stq_commit → C lsu_mmio_in → D lsu_dc_resp_ld → E lsu_dc_resp_st → F lsu_wb_stq, lsu_wb_ldq (→ lsu2exe)
-   → G lsu_exe_in_st, lsu_exe_in_ld → H lsu_tlb_req (→ lsu2mmu)  ═ MMU ═► I lsu_tlb_resp_ld, lsu_tlb_resp_st
-   → J lsu_stlf_search(x20 窗口位) + lsu_stlf_chain + lsu_stlf → K lsu_alloc → L lsu_flush_* (+ lsu_lrsc, lsu_unc)
-   → M lsu_dc_req_ld → N lsu_dc_req_st → O lsu_mmio_out → P lsu_retire ──► 下一拍 cur 寄存器
+ stage logic (组合；每阶段算"事件"和"队列操作")                      state (寄存器)
+ B lsu_stq_commit      → cm_go[SQ]                         ┌─ lsu_stq_ent  × SQ : 状态机 + 字段写使能规则
+ C lsu_mmio_in         → mm_ev[LQ], mm_go[SQ], finish op   ├─ lsu_ldq_ent  × LQ : 状态机 + 字段写使能规则
+ D lsu_dc_resp_ld      → dc_ev[LQ], wait_dcache 槽 set/clr ├─ lsu_ring × 6      : wait_mmu_ldq / wait_mmu_stq / mmu_done /
+ E lsu_dc_resp_st      → dc_ev[SQ], wk_go[SQ]              │                     finish / stlf / wait_dcache（每拍最多 6 个有序操作）
+ F lsu_wb_stq/_ldq     → wb_ev/wb_go, 写回口, LR/SC 更新    ├─ lsu_stq_ptr       : head/head_flag/count/ccount
+ G lsu_exe_in_st/_ld   → ex_ev[SQ], agu_ev[LQ], 入队操作    ├─ lsu_wd_slot       : wait_dcache 槽的 gen/wait, req_gen
+ H lsu_tlb_sel         → MMU 请求口                          ├─ lsu_unc / lsu_lrsc: 未缓存单元 / LR-SC 预约
+ I lsu_tlb_resp_ld/_st → tr_ev, tw_ev, 入队/出队操作          └─ (顶层 lsu.sv 只做端口适配；lsu_core.sv 只做连线)
+ J lsu_stlf(+_chain,_match) → sf_ev[LQ], 队列操作, MMIO load 起占
+ K lsu_alloc           → al_ev[LQ], al_ev[SQ]
+ L lsu_flush_ring_ld/_st → 队列末操作；表项自己处理 flush/mispred/clear_mask
+ M lsu_dc_req_ld / N lsu_dc_req_st → iss_go / is_ev, DCache 请求口 ; O lsu_mmio_out ; P (在 lsu_stq_ptr 内)
 ```
 
-- 顶层 `lsu.sv`：只做端口适配（平铺 spec 端口 ↔ 内部数组）；`lsu_core.sv`：阶段链连线；`lsu_state.sv`：全部寄存器（`_q/_d`，复位值=`init()` 后）。
-- 环形队列原语（均作用在 `lsu_ring_t = {valid[64], idx[64], head, count}`）：
-  - `lsu_ring_win`：取窗口（C++ 的 `for i < min(count, WINDOW)` + `(head+i)%N`），输出每个窗口位置的 valid / idx / slot；
-  - `lsu_ring_kill_pop`：窗口内按位置杀掉 valid，然后弹出队首连续无效项（C++ 的 “valid=false；while(!valid) dequeue”）。
-    注意 C++ 的队列允许**中间有空洞**，`count` 含空洞，`lsu2dis` 的空闲计算用 `count`，所以空洞的出队时机必须与 C++ 一致；
-  - `lsu_ring_app`：在尾部（`head+count`）追加最多 N 项（N 个候选 + enable，按候选序号压缩）。
-- 窗口内“顺序扫描 + 计数器 + 限额”（如“最多发 4 个”、“finish_count < 64 才入队”）全部写成**窗口位置上的前缀计数**（`lsu_rank`）：
-  第 k 个候选被接受当且仅当它之前的候选数 < 限额，等价于 C++ 的顺序扫描。
-- 状态数组均按字段拆成独立数组（`ld_*[64]`、`st_*[64]`），每个阶段的端口只含它读/写的数组（SSA 版本号由 `lsu_core` 连线）。
+- **表项**（`lsu_ldq_ent`/`lsu_stq_ent`，每表项一个实例）：寄存器 = 状态机 + 数据字段（packed struct `ldq_fld_t/stq_fld_t`，
+  `result`/`wait` 例外，见下）。输入是已限定的"事件"，表项内部按阶段顺序一条链地改状态（`st_rsp/st_agu/st_tlb/st_win/st_fl…`，
+  每个视图一行规则，对应分析文档 §1/§2 的阶段表）；每个数据字段只有写使能 + 写数据（单一写阶段，
+  `suppress/wait` 等多写者字段按阶段优先级）。同拍后续阶段需要读到本拍写入值的，读 `fld_e`（= 写后值），拍首值读 `fld_q`。
+  `result` 与 `wait` 不放进 struct：J / N 阶段既读 struct 又写它们，放进去会形成 Verilator 看到的（变量级）组合环。
+- **队列**（`lsu_ring`）：`lsu_ring_t = {valid[64], idx[64], head, count}`；每拍按阶段顺序给出最多 6 个操作
+  `lsu_rop_t = {kill_slot, 窗口 kp（窗口内失效 + 弹出队首连续空洞）, append, flush}`，`view[k]` 为第 k 个操作后的队列；
+  寄存器里 `idx[s]` 只在被追加的那个槽写入，`valid/head/count` 每拍更新。各队列的操作序列见分析文档 §3。
+- 窗口内"顺序扫描 + 计数器 + 限额"全部写成窗口位置上的前缀计数（`lsu_rank`），`break` 写成位置链（`lsu_stlf_chain`）。
+- 环形指针/年龄比较/排名保持硬件写法；`lsu_stq_ptr` 持有 STQ 指针和 P 阶段退休扫描。
+- 顶层 `lsu.sv`（274 行）是 spec 端口的平铺适配（原来由 `gen_core.py` 生成，现在手工维护，生成脚本降级到 `tests/lsu/history/`）。
 
 ### 状态（寄存器）
 
 | 状态 | 位宽×深度 | 含义 / 读写 |
 | --- | --- | --- |
-| `ld_st` | 4×64 | LDQ 状态机（Empty/Allocated/WaitTlb/WaitTlbRetry/WaitSTLF/CheckStlf/ReadyToIssue/WaitDcacheResp/WaitMmioResp/ReadyToWb/PageFault/WaitFinish/WaitDcache；`CheckStlfRetry/WaitDcache(过渡)` 只在 STLF 阶段内部出现，WaitDcache 在“wait_dcache 队列满”时是跨拍状态） |
-| `ld_vaddr/paddr/result` | 32×64 | |
-| `ld_func3,ld_dest,ld_rob_idx,ld_rob_flag,ld_br_mask(64)` | | |
-| `ld_snap_idx/flag, ld_mmio, ld_pf, ld_lrsc, ld_replay` | | stq 快照、MMIO/页错/LR 标志、DCache replay 类型 |
-| `st_st` | 4×64 | STQ 状态机（Allocated…Done，共 12 个状态） |
-| `st_data/vaddr/paddr(32), data_valid, paddr_valid, func3, dest, br_mask, rob_idx/flag` | | |
-| `st_pf/suppress/mmio/lrsc/sc_pass, st_replay, st_wait(3)` | | |
-| `stq head/head_flag/count/ccount` | 6/1/7/7 | STQ 环形指针；`stq_commit = head + ccount`（恒等式，见第 4 节，不建寄存器） |
-| 6 个环形队列 | 各 64×(1+6)+6+7 | wait_mmu_ldq / wait_mmu_stq / mmu_done_stq / finish / stlf / wait_dcache（后者另有 `gen[64](25)`、`wait[64](3)`） |
-| `unc_*` | | 未缓存单元（MMIO 请求在途）：valid、is_load、addr、wdata、func3、idx |
-| `lrsc_*` | | LR/SC 预约：valid、addr、br_mask |
-| `req_gen` | 25 | DCache load 请求代号计数器（输出 `req_id` 的一部分） |
+| LDQ 表项（×`LDQ_SIZE`） | `st`(4)、`vaddr/paddr/result`(32)、`func3`(3)、`dest`、`rob_idx/flag`、`br_mask`、`snap_idx/flag`、`replay`(2)、`mmio/pf/lrsc` | 写规则见分析文档 §1 |
+| STQ 表项（×`STQ_SIZE`） | `st`(4)、`data/vaddr/paddr`(32)、`func3`、`dest`、`rob_idx/flag`、`br_mask`、`replay`、`wait`(3)、`data_valid/paddr_valid/pf/suppress/mmio/lrsc/sc_pass` | 分析文档 §2 |
+| STQ 指针 | head 6 / head_flag 1 / count 7 / ccount 7 | `stq_commit = head + ccount` 不建寄存器 |
+| 6 个环形队列 | 各 64×(1+6)+6+7 | `idx` 只在追加时写 |
+| `wd_slot` | 每槽 `gen`(25)、`wait`(3)；`req_gen`(25) | 槽复用时保留旧值（C++ 可观察） |
+| `unc_*` / `lrsc_*` | 未缓存单元 / 预约 | 分析文档 §4 |
 
 ### C++ → 硬件对应
 
 | C++ | RTL |
 | --- | --- |
-| `LsuState cur/nxt` + `seq(){cur=nxt}` | `lsu_state` 寄存器 + 阶段链（`_d` = 链末版本） |
-| `enqueue_*/dequeue_*`（6 个队列） | `lsu_ring_app` / `lsu_ring_kill_pop` |
-| `for(i<issue) … break/continue` 窗口扫描 | `lsu_ring_win` + 前缀计数 + `ttg_first_set` |
-| `check_stlf` 的 for-j-break 逆序扫描older stores | 每个窗口位一个 `lsu_stlf_search`：64 个 store 的“决定者”向量（Allocated / 地址未知 / 覆盖 / 部分重叠，非 suppress、在 older 范围内），取**最年轻**的一个（按相对 head 的位置取最高位）决定结果 |
-| `comb_lsu2dcache_stq` 的 older 冲突 `for j<i` | 窗口内 20×20 两两 `CheckAddr`，沿窗口位的 `done_after` 链 |
-| `stq_commit` 指针 | `head + ccount` |
+| `LsuState cur/nxt` + `seq(){cur=nxt}` | 表项/队列/标量单元各自持有寄存器；一拍内的阶段链 = 表项内的状态视图链 + 队列操作链 |
+| `enqueue_*/dequeue_*`（6 个队列） | `lsu_ring` 的 append / kp 操作 |
+| `for(i<issue) … break/continue` 窗口扫描 | `lsu_ring_win` + 前缀计数 + `ttg_first_set` / 位置链 |
+| `check_stlf` 的 for-j-break 逆序扫描 | 每个窗口位一个 `lsu_stlf_match`：64 个 store 的"决定者"向量，取最年轻的一个 |
+| `comb_lsu2dcache_stq` 的 older 冲突 `for j<i` | 窗口内两两 `CheckAddr`，沿窗口位的 `done_after` 链 |
 | `StoreTag/LoadTag` | `{idx, flag}` |
 
 ## 3. 一拍内的数据流
@@ -187,6 +190,41 @@ seq                                  cur = nxt
 5. `stq_free`/`ldq_free` 的无符号回绕（见 4.3）。
 
 ## 5. 验证
+
+### 5.1 重构（2026-11-04，分支 rtl/lsu2）
+
+- RTL：`rtl/backend/lsu/` 33 个文件 3259 行（旧 34 个文件 3245 行，其中 `lsu_core/lsu_state/lsu` 三个生成文件 891 行）。
+  最大文件 389 行（`lsu_core.sv`，纯连线），最长 `always_comb` 36 行（旧 40 行）。无生成文件（`gen_core.py` 移到 `tests/lsu/history/`）；
+  `lsu.sv` 仍是 spec 端口平铺适配（274 行，现手工维护）。
+- 旧版本链：`lsu_core` 里 134 处 `_v1.._v9` 引用、约 70 个整数组状态各带版本；新设计无 `_vN` 数组、无整数组 `_d`：LDQ/STQ 各 64 个表项实例，
+  状态阶段视图（≤9 个 4 位状态）收在表项里，数据字段单写阶段 + 写使能。
+- 触发器/门数：按协调者要求未做综合（yosys 被禁）。状态位数从代码读出：两版寄存器内容相同（LDQ/STQ 表项字段、6 队列、指针、unc/lrsc、wait_dcache 槽），
+  新版去掉的是旧版的**组合**版本拷贝（旧版每个版本都是 64 项整数组的组合线）。未实测量化。
+- spec/lsu.io 整程序锁步：`lockstep_multi.sh lsu`，BIG_CYCLES=300000，**68/68 PASS**（重构提交 3be6144 的 RTL）。
+- 随机轨迹：`tests/lsu/run_rand.sh` + `scripts/replay.sh lsu`，**12/12 PASS**（rand_1..12）。
+- lint：`bash scripts/lint.sh rtl/backend/lsu` 干净。
+- back_top：协调者要求只跑冒烟：8 个短程序（smc-div atomic-boundary add-longlong interrupt-vectored timer-mmio stlf-overlap-boundary unalign memory-boundary）×50k 拍，back_top 与 lsu 同时锁步，**16/16 PASS**。重构后 back_top 整程序 68/68 **未重跑**。
+
+- 本次重构**没有复刻**：C++ 一拍内的阶段调用结构与 `nxt` 整体拷贝；AGU 时 `p_addr=0/paddr=0` 复位（无人在 HIT 前读）；PAGE_FAULT 时 `result=v_addr`
+  （写回用 `pf ? vaddr : result`）；数据字段/`wd_gen` 的复位（只复位状态位、指针、valid；无复位的存储器读前必写，见分析文档）；
+  `LDQ_SIZE == STQ_SIZE` 的共用索引宽度沿用旧 RTL 假设（未加断言，S5 禁 initial）。
+- 疑点/限制：`lsu_ring` 固定 6 个操作口（端口为离散信号，因 Verilator 对数组形端口的 UNOPTFLAT 误报）；窗口宽度 `LSU_LOAD_WINDOW_WIDTH` 须不小于各端口数。
+
+### 5.2 变异检查（`tests/lsu/mut_lsu.py`：一次构建、`TTG_MUT=k` 运行时选，127 个变异体，覆盖新结构的优先级/年龄比较/转发/flush 环/replay/MMIO/LR-SC）
+
+协调者在筛选中途叫停，**只跑了前 14 个**（筛选程序 smc-div memory-stress atomic-boundary vm_pagefault_test dhrystone）：
+
+- 杀死（10）：pkg.stlf-cover-off-by-one、stlf-partial-as-disjoint、lb-offset-ignored、mmio-window1、store-strb-half、align-store-byte、
+  ring.pop-live-entry、ring.kp-no-kill、ring.append-slot-ignores-rank、ring.flush-keeps-count。
+- 筛选集上存活（4，**未判定**，未跑 12 程序复跑）：pkg.lh-lhu-swapped（原 M12 在旧测试里靠随机轨迹才杀死）、pkg.checkaddr-next-word、
+  pkg.checkaddr-prev-word（原 M16）、pkg.stq-alive-inclusive。
+- **未跑**：其余约 113 个（其中含对原存活变异 M05 M07 M08 M15 M16 M17 M18 M20 M21 M24 的新结构等价物：
+  dcresp-ld.wake-full-limit-plus1、curinfo.ldq-free-no-wrap-check、dcreq-st.suppressed-not-unblocking、ptr.retire-window-unlimited、
+  pkg.checkaddr-*、mmioin.ignores-finish-room、stlf.two-mmio-loads-same-cycle、tlbresp-ld.stlf-limit-ignored、dcreq-st.reissue-same-cycle）。
+- **原 10 个存活变异体仍未结案**：M05 M07 M08 M15 M16 M17 M18 M20 M21 M24（旧 `tests/lsu/mutants.py` 描述；旧缺口分析见本节下文"覆盖缺口"）。
+  M16 的新结构等价变异（checkaddr-next/prev-word）本次在筛选集上又存活，说明仍是覆盖缺口（需要跨字对齐的 store 同址冲突的定向程序）。
+
+### 5.3 旧版验证记录（保留）
 
 - spec：`spec/lsu.io`，111 个字段（输入 63、输出 48）。
 - 实现：`rtl/backend/lsu/` 34 个文件 3211 行（其中 `lsu_core/lsu_state/lsu` 三个文件由 `tests/lsu/gen_core.py` 生成：一拍内约 20 个 `comb_*` 阶段在同一个 `nxt` 上顺序改写，RTL 把每个状态数组写成 SSA 版本链，阶段模块端口只含它读写的数组）。C++ 对应 RealLsu.cpp 1527 行。
