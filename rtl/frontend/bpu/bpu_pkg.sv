@@ -29,11 +29,13 @@ package bpu_pkg;
 
   // ---- TAGE ----
   localparam int TN      = 4;                 // tagged tables (TN_MAX)
+  localparam int TN_FH   = TN;
   localparam int T_IDX_W = 10;                // TAGE_IDX_WIDTH  (1024 entries)
   localparam int T_TAG_W = 8;                 // TAGE_TAG_WIDTH
   localparam int T_BASE_W = 10;               // base table index width (1024 entries)
   localparam int FH_W    = 11;                // widest folded history
   localparam int FH_K    = 3;                 // FH_N_MAX
+  localparam int FH_FLAT = FH_K * TN_FH * FH_W;   // all folded histories as one vector
   localparam int PCPN_W  = 3;
 
   // ---- BTB ----
@@ -51,6 +53,33 @@ package bpu_pkg;
   localparam int RAS_DEPTH = 32;
   localparam int RAS_PTR_W = 5;
   localparam int RAS_CNT_W = 6;
+  // folded history lengths fh_length[k][i] and history lengths ghr_length[i] (BPU.h)
+  function automatic int fh_len(input int k, input int i);
+    if (k == 0) return (i == 0) ? 8 : 11;
+    if (k == 1) return 8;
+    return 7;
+  endfunction
+  function automatic int ghr_len(input int i);
+    case (i)
+      0: return 8;
+      1: return 13;
+      2: return 32;
+      default: return 119;
+    endcase
+  endfunction
+
+  // update-queue entry (BPU.h QueueEntry without the dead sc/loop fields and altpcpn; base pc kept as bank pc)
+  typedef struct packed {
+    logic [BPC_W-1:0]        bank_pc;
+    logic                    actual_dir;
+    logic [2:0]              br_type;
+    logic [31:0]             target;
+    logic                    pred_dir;
+    logic                    alt_pred;
+    logic [PCPN_W-1:0]       pcpn;
+    logic [TN-1:0][T_TAG_W-1:0] tags;
+    logic [TN-1:0][T_IDX_W-1:0] idxs;
+  } uq_entry_t;
 
   // BTB_top.h hash_index_value(): x ^ x>>w ^ x>>2w ^ x>>3w (each only when k*w < 32) ^ salt; the caller masks
   function automatic logic [31:0] hash_fold(input logic [31:0] x, input int unsigned w, input logic [31:0] salt);
