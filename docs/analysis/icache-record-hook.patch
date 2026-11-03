@@ -1,0 +1,294 @@
+--- a/front-end/front_tap.h
++++ b/front-end/front_tap.h
+@@ -110,3 +110,71 @@
+ #define TTG_FT (g_ttg_front_tap)
+ // Used inside front_comb_calc(): runs the statements only when recording.
+ #define TTG_TAP(...) do { if (g_ttg_front_tap_on) { __VA_ARGS__ } } while (0)
++
++// ============================================================================================================
++// icache tap (second tap): the ICache's memory-side / ITLB-side port values at the instant icache_comb_calc runs.
++// icache_comb_calc() runs once per cycle, or TWICE when the predecode checker flushes (second call = invalidate_req,
++// ICacheTop.cpp / icache.cpp). Each call advances the ICache state (comb+seq fused), so every call gets its own FrontIcStep.
++// Copy-only (never feeds back); active only when $TTG_REC is set.  See docs/analysis/icache-record-hook.md.
++// ============================================================================================================
++struct FrontIcRegs {                    // flat copy of icache_module_n::ICache_regs_t
++  bool req_valid_r; uint32_t req_pc_r; bool ifu_req_ready_r; uint32_t state; uint32_t mem_axi_state;
++  uint32_t mem_resp_data_r[16]; uint32_t replace_idx; uint32_t ppn_r;
++  bool miss_txid_valid_r; uint32_t miss_txid_r; bool miss_ready_seen_r;
++  uint32_t txid_inflight_mask; uint32_t txid_canceled_mask;
++  bool dcache_probe_inflight_r, dcache_probe_done_r, dcache_probe_hit_r; uint32_t dcache_probe_word_r;
++  uint32_t dcache_probe_data_r[16];
++  bool lookup_pending_r; uint32_t lookup_pc_r;
++};
++struct FrontIcStep {
++  bool valid = false;                   // this call happened
++  FrontIcRegs regs_before{};            // ICache registers when the call started
++  FrontIcRegs regs_next{};              // reg_write (what seq() latches)
++  // ICache-module inputs of the final comb pass
++  uint32_t m_pc = 0; bool m_ifu_req_valid = false, m_refetch = false, m_flush = false;
++  uint32_t m_ppn = 0; bool m_ppn_valid = false, m_page_fault = false;
++  // table read request (icache.cpp) and kernel-folded meta result
++  bool rd_en = false; uint32_t rd_index = 0;
++  bool meta_resp_valid = false, meta_hit_valid = false, meta_has_invalid = false;
++  uint32_t meta_hit_way = 0, meta_first_invalid = 0;
++  bool meta_cmp_valid = false; uint32_t meta_cmp_tag = 0;
++  bool data_resp_valid = false; uint32_t data_resp_way = 0; uint32_t data_line[16] = {0};
++  // ICache-module outputs
++  bool o_miss = false, o_resp_valid = false, o_req_ready = false, o_page_fault = false, o_single_word = false;
++  uint32_t o_resp_pc = 0; uint32_t o_rd_data[16] = {0};
++  bool o_mmu_req_valid = false; uint32_t o_mmu_req_vtag = 0;
++  bool o_mem_req_valid = false; uint32_t o_mem_req_addr = 0, o_mem_req_total_size = 0; bool o_mem_req_bypass = false;
++  uint32_t o_mem_req_id = 0; bool o_mem_resp_ready = false;
++  bool o_dc_req_valid = false; uint32_t o_dc_req_addr = 0;
++  bool o_data_req_valid = false; uint32_t o_data_req_index = 0, o_data_req_way = 0;
++  // table write port
++  bool tw_we = false, tw_inv = false; uint32_t tw_index = 0, tw_way = 0, tw_tag = 0; bool tw_valid = false;
++  uint32_t tw_data[16] = {0};
++};
++struct FrontIcTap {
++  uint32_t calls = 0;                   // icache_comb_calc calls in this cycle (0, 1 or 2)
++  FrontIcStep step[2];
++  // ---- icache_in of the main (first) call ----
++  bool in_reset = false, in_refetch = false, in_itlb_flush = false, in_fence_i = false, in_req_valid = false;
++  uint32_t in_fetch_address = 0;
++  uint32_t csr_satp = 0, csr_mstatus = 0, csr_privilege = 0;
++  // ---- memory read port view (ExternalReadPortAdapter::comb_view) and DCache probe response ----
++  bool mem_req_ready = false, mem_req_accepted = false, mem_resp_valid = false;
++  uint32_t mem_req_accepted_id = 0, mem_resp_id = 0, mem_resp_data[16] = {0};
++  bool dc_resp_valid = false, dc_resp_retry = false, dc_resp_miss = true; uint32_t dc_resp_data = 0;
++  // ---- ITLB's PTW walk-port view, read BEFORE the ITLB touched it in the first call ----
++  bool ptw_req_ready = false, ptw_resp_valid = false, ptw_resp_fault = false;
++  uint32_t ptw_resp_vaddr = 0, ptw_resp_leaf_pte = 0, ptw_resp_leaf_level = 0;
++  // ---- ITLB's PTW outputs after the first call (what only the ITLB writes this cycle) ----
++  bool ptw_req_valid = false, ptw_resp_consumed = false, ptw_flush = false;
++  uint32_t ptw_req_vaddr = 0, ptw_req_satp = 0;
++  // ---- ITLB translate call of the first call ----
++  bool itlb_translate_invoked = false; uint32_t itlb_result = 0;
++  // ---- values the memory side finally sees (after the LAST call: a predecode flush overrides the first) ----
++  bool mem_req_valid = false, mem_resp_ready = false, mem_req_bypass = false;
++  uint32_t mem_req_addr = 0, mem_req_total_size = 0, mem_req_id = 0;
++  bool dc_req_valid = false; uint32_t dc_req_addr = 0;
++  FrontIcRegs regs_end{};               // ICache registers after the last seq of the cycle
++};
++extern FrontIcTap g_ttg_ic_tap;
++#define TTG_IC (g_ttg_ic_tap)
+--- a/front-end/front_top.cpp
++++ b/front-end/front_top.cpp
+@@ -25,6 +25,7 @@
+ // ============================================================================
+ bool g_ttg_front_tap_on = (std::getenv("TTG_REC") != nullptr && *std::getenv("TTG_REC") != 0);
+ FrontTap g_ttg_front_tap;
++FrontIcTap g_ttg_ic_tap;
+ 
+ static bool predecode_refetch = false;
+ static uint32_t predecode_refetch_address = 0;
+@@ -1092,7 +1093,7 @@
+     }
+     front_stats.cycles++;
+     front_state_req.valid = false;
+-    TTG_TAP(g_ttg_front_tap = FrontTap{}; g_ttg_front_tap.count = ++g_ttg_front_tap_seq;);
++    TTG_TAP(g_ttg_front_tap = FrontTap{}; g_ttg_front_tap.count = ++g_ttg_front_tap_seq; g_ttg_ic_tap = FrontIcTap{};);
+     
+     // ========================================================================
+     // 阶段 0: 初始化所有模块的输入输出结构
+--- a/front-end/icache/ICacheTop.cpp
++++ b/front-end/icache/ICacheTop.cpp
+@@ -16,6 +16,7 @@
+ #include "PhysMemory.h"
+ #include "config.h"
+ #include "include/icache_module.h"
++#include "../front_tap.h"
+ 
+ #define ICACHE_TOP_TRUE_GLUE_KERNEL_FETCH_WIDTH FETCH_WIDTH
+ #define ICACHE_TOP_TRUE_GLUE_KERNEL_LINE_WORDS (ICACHE_LINE_SIZE / 4)
+@@ -934,6 +935,27 @@
+         dcache_probe_comb_view(runtime.mem_probe_resp_port);
+     const bool req_valid = in->icache_read_valid;
+     const uint32_t req_pc = in->fetch_address;
++    const bool ic_tap_first = g_ttg_front_tap_on && g_ttg_ic_tap.calls == 1;
++    if (ic_tap_first) {
++      FrontIcTap &T = g_ttg_ic_tap;
++      T.in_reset = in->reset; T.in_refetch = in->refetch; T.in_itlb_flush = in->itlb_flush; T.in_fence_i = in->fence_i;
++      T.in_req_valid = in->icache_read_valid; T.in_fetch_address = in->fetch_address;
++      if (in->csr_status != nullptr) {
++        T.csr_satp = in->csr_status->satp; T.csr_mstatus = in->csr_status->mstatus;
++        T.csr_privilege = in->csr_status->privilege;
++      }
++      T.mem_req_ready = mem.req_ready; T.mem_req_accepted = mem.req_accepted;
++      T.mem_req_accepted_id = mem.req_accepted_id; T.mem_resp_valid = mem.resp_valid; T.mem_resp_id = mem.resp_id;
++      for (int i = 0; i < ICACHE_LINE_SIZE / 4; ++i) T.mem_resp_data[i] = mem.resp_data[i];
++      T.dc_resp_valid = dcache_probe.resp_valid; T.dc_resp_retry = dcache_probe.resp_retry;
++      T.dc_resp_miss = dcache_probe.resp_miss; T.dc_resp_data = dcache_probe.resp_data;
++      if (runtime.ptw_walk_port != nullptr) {
++        const PtwWalkPortCombOut po = runtime.ptw_walk_port->comb_output();
++        T.ptw_req_ready = po.req_ready; T.ptw_resp_valid = po.resp_valid; T.ptw_resp_fault = po.resp.fault;
++        T.ptw_resp_vaddr = po.resp.vaddr; T.ptw_resp_leaf_pte = po.resp.leaf_pte;
++        T.ptw_resp_leaf_level = po.resp.leaf_level;
++      }
++    }
+     bool itlb_translate_invoked = false;
+     TlbMmu::Result itlb_translate_ret = TlbMmu::Result::OK;
+ 
+@@ -970,6 +992,17 @@
+     const ICacheMmuRespView mmu_resp = comb_mmu_view(runtime, ctx, mmu_req);
+     itlb_translate_invoked = mmu_resp.translate_invoked;
+     itlb_translate_ret = mmu_resp.translate_result;
++    if (ic_tap_first) {
++      g_ttg_ic_tap.itlb_translate_invoked = mmu_resp.translate_invoked;
++      g_ttg_ic_tap.itlb_result = static_cast<uint32_t>(mmu_resp.translate_result);
++      if (runtime.ptw_walk_port != nullptr) {
++        struct M { virtual ~M() {} PtwWalkPortCombIn in; PtwWalkPortSeqIn sq; PtwWalkPortCombOut out; };
++        const M *m = reinterpret_cast<const M *>(runtime.ptw_walk_port);
++        g_ttg_ic_tap.ptw_req_valid = m->in.req_valid; g_ttg_ic_tap.ptw_req_vaddr = m->in.req.vaddr;
++        g_ttg_ic_tap.ptw_req_satp = m->in.req.satp; g_ttg_ic_tap.ptw_resp_consumed = m->in.resp_consumed;
++        g_ttg_ic_tap.ptw_flush = m->sq.flush;
++      }
++    }
+     apply_mmu_resp_view(icache_hw, mmu_resp);
+ 
+     refresh_lookup_meta_input(icache_hw);
+@@ -987,6 +1020,13 @@
+         runtime.mem_probe_req_port, icache_hw.io.out.dcache_req_valid,
+         icache_hw.io.out.dcache_req_addr);
+ 
++    if (g_ttg_front_tap_on) {
++      FrontIcTap &T = g_ttg_ic_tap;
++      T.mem_req_valid = icache_hw.io.out.mem_req_valid; T.mem_req_addr = icache_hw.io.out.mem_req_addr;
++      T.mem_req_total_size = icache_hw.io.out.mem_req_total_size; T.mem_req_bypass = icache_hw.io.out.mem_req_bypass;
++      T.mem_req_id = icache_hw.io.out.mem_req_id & 0xF; T.mem_resp_ready = icache_hw.io.out.mem_resp_ready;
++      T.dc_req_valid = icache_hw.io.out.dcache_req_valid; T.dc_req_addr = icache_hw.io.out.dcache_req_addr;
++    }
+     const auto glue_in = make_true_glue_input(icache_hw, hold_for_recovery);
+     const auto glue_out = icache_top_n::run_true_glue_io_generator(glue_in);
+     apply_true_glue_output(out, glue_out);
+--- a/front-end/icache/icache.cpp
++++ b/front-end/icache/icache.cpp
+@@ -5,6 +5,7 @@
+ #include "include/icache_module.h"
+ #include "GenericTable.h"
+ #include <cassert>
++#include "../front_tap.h"
+ 
+ #ifndef CONFIG_ICACHE_FOCUS_VADDR_BEGIN
+ #define CONFIG_ICACHE_FOCUS_VADDR_BEGIN 0u
+@@ -200,6 +201,53 @@
+ }
+ } // namespace
+ 
++
++// ---- recording tap helpers (copy-only; see front_tap.h FrontIcTap) ----
++struct IcMetaDbg {
++  bool resp_valid = false, hit_valid = false, has_invalid = false, cmp_valid = false;
++  uint32_t hit_way = 0, first_invalid = 0, cmp_tag = 0;
++};
++extern IcMetaDbg g_ic_meta_dbg;
++static void ic_tap_copy_regs(FrontIcRegs &d, const icache_module_n::ICache_regs_t &r) {
++  d.req_valid_r = r.req_valid_r; d.req_pc_r = r.req_pc_r; d.ifu_req_ready_r = r.ifu_req_ready_r;
++  d.state = r.state; d.mem_axi_state = r.mem_axi_state; d.replace_idx = r.replace_idx; d.ppn_r = r.ppn_r;
++  d.miss_txid_valid_r = r.miss_txid_valid_r; d.miss_txid_r = r.miss_txid_r; d.miss_ready_seen_r = r.miss_ready_seen_r;
++  d.txid_inflight_mask = 0; d.txid_canceled_mask = 0;
++  for (int i = 0; i < 16; ++i) {
++    if (r.txid_inflight_r[i]) d.txid_inflight_mask |= 1u << i;
++    if (r.txid_canceled_r[i]) d.txid_canceled_mask |= 1u << i;
++  }
++  d.dcache_probe_inflight_r = r.dcache_probe_inflight_r; d.dcache_probe_done_r = r.dcache_probe_done_r;
++  d.dcache_probe_hit_r = r.dcache_probe_hit_r; d.dcache_probe_word_r = r.dcache_probe_word_r;
++  for (int w = 0; w < 16; ++w) { d.mem_resp_data_r[w] = r.mem_resp_data_r[w]; d.dcache_probe_data_r[w] = r.dcache_probe_data_r[w]; }
++  d.lookup_pending_r = r.lookup_pending_r; d.lookup_pc_r = r.lookup_pc_r;
++}
++static void ic_tap_snapshot_comb(FrontIcStep &t, const icache_module_n::ICache &c) {
++  const auto &io = c.io;
++  ic_tap_copy_regs(t.regs_next, io.reg_write);
++  t.m_pc = io.in.pc; t.m_ifu_req_valid = io.in.ifu_req_valid; t.m_refetch = io.in.refetch; t.m_flush = io.in.flush;
++  t.m_ppn = io.in.ppn; t.m_ppn_valid = io.in.ppn_valid; t.m_page_fault = io.in.page_fault;
++  t.meta_resp_valid = g_ic_meta_dbg.resp_valid; t.meta_hit_valid = g_ic_meta_dbg.hit_valid;
++  t.meta_hit_way = g_ic_meta_dbg.hit_way; t.meta_has_invalid = g_ic_meta_dbg.has_invalid;
++  t.meta_first_invalid = g_ic_meta_dbg.first_invalid; t.meta_cmp_valid = g_ic_meta_dbg.cmp_valid;
++  t.meta_cmp_tag = g_ic_meta_dbg.cmp_tag;
++  t.data_resp_valid = io.lookup_in.data_resp_valid; t.data_resp_way = io.lookup_in.data_resp_way;
++  for (int w = 0; w < 16; ++w) t.data_line[w] = io.lookup_in.data_resp_line[w];
++  t.o_miss = io.out.miss; t.o_resp_valid = io.out.ifu_resp_valid; t.o_req_ready = io.out.ifu_req_ready;
++  t.o_page_fault = io.out.ifu_page_fault; t.o_single_word = io.out.ifu_resp_single_word; t.o_resp_pc = io.out.ifu_resp_pc;
++  for (int w = 0; w < 16; ++w) t.o_rd_data[w] = io.out.rd_data[w];
++  t.o_mmu_req_valid = io.out.mmu_req_valid; t.o_mmu_req_vtag = io.out.mmu_req_vtag;
++  t.o_mem_req_valid = io.out.mem_req_valid; t.o_mem_req_addr = io.out.mem_req_addr;
++  t.o_mem_req_total_size = io.out.mem_req_total_size; t.o_mem_req_bypass = io.out.mem_req_bypass;
++  t.o_mem_req_id = io.out.mem_req_id; t.o_mem_resp_ready = io.out.mem_resp_ready;
++  t.o_dc_req_valid = io.out.dcache_req_valid; t.o_dc_req_addr = io.out.dcache_req_addr;
++  t.o_data_req_valid = io.out.lookup_data_req_valid; t.o_data_req_index = io.out.lookup_data_req_index;
++  t.o_data_req_way = io.out.lookup_data_req_way;
++  t.tw_we = io.table_write.we; t.tw_inv = io.table_write.invalidate_all; t.tw_index = io.table_write.index;
++  t.tw_way = io.table_write.way; t.tw_tag = io.table_write.tag; t.tw_valid = io.table_write.valid;
++  for (int w = 0; w < 16; ++w) t.tw_data[w] = io.table_write.data[w];
++}
++
+ void icache_fill_lookup_meta_input(icache_module_n::ICache_lookup_in_t &dst) {
+   dst = {};
+   dst.meta_resp_valid = g_lookup_table_resp.meta_resp_valid;
+@@ -276,6 +324,7 @@
+   ICacheTop *instance = get_icache_instance();
+   bind_icache_runtime(instance);
+   instance->setIO(in, out);
++  const uint32_t ic_tap_k = g_ttg_front_tap_on ? g_ttg_ic_tap.calls++ : 2u;
+ 
+   uint32_t lookup_pc = in->fetch_address;
+   if (icache.io.regs.req_valid_r) {
+@@ -311,9 +360,17 @@
+                       lookup_index,
+                       data_resp.valid && tag_resp.valid && valid_resp.valid);
+   cache_lookup_table_resp(data_resp, tag_resp, valid_resp, lookup_index);
++  if (ic_tap_k < 2u) {
++    FrontIcStep &t = g_ttg_ic_tap.step[ic_tap_k];
++    t.valid = true;
++    ic_tap_copy_regs(t.regs_before, icache.io.regs);
++    t.rd_en = data_read.enable; t.rd_index = lookup_index;
++  }
+   instance->comb();
++  if (ic_tap_k < 2u) ic_tap_snapshot_comb(g_ttg_ic_tap.step[ic_tap_k], icache);
+   update_icache_perf_counters(in, out);
+   instance->seq();
++  if (ic_tap_k < 2u) ic_tap_copy_regs(g_ttg_ic_tap.regs_end, icache.io.regs);
+   data_read.enable = icache.io.regs.lookup_pending_r;
+   tag_read.enable = data_read.enable;
+   valid_read.enable = data_read.enable;
+--- a/front-end/icache/icache_module.cpp
++++ b/front-end/icache/icache_module.cpp
+@@ -2,6 +2,7 @@
+ #include "include/ICacheCompactKernel.h"
+ #include "include/ICacheLookupMetaPackKernel.h"
+ #include "config.h"
++#include "../front_tap.h"
+ 
+ #ifndef CONFIG_QM3_ICACHE_USE_NATIVE_GENERATOR
+ #define CONFIG_QM3_ICACHE_USE_NATIVE_GENERATOR 0
+@@ -477,6 +478,13 @@
+   }
+ }
+ 
++} // namespace
++struct IcMetaDbg {
++  bool resp_valid = false, hit_valid = false, has_invalid = false, cmp_valid = false;
++  uint32_t hit_way = 0, first_invalid = 0, cmp_tag = 0;
++};
++IcMetaDbg g_ic_meta_dbg;
++namespace {
+ PackedLookupMetaInput decode_packed_lookup_input(const bool *pi,
+                                                  ICache_lookup_in_t &lookup) {
+   lookup = {};
+@@ -504,6 +512,16 @@
+   const LookupMetaCompareContext ctx = lookup_meta_compare_context(io);
+   encode_raw_lookup_meta_pack_input(meta_pi, io, ctx);
+   ICache::lookup_meta_pack_io_generator(meta_pi, meta_po);
++  if (g_ttg_front_tap_on) {
++    int b = 0;
++    g_ic_meta_dbg.resp_valid = meta_po[b++];
++    g_ic_meta_dbg.hit_valid = meta_po[b++];
++    g_ic_meta_dbg.hit_way = read_packed_uint(meta_po, b, ICache::kPackedWayWidth); b += ICache::kPackedWayWidth;
++    g_ic_meta_dbg.has_invalid = meta_po[b++];
++    g_ic_meta_dbg.first_invalid = read_packed_uint(meta_po, b, ICache::kPackedWayWidth);
++    g_ic_meta_dbg.cmp_valid = ctx.compare_valid;
++    g_ic_meta_dbg.cmp_tag = ctx.compare_tag;
++  }
+ 
+   int bit = 0;
+   for (int i = 0; i < ICache::kPackedLookupMetaWidth; i++) {
