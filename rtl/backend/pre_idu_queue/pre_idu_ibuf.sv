@@ -24,7 +24,6 @@ module pre_idu_ibuf import ttg_cfg_pkg::*; import pre_idu_pkg::*; (
   logic [IB_COUNT_W-1:0]  count_q;
   logic [IB_COUNT_W-1:0]  count_d;
   ib_entry_t              entry_q [IDU_INST_BUFFER_SIZE];
-  ib_entry_t              entry_d [IDU_INST_BUFFER_SIZE];
 
   logic [IB_IDX_W-1:0]    lane_slot [BACKEND_FETCH_WIDTH];  // slot each lane would write
   logic [BACKEND_FETCH_WIDTH-1:0] slot_hit [IDU_INST_BUFFER_SIZE];
@@ -52,7 +51,6 @@ module pre_idu_ibuf import ttg_cfg_pkg::*; import pre_idu_pkg::*; (
     head_d  = head_q;
     tail_d  = tail_q;
     count_d = count_q;
-    for (int j = 0; j < IDU_INST_BUFFER_SIZE; j++) entry_d[j] = slot_wr_en[j] ? slot_wr_data[j] : entry_q[j];
     if (clear) begin
       head_d  = '0;
       tail_d  = '0;
@@ -77,12 +75,18 @@ module pre_idu_ibuf import ttg_cfg_pkg::*; import pre_idu_pkg::*; (
       head_q  <= '0;
       tail_q  <= '0;
       count_q <= '0;
-      for (int j = 0; j < IDU_INST_BUFFER_SIZE; j++) entry_q[j] <= '0;
     end else begin
       head_q  <= head_d;
       tail_q  <= tail_d;
       count_q <= count_d;
-      for (int j = 0; j < IDU_INST_BUFFER_SIZE; j++) entry_q[j] <= entry_d[j];
+    end
+  end
+
+  // Entry storage is a memory: per-slot write enable (also written in a clear cycle, as the reference does); no reset:
+  // slots are only consumed while below count (count/head/tail are reset).
+  for (genvar j = 0; j < IDU_INST_BUFFER_SIZE; j++) begin : g_entry
+    always_ff @(posedge clk) begin
+      if (slot_wr_en[j]) entry_q[j] <= slot_wr_data[j];
     end
   end
 

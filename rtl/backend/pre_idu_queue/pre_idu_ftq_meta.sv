@@ -7,7 +7,6 @@
 // commit's own ftq_idx is identical on every reachable input.
 module pre_idu_ftq_meta import ttg_cfg_pkg::*; import pre_idu_pkg::*; (
   input  logic                        clk,
-  input  logic                        rst_n,
   input  logic                        wr_en,
   input  logic [FTQ_IDX_WIDTH-1:0]    wr_idx,
   input  ftq_meta_t                   wr_meta [BACKEND_FETCH_WIDTH],
@@ -17,31 +16,17 @@ module pre_idu_ftq_meta import ttg_cfg_pkg::*; import pre_idu_pkg::*; (
 );
 
   ftq_meta_t meta_q [FTQ_SIZE][BACKEND_FETCH_WIDTH];
-  ftq_meta_t meta_d [FTQ_SIZE][BACKEND_FETCH_WIDTH];
-
-  // Ref: comb_accept_front (ftq_train_meta_fifo_1[alloc_idx] = entry)
-  always_comb begin
-    for (int e = 0; e < FTQ_SIZE; e++) begin
-      for (int s = 0; s < BACKEND_FETCH_WIDTH; s++) begin
-        meta_d[e][s] = (wr_en && wr_idx == FTQ_IDX_WIDTH'(e)) ? wr_meta[s] : meta_q[e][s];
-      end
-    end
-  end
 
   // Ref: comb_commit_info
   always_comb begin
     for (int p = 0; p < COMMIT_WIDTH; p++) rd_meta[p] = meta_q[rd_idx[p]][rd_offset[p]];
   end
 
+  // Ref: comb_accept_front (ftq_train_meta_fifo_1[alloc_idx] = entry). Memory write; no reset: an entry is only read
+  // by the commit of an instruction that was allocated into it.
   always_ff @(posedge clk) begin
-    if (!rst_n) begin
-      for (int e = 0; e < FTQ_SIZE; e++) begin
-        for (int s = 0; s < BACKEND_FETCH_WIDTH; s++) meta_q[e][s] <= '0;
-      end
-    end else begin
-      for (int e = 0; e < FTQ_SIZE; e++) begin
-        for (int s = 0; s < BACKEND_FETCH_WIDTH; s++) meta_q[e][s] <= meta_d[e][s];
-      end
+    if (wr_en) begin
+      for (int s = 0; s < BACKEND_FETCH_WIDTH; s++) meta_q[wr_idx][s] <= wr_meta[s];
     end
   end
 
