@@ -31,6 +31,7 @@ module dcache_cover
   input  logic [NST-1:0]       s2st_valid,
   input  logic [1:0]           s2st_replay [NST],
   input  logic [NLD-1:0]       ld_lu,
+  input  logic [NLD-1:0]       ld_byp_and_hit,
   input  logic [NST-1:0]       st_pw,
   input  logic                 mshr_req_valid,
   input  logic                 mshr_resp_valid,
@@ -136,6 +137,9 @@ module dcache_cover
     wb_req_valid && wb_resp_valid);
   cover property (@(posedge clk) disable iff (!rst_n)
     fr_valid && phase0);
+  // a load that is both in the WriteBuffer and valid in the cache (the line cannot be in both)
+  cover property (@(posedge clk) disable iff (!rst_n)
+    |ld_byp_and_hit);
   // request denied because an earlier request owns its bank
   cover property (@(posedge clk) disable iff (!rst_n)
     req_bank_conflict);

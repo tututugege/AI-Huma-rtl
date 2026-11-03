@@ -26,7 +26,8 @@ module dcache_s2_ld
   output logic [NLD-1:0]       mreq_en,                 // allocate / request an MSHR entry
   output logic [NLD-1:0]       lu_en,                   // PLRU touch (cache hit)
   output logic [1:0]           lu_way      [NLD],
-  output logic [CNT_W-1:0]     alloc_cnt                // entries claimed by the loads (free-count chain)
+  output logic [CNT_W-1:0]     alloc_cnt,               // entries claimed by the loads (free-count chain)
+  output logic [NLD-1:0]       byp_and_hit              // coverage only: WB bypass and cache hit at once
 );
 
   logic [NLD-1:0] cand_alloc, alloc_ok;
@@ -61,6 +62,7 @@ module dcache_s2_ld
     assign used[i+1]     = used[i] + CNT_W'(alloc_ok[i]);
     assign mreq_en[i]    = alloc_ok[i];
     assign lu_en[i]      = normal && !byp_valid[i] && hit_any;
+    assign byp_and_hit[i] = normal && byp_valid[i] && hit_any;
 
     always_comb begin
       resp_valid[i]  = slot_valid[i] && !(slot_replayed[i] && retry_issue[i]);
@@ -86,6 +88,8 @@ module dcache_s2_ld
     end
   end
   assign alloc_cnt = used[NLD];
+
+
 
 endmodule
 `default_nettype wire

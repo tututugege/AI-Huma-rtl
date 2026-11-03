@@ -129,6 +129,7 @@ module dcache
   logic [31:0]          s2ld_data [NLD];
   logic [1:0]           s2ld_replay [NLD], ld_lu_way [NLD];
   logic [CNT_W-1:0]     ld_alloc_cnt;
+  logic [NLD-1:0]       ld_byp_and_hit;
   logic [NST-1:0]       st_mreq, st_pw, st_lu, st_mrg, s2st_valid;
   logic [1:0]           s2st_replay [NST], st_pw_way [NST];
   logic                 fill_valid, fill_dirty, fill_done, evict_valid;
@@ -176,7 +177,7 @@ module dcache
     .rd_valid(ld_rd_valid), .rd_tag(ld_rd_tag), .rd_data(ld_rd_data),
     .byp_valid(byp_hit), .byp_data(byp_data), .find_hit(mshr_find_hit[NLD-1:0]), .free_in(mshr_free),
     .resp_valid(s2ld_valid), .resp_data(s2ld_data), .resp_retry(s2ld_retry), .resp_replay(s2ld_replay),
-    .mreq_en(ld_mreq), .lu_en(ld_lu), .lu_way(ld_lu_way), .alloc_cnt(ld_alloc_cnt)
+    .mreq_en(ld_mreq), .lu_en(ld_lu), .lu_way(ld_lu_way), .alloc_cnt(ld_alloc_cnt), .byp_and_hit(ld_byp_and_hit)
   );
 
   dcache_s2_st u_st (
@@ -271,7 +272,8 @@ module dcache
     .byp_hit(byp_hit), .wb_mrg_ok(wb_mrg_ok), .wb_mrg_busy(wb_mrg_busy), .mshr_find_hit(mshr_find_hit),
     .ld_mreq(ld_mreq), .st_mreq(st_mreq), .st_mrg(st_mrg),
     .s2ld_valid(s2ld_valid), .s2ld_replay(s2ld_replay), .s2st_valid(s2st_valid), .s2st_replay(s2st_replay),
-    .ld_lu(ld_lu), .st_pw(st_pw), .mshr_req_valid(mshr_req_valid), .mshr_resp_valid(mshr_resp_valid),
+    .ld_lu(ld_lu), .ld_byp_and_hit(ld_byp_and_hit), .st_pw(st_pw), .mshr_req_valid(mshr_req_valid),
+    .mshr_resp_valid(mshr_resp_valid),
     .wb_req_valid(wb_req_valid), .wb_resp_valid(wb_resp_valid), .fr_valid(fr_valid)
   );
 `endif
