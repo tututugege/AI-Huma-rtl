@@ -50,6 +50,7 @@ module axi_llc_wport
   output logic cpend_s2,                       // after this tick's victim write-back response
   output logic cpend_d,
   output addr_t vaddr_cur,
+  output addr_t vaddr_d,                       // victim line of the pending write at the end of the tick
   output addr_t ctx_line,
   output logic [WQD:0] wl_vld_d,               // write-pending lines (queue entries + context), end of tick
   output logic [WQD:0][31:0] wl_line_d,
@@ -196,6 +197,7 @@ module axi_llc_wport
   // end-of-tick view for the hazard checks (depends on the stage-3 results)
   always_comb begin
     cpend_d = cpend_n;
+    vaddr_d = s3_cpend ? s3_vaddr : vaddr_r_q;
     for (int i = 0; i < WQD; i++) begin
       wl_vld_d[i] = vld_d[i];
       wl_line_d[i] = line_of((push_en && tail_q == QW'(i)) ? enq_addr : ent_q[i].addr);

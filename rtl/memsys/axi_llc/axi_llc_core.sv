@@ -92,7 +92,7 @@ module axi_llc_core
   logic [NW-1:0] acc_w, fill_blocked, launch_w;
   logic launch_any, bad_bypass;
   logic [$clog2(NW)-1:0] launch_idx;
-  logic [NW-1:0][31:0] wp_head, wp_commit_addr, wp_vaddr, wp_ctx_line, wp_resp_line, wp_l_addr;
+  logic [NW-1:0][31:0] wp_head, wp_commit_addr, wp_vaddr, wp_vaddr_d, wp_ctx_line, wp_resp_line, wp_l_addr;
   logic [NW-1:0][WB-1:0] wp_commit_way;
   logic [NW-1:0][511:0] wp_commit_line, wp_ctx_data;
   logic [NW-1:0][63:0] wp_ctx_strb;
@@ -140,7 +140,7 @@ module axi_llc_core
     vl_vld_cur = {ms_vh_cur, wp_cpend_q, v_vld_q};
     vl_addr_cur = {ms_vh_addr_q, wp_vaddr, v_addr_q};
     vl_vld_d = {ms_vh_d, wp_cpend_d, v_vld_d};
-    vl_addr_d = {ms_vh_addr_d, wp_vaddr, v_addr_d};
+    vl_addr_d = {ms_vh_addr_d, wp_vaddr_d, v_addr_d};
     fl_vld = {ms_vh_cur, wp_cpend_s2};
     fl_addr = {ms_vh_addr_q, wp_vaddr};
     for (int w = 0; w < NW; w++) begin
@@ -261,7 +261,8 @@ module axi_llc_core
       .s3_cdone(s3_cdone_w[w]), .s3_cpend(s3_cpend_w[w]), .s3_vaddr(rs_vict_addr), .s3_way(rs_way),
       .s3_line(wp_ctx_data[w]), .ctx_data(wp_ctx_data[w]), .ctx_strb(wp_ctx_strb[w]), .ctx_size(wp_ctx_size[w]),
       .rsv_set(set_of(lk_addr)), .rsv_line(line_of(lk_addr)), .rsv_mask(wp_rsv[w]),
-      .cpend_q(wp_cpend_q[w]), .cpend_s2(wp_cpend_s2[w]), .cpend_d(wp_cpend_d[w]), .vaddr_cur(wp_vaddr[w]),
+      .cpend_q(wp_cpend_q[w]), .cpend_s2(wp_cpend_s2[w]), .cpend_d(wp_cpend_d[w]),
+      .vaddr_cur(wp_vaddr[w]), .vaddr_d(wp_vaddr_d[w]),
       .ctx_line(wp_ctx_line[w]), .wl_vld_d(wp_wl_vld[w]), .wl_line_d(wp_wl_line[w]),
       .ctx_valid_q(wp_ctx_valid[w]), .resp_valid_q(wr_resp_valid[w]), .resp_id_q(wr_resp_id[w]),
       .resp_line_q(wp_resp_line[w])
