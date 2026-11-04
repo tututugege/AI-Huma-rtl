@@ -8,8 +8,6 @@ package lsu_pkg;
   localparam int SQ   = STQ_SIZE;
   localparam int LQW  = LDQ_IDX_WIDTH;
   localparam int SQW  = STQ_IDX_WIDTH;
-  localparam int LQCW = LQW + 1;
-  localparam int SQCW = SQW + 1;
   localparam int NLD  = LSU_LDU_COUNT;      // load units: DCache / MMU / write-back ports
   localparam int NST  = LSU_STA_COUNT;      // store units: DCache / MMU / STA write-back ports
   localparam int NSDU = LSU_SDU_COUNT;
@@ -38,9 +36,9 @@ package lsu_pkg;
     ST_COMMITTED, ST_WAIT_DCACHE_RESP, ST_WAIT_MMIO_RESP, ST_PAGE_FAULT, ST_DONE
   } st_state_t;
 
-  localparam logic [1:0] REPLAY_HIT = 2'd0, REPLAY_CONFLICT = 2'd1, REPLAY_MSHR_HIT = 2'd2, REPLAY_MSHR_FULL = 2'd3;
+  localparam logic [1:0] REPLAY_HIT = 2'd0, REPLAY_MSHR_HIT = 2'd2, REPLAY_MSHR_FULL = 2'd3;
   localparam logic [1:0] MMU_MISS = 2'd0, MMU_HIT = 2'd1, MMU_PAGE_FAULT = 2'd2;
-  localparam logic [4:0] INST_LOAD = 5'd5, INST_STORE = 5'd6, INST_AMO = 5'd18;
+  localparam logic [4:0] INST_STORE = 5'd6, INST_AMO = 5'd18;
   localparam logic [4:0] AMO_LR = 5'b00010, AMO_SC = 5'b00011;
   localparam logic [RWW-1:0] REPLAY_WAIT = RWW'(LSU_PEPLAY_WAIT_CYCLES);
 

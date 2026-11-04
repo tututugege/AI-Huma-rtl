@@ -29,7 +29,6 @@ package fpu_pkg;
   localparam int LAT_FADD = 5;
   localparam int LAT_FMUL = 3;
   localparam int LAT_FDIV = 10;
-  localparam int LAT_FCVT = 3;
   localparam int LAT_W    = 4;   // counter width: counts LAT-1 down to 0 (max 9)
 
   // ---- rounding mode: softfloat's view of func3 (rm=7 DYN is treated as RNE, 5 behaves as round-toward-zero) ----

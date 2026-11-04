@@ -15,7 +15,6 @@ package dis_pkg;
   localparam int IQ_BR = 4;
   localparam int IQ_PORTS = MAX_IQ_DISPATCH_WIDTH;          // request ports per IQ
   localparam int IQ_PORT_W = $clog2(IQ_PORTS);
-  localparam int IQ_DISPATCH_WIDTH = DECODE_WIDTH;          // GLOBAL_IQ_CONFIG[*].dispatch_width
   localparam int STQ_PORTS = MAX_STQ_DISPATCH_WIDTH;
   localparam int LDQ_PORTS = MAX_LDQ_DISPATCH_WIDTH;
   localparam int STQ_PORT_W = $clog2(STQ_PORTS);

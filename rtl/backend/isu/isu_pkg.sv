@@ -7,8 +7,6 @@ package isu_pkg;
   // ---- operation classes (base_types.h UopType) ------------------------------------------------
   localparam int OP_W = 5;                                  // UOP_TYPE_WIDTH
   localparam int OP_NUM = 18;                               // MAX_UOP_TYPE
-  localparam int UOP_LOAD = 3;
-  localparam int UOP_STA = 4;
   localparam int UOP_MUL = 14;
   localparam int UOP_DIV = 15;
   localparam int UOP_FP = 17;

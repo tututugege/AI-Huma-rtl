@@ -16,7 +16,6 @@ package exu_fu_pkg;
   // ---- AMO operations = funct7[6:2] (back-end/include/types.h namespace AmoOp) ----
   localparam int AMO_W = 5;
   localparam logic [AMO_W-1:0] AMO_ADD  = AMO_W'(5'b00000);
-  localparam logic [AMO_W-1:0] AMO_SWAP = AMO_W'(5'b00001);
   localparam logic [AMO_W-1:0] AMO_XOR  = AMO_W'(5'b00100);
   localparam logic [AMO_W-1:0] AMO_OR   = AMO_W'(5'b01000);
   localparam logic [AMO_W-1:0] AMO_AND  = AMO_W'(5'b01100);

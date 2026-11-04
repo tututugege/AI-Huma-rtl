@@ -10,7 +10,6 @@ package exu_ctrl_pkg;
   localparam int XC_OP_NUM = 18;     // MAX_UOP_TYPE
   localparam int XC_UOP_LOAD = 3;
   localparam int XC_UOP_STA = 4;
-  localparam int XC_UOP_STD = 5;
   localparam int XC_UOP_MUL = 14;
   localparam int XC_UOP_DIV = 15;
   localparam int XC_UOP_FP = 17;
@@ -28,7 +27,6 @@ package exu_ctrl_pkg;
   localparam int XC_K_CSR = 7;
   localparam int XC_K_FP  = 8;
   localparam int XC_KINDS = 9;
-  localparam int XC_PORT_MAX_FU = 3;          // most FUs on one issue port (port 0: MUL, ALU, CSR)
 
   function automatic xc_opset_t xc_kind_mask(int k);
     case (k)
