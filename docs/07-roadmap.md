@@ -56,3 +56,7 @@
 - 删除 SC-L / loop 预测元数据（恒 0，读出无人用）：`pred_meta_t` 去掉 loop_*/sc_*，PTAB、front2back FIFO、PreIduQueue 的存储与端口、
   `ftq_commit_info_resp_{sc,loop}_*`、`front2pre_{sc,loop}_*` 及其 spec；每条 FIFO/FTQ 条目少 1448 位（PTAB 16 + F2B 32 + PreIduQueue FTQ）。
 - 验证：lint 全绿；ptab/front2back_fifo/pre_idu_queue/front_top/back_top 62 个 smoke 程序锁步；pre_idu_queue 4 条随机 trace；闭环 65 个程序周期数相等。
+- 接口整理：边界数组尺寸改用配置参数（`tools/dimmap.py`）；1 位元素的通道数组改为打包向量（`tools/pack_bits.py`，281 个信号名；`iogen` 外壳按 RTL 声明方式连接）。
+  未改：`axi_llc`/`axi_interconnect`/`axi_subsys`/`mem_axi` 的端口仍是非压缩数组（与 LLC 重写并行，留待后续统一）；多位元素通道数组仍为非压缩维度。
+- LLC 硬件风格重写已合入（`rtl/memsys/axi_llc` 18 个文件，各单元自有寄存器，无整状态函数）；旁路写、部分行写 miss 仍未实现（断言保留），
+  随机流量（RAND_PWR=1/RAND_PARTIAL=1）分别在 tick 339 / 42 触发断言。模块级 AXI 锁步需要带 axi 钩子的 refsim 副本（`/Users/ruyaoh/personal/rtl-wt/llc2_refsim`，由 `docs/analysis/axi-record-hook.patch` 应用得到）。
