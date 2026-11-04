@@ -7,7 +7,7 @@ REF=${REFSIM:-$ROOT/refsim_tap}
 N=$1; shift
 INC=()
 for d in include libs/include back-end/include back-end/Exu/include back-end/Lsu/include back-end/tools/include \
-         MemSubSystem/include diff/include GenSimpoint/include/api legacy/mmu/include front-end \
+         MemSubSystem/include diff/include function-model/include/api legacy/mmu/include front-end \
          axi-interconnect-kit/include axi-interconnect-kit/axi_interconnect/include \
          axi-interconnect-kit/sim_ddr/include axi-interconnect-kit/mmio/include; do INC+=("-I$REF/$d"); done
 python3 harness/tools/iogen.py spec/bpu.io build/bpu >/dev/null

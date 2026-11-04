@@ -8,7 +8,7 @@ N=${1:-200000}; [ $# -gt 0 ] && shift
 SEEDS=${@:-1 2 3 4}
 INC=()
 for d in include libs/include back-end/include back-end/Exu/include back-end/Lsu/include back-end/tools/include MemSubSystem/include diff/include \
-         GenSimpoint/include/api legacy/mmu/include front-end front-end/icache axi-interconnect-kit/include axi-interconnect-kit/axi_interconnect/include \
+         function-model/include/api legacy/mmu/include front-end front-end/icache axi-interconnect-kit/include axi-interconnect-kit/axi_interconnect/include \
          axi-interconnect-kit/sim_ddr/include axi-interconnect-kit/mmio/include; do INC+=("-I$REF/$d"); done
 python3 harness/tools/iogen.py spec/icache.io build/icache >/dev/null
 OUT=build/icache/gen; mkdir -p $OUT

@@ -5,7 +5,7 @@ ROOT=$(cd "$(dirname "$0")/../.." && pwd); cd "$ROOT"
 REF=${REFSIM:-$ROOT/refsim}
 N=${1:-2000000}; SEED=${2:-1}
 D=build/fpu_compute; mkdir -p $D
-INC=(); for d in include libs/include back-end/include back-end/Exu/include back-end/Lsu/include back-end/tools/include MemSubSystem/include diff/include GenSimpoint/include/api legacy/mmu/include front-end; do INC+=("-I$REF/$d"); done
+INC=(); for d in include libs/include back-end/include back-end/Exu/include back-end/Lsu/include back-end/tools/include MemSubSystem/include diff/include function-model/include/api legacy/mmu/include front-end; do INC+=("-I$REF/$d"); done
 FILES=(); while IFS= read -r f; do FILES+=("$f"); done < <(bash scripts/rtl_files.sh . | grep -E "rtl/common|rtl/backend/fpu/")
 verilator --cc --exe --build -j 4 -Wno-fatal --x-assign 0 --x-initial 0 -Mdir $D/obj --top-module fpu_exec_tb -o tb \
   -CFLAGS "-O1 -std=c++2a -w ${INC[*]} -Itests/fpu" -LDFLAGS "$REF/libs/softfloat.a" \

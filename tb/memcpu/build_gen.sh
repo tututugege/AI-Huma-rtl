@@ -8,7 +8,7 @@ ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 MOD=$1
 REF=${REFSIM:?set REFSIM}
 INC=()
-for d in include libs/include back-end/include back-end/Exu/include back-end/Lsu/include back-end/tools/include MemSubSystem/include diff/include GenSimpoint/include/api legacy/mmu/include front-end axi-interconnect-kit/include axi-interconnect-kit/axi_interconnect/include axi-interconnect-kit/sim_ddr/include axi-interconnect-kit/mmio/include; do INC+=("-I$REF/$d"); done
+for d in include libs/include back-end/include back-end/Exu/include back-end/Lsu/include back-end/tools/include MemSubSystem/include diff/include function-model/include/api legacy/mmu/include front-end axi-interconnect-kit/include axi-interconnect-kit/axi_interconnect/include axi-interconnect-kit/sim_ddr/include axi-interconnect-kit/mmio/include; do INC+=("-I$REF/$d"); done
 B=$ROOT/build/gen_$MOD; mkdir -p "$B"
 case $MOD in
   mem_route)      DEF=MOD_ROUTE; SRC=("$REF/MemSubSystem/MemRouteBlock.cpp"); CYC=60000;;

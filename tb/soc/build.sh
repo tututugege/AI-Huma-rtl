@@ -10,7 +10,7 @@ VOPT=${SOC_VOPT:-}   # extra verilator options, e.g. -O3
 COPT=${SOC_COPT:--O2}   # C++ optimisation flags
 INC=""
 for d in include libs/include back-end back-end/include axi-interconnect-kit/include axi-interconnect-kit/sim_ddr/include \
-         axi-interconnect-kit/axi_interconnect/include axi-interconnect-kit/mmio/include MemSubSystem/include diff/include front-end back-end/Exu/include back-end/Lsu/include back-end/tools/include GenSimpoint/include/api legacy/mmu/include; do INC="$INC -I$REF/$d"; done
+         axi-interconnect-kit/axi_interconnect/include axi-interconnect-kit/mmio/include MemSubSystem/include diff/include front-end back-end/Exu/include back-end/Lsu/include back-end/tools/include function-model/include/api legacy/mmu/include; do INC="$INC -I$REF/$d"; done
 FILES=(); while IFS= read -r f; do FILES+=("$ROOT/$f"); done < <(bash "$ROOT/scripts/rtl_files.sh" "$ROOT")
 python3 "$ROOT/tools/gen_soc_probe.py" >/dev/null
 cd "$OUT"

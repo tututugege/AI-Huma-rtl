@@ -19,7 +19,7 @@ DECL = re.compile(r'^\s*constexpr\s+(?:int|unsigned|uint32_t|uint64_t|int32_t|in
                   r'([A-Z][A-Z0-9_]*)\s*=', re.M)
 
 INC_DIRS = ['include', 'libs/include', 'back-end/include', 'back-end/Exu/include', 'back-end/Lsu/include',
-            'back-end/tools/include', 'MemSubSystem/include', 'diff/include', 'GenSimpoint/include/api',
+            'back-end/tools/include', 'MemSubSystem/include', 'diff/include', 'function-model/include/api',
             'front-end', 'front-end/config', 'axi-interconnect-kit/include',
             'axi-interconnect-kit/axi_interconnect/include', 'axi-interconnect-kit/sim_ddr/include',
             'axi-interconnect-kit/mmio/include']
