@@ -28,7 +28,7 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
   input  logic [31:0]         target     [NCOMMIT],
   input  logic [NCOMMIT-1:0] pred_dir,
   input  logic [NCOMMIT-1:0] alt_pred,
-  input  logic [PCPN_W-1:0]   pcpn       [NCOMMIT],
+  input  logic [front_pkg::PCPN_W-1:0]   pcpn       [NCOMMIT],
   input  logic [T_TAG_W-1:0]  tags       [NCOMMIT][TN],
   input  logic [T_IDX_W-1:0]  idxs       [NCOMMIT][TN],
   // instruction queue head (predecoded group)
@@ -55,8 +55,8 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
   output logic [FETCH_WIDTH-1:0] out_predict_dir,
   output logic [31:0]         out_pc              [FETCH_WIDTH],
   output logic [FETCH_WIDTH-1:0] out_alt_pred,
-  output logic [PCPN_W-1:0]   out_altpcpn         [FETCH_WIDTH],
-  output logic [PCPN_W-1:0]   out_pcpn            [FETCH_WIDTH],
+  output logic [front_pkg::PCPN_W-1:0]   out_altpcpn         [FETCH_WIDTH],
+  output logic [front_pkg::PCPN_W-1:0]   out_pcpn            [FETCH_WIDTH],
   output logic [TAGE_IDX_W-1:0] out_tage_idx      [FETCH_WIDTH][TN_MAX],
   output logic [TAGE_TAG_W-1:0] out_tage_tag      [FETCH_WIDTH][TN_MAX],
   output logic [31:0]         out_predict_next_fetch_address
@@ -66,8 +66,8 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
   logic [31:0]         bpu_predict_next_fetch_address;
   logic [FETCH_WIDTH-1:0] bpu_pred_dir;
   logic [FETCH_WIDTH-1:0] bpu_alt_pred;
-  logic [PCPN_W-1:0]   bpu_pcpn     [FETCH_WIDTH];
-  logic [PCPN_W-1:0]   bpu_altpcpn  [FETCH_WIDTH];
+  logic [front_pkg::PCPN_W-1:0]   bpu_pcpn     [FETCH_WIDTH];
+  logic [front_pkg::PCPN_W-1:0]   bpu_altpcpn  [FETCH_WIDTH];
   logic [T_TAG_W-1:0]  bpu_tage_tags [FETCH_WIDTH][TN];
   logic [T_IDX_W-1:0]  bpu_tage_idxs [FETCH_WIDTH][TN];
 
@@ -94,8 +94,8 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
   logic [FETCH_WIDTH-1:0] ptab_rd_predict_dir;
   logic [31:0]         ptab_rd_predict_base_pc;
   logic [FETCH_WIDTH-1:0] ptab_rd_alt_pred;
-  logic [PCPN_W-1:0]   ptab_rd_altpcpn  [FETCH_WIDTH];
-  logic [PCPN_W-1:0]   ptab_rd_pcpn     [FETCH_WIDTH];
+  logic [front_pkg::PCPN_W-1:0]   ptab_rd_altpcpn  [FETCH_WIDTH];
+  logic [front_pkg::PCPN_W-1:0]   ptab_rd_pcpn     [FETCH_WIDTH];
   logic [TAGE_IDX_W-1:0] ptab_rd_tage_idx [FETCH_WIDTH][TN_MAX];
   logic [TAGE_TAG_W-1:0] ptab_rd_tage_tag [FETCH_WIDTH][TN_MAX];
 
@@ -154,8 +154,8 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
   logic [FETCH_WIDTH-1:0] f2b_rd_predict_dir_corrected;
   logic [31:0] f2b_rd_predict_base_pc;
   logic [FETCH_WIDTH-1:0] f2b_rd_alt_pred;
-  logic [PCPN_W-1:0] f2b_rd_altpcpn [FETCH_WIDTH];
-  logic [PCPN_W-1:0] f2b_rd_pcpn [FETCH_WIDTH];
+  logic [front_pkg::PCPN_W-1:0] f2b_rd_altpcpn [FETCH_WIDTH];
+  logic [front_pkg::PCPN_W-1:0] f2b_rd_pcpn [FETCH_WIDTH];
   logic [TAGE_IDX_W-1:0] f2b_rd_tage_idx [FETCH_WIDTH][TN_MAX];
   logic [TAGE_TAG_W-1:0] f2b_rd_tage_tag [FETCH_WIDTH][TN_MAX];
   logic [31:0] f2b_rd_predict_next_fetch_address_corrected;

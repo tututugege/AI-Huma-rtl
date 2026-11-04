@@ -72,8 +72,8 @@ module core_front import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*;
   output logic [31:0] front2pre_pc [BACKEND_FETCH_WIDTH],
   output logic [BACKEND_FETCH_WIDTH-1:0] front2pre_predict_dir,
   output logic [BACKEND_FETCH_WIDTH-1:0] front2pre_alt_pred,
-  output logic [PCPN_W-1:0]     front2pre_altpcpn [BACKEND_FETCH_WIDTH],
-  output logic [PCPN_W-1:0]     front2pre_pcpn [BACKEND_FETCH_WIDTH],
+  output logic [front_pkg::PCPN_W-1:0]     front2pre_altpcpn [BACKEND_FETCH_WIDTH],
+  output logic [front_pkg::PCPN_W-1:0]     front2pre_pcpn [BACKEND_FETCH_WIDTH],
   output logic [TAGE_IDX_W-1:0] front2pre_tage_idx [BACKEND_FETCH_WIDTH][TN_MAX],
   output logic [TAGE_TAG_W-1:0] front2pre_tage_tag [BACKEND_FETCH_WIDTH][TN_MAX],
   output logic [31:0] front2pre_predict_next_fetch_address
@@ -144,8 +144,8 @@ module core_front import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*;
   logic [FETCH_WIDTH-1:0] fe_predict_dir;
   logic [31:0] fe_pc              [FETCH_WIDTH];
   logic [FETCH_WIDTH-1:0] fe_alt_pred;
-  logic [PCPN_W-1:0]     fe_altpcpn [FETCH_WIDTH];
-  logic [PCPN_W-1:0]     fe_pcpn    [FETCH_WIDTH];
+  logic [front_pkg::PCPN_W-1:0]     fe_altpcpn [FETCH_WIDTH];
+  logic [front_pkg::PCPN_W-1:0]     fe_pcpn    [FETCH_WIDTH];
   logic [TAGE_IDX_W-1:0] fe_tage_idx [FETCH_WIDTH][TN_MAX];
   logic [TAGE_TAG_W-1:0] fe_tage_tag [FETCH_WIDTH][TN_MAX];
   logic [31:0] fe_predict_next_fetch_address;
