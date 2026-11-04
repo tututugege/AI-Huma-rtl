@@ -188,7 +188,7 @@ int main(int argc, char **argv) {
     size_t o, s;
     while (mf >> o >> s) skipmask.push_back({o, s});
     const auto *base = reinterpret_cast<const uint8_t *>(top->rootp);
-    skipmask.push_back({size_t(reinterpret_cast<const uint8_t *>(&top->rootp->soc_top__DOT__u_mem__DOT__phase_q) - base), 1});
+    skipmask.push_back({size_t(reinterpret_cast<const uint8_t *>(&top->rootp->soc_top__DOT__u_mem__DOT__phase_q) - base), 1});   // the tick counter differs by construction
     std::sort(skipmask.begin(), skipmask.end());
   }
   std::vector<std::pair<size_t, size_t>> keep;   // complement: the bytes snapshotted and compared
@@ -324,7 +324,10 @@ long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
         bool same = true;
         for (const auto &k : keep)
           if (std::memcmp(snap.data() + k.first, reinterpret_cast<const uint8_t *>(top->rootp) + k.first, k.second)) { same = false; break; }
-        if (same) { top->tb_phase_jump = 1; skip_request = true; }   // this tick's edge loads phase 15; ticks 4..14 are skipped
+        if (same) {   // ticks 4..14 are skipped: this tick's edge must load phase 15 (state is a fixed point, so the edge is otherwise a no-op)
+          top->rootp->soc_top__DOT__u_mem__DOT__phase_q = 14;
+          skip_request = true;
+        }
       }
     }
     ddr.seq();
@@ -357,7 +360,7 @@ long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
   top->interrupt_inject_external_irq_pending = 0; top->interrupt_inject_external_irq_pending_valid = 1;
   top->interrupt_inject_supervisor_external_irq_pending = 0; top->interrupt_inject_supervisor_external_irq_pending_valid = 1;
   top->interrupt_inject_timer_irq_pending = 0; top->interrupt_inject_timer_irq_pending_valid = 1;
-  top->env_region = 0; top->env_rdata = 0; top->tb_phase_jump = 0;
+  top->env_region = 0; top->env_rdata = 0;
   top->interrupt_inject_external_irq_pending = irq.external_irq_pending; top->interrupt_inject_external_irq_pending_valid = irq.external_irq_pending_valid;
   top->interrupt_inject_supervisor_external_irq_pending = irq.supervisor_external_irq_pending; top->interrupt_inject_supervisor_external_irq_pending_valid = irq.supervisor_external_irq_pending_valid;
   top->interrupt_inject_timer_irq_pending = irq.timer_irq_pending; top->interrupt_inject_timer_irq_pending_valid = irq.timer_irq_pending_valid;
@@ -374,7 +377,7 @@ long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
       prof_ns[p] += std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - t0).count(); ++prof_n[p];
       if (p == 0 && done) break;
       if (skip_request) {   // tick 3 ran with the phase jump armed: its edge loaded phase 15
-        skip_request = false; top->tb_phase_jump = 0; p = 14; ++skipped_cycles;
+        skip_request = false; p = 14; ++skipped_cycles;
       }
     }
     ++cycles;

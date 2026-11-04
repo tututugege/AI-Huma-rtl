@@ -15,8 +15,6 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
   input  logic clk,
   input  logic rst_n,
   output logic phase0,
-  // simulation hook (tie 0 in a chip): the next tick edge loads phase 15, used to skip provably idle ticks
-  input  logic tb_phase_jump,
   // ---- core -> memory: ICache AXI read master / DCache probe / TLB walk clients / LSU ports / peripheral ----
   input  logic mem_req_valid,
   input  logic [31:0] mem_req_addr,
@@ -126,10 +124,9 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
   localparam int NST_ = LSU_STA_COUNT;
 
   // ---- tick phase: 0 = the CPU tick, 15 = the last one of the cycle ----
-  logic [3:0] phase_q /*verilator public_flat_rd*/;
+  logic [3:0] phase_q;
   always_ff @(posedge clk) begin
     if (!rst_n) phase_q <= 4'd0;
-    else if (tb_phase_jump) phase_q <= 4'd15;
     else        phase_q <= phase_q + 4'd1;
   end
   assign phase0 = (phase_q == 4'd0);
