@@ -9,7 +9,7 @@ The C++ calls `llc.comb()` twice per tick (comb_outputs: ext_in with `read_resp.
 `reg_write = regs`, so only the **final** call defines the next state. Measured over 23.8 M ticks (68 programs, incl. CPU cycle 1 after the tap was armed before the first cycle): ext_out of both calls is
 identical in every tick (an earlier tap version that armed itself only at the end of cycle 1 showed a spurious 16-tick difference per program). The RTL implements the final
 call only: inputs `llc_in2` (ext_in) -> outputs `llc_out2`; `ext_out.mem.read_resp_ready/write_resp_ready` are constant 1 and are not ports.
-Outputs `up_rd_resp_*`, `up_wr_resp_*` are plain functions of the registers; `up_*_req_ready` and `mem_*_req_*` come out of the stage chain.
+Outputs `up_rd_resp_*`, `up_wr_resp_*` are plain functions of the registers; `up_*_req_ready` and `mem_*_req_*` come out of the unit chain of section 3.
 `hz_*` = registers the interconnect reads directly for its hazard / id-conflict checks (state before the tick's seq).
 
 ## 2. Dead / constant paths (evidence: gcov over 68 programs x {4 MiB, 32 KiB/16w, 8 KiB/4w, 16 KiB/2w}, stat plugin)
@@ -17,24 +17,61 @@ Not implemented (assertions in the RTL flag them if they ever occur): prefetch (
 mode2 (mode=1), noalloc, MMIO, epoch/stale refill (epoch never changes), bypass **writes** (peripheral write master never active: `b_wr_valid_m1`=0
 in all runs), partial-line write miss (DCache writes are always 64 B full strobe: `mshr_is_write`=0), victim owner-slot write-response branches
 (`victim_wb_mshr_slot` is always INVALID when the response arrives), read-resp-queue pop-on-idle (C++ 1358), try_commit loop at C++ 1604, perf, debug,
-`dirty_line_count`, `mem_issue_cycle`. Depths: read_resp_q (C++ 32) observed max 1 -> 2; write_q observed 0 at tick end -> 2; read_victim_wb_q max 2 -> 4.
+`dirty_line_count`, `mem_issue_cycle`. Depths: read_resp_q (C++ 32) observed max 1 -> 2; write_q observed 0 at tick end -> 2; read_victim_wb_q max 2 (programs) / 7 (random traffic) -> 8.
 
-## 3. Units and the stage chain
-The seven C++ stages mix reads of `io.regs` (old) and `io.reg_write` (new). They are kept as seven combinational stage modules chained on one
-`ch_t` (new state + table op + outputs); every stage also receives the old state `r`. Which version each stage reads:
+## 3. Units and the tick flow
+There is no global state record.  Each hardware unit owns its registers (`_q` registers, `_d` next-state wires, storage arrays written under
+an enable) and talks to the others through narrow typed signals.  `axi_llc.sv` only adapts the spec ports (unpacked arrays) to packed vectors;
+`axi_llc_core.sv` instantiates the units and is pure wiring plus the table-write select and the hazard lists.
 
-| stage (C++) | reads old `r` | reads chain `n` (earlier stages of this tick) |
+| unit (file) | instances | state | role |
+| --- | --- | --- | --- |
+| `axi_llc_rq` | 4 (one per read master) | 3-entry shift FIFO (response register = entry 0), fresh flag | read responses leave; up to 3 producers per tick, accepted in priority order (0 lookup hit, 1 bypass memory response, 2 MSHR completion) |
+| `axi_llc_wport` | 2 (one per write master) | request queue (2 entries, valid bits + pointers, passthrough when empty), write context (`valid lpend cpend cdone`, id/size/addr/data/strb, victim way/addr/merged line), response register | write request -> context -> lookup -> optional victim wait -> table write -> response |
+| `axi_llc_wsched` | 1 | `rr_write` | accept one write per tick, launch pick, victim hazard of the queue fronts |
+| `axi_llc_victim` | 1 | write-back slot (`valid issued forw wm owner addr data`), read-victim queue (8 entries, valid bits, head/tail, addr/data memory) | one write-back at a time towards memory; parks dirty victims |
+| `axi_llc_mshr` + `axi_llc_mshr_ent` | 1 + 8 | per entry `valid bypass issued rvalid rcomm vdirty`, addr/way/size/master/id, victim snapshot, refill data | miss table, free / issue / refill picks, memory read response |
+| `axi_llc_lookup` | 1 | `valid issued is_write bypass`, addr/size/master/id | the single lookup in flight |
+| `axi_llc_resolve` | 1 | none (combinational) | stage 3: hit/miss, way pick, which unit gets which request |
+| `axi_llc_refill` | 1 | none | stage 4c: park victim, refill write, answer, free |
+| `axi_llc_rdacc` | 1 | `rr_read` | read accept (conflict checks) and table-read issue |
+| `axi_llc_tables` | 1 | data / tag / dirty / valid / repl arrays, 3-stage read index | the SRAM tables (section 4) |
+| `axi_llc_waypick`, `axi_llc_merge`, `axi_llc_rrpick`, `axi_llc_linecam` | | none | way selection with reservations, write merge, rotating-priority arbiter (all `for off in 0..N-1` scans), line-address CAM (all `find_*`/`*_pending` scans) |
+
+One tick, in the order the C++ evaluates it.  Every decision only sees what the earlier steps of the same tick produced; that dependency is
+expressed as dataflow between the units (no unit has a whole-state input).  Which version of a register each reader looks at:
+
+| step (C++) | decision | reads |
 | --- | --- | --- |
-| s1 drive_read_responses | resp regs/queue | - |
-| s2 drive_write_path | resp regs, victim_wb, read_victim queue (head/count/entry), rr_write, write_q fullness | write_ctx, write_q, resp regs, victim_wb, lookup (launch) |
-| s3 try_complete_lookup | lookup regs, mshr (merge/free/way reservation), write_ctx (way reservation) | table-busy (s2), read-resp regs (enqueue), write_ctx, victim_wb |
-| s4 drive_mem_read_path | mshr (find id, issue pick, commit pick), write_ctx/lookup (victim waits) | mshr (s3 may have allocated / changed victim fields), victim_wb, rvq, resp regs, table-busy |
-| s5 try_launch_pending_write_lookup | - | lookup, write_ctx, rr_write |
-| s6 accept_new_requests | resp regs (start-of-tick) | lookup, resp regs, write_ctx, victim_wb/rvq, mshr |
-| s7 drive_lookup_request | lookup valid/issued | lookup, victim_wb/rvq, write_ctx, mshr, table-busy |
+| 1 `drive_read_responses` | pop of the response register | `rq` regs, `up_rd_resp_ready` |
+| 2 `drive_write_path` | write-back response -> context commit + table write; load next victim; issue; accept a write; queue front -> context | victim regs, **start-of-tick** hazard lists (accept), lists after the response / commit (fill); `rr_write` |
+| 3 `try_complete_lookup` | `axi_llc_resolve` | **old** lookup regs, old MSHR / write-context state (way reservation, free entry, line in flight), the table row, `busy2` (table written by step 2), `victim busy` after step 2, response queue room |
+| 4 `drive_mem_read_path` | (a) memory response (b) memory read issue (c) refill | old MSHR (picks), MSHR fields **after** step 3 (victim snapshot), victim slot after step 3, response queue room, `busy3` (table written by step 2 or 3) |
+| 5 launch / accept / issue | write launch, read accept, table read issue | **end-of-tick** (`_d`) lists of every unit |
 
-C++ quirk reproduced on purpose: after a write response pops the read-victim queue head (s2), the "load next victim" step reads the **old**
-count/head again, so the same victim is issued a second time (C++ 1526-1537 vs 1626-1640).
+The C++ launches a write lookup twice (steps 2 and 5); the RTL has one launch point (after step 3): the candidate set and the "engine free"
+condition of the two calls are identical, step 2 only differs by being skipped while the victim slot is busy, and the later call then does the
+launch.  Fills of the two write contexts are independent of each other, so their C++ order is not reproduced.
+
+Hazard lists (`axi_llc_core`): victim holders = write-back slot, queue entries, write contexts waiting for their victim, MSHRs whose refill data
+arrived and whose dirty snapshot is not yet written (`vl_*`, three versions: start of tick for the write accept, after step 2 for the fill, end of
+tick for read accept / table read issue); MSHR lines (`ml_*`, start and end of tick); pending writes (`wl_d`: queue entries and contexts not yet
+updated in the table).  Every list is compared with `axi_llc_linecam`.
+
+### Simplifications against the C++ (all unobservable at the boundary)
+* `victim_writeback_done`/`vdone` of an MSHR is always `!vdirty` (set that way at allocation and cleared together with `vdirty` by a write hit): dropped.
+  `vmdone` of a write context is set and consumed in the same tick (the first table write of a tick is the victim commit, so it is never busy): dropped.
+  `vdirty` of a write context is always equal to `cpend`: dropped.  Write response code is always OKAY.
+* Read-victim queue entries have no owner field and no duplicate check: a snapshot that is already parked is never parked again (`park_needed`).
+  Queue entries are valid exactly in the head/count window, so the per-entry valid flag is the window.
+* `vaddr != 0` guards of the C++ (address 0 = "no victim"): not reproduced; DDR starts at 0x80000000, no dirty line at address 0 exists.
+  MSHR victim snapshots are recorded only for non-bypass entries (the C++ keeps them for bypass entries but never reads them).
+* The merged line of a full-line write miss is the write data itself (the C++ merges into a zero line; partial strobes assert `bad`).
+* Read-response FIFO: the C++ keeps a response register and a 32-deep queue; one FIFO of three entries is the same observable behaviour (max depth
+  seen 2; an assertion fires at more than RQD=2 entries).
+* Reset: control bits and pointers only.  Payload registers and the table arrays are not reset (all their readers are qualified by a valid bit /
+  `when` in the spec); the valid array powers up as 0 as before.
+* Call structure: the C++ evaluates `comb()` twice and runs `try_launch_pending_write_lookup` twice; the RTL evaluates the function of one tick once.
 
 ## 4. Tables (`axi_llc_tables.sv`)
 data[sets][ways] x 64 B, meta[sets][ways] = {tag, dirty}, valid[sets] x ways bits, repl[sets] next-way. Writes at the end of the tick; one op per tick
@@ -43,44 +80,35 @@ data[sets][ways] x 64 B, meta[sets][ways] = {tag, dirty}, valid[sets] x ways bit
 with small LLCs (stat: 27 ticks over 3 programs at 32 KiB) and are modelled automatically by this structure.
 
 ## 5. Verification (all with `scripts/lockstep_ticks_axi.sh axi_llc`, module-level, every tick compared, spec/axi_llc.io)
-Driver: `tests/axi_llc/run_all.sh` (68 programs = 61 gate tests + 4 vm + dhrystone + coremark + float_test; cap 300000 CPU cycles; RTL geometry
-macros must match the reference's `TTG_LLC_KB/TTG_LLC_WAYS`). `--assert` is on in every run (the `bad` assertion in `axi_llc.sv` flags any
-C++ path of section 2 that the RTL does not implement).
+Reference tree: `baseline-sim` copy patched with `memsys-record-hook.patch` + `axi-record-hook.patch` (`docs/analysis/axi-record-hook.md`); the axi patch
+applied cleanly to the shared `refsim_tap` copy.  `--assert` is on in every run (the clocked assertions of `axi_llc_core`, `axi_llc_rq`, `axi_llc_victim`
+flag any C++ path of section 2 that the RTL does not implement and the queue-depth bounds).  `bash scripts/lint.sh rtl/memsys/axi_llc` is clean
+(svlint S1-S12 + `verilator -Wall`).
 
-| geometry (ref = RTL) | programs | result |
-| --- | --- | --- |
-| 4 MiB, 4096 sets x 16 ways (default) | 68, cap 300000 cycles | 68 / 68 PASS (run_all prints 67: float_test's own stdout contains the word `Error`, its LOCKSTEP PASS line was checked by hand) |
-| 32 KiB, 32 sets x 16 ways (`TTG_LLC_KB=32 TTG_LLC_WAYS=16`) | 12 (see below), cap 150000 | 12 / 12 PASS |
-| 8 KiB, 32 sets x 4 ways (`TTG_LLC_KB=8 TTG_LLC_WAYS=4`) | same 12 | 12 / 12 PASS |
-| 16 KiB, 128 sets x 2 ways (`TTG_LLC_KB=16 TTG_LLC_WAYS=2`) | same 12 | 12 / 12 PASS |
-The 12: dcache-conflict-writeback, dcache-mshr-pressure, memory-stress-small, memory-stress, bubble-sort, quick-sort, matrix-mul, crc32, shuixianhua,
-vm_pagefault_test, coremark, dhrystone.  The small geometries exercise dirty victims of read misses (global write-back slot, queue, the duplicate
-re-issue quirk), write misses with victim write-back (`write_ctx_victim_dirty` 48-73 k ticks), write hits on lines chosen as victims of in-flight
-refills, and same-set table writes inside the 3-tick lookup window (`write_same_set_in_window_age2/3` 21-53 ticks).
-Measured maxima (stat plugin, 12 programs x 3 small geometries, plus the 68-program 4 MiB run): read_resp_q count 1 (RQD=2), read_victim_wb_q 2 in the 68 programs (VQD raised from 4 to 8 after random traffic reached 7, see 5.2),
-write_q 0 at tick end (WQD=2), r_pending 8, MSHR in use 8, `drop_resp_credit` 0, lookup delivery latency always 3 (65752+65864+97661 deliveries).
+Rewrite (hardware-style units, this note), run on the rewritten RTL:
+| check | result |
+| --- | --- |
+| `scripts/progs_smoke.txt` (62 programs, 4 MiB / 16 way default geometry, cap 60000 CPU cycles, `tests/axi_llc/run_all.sh`) | 62 / 62 PASS |
+| dcache-conflict-writeback, dcache-mshr-pressure, memory-stress-small, bubble-sort, quick-sort, crc32 at 32 KiB/16w, 8 KiB/4w, 16 KiB/2w (cap 150000) | 6 / 6 PASS in each of the 3 geometries |
+| random traffic `rand_run.sh axi_llc <seed> 30000`, seeds 1-4 x {32 KiB/16w, 8 KiB/4w, 16 KiB/2w}, `RAND_PWR=0 RAND_PARTIAL=0` | 12 / 12 PASS |
+| whole SoC closed loop (`bash tb/soc/build.sh`, `JOBS=3 bash scripts/soc_smoke.sh 3000`, `MINC=3001 ... 250000`) | 50 / 50 and 15 / 15 PASS |
+| random traffic, extra seeds 5-8 x the same 3 geometries | 12 / 12 PASS |
+| mutants (`tests/axi_llc/mut_llc.py`, rewritten patterns), 7 run on dcache-conflict-writeback + memory-stress-small, 32 KiB/16w | 1, 2, 5, 6, 7, 12 killed; the first formulation of 7 (pop ignores `fresh`) survived on those 2 programs and was replaced by "fresh never set" (killed at tick 148) |
 
-### Mutants (one build holds all; `tests/axi_llc/mut_llc.py`, selector TTG_MUT=K through DPI)
-Run first on 5 programs at 32 KiB/16w x 150000 cycles; survivors re-run on the 12 programs.
-| # | mutation | result |
-| --- | --- | --- |
-| 1 | replacement pointer never advances (`next_way`) | killed (dcache-conflict-writeback, tick 1655: up_rd_req_ready) |
-| 2 | write hit does not set dirty | killed (memory-stress-small: mem_wr_req_valid) |
-| 3 | refill installed dirty | killed (dcache-conflict-writeback: mem_wr_req_valid) |
-| 4 | read-miss victim dirtiness dropped | killed (memory-stress-small: mem_wr_req_valid) |
-| 5 | victim_line_pending ignores the global victim slot | killed (memory-stress-small: up_wr_req_ready) |
-| 6 | read-victim-queue reload uses the new count (kills the duplicate-issue quirk) | killed (memory-stress-small: up_wr_req_ready) |
-| 7 | read-response `fresh` flag ignored | killed (dcache-conflict-writeback tick 149: hz_rresp_fresh) |
-| 8 | table delivery after 2 ticks | killed (tick 85: mem_rd_req_valid) |
-| 9 | write miss never prefers an invalid way | killed (dcache-conflict-writeback: mem_wr_req_valid) |
-| 10 | refill-way reservation also keeps committed refills | survived at 32x16 (12 programs), killed at 16 KiB/2w (dcache-conflict-writeback tick 2634: mem_rd_req_valid) |
-| 11 | bypass direct-issue ignores old-slot occupancy | SURVIVED - equivalent: that scan only sees entries allocated this tick, whose old slot is invalid by construction |
-| 12 | write hit marks every same-set MSHR as victim holder | killed (dcache-conflict-writeback: mem_wr_req_valid) |
-| 13 | write merge ignores byte strobe | SURVIVED - DCache only writes full 64 B strobes; partial strobes never reach the LLC in any program |
-| 14 | write-master round-robin not advanced | SURVIVED - only master 0 (DCache) ever writes |
-| 15 | per-master MSHR limit for non-DCache masters removed | SURVIVED - the interconnect never issues a second ICache read while one is outstanding |
-| 16 | read hit ignores the word offset | SURVIVED - no cached read hit with a non-zero word offset occurs (bypass reads always miss; line reads are aligned) |
-11 of 16 mutants killed; survivors 11 (equivalent), 13-16 are traffic the real system never generates in the 68 programs; they are NOT verified by lock-step and are listed as open issues.
+Not re-run on the rewritten RTL: the 68-program 4 MiB run with cap 300000, the 12-program x 3-geometry run of the previous table, mutants 3, 4, 8, 9, 10,
+13-16.  A bug that the programs did not show (end-of-tick hazard list used the old victim address of a write context that becomes pending in the same
+tick) was found by the random traffic at tick 13749 of seed 4 (32 KiB/16w).
+
+Results of the pre-rewrite RTL (C++-shaped, one 25 kbit state record), kept for the record; they are NOT evidence for the rewrite:
+* 4 MiB 68 programs 68/68, 32 KiB/16w, 8 KiB/4w, 16 KiB/2w 12 programs each 12/12 (dcache-conflict-writeback, dcache-mshr-pressure, memory-stress-small,
+  memory-stress, bubble-sort, quick-sort, matrix-mul, crc32, shuixianhua, vm_pagefault_test, coremark, dhrystone); random traffic 12/12; 13 of 16 mutants
+  killed (survivors: 11 equivalent, 13/14 need partial / bypass writes, 9 on programs).
+* Measured maxima (stat plugin): read_resp_q count 1, read_victim_wb_q 2 (programs) / 7 (random traffic, hence VQD=8), write_q 0 at tick end, r_pending 8,
+  MSHR in use 8, lookup delivery latency always 3.
+Mutants (selector `TTG_MUT=K`, one build; ids as in `mut_llc.py`; 11 was an equivalent mutant of the old structure and no longer exists):
+1 replacement pointer, 2 write hit dirty, 3 refill dirty, 4 read-miss victim dirtiness, 5 victim slot in the write accept, 6 queue reload sees the
+popped queue (duplicate-issue quirk), 7 fresh flag, 8 table latency 2, 9 invalid-way preference, 10 reservation keeps committed refills,
+12 write-hit victim update ignores the way, 13 merge ignores the strobe, 14 write round robin, 15 per-master MSHR limit, 16 read hit word offset.
 
 ### Quirks of the C++ reproduced on purpose (C++ line numbers)
 * 1526-1537 vs 1626-1640: after a write response pops the read-victim queue head, the "load next victim" step reads the old count/head again and re-issues the same victim (mutant 6).
@@ -94,18 +122,18 @@ Run first on 5 programs at 32 KiB/16w x 150000 cycles; survivors re-run on the 1
 * 2079-2105: a write hit on the way an in-flight refill is going to replace updates that MSHR's victim snapshot.
 * comb() #1 vs #2: identical ext_out in every tick (see section 1); nothing to reproduce.
 
-## 5.2 Random-traffic verification (added by the interconnect work)
+## 5.2 Random-traffic verification
 `tests/axi_llc/rand_axi.cpp` drives the reference AXI_Interconnect + LLC + sim_ddr with random DCache reads/writes, ICache reads (line and 4-byte
 bypass) and peripheral bypass reads (`rand_run.sh axi_subsys|axi_llc <seed> <cycles>`, `rand_all.sh`).  Bypass writes and partial strobes are switched off
-(`RAND_PWR=0 RAND_PARTIAL=0`: not implemented here).  `axi_subsys` 4 seeds x 3 small geometries (8KB/4w, 16KB/2w, 32KB/16w), 30000 cycles each: 12/12 PASS.
-Random traffic reached a read-victim queue depth of 7 (the 68 programs: 2): `VQD` became 8 (head/tail 3 bits, count 4 bits, `vq_idx_t/vq_cnt_t`).
-Mutants on random traffic (8KB/4w, 3 seeds, `mut_llc_rand.sh`): 1-8, 10, 12, 15, 16 killed; 15 (per-master MSHR limit) and 16 (read hit word offset) are NEW kills;
-9 survived; 11 equivalent; 13 (partial strobe) and 14 (write round robin) need the unimplemented bypass/partial writes.  Total: 13 of 16 killed.
+(`RAND_PWR=0 RAND_PARTIAL=0`: not implemented here).  Random traffic reached a read-victim queue depth of 7 (the 68 programs: 2): `VQD` is 8.
+Results for the rewritten RTL are in section 5.
 
 ## 5.1 Open issues / not verified
-Partial-line and bypass writes (peripheral write master), partial-line write miss (C++ MSHR write refill merge, 2343-2405), MSHR-owned victim write response (1547-1584),
-read-response/victim queues deeper than 2/4, `stall_lookup_on_table_busy` (never triggered), way-pick failure paths, mutants 13-16 above.  All are guarded by the
-`bad` assertion or by structure (queue depth bounds are checked by clocked assertions in `axi_llc.sv`).
+Not implemented in the RTL (the `bad` assertion fires if the reference takes the path): bypass writes (peripheral write master), partial-line write
+miss (C++ MSHR write-refill merge, 2343-2405; `hz_mshr_is_write` is constant 0), MSHR-owned victim write response (1547-1584), memory write response
+without a write-back in flight, memory read response for an unused MSHR slot.  Not verified: read-response / victim queues deeper than 2 / 8,
+`stall_lookup_on_table_busy` (never triggered), way-pick failure paths, mutants 13-16 on the rewritten RTL.  Whole-SoC closed loop on the rewritten RTL (`tb/soc/build.sh`, `soc_smoke.sh`): 50 / 50 PASS (programs up to 3000 reference cycles) and 15 / 15 PASS (3001-250000).  The random generator does drive the missing paths (`RAND_PARTIAL=1` trips the assertion at tick 42, `RAND_PWR=1` at tick 339, 8 KiB/4w seed 1), but they were not implemented.  Partial-strobe write HITS are implemented
+(`axi_llc_merge`) but never exercised: no program or random run issues a partial strobe.
 
 ## 6. Geometry macros
 `rtl/memsys/axi_llc/axi_llc_pkg.sv`: `AXI_LLC_SETS` (default 4096), `AXI_LLC_WAYS` (16), `AXI_LLC_MSHR` (8, only 8 supported: slot id is 3 bits).

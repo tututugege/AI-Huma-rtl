@@ -2,9 +2,9 @@
 // Ref: MemSubSystem/MemSubsystem.cpp  AxiLlcTableRuntime (data/meta/valid/repl tables, lookup_latency = 3)
 // Hardware memories: synchronous write (end of tick, one write port per array), registered read index carried
 // through two more stages, asynchronous read at the delivery tick.  A read requested in tick t returns the row as
-// it is after the writes of tick t+2 (writes of t+3 land after the read).  No array is reset: the valid bits of a
-// set are cleared by a reset of the whole table only through `valid_q` writes, so a cold line never hits because
-// its valid bit is written first (the valid array is the only one that must power up cleared).
+// it is after the writes of tick t+2 (writes of t+3 land after the read).  No array has a reset (storage written
+// as memory); like the C++ model the valid bits rely on the power-up value 0 (harness --x-initial 0), the other
+// arrays are only read for ways whose valid bit is set.
 module axi_llc_tables
   import axi_llc_pkg::*;
 (
@@ -38,7 +38,7 @@ module axi_llc_tables
     p3_q <= p2_q;
   end
 
-  // valid bits power up cleared (harness --x-initial 0 / FPGA init); everything else is written before it is read
+  // one write port per array; a line write sets data, tag, dirty and valid of one way
   always_ff @(posedge clk) begin
     if (tw.line_en) data_q[tw.set][tw.way] <= tw.data;
   end
