@@ -49,3 +49,10 @@
 - `axi_subsys` 装配顶 lint：4 个未用信号 + `axi_llc.in_w` 的 UNOPTFLAT（互连↔LLC 经结构体的组合环，需确认是误报还是真环）；暂未加入 lint.sh。
 - 变异存活：互连 6/12/18、LLC 9/10/13/14；LLC 程序级变异在读 victim 队列深度修改后未重跑。
 - 合并两份 16 tick 锁步壳（`lockstep_ticks.sh` 与 `lockstep_ticks_axi.sh`）。
+
+## 2026-11-04 清理记录
+
+- 删除 TMA 边带、7 个常量绑死字段、`back_top_nolsu`、ROB `flush_pipe`。
+- 删除 SC-L / loop 预测元数据（恒 0，读出无人用）：`pred_meta_t` 去掉 loop_*/sc_*，PTAB、front2back FIFO、PreIduQueue 的存储与端口、
+  `ftq_commit_info_resp_{sc,loop}_*`、`front2pre_{sc,loop}_*` 及其 spec；每条 FIFO/FTQ 条目少 1448 位（PTAB 16 + F2B 32 + PreIduQueue FTQ）。
+- 验证：lint 全绿；ptab/front2back_fifo/pre_idu_queue/front_top/back_top 62 个 smoke 程序锁步；pre_idu_queue 4 条随机 trace；闭环 65 个程序周期数相等。

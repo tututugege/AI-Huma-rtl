@@ -127,9 +127,7 @@ int main(int argc, char **argv) {
     for (int i = 0; i < BACKEND_FETCH_WIDTH; i++) {
 #define FI(f) S("front2pre_" #f, i, front.f[i])
       FI(valid); FI(inst); FI(pc); FI(page_fault_inst); FI(predict_dir); FI(alt_pred); FI(altpcpn); FI(pcpn);
-      FI(sc_used); FI(sc_pred); FI(sc_sum); FI(loop_used); FI(loop_hit); FI(loop_pred); FI(loop_idx); FI(loop_tag);
       for (int j = 0; j < 4; j++) { S("front2pre_tage_idx", i * 4 + j, front.tage_idx[i][j]); S("front2pre_tage_tag", i * 4 + j, front.tage_tag[i][j]); }
-      for (int t = 0; t < BPU_SCL_META_NTABLE; t++) S("front2pre_sc_idx", i * BPU_SCL_META_NTABLE + t, front.sc_idx[i][t]);
       S("pre2front_fire", i, p2f.fire[i]);
     }
     S("front2pre_predict_next_fetch_address", 0, front.predict_next_fetch_address[0]);
@@ -144,15 +142,10 @@ int main(int argc, char **argv) {
       auto &r = cinfo.resp[i];
       S("ftq_commit_info_resp_valid", i, e.valid);
 #define CI(f) S("ftq_commit_info_resp_" #f, i, r.f)
-      CI(pc); CI(pred_taken); CI(alt_pred); CI(altpcpn); CI(pcpn); CI(sc_used); CI(sc_pred); CI(sc_sum);
-      CI(loop_used); CI(loop_hit); CI(loop_pred); CI(loop_idx); CI(loop_tag);
+      CI(pc); CI(pred_taken); CI(alt_pred); CI(altpcpn); CI(pcpn);
       for (int j = 0; j < 4; j++) {
         S("ftq_commit_info_resp_valid_t", i * 4 + j, e.valid);
         S("ftq_commit_info_resp_tage_idx", i * 4 + j, r.tage_idx[j]); S("ftq_commit_info_resp_tage_tag", i * 4 + j, r.tage_tag[j]);
-      }
-      for (int t = 0; t < BPU_SCL_META_NTABLE; t++) {
-        S("ftq_commit_info_resp_valid_s", i * BPU_SCL_META_NTABLE + t, e.valid);
-        S("ftq_commit_info_resp_sc_idx", i * BPU_SCL_META_NTABLE + t, r.sc_idx[t]);
       }
     }
     for (int k = 0; k < FTQ_PRF_PC_PORT_NUM; k++) {

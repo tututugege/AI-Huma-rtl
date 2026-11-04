@@ -22,11 +22,6 @@ package front_pkg;
   localparam int PCPN_W        = 3;
   localparam int TAGE_IDX_W    = 10;
   localparam int TAGE_TAG_W    = 8;
-  localparam int SC_NTABLE     = BPU_SCL_META_NTABLE;
-  localparam int SC_IDX_W      = BPU_SCL_META_IDX_BITS;
-  localparam int SC_SUM_W      = 16;
-  localparam int LOOP_IDX_W    = BPU_LOOP_META_IDX_BITS;
-  localparam int LOOP_TAG_W    = BPU_LOOP_META_TAG_BITS;
   localparam int INST_BYTES    = 4;
 
   // predecode_type_t (predecode.h)
@@ -54,15 +49,6 @@ package front_pkg;
   // BPU prediction metadata of one fetch group, shared by the PTAB and front2back entries.
   // predict_base_pc is the pc of lane 0; lane i is predict_base_pc + 4*i (front_top.cpp front_ptab_write_comb).
   typedef struct packed {
-    logic [FETCH_WIDTH-1:0][LOOP_TAG_W-1:0]                  loop_tag;
-    logic [FETCH_WIDTH-1:0][LOOP_IDX_W-1:0]                  loop_idx;
-    logic [FETCH_WIDTH-1:0]                                  loop_pred;
-    logic [FETCH_WIDTH-1:0]                                  loop_hit;
-    logic [FETCH_WIDTH-1:0]                                  loop_used;
-    logic [FETCH_WIDTH-1:0][SC_NTABLE-1:0][SC_IDX_W-1:0]     sc_idx;
-    logic [FETCH_WIDTH-1:0][SC_SUM_W-1:0]                    sc_sum;
-    logic [FETCH_WIDTH-1:0]                                  sc_pred;
-    logic [FETCH_WIDTH-1:0]                                  sc_used;
     logic [FETCH_WIDTH-1:0][TN_MAX-1:0][TAGE_TAG_W-1:0]      tage_tag;
     logic [FETCH_WIDTH-1:0][TN_MAX-1:0][TAGE_IDX_W-1:0]      tage_idx;
     logic [FETCH_WIDTH-1:0][PCPN_W-1:0]                      pcpn;

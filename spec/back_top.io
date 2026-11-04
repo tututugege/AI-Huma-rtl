@@ -27,20 +27,11 @@ in  ptw_walk_resp_vpn 20 @ ((uint32_t)cpu.mem_subsystem.ptw_block.comb_outputs()
 in  front2pre_alt_pred 1 [16] @ bt.in.alt_pred[i0]
 in  front2pre_altpcpn 3 [16] @ bt.in.altpcpn[i0]
 in  front2pre_inst 32 [16] @ bt.in.inst[i0]
-in  front2pre_loop_hit 1 [16] @ bt.in.loop_hit[i0]
-in  front2pre_loop_idx 16 [16] @ bt.in.loop_idx[i0]
-in  front2pre_loop_pred 1 [16] @ bt.in.loop_pred[i0]
-in  front2pre_loop_tag 16 [16] @ bt.in.loop_tag[i0]
-in  front2pre_loop_used 1 [16] @ bt.in.loop_used[i0]
 in  front2pre_page_fault_inst 1 [16] @ bt.in.page_fault_inst[i0]
 in  front2pre_pc 32 [16] @ bt.in.pc[i0]
 in  front2pre_pcpn 3 [16] @ bt.in.pcpn[i0]
 in  front2pre_predict_dir 1 [16] @ bt.in.predict_dir[i0]
 in  front2pre_predict_next_fetch_address 32 @ bt.in.predict_next_fetch_address[0]
-in  front2pre_sc_idx 16 [16] [8] @ bt.in.sc_idx[i0][i1]
-in  front2pre_sc_pred 1 [16] @ bt.in.sc_pred[i0]
-in  front2pre_sc_sum 16 [16] @ bt.in.sc_sum[i0]
-in  front2pre_sc_used 1 [16] @ bt.in.sc_used[i0]
 in  front2pre_tage_idx 10 [16] [4] @ bt.in.tage_idx[i0][i1]
 in  front2pre_tage_tag 8 [16] [4] @ bt.in.tage_tag[i0][i1]
 in  front2pre_valid 1 [16] @ bt.in.valid[i0]
@@ -98,22 +89,12 @@ out csr_status_satp 32 @ bt.csr_status.satp
 out csr_status_sstatus 32 @ bt.csr_status.sstatus
 out ftq_commit_info_resp_alt_pred 1 [8] when ftq_commit_info_resp_valid @ bt.ftq_commit_info.resp[i0].alt_pred
 out ftq_commit_info_resp_altpcpn 3 [8] when ftq_commit_info_resp_valid @ bt.ftq_commit_info.resp[i0].altpcpn
-out ftq_commit_info_resp_loop_hit 1 [8] when ftq_commit_info_resp_valid @ bt.ftq_commit_info.resp[i0].loop_hit
-out ftq_commit_info_resp_loop_idx 16 [8] when ftq_commit_info_resp_valid @ bt.ftq_commit_info.resp[i0].loop_idx
-out ftq_commit_info_resp_loop_pred 1 [8] when ftq_commit_info_resp_valid @ bt.ftq_commit_info.resp[i0].loop_pred
-out ftq_commit_info_resp_loop_tag 16 [8] when ftq_commit_info_resp_valid @ bt.ftq_commit_info.resp[i0].loop_tag
-out ftq_commit_info_resp_loop_used 1 [8] when ftq_commit_info_resp_valid @ bt.ftq_commit_info.resp[i0].loop_used
 out ftq_commit_info_resp_pc 32 [8] when ftq_commit_info_resp_valid @ bt.ftq_commit_info.resp[i0].pc
 out ftq_commit_info_resp_pcpn 3 [8] when ftq_commit_info_resp_valid @ bt.ftq_commit_info.resp[i0].pcpn
 out ftq_commit_info_resp_pred_taken 1 [8] when ftq_commit_info_resp_valid @ bt.ftq_commit_info.resp[i0].pred_taken
-out ftq_commit_info_resp_sc_idx 16 [8] [8] when ftq_commit_info_resp_valid_s @ bt.ftq_commit_info.resp[i0].sc_idx[i1]
-out ftq_commit_info_resp_sc_pred 1 [8] when ftq_commit_info_resp_valid @ bt.ftq_commit_info.resp[i0].sc_pred
-out ftq_commit_info_resp_sc_sum 16 [8] when ftq_commit_info_resp_valid @ bt.ftq_commit_info.resp[i0].sc_sum
-out ftq_commit_info_resp_sc_used 1 [8] when ftq_commit_info_resp_valid @ bt.ftq_commit_info.resp[i0].sc_used
 out ftq_commit_info_resp_tage_idx 10 [8] [4] when ftq_commit_info_resp_valid_t @ bt.ftq_commit_info.resp[i0].tage_idx[i1]
 out ftq_commit_info_resp_tage_tag 8 [8] [4] when ftq_commit_info_resp_valid_t @ bt.ftq_commit_info.resp[i0].tage_tag[i1]
 out ftq_commit_info_resp_valid 1 [8] @ bt.rob_commit.commit_entry[i0].valid
-out ftq_commit_info_resp_valid_s 1 [8] [8] @ bt.rob_commit.commit_entry[i0].valid
 out ftq_commit_info_resp_valid_t 1 [8] [4] @ bt.rob_commit.commit_entry[i0].valid
 out out_commit_entry_uop_diag_val 32 [8] when rob_commit_commit_entry_valid @ bt.out.commit_entry[i0].uop.diag_val
 out out_mispred 1 @ bt.out.mispred

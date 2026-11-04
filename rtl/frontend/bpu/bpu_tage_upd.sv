@@ -3,7 +3,8 @@
 
 // Update decision of one TAGE bank (one update per cycle, from the update queue).  The caller has read the
 // START-of-cycle counters / useful bits at the indices recorded with the prediction (idx_in); returns write requests.
-// sc_used/loop_used are constant 0 in this configuration, so the provider is always "used" (provider_used == 1).
+// the SC-L / loop predictors are not modelled (their metadata was constant 0),
+// so the provider is always "used" (provider_used == 1).
 module bpu_tage_upd import bpu_pkg::*; (
   input  logic [T_IDX_W-1:0]  idx_in      [TN],
   input  logic                real_dir,

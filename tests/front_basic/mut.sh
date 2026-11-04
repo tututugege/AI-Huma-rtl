@@ -59,7 +59,6 @@ run F5 fetch_addr_fifo $F/front_fifo.sv "assign full  = (count_q >= CNT_W'(FULL_
 run F6 ptab $F/front_fifo.sv "assign rdata = mem_q[rd_ptr_q];" "assign rdata = mem_q[rd_ptr_q + PTR_W'(rd_valid)];"
 run F7 front2back_fifo $F/front_fifo.sv "wr_ptr_d          = wr_ptr_q + PTR_W'(wr_en);" "wr_ptr_d          = (wr_ptr_q + PTR_W'(wr_en)) & PTR_W'(DEPTH - 2);"
 run F8 inst_fifo $F/inst_fifo.sv "wr_entry.predecode_target_address[i] = wr_predecode_target_address[i];" "wr_entry.predecode_target_address[i] = wr_predecode_target_address[FETCH_WIDTH - 1 - i];"
-run F9 ptab $F/ptab.sv "for (int t = 0; t < SC_NTABLE; t++) rd_sc_idx[i][t] = rd_entry.meta.sc_idx[i][t];" "for (int t = 0; t < SC_NTABLE; t++) rd_sc_idx[i][t] = rd_entry.meta.sc_idx[i][SC_NTABLE - 1 - t];"
 run F10 front2back_fifo $F/front2back_fifo.sv "rd_predict_base_pc                              = rd_entry.meta.predict_base_pc;" "rd_predict_base_pc                              = rd_entry.meta.predict_base_pc + 32'd4;"
 # ---- front_ctrl ----
 run K1 front_ctrl $F/front_refetch_ctrl.sv "refetch_address = be_refetch ? be_refetch_address : predecode_refetch_address_q;" "refetch_address = predecode_refetch_q ? predecode_refetch_address_q : be_refetch_address;"

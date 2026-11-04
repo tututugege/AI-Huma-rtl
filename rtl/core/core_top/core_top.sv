@@ -118,20 +118,11 @@ module core_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; i
   logic front2pre_alt_pred [16];
   logic [2:0] front2pre_altpcpn [16];
   logic [31:0] front2pre_inst [16];
-  logic front2pre_loop_hit [16];
-  logic [15:0] front2pre_loop_idx [16];
-  logic front2pre_loop_pred [16];
-  logic [15:0] front2pre_loop_tag [16];
-  logic front2pre_loop_used [16];
   logic front2pre_page_fault_inst [16];
   logic [31:0] front2pre_pc [16];
   logic [2:0] front2pre_pcpn [16];
   logic front2pre_predict_dir [16];
   logic [31:0] front2pre_predict_next_fetch_address;
-  logic [15:0] front2pre_sc_idx [16][8];
-  logic front2pre_sc_pred [16];
-  logic [15:0] front2pre_sc_sum [16];
-  logic front2pre_sc_used [16];
   logic [9:0] front2pre_tage_idx [16][4];
   logic [7:0] front2pre_tage_tag [16][4];
   logic front2pre_valid [16];
@@ -150,15 +141,6 @@ module core_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; i
 
   // SC-L / loop predictor metadata of the front-to-back path and the update-queue stall are constant 0 (see front_top)
   always_comb begin
-    front2pre_loop_hit = '{default: '0};
-    front2pre_loop_idx = '{default: '0};
-    front2pre_loop_pred = '{default: '0};
-    front2pre_loop_tag = '{default: '0};
-    front2pre_loop_used = '{default: '0};
-    front2pre_sc_idx = '{default: '0};
-    front2pre_sc_pred = '{default: '0};
-    front2pre_sc_sum = '{default: '0};
-    front2pre_sc_used = '{default: '0};
   end
 
   // ---- back end (outputs nobody in the core needs are not connected) ----
@@ -168,20 +150,11 @@ module core_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; i
     .front2pre_alt_pred(front2pre_alt_pred),
     .front2pre_altpcpn(front2pre_altpcpn),
     .front2pre_inst(front2pre_inst),
-    .front2pre_loop_hit(front2pre_loop_hit),
-    .front2pre_loop_idx(front2pre_loop_idx),
-    .front2pre_loop_pred(front2pre_loop_pred),
-    .front2pre_loop_tag(front2pre_loop_tag),
-    .front2pre_loop_used(front2pre_loop_used),
     .front2pre_page_fault_inst(front2pre_page_fault_inst),
     .front2pre_pc(front2pre_pc),
     .front2pre_pcpn(front2pre_pcpn),
     .front2pre_predict_dir(front2pre_predict_dir),
     .front2pre_predict_next_fetch_address(front2pre_predict_next_fetch_address),
-    .front2pre_sc_idx(front2pre_sc_idx),
-    .front2pre_sc_pred(front2pre_sc_pred),
-    .front2pre_sc_sum(front2pre_sc_sum),
-    .front2pre_sc_used(front2pre_sc_used),
     .front2pre_tage_idx(front2pre_tage_idx),
     .front2pre_tage_tag(front2pre_tage_tag),
     .front2pre_valid(front2pre_valid),

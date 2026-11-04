@@ -98,29 +98,10 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
   logic [PCPN_W-1:0]   ptab_rd_pcpn     [FETCH_WIDTH];
   logic [TAGE_IDX_W-1:0] ptab_rd_tage_idx [FETCH_WIDTH][TN_MAX];
   logic [TAGE_TAG_W-1:0] ptab_rd_tage_tag [FETCH_WIDTH][TN_MAX];
-  logic                sc_used_zero  [FETCH_WIDTH];
-  logic [SC_SUM_W-1:0] sc_sum_zero   [FETCH_WIDTH];
-  logic [SC_IDX_W-1:0] sc_idx_zero   [FETCH_WIDTH][SC_NTABLE];
-  logic [LOOP_IDX_W-1:0] loop_idx_zero [FETCH_WIDTH];
-  logic [LOOP_TAG_W-1:0] loop_tag_zero [FETCH_WIDTH];
-  assign sc_used_zero  = '{default: '0};
-  assign sc_sum_zero   = '{default: '0};
-  assign sc_idx_zero   = '{default: '0};
-  assign loop_idx_zero = '{default: '0};
-  assign loop_tag_zero = '{default: '0};
 
-  // The SC-L / loop read ports and the fifo-valid flag are not consumed (constant-0 metadata; valid = can_run)
+  // the fifo-valid flags are not consumed (valid = can_run)
   /* verilator lint_off UNUSEDSIGNAL */
   logic                ptab_rd_valid;
-  logic                ptab_rd_sc_used  [FETCH_WIDTH];
-  logic                ptab_rd_sc_pred  [FETCH_WIDTH];
-  logic [SC_SUM_W-1:0] ptab_rd_sc_sum   [FETCH_WIDTH];
-  logic [SC_IDX_W-1:0] ptab_rd_sc_idx   [FETCH_WIDTH][SC_NTABLE];
-  logic                ptab_rd_loop_used [FETCH_WIDTH];
-  logic                ptab_rd_loop_hit [FETCH_WIDTH];
-  logic                ptab_rd_loop_pred [FETCH_WIDTH];
-  logic [LOOP_IDX_W-1:0] ptab_rd_loop_idx [FETCH_WIDTH];
-  logic [LOOP_TAG_W-1:0] ptab_rd_loop_tag [FETCH_WIDTH];
   /* verilator lint_on UNUSEDSIGNAL */
 
   ptab u_ptab (
@@ -136,15 +117,6 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
     .wr_pcpn                       (bpu_pcpn),
     .wr_tage_idx                   (bpu_tage_idxs),
     .wr_tage_tag                   (bpu_tage_tags),
-    .wr_sc_used                    (sc_used_zero),
-    .wr_sc_pred                    (sc_used_zero),
-    .wr_sc_sum                     (sc_sum_zero),
-    .wr_sc_idx                     (sc_idx_zero),
-    .wr_loop_used                  (sc_used_zero),
-    .wr_loop_hit                   (sc_used_zero),
-    .wr_loop_pred                  (sc_used_zero),
-    .wr_loop_idx                   (loop_idx_zero),
-    .wr_loop_tag                   (loop_tag_zero),
     .rd_valid                      (ptab_rd_valid),
     .rd_predict_next_fetch_address (ptab_rd_predict_next_fetch_address),
     .rd_predict_dir                (ptab_rd_predict_dir),
@@ -154,15 +126,6 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
     .rd_pcpn                       (ptab_rd_pcpn),
     .rd_tage_idx                   (ptab_rd_tage_idx),
     .rd_tage_tag                   (ptab_rd_tage_tag),
-    .rd_sc_used                    (ptab_rd_sc_used),
-    .rd_sc_pred                    (ptab_rd_sc_pred),
-    .rd_sc_sum                     (ptab_rd_sc_sum),
-    .rd_sc_idx                     (ptab_rd_sc_idx),
-    .rd_loop_used                  (ptab_rd_loop_used),
-    .rd_loop_hit                   (ptab_rd_loop_hit),
-    .rd_loop_pred                  (ptab_rd_loop_pred),
-    .rd_loop_idx                   (ptab_rd_loop_idx),
-    .rd_loop_tag                   (ptab_rd_loop_tag),
     .full                          (ptab_full),
     .empty                         (ptab_empty)
   );
@@ -199,15 +162,6 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
 
   /* verilator lint_off UNUSEDSIGNAL */
   logic                f2b_rd_valid;
-  logic                f2b_rd_sc_used [FETCH_WIDTH];
-  logic                f2b_rd_sc_pred [FETCH_WIDTH];
-  logic [SC_SUM_W-1:0] f2b_rd_sc_sum  [FETCH_WIDTH];
-  logic [SC_IDX_W-1:0] f2b_rd_sc_idx  [FETCH_WIDTH][SC_NTABLE];
-  logic                f2b_rd_loop_used [FETCH_WIDTH];
-  logic                f2b_rd_loop_hit [FETCH_WIDTH];
-  logic                f2b_rd_loop_pred [FETCH_WIDTH];
-  logic [LOOP_IDX_W-1:0] f2b_rd_loop_idx [FETCH_WIDTH];
-  logic [LOOP_TAG_W-1:0] f2b_rd_loop_tag [FETCH_WIDTH];
   /* verilator lint_on UNUSEDSIGNAL */
 
   front2back_fifo u_f2b_fifo (
@@ -225,15 +179,6 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
     .wr_pcpn                                 (ptab_rd_pcpn),
     .wr_tage_idx                             (ptab_rd_tage_idx),
     .wr_tage_tag                             (ptab_rd_tage_tag),
-    .wr_sc_used                              (sc_used_zero),
-    .wr_sc_pred                              (sc_used_zero),
-    .wr_sc_sum                               (sc_sum_zero),
-    .wr_sc_idx                               (sc_idx_zero),
-    .wr_loop_used                            (sc_used_zero),
-    .wr_loop_hit                             (sc_used_zero),
-    .wr_loop_pred                            (sc_used_zero),
-    .wr_loop_idx                             (loop_idx_zero),
-    .wr_loop_tag                             (loop_tag_zero),
     .wr_predict_next_fetch_address_corrected (checker_next_corrected),
     .rd_valid                                (f2b_rd_valid),
     .rd_fetch_group                          (f2b_rd_fetch_group),
@@ -246,15 +191,6 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
     .rd_pcpn                                 (f2b_rd_pcpn),
     .rd_tage_idx                             (f2b_rd_tage_idx),
     .rd_tage_tag                             (f2b_rd_tage_tag),
-    .rd_sc_used                              (f2b_rd_sc_used),
-    .rd_sc_pred                              (f2b_rd_sc_pred),
-    .rd_sc_sum                               (f2b_rd_sc_sum),
-    .rd_sc_idx                               (f2b_rd_sc_idx),
-    .rd_loop_used                            (f2b_rd_loop_used),
-    .rd_loop_hit                             (f2b_rd_loop_hit),
-    .rd_loop_pred                            (f2b_rd_loop_pred),
-    .rd_loop_idx                             (f2b_rd_loop_idx),
-    .rd_loop_tag                             (f2b_rd_loop_tag),
     .rd_predict_next_fetch_address_corrected (f2b_rd_predict_next_fetch_address_corrected),
     .full                                    (f2b_full),
     .empty                                   (f2b_empty)

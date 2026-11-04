@@ -18,18 +18,9 @@ module pre_idu_queue import ttg_cfg_pkg::*; import pre_idu_pkg::*; (
   input  logic front2pre_alt_pred [BACKEND_FETCH_WIDTH],
   input  logic [PCPN_W-1:0] front2pre_altpcpn [BACKEND_FETCH_WIDTH],
   input  logic [PCPN_W-1:0] front2pre_pcpn [BACKEND_FETCH_WIDTH],
-  input  logic front2pre_sc_used [BACKEND_FETCH_WIDTH],
-  input  logic front2pre_sc_pred [BACKEND_FETCH_WIDTH],
-  input  logic [SC_SUM_W-1:0] front2pre_sc_sum [BACKEND_FETCH_WIDTH],
-  input  logic front2pre_loop_used [BACKEND_FETCH_WIDTH],
-  input  logic front2pre_loop_hit [BACKEND_FETCH_WIDTH],
-  input  logic front2pre_loop_pred [BACKEND_FETCH_WIDTH],
-  input  logic [LOOP_IDX_W-1:0] front2pre_loop_idx [BACKEND_FETCH_WIDTH],
-  input  logic [LOOP_TAG_W-1:0] front2pre_loop_tag [BACKEND_FETCH_WIDTH],
   input  logic [31:0] front2pre_predict_next_fetch_address,
   input  logic [TAGE_IDX_W-1:0] front2pre_tage_idx [BACKEND_FETCH_WIDTH] [TAGE_N],
   input  logic [TAGE_TAG_W-1:0] front2pre_tage_tag [BACKEND_FETCH_WIDTH] [TAGE_N],
-  input  logic [SC_IDX_W-1:0] front2pre_sc_idx [BACKEND_FETCH_WIDTH] [BPU_SCL_META_NTABLE],
   input  logic idu_consume_fire [DECODE_WIDTH],
   input  logic idu_br_latch_mispred,
   input  logic [FTQ_IDX_WIDTH-1:0] idu_br_latch_ftq_idx,
@@ -59,24 +50,14 @@ module pre_idu_queue import ttg_cfg_pkg::*; import pre_idu_pkg::*; (
   output logic ftq_rob_pc_resp_resp_valid [FTQ_ROB_PC_PORT_NUM],
   output logic [31:0] ftq_rob_pc_resp_resp_pc [FTQ_ROB_PC_PORT_NUM],
   output logic ftq_commit_info_resp_valid_t [COMMIT_WIDTH] [TAGE_N],
-  output logic ftq_commit_info_resp_valid_s [COMMIT_WIDTH] [BPU_SCL_META_NTABLE],
   output logic ftq_commit_info_resp_valid [COMMIT_WIDTH],
   output logic [31:0] ftq_commit_info_resp_pc [COMMIT_WIDTH],
   output logic ftq_commit_info_resp_pred_taken [COMMIT_WIDTH],
   output logic ftq_commit_info_resp_alt_pred [COMMIT_WIDTH],
   output logic [PCPN_W-1:0] ftq_commit_info_resp_altpcpn [COMMIT_WIDTH],
   output logic [PCPN_W-1:0] ftq_commit_info_resp_pcpn [COMMIT_WIDTH],
-  output logic ftq_commit_info_resp_sc_used [COMMIT_WIDTH],
-  output logic ftq_commit_info_resp_sc_pred [COMMIT_WIDTH],
-  output logic [SC_SUM_W-1:0] ftq_commit_info_resp_sc_sum [COMMIT_WIDTH],
-  output logic ftq_commit_info_resp_loop_used [COMMIT_WIDTH],
-  output logic ftq_commit_info_resp_loop_hit [COMMIT_WIDTH],
-  output logic ftq_commit_info_resp_loop_pred [COMMIT_WIDTH],
-  output logic [LOOP_IDX_W-1:0] ftq_commit_info_resp_loop_idx [COMMIT_WIDTH],
-  output logic [LOOP_TAG_W-1:0] ftq_commit_info_resp_loop_tag [COMMIT_WIDTH],
   output logic [TAGE_IDX_W-1:0] ftq_commit_info_resp_tage_idx [COMMIT_WIDTH] [TAGE_N],
-  output logic [TAGE_TAG_W-1:0] ftq_commit_info_resp_tage_tag [COMMIT_WIDTH] [TAGE_N],
-  output logic [SC_IDX_W-1:0] ftq_commit_info_resp_sc_idx [COMMIT_WIDTH] [BPU_SCL_META_NTABLE]
+  output logic [TAGE_TAG_W-1:0] ftq_commit_info_resp_tage_tag [COMMIT_WIDTH] [TAGE_N]
 );
 
   localparam int NPORT_PC = FTQ_PRF_PC_PORT_NUM + FTQ_ROB_PC_PORT_NUM + COMMIT_WIDTH;
@@ -124,15 +105,6 @@ module pre_idu_queue import ttg_cfg_pkg::*; import pre_idu_pkg::*; (
       wr_meta[i].alt_pred  = front2pre_alt_pred[i];
       wr_meta[i].altpcpn   = front2pre_altpcpn[i];
       wr_meta[i].pcpn      = front2pre_pcpn[i];
-      wr_meta[i].sc_used   = front2pre_sc_used[i];
-      wr_meta[i].sc_pred   = front2pre_sc_pred[i];
-      wr_meta[i].sc_sum    = front2pre_sc_sum[i];
-      wr_meta[i].loop_used = front2pre_loop_used[i];
-      wr_meta[i].loop_hit  = front2pre_loop_hit[i];
-      wr_meta[i].loop_pred = front2pre_loop_pred[i];
-      wr_meta[i].loop_idx  = front2pre_loop_idx[i];
-      wr_meta[i].loop_tag  = front2pre_loop_tag[i];
-      for (int t = 0; t < BPU_SCL_META_NTABLE; t++) wr_meta[i].sc_idx[t] = front2pre_sc_idx[i][t];
       for (int k = 0; k < TAGE_N; k++) begin
         wr_meta[i].tage_idx[k] = front2pre_tage_idx[i][k];
         wr_meta[i].tage_tag[k] = front2pre_tage_tag[i][k];
@@ -225,22 +197,10 @@ module pre_idu_queue import ttg_cfg_pkg::*; import pre_idu_pkg::*; (
       ftq_commit_info_resp_alt_pred[i]   = rd_meta[i].alt_pred;
       ftq_commit_info_resp_altpcpn[i]    = rd_meta[i].altpcpn;
       ftq_commit_info_resp_pcpn[i]       = rd_meta[i].pcpn;
-      ftq_commit_info_resp_sc_used[i]    = rd_meta[i].sc_used;
-      ftq_commit_info_resp_sc_pred[i]    = rd_meta[i].sc_pred;
-      ftq_commit_info_resp_sc_sum[i]     = rd_meta[i].sc_sum;
-      ftq_commit_info_resp_loop_used[i]  = rd_meta[i].loop_used;
-      ftq_commit_info_resp_loop_hit[i]   = rd_meta[i].loop_hit;
-      ftq_commit_info_resp_loop_pred[i]  = rd_meta[i].loop_pred;
-      ftq_commit_info_resp_loop_idx[i]   = rd_meta[i].loop_idx;
-      ftq_commit_info_resp_loop_tag[i]   = rd_meta[i].loop_tag;
       for (int k = 0; k < TAGE_N; k++) begin
         ftq_commit_info_resp_valid_t[i][k]  = commit_valid[i];
         ftq_commit_info_resp_tage_idx[i][k] = rd_meta[i].tage_idx[k];
         ftq_commit_info_resp_tage_tag[i][k] = rd_meta[i].tage_tag[k];
-      end
-      for (int t = 0; t < BPU_SCL_META_NTABLE; t++) begin
-        ftq_commit_info_resp_valid_s[i][t] = commit_valid[i];
-        ftq_commit_info_resp_sc_idx[i][t]  = rd_meta[i].sc_idx[t];
       end
     end
   end
