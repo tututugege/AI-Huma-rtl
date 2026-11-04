@@ -41,6 +41,24 @@ note: core_top + mem_top；测试平台 tb/soc（Verilator）+ 参考的 SimDDR/
 - 外设 AXI 路径（`env_region=0` 且 MMIO）仍只被随机验证；测试平台没有 SD 卡/DMA 模型。
 - 12 位以内的外设 `resp.ready` 在 tick 0 的"陈旧值"细节（适配器通道 1、2 的写回）没有在 `mem_axi` 复刻，外设 AXI 路径不被触发所以不可观察。
 
+## Linux 启动（RTL 闭环）
+
+```bash
+SOC_OUT=$PWD/build/soc_linux SOC_VOPT=-DTTG_EBREAK_TRAP bash tb/soc/build.sh          # 打开 ebreak 断点异常的构建（默认构建不变）
+MEM=0x10000000 bash ../function-model/linux/mkimage.sh <linux_rv32 目录> /tmp/linux.bin    # 平铺镜像
+SOC_TB_SEMIHOST=1 build/soc_linux/obj/soc_tb /tmp/linux.bin <周期数>
+```
+
+镜像按程序加载（测试平台自带地址 0 的启动桩，`a1` = 设备树）。**与 trace-model（运行模式、同一镜像）逐周期对照**（2026-11-04）：
+
+| trace-model 提交数 | 周期 | RTL 在该周期的提交数 |
+| --- | --- | --- |
+| 205,443（旧行为：在 OpenSBI 的 semihosting 探测处退出） | 62,061 | 205,443 |
+| 400,002（打开断点异常后继续） | 107,585 | 400,002 |
+| 1,000,007 | 247,399 | 1,000,007 |
+
+限制：RTL 约每秒 4–5 千周期，完整启动（约 1.2 亿条指令）要 7 小时以上，所以只对照了前 100 万条；更远的部分要走检查点恢复（见 08-risk-register）。
+
 ## 空闲 tick 跳过（测试平台加速）
 
 16 倍频访存域里大多数 fast tick 无事发生。`tb/soc/soc_tb.cpp` 在每个 CPU 周期的 tick 1 之后给 Verilated 状态做快照，tick 2 之后若

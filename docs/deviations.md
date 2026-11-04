@@ -38,6 +38,7 @@ RTL 与参考模型在任何一拍、任何一位上不同，都必须登记在�
 | S-24 | BPU | BHT | `bht_hist_t` 实为 `uint8_t`，BHT 运算按 8 位截断 | 保持 |
 | S-25 | BPU | TAGE | 复位后 tag 表全 0，tag=0 与 hash 出的 0 tag 会"命中" | 保持 |
 | S-26 | BPU | TAGE useful 清除 | `reset_cnt[23]` 相关模式需约 800 万次/bank 更新才触发，所有验证都没走到，RTL 已实现但**未验证** | 保持；待补专项 |
+| S-27 | ROB / CSR | ebreak | 参考模型把每条 ebreak 当作程序结束（冲刷、无异常）。OpenSBI 1.2 探测 semihosting 的 `slli x0,x0,0x1f; ebreak; srai x0,x0,7` 需要一次断点异常，否则 Linux 起不来。RTL 加编译宏 `TTG_EBREAK_TRAP`：打开时 ROB 把 ebreak 作为断点异常提交（cause 3、`mepc` = 该 pc、`mtval` = 该 pc、`medeleg[3]` 仅在非 M 态时委托），CSR 新增输入 `rob_bcast_breakpoint`；**关闭（默认）时与参考模型逐位一致**。是否结束仿真由测试平台判定：夹在标记序列之间的 ebreak 不结束（`SOC_TB_SEMIHOST=1`），其余仍结束。与 function-model（`2191b77`）、trace-model（`42b43db`）规则相同 | 批准（用户决定，2026-11-04）；已用 Linux 镜像对照 trace-model 到 100 万条提交 |
 
 ## 申请流程
 
