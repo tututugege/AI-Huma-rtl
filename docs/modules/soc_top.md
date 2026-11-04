@@ -91,3 +91,16 @@ RTL 里不带任何 Verilator 公开属性：测试平台可见的信号由 `tb/
 跳 tick 时测试平台在 tick 3 的时钟沿之前把 `phase_q` 写成 14（只读公开变量，C++ 仍可写），该沿即装载 15。
 空闲跳过的比较点同时改为“每个 tick 输入施加、eval 之后、时钟沿之前”的 tick 2 与 tick 3 状态，两次状态相等且 SimDDR 空闲时，tick 3 的边沿装载 phase 15。
 结果：dhrystone 前 2 万周期 59 s → 7.4 s（不跳 tick 14 s）；15 个长程序 6:52 → 1:56（4 并行）；65 个程序周期数仍全部相等。
+
+## 从检查点启动 Linux（不用每次从头跑）
+
+function-model 在指定指令数处做检查点，`tools/ckpt2image.py` 把 DDR 前 256 MiB 转成平铺镜像，`ckpt2stub.py` 生成 84 条左右的恢复程序，测试平台用 `SOC_TB_STUB` 把它放在地址 0 取代启动程序（功能模型的启动窗口也同步），CPU 从复位开始执行它，最后 `mret` 进入检查点的 PC 和特权级：
+
+```bash
+a.out.nospike --image linux.bin --mode special-ckpt --points points.txt --ckpt-dir ckpts      # points.txt: "<指令数> <标签>"
+python3 tools/ckpt2image.py ckpts/<ckpt>.gz /tmp/k.img ; python3 ../function-model/tools/ckpt2stub.py ckpts/<ckpt>.gz /tmp/k.stub
+SOC_TB_STUB=/tmp/k.stub SOC_TB_FM=1 SOC_TB_SEMIHOST=1 build/soc_fm4/obj/soc_tb /tmp/k.img <周期上限>
+```
+
+速度（4 线程 + 空闲跳过 + 逐条对比）约 5700 周期/秒。
+

@@ -45,7 +45,8 @@ module idu_ctrl_decode (
   localparam logic [11:0] KNOWN_CSR [NUM_KNOWN_CSR] = '{
     12'h305, 12'h341, 12'h342, 12'h304, 12'h344, 12'h343, 12'h340, 12'h300, 12'h303, 12'h302, 12'h141,
     12'h105, 12'h142, 12'h140, 12'h143, 12'h100, 12'h104, 12'h144, 12'h180, 12'hf14, 12'h301};
-  localparam logic [11:0] CSR_TIME = 12'hc01, CSR_TIMEH = 12'hc81;
+  // fflags / frm / fcsr: executed by the function model, no timing effect here; every other CSR outside KNOWN_CSR traps
+  localparam logic [11:0] CSR_FFLAGS = 12'h001, CSR_FCSR = 12'h003;
 
   // ---- classes (index into the one-hot `cls` and into ROM) ----
   localparam int CLS_LUI = 0, CLS_AUIPC = 1, CLS_JAL = 2, CLS_JALR = 3, CLS_BR = 4, CLS_LOAD = 5, CLS_STORE = 6,
@@ -120,7 +121,7 @@ module idu_ctrl_decode (
 
   // ---- SYSTEM opcode sub-decode ----
   logic [NUM_KNOWN_CSR-1:0] csr_hit;
-  logic csr_known, csr_form, csr_imm_form, sys_csr, sys_plain, csr_is_time;
+  logic csr_known, csr_form, csr_imm_form, sys_csr, sys_plain, csr_illegal;
   logic is_ecall, is_ebreak, is_mret, is_wfi, is_sret, is_sfence;
 
   for (genvar c = 0; c < NUM_KNOWN_CSR; c++) begin : g_csr_hit
@@ -130,7 +131,7 @@ module idu_ctrl_decode (
   assign csr_known    = |csr_hit;
   assign csr_form     = funct3[0] | funct3[1];                 // csrrw/s/c(i); funct3 = 000/100 is non-CSR
   assign csr_imm_form = funct3[2] & csr_form;                  // csrrwi/si/ci
-  assign csr_is_time  = (csr_idx == CSR_TIME) | (csr_idx == CSR_TIMEH);
+  assign csr_illegal  = (csr_idx < CSR_FFLAGS) | (csr_idx > CSR_FCSR);   // the CSR_NOP class holds only unknown CSRs
   assign sys_csr      = op_system & csr_form;
   assign sys_plain    = op_system & ~csr_form;
   assign is_ecall     = (inst == INST_ECALL);
@@ -193,7 +194,7 @@ module idu_ctrl_decode (
     dest_en      = rom_dest_en & (dest_areg != 6'd0);
     src1_areg    = rom_src1_zero ? 6'd0 : {1'b0, rs1_idx};
     src2_areg    = {1'b0, inst[24:20]};
-    illegal_inst = rom_illegal | (cls[CLS_CSR_NOP] & csr_is_time);
+    illegal_inst = rom_illegal | (cls[CLS_CSR_NOP] & csr_illegal);
   end
 
 endmodule

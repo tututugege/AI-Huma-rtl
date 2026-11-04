@@ -173,7 +173,15 @@ int main(int argc, char **argv) {
   int compare_fail = 0;
   Verilated::commandArgs(argc, argv);
   if (!pmem_init()) { std::fprintf(stderr, "pmem_init failed\n"); return 2; }
+  std::vector<uint32_t> stub_words;   // restore program, also handed to the function model (its boot window is not RAM)
   load_image(argv[1]);
+  if (const char *stub = std::getenv("SOC_TB_STUB")) {   // checkpoint start: the restore program (function-model/tools/ckpt2stub.py) replaces the boot stub at 0x0
+    std::ifstream sf(stub, std::ios::binary);
+    std::vector<char> sb((std::istreambuf_iterator<char>(sf)), std::istreambuf_iterator<char>());
+    if (sb.empty()) { std::fprintf(stderr, "cannot read %s\n", stub); return 2; }
+    for (uint32_t a = 0; a < 0x100; a += 4) pmem_write(a, 0);
+    for (size_t k = 0; k + 4 <= sb.size(); k += 4) { uint32_t w; std::memcpy(&w, &sb[k], 4); pmem_write(uint32_t(k), w); stub_words.push_back(w); }
+  }
 
   sim_ddr::SimDDR ddr;
   ddr.init();
@@ -223,6 +231,7 @@ int main(int argc, char **argv) {
     fm_pend.clear();
   };
   if (fm_on) fm.init(uint32_t(RAM_SIZE), pmem_ram_ptr(), uint32_t(PMEM_SDRAM_SIZE), pmem_sdram_ptr());
+  if (fm_on) for (size_t k = 0; k < stub_words.size(); ++k) refcpu_set_io_word(fm.ctx, uint32_t(4 * k), stub_words[k]);
 #endif
   const bool fast_skip = std::getenv("SOC_TB_NOSKIP") == nullptr && !skipmask.empty();
   std::vector<uint8_t> snap(sizeof(*top->rootp));
@@ -323,9 +332,11 @@ long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
           if (!top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__rob_bcast_interrupt) ++committed;   // reference: commit_num skips interrupt slots
 #ifdef SOC_TB_FM
           if (fm_on && !done && top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__rob_bcast_interrupt) fm_pend.push_back({0, 0, 0, true});
-          else if (fm_on && !done && top->rob_commit_commit_entry_uop_type[i] != kUopEbreak) {
+          else if (fm_on && !done && (top->rob_commit_commit_entry_uop_type[i] != kUopEbreak ||
+                                      (semihost && pmem_read(top->ftq_commit_info_resp_pc[i] - 4) == 0x01f01013u && pmem_read(top->ftq_commit_info_resp_pc[i] + 4) == 0x40705013u))) {   // the semihosting marker ebreak is a breakpoint exception: the function model executes it too
             const bool de = ttg_getbit(top->rob_commit_commit_entry_uop_dest_en, i);
-            fm_pend.push_back({top->ftq_commit_info_resp_pc[i], de ? top->rob_commit_commit_entry_uop_dest_areg[i] : 0u,
+            fm_pend.push_back({top->ftq_commit_info_resp_pc[i], (de && top->rob_commit_commit_entry_uop_dest_areg[i] < 32) ? top->rob_commit_commit_entry_uop_dest_areg[i] : 0u,   // areg 32 = AMO with rd == x0 (pseudo destination)
+                               
                                top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__u_rob__DOT__rob_commit_commit_entry_uop_dest_preg[i], false});
           }
 #endif
