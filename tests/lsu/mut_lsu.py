@@ -9,8 +9,9 @@ usage: python3 tests/lsu/mut_lsu.py [--jobs N] [--only K,K,..] [--extra]      en
 import argparse, concurrent.futures as cf, os, re, shutil, subprocess, sys
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+sys.path.insert(0, os.path.join(ROOT, 'scripts'))
+from ttg_env import G, BIG  # noqa: E402
 D = 'rtl/backend/lsu/'
-G = '/Users/ruyaoh/personal/AI-Huma/trace-model/build'
 # (name, file, original expression text, mutated expression text) -- the original text must occur in the file
 M = [
  # --- package helpers
@@ -153,7 +154,7 @@ SCREEN = [('smc-div', 'tests', 100000), ('memory-stress', 'tests', 100000), ('at
 
 
 def prog(n, kind):
-    if kind == 'big': return f'/Users/ruyaoh/personal/AI-Huma/rtl/programs/big/{n}.bin'
+    if kind == 'big': return f'{BIG}/{n}.bin'
     import glob
     h = glob.glob(f'{G}/{kind}/*/{n}.bin')
     return h[0] if h else None

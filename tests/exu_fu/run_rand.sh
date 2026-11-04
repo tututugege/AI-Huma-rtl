@@ -5,7 +5,7 @@
 # byte identical: this pins down the behaviour of the C++ undefined-behaviour spots (rol/ror by 0) on both builds.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd); cd "$ROOT"
-REF=${REFSIM:-/Users/ruyaoh/personal/AI-Huma/rtl/refsim}
+REF=${REFSIM:-$ROOT/refsim}
 INC=()
 for d in include libs/include back-end/include back-end/Exu/include back-end/Lsu/include back-end/tools/include MemSubSystem/include diff/include front-end; do INC+=("-I$REF/$d"); done
 MODS=("$@"); [ ${#MODS[@]} -gt 0 ] || MODS=(alu_bank bru_bank agu_bank sdu_bank csr_fu mul_bank div_bank)

@@ -116,7 +116,7 @@ note: 前端顶层 + 前后端联调 core_top
 
 ## 6. 复现
 ```bash
-export REFSIM=/Users/ruyaoh/personal/AI-Huma/rtl/refsim_tap
+export REFSIM=$RTL_ROOT/refsim_tap
 BIG_CYCLES=300000 JOBS=3 bash scripts/lockstep_multi.sh front_top     # 前端 68/68
 BIG_CYCLES=300000 JOBS=3 bash scripts/lockstep_multi.sh core_top      # 核 68/68（构建约 75 秒）
 python3 tests/front_top/mut_front_top.py --jobs 3

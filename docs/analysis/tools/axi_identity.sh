@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # byte-identity check: original refsim_tap vs hooked copy (hooks off / hooks on with the stat plugin)
 S=$(cd "$(dirname "$0")" && pwd)
-B=/Users/ruyaoh/personal/AI-Huma/trace-model/build
-ORIG=/Users/ruyaoh/personal/AI-Huma/rtl/refsim_tap
+. "$(dirname "$0")/../../../scripts/env.sh"
+B=$TTG_PROGS
+ORIG=$REFSIM_TAP
 for p in "$B/tests/dcache-mshr-pressure/dcache-mshr-pressure.bin" "$B/tests/dcache-conflict-writeback/dcache-conflict-writeback.bin" \
          "$B/tests/timer-mmio/timer-mmio.bin" "$B/vm/vm-pagefault-test/vm_pagefault_test.bin" "$B/tests/quick-sort/quick-sort.bin" \
          "$B/tests/memory-stress-small/memory-stress-small.bin"; do

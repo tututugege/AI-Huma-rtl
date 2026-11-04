@@ -3,7 +3,7 @@
 #   usage: bash tb/rob/build_gen.sh [run]      (needs build/rob/rob_fields.h: run scripts/record.sh rob once)
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
-REF=${REFSIM:-/Users/ruyaoh/personal/AI-Huma/rtl/refsim}
+REF=${REFSIM:-$ROOT/refsim}
 INC=()
 for d in include libs/include back-end/include back-end/Exu/include back-end/Lsu/include back-end/tools/include MemSubSystem/include diff/include GenSimpoint/include/api legacy/mmu/include front-end axi-interconnect-kit/include axi-interconnect-kit/axi_interconnect/include axi-interconnect-kit/sim_ddr/include axi-interconnect-kit/mmio/include; do INC+=("-I$REF/$d"); done
 mkdir -p "$ROOT/build/tb"

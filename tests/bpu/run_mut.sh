@@ -3,7 +3,8 @@
 #   usage: run_mut.sh [program.bin] [cycles] [mutant-lines-file]       env REFSIM, JOBS
 set -uo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
-PROG=${1:-/Users/ruyaoh/personal/AI-Huma/rtl/programs/big/dhrystone.bin}; CYC=${2:-300000}; LIST=${3:-$ROOT/tests/bpu/mutants.txt}
+. "$ROOT/scripts/env.sh"
+PROG=${1:-$TTG_BIG/dhrystone.bin}; CYC=${2:-300000}; LIST=${3:-$ROOT/tests/bpu/mutants.txt}
 JOBS=${JOBS:-3}
 run() {
   line=$1

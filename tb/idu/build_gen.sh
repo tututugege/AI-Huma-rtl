@@ -2,7 +2,7 @@
 # Build the constrained-random Idu trace generator against the (read-only) reference sources.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
-REF=${REFSIM:-/Users/ruyaoh/personal/AI-Huma/rtl/refsim}
+REF=${REFSIM:-$ROOT/refsim}
 INC=()
 for d in include libs/include back-end/include back-end/Exu/include back-end/Lsu/include back-end/tools/include diff/include front-end; do INC+=("-I$REF/$d"); done
 mkdir -p "$ROOT/build/tb"

@@ -3,7 +3,7 @@
 #   usage: bash tests/ren/run_rand.sh     (iogen is run here from spec/ren.io)
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd); cd "$ROOT"
-REF=${REFSIM:-/Users/ruyaoh/personal/AI-Huma/rtl/refsim}
+REF=${REFSIM:-$ROOT/refsim}
 INC=()
 for d in include libs/include back-end/include back-end/Exu/include back-end/Lsu/include back-end/tools/include MemSubSystem/include diff/include front-end; do INC+=("-I$REF/$d"); done
 python3 harness/tools/iogen.py spec/ren.io build/ren >/dev/null

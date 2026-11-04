@@ -4,6 +4,7 @@
 #   usage: mut.sh <rtl-file> <old> <new>      env REFSIM (refsim copy with the icache tap), PROGS (space separated .bin list), CYC (cycles per program)
 set -uo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
+. "$ROOT/scripts/env.sh"
 F=$1; OLD=$2; NEW=$3
 T=$(mktemp -d "${TMPDIR:-/tmp}/icmut.XXXXXX")
 cp -R "$ROOT/rtl" "$ROOT/spec" "$ROOT/scripts" "$ROOT/harness" "$T/"
@@ -14,8 +15,8 @@ s = open(p).read()
 assert s.count(old) >= 1, "pattern not found"
 open(p, "w").write(s.replace(old, new, 1))
 PY
-G=/Users/ruyaoh/personal/AI-Huma/trace-model/build
-PROGS=${PROGS:-"$G/tests/smc-div/smc-div.bin $G/vm/vm-sum-fetch-test/vm_sum_fetch_test.bin $G/tests/fence-i-self-modify/fence-i-self-modify.bin /Users/ruyaoh/personal/AI-Huma/rtl/programs/big/dhrystone.bin /Users/ruyaoh/personal/AI-Huma/rtl/programs/big/coremark.bin"}
+G=$TTG_PROGS
+PROGS=${PROGS:-"$G/tests/smc-div/smc-div.bin $G/vm/vm-sum-fetch-test/vm_sum_fetch_test.bin $G/tests/fence-i-self-modify/fence-i-self-modify.bin $TTG_BIG/dhrystone.bin $TTG_BIG/coremark.bin"}
 CYC=${CYC:-300000}
 real="-"
 if ! BUILD_ONLY=1 bash "$T/scripts/lockstep.sh" icache x >"$T/b.log" 2>&1; then real="BUILDFAIL"; else

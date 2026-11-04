@@ -2,6 +2,7 @@
 
 | 类别 | 脚本 | 作用 |
 | --- | --- | --- |
+| 路径配置 | `env.sh`、`ttg_env.py` | 所有脚本共用的位置（`RTL_ROOT`、`AI_HUMA_ROOT`、`TTG_PROGS`、`TTG_BIG`、`TM`、`BASELINE_SRC`、`REFSIM*`），全部由所在位置推出、可用环境变量覆盖；程序清单（`progs*.txt` 等）写相对条目（`tests/...`、`vm/...`、`big/...`、`tm/...`），由 `ttg_resolve_list` 解析 |
 | 构建/检查 | `lint.sh`、`rtl_files.sh`、`gen_cfg.sh`、`gen_tracker.py` | 规范检查（目录级）、RTL 文件序、配置包、进度表生成 |
 | 锁步（主路径） | `lockstep.sh`、`lockstep_multi.sh`、`lockstep_ticks.sh`、`lockstep_ticks_all.sh`、`lockstep_all.sh`、`lockstep_batch.sh` | 整程序实时锁步；`_ticks` 是 16 倍频访存域 |
 | trace 回放（辅助） | `record*.sh`、`replay.sh`、`hbuild.sh`、`rehash.py`、`progs.txt` | 录制/回放/随机激励 |

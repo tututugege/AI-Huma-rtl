@@ -4,6 +4,7 @@
 #   usage: soc_smoke.sh [max_ref_cycles=20000]      env JOBS (default 4), MINC (skip programs shorter than this)
 set -uo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
+. "$ROOT/scripts/env.sh"
 MAXC=${1:-20000}; MINC=${MINC:-0}
 TB=$ROOT/build/soc/obj/soc_tb
 [ -x "$TB" ] || { echo "build first: bash tb/soc/build.sh"; exit 2; }
@@ -16,7 +17,6 @@ run_one() {
   if [ "$got" = "$ref" ] && ! echo "$out" | grep -q "NO EBREAK"; then echo "PASS $rel $ref"; else echo "FAIL $rel ref=$ref rtl=${got:-none} $out"; fi
 }
 export -f run_one; export ROOT TB
-G=/Users/ruyaoh/personal/AI-Huma/trace-model/build
-{ ls $G/tests/*/*.bin $G/vm/*/*.bin; echo /Users/ruyaoh/personal/AI-Huma/rtl/programs/big/dhrystone.bin; echo /Users/ruyaoh/personal/AI-Huma/rtl/programs/big/coremark.bin; } > "$ROOT/build/soc_progs.txt"
+{ ls "$TTG_PROGS"/tests/*/*.bin "$TTG_PROGS"/vm/*/*.bin; echo "$TTG_BIG/dhrystone.bin"; echo "$TTG_BIG/coremark.bin"; } > "$ROOT/build/soc_progs.txt"
 awk -v m="$MAXC" -v n="$MINC" '$1<=m && $1>=n' "$ROOT/scripts/ref_cycles.txt" | xargs -P "${JOBS:-4}" -L1 bash -c 'run_one $0 $1' | tee "$ROOT/build/soc_smoke.log"
 echo "== PASS: $(grep -c '^PASS' "$ROOT/build/soc_smoke.log")  FAIL: $(grep -c '^FAIL' "$ROOT/build/soc_smoke.log")"

@@ -7,7 +7,7 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 MOD=$1; shift
 CYCLES=${CYCLES:-200000}
-REF=${REFSIM:-/Users/ruyaoh/personal/AI-Huma/rtl/refsim}   # shared, read-only; built by refsim_setup.sh
+REF=${REFSIM:-$ROOT/refsim}   # shared, read-only; built by refsim_setup.sh
 [ -x "$REF/build/simulator" ] || { echo "refsim not built: run scripts/refsim_setup.sh"; exit 2; }
 SPEC=$ROOT/spec/$MOD.io; [ -f "$SPEC" ] || SPEC=$MOD   # allow a spec path
 OUT=$ROOT/build/$(basename "$SPEC" .io); mkdir -p "$OUT" "$ROOT/traces/$(basename "$SPEC" .io)"

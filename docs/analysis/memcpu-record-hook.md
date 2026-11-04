@@ -28,7 +28,7 @@
 ## 2. 使用
 
 ```bash
-SP=<scratch>; rsync -a /Users/ruyaoh/personal/AI-Huma/rtl/refsim_tap/ $SP/refsim_mc/
+SP=<scratch>; rsync -a $RTL_ROOT/refsim_tap/ $SP/refsim_mc/
 cd $SP/refsim_mc && patch -p1 < <repo>/docs/analysis/memsys-record-hook.patch && patch -p1 < <repo>/docs/analysis/memcpu-record-hook.patch
 gmake LDFLAGS="-lz" -j6
 REFSIM=$SP/refsim_mc bash scripts/lockstep.sh mem_route <prog.bin> 100000            # 单模块

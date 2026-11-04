@@ -19,7 +19,7 @@
 
 ## 2. 使用
 ```bash
-rsync -a /Users/ruyaoh/personal/AI-Huma/rtl/refsim_tap/ <dir>/refsim_axi/
+rsync -a $RTL_ROOT/refsim_tap/ <dir>/refsim_axi/
 cd <dir>/refsim_axi && patch -p1 < <repo>/docs/analysis/memsys-record-hook.patch && patch -p1 < <repo>/docs/analysis/axi-record-hook.patch
 gmake LDFLAGS="-lz" -j6
 REFSIM=<dir>/refsim_axi bash scripts/lockstep_ticks_axi.sh <axi_llc|axi_interconnect|axi_subsys> <prog.bin> [cpu_cycles]

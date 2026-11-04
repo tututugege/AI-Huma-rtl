@@ -5,16 +5,16 @@
 # Result lines: build/lockt_all_<module>.csv ("<prog> LOCKSTEP PASS|FAIL ...").  Build the plugin once with `BUILD_ONLY=1 lockstep_ticks.sh <module> x`.
 set -uo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
+. "$ROOT/scripts/env.sh"
 MOD=$1
 export REFSIM=${REFSIM:?set REFSIM}
 BIG=${BIG_CYCLES:-300000}
-G=/Users/ruyaoh/personal/AI-Huma/trace-model/build
 if [ -z "${NOBUILD:-}" ]; then BUILD_ONLY=1 VFLAGS="${VFLAGS:---assert}" bash "$ROOT/scripts/lockstep_ticks.sh" "$MOD" x 2>&1 | tail -1; fi
 DYL=$ROOT/build/lockt_$MOD/lock_${MOD}.dylib
 [ -f "$DYL" ] || { echo "no plugin $DYL"; exit 2; }
 LIST=$ROOT/build/lockt_all_$MOD.progs
-if [ -n "${PROGS:-}" ]; then cp "$PROGS" "$LIST"; else
-  { ls $G/tests/*/*.bin $G/vm/*/*.bin; for p in /Users/ruyaoh/personal/AI-Huma/rtl/programs/big/dhrystone.bin /Users/ruyaoh/personal/AI-Huma/rtl/programs/big/coremark.bin /Users/ruyaoh/personal/llm4trace/third_party/tututugege/baseline-sim/src/baremetal/float-test/float_test.bin; do [ -f "$p" ] && echo "$p"; done; } > "$LIST"
+if [ -n "${PROGS:-}" ]; then ttg_resolve_list "$PROGS" > "$LIST"; else
+  ttg_all_progs > "$LIST"
 fi
 RES=$ROOT/build/lockt_all_$MOD.csv; : > "$RES"
 run_one() {

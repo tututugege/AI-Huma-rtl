@@ -210,7 +210,7 @@ front_out_valid   = (be_fifo_read_enable & ~be_refetch & ~f2b_empty) | f2b_use_b
 
 ### 5.6 复现
 ```bash
-export REFSIM=/Users/ruyaoh/personal/AI-Huma/rtl/refsim_tap
+export REFSIM=$RTL_ROOT/refsim_tap
 GATE_CYCLES=30000 bash scripts/record_all.sh <predecode|sequential_next_pc|predecode_checker|front_ctrl|fetch_addr_fifo|inst_fifo>
 GATE_CYCLES=8000  bash scripts/record_all.sh <ptab|front2back_fifo>     # record_all 会清空 traces/<mod>/，先做 record 再做下面两步
 bash tests/front_basic/run_pure.sh      # predecode / sequential_next_pc / predecode_checker / front_ctrl 的 golden trace

@@ -5,17 +5,17 @@
 # Needs REFSIM=<tree built with the multi-plugin hook> (default: refsim_tap).  Result matrix: build/lockstep_multi.csv
 set -uo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
+. "$ROOT/scripts/env.sh"
 export REFSIM=${REFSIM:-$ROOT/refsim_tap}
 BIG=${BIG_CYCLES:-300000}
 MODS=("$@")
-G=/Users/ruyaoh/personal/AI-Huma/trace-model/build
 if [ -z "${NOBUILD:-}" ]; then
   # build every module's plugin once (parallel 3)
   printf '%s\n' "${MODS[@]}" | xargs -P 3 -I{} bash -c 'BUILD_ONLY=1 bash "'"$ROOT"'/scripts/lockstep.sh" {} x 2>&1 | tail -1'
 fi
 LIST=$ROOT/build/lockstep_multi.progs
-if [ -n "${PROGS:-}" ]; then cp "$PROGS" "$LIST"; else
-  { ls $G/tests/*/*.bin $G/vm/*/*.bin; for p in /Users/ruyaoh/personal/AI-Huma/rtl/programs/big/dhrystone.bin /Users/ruyaoh/personal/AI-Huma/rtl/programs/big/coremark.bin /Users/ruyaoh/personal/llm4trace/third_party/tututugege/baseline-sim/src/baremetal/float-test/float_test.bin; do [ -f "$p" ] && echo "$p"; done; } > "$LIST"
+if [ -n "${PROGS:-}" ]; then ttg_resolve_list "$PROGS" > "$LIST"; else
+  ttg_all_progs > "$LIST"
 fi
 PLUG=""; for m in "${MODS[@]}"; do
   if [ -f "$ROOT/build/lock_$m/lock_$m.dylib" ]; then PLUG="$PLUG:$ROOT/build/lock_$m/lock_$m.dylib"; else echo "SKIPPED $m: no plugin (build failed, see build/lock_$m/*.log)"; fi

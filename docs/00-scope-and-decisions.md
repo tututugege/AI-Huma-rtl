@@ -7,7 +7,7 @@
 ## 参考模型
 
 - 仓库：`tututugege/simulator`，锁定提交见 `tututugege-trace/baseline.lock`（`commit=2f31e8d`）。
-- 本地路径：`/Users/ruyaoh/personal/llm4trace/third_party/tututugege/baseline-sim/src`。
+- 本地路径：`$BASELINE_SRC`（见 `scripts/env.sh`，默认 `<AI-Huma>/../llm4trace/third_party/tututugege/baseline-sim/src`）。
 - **参考模型是只读的**。需要加录制钩子时，在单独分支/副本里加，钩子只读取信号，不得改变任何行为（周期数必须与未加钩子时完全一致）。
 - 配置（宽度、深度、位宽）以参考模型 `include/config.h` 为唯一来源，由 `make cfg` 生成 `rtl/common/ttg_cfg_pkg.sv`，**RTL 里不允许手写这些数字**。
 

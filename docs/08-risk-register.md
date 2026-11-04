@@ -84,7 +84,7 @@
 - 平铺端口：全仓库约 5372 个端口，仍有 255 个 1 位非压缩数组、156 个字面量尺寸，主要在 `axi_llc`、`axi_interconnect`、`axi_subsys`、`mem_axi` 和以模块参数 `N` 定尺寸的 `*_bank`；`exu_ctrl` 159 个端口、`lsu` 113 个。
 - `back_top.sv`（1409 行）、`exu.sv`（524 行）由 `tools/gen_backtop.py` 生成，不能手改。
 - 73 处 lint 豁免（均带原因）；`dcache_cover.sv`、15 条 `assert property` 等仿真专用内容在 RTL 目录里，**未逐个核实是否都有综合保护**。
-- 31 个文件硬编码 `/Users/ruyaoh/personal/AI-Huma/rtl` 路径；28 个 git worktree（多为旧模块分支，已不用）。搬仓库前需处理。
+- 绝对路径已统一由 `scripts/env.sh` / `scripts/ttg_env.py` 提供（2026-11-04，原来 58 个文件 245 处写死）；仅参考模型源码在 AI-Huma 之外，由 `BASELINE_SRC` 指定（默认相对 AI-Huma 的同级 `llm4trace/third_party/...`）。旧的 28 个 git worktree 已清理。
 - 文档：`05-module-tracker.md` 的变异列过期（见 V-1）。
 
 ## 9 变更记录

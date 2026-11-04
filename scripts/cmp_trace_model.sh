@@ -4,7 +4,7 @@
 # The instruction count follows the reference (Ren.cpp commit_num): a commit slot is not counted in a cycle where rob_bcast.interrupt is set.
 set -uo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-TM=${TM:-/Users/ruyaoh/personal/AI-Huma/trace-model/build/simulator}
+. "$ROOT/scripts/env.sh"
 LIST=${1:-$ROOT/scripts/progs_smoke.txt}
 export ROOT TM
 one() {
@@ -18,5 +18,5 @@ one() {
 }
 export -f one
 OUT=$ROOT/build/cmp_trace_model.txt
-xargs -P "${JOBS:-4}" -I{} bash -c 'one {}' < "$LIST" | tee "$OUT"
+ttg_resolve_list "$LIST" | xargs -P "${JOBS:-4}" -I{} bash -c 'one {}' | tee "$OUT"
 echo "== PASS: $(grep -c '^PASS ' "$OUT")  DIFF: $(grep -vc '^PASS ' "$OUT")"

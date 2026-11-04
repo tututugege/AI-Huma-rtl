@@ -5,7 +5,8 @@
 #   env BASELINE_SRC overrides the baseline location, REFSIM_DIR the output directory.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-BASE=${BASELINE_SRC:-/Users/ruyaoh/personal/llm4trace/third_party/tututugege/baseline-sim/src}
+. "$ROOT/scripts/env.sh"
+BASE=$BASELINE_SRC
 REF=${REFSIM_DIR:-$ROOT/refsim}   # REFSIM_DIR: build into another directory (used to avoid disturbing a refsim that is in use)
 mkdir -p "$REF"
 rsync -a --exclude '.git' "$BASE/" "$REF/"

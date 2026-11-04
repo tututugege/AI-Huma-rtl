@@ -3,7 +3,7 @@
 # (full 37-output variant, unpruned, plus the shipped pruned 32-output modules).   usage: bash tests/fpu/run_netlist.sh [N]
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd); cd "$ROOT"
-REF=${REFSIM:-/Users/ruyaoh/personal/AI-Huma/rtl/refsim}
+REF=${REFSIM:-$ROOT/refsim}
 N=${1:-10000000}
 mkdir -p build/fpnet
 for op in fadd fmul; do

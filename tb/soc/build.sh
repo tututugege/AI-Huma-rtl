@@ -3,7 +3,8 @@
 #   usage: tb/soc/build.sh        env: REFSRC (reference source tree), JOBS
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
-REF=${REFSRC:-/Users/ruyaoh/personal/llm4trace/third_party/tututugege/baseline-sim/src}
+. "$ROOT/scripts/env.sh"
+REF=${REFSRC:-$BASELINE_SRC}
 OUT=$ROOT/build/soc; mkdir -p "$OUT"
 INC=""
 for d in include libs/include back-end back-end/include axi-interconnect-kit/include axi-interconnect-kit/sim_ddr/include \
