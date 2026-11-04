@@ -128,7 +128,6 @@ module rob
       pf_load:       1'b0,
       pf_store:      1'b0,
       illegal_inst:  dis2rob_uop_illegal_inst[b],
-      flush_pipe:    1'b0,   // no producer sets it in this design
       itype:         dis2rob_uop_type[b]
     };
   end
@@ -144,8 +143,7 @@ module rob
       pf_inst:    1'b0,   // no writer in the back end (instruction page faults come from the front end)
       pf_load:    exu2rob_entry_uop_page_fault_load[p],
       pf_store:   exu2rob_entry_uop_page_fault_store[p],
-      op:         exu2rob_entry_uop_op[p],
-      flush_pipe: 1'b0
+      op:         exu2rob_entry_uop_op[p]
     };
   end
 

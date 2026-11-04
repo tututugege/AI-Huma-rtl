@@ -63,7 +63,6 @@ package rob_pkg;
     logic                      pf_load;
     logic                      pf_store;
     logic                      illegal_inst;
-    logic                      flush_pipe;
     logic [INST_TYPE_W-1:0]    itype;
   } rob_entry_t;
 
@@ -81,7 +80,6 @@ package rob_pkg;
     logic                     pf_load;
     logic                     pf_store;
     logic [UOP_TYPE_W-1:0]    op;
-    logic                     flush_pipe;
   } rob_wb_t;
 
   // What one write-back port does to the slot it addresses (precomputed per port, see rob_make_event).
@@ -95,7 +93,6 @@ package rob_pkg;
     logic                     pf_load;
     logic                     pf_store;
     logic                     sta_clr_load;  // STA port with fault: drop pf_load if the slot has pf_store (AMO)
-    logic                     flush_pipe;
     logic                     br_we;
     logic                     br_mispred;
     logic                     br_taken;
@@ -113,7 +110,7 @@ package rob_pkg;
   function automatic logic rob_is_flush_inst(input rob_entry_t e);
     return (e.itype == ITYPE_CSR) | (e.itype == ITYPE_ECALL) | (e.itype == ITYPE_MRET) | (e.itype == ITYPE_SRET) |
            (e.itype == ITYPE_SFENCE_VMA) | (e.itype == ITYPE_FENCE_I) | (e.itype == ITYPE_EBREAK) |
-           rob_is_exception(e) | e.flush_pipe;
+           rob_is_exception(e);
   endfunction
 
   function automatic logic rob_is_fence_inst(input rob_entry_t e);
@@ -159,7 +156,6 @@ package rob_pkg;
     ev.pf_load = mem_port & wb.pf_load;
     ev.pf_store = mem_port & wb.pf_store;
     ev.sta_clr_load = is_sta & has_pf;
-    ev.flush_pipe = wb.flush_pipe;
     ev.br_we = is_br;
     ev.br_mispred = wb.mispred;
     ev.br_taken = wb.br_taken;
@@ -175,7 +171,6 @@ package rob_pkg;
     nxt.pf_load = cur.pf_load | ev.pf_load;
     nxt.pf_store = cur.pf_store | ev.pf_store;
     if (ev.sta_clr_load && nxt.pf_store) nxt.pf_load = 1'b0;
-    nxt.flush_pipe = cur.flush_pipe | ev.flush_pipe;
     if (ev.br_we) begin
       nxt.mispred = ev.br_mispred;
       nxt.br_taken = ev.br_taken;

@@ -32,11 +32,11 @@ module rob_trap_ctrl
 
   logic [SEL_NUM-1:0] cand, sel;
   /* verilator lint_off UNUSEDSIGNAL */
-  logic               sel_any;  // ebreak / flush_pipe flush without a cause bit, so `any` carries no information
+  logic               sel_any;  // ebreak flushes without a cause bit, so `any` carries no information
   /* verilator lint_on UNUSEDSIGNAL */
   logic               u_flush, flush_act;
 
-  // Ref: Rob::comb_commit (single_is_flush gate, then the cause chain; ebreak / wfi / flush_pipe only flush or nothing)
+  // Ref: Rob::comb_commit (single_is_flush gate, then the cause chain; ebreak / wfi only flush or nothing)
   always_comb begin
     u_flush   = rob_is_flush_inst(single_uop);
     flush_act = single_commit && (u_flush || interrupt_fire);

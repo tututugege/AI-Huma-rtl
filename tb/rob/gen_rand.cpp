@@ -1,6 +1,6 @@
 // Constrained-random trace generator for the Rob: drives the *reference* Rob class (back-end/Rob.cpp) directly in the
 // BackTop::comb() order and records the spec/rob.io fields. Covers what the real programs never reach: front_stall,
-// page faults, sfence.vma, flush_pipe, mispredict while enqueuing, full/wrap, interrupts with every head state.
+// page faults, sfence.vma, mispredict while enqueuing, full/wrap, interrupts with every head state.
 //   usage: gen_rand <out.trc> <seed> <cycles> <profile 0..5>
 #include <cstdio>
 #include <cstdlib>
@@ -48,7 +48,7 @@ int main(int argc, char **argv) {
   int p_int[6]    =  {  3,   5,   2,   1,   0,  10};   // interrupt request
   int p_fs[6]     =  { 80,  30, 300,  50, 100, 500};   // front_stall
   int p_sp[6]     =  { 60,  40,  20,  30,  10, 150};   // special instruction share
-  int p_pf[6]     =  { 30,  60,  10,  20,   0, 100};   // page fault / illegal / flush_pipe share
+  int p_pf[6]     =  { 30,  60,  10,  20,   0, 100};   // page fault / illegal share
   int p_stq[6]    =  {500, 300, 800, 100, 500, 500};   // committed_store_pending
   int p_full[6]   =  {  0,   0,   0, 800,   0,   0};   // profile 3: hold completions to fill the ROB
 
@@ -93,7 +93,7 @@ int main(int argc, char **argv) {
           w.uop.mispred = br && chance(300); w.uop.br_taken = br && chance(500);
           if (ld && chance(p_pf[prof])) { int k = rnd() % 3; w.uop.page_fault_load = k == 0; w.uop.page_fault_inst = false; /* exu writeback never carries an instruction fault in this design */ w.uop.page_fault_store = k == 2 && chance(200); if (!(w.uop.page_fault_load | w.uop.page_fault_inst | w.uop.page_fault_store)) w.uop.page_fault_load = true; }
           if (sta && chance(p_pf[prof])) w.uop.page_fault_store = true;
-          w.uop.flush_pipe = false;   // no producer sets flush_pipe in this design
+          w.uop.flush_pipe = false;   // the RTL has no flush_pipe (the reference never sets it)
         }
       }
     // mispredict: redirect at a currently valid entry

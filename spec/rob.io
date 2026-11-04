@@ -1,5 +1,5 @@
 # Rob (back-end/Rob.cpp): reorder buffer. Boundary = Rob::comb_* inputs/outputs, recorded after BackTop::comb().
-# Not translated (perf/debug/TB-perf only): dbg.*, tma.* (all), rob2dis.tma, lsu2rob miss_mask, is_atomic/func3, ftq resp.valid (assert only), commit flush_pipe.
+# Not translated (perf/debug/TB-perf only): dbg.*, tma.* (all), rob2dis.tma, lsu2rob miss_mask, is_atomic/func3, ftq resp.valid (assert only), commit flush_pipe (the field no longer exists: MMIO waits for the ROB head instead of flushing).
 module rob
 
 # ---- inputs ----
