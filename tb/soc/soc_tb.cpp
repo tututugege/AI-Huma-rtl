@@ -331,6 +331,12 @@ long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
         bool same = true;
         for (const auto &k : keep)
           if (std::memcmp(snap.data() + k.first, reinterpret_cast<const uint8_t *>(top->rootp) + k.first, k.second)) { same = false; break; }
+        if (!same && std::getenv("SOC_TB_IDLEDBG") && cycles >= 2000 && cycles < 2040) {   // debug: where does the state still change?
+          int n = 0;
+          for (const auto &k : keep)
+            for (size_t i = 0; i < k.second && n < 8; ++i)
+              if (snap[k.first + i] != reinterpret_cast<const uint8_t *>(top->rootp)[k.first + i]) { std::fprintf(stderr, "cyc %llu diff at byte %zu\n", (unsigned long long)cycles, k.first + i); ++n; }
+        }
         if (same) {   // ticks 4..14 are skipped: this tick's edge must load phase 15 (state is a fixed point, so the edge is otherwise a no-op)
           top->rootp->soc_top__DOT__u_mem__DOT__phase_q = 14;
           skip_request = true;

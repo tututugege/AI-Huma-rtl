@@ -65,6 +65,8 @@ SOC_TB_SEMIHOST=1 build/soc_linux/obj/soc_tb /tmp/linux.bin <周期数>
 (a) 状态逐字节相同（忽略 Verilator 临时变量 `__Vdfg*/__Vtemp*/__Vdly*`、≥1 MiB 的 RAM 数组即 LLC 数据，以及 `phase_q`）且
 (b) SimDDR 空闲（队列空、各 cooldown 为 0），则 tick 3–14 不可能改变任何东西，在 tick 3 的沿前把 `phase_q` 写为 14，使该沿装载 15，再跑 tick 15。
 `SOC_TB_NOSKIP=1` 关闭。掩码由 `tools/gen_skipmask.py` 在 `tb/soc/build.sh` 中从 clang 布局生成。
+
+多线程：`SOC_VOPT="--threads 4" SOC_OUT=build/soc_mt4 bash tb/soc/build.sh` 构建 4 线程版本（Verilator 调度器状态 `__Vm_mtaskstate_*` 已进掩码，空闲跳过照常生效）。dhrystone 20000 周期：单线程+跳过 5.8 s，4 线程+跳过 2.9 s（周期、指令数不变，跳过 17032 周期）。
 结果：dhrystone 前 2 万周期 59 s → 23 s（约 2.5×，85% 的周期被跳过）；65 个程序周期数仍全部与参考相等。
 注意：LLC 数据数组不参与比较，假设它只在控制状态变化时写入；若将来 LLC 出现读改写类的原地更新需重新评估。
 
