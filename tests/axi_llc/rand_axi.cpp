@@ -6,7 +6,7 @@
 // lock-step plugin (TTG_REC_END=<lock_*.dylib>, symbol ttg_rec_cycle_end) exactly like the patched simulator does.
 //   usage: rand_axi <seed> <cpu_cycles>      env: TTG_LLC_KB / TTG_LLC_WAYS (geometry), RAND_FOOT (lines per set group, default 40),
 //                                            RAND_PERIPH=0 disables the peripheral ports, RAND_PWR=0 only the peripheral WRITE port (bypass writes),
-//                                            RAND_PARTIAL=0 forces full strobes (the LLC RTL does not implement partial-line / bypass writes).
+//                                            RAND_PARTIAL=0 forces full strobes (partial strobes: lane subsets/runs/single lanes, sizes 63..0, DCache and peripheral writes).
 #define private public
 #define protected public
 #include "AXI_Interconnect.h"
@@ -189,17 +189,36 @@ static void new_rd(int m) {
     r.byp = false; r.size = 63; r.addr = pick_line_addr();
   }
 }
+static uint64_t rand_strobe(unsigned nbytes) {      // random non-empty byte-lane subset of the low nbytes lanes
+  uint64_t st = 0;
+  switch (rnd() % 4u) {
+    case 0: st = ~0ull; break;                                                    // all lanes
+    case 1: for (unsigned b = 0; b < nbytes; ++b) if (rnd() & 1) st |= 1ull << b; break;   // random lanes
+    case 2: { unsigned a = rnd() % nbytes, n = 1 + rnd() % (nbytes - a); for (unsigned b = a; b < a + n; ++b) st |= 1ull << b; break; }  // run
+    default: st = 1ull << (rnd() % nbytes); break;                                // one lane
+  }
+  if (nbytes < 64) st &= (1ull << nbytes) - 1ull;
+  return st ? st : 1ull;
+}
 static void new_wr(int m) {
   WrMaster &w = wm[m];
   w.pending = true; w.waiting = false; w.id = 0;
   for (int i = 0; i < 16; ++i) w.data[i] = rnd();
   if (m == MASTER_DCACHE_W) {
     w.byp = false; w.size = 63; w.addr = pick_line_addr(); w.strb = ~0ull;
-    if (g_partial && chance(15)) { w.strb = 0; for (int b = 0; b < 64; ++b) if (rnd() & 1) w.strb |= 1ull << b; if (!w.strb) w.strb = 1; }
+    if (g_partial && chance(25)) {                   // partial: full-size with lane subset, or a smaller aligned write inside the line
+      static const uint8_t sizes[] = {63, 63, 31, 15, 7, 3, 1, 0};
+      w.size = sizes[rnd() % 8u];
+      w.addr += (rnd() % 64u) & ~static_cast<uint32_t>(w.size);
+      w.strb = rand_strobe(static_cast<unsigned>(w.size) + 1u);
+    }
   } else {
     w.byp = true; w.size = static_cast<uint8_t>(chance(50) ? 3 : (chance(50) ? 1 : 0));
     w.addr = 0x80000000u + ((rnd() % 4u) << 6) + ((rnd() % 64u) & ~static_cast<uint32_t>(w.size));
-    w.strb = (w.size == 3) ? 0xFull : (w.size == 1 ? 0x3ull : 0x1ull);
+    w.strb = g_partial ? rand_strobe(static_cast<unsigned>(w.size) + 1u) : ((w.size == 3) ? 0xFull : (w.size == 1 ? 0x3ull : 0x1ull));
+    if (chance(20)) {                                // line-aligned bypass write (offset 0)
+      w.addr &= ~63u;
+    }
   }
 }
 
