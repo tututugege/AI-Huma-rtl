@@ -283,7 +283,8 @@ module axi_subsys (
     .hz_wresp_valid(hz_wresp_valid),
     .hz_wresp_line(hz_wresp_line)
   );
-  wire unused_hz = &{1'b0, hz_wctx_valid, hz_wctx_line, hz_wresp_valid, hz_wresp_line};
+  wire unused_hz = &{1'b0, hz_wctx_valid[0], hz_wctx_valid[1], hz_wctx_line[0], hz_wctx_line[1],
+                     hz_wresp_valid[0], hz_wresp_valid[1], hz_wresp_line[0], hz_wresp_line[1]};
 endmodule
 
 `default_nettype wire

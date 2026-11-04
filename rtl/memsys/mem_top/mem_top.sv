@@ -290,6 +290,12 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
     assign rt_dc_st_id32[s] = 32'(rt_dc_st_id[s]);
   end
 
+  // AXI-side handshake wires (declared before their first use by u_dcache)
+  logic        ax_mshr_acc, ax_mshr_rv, ax_wb_acc, ax_wb_rv;
+  logic [3:0]  ax_mshr_acc_id, ax_mshr_rid;
+  logic        ax_pa_rd_acc, ax_pa_rd_rv, ax_pa_wr_acc, ax_pa_wr_rv;
+  logic [31:0] ax_pa_rd_data;
+
   dcache u_dcache (
     .clk, .rst_n, .cpu_phase0(phase0),
     .ld_req_valid(dc_ld_valid_in), .ld_req_addr(rt_dc_ld_addr), .ld_req_id(rt_dc_ld_id),
@@ -349,10 +355,6 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
   assign peripheral_resp_mmio_rdata = hold_rdata_q;
 
   // ======================= AXI side =======================
-  logic        ax_mshr_acc, ax_mshr_rv, ax_wb_acc, ax_wb_rv;
-  logic [3:0]  ax_mshr_acc_id, ax_mshr_rid;
-  logic        ax_pa_rd_acc, ax_pa_rd_rv, ax_pa_wr_acc, ax_pa_wr_rv;
-  logic [31:0] ax_pa_rd_data;
   mem_axi u_axi (
     .clk, .rst_n, .phase0, .phase_last,
     .mem_req_valid, .mem_req_addr, .mem_req_total_size, .mem_req_bypass, .mem_req_id, .mem_resp_ready,
