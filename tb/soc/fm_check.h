@@ -5,11 +5,13 @@
 #include "refcpu_api.h"
 #include <cstdint>
 #include <cstdio>
+#include <functional>
 
 struct FmCheck {
   RefCpuContext *ctx = nullptr;
   uint64_t steps = 0, synced_io = 0, irqs = 0;
   bool failed = false;
+  std::function<uint32_t(uint32_t)> dut_mem;   // the testbench memory, for diagnostics
 
   // ram: the testbench's physical memory (already holding the image and the boot stub at 0x0)
   void init(uint32_t ram_bytes, const uint32_t *ram, uint32_t sdram_bytes, const uint32_t *sdram) {
@@ -46,7 +48,8 @@ struct FmCheck {
     RefCpuStepInfo info{};
     refcpu_get_step_info(ctx, &info);
     refcpu_get_state(ctx, &after);
-    if (rd != 0 && after.gpr[rd] != rd_val) {
+    const bool trapped = info.is_exception || info.page_fault_inst || info.page_fault_load || info.page_fault_store;
+    if (rd != 0 && !trapped && after.gpr[rd] != rd_val) {   // a trapping instruction writes no register; the next commit pc checks the trap target
       if (info.is_io || info.is_csr) {   // device / counter values are the platform's, not the function model's: adopt the DUT's
         after.gpr[rd] = rd_val;
         refcpu_set_state(ctx, &after);
@@ -54,6 +57,12 @@ struct FmCheck {
       } else {
         std::fprintf(stderr, "[FM] cycle %llu commit #%llu pc=%08x inst=%08x: x%u rtl=%08x fm=%08x\n", (unsigned long long)cycle,
                      (unsigned long long)steps, dut_pc, info.instruction, rd, rd_val, after.gpr[rd]);
+        if ((info.instruction & 0x7f) == 0x03) {   // load: show the address and both memories
+          const uint32_t va = before.gpr[(info.instruction >> 15) & 31] + uint32_t(int32_t(info.instruction) >> 20);
+          uint32_t pa = 0; const bool ok = refcpu_translate_data(ctx, va, 1, &pa);
+          std::fprintf(stderr, "[FM]   load va=%08x pa=%08x(xlate %d) priv=%u satp=%08x fm_mem=%08x rtl_mem=%08x\n", va, pa, int(ok), before.privilege, before.csr[18],
+                       refcpu_load_word(ctx, pa & ~3u), dut_mem ? dut_mem(pa & ~3u) : 0u);
+        }
         return failed = true, false;
       }
     }

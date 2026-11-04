@@ -231,6 +231,7 @@ int main(int argc, char **argv) {
     fm_pend.clear();
   };
   if (fm_on) fm.init(uint32_t(RAM_SIZE), pmem_ram_ptr(), uint32_t(PMEM_SDRAM_SIZE), pmem_sdram_ptr());
+  if (fm_on) fm.dut_mem = [](uint32_t a) { return pmem_read(a); };
   if (fm_on) for (size_t k = 0; k < stub_words.size(); ++k) refcpu_set_io_word(fm.ctx, uint32_t(4 * k), stub_words[k]);
 #endif
   const bool fast_skip = std::getenv("SOC_TB_NOSKIP") == nullptr && !skipmask.empty();
