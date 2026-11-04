@@ -49,3 +49,10 @@ note: core_top + mem_top；测试平台 tb/soc（Verilator）+ 参考的 SimDDR/
 `SOC_TB_NOSKIP=1` 关闭。掩码由 `tools/gen_skipmask.py` 在 `tb/soc/build.sh` 中从 clang 布局生成。
 结果：dhrystone 前 2 万周期 59 s → 23 s（约 2.5×，85% 的周期被跳过）；65 个程序周期数仍全部与参考相等。
 注意：LLC 数据数组不参与比较，假设它只在控制状态变化时写入；若将来 LLC 出现读改写类的原地更新需重新评估。
+
+### 每 tick 的 eval 次数（profile，SOC_TB_PROF=1）
+
+`eval()` 占仿真时间 92%，测试平台自身可忽略。原来每 tick 4 次 eval：无时钟沿的 3 次各约 27 µs，时钟沿那次约 67 µs；
+空闲 tick（147 µs）与 tick 0（212 µs）相差不大，说明核的时钟沿只贡献约 65 µs，大头是访存域每次 eval 的固定开销。
+因此“核只跑一个 tick”本来就基本成立，拆成两个模型收益很小。已做的改动：tick 末尾的 eval 与下一 tick 的第一次合并（下降沿与新输入一起求值）、
+外设环境输入未变时不再多 eval 一次。dhrystone 前 2 万周期（不跳 tick）59 s → 31 s；开启空闲跳过后 19 s。65 个程序周期数仍全部相等。

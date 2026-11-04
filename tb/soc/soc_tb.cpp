@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <algorithm>
+#include <chrono>
 #include <cstring>
 #include <string>
 #include <fstream>
@@ -180,6 +181,9 @@ int main(int argc, char **argv) {
 
   uint64_t ticks = 0, cycles = 0, committed = 0;
   bool done = false;
+  long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
+#define EVAL() do { auto e0 = std::chrono::steady_clock::now(); top->eval(); eval_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - e0).count(); ev_ns[ev_k++ & 3] += std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - e0).count(); ++eval_n; } while (0)
+  uint32_t env_region_prev = 0, env_rdata_prev = 0;
   auto tick = [&](int phase) {
     // DDR slave outputs -> RTL
     ddr.comb_outputs();
@@ -192,7 +196,7 @@ int main(int argc, char **argv) {
     top->d_bvalid = ddr.io.b.bvalid;
     top->d_bid = ddr.io.b.bid;
     top->d_bresp = ddr.io.b.bresp;
-    top->eval();
+    EVAL();
     {   // peripheral environment: region decode + same-cycle read data (combinational inputs of peripheral_axi)
       auto *Rt = top->rootp;
       const uint32_t pa = Rt->soc_top__DOT__peripheral_req_mmio_addr;
@@ -201,7 +205,8 @@ int main(int argc, char **argv) {
       top->env_rdata = top->env_rd_en ? (top->env_region == 1 ? read_uncached_ram(top->env_rd_addr, top->env_rd_func3)
                                                               : periph.read_load(top->env_rd_addr, top->env_rd_func3)) : 0;
       (void)pf3;
-      top->eval();
+      if (top->env_region != env_region_prev || top->env_rdata != env_rdata_prev) EVAL();   // an eval with unchanged inputs is a no-op
+      env_region_prev = top->env_region; env_rdata_prev = top->env_rdata;
     }
     // RTL master outputs -> DDR
     ddr.io.ar.arvalid = top->d_arvalid;
@@ -288,7 +293,7 @@ int main(int argc, char **argv) {
     ddr.seq();
     top->clk = 1;
     if (phase == 0) top->clk_cpu = 1;
-    top->eval();
+    EVAL();
     top->clk = 0;
     top->clk_cpu = 0;
     if (phase == 0 && top->rst_n) {   // MemSubsystem::seq -> peripheral_model_.tick(); interrupts for the next cycle
@@ -300,7 +305,7 @@ int main(int argc, char **argv) {
       top->interrupt_inject_timer_irq_pending = irq.timer_irq_pending;
       top->interrupt_inject_timer_irq_pending_valid = irq.timer_irq_pending_valid;
     }
-    top->eval();
+    // no eval here: the falling clock edge and the new inputs are evaluated together by the next tick's first eval
     ++ticks;
   };
 
@@ -320,6 +325,7 @@ int main(int argc, char **argv) {
     for (const auto &m : skipmask) { if (m.first > pos) keep.push_back({pos, m.first - pos}); pos = std::max(pos, m.first + m.second); }
     if (pos < sizeof(*top->rootp)) keep.push_back({pos, sizeof(*top->rootp) - pos});
   }
+  long long prof_ns[16] = {0}, prof_n[16] = {0};
   const bool fast_skip = std::getenv("SOC_TB_NOSKIP") == nullptr && !skipmask.empty();
   std::vector<uint8_t> snap(sizeof(*top->rootp));
   unsigned long long skipped_cycles = 0;
@@ -345,7 +351,9 @@ int main(int argc, char **argv) {
     sim_time = static_cast<long long>(cycles);
     if (trace_cyc) std::fprintf(stderr, "cyc %llu\n", (unsigned long long)cycles + 1);
     for (int p = 0; p < kTicks; ++p) {
+      auto t0 = std::chrono::steady_clock::now();
       tick(p);
+      prof_ns[p] += std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - t0).count(); ++prof_n[p];
       if (p == 0 && done) break;
       if (p == 1 && fast_skip) { for (const auto &k : keep) std::memcpy(snap.data() + k.first, reinterpret_cast<const uint8_t *>(top->rootp) + k.first, k.second); }
       if (p == 2 && fast_skip && ddr_idle()) {
@@ -366,6 +374,8 @@ int main(int argc, char **argv) {
   if (compare_fail) std::printf("FIRST MISMATCH at cycle %llu (see above)\n", (unsigned long long)cycles + 1);
   std::printf("RTL sim-time(cycle)= %llu, committed= %llu%s\n", (unsigned long long)cycles, (unsigned long long)committed,
               done ? "" : "  (NO EBREAK within the cycle cap)");
+  if (std::getenv("SOC_TB_PROF")) std::fprintf(stderr, "eval: n=%lld total=%.2f s  by-index(ns/eval): %.0f %.0f %.0f %.0f\n", eval_n, eval_ns / 1e9, ev_ns[0]*4.0/eval_n, ev_ns[1]*4.0/eval_n, ev_ns[2]*4.0/eval_n, ev_ns[3]*4.0/eval_n);
+  if (std::getenv("SOC_TB_PROF")) for (int i = 0; i < 16; ++i) if (prof_n[i]) std::fprintf(stderr, "tick %2d: n=%lld avg=%.1f us\n", i, prof_n[i], prof_ns[i] / 1000.0 / prof_n[i]);
   if (std::getenv("SOC_TB_NOSKIP") == nullptr) std::fprintf(stderr, "idle-skipped cycles: %llu of %llu\n", skipped_cycles, (unsigned long long)cycles);
   delete top;
   return compare_fail ? 3 : (done ? 0 : 1);
