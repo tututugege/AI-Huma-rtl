@@ -2,7 +2,7 @@
 
 ## 目标
 
-把参考模型翻译为 SystemVerilog RTL，**每个模块**都与参考模型在**每一拍**的所有边界信号一致，最终整核闭环运行与参考模型周期数一致。
+（2026-11-04 起）RTL 自己迭代：架构行为与 function-model 逐条提交一致是门禁，周期数和 IPC 是要优化的指标。最初的目标"每个模块每一拍与参考模型一致"已经完成并退役，见 [06-equivalence-policy.md](06-equivalence-policy.md) 和标签 `legacy-reference`。
 
 ## 参考模型
 

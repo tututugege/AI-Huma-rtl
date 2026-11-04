@@ -1,3 +1,5 @@
+> **已退役（2026-11-04）**：本文描述的逐模块锁步 / trace 回放 / 变异检查体系已随旧参考模型退役，脚本在标签 `legacy-reference`。现行规则见 [06-equivalence-policy.md](06-equivalence-policy.md)。
+
 # 03 逐拍对照 Harness
 
 > 本节先说**现行的主路径：整程序实时锁步**；第 1 节起的 trace 回放是调试与随机激励用的辅助路径，两者共用同一份 `spec/<mod>.io`。

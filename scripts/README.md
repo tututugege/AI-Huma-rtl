@@ -2,12 +2,10 @@
 
 | 类别 | 脚本 | 作用 |
 | --- | --- | --- |
-| 路径配置 | `env.sh`、`ttg_env.py` | 所有脚本共用的位置（`RTL_ROOT`、`AI_HUMA_ROOT`、`TTG_PROGS`、`TTG_BIG`、`TM`、`BASELINE_SRC`、`REFSIM*`），全部由所在位置推出、可用环境变量覆盖；程序清单（`progs*.txt` 等）写相对条目（`tests/...`、`vm/...`、`big/...`、`tm/...`），由 `ttg_resolve_list` 解析 |
+| 路径配置 | `env.sh`、`ttg_env.py` | 所有脚本共用的位置（`RTL_ROOT`、`AI_HUMA_ROOT`、`TTG_PROGS`、`TTG_BIG`、`TM`、`BASELINE_SRC`），全部由所在位置推出，可由环境变量覆盖 |
 | 构建/检查 | `lint.sh`、`rtl_files.sh`、`gen_cfg.sh`、`gen_tracker.py` | 规范检查（目录级）、RTL 文件序、配置包、进度表生成 |
-| 锁步（主路径） | `lockstep.sh`、`lockstep_multi.sh`、`lockstep_ticks.sh`、`lockstep_ticks_all.sh`、`lockstep_all.sh`、`lockstep_batch.sh` | 整程序实时锁步；`_ticks` 是 16 倍频访存域 |
-| trace 回放（辅助） | `record*.sh`、`replay.sh`、`hbuild.sh`、`rehash.py`、`progs.txt` | 录制/回放/随机激励 |
-| 变异 | `mut_backtop_fast.py`（模板）、`mut_backtop.py`、`mut_memcpu.py`、`mut_dcache.py`、`mutcheck.sh` | 一次构建、`TTG_MUT=k` 运行时选变异体 |
-| 复核 | `review.sh`、`merge_modules.sh` | 协调者独立复核与合并辅助 |
-| 参考模型 | `refsim_setup.sh` | 生成带钩子的参考模型副本 |
+| 整核闭环 | `soc_smoke.sh`、`cmp_trace_model.sh` | 整核 RTL 跑程序，周期/指令数与 trace-model 对比（**性能指标，不是门禁**） |
+| 程序表 | `progs.txt`、`progs_smoke.txt`、`ref_cycles.txt` | 程序列表；`ref_cycles.txt` 是退役参考的周期数，只作性能回退的参照 |
+| 正确性门禁 | 在 `tb/soc/`：`SOC_FM=1 bash tb/soc/build.sh`，运行 `SOC_TB_FM=1` | 逐条提交对比 function-model（见 `docs/modules/soc_top.md`） |
 
-只有协调者修改已有脚本；agent 需要新工具时新增文件。
+逐模块锁步、trace 录制/回放、变异检查和旧参考模型副本已退役：脚本在标签 `legacy-reference`（rtl 仓库）里。

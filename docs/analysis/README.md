@@ -1,3 +1,5 @@
+> **已退役（2026-11-04）**：本文描述的逐模块锁步 / trace 回放 / 变异检查体系已随旧参考模型退役，脚本在标签 `legacy-reference`。现行规则见 [06-equivalence-policy.md](06-equivalence-policy.md)。
+
 # docs/analysis — 分析报告、录制点、覆盖数据
 
 按区域命名：`<区域>-boundary.md`（边界与翻译方案，标注"已验证/读码得出/未核实"）、`<区域>-record-hook.md/.patch`（只读录制点：用法与补丁，补丁按依赖顺序合入共享 `refsim_tap`）。

@@ -1,3 +1,5 @@
+> **已退役（2026-11-04）**：本文描述的逐模块锁步 / trace 回放 / 变异检查体系已随旧参考模型退役，脚本在标签 `legacy-reference`。现行规则见 [06-equivalence-policy.md](06-equivalence-policy.md)。
+
 # 07 路线图与未完成事项
 
 > 模块级进度见 [05-module-tracker.md](05-module-tracker.md)（自动生成）。本文件是**人工维护**的待办清单：每条写清"为什么、做到什么算完"，做完删除并在 git 历史里留痕。
