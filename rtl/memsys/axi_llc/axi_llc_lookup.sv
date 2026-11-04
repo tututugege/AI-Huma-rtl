@@ -17,6 +17,7 @@ module axi_llc_lookup
   input  logic [7:0] w_size,
   input  logic [3:0] w_id,
   input  logic [1:0] w_master,
+  input  logic w_bypass,
   input  logic r_launch,                       // a read request is accepted
   input  addr_t r_addr,
   input  logic [7:0] r_size,
@@ -41,7 +42,7 @@ module axi_llc_lookup
     valid_d = (valid_q && !done) || new_lookup;
     issued_d = (issued_q && !retry && !done) || issue;
     is_write_d = (is_write_q && !done) || w_launch;
-    bypass_d = (bypass_q && !done) || (r_launch && r_bypass);
+    bypass_d = (bypass_q && !done) || (r_launch && r_bypass) || (w_launch && w_bypass);
   end
 
   always_ff @(posedge clk) begin

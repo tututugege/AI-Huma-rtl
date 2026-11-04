@@ -28,10 +28,7 @@ module axi_llc
   input logic [3:0] mem_rd_resp_id,
   input logic mem_wr_req_ready,
   input logic mem_wr_resp_valid,
-  // response code of the memory write channel: constant OKAY in the C++ paths that are implemented
-  /* verilator lint_off UNUSEDSIGNAL */
   input logic [1:0] mem_wr_resp,
-  /* verilator lint_on UNUSEDSIGNAL */
   output logic up_rd_req_ready [4],
   output logic up_rd_resp_valid [4],
   output logic [3:0] up_rd_resp_id [4],
@@ -77,9 +74,10 @@ module axi_llc
   logic [NW-1:0][31:0] wr_addr, hz_wc_line, hz_wr_line;
   logic [NW-1:0][7:0] wr_size;
   logic [NW-1:0][3:0] wr_id, wr_resp_id;
+  logic [NW-1:0][1:0] wr_resp_code;
   logic [NW-1:0][511:0] wr_data;
   logic [NW-1:0][63:0] wr_strb;
-  logic [NMSHR-1:0] hz_ms_valid;
+  logic [NMSHR-1:0] hz_ms_valid, hz_ms_is_write;
   logic [NMSHR-1:0][1:0] hz_ms_master;
   logic [NMSHR-1:0][3:0] hz_ms_id;
   logic [NMSHR-1:0][31:0] hz_ms_line;
@@ -112,14 +110,16 @@ module axi_llc
     .wr_v(wr_v), .wr_byp(wr_byp), .wr_ready(wr_ready), .wr_addr(wr_addr), .wr_size(wr_size), .wr_id(wr_id),
     .wr_data(wr_data), .wr_strb(wr_strb),
     .mrd_ready(mem_rd_req_ready), .mrr_v(mem_rd_resp_valid), .mrr_data(mem_rd_resp_data), .mrr_id(mem_rd_resp_id),
-    .mwr_ready(mem_wr_req_ready), .mwr_resp_v(mem_wr_resp_valid),
+    .mwr_ready(mem_wr_req_ready), .mwr_resp_v(mem_wr_resp_valid), .mwr_resp_code(mem_wr_resp),
     .rd_rdy(rd_rdy), .rr_valid(rr_valid), .rr_id(rr_id), .rr_data(rr_data), .wr_rdy(wr_rdy),
-    .wr_resp_valid(wr_resp_valid), .wr_resp_id(wr_resp_id),
+    .wr_resp_valid(wr_resp_valid), .wr_resp_id(wr_resp_id), .wr_resp_code(wr_resp_code),
     .mrd_v(mem_rd_req_valid), .mrd_addr(mem_rd_req_addr), .mrd_size(mem_rd_req_size), .mrd_id(mem_rd_req_id),
-    .mwr_v(mem_wr_req_valid), .mwr_addr(mem_wr_req_addr), .mwr_data(mem_wr_req_data),
+    .mwr_v(mem_wr_req_valid), .mwr_addr(mem_wr_req_addr), .mwr_data(mem_wr_req_data), .mwr_strb(mem_wr_req_strb),
+    .mwr_size(mem_wr_req_size), .mwr_id(mem_wr_req_id),
     .hz_lk_valid(hz_lookup_valid), .hz_lk_is_write(hz_lookup_is_write), .hz_lk_addr(hz_lookup_addr),
     .hz_lk_master(hz_lookup_master), .hz_lk_id(hz_lookup_id), .hz_rr_fresh(hz_rr_fresh),
-    .hz_ms_valid(hz_ms_valid), .hz_ms_master(hz_ms_master), .hz_ms_id(hz_ms_id), .hz_ms_line(hz_ms_line),
+    .hz_ms_valid(hz_ms_valid), .hz_ms_is_write(hz_ms_is_write), .hz_ms_master(hz_ms_master), .hz_ms_id(hz_ms_id),
+      .hz_ms_line(hz_ms_line),
     .hz_wc_valid(hz_wc_valid), .hz_wc_line(hz_wc_line), .hz_wr_line(hz_wr_line)
   );
 
@@ -137,7 +137,7 @@ module axi_llc
       up_wr_req_ready[w] = wr_rdy[w];
       up_wr_resp_valid[w] = wr_resp_valid[w];
       up_wr_resp_id[w] = wr_resp_id[w];
-      up_wr_resp_resp[w] = 2'd0;               // OKAY: the only response code of the implemented paths
+      up_wr_resp_resp[w] = wr_resp_code[w];
       hz_wctx_valid[w] = hz_wc_valid[w];
       hz_wctx_line[w] = hz_wc_line[w];
       hz_wresp_valid[w] = wr_resp_valid[w];
@@ -145,14 +145,11 @@ module axi_llc
     end
     for (int s = 0; s < NMSHR; s++) begin
       hz_mshr_valid[s] = hz_ms_valid[s];
-      hz_mshr_is_write[s] = 1'b0;  // partial-line write misses are never allocated (docs/modules/axi_llc.md section 2)
+      hz_mshr_is_write[s] = hz_ms_is_write[s];
       hz_mshr_master[s] = hz_ms_master[s];
       hz_mshr_id[s] = hz_ms_id[s];
       hz_mshr_line[s] = hz_ms_line[s];
     end
-    mem_wr_req_strb = '1;
-    mem_wr_req_size = 8'd63;
-    mem_wr_req_id = 4'd0;
   end
 endmodule
 

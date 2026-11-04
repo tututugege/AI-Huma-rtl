@@ -3,9 +3,12 @@
 // Resolution of the lookup whose table row has just arrived (lookup valid, issued, row valid).  Reads the OLD
 // lookup registers and old MSHR / write-context state; its effects (table write, MSHR allocation, victim
 // write-back, response enqueue) are requests to the owning units.
-//   hit  + write : merge into the line, table write (dirty), update victim snapshots of in-flight refills
+//   hit  + write : merge into the line, table write (dirty; a bypass write keeps the dirty bit), update victim
+//                  snapshots of in-flight refills (not for bypass writes)
 //   hit  + read  : response to the master (replacement pointer update unless bypass)
-//   miss + write : full-line write: dirty victim -> write-back first (context waits), else table write
+//   miss + write : bypass write: nothing to do (the memory write is the context's business);
+//                  full-line write: dirty victim -> write-back first (context waits), else table write;
+//                  partial-line write: allocate a write MSHR (refill, merge, table write)
 //   miss + read  : allocate an MSHR (also for bypass reads)
 // Any unmet precondition (table busy, no way, MSHR busy, response queue full, write-back busy) is `retry`: the
 // table read is issued again.
@@ -44,13 +47,14 @@ module axi_llc_resolve
   output line_t vu_data,
   output logic cdone_set,
   output logic cpend_set,
+  output logic cpend_vwait,
   output addr_t vict_addr,
   output logic [WB-1:0] pick_way,
   output line_t vict_data,
   output logic forw_go,
   output logic alloc_go,
-  output logic alloc_vdirty,
-  output logic bad_partial                     // partial-line write miss (not implemented)
+  output logic alloc_is_write,
+  output logic alloc_vdirty
 );
   logic [WAYS-1:0] tag_eq, hit_oh, inv_oh, sel_oh;
   logic hit_any, inv_any, pick_ok, vdirty;
@@ -58,7 +62,8 @@ module axi_llc_resolve
   logic [TAGW-1:0] vtag;
   line_t line_sel, merged;
   line_t way_line [WAYS];
-  logic hit_w_ok, hit_r_want, hit_r_ok, miss_w_pick, miss_w_fwd, miss_w_direct, miss_r_ok;
+  logic hit_w_ok, hit_r_want, hit_r_ok, miss_w_pick, miss_w_fwd, miss_w_direct, miss_w_part, miss_w_byp, miss_r_ok;
+  logic full_write, mshr_ok;
 
   always_comb begin
     for (int w = 0; w < WAYS; w++) tag_eq[w] = lk_v[w] && lk_t[w] == tag_of(laddr);
@@ -84,21 +89,24 @@ module axi_llc_resolve
   axi_llc_merge u_merge (.base(line_sel), .offset(laddr[5:0]), .data(wdata), .strb(wstrb), .size(wsize),
                          .merged(merged));
 
-  // which of the four cases completes in this tick (none of these depends on the response queue)
+  // which case completes in this tick (none of these depends on the response queue)
   always_comb begin
+    full_write = is_full_write(laddr, wstrb, wsize);
+    mshr_ok = !mshr_line_hit && mshr_free;
     hit_w_ok = act && hit_any && is_write && !tbl_busy2;
     hit_r_want = act && hit_any && !is_write && (bypass || !tbl_busy2);
-    miss_w_pick = act && !hit_any && is_write && pick_ok;
-    miss_w_fwd = miss_w_pick && vdirty && !vwb_busy2;
-    miss_w_direct = miss_w_pick && !vdirty && !tbl_busy2;
-    miss_r_ok = act && !hit_any && !is_write && !mshr_line_hit && mshr_free && pick_ok;
-    bad_partial = act && !hit_any && is_write && !is_full_write(laddr, wstrb, wsize);
+    miss_w_byp = act && !hit_any && is_write && bypass;
+    miss_w_pick = act && !hit_any && is_write && !bypass && pick_ok;
+    miss_w_fwd = miss_w_pick && full_write && vdirty && !vwb_busy2;
+    miss_w_direct = miss_w_pick && full_write && !vdirty && !tbl_busy2;
+    miss_w_part = miss_w_pick && !full_write && mshr_ok;
+    miss_r_ok = act && !hit_any && !is_write && mshr_ok && pick_ok;
   end
 
   // the response queue decides whether a read hit completes
   always_comb begin
     hit_r_ok = hit_r_want && acc_a;
-    done = hit_w_ok || hit_r_ok || miss_w_fwd || miss_w_direct || miss_r_ok;
+    done = hit_w_ok || hit_r_ok || miss_w_fwd || miss_w_direct || miss_w_part || miss_w_byp || miss_r_ok;
     retry = act && !done;
   end
 
@@ -111,7 +119,7 @@ module axi_llc_resolve
     tw.way = sel_way;
     tw.data = hit_any ? merged : wdata;       // full-line write miss: the merge result is the write data
     tw.tag = tag_of(laddr);
-    tw.dirty = 1'b1;
+    tw.dirty = (bypass && hit_any) ? lk_d[hit_way] : 1'b1;   // a bypass write keeps the dirty bit
     tw.repl = next_way(sel_way);
   end
 
@@ -119,16 +127,18 @@ module axi_llc_resolve
   always_comb begin
     enq_v = hit_r_want;
     enq_data = resp_of(laddr, line_sel);
-    vu_go = hit_w_ok;
+    vu_go = hit_w_ok && !bypass;
     vu_way = hit_way;
     vu_data = merged;
-    cdone_set = hit_w_ok || miss_w_direct;
-    cpend_set = miss_w_fwd;
+    cdone_set = hit_w_ok || miss_w_direct || miss_w_byp;
+    cpend_set = miss_w_fwd || miss_w_part;
+    cpend_vwait = miss_w_fwd;
     forw_go = miss_w_fwd;
     vict_addr = addr_of(vtag, set_of(laddr));
     vict_data = line_sel;
-    alloc_go = miss_r_ok;
-    alloc_vdirty = vdirty && !bypass;
+    alloc_go = miss_r_ok || miss_w_part;
+    alloc_is_write = is_write;
+    alloc_vdirty = vdirty;
   end
 endmodule
 

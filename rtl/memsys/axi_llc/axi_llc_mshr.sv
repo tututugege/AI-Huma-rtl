@@ -15,6 +15,7 @@ module axi_llc_mshr
   // allocation (stage 3)
   input  logic alloc_go,
   input  logic a_bypass,
+  input  logic a_is_write,
   input  addr_t a_addr,
   input  logic [WB-1:0] a_way,
   input  logic [7:0] a_size,
@@ -31,6 +32,10 @@ module axi_llc_mshr
   input  logic [WB-1:0] vu_way,
   input  line_t vu_data,
   output logic [WAYS-1:0] rsv_mask,
+  // answer of a write-back owned by an MSHR slot (stage 2): the owner's victim snapshot is done
+  input  logic own_resp,
+  input  logic [MIDW-1:0] own_idx,
+  input  addr_t own_addr,
   // memory read response (stage 4a)
   input  logic mrr_v,
   input  logic [3:0] mrr_id,
@@ -53,17 +58,20 @@ module axi_llc_mshr
   output logic [MIDW-1:0] cs_idx,
   output logic e_bypass,
   output logic e_rcomm,
+  output logic e_is_write,
   output addr_t e_addr,
   output logic [WB-1:0] e_way,
   output logic [1:0] e_master,
   output logic [3:0] e_id,
   output line_t e_rdata,
   output logic e_vdirty,
+  output logic e_vdone,
   output addr_t e_vaddr,
   output line_t e_vdata,
   // hazard lists
   output logic [NMSHR-1:0] vh_cur,               // refill data present, dirty victim snapshot not yet written
   output logic [NMSHR-1:0][31:0] vh_addr_cur,
+  output logic [NMSHR-1:0] vh_s2,
   output logic [NMSHR-1:0] vh_d,
   output logic [NMSHR-1:0][31:0] vh_addr_d,
   output logic [NMSHR-1:0] ml_vld_cur,           // non-bypass entries and their line
@@ -75,11 +83,13 @@ module axi_llc_mshr
   // registers read by the interconnect
   output logic [NMSHR-1:0] hz_valid,
   output logic [NMSHR-1:0][1:0] hz_master,
+  output logic [NMSHR-1:0] hz_is_write,
   output logic [NMSHR-1:0][3:0] hz_id,
   output logic [NMSHR-1:0][31:0] hz_line
 );
+  logic [NMSHR-1:0] is_write_q, own_m, own_nd, own_oh, own_idx_oh, own_first, own_set;
   logic [NMSHR-1:0] valid_q, valid_d, bypass_q, bypass_d, issued_q, rvalid_q, rcomm_q;
-  logic [NMSHR-1:0] vdirty_d;
+  logic [NMSHR-1:0] vdirty_d, vdone_d;
   addr_t addr_q [NMSHR];
   addr_t addr_d [NMSHR];
   addr_t vaddr_d [NMSHR];
@@ -97,6 +107,7 @@ module axi_llc_mshr
   logic [NMSHR-1:0] resp_store, free_a, issue_set, rcomm_set, free_c, free_any_vec;
   logic iss_any_q, direct;
   /* verilator lint_off UNUSEDSIGNAL */
+  logic own_first_any;                         // not needed: the owner slot may also come from the slot id
   logic free_oh_any;                           // the free-slot search result is used through free_any_cur
   /* verilator lint_on UNUSEDSIGNAL */
   logic [MIDW-1:0] iss_idx;
@@ -130,21 +141,34 @@ module axi_llc_mshr
   ttg_onehot_to_idx #(.N(NMSHR), .IDXW(MIDW)) u_iss_idx (.onehot(iss_oh), .idx(iss_idx));
   ttg_onehot_to_idx #(.N(NMSHR), .IDXW(MIDW)) u_cs_idx (.onehot(cs_oh), .idx(cs_idx));
 
+  // owner of the answered write-back: the slot it names if that entry still holds the victim, else the first
+  // entry with that victim whose write-back is not done yet
+  ttg_first_set #(.N(NMSHR)) u_own (.req(own_nd), .onehot(own_first), .any(own_first_any));
+  always_comb begin
+    own_idx_oh = NMSHR'(1) << own_idx;
+    own_oh = (|(own_m & own_idx_oh)) ? own_idx_oh : own_first;
+    own_set = own_resp ? own_oh : '0;
+  end
+
   // ---------------- entries ----------------
   for (genvar i = 0; i < NMSHR; i++) begin : g_ent
     axi_llc_mshr_ent u_ent (
       .clk(clk), .rst_n(rst_n),
-      .alloc(alloc_oh[i]), .a_bypass(a_bypass), .a_addr(a_addr), .a_way(a_way), .a_size(a_size),
+      .alloc(alloc_oh[i]), .a_bypass(a_bypass), .a_is_write(a_is_write), .a_addr(a_addr), .a_way(a_way),
+        .a_size(a_size),
       .a_master(a_master), .a_id(a_id), .a_vdirty(a_vdirty), .a_vaddr(a_vaddr), .a_vdata(a_vdata),
       .lk_set(lk_set), .lk_line(lk_line), .vu_go(vu_go), .vu_way(vu_way), .vu_data(vu_data),
-      .resp_store(resp_store[i]), .resp_data(mrr_data), .issue_set(issue_set[i]), .rcomm_set(rcomm_set[i]),
+      .own_addr(own_addr), .own_set(own_set[i]), .resp_store(resp_store[i]), .resp_data(mrr_data),
+        .issue_set(issue_set[i]), .rcomm_set(rcomm_set[i]),
       .free(free_a[i] || free_c[i]),
       .valid_q(valid_q[i]), .valid_d(valid_d[i]), .bypass_q(bypass_q[i]), .bypass_d(bypass_d[i]),
+        .is_write_q(is_write_q[i]),
       .issued_q(issued_q[i]),
       .rvalid_q(rvalid_q[i]), .rcomm_q(rcomm_q[i]), .addr_q(addr_q[i]), .addr_d(addr_d[i]), .way_q(way_q[i]),
       .size_q(size_q[i]), .master_q(master_q[i]), .master_d(master_d[i]), .id_q(id_q[i]), .rdata_q(rdata_q[i]),
-      .vdirty_d(vdirty_d[i]), .vaddr_d(vaddr_d[i]), .vdata_d(vdata_d[i]),
-      .rsv_mask(ent_rsv[i]), .vh_cur(vh_cur[i]), .vh_d(vh_d[i]), .vaddr_q(vaddr_q[i])
+      .vdirty_d(vdirty_d[i]), .vdone_o(vdone_d[i]), .vaddr_d(vaddr_d[i]), .vdata_d(vdata_d[i]),
+      .rsv_mask(ent_rsv[i]), .vh_cur(vh_cur[i]), .vh_s2(vh_s2[i]), .vh_d(vh_d[i]), .own_m(own_m[i]),
+      .own_nd(own_nd[i]), .vaddr_q(vaddr_q[i])
     );
   end
 
@@ -161,11 +185,13 @@ module axi_llc_mshr
     resp_eid = '0;
     e_bypass = 1'b0;
     e_rcomm = 1'b0;
+    e_is_write = 1'b0;
     e_addr = '0;
     e_way = '0;
     e_master = '0;
     e_id = '0;
     e_vdirty = 1'b0;
+    e_vdone = 1'b0;
     e_vaddr = '0;
     for (int i = 0; i < NMSHR; i++) begin
       resp_want |= resp_oh[i] && bypass_q[i];
@@ -173,11 +199,13 @@ module axi_llc_mshr
       resp_eid |= id_q[i] & {4{resp_oh[i]}};
       e_bypass |= cs_oh[i] && bypass_q[i];
       e_rcomm |= cs_oh[i] && rcomm_q[i];
+      e_is_write |= cs_oh[i] && is_write_q[i];
       e_addr |= addr_q[i] & {32{cs_oh[i]}};
       e_way |= way_q[i] & {WB{cs_oh[i]}};
       e_master |= master_q[i] & {2{cs_oh[i]}};
       e_id |= id_q[i] & {4{cs_oh[i]}};
       e_vdirty |= cs_oh[i] && vdirty_d[i];
+      e_vdone |= cs_oh[i] && vdone_d[i];
       e_vaddr |= vaddr_d[i] & {32{cs_oh[i]}};
     end
   end
@@ -219,6 +247,7 @@ module axi_llc_mshr
       ml_vld_d[i] = valid_d[i] && !bypass_d[i];
       ml_line_d[i] = line_of(addr_d[i]);
       hz_valid[i] = valid_q[i];
+      hz_is_write[i] = is_write_q[i];
       hz_master[i] = master_q[i];
       hz_id[i] = id_q[i];
       hz_line[i] = bypass_q[i] ? addr_q[i] : line_of(addr_q[i]);

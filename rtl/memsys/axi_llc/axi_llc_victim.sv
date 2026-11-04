@@ -26,6 +26,7 @@ module axi_llc_victim
   input  addr_t park_addr,
   input  line_t park_data,
   input  logic own_clr,
+  input  logic bp_owner_any,                   // a bypass write is outstanding: no victim is loaded or issued
   input  logic [MIDW-1:0] own_clr_id,
   // memory write channel
   output logic mwr_v,
@@ -44,8 +45,10 @@ module axi_llc_victim
   output logic [VQD:0][31:0] vl_addr_d,
   output logic [VQD:0] pr_vld_s2,              // snapshots (non-forw) present after stage 2
   output logic [VQD:0][31:0] pr_addr_s2,
-  output logic bad_orphan,                     // memory write response without a write-back in flight
-  output logic bad_owner                       // response of an MSHR-owned write-back (not implemented)
+  output logic bp_resp,                        // memory write response that is not the write-back's (bypass write)
+  output logic own_resp,                       // response of a write-back owned by an MSHR slot ...
+  output logic [MIDW-1:0] own_idx,
+  output addr_t own_addr
 );
   // ---------------- write-back slot ----------------
   logic vw_valid_q, vw_issued_q, vw_forw_q, vw_wm_q, vw_ownv_q;
@@ -67,17 +70,20 @@ module axi_llc_victim
     head_addr = rv_addr_q[rv_head_q];
     head_data = rv_data_q[rv_head_q];
     resp = mwr_resp_v && vw_valid_q && vw_issued_q;
-    bad_orphan = mwr_resp_v && !(vw_valid_q && vw_issued_q);
+    bp_resp = mwr_resp_v && !(vw_valid_q && vw_issued_q);
     resp_forw = resp && vw_forw_q;
     resp_wm = vw_wm_q;
-    bad_owner = resp && !vw_forw_q && vw_ownv_q;
+    own_resp = resp && !vw_forw_q && vw_ownv_q;
+    own_idx = vw_own_q;
+    own_addr = vw_addr_q;
     head_match = rv_vld_q[rv_head_q] && head_addr == vw_addr_q;
     pop = resp && !vw_forw_q && !vw_ownv_q && head_match;
     rv_vld_s2 = rv_vld_q;
     if (pop) rv_vld_s2[rv_head_q] = 1'b0;
     rvq_full_s2 = &rv_vld_s2;
     valid_r = vw_valid_q && !resp;
-    load = !valid_r && rv_vld_q[rv_head_q];    // reads the queue head of the OLD state (duplicate re-issue)
+    // reads the queue head of the OLD state (duplicate re-issue); nothing is loaded while a bypass write is out
+    load = !valid_r && rv_vld_q[rv_head_q] && !bp_owner_any;
     busy_s2 = valid_r || load;
   end
 
@@ -94,7 +100,7 @@ module axi_llc_victim
 
   // memory write request: a freshly loaded victim is issued in the same tick
   always_comb begin
-    mwr_v = load || (valid_r && !vw_issued_q);
+    mwr_v = load || (valid_r && !vw_issued_q && !bp_owner_any);
     mwr_addr = load ? head_addr : vw_addr_q;
     mwr_data = load ? head_data : vw_data_q;
   end
@@ -103,7 +109,7 @@ module axi_llc_victim
   always_comb begin
     own_clr_here = own_clr && valid_r && vw_ownv_q && vw_own_q == own_clr_id;
     vw_valid_d = busy_s3 || park_vwb;
-    vw_issued_d = !(forw_go || park_vwb) && (load ? mwr_ready : (vw_issued_q || mwr_ready));
+    vw_issued_d = !(forw_go || park_vwb) && ((valid_r && vw_issued_q) || (mwr_v && mwr_ready));
     vw_forw_d = forw_go || (vw_forw_q && !load && !park_vwb);
     vw_ownv_d = park_vwb || (vw_ownv_q && !own_clr_here && !load && !forw_go);
     vw_addr_d = forw_go ? forw_addr : park_vwb ? park_addr : load ? head_addr : vw_addr_q;

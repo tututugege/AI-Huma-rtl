@@ -3,7 +3,10 @@
 // One miss entry.  Life cycle:  alloc (lookup miss) -> memory read issued -> refill data arrived (rvalid) ->
 // victim parked / refill written into the table (rcomm) -> answer to the master, entry freed.
 // Bypass entries (uncached 4-byte reads) skip the table: the memory response is answered directly.
-// vdirty/vaddr/vdata: snapshot of the dirty victim line that this refill will overwrite (non-bypass only).
+// vdirty/vaddr/vdata: snapshot of the dirty victim line that this refill will overwrite; vdone: its write-back
+// has been answered by memory (the entry owned the write-back slot).
+// is_write: refill of a partial-line write miss; the write data is merged into the refill line and the entry is
+// freed in the same tick (no read response).
 module axi_llc_mshr_ent
   import axi_llc_pkg::*;
 (
@@ -12,6 +15,7 @@ module axi_llc_mshr_ent
   // allocation from the lookup (stage 3)
   input  logic alloc,
   input  logic a_bypass,
+  input  logic a_is_write,
   input  addr_t a_addr,
   input  logic [WB-1:0] a_way,
   input  logic [7:0] a_size,
@@ -26,6 +30,9 @@ module axi_llc_mshr_ent
   input  logic vu_go,
   input  logic [WB-1:0] vu_way,
   input  line_t vu_data,
+  // write-back owned by this slot answered (address of the write-back)
+  input  addr_t own_addr,
+  input  logic own_set,
   // memory read response / issue / refill progress (stage 4)
   input  logic resp_store,
   input  line_t resp_data,
@@ -37,6 +44,7 @@ module axi_llc_mshr_ent
   output logic valid_d,
   output logic bypass_q,
   output logic bypass_d,
+  output logic is_write_q,
   output logic issued_q,
   output logic rvalid_q,
   output logic rcomm_q,
@@ -49,15 +57,19 @@ module axi_llc_mshr_ent
   output logic [3:0] id_q,
   output line_t rdata_q,
   output logic vdirty_d,
+  output logic vdone_o,
   output addr_t vaddr_d,
   output line_t vdata_d,
   // way reservation / victim-holder contributions
   output logic [WAYS-1:0] rsv_mask,
   output logic vh_cur,
   output logic vh_d,
+  output logic vh_s2,                          // after the write-back answer of this tick, before stage 3
+  output logic own_m,                          // dirty victim of the answered write-back (any vdone)
+  output logic own_nd,                         // ... not yet marked done
   output addr_t vaddr_q
 );
-  logic issued_d, rvalid_d, rcomm_d, vdirty_q, other_line, vu_hit;
+  logic issued_d, rvalid_d, rcomm_d, vdirty_q, vdone_q, vdone_d, vdone_s2, other_line, vu_hit;
   line_t vdata_q;
 
   // way reservation of the lookup set (old state only)
@@ -68,7 +80,7 @@ module axi_llc_mshr_ent
   end
 
   always_comb begin
-    vu_hit = vu_go && other_line && way_q == vu_way;
+    vu_hit = vu_go && other_line && !is_write_q && way_q == vu_way;
     valid_d = (valid_q && !free) || alloc;
     issued_d = (alloc ? 1'b0 : issued_q) || issue_set;
     rvalid_d = !alloc && (rvalid_q || resp_store);
@@ -79,8 +91,14 @@ module axi_llc_mshr_ent
     addr_d = alloc ? a_addr : addr_q;
     bypass_d = alloc ? a_bypass : bypass_q;
     master_d = alloc ? a_master : master_q;
-    vh_cur = valid_q && vdirty_q && !rcomm_q && rvalid_q;
-    vh_d = valid_d && vdirty_d && !rcomm_d && rvalid_d;
+    vdone_s2 = vdone_q || own_set;
+    vdone_d = alloc ? !a_vdirty : (vu_hit ? 1'b0 : vdone_s2);
+    vdone_o = vdone_d;
+    vh_cur = valid_q && !bypass_q && vdirty_q && !rcomm_q && (rvalid_q || vdone_q);
+    vh_s2 = valid_q && !bypass_q && vdirty_q && !rcomm_q && (rvalid_q || vdone_s2);
+    vh_d = valid_d && !bypass_d && vdirty_d && !rcomm_d && (rvalid_d || vdone_d);
+    own_m = valid_q && vdirty_q && vaddr_q == own_addr;
+    own_nd = own_m && !vdone_q;
   end
 
   always_ff @(posedge clk) begin
@@ -90,18 +108,21 @@ module axi_llc_mshr_ent
       rvalid_q <= 1'b0;
       rcomm_q <= 1'b0;
       vdirty_q <= 1'b0;
+      vdone_q <= 1'b0;
     end else begin
       valid_q <= valid_d;
       issued_q <= issued_d;
       rvalid_q <= rvalid_d;
       rcomm_q <= rcomm_d;
       vdirty_q <= vdirty_d;
+      vdone_q <= vdone_d;
     end
   end
 
   always_ff @(posedge clk) begin
     if (alloc) begin
       bypass_q <= a_bypass;
+      is_write_q <= a_is_write;
       addr_q <= a_addr;
       way_q <= a_way;
       size_q <= a_size;
