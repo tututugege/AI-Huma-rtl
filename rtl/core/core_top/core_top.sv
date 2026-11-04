@@ -38,15 +38,15 @@ module core_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; i
   input  logic [PERM_W-1:0] dtlb_walk_resp_leaf_perm,
   input  logic dtlb_walk_resp_leaf_level,
   // ---- LSU <-> DCache / MMIO, interrupt injection ----
-  input  logic [31:0] dcache2lsu_load_resps_data [4],
-  input  logic [1:0] dcache2lsu_load_resps_replay [4],
-  input  logic [31:0] dcache2lsu_load_resps_req_id [4],
-  input  logic dcache2lsu_load_resps_valid [4],
+  input  logic [31:0] dcache2lsu_load_resps_data [LSU_LDU_COUNT],
+  input  logic [1:0] dcache2lsu_load_resps_replay [LSU_LDU_COUNT],
+  input  logic [31:0] dcache2lsu_load_resps_req_id [LSU_LDU_COUNT],
+  input  logic dcache2lsu_load_resps_valid [LSU_LDU_COUNT],
   input  logic dcache2lsu_mshr_fill,
   input  logic [25:0] dcache2lsu_mshr_fill_line,
-  input  logic [1:0] dcache2lsu_store_resps_replay [4],
-  input  logic [31:0] dcache2lsu_store_resps_req_id [4],
-  input  logic dcache2lsu_store_resps_valid [4],
+  input  logic [1:0] dcache2lsu_store_resps_replay [LSU_STA_COUNT],
+  input  logic [31:0] dcache2lsu_store_resps_req_id [LSU_STA_COUNT],
+  input  logic dcache2lsu_store_resps_valid [LSU_STA_COUNT],
   input  logic interrupt_inject_external_irq_pending,
   input  logic interrupt_inject_external_irq_pending_valid,
   input  logic interrupt_inject_supervisor_external_irq_pending,
@@ -76,18 +76,18 @@ module core_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; i
   output logic dtlb_walk_req_valid,
   output logic [19:0] dtlb_walk_req_vpn,
   output logic dtlb_walk_resp_consumed,
-  output logic [31:0] ftq_commit_info_resp_pc [8],
-  output logic [31:0] out_commit_entry_uop_diag_val [8],
+  output logic [31:0] ftq_commit_info_resp_pc [COMMIT_WIDTH],
+  output logic [31:0] out_commit_entry_uop_diag_val [COMMIT_WIDTH],
   output logic out_mispred,
   output logic [31:0] out_redirect_pc,
-  output logic [31:0] lsu2dcache_load_ports_addr [4],
-  output logic [30:0] lsu2dcache_load_ports_req_id [4],
-  output logic lsu2dcache_load_ports_valid [4],
-  output logic [31:0] lsu2dcache_store_ports_addr [4],
-  output logic [31:0] lsu2dcache_store_ports_data [4],
-  output logic [5:0] lsu2dcache_store_ports_req_id [4],
-  output logic [4:0] lsu2dcache_store_ports_strb [4],
-  output logic lsu2dcache_store_ports_valid [4],
+  output logic [31:0] lsu2dcache_load_ports_addr [LSU_LDU_COUNT],
+  output logic [30:0] lsu2dcache_load_ports_req_id [LSU_LDU_COUNT],
+  output logic lsu2dcache_load_ports_valid [LSU_LDU_COUNT],
+  output logic [31:0] lsu2dcache_store_ports_addr [LSU_STA_COUNT],
+  output logic [31:0] lsu2dcache_store_ports_data [LSU_STA_COUNT],
+  output logic [5:0] lsu2dcache_store_ports_req_id [LSU_STA_COUNT],
+  output logic [4:0] lsu2dcache_store_ports_strb [LSU_STA_COUNT],
+  output logic lsu2dcache_store_ports_valid [LSU_STA_COUNT],
   output logic peripheral_req_is_mmio,
   output logic [31:0] peripheral_req_mmio_addr,
   output logic [2:0] peripheral_req_mmio_fun3,
@@ -100,43 +100,43 @@ module core_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; i
   output logic rob_bcast_mret,
   output logic [31:0] rob_bcast_pc,
   output logic rob_bcast_sret,
-  output logic rob_commit_commit_entry_uop_br_taken [8],
-  output logic [5:0] rob_commit_commit_entry_uop_dest_areg [8],
-  output logic rob_commit_commit_entry_uop_dest_en [8],
-  output logic rob_commit_commit_entry_uop_page_fault_inst [8],
-  output logic rob_commit_commit_entry_uop_page_fault_load [8],
-  output logic rob_commit_commit_entry_uop_page_fault_store [8],
-  output logic rob_commit_commit_entry_uop_rob_flag [8],
-  output logic [6:0] rob_commit_commit_entry_uop_rob_idx [8],
-  output logic rob_commit_commit_entry_uop_stq_flag [8],
-  output logic [5:0] rob_commit_commit_entry_uop_stq_idx [8],
-  output logic [4:0] rob_commit_commit_entry_uop_type [8],
-  output logic rob_commit_commit_entry_valid [8]
+  output logic rob_commit_commit_entry_uop_br_taken [COMMIT_WIDTH],
+  output logic [5:0] rob_commit_commit_entry_uop_dest_areg [COMMIT_WIDTH],
+  output logic rob_commit_commit_entry_uop_dest_en [COMMIT_WIDTH],
+  output logic rob_commit_commit_entry_uop_page_fault_inst [COMMIT_WIDTH],
+  output logic rob_commit_commit_entry_uop_page_fault_load [COMMIT_WIDTH],
+  output logic rob_commit_commit_entry_uop_page_fault_store [COMMIT_WIDTH],
+  output logic rob_commit_commit_entry_uop_rob_flag [COMMIT_WIDTH],
+  output logic [6:0] rob_commit_commit_entry_uop_rob_idx [COMMIT_WIDTH],
+  output logic rob_commit_commit_entry_uop_stq_flag [COMMIT_WIDTH],
+  output logic [5:0] rob_commit_commit_entry_uop_stq_idx [COMMIT_WIDTH],
+  output logic [4:0] rob_commit_commit_entry_uop_type [COMMIT_WIDTH],
+  output logic rob_commit_commit_entry_valid [COMMIT_WIDTH]
 );
 
   // ---- nets between the glue blocks and the back end ----
-  logic front2pre_alt_pred [16];
-  logic [2:0] front2pre_altpcpn [16];
-  logic [31:0] front2pre_inst [16];
-  logic front2pre_page_fault_inst [16];
-  logic [31:0] front2pre_pc [16];
-  logic [2:0] front2pre_pcpn [16];
-  logic front2pre_predict_dir [16];
+  logic front2pre_alt_pred [BACKEND_FETCH_WIDTH];
+  logic [2:0] front2pre_altpcpn [BACKEND_FETCH_WIDTH];
+  logic [31:0] front2pre_inst [BACKEND_FETCH_WIDTH];
+  logic front2pre_page_fault_inst [BACKEND_FETCH_WIDTH];
+  logic [31:0] front2pre_pc [BACKEND_FETCH_WIDTH];
+  logic [2:0] front2pre_pcpn [BACKEND_FETCH_WIDTH];
+  logic front2pre_predict_dir [BACKEND_FETCH_WIDTH];
   logic [31:0] front2pre_predict_next_fetch_address;
-  logic [9:0] front2pre_tage_idx [16][4];
-  logic [7:0] front2pre_tage_tag [16][4];
-  logic front2pre_valid [16];
-  logic [31:0] commit_extra_imm [8];
-  logic [5:0] commit_extra_src1_areg [8];
+  logic [9:0] front2pre_tage_idx [BACKEND_FETCH_WIDTH][4];
+  logic [7:0] front2pre_tage_tag [BACKEND_FETCH_WIDTH][4];
+  logic front2pre_valid [BACKEND_FETCH_WIDTH];
+  logic [31:0] commit_extra_imm [COMMIT_WIDTH];
+  logic [5:0] commit_extra_src1_areg [COMMIT_WIDTH];
   logic [31:0] csr_status_mstatus;
   logic [1:0] csr_status_privilege;
   logic [31:0] csr_status_satp;
-  logic ftq_commit_info_resp_alt_pred [8];
-  logic [2:0] ftq_commit_info_resp_altpcpn [8];
-  logic [2:0] ftq_commit_info_resp_pcpn [8];
-  logic ftq_commit_info_resp_pred_taken [8];
-  logic [9:0] ftq_commit_info_resp_tage_idx [8][4];
-  logic [7:0] ftq_commit_info_resp_tage_tag [8][4];
+  logic ftq_commit_info_resp_alt_pred [COMMIT_WIDTH];
+  logic [2:0] ftq_commit_info_resp_altpcpn [COMMIT_WIDTH];
+  logic [2:0] ftq_commit_info_resp_pcpn [COMMIT_WIDTH];
+  logic ftq_commit_info_resp_pred_taken [COMMIT_WIDTH];
+  logic [9:0] ftq_commit_info_resp_tage_idx [COMMIT_WIDTH][4];
+  logic [7:0] ftq_commit_info_resp_tage_tag [COMMIT_WIDTH][4];
   logic out_stall;
 
   // SC-L / loop predictor metadata of the front-to-back path and the update-queue stall are constant 0 (see front_top)

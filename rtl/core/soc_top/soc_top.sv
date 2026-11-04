@@ -13,8 +13,8 @@ module soc_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; (
   input logic interrupt_inject_supervisor_external_irq_pending_valid,
   input logic interrupt_inject_timer_irq_pending,
   input logic interrupt_inject_timer_irq_pending_valid,
-  output logic [31:0] ftq_commit_info_resp_pc [8],
-  output logic [31:0] out_commit_entry_uop_diag_val [8],
+  output logic [31:0] ftq_commit_info_resp_pc [COMMIT_WIDTH],
+  output logic [31:0] out_commit_entry_uop_diag_val [COMMIT_WIDTH],
   output logic out_mispred,
   output logic [31:0] out_redirect_pc,
   output logic rob_bcast_exception,
@@ -24,18 +24,18 @@ module soc_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; (
   output logic rob_bcast_mret,
   output logic [31:0] rob_bcast_pc,
   output logic rob_bcast_sret,
-  output logic rob_commit_commit_entry_uop_br_taken [8],
-  output logic [5:0] rob_commit_commit_entry_uop_dest_areg [8],
-  output logic rob_commit_commit_entry_uop_dest_en [8],
-  output logic rob_commit_commit_entry_uop_page_fault_inst [8],
-  output logic rob_commit_commit_entry_uop_page_fault_load [8],
-  output logic rob_commit_commit_entry_uop_page_fault_store [8],
-  output logic rob_commit_commit_entry_uop_rob_flag [8],
-  output logic [6:0] rob_commit_commit_entry_uop_rob_idx [8],
-  output logic rob_commit_commit_entry_uop_stq_flag [8],
-  output logic [5:0] rob_commit_commit_entry_uop_stq_idx [8],
-  output logic [4:0] rob_commit_commit_entry_uop_type [8],
-  output logic rob_commit_commit_entry_valid [8],
+  output logic rob_commit_commit_entry_uop_br_taken [COMMIT_WIDTH],
+  output logic [5:0] rob_commit_commit_entry_uop_dest_areg [COMMIT_WIDTH],
+  output logic rob_commit_commit_entry_uop_dest_en [COMMIT_WIDTH],
+  output logic rob_commit_commit_entry_uop_page_fault_inst [COMMIT_WIDTH],
+  output logic rob_commit_commit_entry_uop_page_fault_load [COMMIT_WIDTH],
+  output logic rob_commit_commit_entry_uop_page_fault_store [COMMIT_WIDTH],
+  output logic rob_commit_commit_entry_uop_rob_flag [COMMIT_WIDTH],
+  output logic [6:0] rob_commit_commit_entry_uop_rob_idx [COMMIT_WIDTH],
+  output logic rob_commit_commit_entry_uop_stq_flag [COMMIT_WIDTH],
+  output logic [5:0] rob_commit_commit_entry_uop_stq_idx [COMMIT_WIDTH],
+  output logic [4:0] rob_commit_commit_entry_uop_type [COMMIT_WIDTH],
+  output logic rob_commit_commit_entry_valid [COMMIT_WIDTH],
   output logic phase0,
   input logic [1:0] env_region,
   input logic [31:0] env_rdata,
@@ -94,15 +94,15 @@ module soc_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; (
  logic [PPN_W-1:0] dtlb_walk_resp_leaf_ppn ;
  logic [PERM_W-1:0] dtlb_walk_resp_leaf_perm ;
  logic dtlb_walk_resp_leaf_level ;
- logic [31:0] dcache2lsu_load_resps_data [4];
- logic [1:0] dcache2lsu_load_resps_replay [4];
- logic [31:0] dcache2lsu_load_resps_req_id [4];
- logic dcache2lsu_load_resps_valid [4];
+ logic [31:0] dcache2lsu_load_resps_data [LSU_LDU_COUNT];
+ logic [1:0] dcache2lsu_load_resps_replay [LSU_LDU_COUNT];
+ logic [31:0] dcache2lsu_load_resps_req_id [LSU_LDU_COUNT];
+ logic dcache2lsu_load_resps_valid [LSU_LDU_COUNT];
  logic dcache2lsu_mshr_fill ;
  logic [25:0] dcache2lsu_mshr_fill_line ;
- logic [1:0] dcache2lsu_store_resps_replay [4];
- logic [31:0] dcache2lsu_store_resps_req_id [4];
- logic dcache2lsu_store_resps_valid [4];
+ logic [1:0] dcache2lsu_store_resps_replay [LSU_STA_COUNT];
+ logic [31:0] dcache2lsu_store_resps_req_id [LSU_STA_COUNT];
+ logic dcache2lsu_store_resps_valid [LSU_STA_COUNT];
  logic peripheral_resp_is_mmio ;
  logic [31:0] peripheral_resp_mmio_rdata ;
  logic peripheral_resp_ready ;
@@ -124,14 +124,14 @@ module soc_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; (
  logic dtlb_walk_req_valid ;
  logic [19:0] dtlb_walk_req_vpn ;
  logic dtlb_walk_resp_consumed ;
- logic [31:0] lsu2dcache_load_ports_addr [4];
- logic [30:0] lsu2dcache_load_ports_req_id [4];
- logic lsu2dcache_load_ports_valid [4];
- logic [31:0] lsu2dcache_store_ports_addr [4];
- logic [31:0] lsu2dcache_store_ports_data [4];
- logic [5:0] lsu2dcache_store_ports_req_id [4];
- logic [4:0] lsu2dcache_store_ports_strb [4];
- logic lsu2dcache_store_ports_valid [4];
+ logic [31:0] lsu2dcache_load_ports_addr [LSU_LDU_COUNT];
+ logic [30:0] lsu2dcache_load_ports_req_id [LSU_LDU_COUNT];
+ logic lsu2dcache_load_ports_valid [LSU_LDU_COUNT];
+ logic [31:0] lsu2dcache_store_ports_addr [LSU_STA_COUNT];
+ logic [31:0] lsu2dcache_store_ports_data [LSU_STA_COUNT];
+ logic [5:0] lsu2dcache_store_ports_req_id [LSU_STA_COUNT];
+ logic [4:0] lsu2dcache_store_ports_strb [LSU_STA_COUNT];
+ logic lsu2dcache_store_ports_valid [LSU_STA_COUNT];
  logic peripheral_req_is_mmio ;
  logic [31:0] peripheral_req_mmio_addr ;
  logic [2:0] peripheral_req_mmio_fun3 ;

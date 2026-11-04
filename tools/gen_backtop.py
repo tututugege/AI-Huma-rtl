@@ -26,6 +26,8 @@ import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(ROOT, 'tools'))
+import dimmap  # noqa: E402
 _s = importlib.util.spec_from_file_location('iogen', os.path.join(ROOT, 'harness/tools/iogen.py'))
 iogen = importlib.util.module_from_spec(_s)
 _s.loader.exec_module(iogen)
@@ -307,7 +309,7 @@ def report(mods, nets, issues, bin_, bout, unread):
 # ----------------------------------------------------------------------------------------------------------------------
 def sv_decl(width, dims, name, kind='logic'):
     w = '' if width == 1 else f'[{width - 1}:0] '
-    d = ''.join(f'[{x}]' for x in dims)
+    d = ''.join(f'[{dimmap.param_for(name, x) or x}]' for x in dims)
     return f'{kind} {w}{name}{(" " + d) if d else ""}'
 
 
@@ -377,7 +379,7 @@ def index_ports(mods):
 def gen_top(name, mods, nets, sel, sel_order):
     S = select(mods, nets, sel)
     L = [HDR, f'// Instances: {", ".join(i for i in sel_order if i in sel)}.', '`default_nettype none', '',
-         f'module {name} (', '  input  logic clk,', '  input  logic rst_n,']
+         f'module {name} import ttg_cfg_pkg::*; (', '  input  logic clk,', '  input  logic rst_n,']
     ports = []
 
     def emit_group(wires, table, direction, default):
