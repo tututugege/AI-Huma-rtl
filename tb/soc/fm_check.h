@@ -1,0 +1,62 @@
+// Per-commit check against the function model (librefcpu): every instruction the RTL core commits is executed once by the
+// function model; the commit pc and the value written to the destination register must agree.
+// Enabled with SOC_TB_FM=1 in a build made with SOC_FM=1 (tb/soc/build.sh).  Not RTL: testbench code.
+#pragma once
+#include "refcpu_api.h"
+#include <cstdint>
+#include <cstdio>
+
+struct FmCheck {
+  RefCpuContext *ctx = nullptr;
+  uint64_t steps = 0, synced_io = 0, irqs = 0;
+  bool failed = false;
+
+  // ram: the testbench's physical memory (already holding the image and the boot stub at 0x0)
+  void init(uint32_t ram_bytes, const uint32_t *ram, uint32_t sdram_bytes, const uint32_t *sdram) {
+    ctx = refcpu_init(0, ram_bytes);
+    refcpu_set_uart_print(ctx, false);        // same configuration as trace-model's diff: no device side effects in the checker,
+    refcpu_set_ref_only(ctx, true);           // device values come from the DUT (see commit())
+    refcpu_set_device_effects(ctx, false);
+    refcpu_set_interrupt_delivery(ctx, false);
+    refcpu_sync_ram_from_dut(ctx, ram, ram_bytes);
+    if (sdram != nullptr) refcpu_sync_sdram_from_dut(ctx, sdram, sdram_bytes);
+  }
+
+  // The core has taken an asynchronous interrupt between two instructions.
+  bool interrupt(uint64_t cycle, uint32_t cause, uint8_t target_priv, uint32_t pending) {
+    if (!refcpu_take_forced_interrupt(ctx, cause, target_priv, pending)) {
+      std::fprintf(stderr, "[FM] cycle %llu: function model rejects interrupt cause=%u priv=%u\n", (unsigned long long)cycle, cause, target_priv);
+      return failed = true, false;
+    }
+    ++irqs;
+    return true;
+  }
+
+  // One committed instruction.  dut_pc: commit pc; rd/rd_val: destination architectural register and the value the core wrote
+  // (rd == 0: none).  Returns false on the first disagreement (message already printed).
+  bool commit(uint64_t cycle, uint32_t dut_pc, unsigned rd, uint32_t rd_val) {
+    RefCpuState before{}, after{};
+    refcpu_get_state(ctx, &before);
+    if (before.pc != dut_pc) {
+      std::fprintf(stderr, "[FM] cycle %llu commit #%llu: pc rtl=%08x fm=%08x\n", (unsigned long long)cycle, (unsigned long long)steps, dut_pc, before.pc);
+      return failed = true, false;
+    }
+    refcpu_step(ctx, 1);
+    ++steps;
+    RefCpuStepInfo info{};
+    refcpu_get_step_info(ctx, &info);
+    refcpu_get_state(ctx, &after);
+    if (rd != 0 && after.gpr[rd] != rd_val) {
+      if (info.is_io || info.is_csr) {   // device / counter values are the platform's, not the function model's: adopt the DUT's
+        after.gpr[rd] = rd_val;
+        refcpu_set_state(ctx, &after);
+        ++synced_io;
+      } else {
+        std::fprintf(stderr, "[FM] cycle %llu commit #%llu pc=%08x inst=%08x: x%u rtl=%08x fm=%08x\n", (unsigned long long)cycle,
+                     (unsigned long long)steps, dut_pc, info.instruction, rd, rd_val, after.gpr[rd]);
+        return failed = true, false;
+      }
+    }
+    return true;
+  }
+};

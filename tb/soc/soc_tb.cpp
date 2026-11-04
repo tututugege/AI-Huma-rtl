@@ -31,6 +31,9 @@
 #include "mmio_address_map.h"
 #include "IO.h"
 #include "PeripheralModel.h"
+#ifdef SOC_TB_FM
+#include "fm_check.h"
+#endif
 
 long long sim_time = 0;   // the reference's global cycle counter (PeripheralModel's timer reads it)
 
@@ -199,6 +202,28 @@ int main(int argc, char **argv) {
   }
   long long prof_ns[16] = {0}, prof_n[16] = {0};
   const bool semihost = std::getenv("SOC_TB_SEMIHOST") != nullptr;
+#ifdef SOC_TB_FM
+  FmCheck fm;   // SOC_TB_FM=1: every committed instruction is also executed by the function model and compared
+  const bool fm_on = std::getenv("SOC_TB_FM") != nullptr;
+  struct FmPend { uint32_t pc; unsigned rd; unsigned preg; bool irq; };
+  std::vector<FmPend> fm_pend;
+  auto fm_flush = [&](uint64_t cyc) {
+    for (const auto &c : fm_pend) {
+      if (c.irq) {   // the trap was taken on the edge of the interrupt slot: cause / privilege are in the CSR file now
+        auto &R = *top->rootp;
+        const uint8_t priv = R.soc_top__DOT__u_core__DOT__u_back__DOT__u_csr__DOT__privilege;
+        const auto &regs = R.soc_top__DOT__u_core__DOT__u_back__DOT__u_csr__DOT__regs;
+        const uint32_t cause = (priv == 3 ? regs[2] : regs[12]) & 0x7fffffffu;   // R_MCAUSE / R_SCAUSE
+        if (!fm.interrupt(cyc, cause | 0x80000000u, priv, regs[4] | (1u << cause))) { compare_fail = 1; done = true; break; }   // R_MIP
+        continue;
+      }
+      const uint32_t val = c.rd ? top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__u_prf__DOT__u_regfile__DOT__reg_file_q[c.preg] : 0u;
+      if (!fm.commit(cyc, c.pc, c.rd, val)) { compare_fail = 1; done = true; break; }
+    }
+    fm_pend.clear();
+  };
+  if (fm_on) fm.init(uint32_t(RAM_SIZE), pmem_ram_ptr(), uint32_t(PMEM_SDRAM_SIZE), pmem_sdram_ptr());
+#endif
   const bool fast_skip = std::getenv("SOC_TB_NOSKIP") == nullptr && !skipmask.empty();
   std::vector<uint8_t> snap(sizeof(*top->rootp));
   unsigned long long skipped_cycles = 0;
@@ -290,9 +315,20 @@ long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
       }
     }
     if (phase == 0 && top->rst_n) {   // the CPU acts in tick 0: look at the retirement stream before the edge
+#ifdef SOC_TB_FM
+      if (fm_on && !fm_pend.empty()) fm_flush(cycles);   // commits of the previous cycle: their register values are visible now
+#endif
       for (int i = 0; i < 8; ++i)
         if (ttg_getbit(top->rob_commit_commit_entry_valid, i)) {
           if (!top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__rob_bcast_interrupt) ++committed;   // reference: commit_num skips interrupt slots
+#ifdef SOC_TB_FM
+          if (fm_on && !done && top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__rob_bcast_interrupt) fm_pend.push_back({0, 0, 0, true});
+          else if (fm_on && !done && top->rob_commit_commit_entry_uop_type[i] != kUopEbreak) {
+            const bool de = ttg_getbit(top->rob_commit_commit_entry_uop_dest_en, i);
+            fm_pend.push_back({top->ftq_commit_info_resp_pc[i], de ? top->rob_commit_commit_entry_uop_dest_areg[i] : 0u,
+                               top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__u_rob__DOT__rob_commit_commit_entry_uop_dest_preg[i], false});
+          }
+#endif
           if (std::getenv("SOC_TB_COMMIT")) std::fprintf(stderr, "[cyc %llu] commit[%d] type=%d pc=%08x\n", (unsigned long long)cycles + 1, i,
                                                          top->rob_commit_commit_entry_uop_type[i], top->ftq_commit_info_resp_pc[i]);
           if (top->rob_commit_commit_entry_uop_type[i] == kUopEbreak) {
@@ -400,6 +436,9 @@ long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
               done ? "" : "  (NO EBREAK within the cycle cap)");
   if (std::getenv("SOC_TB_PROF")) std::fprintf(stderr, "eval: n=%lld total=%.2f s  by-index(ns/eval): %.0f %.0f %.0f %.0f\n", eval_n, eval_ns / 1e9, ev_ns[0]*4.0/eval_n, ev_ns[1]*4.0/eval_n, ev_ns[2]*4.0/eval_n, ev_ns[3]*4.0/eval_n);
   if (std::getenv("SOC_TB_PROF")) for (int i = 0; i < 16; ++i) if (prof_n[i]) std::fprintf(stderr, "tick %2d: n=%lld avg=%.1f us\n", i, prof_n[i], prof_ns[i] / 1000.0 / prof_n[i]);
+#ifdef SOC_TB_FM
+  if (fm_on) { fm_flush(cycles); std::fprintf(stderr, "[FM] %llu instructions checked against the function model (%llu device/counter values adopted, %llu interrupts)%s\n", (unsigned long long)fm.steps, (unsigned long long)fm.synced_io, (unsigned long long)fm.irqs, fm.failed ? "  ** MISMATCH **" : ""); }
+#endif
   if (std::getenv("SOC_TB_NOSKIP") == nullptr) std::fprintf(stderr, "idle-skipped cycles: %llu of %llu\n", skipped_cycles, (unsigned long long)cycles);
   delete top;
   return compare_fail ? 3 : (done ? 0 : 1);

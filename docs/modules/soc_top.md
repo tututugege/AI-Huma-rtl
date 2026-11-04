@@ -67,6 +67,10 @@ SOC_TB_SEMIHOST=1 build/soc_linux/obj/soc_tb /tmp/linux.bin <周期数>
 `SOC_TB_NOSKIP=1` 关闭。掩码由 `tools/gen_skipmask.py` 在 `tb/soc/build.sh` 中从 clang 布局生成。
 
 多线程：`SOC_VOPT="--threads 4" SOC_OUT=build/soc_mt4 bash tb/soc/build.sh` 构建 4 线程版本（Verilator 调度器状态 `__Vm_mtaskstate_*` 已进掩码，空闲跳过照常生效）。dhrystone 20000 周期：单线程+跳过 5.8 s，4 线程+跳过 2.9 s（周期、指令数不变，跳过 17032 周期）。
+
+## 与 function-model 逐条对比（新的参考）
+
+`SOC_FM=1 bash tb/soc/build.sh`（可配 `SOC_OUT`）构建带 librefcpu 的版本，运行时 `SOC_TB_FM=1`：RTL 每提交一条指令，function-model 执行一条，比较提交 PC 和目的寄存器的值（值取自提交后一拍的物理寄存器堆）；设备/CSR 读值以 RTL 为准；中断由 RTL 的 mcause/特权级强制注入（`refcpu_take_forced_interrupt`）。代码在 `tb/soc/fm_check.h`。尚未比较：store 的地址/数据、CSR 写值、内存内容。结果：gate 与 vm 的 64 个程序全部一致（`load-store` 参考侧本身会退出，`memory-stress` 超过 90 秒上限未跑完）。
 结果：dhrystone 前 2 万周期 59 s → 23 s（约 2.5×，85% 的周期被跳过）；65 个程序周期数仍全部与参考相等。
 注意：LLC 数据数组不参与比较，假设它只在控制状态变化时写入；若将来 LLC 出现读改写类的原地更新需重新评估。
 
