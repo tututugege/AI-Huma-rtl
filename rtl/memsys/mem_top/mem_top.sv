@@ -15,7 +15,8 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
   input  logic clk,
   input  logic rst_n,
   output logic phase0,
-  input  logic tb_phase_jump,   // simulation hook (tie 0 in a chip): the next tick edge loads phase 15, used to skip provably idle ticks
+  // simulation hook (tie 0 in a chip): the next tick edge loads phase 15, used to skip provably idle ticks
+  input  logic tb_phase_jump,
   // ---- core -> memory: ICache AXI read master / DCache probe / TLB walk clients / LSU ports / peripheral ----
   input  logic mem_req_valid,
   input  logic [31:0] mem_req_addr,
