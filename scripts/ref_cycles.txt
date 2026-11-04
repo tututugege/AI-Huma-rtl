@@ -22,6 +22,7 @@
 481 zfinx-fdiv/zfinx-fdiv.bin
 490 bit/bit.bin
 502 shift/shift.bin
+536 load-store-aligned/load-store-aligned.bin
 545 add-longlong/add-longlong.bin
 547 sub-longlong/sub-longlong.bin
 591 supervisor-illegal-delegation/supervisor-illegal-delegation.bin

@@ -60,3 +60,4 @@
 /Users/ruyaoh/personal/tututugege-trace/build/vm/vm-sfence-perm-test/vm_sfence_perm_test.bin
 /Users/ruyaoh/personal/tututugege-trace/build/vm/vm-sum-fetch-test/vm_sum_fetch_test.bin
 /tmp/big/dhrystone.bin
+/Users/ruyaoh/personal/tututugege-trace/build/tests/load-store-aligned/load-store-aligned.bin
