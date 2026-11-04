@@ -36,3 +36,12 @@
 ## 非目标
 
 - 综合、面积/频率优化、改进微架构。**RTL 的行为必须与参考模型逐拍相同，包括参考模型里"不合理"的行为**。想改行为，先走 `deviations.md` 的审批流程。
+
+## 参考模型已退役（2026-11-04，用户决定）
+
+原 tututugege/simulator 不再维护、也不再是验证对象。后果与处理：
+
+- **整核闭环不再依赖它的源码**：`tb/soc/platform/` 收进了闭环测试平台用到的 19 个平台模型文件（SimDDR、PhysMemory、PeripheralModel 及头文件，约 300 KB，冻结）；`gen_cfg.sh` 也从那里取配置；4 个额外程序在 `programs/extra/`。
+- **新的对照对象**：周期以 **trace-model** 为准（`scripts/cmp_trace_model.sh`、Linux 镜像逐周期对照），架构值以 **function-model** 为准。
+- **模块级锁步变成冻结的回归工具**：`refsim`、`refsim_tap`、`refsim_axi`（本地、git 忽略）和 `traces/` 里已录好的 trace 仍可用来回归现有行为，但**不会再扩展**：trace-model 没有模块边界的录制钩子，也没有数据值（ALU/MUL/DIV/FP/PRF 的值都已删除），所以新增行为（例如 S-27 的 ebreak 断点异常）无法再用它验证。
+- 重建这些副本仍需要原参考源码（`scripts/refsim_setup.sh`，`BASELINE_SRC`，位置在 AI-Huma 之外）；那份源码没有被任何仓库跟踪。

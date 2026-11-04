@@ -11,7 +11,7 @@
 #   REFSIM_TAP / REFSIM_AXI   reference-simulator copies with the recording hooks (default: $RTL_ROOT/refsim_tap, refsim_axi)
 #   (REFSIM itself is NOT set here: every script keeps its own default, refsim or refsim_tap, depending on the hooks it needs)
 # Program lists (scripts/progs*.txt, ...): one program per line; a relative entry is resolved by `ttg_resolve_list`:
-#   tests/<t>/<t>.bin, vm/<t>/<t>.bin  -> $TTG_PROGS/...      big/<n>.bin -> $TTG_BIG/<n>.bin      tm/<path> -> $AI_HUMA_ROOT/trace-model/<path>      baseline/<path> -> $BASELINE_SRC/<path>
+#   tests/<t>/<t>.bin, vm/<t>/<t>.bin  -> $TTG_PROGS/...      big/<n>.bin -> $TTG_BIG/<n>.bin      extra/<n>.bin -> programs/extra/<n>.bin      tm/<path> -> $AI_HUMA_ROOT/trace-model/<path>      baseline/<path> -> $BASELINE_SRC/<path>
 #   absolute entries are kept as they are; a `|cap` suffix (scripts/progs.txt) is kept.
 
 _env_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -33,6 +33,7 @@ ttg_resolve_list() {
       ''|'#'*) continue ;;
       /*) echo "$l" ;;
       big/*) echo "$TTG_BIG/${l#big/}" ;;
+      extra/*) echo "$RTL_ROOT/programs/${l}" ;;
       tm/*) echo "$AI_HUMA_ROOT/trace-model/${l#tm/}" ;;
       baseline/*) echo "$BASELINE_SRC/${l#baseline/}" ;;
       *) echo "$TTG_PROGS/$l" ;;

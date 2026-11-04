@@ -4,7 +4,7 @@
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 . "$ROOT/scripts/env.sh"
-REF=${REFSRC:-$BASELINE_SRC}
+REF=${REFSRC:-$ROOT/tb/soc/platform}   # frozen platform models (SimDDR, PhysMemory, PeripheralModel); no reference simulator needed
 OUT=${SOC_OUT:-$ROOT/build/soc}; mkdir -p "$OUT"   # SOC_OUT: build a variant next to the default one
 VOPT=${SOC_VOPT:-}   # extra verilator options, e.g. -O3
 COPT=${SOC_COPT:--O2}   # C++ optimisation flags

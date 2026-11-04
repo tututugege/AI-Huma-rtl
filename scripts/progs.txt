@@ -9,7 +9,7 @@ vm/vm-sfence-perm-test/vm_sfence_perm_test.bin|100000
 vm/vm-sum-fetch-test/vm_sum_fetch_test.bin|100000
 # extra baremetal programs shipped with the reference simulator
 tm/baremetal/float-test/float_test.bin|30000
-baseline/baremetal/sha-test.bin|30000
-baseline/baremetal/cjpeg.bin|30000
-baseline/baremetal/linear_alg-mid-100x100-sp.bin|30000
-baseline/baremetal/parser-125k.bin|30000
+extra/sha-test.bin|30000
+extra/cjpeg.bin|30000
+extra/linear_alg-mid-100x100-sp.bin|30000
+extra/parser-125k.bin|30000

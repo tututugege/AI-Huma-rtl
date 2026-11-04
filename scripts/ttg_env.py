@@ -22,6 +22,8 @@ def prog(entry):
         return entry
     if entry.startswith('big/'):
         return os.path.join(BIG, entry[4:])
+    if entry.startswith('extra/'):
+        return os.path.join(ROOT, 'programs', entry)
     if entry.startswith('baseline/'):
         return os.path.join(BASELINE_SRC, entry[9:])
     if entry.startswith('tm/'):
