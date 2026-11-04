@@ -15,22 +15,22 @@ SRC = os.path.join(ROOT, 'rtl/memsys/axi_llc')
 
 # (id, file, old, new, why)
 MUTANTS = [
-    (1, 'axi_llc_pkg.sv', "(WB'(w) == WB'(WAYS - 1)) ? '0 : w + WB'(1)", "w", "replacement pointer never advances"),
-    (2, 'axi_llc_s3_lookup.sv', "      c.tdirty = 1'b1;\n      c.trepl = next_way(hw);", "      c.tdirty = 1'b0;\n      c.trepl = next_way(hw);", "write hit does not set dirty"),
-    (3, 'axi_llc_s4_mem.sv', "          c.tdirty = 1'b0;\n          c.trepl", "          c.tdirty = 1'b1;\n          c.trepl", "refill installed dirty"),
-    (4, 'axi_llc_s3_lookup.sv', "      c.n.ms[fi].vdirty = vd;\n      c.n.ms[fi].vdone", "      c.n.ms[fi].vdirty = 1'b0;\n      c.n.ms[fi].vdone", "read-miss victim dirtiness dropped"),
-    (5, 'axi_llc_qry_pkg.sv', "s.vwb.valid && s.vwb.addr == line", "1'b0", "global victim slot ignored by victim_line_pending"),
-    (6, 'axi_llc_s2_wpath.sv', "!c.n.vwb.valid && rr.rvq.cnt != vq_cnt_t'(0)", "!c.n.vwb.valid && c.n.rvq.cnt != vq_cnt_t'(0)", "queue reload uses new count (removes the duplicate-issue quirk)"),
-    (7, 'axi_llc_s1_rresp.sv', "rr.rr[m].valid && rr.rr[m].fresh", "rr.rr[m].valid && 1'b0", "fresh flag ignored (response consumed in the tick it appears)"),
+    (1, 'axi_llc_pkg.sv', "w + WB'(1)", "w", "replacement pointer never advances"),
+    (2, 'axi_llc_resolve.sv', "tw.dirty = 1'b1;", "tw.dirty = !hit_any;", "write hit does not set dirty"),
+    (3, 'axi_llc_refill.sv', "tw.dirty = 1'b0;", "tw.dirty = 1'b1;", "refill installed dirty"),
+    (4, 'axi_llc_resolve.sv', "alloc_vdirty = vdirty && !bypass;", "alloc_vdirty = 1'b0;", "read-miss victim dirtiness dropped"),
+    (5, 'axi_llc_victim.sv', "vl_vld_cur[0] = vw_valid_q;", "vl_vld_cur[0] = 1'b0;", "write accept ignores the global victim slot"),
+    (6, 'axi_llc_victim.sv', "load = !valid_r && rv_vld_q[rv_head_q];", "load = !valid_r && rv_vld_s2[rv_head_q];", "queue reload sees the popped queue (removes the duplicate-issue quirk)"),
+    (7, 'axi_llc_rq.sv', "fresh_d = (pop && cnt_q > CW'(1)) || (cnt_pop == CW'(0) && (|enq_acc));", "fresh_d = 1'b0;", "response never marked fresh (consumed in the tick it appears)"),
     (8, 'axi_llc_tables.sv', "pv_q[2]", "pv_q[1]", "table delivery after 2 ticks instead of 3"),
-    (9, 'axi_llc_s3_lookup.sv', "miss_write(rr, ii, c, inv, iw)", "miss_write(rr, ii, c, 1'b0, iw)", "write miss never prefers an invalid way"),
-    (10, 'axi_llc_qry_pkg.sv', "!s.ms[i].rcomm && set_of(s.ms[i].addr) == set", "set_of(s.ms[i].addr) == set", "refill reservation also keeps committed refills"),
-    (11, 'axi_llc_s4_mem.sv', "!rr.ms[s].valid", "1'b1", "bypass direct-issue ignores old-slot occupancy"),
-    (12, 'axi_llc_s3_lookup.sv', "rr.ms[s].way == hw", "1'b1", "write hit marks every same-set MSHR victim"),
-    (13, 'axi_llc_pkg.sv', "7'(b) < limit && strb[b]", "7'(b) < limit", "write merge ignores the byte strobe"),
-    (14, 'axi_llc_s2_wpath.sv', "c.n.rr_write = ~widx;", "c.n.rr_write = widx;", "write master round-robin not advanced"),
-    (15, 'axi_llc_s5_accept.sv', "!(!ii.rd_byp[idx] && idx != 2'd1 && has_mshr_for_master(c.n, idx))", "1'b1", "per-master MSHR limit of non-DCache masters removed"),
-    (16, 'axi_llc_s3_lookup.sv', "resp_of(rr.laddr, ii.lk_line[hw])", "ii.lk_line[hw]", "read hit ignores the word offset"),
+    (9, 'axi_llc_waypick.sv', "inv_ok = inv_any && !reserved[inv_way];", "inv_ok = 1'b0;", "miss never prefers an invalid way"),
+    (10, 'axi_llc_mshr_ent.sv', "other_line = valid_q && !bypass_q && !rcomm_q && set_of(addr_q) == lk_set && line_of(addr_q) != lk_line;", "other_line = valid_q && !bypass_q && set_of(addr_q) == lk_set && line_of(addr_q) != lk_line;", "refill reservation / victim update also keep committed refills"),
+    # (11 of the pre-rewrite table, "bypass direct-issue ignores old-slot occupancy", was an equivalent mutant; the check no longer exists)
+    (12, 'axi_llc_mshr_ent.sv', "vu_hit = vu_go && other_line && way_q == vu_way;", "vu_hit = vu_go && other_line;", "write hit marks every same-set MSHR victim"),
+    (13, 'axi_llc_merge.sv', "7'(b) < limit && strb[b]", "7'(b) < limit", "write merge ignores the byte strobe"),
+    (14, 'axi_llc_wsched.sv', "rr_acc = acc_any ? acc_idx + PW'(1) : rr_q;", "rr_acc = acc_any ? acc_idx : rr_q;", "write master round-robin not advanced"),
+    (15, 'axi_llc_rdacc.sv', "!(!rd_byp[r] && r != 1 && has_master_d[r])", "1'b1", "per-master MSHR limit of non-DCache masters removed"),
+    (16, 'axi_llc_resolve.sv', "enq_data = resp_of(laddr, line_sel);", "enq_data = line_sel;", "read hit ignores the word offset"),
 ]
 
 
@@ -38,7 +38,8 @@ def build(work, sets, ways):
     if os.path.exists(work):
         shutil.rmtree(work)
     os.makedirs(work + '/rtl/memsys')
-    for d in ('rtl/common', 'spec', 'harness', 'scripts'):
+    shutil.copytree(os.path.join(ROOT, 'rtl/common'), work + '/rtl/common')   # copy: rtl_files.sh uses find, which skips symlinks
+    for d in ('spec', 'harness', 'scripts'):
         os.symlink(os.path.join(ROOT, d), os.path.join(work, d))
     shutil.copytree(SRC, work + '/rtl/memsys/axi_llc')
     # real scripts dir is symlinked; scripts compute ROOT from their own (resolved) path -> use a copy of the two scripts

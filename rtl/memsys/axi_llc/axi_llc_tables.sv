@@ -1,9 +1,10 @@
 `default_nettype none
 // Ref: MemSubSystem/MemSubsystem.cpp  AxiLlcTableRuntime (data/meta/valid/repl tables, lookup_latency = 3)
-// Hardware memories: synchronous write (end of tick), registered read index carried through two more stages,
-// asynchronous read at the
-// delivery tick.  A read requested in tick t returns the row as it is after the writes of tick t+2 (writes of t+3
-// land after the read).
+// Hardware memories: synchronous write (end of tick, one write port per array), registered read index carried
+// through two more stages, asynchronous read at the delivery tick.  A read requested in tick t returns the row as
+// it is after the writes of tick t+2 (writes of t+3 land after the read).  No array has a reset (storage written
+// as memory); like the C++ model the valid bits rely on the power-up value 0 (harness --x-initial 0), the other
+// arrays are only read for ways whose valid bit is set.
 module axi_llc_tables
   import axi_llc_pkg::*;
 (
@@ -11,15 +12,10 @@ module axi_llc_tables
   input  logic rst_n,
   input  logic rd_req,
   input  logic [SB-1:0] rd_set,
-  input  logic wd, wm, wv, wr,
-  input  logic [SB-1:0] tset,
-  input  logic [WB-1:0] tway,
-  input  line_t tdata,
-  input  logic [TAGW-1:0] ttag,
-  input  logic tdirty,
-  input  logic [WB-1:0] trepl,
+  input  tw_t tw,
   output logic lk_ok,
-  output logic [WAYS-1:0] lk_v, lk_d,
+  output logic [WAYS-1:0] lk_v,
+  output logic [WAYS-1:0] lk_d,
   output logic [WAYS-1:0][TAGW-1:0] lk_t,
   output logic [WAYS-1:0][511:0] lk_line,
   output logic [WB-1:0] lk_repl
@@ -42,21 +38,21 @@ module axi_llc_tables
     p3_q <= p2_q;
   end
 
-  // synchronous writes, one always_ff per array
+  // one write port per array; a line write sets data, tag, dirty and valid of one way
   always_ff @(posedge clk) begin
-    if (wd) data_q[tset][tway] <= tdata;
+    if (tw.line_en) data_q[tw.set][tw.way] <= tw.data;
   end
   always_ff @(posedge clk) begin
-    if (wm) tag_q[tset][tway] <= ttag;
+    if (tw.line_en) tag_q[tw.set][tw.way] <= tw.tag;
   end
   always_ff @(posedge clk) begin
-    if (wm) dirty_q[tset][tway] <= tdirty;
+    if (tw.line_en) dirty_q[tw.set][tw.way] <= tw.dirty;
   end
   always_ff @(posedge clk) begin
-    if (wv) valid_q[tset][tway] <= 1'b1;
+    if (tw.line_en) valid_q[tw.set][tw.way] <= 1'b1;
   end
   always_ff @(posedge clk) begin
-    if (wr) repl_q[tset] <= trepl;
+    if (tw.repl_en) repl_q[tw.set] <= tw.repl;
   end
 
   // asynchronous read of the registered index
