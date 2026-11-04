@@ -198,6 +198,7 @@ int main(int argc, char **argv) {
     if (pos < sizeof(*top->rootp)) keep.push_back({pos, sizeof(*top->rootp) - pos});
   }
   long long prof_ns[16] = {0}, prof_n[16] = {0};
+  const bool semihost = std::getenv("SOC_TB_SEMIHOST") != nullptr;
   const bool fast_skip = std::getenv("SOC_TB_NOSKIP") == nullptr && !skipmask.empty();
   std::vector<uint8_t> snap(sizeof(*top->rootp));
   unsigned long long skipped_cycles = 0;
@@ -294,7 +295,13 @@ long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
           if (!top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__rob_bcast_interrupt) ++committed;   // reference: commit_num skips interrupt slots
           if (std::getenv("SOC_TB_COMMIT")) std::fprintf(stderr, "[cyc %llu] commit[%d] type=%d pc=%08x\n", (unsigned long long)cycles + 1, i,
                                                          top->rob_commit_commit_entry_uop_type[i], top->ftq_commit_info_resp_pc[i]);
-          if (top->rob_commit_commit_entry_uop_type[i] == kUopEbreak) done = true;
+          if (top->rob_commit_commit_entry_uop_type[i] == kUopEbreak) {
+            // SOC_TB_SEMIHOST: the ebreak of the semihosting marker sequence (slli x0,x0,0x1f; ebreak; srai x0,x0,7) is a breakpoint
+            // exception for the core (RTL built with TTG_EBREAK_TRAP), not the end of the program; same rule as the function model.
+            const uint32_t epc = top->ftq_commit_info_resp_pc[i];
+            const bool marker = semihost && pmem_read(epc - 4) == 0x01f01013u && pmem_read(epc + 4) == 0x40705013u;
+            if (!marker) done = true;
+          }
           // SimCpu::commit_sync: a committing store applies its device effect (PeripheralModel::on_commit_store) from the STQ entry
           if (top->rob_commit_commit_entry_uop_type[i] == kInstStore && !ttg_getbit(top->rob_commit_commit_entry_uop_page_fault_store, i)) {
             const auto &fld = top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__u_lsu__DOT__u_core__DOT__st_fld_q[top->rob_commit_commit_entry_uop_stq_idx[i]];

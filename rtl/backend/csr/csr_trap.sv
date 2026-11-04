@@ -21,6 +21,7 @@ module csr_trap
   input  logic        page_fault_load,
   input  logic        page_fault_store,
   input  logic        illegal_inst,
+  input  logic        breakpoint,
   input  logic [31:0] trap_val,
   input  logic [31:0] pc,
   output logic [1:0]  privilege,
@@ -42,6 +43,7 @@ module csr_trap
     .privilege(privilege_q), .medeleg(regs[R_MEDELEG]), .m_pending(m_pending), .s_pending(s_pending),
     .interrupt_resp(interrupt_resp), .ecall(ecall), .page_fault_inst(page_fault_inst),
     .page_fault_load(page_fault_load), .page_fault_store(page_fault_store), .illegal_inst(illegal_inst),
+    .breakpoint(breakpoint),
     .m_trap(m_trap), .s_trap(s_trap_raw), .m_is_irq(m_is_irq), .s_is_irq(s_is_irq),
     .m_code(m_code), .s_code(s_code));
 
@@ -59,9 +61,9 @@ module csr_trap
   assign trap_pc = m_trap ? m_target : s_target;
   assign epc     = mret_act ? regs[R_MEPC] : regs[R_SEPC];
 
-  // ---- trap value: only fault-type causes record the faulting value, interrupts and ecall write 0 ----
+  // ---- trap value: fault-type causes and the breakpoint (its pc) record a value, interrupts and ecall write 0 ----
   logic [31:0] tval;
-  assign tval = (page_fault_inst | page_fault_load | page_fault_store | illegal_inst) ? trap_val : 32'd0;
+  assign tval = (page_fault_inst | page_fault_load | page_fault_store | illegal_inst | breakpoint) ? trap_val : 32'd0;
 
   // ---- mstatus update per event ----
   logic [31:0] mstatus_m_trap, mstatus_s_trap, mstatus_mret, mstatus_sret;

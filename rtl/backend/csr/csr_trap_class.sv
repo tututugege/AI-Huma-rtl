@@ -15,6 +15,7 @@ module csr_trap_class
   input  logic            page_fault_load,
   input  logic            page_fault_store,
   input  logic            illegal_inst,
+  input  logic            breakpoint,    // ebreak of the semihosting marker sequence: breakpoint exception, cause 3
   output logic            m_trap,
   output logic            s_trap,        // S trap condition; only effective when m_trap is 0
   output logic            m_is_irq,      // mcause[31]: any M-class interrupt pending (not gated by interrupt_resp)
@@ -25,7 +26,7 @@ module csr_trap_class
 
   // exceptions as (taken-in-M, taken-in-S) pairs: delegated -> S, otherwise M
   logic ecall_u, ecall_s, ecall_m;
-  logic d_u, d_s, d_pfi, d_pfl, d_pfs, d_ill;
+  logic d_u, d_s, d_pfi, d_pfl, d_pfs, d_ill, d_bp;
   assign ecall_u = ecall & (privilege == PRV_U);
   assign ecall_s = ecall & (privilege == PRV_S);
   assign ecall_m = ecall & (privilege == PRV_M);
@@ -35,6 +36,7 @@ module csr_trap_class
   assign d_pfl = medeleg[MEDELEG_PF_LOAD];
   assign d_pfs = medeleg[MEDELEG_PF_STORE];
   assign d_ill = medeleg[MEDELEG_ILLEGAL];
+  assign d_bp  = medeleg[MEDELEG_BREAKPOINT] & (privilege != PRV_M);   // a trap taken in M mode is never delegated
 
   logic m_irq_any, s_irq_any;
   assign m_irq_any = |m_pending;
@@ -44,30 +46,30 @@ module csr_trap_class
 
   assign m_trap = (m_irq_any & interrupt_resp) | (ecall_u & ~d_u) | (ecall_s & ~d_s) | ecall_m
                 | (page_fault_inst & ~d_pfi) | (page_fault_load & ~d_pfl) | (page_fault_store & ~d_pfs)
-                | (illegal_inst & ~d_ill);
+                | (illegal_inst & ~d_ill) | (breakpoint & ~d_bp);
   assign s_trap = (s_irq_any & interrupt_resp) | (ecall_u & d_u) | (ecall_s & d_s)
                 | (page_fault_inst & d_pfi) | (page_fault_load & d_pfl) | (page_fault_store & d_pfs)
-                | (illegal_inst & d_ill);
+                | (illegal_inst & d_ill) | (breakpoint & d_bp);
 
   // ---- cause code priority (index 0 first). Reference quirks kept: M-ecall -> 11 only when medeleg[8]==0,
   //      the illegal-instruction entry ignores delegation, S-mode lists ecall-S together with S-external first. ----
-  localparam int NM = 9;
-  localparam int NS = 8;
+  localparam int NM = 10;
+  localparam int NS = 9;
   logic [NM-1:0] m_cond;
   logic [NS-1:0] s_cond;
   logic [3:0]    m_codes [NM];
   logic [3:0]    s_codes [NS];
 
-  assign m_cond = {illegal_inst,
+  assign m_cond = {breakpoint & ~d_bp, illegal_inst,
                    page_fault_store & ~d_pfs, page_fault_load & ~d_pfl, page_fault_inst & ~d_pfi,
                    ecall_s & ~d_s, ecall_u & ~d_u,
                    m_pending[2] | (ecall_m & ~d_u), m_pending[1], m_pending[0]};
-  assign m_codes = '{4'd3, 4'd7, 4'd11, 4'd8, 4'd9, 4'd12, 4'd13, 4'd15, 4'd2};
+  assign m_codes = '{4'd3, 4'd7, 4'd11, 4'd8, 4'd9, 4'd12, 4'd13, 4'd15, 4'd2, 4'd3};
 
-  assign s_cond = {illegal_inst & d_ill,
+  assign s_cond = {breakpoint & d_bp, illegal_inst & d_ill,
                    page_fault_store & d_pfs, page_fault_load & d_pfl, page_fault_inst & d_pfi,
                    s_pending[0], ecall_u & d_u, s_pending[1], s_pending[2] | (ecall_s & d_s)};
-  assign s_codes = '{4'd9, 4'd5, 4'd8, 4'd1, 4'd12, 4'd13, 4'd15, 4'd2};
+  assign s_codes = '{4'd9, 4'd5, 4'd8, 4'd1, 4'd12, 4'd13, 4'd15, 4'd2, 4'd3};
 
   csr_cause_sel #(.N(NM)) u_m_cause (.cond(m_cond), .code(m_codes), .cause_code(m_code));
   csr_cause_sel #(.N(NS)) u_s_cause (.cond(s_cond), .code(s_codes), .cause_code(s_code));

@@ -20,6 +20,7 @@ module rob_trap_ctrl
   output logic              page_fault_load,
   output logic              page_fault_store,
   output logic              illegal_inst,
+  output logic              breakpoint,         // ebreak as a breakpoint exception (only with TTG_EBREAK_TRAP)
   output logic              rob2csr_commit,
   output logic              trap_val_valid,     // trap_val is meaningful (page fault / illegal instruction)
   output logic [XLEN-1:0]   trap_val,
@@ -28,17 +29,19 @@ module rob_trap_ctrl
 
   // priority order of the C++ if / else-if chain (index 0 wins)
   localparam int SEL_INT = 0, SEL_ECALL = 1, SEL_MRET = 2, SEL_SRET = 3, SEL_PF_STORE = 4, SEL_PF_LOAD = 5;
-  localparam int SEL_PF_INST = 6, SEL_ILLEGAL = 7, SEL_CSR = 8, SEL_SFENCE = 9, SEL_FENCE_I = 10, SEL_NUM = 11;
+  localparam int SEL_PF_INST = 6, SEL_ILLEGAL = 7, SEL_CSR = 8, SEL_SFENCE = 9, SEL_FENCE_I = 10;
+  localparam int SEL_BP = 11, SEL_NUM = 12;
 
   logic [SEL_NUM-1:0] cand, sel;
   /* verilator lint_off UNUSEDSIGNAL */
-  logic               sel_any;  // ebreak flushes without a cause bit, so `any` carries no information
+  logic               sel_any;  // ebreak (legacy mode) flushes without a cause bit, so `any` carries no information
   /* verilator lint_on UNUSEDSIGNAL */
-  logic               u_flush, flush_act;
+  logic               u_flush, flush_act, sel_bp_cond;
 
   // Ref: Rob::comb_commit (single_is_flush gate, then the cause chain; ebreak / wfi only flush or nothing)
   always_comb begin
     u_flush   = rob_is_flush_inst(single_uop);
+    sel_bp_cond = EBREAK_TRAP && single_uop.itype == ITYPE_EBREAK;
     flush_act = single_commit && (u_flush || interrupt_fire);
     cand[SEL_INT]      = interrupt_fire;
     cand[SEL_ECALL]    = single_uop.itype == ITYPE_ECALL;
@@ -51,13 +54,14 @@ module rob_trap_ctrl
     cand[SEL_CSR]      = single_uop.itype == ITYPE_CSR;
     cand[SEL_SFENCE]   = single_uop.itype == ITYPE_SFENCE_VMA;
     cand[SEL_FENCE_I]  = single_uop.itype == ITYPE_FENCE_I;
+    cand[SEL_BP]       = sel_bp_cond;
   end
 
   ttg_first_set #(.N(SEL_NUM)) u_cause (.req(cand & {SEL_NUM{flush_act}}), .onehot(sel), .any(sel_any));
 
   always_comb begin
     flush            = flush_act;
-    exception        = flush_act && (rob_is_exception(single_uop) || interrupt_fire);
+    exception        = flush_act && (rob_is_exception(single_uop) || interrupt_fire || sel_bp_cond);
     ecall            = sel[SEL_ECALL];
     mret             = sel[SEL_MRET];
     sret             = sel[SEL_SRET];
@@ -65,11 +69,12 @@ module rob_trap_ctrl
     page_fault_load  = sel[SEL_PF_LOAD];
     page_fault_inst  = sel[SEL_PF_INST];
     illegal_inst     = sel[SEL_ILLEGAL];
+    breakpoint       = sel[SEL_BP];
     rob2csr_commit   = sel[SEL_CSR];
     fence            = sel[SEL_SFENCE];
     fence_i          = sel[SEL_FENCE_I];
-    trap_val_valid   = sel[SEL_PF_STORE] || sel[SEL_PF_LOAD] || sel[SEL_PF_INST] || sel[SEL_ILLEGAL];
-    trap_val         = sel[SEL_PF_INST] ? ftq_resp_pc : single_uop.diag_val;
+    trap_val_valid   = sel[SEL_PF_STORE] || sel[SEL_PF_LOAD] || sel[SEL_PF_INST] || sel[SEL_ILLEGAL] || sel[SEL_BP];
+    trap_val         = (sel[SEL_PF_INST] || sel[SEL_BP]) ? ftq_resp_pc : single_uop.diag_val;
     pc               = ftq_resp_pc;
   end
 

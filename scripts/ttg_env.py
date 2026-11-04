@@ -9,7 +9,6 @@ BIG = os.environ.get('TTG_BIG') or os.path.join(ROOT, 'programs', 'big')        
 TM = os.environ.get('TM') or os.path.join(AI_HUMA_ROOT, 'trace-model', 'build', 'simulator')
 BASELINE_SRC = os.environ.get('BASELINE_SRC') or os.path.normpath(
     os.path.join(AI_HUMA_ROOT, '..', 'llm4trace', 'third_party', 'tututugege', 'baseline-sim', 'src'))
-REFSIM = os.environ.get('REFSIM') or os.path.join(ROOT, 'refsim')
 
 
 def big(name):

@@ -8,7 +8,8 @@
 #   TTG_BIG          shortened dhrystone(64) / coremark(2)             (default: $RTL_ROOT/programs/big)
 #   TM               trace-model simulator binary                      (default: trace-model/build/simulator)
 #   BASELINE_SRC     source of the reference simulator (read-only, lives outside AI-Huma)
-#   REFSIM / REFSIM_TAP / REFSIM_AXI   reference-simulator copies with the recording hooks (default: $RTL_ROOT/refsim, refsim_tap, refsim_axi)
+#   REFSIM_TAP / REFSIM_AXI   reference-simulator copies with the recording hooks (default: $RTL_ROOT/refsim_tap, refsim_axi)
+#   (REFSIM itself is NOT set here: every script keeps its own default, refsim or refsim_tap, depending on the hooks it needs)
 # Program lists (scripts/progs*.txt, ...): one program per line; a relative entry is resolved by `ttg_resolve_list`:
 #   tests/<t>/<t>.bin, vm/<t>/<t>.bin  -> $TTG_PROGS/...      big/<n>.bin -> $TTG_BIG/<n>.bin      tm/<path> -> $AI_HUMA_ROOT/trace-model/<path>      baseline/<path> -> $BASELINE_SRC/<path>
 #   absolute entries are kept as they are; a `|cap` suffix (scripts/progs.txt) is kept.
@@ -20,10 +21,9 @@ TTG_PROGS=${TTG_PROGS:-$AI_HUMA_ROOT/trace-model/build}
 TTG_BIG=${TTG_BIG:-$RTL_ROOT/programs/big}
 TM=${TM:-$AI_HUMA_ROOT/trace-model/build/simulator}
 BASELINE_SRC=${BASELINE_SRC:-$AI_HUMA_ROOT/../llm4trace/third_party/tututugege/baseline-sim/src}
-REFSIM=${REFSIM:-$RTL_ROOT/refsim}
 REFSIM_TAP=${REFSIM_TAP:-$RTL_ROOT/refsim_tap}
 REFSIM_AXI=${REFSIM_AXI:-$RTL_ROOT/refsim_axi}
-export RTL_ROOT AI_HUMA_ROOT TTG_PROGS TTG_BIG TM BASELINE_SRC REFSIM REFSIM_TAP REFSIM_AXI
+export RTL_ROOT AI_HUMA_ROOT TTG_PROGS TTG_BIG TM BASELINE_SRC REFSIM_TAP REFSIM_AXI
 
 # ttg_resolve_list <file>: print the program paths of a list, absolute
 ttg_resolve_list() {

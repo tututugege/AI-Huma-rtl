@@ -81,6 +81,7 @@ package csr_pkg;
 
   // ---- medeleg bits ----
   localparam int MEDELEG_ILLEGAL = 2;
+  localparam int MEDELEG_BREAKPOINT = 3;
   localparam int MEDELEG_U_ECALL = 8;
   localparam int MEDELEG_S_ECALL = 9;
   localparam int MEDELEG_PF_INST = 12;

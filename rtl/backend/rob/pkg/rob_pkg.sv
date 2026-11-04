@@ -9,6 +9,13 @@ package rob_pkg;
   import ttg_cfg_pkg::*;
 
   // ---- widths that the reference model derives in C++ but ttg_cfg_pkg does not export ----
+  // ebreak: legacy (reference) behaviour is a flush without cause (the simulator ends on it); with TTG_EBREAK_TRAP it
+  // raises a breakpoint exception (cause 3, mtval = pc), which OpenSBI's semihosting probe needs (Linux boot).
+`ifdef TTG_EBREAK_TRAP
+  localparam bit EBREAK_TRAP = 1'b1;
+`else
+  localparam bit EBREAK_TRAP = 1'b0;
+`endif
   localparam int ROB_LINE_IDX_W = $clog2(ROB_LINE_NUM);
   localparam int ROB_BANK_IDX_W = $clog2(ROB_BANK_NUM);
   localparam int INST_TYPE_COUNT = 20;  // enum InstType (types.h): NOP .. FP

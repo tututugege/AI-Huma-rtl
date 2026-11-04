@@ -382,6 +382,7 @@ module back_top import ttg_cfg_pkg::*; (
   logic rob2dis_ready;
   logic rob2dis_rob_flag;
   logic rob2dis_stall;
+  logic rob_bcast_breakpoint;
   logic rob_bcast_ecall;
   logic [6:0] rob_bcast_head_incomplete_rob_idx;
   logic rob_bcast_head_incomplete_valid;
@@ -1061,6 +1062,7 @@ module back_top import ttg_cfg_pkg::*; (
     // inputs from rob
     .rob2csr_commit(rob2csr_commit),
     .rob2csr_interrupt_resp(rob2csr_interrupt_resp),
+    .rob_bcast_breakpoint(rob_bcast_breakpoint),
     .rob_bcast_ecall(rob_bcast_ecall),
     .rob_bcast_illegal_inst(rob_bcast_illegal_inst),
     .rob_bcast_mret(rob_bcast_mret),
@@ -1172,6 +1174,7 @@ module back_top import ttg_cfg_pkg::*; (
     .rob_bcast_mret(rob_bcast_mret),
     .rob_bcast_sret(rob_bcast_sret),
     .rob_bcast_ecall(rob_bcast_ecall),
+    .rob_bcast_breakpoint(rob_bcast_breakpoint),
     .rob_bcast_exception(rob_bcast_exception),
     .rob_bcast_fence(rob_bcast_fence),
     .rob_bcast_fence_i(rob_bcast_fence_i),

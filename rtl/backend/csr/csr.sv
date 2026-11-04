@@ -15,6 +15,7 @@ module csr
   input  logic        rob_bcast_mret,
   input  logic        rob_bcast_sret,
   input  logic        rob_bcast_ecall,
+  input  logic        rob_bcast_breakpoint,
   input  logic        rob_bcast_page_fault_inst,
   input  logic        rob_bcast_page_fault_load,
   input  logic        rob_bcast_page_fault_store,
@@ -59,7 +60,8 @@ module csr
     .interrupt_resp(rob2csr_interrupt_resp), .mret(rob_bcast_mret), .sret(rob_bcast_sret),
     .ecall(rob_bcast_ecall), .page_fault_inst(rob_bcast_page_fault_inst),
     .page_fault_load(rob_bcast_page_fault_load), .page_fault_store(rob_bcast_page_fault_store),
-    .illegal_inst(rob_bcast_illegal_inst), .trap_val(rob_bcast_trap_val), .pc(rob_bcast_pc),
+    .illegal_inst(rob_bcast_illegal_inst), .breakpoint(rob_bcast_breakpoint),
+    .trap_val(rob_bcast_trap_val), .pc(rob_bcast_pc),
     .privilege(privilege), .trap_taken(csr2front_trap_pc_vld), .trap_pc(csr2front_trap_pc),
     .xret_taken(csr2front_epc_vld), .epc(csr2front_epc), .wr_en(trap_wr_en), .wr_val(trap_wr_val));
 

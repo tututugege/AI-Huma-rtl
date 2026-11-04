@@ -74,6 +74,7 @@ out rob_bcast_flush 1 @ bt.rob_bcast.flush
 out rob_bcast_mret 1 @ bt.rob_bcast.mret
 out rob_bcast_sret 1 @ bt.rob_bcast.sret
 out rob_bcast_ecall 1 @ bt.rob_bcast.ecall
+out rob_bcast_breakpoint 1 @ 0
 out rob_bcast_exception 1 @ bt.rob_bcast.exception
 out rob_bcast_fence 1 @ bt.rob_bcast.fence
 out rob_bcast_fence_i 1 @ bt.rob_bcast.fence_i

@@ -13,6 +13,7 @@ in  exe2csr_wcmd 2 @ bt.exe2csr.wcmd
 in  rob_bcast_mret 1 @ bt.rob_bcast.mret
 in  rob_bcast_sret 1 @ bt.rob_bcast.sret
 in  rob_bcast_ecall 1 @ bt.rob_bcast.ecall
+in  rob_bcast_breakpoint 1 @ 0
 in  rob_bcast_page_fault_inst 1 @ bt.rob_bcast.page_fault_inst
 in  rob_bcast_page_fault_load 1 @ bt.rob_bcast.page_fault_load
 in  rob_bcast_page_fault_store 1 @ bt.rob_bcast.page_fault_store

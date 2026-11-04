@@ -34,6 +34,7 @@ module rob_core
   output logic                       bcast_mret,
   output logic                       bcast_sret,
   output logic                       bcast_ecall,
+  output logic                       bcast_breakpoint,
   output logic                       bcast_exception,
   output logic                       bcast_fence,
   output logic                       bcast_fence_i,
@@ -152,7 +153,7 @@ module rob_core
     .flush(flush_w), .exception(bcast_exception), .mret(bcast_mret), .sret(bcast_sret), .ecall(bcast_ecall),
     .fence(bcast_fence), .fence_i(bcast_fence_i),
     .page_fault_inst(bcast_page_fault_inst), .page_fault_load(bcast_page_fault_load),
-    .page_fault_store(bcast_page_fault_store), .illegal_inst(bcast_illegal_inst),
+    .page_fault_store(bcast_page_fault_store), .illegal_inst(bcast_illegal_inst), .breakpoint(bcast_breakpoint),
     .rob2csr_commit(rob2csr_commit), .trap_val_valid(bcast_trap_val_valid), .trap_val(bcast_trap_val), .pc(bcast_pc)
   );
 
