@@ -6,7 +6,7 @@
 
 ## 你在哪、有什么
 
-- 你的当前目录是本仓库的一个**独立 git worktree**（你自己的分支）。只改你自己的文件，提交到你的分支。
+- 你的当前目录通常就是本仓库（`AI-Huma/rtl`）；如果协调者给你开了临时 git worktree，就只改你自己的文件，提交到你的分支，合入后由协调者清理。
 - 参考模型源码（只读，commit 2f31e8d）：`/Users/ruyaoh/personal/llm4trace/third_party/tututugege/baseline-sim/src`。后端在 `back-end/`，IO 结构体在 `back-end/include/IO.h`，各阶段的调用顺序在 `back-end/BackTop.cpp`（`comb()` 里的 `comb_stage_*`），模块间连线是 `BackTop` 的成员（`dec2ren`、`ren2dis`…）。
 - 已装好的、**共享只读**的带钩子参考模型：`/Users/ruyaoh/personal/AI-Huma/rtl/refsim`（`scripts/record.sh` 默认用它，不要修改它，不要在其中构建）。
 - 测试程序：`/Users/ruyaoh/personal/AI-Huma/trace-model/build/tests/*/*.bin`（61 个）+ `/Users/ruyaoh/personal/AI-Huma/rtl/programs/big/{dhrystone,coremark}.bin`。
@@ -48,7 +48,7 @@
 1. **必读 `docs/06-equivalence-policy.md`**。不迁就 C++ 的怪行为：残留值/越界/恒 0 字段/调试字段不复刻；无效时无意义的输出用 `when` 且**删掉对齐 C++ 的强制清零/保持**；没人读的字段从 spec 和 RTL 删除。放宽前必须在参考模型里核对所有读取点（写进设计笔记第 4 节），放宽后变异检查仍须有效。
 2. **设计笔记先于 RTL**（`docs/modules/<mod>.md`，含消费者核对、放宽/删除/不复刻清单、变异表）。
 3. **标准程序集合**：`bash scripts/record_all.sh <mod>` 现在录 61 个 gate 测试 + `scripts/progs.txt` 里的程序（dhrystone/coremark/coremark10、4 个 vm 测试、float/sha/cjpeg/linear_alg/parser），拍数上限见 progs.txt，gate 默认 30000（`GATE_CYCLES`），`JOBS=2`。端口特别宽的模块先用 `GATE_CYCLES=8000` 控制磁盘（磁盘紧张，已用 >90%）。不再需要的 trace 请删除。
-4. **随机 trace 生成器**：真实程序覆盖不到的路径，写一个直接驱动参考模型该类的生成器补充（模板：`/Users/ruyaoh/personal/AI-Huma/rtl-wt/{prf,ren,idu,dispatch,rob}` 里的 `tests/<mod>/rand_trace.cpp` 或 `tb/<mod>/gen_rand.cpp`，只读参考）。注意激励必须是参考模型下合法的（可不定义 NDEBUG 让 C++ Assert 全开来自检），并在设计笔记里写明约束依据。
+4. **随机 trace 生成器**：真实程序覆盖不到的路径，写一个直接驱动参考模型该类的生成器补充（模板：`tb/rob/gen_rand.cpp`、`tb/idu/gen_rand.cpp`、`tests/*/rand_trace.cpp` 里的 `tests/<mod>/rand_trace.cpp` 或 `tb/<mod>/gen_rand.cpp`，只读参考）。注意激励必须是参考模型下合法的（可不定义 NDEBUG 让 C++ Assert 全开来自检），并在设计笔记里写明约束依据。
 5. **风格范例**（已合并的同类代码，只读参考）：`prf/rtl/backend/prf/prf_write_arb.sv`、`ren/rtl/backend/ren/ren_rat.sv`、`idu/rtl/backend/idu/idu_ctrl_decode.sv`。顶层只做端口适配；逻辑在子模块；用 `ttg_first_set`/`ttg_onehot_mux`/`ttg_popcount`；禁止 break/while/运行计数器。
 6. **工具**：package 文件命名 `*_pkg.sv`，工具会自动排在前面；`scripts/lint.sh` 的 `<=` 比较误报已修；断言与 lint 豁免见 `docs/01` 第 1 节与 8.5。需要主仓库新工具时 `git merge main`；不要改 scripts/harness/rtl/common/docs（除你自己的 `docs/modules/<mod>.md`）。
 7. **共享 scratchpad 会被其他 agent 覆盖**：临时文件放在 scratchpad 下你自己的子目录（`<scratchpad>/<mod>/`）。提交用 `git -c user.name=ruyaoh -c user.email=ruyaoh@nvidia.com commit`。

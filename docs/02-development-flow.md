@@ -50,6 +50,6 @@ bash scripts/lockstep_ticks_all.sh <module>                              # 16 �
 - 一个提交只做一件事；harness/规范/文档改动与 RTL 改动分开。不合入红模块；改了 harness 必须跑 `make selftest`。
 
 ## 并行协作约定
-- 每个 agent 一个独立 git worktree + 分支（`/Users/.../rtl-wt/<名>`，分支 `rtl/<名>`）；只改自己的目录、spec、笔记；共享脚本/补丁/参考模型的改动请求写进汇报，由协调者落地。
+- 默认直接在 `AI-Huma/rtl` 的 `main` 上工作，不为每个模块单开工作区（2026-11-04 起；之前的 per-module 工作树已全部清理）。确需并行 agent 时才用临时 git worktree（放在 `AI-Huma/rtl-wt/<名>`，分支 `rtl/<名>`），合入 `main` 后立即删除工作树和分支；只改自己的目录、spec、笔记；共享脚本/补丁/参考模型的改动请求写进汇报，由协调者落地。
 - 合并顺序：先合不改共享文件的；录制补丁按依赖顺序合入共享 `refsim_tap`（合入时不能有别的回归在用它）。
 - 机器资源：14 核，各 agent `JOBS≤4`；不跑 400 万拍全量。
