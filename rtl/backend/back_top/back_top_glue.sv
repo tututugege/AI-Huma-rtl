@@ -5,7 +5,6 @@
 //  * Back_out.{mispred, stall, redirect_pc}: what SimCpu/the front end see (BackTop.cpp:340-362)
 //  * the flush-time override of the committed slots' diag_val with the redirect pc (BackTop.cpp:364-372); it is applied
 //    only to the copy that leaves the back end (commit_entry), no back-end consumer reads diag_val of rob_commit
-//  * the store flag the Idu computes (tma.mem_commit_is_store), not carried by Ren/Dispatch: re-derived from type/func7
 //  * the four mstatus bits the DTLB needs (LSU copies csr_status into lsu2mmu_io; here taken straight from Csr)
 module back_top_glue
   import ttg_cfg_pkg::*;
@@ -23,8 +22,6 @@ module back_top_glue
   input  logic        pre2front_ready,
   input  logic        rob_commit_commit_entry_valid [COMMIT_WIDTH],
   input  logic [31:0] rob_commit_commit_entry_uop_diag_val [COMMIT_WIDTH],
-  input  logic [4:0]  dis2rob_uop_type [DECODE_WIDTH],
-  input  logic [6:0]  dis2rob_uop_func7 [DECODE_WIDTH],
   input  logic [31:0] csr_status_mstatus,
   input  logic [6:0]  rob_commit_commit_entry_uop_func7 [COMMIT_WIDTH],
   output logic        out_mispred,
@@ -32,7 +29,6 @@ module back_top_glue
   output logic        out_stall,
   output logic [31:0] out_redirect_pc,
   output logic [31:0] out_commit_entry_uop_diag_val [COMMIT_WIDTH],
-  output logic        dis2rob_uop_tma_mem_commit_is_store [DECODE_WIDTH],
   output logic        csr_status_mstatus_mxr,
   output logic        csr_status_mstatus_sum,
   output logic        csr_status_mstatus_mprv,
@@ -61,13 +57,6 @@ module back_top_glue
   // (rob_commit_commit_entry_valid only qualifies the diag_val in the boundary spec; the override itself is per slot)
   logic commit_valid_unused;  // lint: kept as a port so the glue's interface documents the qualification
   assign commit_valid_unused = rob_commit_commit_entry_valid[0];
-
-  // Ref: Idu.cpp:539 mem_commit_is_store = STORE || (AMO && amo_op != LR); amo_op = func7[6:2]
-  for (genvar i = 0; i < DECODE_WIDTH; i++) begin : g_store
-    assign dis2rob_uop_tma_mem_commit_is_store[i] =
-        (dis2rob_uop_type[i] == INST_TYPE_W'(INST_STORE)) ||
-        ((dis2rob_uop_type[i] == INST_TYPE_W'(INST_AMO)) && (dis2rob_uop_func7[i][6:2] != AMO_LR));
-  end
 
   // LSU reads the AMO sub-opcode of committed stores (RealLsu::comb_stq_commit): amo_op = func7[6:2]
   for (genvar i = 0; i < COMMIT_WIDTH; i++) begin : g_amo

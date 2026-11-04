@@ -31,8 +31,6 @@ module idu_decoder import ttg_cfg_pkg::*; (
   output logic [CSR_IDX_WIDTH-1:0]    uop_csr_idx,
   output logic                        uop_page_fault_inst,
   output logic                        uop_illegal_inst,
-  output logic                        uop_tma_mem_commit_is_load,
-  output logic                        uop_tma_mem_commit_is_store,
   output logic                        is_branch              // valid decoded BR/JALR (needs a branch tag)
 );
 
@@ -41,7 +39,7 @@ module idu_decoder import ttg_cfg_pkg::*; (
   logic        raw_dest_en, raw_src1_en, raw_src2_en, raw_src1_is_pc, raw_src2_is_imm, raw_is_atomic;
   logic [2:0]  raw_func3;
   logic [5:0]  raw_dest_areg, raw_src1_areg, raw_src2_areg;
-  logic        raw_illegal_inst, raw_is_branch, raw_is_load, raw_is_store;
+  logic        raw_illegal_inst, raw_is_branch;
   logic [6:0]  raw_imm_sel;
   logic [31:0] raw_imm;
   logic        decoded_en;     // not a page fault: decoded fields reach the output (page fault -> NOP uop)
@@ -50,8 +48,7 @@ module idu_decoder import ttg_cfg_pkg::*; (
     .inst(entry_inst), .uop_type(raw_type), .dest_en(raw_dest_en), .src1_en(raw_src1_en), .src2_en(raw_src2_en),
     .src1_is_pc(raw_src1_is_pc), .src2_is_imm(raw_src2_is_imm), .is_atomic(raw_is_atomic), .func3(raw_func3),
     .dest_areg(raw_dest_areg), .src1_areg(raw_src1_areg), .src2_areg(raw_src2_areg),
-    .illegal_inst(raw_illegal_inst), .is_branch(raw_is_branch), .imm_sel(raw_imm_sel),
-    .tma_mem_commit_is_load(raw_is_load), .tma_mem_commit_is_store(raw_is_store)
+    .illegal_inst(raw_illegal_inst), .is_branch(raw_is_branch), .imm_sel(raw_imm_sel)
   );
 
   idu_imm_gen u_imm (.inst(entry_inst[31:7]), .imm_sel(raw_imm_sel), .imm(raw_imm));
@@ -79,8 +76,6 @@ module idu_decoder import ttg_cfg_pkg::*; (
     uop_src1_areg               = raw_src1_areg & {AREG_IDX_WIDTH{decoded_en}};
     uop_src2_areg               = raw_src2_areg & {AREG_IDX_WIDTH{decoded_en}};
     uop_illegal_inst            = raw_illegal_inst & decoded_en;
-    uop_tma_mem_commit_is_load  = raw_is_load & decoded_en;
-    uop_tma_mem_commit_is_store = raw_is_store & decoded_en;
     is_branch                   = raw_is_branch & decoded_en & entry_valid;   // needs a branch tag
   end
 

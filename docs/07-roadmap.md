@@ -30,7 +30,7 @@
 4. **去复位的存储器用随机初值验证**：锁步用 `--x-initial 0`，去掉复位的阵列在仿真里看不出来；需要 `--x-initial unique` + 运行时随机复位参数。
 5. **RealLsu 手写重构**：3 个脚本生成的 SSA 展开文件（约 890 行）改手写结构，状态数组不散开；顺带补足 25 个变异里存活的 10 个（M05 M07 M08 M15 M16 M17 M18 M20 M21 M24）。
 6. **整数组次态残留**：`isu_iq_store`、`rob_store`、`dispatch`、`idu` 里是否还有整数组次态写法，未核实（grep 不完整）。
-7. **清理 tma 边带**：从 Idu/Ren/Dispatch/Rob 与 back_top 删除 `tma_mem_commit_is_load/store`（只服务模拟器记账，见 06 §8）。
+7. ~~**清理 tma 边带**~~（已完成 2026-11-04；同时删除后端集成里 7 个被常量绑死的字段：Rob 的 dis2rob mispred/br_taken/flush_pipe、exu2rob page_fault_inst/flush_pipe，Dispatch 的 ren2dis src1/src2_busy，以及不含 LSU 的 `back_top_nolsu`）：从 Idu/Ren/Dispatch/Rob 与 back_top 删除 `tma_mem_commit_is_load/store`（只服务模拟器记账，见 06 §8）。
 8. **PMU 单独设计**：需要先确定事件列表（待用户选择），硬件友好的计数，独立于逐拍对照（06 §8）。
 9. 小项：PreIduQueue 删 3 个冗余限定输出并重录；Ren/Isu trace 重录；`make cfg` 导出 `GLOBAL_IQ_CONFIG`、端口能力表、MUL/DIV 实例数、前端常量；`mutcheck.sh` 区分"无法构建"与"存活"；端口样板由 spec 生成；`front_stall` 在 core_top 里写死为 0（BPU 更新队列会满时必须接回）。
 

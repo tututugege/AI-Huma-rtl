@@ -64,4 +64,4 @@
    - `tma.mem_commit_is_store/is_load` 的唯一功能读取点是 `SimCpu::commit_sync`：它决定"提交时是否对**模拟器的存储模型**写入"，是模拟器自己的记账。硬件里这件事由 LSU 的 store 队列提交逻辑完成（`comb_stq_commit`），所以这对字段**不进 RTL**。验证环境（testbench）如果需要，从已经比较的 `uop.type`/`is_atomic` 等推导。
 3. **边界的选择**：后端边界只包含硬件上有意义的输出；仅为模拟器记账而存在的输出（如 tma 边带）不进边界 spec，也不要求 RTL 产生。
 4. **PMU 单独设计，不是 PerfCount.h 的翻译**：参考模型的性能计数（`PerfCount.h`，约 1400 行，含 TMA 归因）里很多统计在硬件上不容易实现（需要跨流水线携带归因信息、浮点 IPC 窗口统计等）。RTL 的 PMU 将作为独立模块重新设计：用硬件友好的事件（周期数、提交指令数、分支误预测、cache miss 等）挂在已有信号上，不要求与 C++ 计数器逐拍一致，不属于逐拍对照的范围；与参考计数器的对照只在事件定义一致时做汇总层面的比较。
-5. **清理遗留**：`tma_mem_commit_is_load/store` 目前仍从 Idu 带到 Ren、Rob（及 back_top 的一处胶水）。在整核接线稳定后做一次清理：从 Idu/Ren/Dispatch/Rob 的 spec 与 RTL 中删除，各模块重新回放/锁步确认仍然全绿。
+5. **清理遗留（已完成 2026-11-04）**：`tma_mem_commit_is_load/store` 目前仍从 Idu 带到 Ren、Rob（及 back_top 的一处胶水）。在整核接线稳定后做一次清理：从 Idu/Ren/Dispatch/Rob 的 spec 与 RTL 中删除，各模块重新回放/锁步确认仍然全绿。

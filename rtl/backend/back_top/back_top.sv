@@ -470,32 +470,13 @@ module back_top (
   logic csr_status_mstatus_mprv;
   logic csr_status_mstatus_mxr;
   logic csr_status_mstatus_sum;
-  logic dis2rob_uop_tma_mem_commit_is_store [8];
   logic [4:0] rob_commit_commit_entry_uop_amo_op [8];
-
-  // ---- constants (producer deleted a constant field / never writes it): see docs/modules/back_top.md
-  logic dis2rob_uop_br_taken [8];  // same
-  assign dis2rob_uop_br_taken = '{default: '0};
-  logic dis2rob_uop_flush_pipe [8];  // same
-  assign dis2rob_uop_flush_pipe = '{default: '0};
-  logic dis2rob_uop_mispred [8];  // Dispatch never sets it (0); Rob overwrites it at enqueue
-  assign dis2rob_uop_mispred = '{default: '0};
-  logic exu2rob_entry_uop_flush_pipe [22];  // LSU flush_pipe is constant 0 per port, Exu FUs never set it
-  assign exu2rob_entry_uop_flush_pipe = '{default: '0};
-  logic exu2rob_entry_uop_page_fault_inst [22];  // no writer in the back end (exu_ctrl.md 4.2 item 7): constant 0
-  assign exu2rob_entry_uop_page_fault_inst = '{default: '0};
-  logic ren2dis_uop_src1_busy [8];  // Ren leaves it 0; Dispatch recomputes busy (Dispatch.cpp:162)
-  assign ren2dis_uop_src1_busy = '{default: '0};
-  logic ren2dis_uop_src2_busy [8];  // same as src1_busy
-  assign ren2dis_uop_src2_busy = '{default: '0};
 
   // ---- outputs nobody in this netlist reads (named so that no port is left empty)
   /* verilator lint_off UNUSEDSIGNAL */  // intentionally unread: listed in docs/modules/back_top.md
   logic nc_csr2exe_rdata_vld;
   logic nc_csr2front_epc_vld;
   logic nc_csr2front_trap_pc_vld;
-  logic nc_dec2ren_uop_tma_mem_commit_is_load [8];
-  logic nc_dec2ren_uop_tma_mem_commit_is_store [8];
   logic [2:0] nc_dis2lsu_func3 [8];
   logic nc_dis2lsu_stq_flag [8];
   logic [2:0] nc_dis2rob_uop_func3 [8];
@@ -506,7 +487,6 @@ module back_top (
   logic nc_mmu2lsu_stq_resp_hit [4];
   logic nc_rob_bcast_trap_val_valid;
   logic nc_rob_commit_commit_entry_uop_mispred [8];
-  logic nc_rob_commit_commit_entry_uop_tma_mem_commit_is_store [8];
   /* verilator lint_on UNUSEDSIGNAL */
 
   // ================= pre: PreIduQueue (back-end/PreIduQueue.cpp)
@@ -633,8 +613,6 @@ module back_top (
     .dec2ren_uop_csr_idx(dec2ren_uop_csr_idx),
     .dec2ren_uop_page_fault_inst(dec2ren_uop_page_fault_inst),
     .dec2ren_uop_illegal_inst(dec2ren_uop_illegal_inst),
-    .dec2ren_uop_tma_mem_commit_is_load(nc_dec2ren_uop_tma_mem_commit_is_load),
-    .dec2ren_uop_tma_mem_commit_is_store(nc_dec2ren_uop_tma_mem_commit_is_store),
     .dec_bcast_mispred(dec_bcast_mispred),
     .dec_bcast_br_mask(dec_bcast_br_mask),
     .dec_bcast_br_id(dec_bcast_br_id),
@@ -777,9 +755,6 @@ module back_top (
     .rob2dis_rob_flag(rob2dis_rob_flag),
     .rob2dis_stall(rob2dis_stall),
     .rob_bcast_flush(rob_bcast_flush),
-    // inputs from tied 0
-    .ren2dis_uop_src1_busy(ren2dis_uop_src1_busy),
-    .ren2dis_uop_src2_busy(ren2dis_uop_src2_busy),
     // outputs
     .dis2ren_ready(dis2ren_ready),
     .dis2rob_dis_fire(dis2rob_dis_fire),
@@ -1191,8 +1166,6 @@ module back_top (
     .exu2rob_entry_uop_result(exu2rob_entry_uop_result),
     .exu2rob_entry_uop_rob_idx(exu2rob_entry_uop_rob_idx),
     .exu2rob_entry_valid(exu2rob_entry_valid),
-    // inputs from glue
-    .dis2rob_uop_tma_mem_commit_is_store(dis2rob_uop_tma_mem_commit_is_store),
     // inputs from idu
     .dec_bcast_mispred(dec_bcast_mispred),
     .dec_bcast_redirect_rob_idx(dec_bcast_redirect_rob_idx),
@@ -1200,12 +1173,6 @@ module back_top (
     .lsu2rob_committed_store_pending(lsu2rob_committed_store_pending),
     // inputs from pre
     .ftq_rob_pc_resp_resp_pc(ftq_rob_pc_resp_resp_pc),
-    // inputs from tied 0
-    .dis2rob_uop_br_taken(dis2rob_uop_br_taken),
-    .dis2rob_uop_flush_pipe(dis2rob_uop_flush_pipe),
-    .dis2rob_uop_mispred(dis2rob_uop_mispred),
-    .exu2rob_entry_uop_flush_pipe(exu2rob_entry_uop_flush_pipe),
-    .exu2rob_entry_uop_page_fault_inst(exu2rob_entry_uop_page_fault_inst),
     // inputs from top input
     .front_stall(front_stall),
     // outputs
@@ -1237,7 +1204,6 @@ module back_top (
     .rob_commit_commit_entry_uop_page_fault_store(rob_commit_commit_entry_uop_page_fault_store),
     .rob_commit_commit_entry_uop_illegal_inst(rob_commit_commit_entry_uop_illegal_inst),
     .rob_commit_commit_entry_uop_type(rob_commit_commit_entry_uop_type),
-    .rob_commit_commit_entry_uop_tma_mem_commit_is_store(nc_rob_commit_commit_entry_uop_tma_mem_commit_is_store),
     .commit_extra_src1_areg(commit_extra_src1_areg),
     .commit_extra_imm(commit_extra_imm),
     .rob_bcast_flush(rob_bcast_flush),
@@ -1449,9 +1415,6 @@ module back_top (
     .csr2front_epc(csr2front_epc),
     .csr2front_trap_pc(csr2front_trap_pc),
     .csr_status_mstatus(csr_status_mstatus),
-    // inputs from dis
-    .dis2rob_uop_func7(dis2rob_uop_func7),
-    .dis2rob_uop_type(dis2rob_uop_type),
     // inputs from idu
     .br_latch_redirect_pc(br_latch_redirect_pc),
     .dec_bcast_mispred(dec_bcast_mispred),
@@ -1472,7 +1435,6 @@ module back_top (
     .out_stall(out_stall),
     .out_redirect_pc(out_redirect_pc),
     .out_commit_entry_uop_diag_val(out_commit_entry_uop_diag_val),
-    .dis2rob_uop_tma_mem_commit_is_store(dis2rob_uop_tma_mem_commit_is_store),
     .csr_status_mstatus_mxr(csr_status_mstatus_mxr),
     .csr_status_mstatus_sum(csr_status_mstatus_sum),
     .csr_status_mstatus_mprv(csr_status_mstatus_mprv),

@@ -47,8 +47,6 @@ module idu import ttg_cfg_pkg::*; (
   output logic [CSR_IDX_WIDTH-1:0]    dec2ren_uop_csr_idx [DECODE_WIDTH],
   output logic                        dec2ren_uop_page_fault_inst [DECODE_WIDTH],
   output logic                        dec2ren_uop_illegal_inst [DECODE_WIDTH],
-  output logic                        dec2ren_uop_tma_mem_commit_is_load [DECODE_WIDTH],
-  output logic                        dec2ren_uop_tma_mem_commit_is_store [DECODE_WIDTH],
   // dec_bcast
   output logic                        dec_bcast_mispred,
   output logic [BR_MASK_WIDTH-1:0]    dec_bcast_br_mask,
@@ -103,8 +101,7 @@ module idu import ttg_cfg_pkg::*; (
       .uop_func3(dec2ren_uop_func3[i]), .uop_func7(dec2ren_uop_func7[i]), .uop_imm(dec2ren_uop_imm[i]),
       .uop_csr_idx(dec2ren_uop_csr_idx[i]), .uop_page_fault_inst(dec2ren_uop_page_fault_inst[i]),
       .uop_illegal_inst(dec2ren_uop_illegal_inst[i]),
-      .uop_tma_mem_commit_is_load(dec2ren_uop_tma_mem_commit_is_load[i]),
-      .uop_tma_mem_commit_is_store(dec2ren_uop_tma_mem_commit_is_store[i]), .is_branch(lane_is_branch[i])
+      .is_branch(lane_is_branch[i])
     );
   end
 

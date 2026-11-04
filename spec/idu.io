@@ -45,8 +45,6 @@ out dec2ren_uop_br_mask 64 [8] when dec2ren_valid @ bt.dec2ren.uop[i0].br_mask
 out dec2ren_uop_csr_idx 12 [8] when dec2ren_valid @ bt.dec2ren.uop[i0].csr_idx
 out dec2ren_uop_page_fault_inst 1 [8] when dec2ren_valid @ bt.dec2ren.uop[i0].page_fault_inst
 out dec2ren_uop_illegal_inst 1 [8] when dec2ren_valid @ bt.dec2ren.uop[i0].illegal_inst
-out dec2ren_uop_tma_mem_commit_is_load 1 [8] when dec2ren_valid @ bt.dec2ren.uop[i0].tma.mem_commit_is_load
-out dec2ren_uop_tma_mem_commit_is_store 1 [8] when dec2ren_valid @ bt.dec2ren.uop[i0].tma.mem_commit_is_store
 
 # ---- outputs: dec_bcast (br_mask/br_id/redirect_rob_idx only read under mispred) and idu_consume ----
 out dec_bcast_mispred 1 @ bt.dec_bcast.mispred

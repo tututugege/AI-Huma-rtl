@@ -21,8 +21,6 @@ in  ren2dis_uop_dest_en 1 [8] @ bt.ren2dis.uop[i0].dest_en
 in  ren2dis_uop_src1_en 1 [8] @ bt.ren2dis.uop[i0].src1_en
 in  ren2dis_uop_src2_en 1 [8] @ bt.ren2dis.uop[i0].src2_en
 in  ren2dis_uop_is_atomic 1 [8] @ bt.ren2dis.uop[i0].is_atomic
-in  ren2dis_uop_src1_busy 1 [8] @ bt.ren2dis.uop[i0].src1_busy
-in  ren2dis_uop_src2_busy 1 [8] @ bt.ren2dis.uop[i0].src2_busy
 in  ren2dis_uop_src1_is_pc 1 [8] @ bt.ren2dis.uop[i0].src1_is_pc
 in  ren2dis_uop_src2_is_imm 1 [8] @ bt.ren2dis.uop[i0].src2_is_imm
 in  ren2dis_uop_func3 3 [8] @ bt.ren2dis.uop[i0].func3

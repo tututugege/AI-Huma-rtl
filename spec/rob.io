@@ -1,5 +1,5 @@
 # Rob (back-end/Rob.cpp): reorder buffer. Boundary = Rob::comb_* inputs/outputs, recorded after BackTop::comb().
-# Not translated (perf/debug/TB-perf only): dbg.*, tma.* except mem_commit_is_store, rob2dis.tma, lsu2rob miss_mask, is_atomic/func3, ftq resp.valid (assert only), commit flush_pipe.
+# Not translated (perf/debug/TB-perf only): dbg.*, tma.* (all), rob2dis.tma, lsu2rob miss_mask, is_atomic/func3, ftq resp.valid (assert only), commit flush_pipe.
 module rob
 
 # ---- inputs ----
@@ -18,8 +18,6 @@ in  dis2rob_uop_old_dest_preg 7 [8] @ bt.dis2rob.uop[i0].old_dest_preg
 in  dis2rob_uop_ftq_idx 6 [8] @ bt.dis2rob.uop[i0].ftq_idx
 in  dis2rob_uop_ftq_offset 4 [8] @ bt.dis2rob.uop[i0].ftq_offset
 in  dis2rob_uop_ftq_is_last 1 [8] @ bt.dis2rob.uop[i0].ftq_is_last
-in  dis2rob_uop_mispred 1 [8] @ bt.dis2rob.uop[i0].mispred
-in  dis2rob_uop_br_taken 1 [8] @ bt.dis2rob.uop[i0].br_taken
 in  dis2rob_uop_type 5 [8] @ bt.dis2rob.uop[i0].type
 in  dis2rob_uop_dest_en 1 [8] @ bt.dis2rob.uop[i0].dest_en
 in  dis2rob_uop_func7 7 [8] @ bt.dis2rob.uop[i0].func7
@@ -31,19 +29,15 @@ in  dis2rob_uop_expect_mask 3 [8] @ bt.dis2rob.uop[i0].expect_mask
 in  dis2rob_uop_rob_flag 1 [8] @ bt.dis2rob.uop[i0].rob_flag
 in  dis2rob_uop_page_fault_inst 1 [8] @ bt.dis2rob.uop[i0].page_fault_inst
 in  dis2rob_uop_illegal_inst 1 [8] @ bt.dis2rob.uop[i0].illegal_inst
-in  dis2rob_uop_flush_pipe 1 [8] @ bt.dis2rob.uop[i0].flush_pipe
-in  dis2rob_uop_tma_mem_commit_is_store 1 [8] @ bt.dis2rob.uop[i0].tma.mem_commit_is_store
 in  exu2rob_entry_valid 1 [22] @ bt.exu2rob.entry[i0].valid
 in  exu2rob_entry_uop_diag_val 32 [22] @ bt.exu2rob.entry[i0].uop.diag_val
 in  exu2rob_entry_uop_result 32 [22] @ bt.exu2rob.entry[i0].uop.result
 in  exu2rob_entry_uop_rob_idx 7 [22] @ bt.exu2rob.entry[i0].uop.rob_idx
 in  exu2rob_entry_uop_mispred 1 [22] @ bt.exu2rob.entry[i0].uop.mispred
 in  exu2rob_entry_uop_br_taken 1 [22] @ bt.exu2rob.entry[i0].uop.br_taken
-in  exu2rob_entry_uop_page_fault_inst 1 [22] @ bt.exu2rob.entry[i0].uop.page_fault_inst
 in  exu2rob_entry_uop_page_fault_load 1 [22] @ bt.exu2rob.entry[i0].uop.page_fault_load
 in  exu2rob_entry_uop_page_fault_store 1 [22] @ bt.exu2rob.entry[i0].uop.page_fault_store
 in  exu2rob_entry_uop_op 5 [22] @ bt.exu2rob.entry[i0].uop.op
-in  exu2rob_entry_uop_flush_pipe 1 [22] @ bt.exu2rob.entry[i0].uop.flush_pipe
 
 # ---- outputs ----
 out rob2dis_stall 1 @ bt.rob2dis.stall
@@ -74,7 +68,6 @@ out rob_commit_commit_entry_uop_page_fault_load 1 [8] when rob_commit_commit_ent
 out rob_commit_commit_entry_uop_page_fault_store 1 [8] when rob_commit_commit_entry_valid @ bt.rob_commit.commit_entry[i0].uop.page_fault_store
 out rob_commit_commit_entry_uop_illegal_inst 1 [8] when rob_commit_commit_entry_valid @ bt.rob_commit.commit_entry[i0].uop.illegal_inst
 out rob_commit_commit_entry_uop_type 5 [8] when rob_commit_commit_entry_valid @ bt.rob_commit.commit_entry[i0].uop.type
-out rob_commit_commit_entry_uop_tma_mem_commit_is_store 1 [8] when rob_commit_commit_entry_valid @ bt.rob_commit.commit_entry[i0].uop.tma.mem_commit_is_store
 out commit_extra_src1_areg 6 [8] when rob_commit_commit_entry_valid @ bt.rob->out.commit_extra[i0].src1_areg
 out commit_extra_imm 32 [8] when rob_commit_commit_entry_valid @ bt.rob->out.commit_extra[i0].imm
 out rob_bcast_flush 1 @ bt.rob_bcast.flush

@@ -19,9 +19,7 @@ module idu_ctrl_decode (
   output logic [5:0]  src2_areg,
   output logic        illegal_inst,
   output logic        is_branch,
-  output logic [6:0]  imm_sel,            // one-hot (or none): U, J, I, B, S, CSR-rs1-field, FP-rs2-field
-  output logic        tma_mem_commit_is_load,
-  output logic        tma_mem_commit_is_store
+  output logic [6:0]  imm_sel            // one-hot (or none): U, J, I, B, S, CSR-rs1-field, FP-rs2-field
 );
 
   // ---- InstType encoding (Ref: back-end/include/types.h enum InstType) ----
@@ -196,8 +194,6 @@ module idu_ctrl_decode (
     src1_areg    = rom_src1_zero ? 6'd0 : {1'b0, rs1_idx};
     src2_areg    = {1'b0, inst[24:20]};
     illegal_inst = rom_illegal | (cls[CLS_CSR_NOP] & csr_is_time);
-    tma_mem_commit_is_load  = cls[CLS_LOAD] | ((cls[CLS_AMO] | cls[CLS_AMO_LR]) & (amo_op != AMO_SC));
-    tma_mem_commit_is_store = cls[CLS_STORE] | cls[CLS_AMO];
   end
 
 endmodule

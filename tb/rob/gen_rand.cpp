@@ -91,9 +91,9 @@ int main(int argc, char **argv) {
           bool ld = p >= 6 && p < 10, sta = p >= 10 && p < 14, br = p >= 18;
           w.uop.op = br ? (chance(500) ? UOP_BR : UOP_JUMP) : ld ? UOP_LOAD : sta ? UOP_STA : g == 2 ? UOP_STD : UOP_ADD;
           w.uop.mispred = br && chance(300); w.uop.br_taken = br && chance(500);
-          if (ld && chance(p_pf[prof])) { int k = rnd() % 3; w.uop.page_fault_load = k == 0; w.uop.page_fault_inst = k == 1; w.uop.page_fault_store = k == 2 && chance(200); if (!(w.uop.page_fault_load | w.uop.page_fault_inst | w.uop.page_fault_store)) w.uop.page_fault_load = true; }
+          if (ld && chance(p_pf[prof])) { int k = rnd() % 3; w.uop.page_fault_load = k == 0; w.uop.page_fault_inst = false; /* exu writeback never carries an instruction fault in this design */ w.uop.page_fault_store = k == 2 && chance(200); if (!(w.uop.page_fault_load | w.uop.page_fault_inst | w.uop.page_fault_store)) w.uop.page_fault_load = true; }
           if (sta && chance(p_pf[prof])) w.uop.page_fault_store = true;
-          w.uop.flush_pipe = chance(p_pf[prof] / 4);
+          w.uop.flush_pipe = false;   // no producer sets flush_pipe in this design
         }
       }
     // mispredict: redirect at a currently valid entry
@@ -111,13 +111,12 @@ int main(int argc, char **argv) {
       int t = rand_type(p_sp[prof]);
       u.type = t; u.diag_val = rnd(); u.dest_areg = rnd() & 31; u.src1_areg = rnd() & 31; u.dest_preg = rnd() & 127;
       u.old_dest_preg = rnd() & 127; u.ftq_idx = rnd() & 63; u.ftq_offset = rnd() & 15; u.ftq_is_last = rnd() & 1;
-      u.mispred = rnd() & 1; u.br_taken = rnd() & 1; u.dest_en = rnd() & 1; u.func7 = rnd() & 127; u.func3 = rnd() & 7;
+      u.mispred = false; u.br_taken = false; /* dispatch leaves both 0 (the exu writes br_taken) */ u.dest_en = rnd() & 1; u.func7 = rnd() & 127; u.func3 = rnd() & 7;
       u.imm = chance(300) ? 0 : rnd(); u.stq_idx = rnd() & 63; u.stq_flag = rnd() & 1; u.rob_flag = rob.enq_flag;
       u.rob_idx = rob.enq_ptr * ROB_BANK_NUM + i;
       u.expect_mask = t == 6 ? 6 : t == 18 ? 7 : (t == 4 || t == 2 || t == 1) ? (chance(500) ? 2 : 3) : 1;
       u.cplt_mask = 0;
-      u.page_fault_inst = chance(p_pf[prof] / 3); u.illegal_inst = chance(p_pf[prof] / 4); u.flush_pipe = chance(p_pf[prof] / 5);
-      u.tma.mem_commit_is_store = (t == 6) || chance(30); u.tma.mem_commit_is_load = false;
+      u.page_fault_inst = chance(p_pf[prof] / 3); u.illegal_inst = chance(p_pf[prof] / 4); u.flush_pipe = false;
       dis2rob.valid[i] = i < n;
     }
     // ---- comb (BackTop order) ----
@@ -147,14 +146,13 @@ int main(int argc, char **argv) {
       W.set(F_dis2rob_uop_src1_areg, i, u.src1_areg); W.set(F_dis2rob_uop_dest_preg, i, u.dest_preg);
       W.set(F_dis2rob_uop_old_dest_preg, i, u.old_dest_preg); W.set(F_dis2rob_uop_ftq_idx, i, u.ftq_idx);
       W.set(F_dis2rob_uop_ftq_offset, i, u.ftq_offset); W.set(F_dis2rob_uop_ftq_is_last, i, u.ftq_is_last);
-      W.set(F_dis2rob_uop_mispred, i, u.mispred); W.set(F_dis2rob_uop_br_taken, i, u.br_taken);
+      
       W.set(F_dis2rob_uop_type, i, u.type); W.set(F_dis2rob_uop_dest_en, i, u.dest_en);
       W.set(F_dis2rob_uop_func7, i, u.func7); W.set(F_dis2rob_uop_imm, i, u.imm);
       W.set(F_dis2rob_uop_rob_idx, i, u.rob_idx); W.set(F_dis2rob_uop_stq_idx, i, u.stq_idx);
       W.set(F_dis2rob_uop_stq_flag, i, u.stq_flag); W.set(F_dis2rob_uop_expect_mask, i, u.expect_mask);
       W.set(F_dis2rob_uop_rob_flag, i, u.rob_flag); W.set(F_dis2rob_uop_page_fault_inst, i, u.page_fault_inst);
-      W.set(F_dis2rob_uop_illegal_inst, i, u.illegal_inst); W.set(F_dis2rob_uop_flush_pipe, i, u.flush_pipe);
-      W.set(F_dis2rob_uop_tma_mem_commit_is_store, i, u.tma.mem_commit_is_store);
+      W.set(F_dis2rob_uop_illegal_inst, i, u.illegal_inst); 
       auto &c = rob_commit.commit_entry[i];
       W.set(F_rob_commit_commit_entry_valid, i, c.valid);
       W.set(F_rob_commit_commit_entry_uop_diag_val, i, rob.entry[i][rob.deq_ptr].uop.diag_val);
@@ -169,7 +167,6 @@ int main(int argc, char **argv) {
       W.set(F_rob_commit_commit_entry_uop_page_fault_load, i, c.uop.page_fault_load);
       W.set(F_rob_commit_commit_entry_uop_page_fault_store, i, c.uop.page_fault_store);
       W.set(F_rob_commit_commit_entry_uop_illegal_inst, i, c.uop.illegal_inst); W.set(F_rob_commit_commit_entry_uop_type, i, c.uop.type);
-      W.set(F_rob_commit_commit_entry_uop_tma_mem_commit_is_store, i, c.uop.tma.mem_commit_is_store);
       W.set(F_commit_extra_src1_areg, i, rob.out.commit_extra[i].src1_areg); W.set(F_commit_extra_imm, i, rob.out.commit_extra[i].imm);
     }
     for (int p = 0; p < ISSUE_WIDTH; p++) {
@@ -177,9 +174,9 @@ int main(int argc, char **argv) {
       W.set(F_exu2rob_entry_valid, p, w.valid);
       W.set(F_exu2rob_entry_uop_diag_val, p, w.uop.diag_val); W.set(F_exu2rob_entry_uop_result, p, w.uop.result);
       W.set(F_exu2rob_entry_uop_rob_idx, p, w.uop.rob_idx); W.set(F_exu2rob_entry_uop_mispred, p, w.uop.mispred);
-      W.set(F_exu2rob_entry_uop_br_taken, p, w.uop.br_taken); W.set(F_exu2rob_entry_uop_page_fault_inst, p, w.uop.page_fault_inst);
+      W.set(F_exu2rob_entry_uop_br_taken, p, w.uop.br_taken);
       W.set(F_exu2rob_entry_uop_page_fault_load, p, w.uop.page_fault_load); W.set(F_exu2rob_entry_uop_page_fault_store, p, w.uop.page_fault_store);
-      W.set(F_exu2rob_entry_uop_op, p, w.uop.op); W.set(F_exu2rob_entry_uop_flush_pipe, p, w.uop.flush_pipe);
+      W.set(F_exu2rob_entry_uop_op, p, w.uop.op);
     }
     W.set(F_rob2dis_stall, 0, rob2dis.stall); W.set(F_rob2dis_empty, 0, rob2dis.empty); W.set(F_rob2dis_ready, 0, rob2dis.ready);
     W.set(F_rob2dis_enq_idx, 0, rob2dis.enq_idx); W.set(F_rob2dis_rob_flag, 0, rob2dis.rob_flag);

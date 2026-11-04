@@ -65,7 +65,6 @@ package rob_pkg;
     logic                      illegal_inst;
     logic                      flush_pipe;
     logic [INST_TYPE_W-1:0]    itype;
-    logic                      tma_is_store;  // tma.mem_commit_is_store
   } rob_entry_t;
 
   localparam int ROB_ENTRY_W = $bits(rob_entry_t);

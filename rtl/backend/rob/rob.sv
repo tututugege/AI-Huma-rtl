@@ -23,8 +23,6 @@ module rob
   input  logic [5:0] dis2rob_uop_ftq_idx [8],
   input  logic [3:0] dis2rob_uop_ftq_offset [8],
   input  logic dis2rob_uop_ftq_is_last [8],
-  input  logic dis2rob_uop_mispred [8],
-  input  logic dis2rob_uop_br_taken [8],
   input  logic [4:0] dis2rob_uop_type [8],
   input  logic dis2rob_uop_dest_en [8],
   input  logic [6:0] dis2rob_uop_func7 [8],
@@ -36,19 +34,15 @@ module rob
   input  logic dis2rob_uop_rob_flag [8],
   input  logic dis2rob_uop_page_fault_inst [8],
   input  logic dis2rob_uop_illegal_inst [8],
-  input  logic dis2rob_uop_flush_pipe [8],
-  input  logic dis2rob_uop_tma_mem_commit_is_store [8],
   input  logic exu2rob_entry_valid [22],
   input  logic [31:0] exu2rob_entry_uop_diag_val [22],
   input  logic [31:0] exu2rob_entry_uop_result [22],
   input  logic [6:0] exu2rob_entry_uop_rob_idx [22],
   input  logic exu2rob_entry_uop_mispred [22],
   input  logic exu2rob_entry_uop_br_taken [22],
-  input  logic exu2rob_entry_uop_page_fault_inst [22],
   input  logic exu2rob_entry_uop_page_fault_load [22],
   input  logic exu2rob_entry_uop_page_fault_store [22],
   input  logic [4:0] exu2rob_entry_uop_op [22],
-  input  logic exu2rob_entry_uop_flush_pipe [22],
   output logic rob2dis_stall,
   output logic rob2dis_empty,
   output logic rob2dis_ready,
@@ -77,7 +71,6 @@ module rob
   output logic rob_commit_commit_entry_uop_page_fault_store [8],
   output logic rob_commit_commit_entry_uop_illegal_inst [8],
   output logic [4:0] rob_commit_commit_entry_uop_type [8],
-  output logic rob_commit_commit_entry_uop_tma_mem_commit_is_store [8],
   output logic [5:0] commit_extra_src1_areg [8],
   output logic [31:0] commit_extra_imm [8],
   output logic rob_bcast_flush,
@@ -122,8 +115,8 @@ module rob
       ftq_idx:       dis2rob_uop_ftq_idx[b],
       ftq_offset:    dis2rob_uop_ftq_offset[b],
       ftq_is_last:   dis2rob_uop_ftq_is_last[b],
-      mispred:       dis2rob_uop_mispred[b],
-      br_taken:      dis2rob_uop_br_taken[b],
+      mispred:       1'b0,   // Dispatch never sets it; the Rob overwrites it at enqueue
+      br_taken:      1'b0,   // written by the branch unit at writeback
       func7:         dis2rob_uop_func7[b],
       imm:           dis2rob_uop_imm[b],
       rob_idx:       dis2rob_uop_rob_idx[b],
@@ -135,9 +128,8 @@ module rob
       pf_load:       1'b0,
       pf_store:      1'b0,
       illegal_inst:  dis2rob_uop_illegal_inst[b],
-      flush_pipe:    dis2rob_uop_flush_pipe[b],
-      itype:         dis2rob_uop_type[b],
-      tma_is_store:  dis2rob_uop_tma_mem_commit_is_store[b]
+      flush_pipe:    1'b0,   // no producer sets it in this design
+      itype:         dis2rob_uop_type[b]
     };
   end
 
@@ -149,11 +141,11 @@ module rob
       rob_idx:    exu2rob_entry_uop_rob_idx[p],
       mispred:    exu2rob_entry_uop_mispred[p],
       br_taken:   exu2rob_entry_uop_br_taken[p],
-      pf_inst:    exu2rob_entry_uop_page_fault_inst[p],
+      pf_inst:    1'b0,   // no writer in the back end (instruction page faults come from the front end)
       pf_load:    exu2rob_entry_uop_page_fault_load[p],
       pf_store:   exu2rob_entry_uop_page_fault_store[p],
       op:         exu2rob_entry_uop_op[p],
-      flush_pipe: exu2rob_entry_uop_flush_pipe[p]
+      flush_pipe: 1'b0
     };
   end
 
@@ -210,7 +202,6 @@ module rob
     assign rob_commit_commit_entry_uop_page_fault_store[b]  = commit_uop[b].pf_store;
     assign rob_commit_commit_entry_uop_illegal_inst[b]      = commit_uop[b].illegal_inst;
     assign rob_commit_commit_entry_uop_type[b]              = commit_uop[b].itype;
-    assign rob_commit_commit_entry_uop_tma_mem_commit_is_store[b] = commit_uop[b].tma_is_store;
     assign commit_extra_src1_areg[b]                        = commit_uop[b].src1_areg;
     assign commit_extra_imm[b]                              = commit_uop[b].imm;
   end

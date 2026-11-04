@@ -25,8 +25,6 @@ module dispatch
   input  logic ren2dis_uop_src1_en [8],
   input  logic ren2dis_uop_src2_en [8],
   input  logic ren2dis_uop_is_atomic [8],
-  input  logic ren2dis_uop_src1_busy [8],
-  input  logic ren2dis_uop_src2_busy [8],
   input  logic ren2dis_uop_src1_is_pc [8],
   input  logic ren2dis_uop_src2_is_imm [8],
   input  logic [2:0] ren2dis_uop_func3 [8],
@@ -166,8 +164,8 @@ module dispatch
       ren_inst[i].src1_en = ren2dis_uop_src1_en[i];
       ren_inst[i].src2_en = ren2dis_uop_src2_en[i];
       ren_inst[i].is_atomic = ren2dis_uop_is_atomic[i];
-      ren_inst[i].src1_busy = ren2dis_uop_src1_busy[i];
-      ren_inst[i].src2_busy = ren2dis_uop_src2_busy[i];
+      ren_inst[i].src1_busy = 1'b0;   // Ren leaves it 0; busy is recomputed below
+      ren_inst[i].src2_busy = 1'b0;
       ren_inst[i].src1_is_pc = ren2dis_uop_src1_is_pc[i];
       ren_inst[i].src2_is_imm = ren2dis_uop_src2_is_imm[i];
       ren_inst[i].func3 = ren2dis_uop_func3[i];

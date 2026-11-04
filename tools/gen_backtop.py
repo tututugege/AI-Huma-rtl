@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""gen_backtop: wiring analysis + generator for the back-end integration (back_top_nolsu) and its sub-assemblies.
+"""gen_backtop: wiring analysis + generator for the back-end integration (back_top) and its sub-assemblies.
 
 The back-end modules were translated one by one against open-loop boundaries; their ports are named after the BackTop wire plus
 the field path (`iss2prf_iss_entry_uop_src1_preg`), so most connections are "output name == input name". This tool
@@ -8,12 +8,12 @@ the field path (`iss2prf_iss_entry_uop_src1_preg`), so most connections are "out
   * matches inputs to outputs by wire name (with the small rename table below), and reports what does not fit:
     unmatched inputs, multiply driven wires, width/dimension mismatches, outputs nobody reads (fields a producer dropped but a
     consumer needs show up as "unmatched input"),
-  * generates the structural top (`rtl/backend/back_top/back_top_nolsu.sv`), the Exu composite (`exu.sv`, FU wrapper) and the
-    boundary spec (`spec/back_top_nolsu.io`, `spec/exu.io`), and any sub-assembly for bisecting (--asm).
+  * generates the structural top (`rtl/backend/back_top/back_top.sv`), the Exu composite (`exu.sv`, FU wrapper) and the
+    boundary spec (`spec/back_top.io`, `spec/exu.io`), and any sub-assembly for bisecting (--asm).
 
 Usage
   python3 tools/gen_backtop.py --report                 # wiring report (no files written)
-  python3 tools/gen_backtop.py --write                  # exu spec, exu.sv, back_top_nolsu.sv, back_top_nolsu.io
+  python3 tools/gen_backtop.py --write                  # exu spec, exu.sv, back_top.sv, back_top.io
   python3 tools/gen_backtop.py --asm NAME --inst rob,csr [--out DIR]   # sub-assembly top + spec for lockstep bisecting
 
 The wiring itself (which instances exist, renames, glue, constants, exported boundary fields) is the table below; everything
@@ -50,10 +50,10 @@ INSTANCES = [
     ('glue', 'back_top_glue', None, 'BackTop-level glue (back-end/BackTop.cpp), see back_top_glue.sv'),
 ]
 LSU_INST = ('lsu', 'lsu', 'lsu', 'RealLsu (back-end/Lsu/RealLsu.cpp)')
-FULL = '--full' in sys.argv            # step 2: RealLsu included, boundary = front end + memory subsystem
+FULL = '--nolsu' not in sys.argv        # RealLsu included, boundary = front end + memory subsystem (--nolsu: bisecting variant without it)
 if FULL:
     INSTANCES.insert(-1, LSU_INST)
-TOP_NAME = 'back_top' if FULL else 'back_top_nolsu'
+TOP_NAME = 'back_top' if FULL else 'back_top_nolsu'   # only produced with --nolsu (not kept in the tree)
 INST_MOD = {i: m for i, m, _, _ in INSTANCES}
 INST_SPEC = {i: s for i, _, s, _ in INSTANCES}
 INST_DESC = {i: d for i, _, _, d in INSTANCES}
@@ -77,13 +77,12 @@ GLUE_IN = {
     'rob_bcast_pc': (32, []), 'csr2front_epc': (32, []), 'csr2front_trap_pc': (32, []),
     'br_latch_redirect_pc': (32, []), 'dec_bcast_mispred': (1, []), 'pre2front_ready': (1, []),
     'rob_commit_commit_entry_valid': (1, [8]), 'rob_commit_commit_entry_uop_diag_val': (32, [8]),
-    'dis2rob_uop_type': (5, [8]), 'dis2rob_uop_func7': (7, [8]), 'csr_status_mstatus': (32, []),
+    'csr_status_mstatus': (32, []),
     'rob_commit_commit_entry_uop_func7': (7, [8]),
 }
 GLUE_OUT = {
     'out_mispred': (1, []), 'out_no_mispred': (1, []), 'out_stall': (1, []), 'out_redirect_pc': (32, []),
     'out_commit_entry_uop_diag_val': (32, [8]),
-    'dis2rob_uop_tma_mem_commit_is_store': (1, [8]),
     'csr_status_mstatus_mxr': (1, []), 'csr_status_mstatus_sum': (1, []), 'csr_status_mstatus_mprv': (1, []),
     'csr_status_mstatus_mpp': (2, []),
     'rob_commit_commit_entry_uop_amo_op': (5, [8]),   # LSU reads amo_op = func7[6:2] of the committed store
@@ -102,13 +101,6 @@ GLUE_EXPORT = {
 # Constant-driven wires: consumers read them but no module produces them (the producer deleted a constant-0 field, or the
 # C++ producer never writes it): wire -> reason
 CONSTS = {
-    'ren2dis_uop_src1_busy': 'Ren leaves it 0; Dispatch recomputes busy (Dispatch.cpp:162)',
-    'ren2dis_uop_src2_busy': 'same as src1_busy',
-    'dis2rob_uop_mispred': 'Dispatch never sets it (0); Rob overwrites it at enqueue',
-    'dis2rob_uop_br_taken': 'same',
-    'dis2rob_uop_flush_pipe': 'same',
-    'exu2rob_entry_uop_page_fault_inst': 'no writer in the back end (exu_ctrl.md 4.2 item 7): constant 0',
-    'exu2rob_entry_uop_flush_pipe': 'LSU flush_pipe is constant 0 per port, Exu FUs never set it',
 }
 
 # Boundary outputs of back_top_nolsu: fields somebody outside the instance set reads. Regexes over wire names.
@@ -797,7 +789,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--report', action='store_true')
     ap.add_argument('--write', action='store_true')
-    ap.add_argument('--full', action='store_true')
+    ap.add_argument('--full', action='store_true', help='(default; kept for old command lines)')
+    ap.add_argument('--nolsu', action='store_true', help='generate the no-LSU variant for bisecting')
     ap.add_argument('--asm')
     ap.add_argument('--inst')
     ap.add_argument('--out')

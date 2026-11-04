@@ -141,8 +141,6 @@ int main(int argc, char **argv) {
       W.set(F_dec2ren_uop_imm, i, u.imm); W.set(F_dec2ren_uop_br_id, i, u.br_id);
       W.set(F_dec2ren_uop_br_mask, i, u.br_mask); W.set(F_dec2ren_uop_csr_idx, i, u.csr_idx);
       W.set(F_dec2ren_uop_page_fault_inst, i, u.page_fault_inst); W.set(F_dec2ren_uop_illegal_inst, i, u.illegal_inst);
-      W.set(F_dec2ren_uop_tma_mem_commit_is_load, i, u.tma.mem_commit_is_load);
-      W.set(F_dec2ren_uop_tma_mem_commit_is_store, i, u.tma.mem_commit_is_store);
       W.set(F_idu_consume_fire, i, consume.fire[i]);
     }
     W.set(F_ren2dec_ready, 0, ren2dec.ready); W.set(F_rob_bcast_flush, 0, rob_bcast.flush);

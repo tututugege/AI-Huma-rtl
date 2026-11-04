@@ -9,13 +9,12 @@ mutants: 集成层 11/18 杀死，7 待判定
 note: 后端整体，含 lsu
 ---
 
-# back_top 设计笔记（后端集成：back_top_nolsu / back_top）
+# back_top 设计笔记（后端集成：back_top）
 
 ## 1. 范围与文件
-- `back_top_nolsu`（步骤 1）：PreIduQueue、Idu、Ren、Dispatch、Isu、Prf、Exu（`exu_ctrl` + FU + FPU）、Csr、Rob、TlbMmu（DTLB）+ 胶水；RealLsu 的接口是边界。
-- `back_top`（步骤 2）：再加 `lsu`；边界 = 后端 ↔ 前端（SimCpu）+ 访存子系统（DCache、MMIO、PTW）。
-- 文件（`rtl/backend/back_top/`）：`back_top_nolsu.sv` / `back_top.sv`（生成）、`exu.sv`（生成：FU 适配文本 + 端口表）、`back_top_glue.sv`（手写）。
-  规格：`spec/back_top_nolsu.io`、`spec/back_top.io`、`spec/exu.io`（均生成）。
+- `back_top`：PreIduQueue、Idu、Ren、Dispatch、Isu、Prf、Exu（`exu_ctrl` + FU + FPU）、Csr、Rob、TlbMmu（DTLB）、`lsu` + 胶水；（早期曾有不含 LSU 的 `back_top_nolsu` 用于分步集成，已删除；`gen_backtop.py --nolsu` 仍可再生成它用于二分。）边界 = 后端 ↔ 前端（SimCpu）+ 访存子系统（DCache、MMIO、PTW）。
+- 文件（`rtl/backend/back_top/`）：`back_top.sv`（生成）、`exu.sv`（生成：FU 适配文本 + 端口表）、`back_top_glue.sv`（手写）。
+  规格：`spec/back_top.io`、`spec/exu.io`（均生成）。
 - 工具：`tools/gen_backtop.py`（`--report` 连线分析、`--write [--full]` 生成、`--asm NAME --inst a,b [--full]` 生成子装配用于二分）、
   `tools/lint_back_top.sh`（`scripts/lint.sh` 只支持单目录顶层，装配体要跨目录，故单独一个脚本）。
 

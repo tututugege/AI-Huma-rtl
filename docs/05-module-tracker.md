@@ -9,19 +9,19 @@
 
 | 模块 | 状态 | RTL（文件/行） | spec（个/字段） | 整程序锁步 | 变异 | 备注 |
 | --- | --- | --- | --- | --- | --- | --- |
-| [back_top](modules/back_top.md) | green | 4/3436 | 2/291 | 68/68（整程序） | 集成层 11/18 杀死，7 待判定 | 后端整体，含 lsu |
+| [back_top](modules/back_top.md) | green | 3/2055 | 1/115 | 68/68（整程序） | 集成层 11/18 杀死，7 待判定 | 后端整体，含 lsu |
 | [csr](modules/csr.md) | green | 10/645 | 2/37 | 68/68 | 15/15（6 仅随机） |  |
-| [dispatch](modules/dispatch.md) | green | 13/1268 | 1/107 | trace 回放 + back_top 整程序 68/68 | 16/17（1 等价） |  |
+| [dispatch](modules/dispatch.md) | green | 13/1266 | 1/105 | trace 回放 + back_top 整程序 68/68 | 16/17（1 等价） |  |
 | [exu_ctrl](modules/exu_ctrl.md) | green | 13/1371 | 1/157 | trace 回放 + back_top 整程序 68/68 | 11/11（2 仅随机） |  |
 | [exu_int](modules/exu_int.md) | green | 24/1349 | 7/88 | trace 回放 + back_top 整程序 68/68 | 47/47（11 仅随机） | 整数 FU |
 | [fpu](modules/fpu.md) | green | 22/1180 | 1/21 | trace 回放 + back_top 整程序 68/68 + softfloat 差分 | 33/35（2 等价） | 手写，非网表 |
-| [idu](modules/idu.md) | green | 11/823 | 1/48 | 68/68 | 9/9 |  |
+| [idu](modules/idu.md) | green | 11/811 | 1/46 | 68/68 | 9/9 |  |
 | [isu](modules/isu.md) | green | 10/944 | 1/60 | trace 回放 + back_top 整程序 68/68 | 16/17（1 等价） | trace 需重录 |
 | [lsu](modules/lsu.md) | partial | 33/3259 | 1/111 | lsu 68/68；随机 12/12；back_top 冒烟 8/8（整程序 68 未重跑） | 重构后新 127 个变异体已建好（tests/lsu/mut_lsu.py），仅跑了前 14 个（10 杀死、4 筛选集存活待判），其余未跑；原 10 个存活变异体仍未结案 | 已手写重构（表项模块 + 队列操作链，无生成文件）；变异检查被协调者叫停 |
 | [pre_idu_queue](modules/pre_idu_queue.md) | green | 7/632 | 1/67 | 68/68 | 18/18（5 仅随机） | 含 FTQ 与指令缓冲；3 个冗余限定输出待删 |
 | [prf](modules/prf.md) | green | 7/498 | 1/71 | 68/68 (整程序) | 10/10（6 仅随机） | Prf 寄存器堆+旁路+唤醒 |
 | [ren](modules/ren.md) | green | 12/967 | 1/66 | 68/68 | 12/12（5 仅随机） | 需重录 trace（src1_areg 输出） |
-| [rob](modules/rob.md) | green | 12/1112 | 1/94 | trace 回放 + back_top 整程序 68/68 | 10/11（1 等价） |  |
+| [rob](modules/rob.md) | green | 12/1102 | 1/87 | trace 回放 + back_top 整程序 68/68 | 10/11（1 等价） |  |
 | [tlb_mmu](modules/tlb_mmu.md) | green | 7/639 | 1/41 | 68/68 (DTLB+ITLB) | 34/34（20 仅随机） | ITLB 经 icache 验证 |
 
 ## 前端
@@ -49,4 +49,4 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | [soc_top](modules/soc_top.md) | green | 3/753 | 1/96 | 闭环（RTL 整核）周期数与参考一致：65 个程序（≤23 万周期）全部相等 | 未跑 | core_top + mem_top；测试平台 tb/soc（Verilator）+ 参考的 SimDDR/PhysMemory/PeripheralModel |
 
-合计：269 个 RTL 文件，27284 行（不含 `rtl/common` 与 `ttg_cfg_pkg`）。
+合计：268 个 RTL 文件，25879 行（不含 `rtl/common` 与 `ttg_cfg_pkg`）。
