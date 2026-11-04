@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Closed-loop check: run programs on the RTL SoC (tb/soc, Verilated core_top + mem_top) and compare the cycle count with the
-# reference simulator's (scripts/ref_cycles.txt: "<cycles> <dir>/<file>.bin", measured with refsim_tap).
+# trace-model's (scripts/ref_cycles.txt: "<cycles> <dir>/<file>.bin" = the trace-model gate baseline; a performance reference, not a correctness one).
 #   usage: soc_smoke.sh [max_ref_cycles=20000]      env JOBS (default 4), MINC (skip programs shorter than this)
 set -uo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)

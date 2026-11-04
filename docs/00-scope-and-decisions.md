@@ -4,12 +4,11 @@
 
 （2026-11-04 起）RTL 自己迭代：架构行为与 function-model 逐条提交一致是门禁，周期数和 IPC 是要优化的指标。最初的目标"每个模块每一拍与参考模型一致"已经完成并退役，见 [06-equivalence-policy.md](06-equivalence-policy.md) 和标签 `legacy-reference`。
 
-## 参考模型
+## 参考
 
-- 仓库：`tututugege/simulator`，锁定提交见 `tututugege-trace/baseline.lock`（`commit=2f31e8d`）。
-- 本地路径：`$BASELINE_SRC`（见 `scripts/env.sh`，默认 `<AI-Huma>/../llm4trace/third_party/tututugege/baseline-sim/src`）。
-- **参考模型是只读的**。需要加录制钩子时，在单独分支/副本里加，钩子只读取信号，不得改变任何行为（周期数必须与未加钩子时完全一致）。
-- 配置（宽度、深度、位宽）以参考模型 `include/config.h` 为唯一来源，由 `make cfg` 生成 `rtl/common/ttg_cfg_pkg.sv`，**RTL 里不允许手写这些数字**。
+- **架构参考**：`function-model`（逐条提交对比，见 [06](06-equivalence-policy.md)）。
+- **性能参考**：`trace-model`；核参数的唯一来源是 `trace-model/include/config.h`，由 `make cfg` 生成 `rtl/common/ttg_cfg_pkg.sv`，RTL 里不允许手写这些常数。
+- 最初的参考模型（`tututugege/simulator`，commit `2f31e8d`）已退役，rtl 不再依赖它的源码；历史脚本在标签 `legacy-reference`。
 
 ## 已定决策
 
@@ -44,4 +43,4 @@
 - **整核闭环不再依赖它的源码**：`tb/soc/platform/` 收进了闭环测试平台用到的 19 个平台模型文件（SimDDR、PhysMemory、PeripheralModel 及头文件，约 300 KB，冻结）；`gen_cfg.sh` 也从那里取配置；4 个额外程序在 `programs/extra/`。
 - **新的对照对象**：周期以 **trace-model** 为准（`scripts/cmp_trace_model.sh`、Linux 镜像逐周期对照），架构值以 **function-model** 为准。
 - **模块级锁步变成冻结的回归工具**：`refsim`、`refsim_tap`、`refsim_axi`（本地、git 忽略）和 `traces/` 里已录好的 trace 仍可用来回归现有行为，但**不会再扩展**：trace-model 没有模块边界的录制钩子，也没有数据值（ALU/MUL/DIV/FP/PRF 的值都已删除），所以新增行为（例如 S-27 的 ebreak 断点异常）无法再用它验证。
-- 重建这些副本仍需要原参考源码（`scripts/refsim_setup.sh`，`BASELINE_SRC`，位置在 AI-Huma 之外）；那份源码没有被任何仓库跟踪。
+- 旧参考副本和录制已删除（2026-11-04），不再重建。
