@@ -291,7 +291,7 @@ long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
     if (phase == 0 && top->rst_n) {   // the CPU acts in tick 0: look at the retirement stream before the edge
       for (int i = 0; i < 8; ++i)
         if (ttg_getbit(top->rob_commit_commit_entry_valid, i)) {
-          ++committed;
+          if (!top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__rob_bcast_interrupt) ++committed;   // reference: commit_num skips interrupt slots
           if (std::getenv("SOC_TB_COMMIT")) std::fprintf(stderr, "[cyc %llu] commit[%d] type=%d pc=%08x\n", (unsigned long long)cycles + 1, i,
                                                          top->rob_commit_commit_entry_uop_type[i], top->ftq_commit_info_resp_pc[i]);
           if (top->rob_commit_commit_entry_uop_type[i] == kUopEbreak) done = true;
