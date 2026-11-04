@@ -148,7 +148,7 @@ module lsu_core
   end
   // ---- STQ side ----
   st_state_t   st_q [SQ], st_dc [SQ], st_exe [SQ], st_tlb [SQ], st_win [SQ], st_al [SQ], st_nx [SQ];
-  stq_fld_t    st_fld_q [SQ] /*verilator public_flat_rw*/, st_fld_e [SQ];
+  stq_fld_t    st_fld_q [SQ] /*verilator public_flat_rd*/, st_fld_e [SQ];
   logic [RWW-1:0] st_wait_dc [SQ], st_wait_n [SQ];
   logic [BRW-1:0] st_br_al [SQ];
   logic [SQ-1:0]  st_cm, st_mmgo, st_wk, st_clr_win, st_wdr, st_wait_tlb;

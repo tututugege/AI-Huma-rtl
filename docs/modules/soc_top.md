@@ -56,3 +56,12 @@ note: core_top + mem_top；测试平台 tb/soc（Verilator）+ 参考的 SimDDR/
 空闲 tick（147 µs）与 tick 0（212 µs）相差不大，说明核的时钟沿只贡献约 65 µs，大头是访存域每次 eval 的固定开销。
 因此“核只跑一个 tick”本来就基本成立，拆成两个模型收益很小。已做的改动：tick 末尾的 eval 与下一 tick 的第一次合并（下降沿与新输入一起求值）、
 外设环境输入未变时不再多 eval 一次。dhrystone 前 2 万周期（不跳 tick）59 s → 31 s；开启空闲跳过后 19 s。65 个程序周期数仍全部相等。
+
+### 根因：`public_flat_rw` 让每次 eval 都重算（重要）
+
+对一个 `public_flat_rw` 信号，Verilator 假定外部随时会写它，于是**每次 `eval()` 都重算所有依赖它的逻辑**。`mem_top.phase_q` 曾被标成 rw
+（为了让测试平台直接写），而 `phase0` 门控几乎整个访存域，结果输入完全不变的 `eval()` 也要约 27 µs（采样显示时间全在 `ico_sequent`）。
+改成 `public_flat_rd` + 一个普通输入口 `tb_phase_jump`（仿真钩子，芯片里接 0）后，无变化的 eval 降到 0.2 µs。
+**规则：测试平台只读的信号用 `public_flat_rd`；需要写的用输入口，不要用 `public_flat_rw`。**
+空闲跳过的比较点同时改为“每个 tick 输入施加、eval 之后、时钟沿之前”的 tick 2 与 tick 3 状态，两次状态相等且 SimDDR 空闲时，tick 3 的边沿装载 phase 15。
+结果：dhrystone 前 2 万周期 59 s → 7.4 s（不跳 tick 14 s）；15 个长程序 6:52 → 1:56（4 并行）；65 个程序周期数仍全部相等。

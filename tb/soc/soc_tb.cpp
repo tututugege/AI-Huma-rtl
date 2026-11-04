@@ -181,9 +181,35 @@ int main(int argc, char **argv) {
 
   uint64_t ticks = 0, cycles = 0, committed = 0;
   bool done = false;
-  long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
+    std::vector<std::pair<size_t, size_t>> skipmask;   // scratch-temporary byte ranges of the Verilated root (build/soc/skipmask.txt)
+  {
+    std::string exe = argv[0];
+    std::ifstream mf(exe.substr(0, exe.rfind('/')) + "/../skipmask.txt");
+    size_t o, s;
+    while (mf >> o >> s) skipmask.push_back({o, s});
+    const auto *base = reinterpret_cast<const uint8_t *>(top->rootp);
+    skipmask.push_back({size_t(reinterpret_cast<const uint8_t *>(&top->rootp->soc_top__DOT__u_mem__DOT__phase_q) - base), 1});
+    std::sort(skipmask.begin(), skipmask.end());
+  }
+  std::vector<std::pair<size_t, size_t>> keep;   // complement: the bytes snapshotted and compared
+  {
+    size_t pos = 0;
+    for (const auto &m : skipmask) { if (m.first > pos) keep.push_back({pos, m.first - pos}); pos = std::max(pos, m.first + m.second); }
+    if (pos < sizeof(*top->rootp)) keep.push_back({pos, sizeof(*top->rootp) - pos});
+  }
+  long long prof_ns[16] = {0}, prof_n[16] = {0};
+  const bool fast_skip = std::getenv("SOC_TB_NOSKIP") == nullptr && !skipmask.empty();
+  std::vector<uint8_t> snap(sizeof(*top->rootp));
+  unsigned long long skipped_cycles = 0;
+  auto ddr_idle = [&]() {
+    return !ddr.w_active && ddr.w_pending.empty() && ddr.w_data_fifo.empty() && ddr.w_resp_queue.empty() &&
+           ddr.r_transactions.empty() && ddr.w_accept_cooldown == 0 && ddr.w_drain_cooldown == 0 && !ddr.w_drain_mode &&
+           ddr.backend_turnaround_cooldown == 0 && !ddr.backend_switch_pending;
+  };
+long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
 #define EVAL() do { auto e0 = std::chrono::steady_clock::now(); top->eval(); eval_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - e0).count(); ev_ns[ev_k++ & 3] += std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - e0).count(); ++eval_n; } while (0)
   uint32_t env_region_prev = 0, env_rdata_prev = 0;
+  bool skip_request = false;
   auto tick = [&](int phase) {
     // DDR slave outputs -> RTL
     ddr.comb_outputs();
@@ -290,6 +316,17 @@ int main(int argc, char **argv) {
       if (top->env_wr_en && top->env_region == 1) write_uncached_ram(top->env_wr_addr, top->env_wr_data, top->env_wr_func3);
     }
 #endif
+    if (fast_skip && (phase == 2 || phase == 3) && top->rst_n) {
+      // pre-edge state (inputs applied, comb settled) of tick 2 vs tick 3: equal and DDR idle => the whole cycle is a fixed point
+      if (phase == 2) {
+        for (const auto &k : keep) std::memcpy(snap.data() + k.first, reinterpret_cast<const uint8_t *>(top->rootp) + k.first, k.second);
+      } else if (ddr_idle()) {
+        bool same = true;
+        for (const auto &k : keep)
+          if (std::memcmp(snap.data() + k.first, reinterpret_cast<const uint8_t *>(top->rootp) + k.first, k.second)) { same = false; break; }
+        if (same) { top->tb_phase_jump = 1; skip_request = true; }   // this tick's edge loads phase 15; ticks 4..14 are skipped
+      }
+    }
     ddr.seq();
     top->clk = 1;
     if (phase == 0) top->clk_cpu = 1;
@@ -305,41 +342,22 @@ int main(int argc, char **argv) {
       top->interrupt_inject_timer_irq_pending = irq.timer_irq_pending;
       top->interrupt_inject_timer_irq_pending_valid = irq.timer_irq_pending_valid;
     }
+    if (std::getenv("SOC_TB_NOOP") && phase == 5 && cycles == 1000) {   // probe: cost of eval() with nothing changed
+      for (int k = 0; k < 3; ++k) {
+        auto e0 = std::chrono::steady_clock::now(); top->eval();
+        std::fprintf(stderr, "noop eval after edge, #%d: %.1f us\n", k, std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - e0).count() / 1000.0);
+      }
+    }
     // no eval here: the falling clock edge and the new inputs are evaluated together by the next tick's first eval
     ++ticks;
   };
 
-  std::vector<std::pair<size_t, size_t>> skipmask;   // scratch-temporary byte ranges of the Verilated root (build/soc/skipmask.txt)
-  {
-    std::string exe = argv[0];
-    std::ifstream mf(exe.substr(0, exe.rfind('/')) + "/../skipmask.txt");
-    size_t o, s;
-    while (mf >> o >> s) skipmask.push_back({o, s});
-    const auto *base = reinterpret_cast<const uint8_t *>(top->rootp);
-    skipmask.push_back({size_t(reinterpret_cast<const uint8_t *>(&top->rootp->soc_top__DOT__u_mem__DOT__phase_q) - base), 1});
-    std::sort(skipmask.begin(), skipmask.end());
-  }
-  std::vector<std::pair<size_t, size_t>> keep;   // complement: the bytes snapshotted and compared
-  {
-    size_t pos = 0;
-    for (const auto &m : skipmask) { if (m.first > pos) keep.push_back({pos, m.first - pos}); pos = std::max(pos, m.first + m.second); }
-    if (pos < sizeof(*top->rootp)) keep.push_back({pos, sizeof(*top->rootp) - pos});
-  }
-  long long prof_ns[16] = {0}, prof_n[16] = {0};
-  const bool fast_skip = std::getenv("SOC_TB_NOSKIP") == nullptr && !skipmask.empty();
-  std::vector<uint8_t> snap(sizeof(*top->rootp));
-  unsigned long long skipped_cycles = 0;
-  auto ddr_idle = [&]() {
-    return !ddr.w_active && ddr.w_pending.empty() && ddr.w_data_fifo.empty() && ddr.w_resp_queue.empty() &&
-           ddr.r_transactions.empty() && ddr.w_accept_cooldown == 0 && ddr.w_drain_cooldown == 0 && !ddr.w_drain_mode &&
-           ddr.backend_turnaround_cooldown == 0 && !ddr.backend_switch_pending;
-  };
   // reset: 3 CPU cycles
   top->rst_n = 0; top->clk = 0; top->clk_cpu = 0;
   top->interrupt_inject_external_irq_pending = 0; top->interrupt_inject_external_irq_pending_valid = 1;
   top->interrupt_inject_supervisor_external_irq_pending = 0; top->interrupt_inject_supervisor_external_irq_pending_valid = 1;
   top->interrupt_inject_timer_irq_pending = 0; top->interrupt_inject_timer_irq_pending_valid = 1;
-  top->env_region = 0; top->env_rdata = 0;
+  top->env_region = 0; top->env_rdata = 0; top->tb_phase_jump = 0;
   top->interrupt_inject_external_irq_pending = irq.external_irq_pending; top->interrupt_inject_external_irq_pending_valid = irq.external_irq_pending_valid;
   top->interrupt_inject_supervisor_external_irq_pending = irq.supervisor_external_irq_pending; top->interrupt_inject_supervisor_external_irq_pending_valid = irq.supervisor_external_irq_pending_valid;
   top->interrupt_inject_timer_irq_pending = irq.timer_irq_pending; top->interrupt_inject_timer_irq_pending_valid = irq.timer_irq_pending_valid;
@@ -355,18 +373,8 @@ int main(int argc, char **argv) {
       tick(p);
       prof_ns[p] += std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - t0).count(); ++prof_n[p];
       if (p == 0 && done) break;
-      if (p == 1 && fast_skip) { for (const auto &k : keep) std::memcpy(snap.data() + k.first, reinterpret_cast<const uint8_t *>(top->rootp) + k.first, k.second); }
-      if (p == 2 && fast_skip && ddr_idle()) {
-        // fixed point: model state identical across a whole tick (phase counter aside) and the DDR model is idle
-        // -> ticks 3..14 change nothing; jump the phase counter to 15
-        auto *R = top->rootp;
-        bool same = true;
-        for (const auto &k : keep)
-          if (std::memcmp(snap.data() + k.first, reinterpret_cast<const uint8_t *>(R) + k.first, k.second)) { same = false; break; }
-        if (same) {
-          R->soc_top__DOT__u_mem__DOT__phase_q = 15;
-          p = 14; ++skipped_cycles;
-        }
+      if (skip_request) {   // tick 3 ran with the phase jump armed: its edge loaded phase 15
+        skip_request = false; top->tb_phase_jump = 0; p = 14; ++skipped_cycles;
       }
     }
     ++cycles;
