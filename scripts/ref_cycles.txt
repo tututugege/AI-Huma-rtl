@@ -32,7 +32,7 @@
 707 trap-boundary/trap-boundary.bin
 720 supervisor-trap-delegation/supervisor-trap-delegation.bin
 736 atomic-boundary/atomic-boundary.bin
-736 csr-alias-boundary/csr-alias-boundary.bin
+709 csr-alias-boundary/csr-alias-boundary.bin
 755 software-interrupt-vectored/software-interrupt-vectored.bin
 784 div/div.bin
 816 max/max.bin

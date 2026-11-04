@@ -40,18 +40,28 @@ package csr_pkg;
   };
   localparam logic [31:0] MSTATUS_WMASK = 32'h807FF9BB;
   localparam logic [31:0] SSTATUS_MASK  = 32'h800DE133;  // also the sstatus read mask
-  localparam logic [31:0] MIE_WMASK     = 32'h00000BBB;  // mie and mip
-  localparam logic [31:0] SIE_MASK      = 32'h00000333;  // sie and sip
+  // Interrupt CSRs per the privileged spec (no N extension; same as the function model):
+  //   mie / mip hold SSI/MSI/STI/MTI/SEI/MEI (0xAAA), mideleg holds SSI/STI/SEI (0x222),
+  //   the supervisor views sie / sip show only the bits delegated by mideleg (ENT_DELEG), and sip can only write SSIP.
+  localparam logic [31:0] MIE_WMASK     = 32'h00000AAA;  // mie and mip
+  localparam logic [31:0] DELEG_MASK    = 32'h00000222;  // mideleg, and the sie view
+  localparam logic [31:0] SIP_WMASK     = 32'h00000002;  // SSIP
   localparam logic [31:0] ALL_ONES      = 32'hFFFFFFFF;
   localparam logic [31:0] ENT_WMASK [NENT] = '{
-    ALL_ONES, ALL_ONES, ALL_ONES, MIE_WMASK, MIE_WMASK, ALL_ONES, ALL_ONES, MSTATUS_WMASK, ALL_ONES, ALL_ONES,
+    ALL_ONES, ALL_ONES, ALL_ONES, MIE_WMASK, MIE_WMASK, ALL_ONES, ALL_ONES, MSTATUS_WMASK, DELEG_MASK, ALL_ONES,
     ALL_ONES, ALL_ONES, ALL_ONES, ALL_ONES, ALL_ONES, ALL_ONES, ALL_ONES, ALL_ONES,
-    SSTATUS_MASK, SIE_MASK, SIE_MASK
+    SSTATUS_MASK, DELEG_MASK, SIP_WMASK
   };
   localparam logic [31:0] ENT_RMASK [NENT] = '{
     ALL_ONES, ALL_ONES, ALL_ONES, ALL_ONES, ALL_ONES, ALL_ONES, ALL_ONES, ALL_ONES, ALL_ONES, ALL_ONES,
     ALL_ONES, ALL_ONES, ALL_ONES, ALL_ONES, ALL_ONES, ALL_ONES, ALL_ONES, ALL_ONES,
-    SSTATUS_MASK, SIE_MASK, SIE_MASK
+    SSTATUS_MASK, DELEG_MASK, DELEG_MASK
+  };
+  // entries that are additionally masked by mideleg (sie, sip)
+  localparam logic ENT_DELEG [NENT] = '{
+    1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0,
+    1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0,
+    1'b0, 1'b1, 1'b1
   };
 
   // ---- privilege levels ----

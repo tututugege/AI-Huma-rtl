@@ -22,14 +22,27 @@ skip = next((k for k, c in enumerate(rtl) if c[1] == tm[0][1]), None)
 if skip is None: sys.exit('the first trace-model pc never appears in the RTL trace')
 rtl = rtl[skip:]
 off = rtl[0][0] - tm[0][0]
-n = min(len(tm), len(rtl))
 print(f'tm {len(tm)} commits, rtl {len(rtl)} commits (skipped {skip} leading rtl commits), cycle offset rtl-tm = {off}')
-for i in range(n):
-    if tm[i][1] != rtl[i][1] or rtl[i][0] - tm[i][0] != off:
-        kind = 'pc differs (instruction stream)' if tm[i][1] != rtl[i][1] else 'cycle differs (timing)'
-        print(f'FIRST DIFFERENCE at commit #{i}: {kind}')
-        for j in range(max(0, i - ctx), min(n, i + ctx + 1)):
-            mark = '>>' if j == i else '  '
-            print(f'{mark} #{j}: tm cyc={tm[j][0]:>8} pc={tm[j][1]:08x}   rtl cyc={rtl[j][0]:>8} (tm+off={tm[j][0]+off:>8}) pc={rtl[j][1]:08x}')
-        sys.exit(1)
-print(f'identical over {n} commits' + ('' if len(tm) == len(rtl) else f'  (lengths differ: only the first {n} compared)'))
+# trace-model does not list an instruction that traps (ecall, illegal, page fault) but the RTL stream does: an RTL commit whose successor
+# is the next trace-model pc is skipped (counted).  Known limitation: around asynchronous interrupts trace-model's log also lacks a few
+# commits (the whole-program cycle and instruction counts still agree), so programs that take interrupts can report a false difference.
+i = j = trapped = 0
+def show(i, j, kind):
+    print(f'FIRST DIFFERENCE at tm commit #{i} / rtl commit #{j}: {kind}')
+    for k in range(-ctx, ctx + 1):
+        a, b = i + k, j + k
+        mark = '>>' if k == 0 else '  '
+        ta = f'tm cyc={tm[a][0]:>8} pc={tm[a][1]:08x}' if 0 <= a < len(tm) else 'tm  -'
+        rb = f'rtl cyc={rtl[b][0]:>8} (tm+off={tm[a][0]+off if 0 <= a < len(tm) else 0:>8}) pc={rtl[b][1]:08x}' if 0 <= b < len(rtl) else 'rtl -'
+        print(f'{mark} {ta}   {rb}')
+while i < len(tm) and j < len(rtl):
+    if tm[i][1] == rtl[j][1]:
+        if rtl[j][0] - tm[i][0] != off:
+            show(i, j, 'cycle differs (timing)'); sys.exit(1)
+        i += 1; j += 1
+    elif j + 1 < len(rtl) and rtl[j + 1][1] == tm[i][1]:
+        trapped += 1; j += 1
+    else:
+        show(i, j, 'pc differs (instruction stream)'); sys.exit(1)
+extra = '' if (i == len(tm) and j == len(rtl)) else f'  (one trace ended earlier: tm {i}/{len(tm)}, rtl {j}/{len(rtl)})'
+print(f'identical over {i} trace-model commits ({trapped} RTL-only trapping instructions skipped){extra}')

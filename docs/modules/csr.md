@@ -112,3 +112,8 @@ note:
   | m16 | S trap 不看 `interrupt_resp` | software-interrupt-vectored rec 374 `csr2front_trap_pc_vld` | rand0 rec 173 同 |
   等价变异（不计）：mret/sret 同拍优先级（m13，需 mret 与 sret 同时为 1，ROB 不会）、`trap_pc` 在无 trap 时的选择（m17，该值不被比较）。
   只靠随机 trace 才能抓到：6 个（m1 m4 m5 m7 m12 m15）。
+
+## 中断 CSR 的规范语义（2026-11-04）
+
+与 function-model、trace-model 一致：`mie`/`mip` 写掩码 0xAAA（无用户级位），`mideleg` 写掩码 0x222，`sie`/`sip` 读写都按 `mideleg` 屏蔽（`csr_pkg::ENT_DELEG`），
+`sip` 只能写 SSIP。`csr_regfile` 把 `regs_q[R_MIDELEG]` 并进这两个别名条目的写掩码，`csr_read` 并进读掩码。

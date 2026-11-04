@@ -44,7 +44,9 @@ module csr_regfile
       for (int e = 0; e < NENT; e++) begin
         if (ENT_REG[e] == r) begin
           commit_hit  = commit_hit | hit[e];
-          commit_mask = commit_mask | (ENT_WMASK[e] & {32{hit[e]}});
+          // sie / sip: only the delegated bits are writable
+          commit_mask = commit_mask
+                      | (ENT_WMASK[e] & (ENT_DELEG[e] ? regs_q[R_MIDELEG] : ALL_ONES) & {32{hit[e]}});
         end
       end
     end
