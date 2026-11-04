@@ -3,7 +3,7 @@
 #   usage: bash tests/exu_ctrl/run_rand.sh    (needs build/exu_ctrl/exu_ctrl_rec.cpp, e.g. after scripts/record.sh exu_ctrl)
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd); cd "$ROOT"
-REF=${REFSIM:-/Users/ruyaoh/personal/tututugege-rtl/refsim}
+REF=${REFSIM:-/Users/ruyaoh/personal/AI-Huma/rtl/refsim}
 INC=()
 for d in include libs/include back-end/include back-end/Exu/include back-end/Lsu/include back-end/tools/include MemSubSystem/include diff/include front-end; do INC+=("-I$REF/$d"); done
 python3 harness/tools/iogen.py spec/exu_ctrl.io build/exu_ctrl >/dev/null

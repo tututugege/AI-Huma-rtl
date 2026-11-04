@@ -8,15 +8,15 @@
 
 - 你的当前目录是本仓库的一个**独立 git worktree**（你自己的分支）。只改你自己的文件，提交到你的分支。
 - 参考模型源码（只读，commit 2f31e8d）：`/Users/ruyaoh/personal/llm4trace/third_party/tututugege/baseline-sim/src`。后端在 `back-end/`，IO 结构体在 `back-end/include/IO.h`，各阶段的调用顺序在 `back-end/BackTop.cpp`（`comb()` 里的 `comb_stage_*`），模块间连线是 `BackTop` 的成员（`dec2ren`、`ren2dis`…）。
-- 已装好的、**共享只读**的带钩子参考模型：`/Users/ruyaoh/personal/tututugege-rtl/refsim`（`scripts/record.sh` 默认用它，不要修改它，不要在其中构建）。
-- 测试程序：`/Users/ruyaoh/personal/tututugege-trace/build/tests/*/*.bin`（61 个）+ `/tmp/big/{dhrystone,coremark}.bin`。
+- 已装好的、**共享只读**的带钩子参考模型：`/Users/ruyaoh/personal/AI-Huma/rtl/refsim`（`scripts/record.sh` 默认用它，不要修改它，不要在其中构建）。
+- 测试程序：`/Users/ruyaoh/personal/AI-Huma/trace-model/build/tests/*/*.bin`（61 个）+ `/Users/ruyaoh/personal/AI-Huma/rtl/programs/big/{dhrystone,coremark}.bin`。
 - 工具链：Verilator 5.x、python3、clang++。**注意本机 shell 是 zsh**：脚本用 `bash scripts/…` 运行；含空格的变量别直接展开。BSD `sed -i` 需要 `-i ''`，复杂替换请用 python。
 
 ## 步骤（每一步都必须做）
 
 1. **读 C++**：读该模块的 .cpp/.h 和 `BackTop.cpp` 里调用它的阶段，列出它读的所有外部量（输入）和被别处读的所有量（输出，包括被其他模块直接读它成员的）。输入必须完整。
 2. **写 `spec/<mod>.io`**：格式见 `docs/03-harness.md` 第 2、4 节。每个字段写 `@ <C++ 表达式>`（`cpu`/`bt`/`i0`/`i1`… 可用）。端口名取 C++ 字段名，结构体嵌套用 `_`。只有 C++ 确实"无效时无意义"的字段才可用 `when`。不翻译 perf/debug/`dbg.*` 字段。
-3. **录制**：`JOBS=2 bash scripts/record_all.sh <mod>`（先 `CYCLES=20000 bash scripts/record.sh <mod> /tmp/big/dhrystone.bin` 快速试通）。必要时用 `GATE_CYCLES` 控制拍数。检查 trace 的覆盖：各 `valid` 类输入是否取过 0 和 1，队列是否满/空/回绕，flush/mispredict 是否出现过。覆盖不到的路径如实报告。
+3. **录制**：`JOBS=2 bash scripts/record_all.sh <mod>`（先 `CYCLES=20000 bash scripts/record.sh <mod> /Users/ruyaoh/personal/AI-Huma/rtl/programs/big/dhrystone.bin` 快速试通）。必要时用 `GATE_CYCLES` 控制拍数。检查 trace 的覆盖：各 `valid` 类输入是否取过 0 和 1，队列是否满/空/回绕，flush/mispredict 是否出现过。覆盖不到的路径如实报告。
 4. **设计笔记**：`docs/modules/<mod>.md`（模板 `docs/modules/TEMPLATE.md`），**先于 RTL 写**。
 5. **写 RTL**：`rtl/backend/<mod>/` 目录，顶层 `<mod>.sv`（只做端口适配）+ 按硬件功能拆分的子模块；风格严格按规范第 0 节：硬件结构，不是 C++ 逐行翻译；无 break/while；文件 ≤400 行；always_comb ≤60 行；参数化；`_q/_d` 两段式；复位值 = C++ `init()` 之后。新原语放在你自己的目录并以模块名为前缀，**不要改 `rtl/common/`**。
 6. **回放到绿**：`bash scripts/replay.sh <mod>`（默认回放 `traces/<mod>/*.trc` 全部）。有 MISMATCH 就用 VCD 对照 C++ 找原因。**禁止放宽比较、禁止改 `when` 来让它通过。** 若是参考模型的怪异行为（读上一拍残留值、同拍多次覆盖、`init()` 里的非零初值、越界回绕），按 `docs/04` 第 3 节处理，并在设计笔记和最终报告中逐条列出。
@@ -48,7 +48,7 @@
 1. **必读 `docs/06-equivalence-policy.md`**。不迁就 C++ 的怪行为：残留值/越界/恒 0 字段/调试字段不复刻；无效时无意义的输出用 `when` 且**删掉对齐 C++ 的强制清零/保持**；没人读的字段从 spec 和 RTL 删除。放宽前必须在参考模型里核对所有读取点（写进设计笔记第 4 节），放宽后变异检查仍须有效。
 2. **设计笔记先于 RTL**（`docs/modules/<mod>.md`，含消费者核对、放宽/删除/不复刻清单、变异表）。
 3. **标准程序集合**：`bash scripts/record_all.sh <mod>` 现在录 61 个 gate 测试 + `scripts/progs.txt` 里的程序（dhrystone/coremark/coremark10、4 个 vm 测试、float/sha/cjpeg/linear_alg/parser），拍数上限见 progs.txt，gate 默认 30000（`GATE_CYCLES`），`JOBS=2`。端口特别宽的模块先用 `GATE_CYCLES=8000` 控制磁盘（磁盘紧张，已用 >90%）。不再需要的 trace 请删除。
-4. **随机 trace 生成器**：真实程序覆盖不到的路径，写一个直接驱动参考模型该类的生成器补充（模板：`/Users/ruyaoh/personal/rtl-wt/{prf,ren,idu,dispatch,rob}` 里的 `tests/<mod>/rand_trace.cpp` 或 `tb/<mod>/gen_rand.cpp`，只读参考）。注意激励必须是参考模型下合法的（可不定义 NDEBUG 让 C++ Assert 全开来自检），并在设计笔记里写明约束依据。
+4. **随机 trace 生成器**：真实程序覆盖不到的路径，写一个直接驱动参考模型该类的生成器补充（模板：`/Users/ruyaoh/personal/AI-Huma/rtl-wt/{prf,ren,idu,dispatch,rob}` 里的 `tests/<mod>/rand_trace.cpp` 或 `tb/<mod>/gen_rand.cpp`，只读参考）。注意激励必须是参考模型下合法的（可不定义 NDEBUG 让 C++ Assert 全开来自检），并在设计笔记里写明约束依据。
 5. **风格范例**（已合并的同类代码，只读参考）：`prf/rtl/backend/prf/prf_write_arb.sv`、`ren/rtl/backend/ren/ren_rat.sv`、`idu/rtl/backend/idu/idu_ctrl_decode.sv`。顶层只做端口适配；逻辑在子模块；用 `ttg_first_set`/`ttg_onehot_mux`/`ttg_popcount`；禁止 break/while/运行计数器。
 6. **工具**：package 文件命名 `*_pkg.sv`，工具会自动排在前面；`scripts/lint.sh` 的 `<=` 比较误报已修；断言与 lint 豁免见 `docs/01` 第 1 节与 8.5。需要主仓库新工具时 `git merge main`；不要改 scripts/harness/rtl/common/docs（除你自己的 `docs/modules/<mod>.md`）。
 7. **共享 scratchpad 会被其他 agent 覆盖**：临时文件放在 scratchpad 下你自己的子目录（`<scratchpad>/<mod>/`）。提交用 `git -c user.name=ruyaoh -c user.email=ruyaoh@nvidia.com commit`。

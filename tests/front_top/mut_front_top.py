@@ -11,15 +11,15 @@ Needs REFSIM (default: refsim_tap).  Results: build/mut_front_top.txt
 import argparse, concurrent.futures as cf, os, re, shutil, subprocess, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-G = '/Users/ruyaoh/personal/tututugege-trace/build'
+G = '/Users/ruyaoh/personal/AI-Huma/trace-model/build'
 FT = 'rtl/frontend/front_top/'
 CO = 'rtl/core/core_top/'
 SCREEN = [G + '/tests/smc-div/smc-div.bin', G + '/vm/vm-sum-fetch-test/vm_sum_fetch_test.bin',
           G + '/vm/vm-pagefault-test/vm_pagefault_test.bin', G + '/tests/add-longlong/add-longlong.bin',
           G + '/tests/atomic-boundary/atomic-boundary.bin', G + '/tests/interrupt-vectored/interrupt-vectored.bin',
-          '/tmp/big/dhrystone.bin', G + '/vm/vm-sfence-perm-test/vm_sfence_perm_test.bin',
+          '/Users/ruyaoh/personal/AI-Huma/rtl/programs/big/dhrystone.bin', G + '/vm/vm-sfence-perm-test/vm_sfence_perm_test.bin',
           G + '/vm/vm-asid-test/vm_asid_test.bin']
-SCREEN_CAP = {'/tmp/big/dhrystone.bin': 150000}
+SCREEN_CAP = {'/Users/ruyaoh/personal/AI-Huma/rtl/programs/big/dhrystone.bin': 150000}
 DECL = ('  import "DPI-C" function int ttg_mut_sel();\n  int unsigned mut_sel;\n  initial mut_sel = ttg_mut_sel();\n')
 STUB = '#include <cstdlib>\nextern "C" int ttg_mut_sel() { const char* e = getenv("TTG_MUT"); return e ? atoi(e) : 0; }\n'
 

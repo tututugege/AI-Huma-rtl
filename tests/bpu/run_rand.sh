@@ -3,7 +3,7 @@
 #   usage: bash tests/bpu/run_rand.sh <cycles> <seed>...      (REFSIM = refsim_tap source tree, read only)
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd); cd "$ROOT"
-REF=${REFSIM:-/Users/ruyaoh/personal/tututugege-rtl/refsim_tap}
+REF=${REFSIM:-/Users/ruyaoh/personal/AI-Huma/rtl/refsim_tap}
 N=$1; shift
 INC=()
 for d in include libs/include back-end/include back-end/Exu/include back-end/Lsu/include back-end/tools/include \

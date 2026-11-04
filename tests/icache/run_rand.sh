@@ -3,7 +3,7 @@
 #   usage: bash tests/icache/run_rand.sh [cycles] [seed...]     env REFSIM = refsim copy WITH the icache tap patch (default: refsim_tap once merged)
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd); cd "$ROOT"
-REF=${REFSIM:-/Users/ruyaoh/personal/tututugege-rtl/refsim_tap}
+REF=${REFSIM:-/Users/ruyaoh/personal/AI-Huma/rtl/refsim_tap}
 N=${1:-200000}; [ $# -gt 0 ] && shift
 SEEDS=${@:-1 2 3 4}
 INC=()

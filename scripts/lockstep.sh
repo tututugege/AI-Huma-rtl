@@ -7,7 +7,7 @@
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 MOD=$1; PROG=${2:-}; CYC=${3:-}
-REF=${REFSIM:-/Users/ruyaoh/personal/tututugege-rtl/refsim}
+REF=${REFSIM:-/Users/ruyaoh/personal/AI-Huma/rtl/refsim}
 SPEC=$ROOT/spec/$MOD.io; [ -f "$SPEC" ] || { echo "missing $SPEC"; exit 2; }
 OUT=$ROOT/build/lock_$MOD; mkdir -p "$OUT"
 if [ -z "${NOBUILD:-}" ]; then

@@ -6,7 +6,7 @@ set -uo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 OUT=${1:-$ROOT/build/dcache_tests}
 BM=/Users/ruyaoh/personal/llm4trace/third_party/tututugege/baseline-sim/src/baremetal
-LDS=/Users/ruyaoh/personal/tututugege-trace/build/tests/link.lds
+LDS=/Users/ruyaoh/personal/AI-Huma/trace-model/build/tests/link.lds
 L=${LLVM:-/opt/homebrew/opt/llvm/bin}
 CF="--target=riscv32 -march=rv32ima_zicsr_zifencei -mabi=ilp32 -O2 -ffp-contract=off -mcmodel=medlow -mstrict-align -ffreestanding -fno-builtin -nostdlib -I$BM -I$BM/include"
 for src in "$ROOT"/tests/dcache/*.c; do

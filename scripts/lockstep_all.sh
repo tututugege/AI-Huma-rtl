@@ -7,9 +7,9 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 MOD=$1
 BIG=${BIG_CYCLES:-4000000}
 LOG=$ROOT/build/lockstep_$MOD.log; : > "$LOG"
-G=/Users/ruyaoh/personal/tututugege-trace/build
+G=/Users/ruyaoh/personal/AI-Huma/trace-model/build
 PROGS=(); for p in $G/tests/*/*.bin; do PROGS+=("$p"); done
-for p in $G/vm/*/*.bin /tmp/big/dhrystone.bin /tmp/big/coremark.bin /Users/ruyaoh/personal/llm4trace/third_party/tututugege/baseline-sim/src/baremetal/float-test/float_test.bin; do [ -f "$p" ] && PROGS+=("$p"); done
+for p in $G/vm/*/*.bin /Users/ruyaoh/personal/AI-Huma/rtl/programs/big/dhrystone.bin /Users/ruyaoh/personal/AI-Huma/rtl/programs/big/coremark.bin /Users/ruyaoh/personal/llm4trace/third_party/tututugege/baseline-sim/src/baremetal/float-test/float_test.bin; do [ -f "$p" ] && PROGS+=("$p"); done
 first=1; pass=0; fail=0
 for p in "${PROGS[@]}"; do
   name=$(basename "$p" .bin)

@@ -10,7 +10,7 @@ import argparse, concurrent.futures as cf, os, re, shutil, subprocess, sys
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 D = 'rtl/backend/lsu/'
-G = '/Users/ruyaoh/personal/tututugege-trace/build'
+G = '/Users/ruyaoh/personal/AI-Huma/trace-model/build'
 # (name, file, original expression text, mutated expression text) -- the original text must occur in the file
 M = [
  # --- package helpers
@@ -153,7 +153,7 @@ SCREEN = [('smc-div', 'tests', 100000), ('memory-stress', 'tests', 100000), ('at
 
 
 def prog(n, kind):
-    if kind == 'big': return f'/tmp/big/{n}.bin'
+    if kind == 'big': return f'/Users/ruyaoh/personal/AI-Huma/rtl/programs/big/{n}.bin'
     import glob
     h = glob.glob(f'{G}/{kind}/*/{n}.bin')
     return h[0] if h else None

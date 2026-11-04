@@ -3,7 +3,7 @@
 #   usage: bash tests/tlb_mmu/run_rand.sh     (iogen is run here from spec/tlb_mmu.io)
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd); cd "$ROOT"
-REF=${REFSIM:-/Users/ruyaoh/personal/tututugege-rtl/refsim}
+REF=${REFSIM:-/Users/ruyaoh/personal/AI-Huma/rtl/refsim}
 INC=()
 for d in include libs/include back-end/include back-end/Exu/include back-end/Lsu/include back-end/tools/include MemSubSystem/include diff/include front-end; do INC+=("-I$REF/$d"); done
 python3 harness/tools/iogen.py spec/tlb_mmu.io build/tlb_mmu >/dev/null

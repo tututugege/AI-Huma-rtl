@@ -4,7 +4,7 @@
 #   usage: bash tests/front_basic/run_pure.sh
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd); cd "$ROOT"
-REF=${REFSIM:-/Users/ruyaoh/personal/tututugege-rtl/refsim_tap}
+REF=${REFSIM:-/Users/ruyaoh/personal/AI-Huma/rtl/refsim_tap}
 SRC=/Users/ruyaoh/personal/llm4trace/third_party/tututugege/baseline-sim/src
 INC=()
 for d in include libs/include back-end/include back-end/Exu/include back-end/Lsu/include back-end/tools/include MemSubSystem/include diff/include front-end; do INC+=("-I$REF/$d"); done

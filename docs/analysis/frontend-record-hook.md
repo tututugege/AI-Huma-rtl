@@ -92,7 +92,7 @@ git apply docs/analysis/frontend-record-hook.patch        # 新增 refhook/front
 bash scripts/refsim_setup.sh                              # 输出里应有 "front tap inserted"
 # 2. 把 spec 拷到 spec/ 下（module 名必须与 RTL 模块一致），然后照常录制
 cp docs/analysis/examples/ptab.io spec/
-CYCLES=30000 bash scripts/record.sh ptab /tmp/big/dhrystone.bin       # → traces/ptab/dhrystone.trc
+CYCLES=30000 bash scripts/record.sh ptab /Users/ruyaoh/personal/AI-Huma/rtl/programs/big/dhrystone.bin       # → traces/ptab/dhrystone.trc
 # 3. 无 RTL 时的自洽检查
 python3 docs/analysis/examples/check_fifo_trace.py spec/ptab.io traces/ptab/dhrystone.trc --cap 16 --full-at 15
 ```
@@ -125,7 +125,7 @@ clear = reset | refetch ;  rd_valid = rd_en & ~clear & (size>0) ; rdata = head(�
 
 | 配置 | smc-div（跑完）| dhrystone（跑完，3.9M 拍）|
 | --- | --- | --- |
-| 原版 refsim（`/Users/ruyaoh/personal/tututugege-rtl/refsim`，无插件）| 8996 拍 / 1471 提交 | 3,911,612 拍 / 3,305,227 提交 |
+| 原版 refsim（`/Users/ruyaoh/personal/AI-Huma/rtl/refsim`，无插件）| 8996 拍 / 1471 提交 | 3,911,612 拍 / 3,305,227 提交 |
 | 打补丁版，**无插件**（tap 关闭）| 8996 / 1471 | 3,911,612 / 3,305,227 |
 | 打补丁版，**带插件**（tap 开启，每拍拷贝，`tools/chk.cpp`）| 8996 / 1471 | 3,911,612 / 3,305,227 |
 

@@ -59,4 +59,4 @@
 - 接口整理：边界数组尺寸改用配置参数（`tools/dimmap.py`）；1 位元素的通道数组改为打包向量（`tools/pack_bits.py`，281 个信号名；`iogen` 外壳按 RTL 声明方式连接）。
   未改：`axi_llc`/`axi_interconnect`/`axi_subsys`/`mem_axi` 的端口仍是非压缩数组（与 LLC 重写并行，留待后续统一）；多位元素通道数组仍为非压缩维度。
 - LLC 硬件风格重写已合入（`rtl/memsys/axi_llc` 18 个文件，各单元自有寄存器，无整状态函数）；旁路写、部分行写 miss 仍未实现（断言保留），
-  随机流量（RAND_PWR=1/RAND_PARTIAL=1）分别在 tick 339 / 42 触发断言。模块级 AXI 锁步需要带 axi 钩子的 refsim 副本（`/Users/ruyaoh/personal/rtl-wt/llc2_refsim`，由 `docs/analysis/axi-record-hook.patch` 应用得到）。
+  随机流量（RAND_PWR=1/RAND_PARTIAL=1）分别在 tick 339 / 42 触发断言。模块级 AXI 锁步需要带 axi 钩子的 refsim 副本（`/Users/ruyaoh/personal/AI-Huma/rtl/refsim_axi`，由 `docs/analysis/axi-record-hook.patch` 应用得到）。

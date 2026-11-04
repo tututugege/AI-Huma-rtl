@@ -20,13 +20,13 @@ import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BT = 'rtl/backend/back_top/'
-G = '/Users/ruyaoh/personal/tututugege-trace/build'
+G = '/Users/ruyaoh/personal/AI-Huma/trace-model/build'
 SCREEN = [G + '/tests/smc-div/smc-div.bin', G + '/vm/vm-sum-fetch-test/vm_sum_fetch_test.bin',
           G + '/vm/vm-pagefault-test/vm_pagefault_test.bin', G + '/tests/add-longlong/add-longlong.bin',
           G + '/tests/atomic-boundary/atomic-boundary.bin', G + '/tests/interrupt-vectored/interrupt-vectored.bin',
-          '/tmp/big/dhrystone.bin']
+          '/Users/ruyaoh/personal/AI-Huma/rtl/programs/big/dhrystone.bin']
 FULL_CAP = int(os.environ.get('FULL_CAP', '300000'))   # survivors: whole set but capped (a mutant that needs 4M cycles to show is a coverage gap anyway)
-SCREEN_CAP = {'/tmp/big/dhrystone.bin': 300000}
+SCREEN_CAP = {'/Users/ruyaoh/personal/AI-Huma/rtl/programs/big/dhrystone.bin': 300000}
 
 # (name, file, old, new)  -- every `old` must occur in the file
 TARGETED = [

@@ -12,11 +12,11 @@ Results: build/mutmc_<mod>/results.txt
 import argparse, concurrent.futures as cf, glob, os, re, shutil, subprocess, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-G = '/Users/ruyaoh/personal/tututugege-trace/build'
+G = '/Users/ruyaoh/personal/AI-Huma/trace-model/build'
 SHORT = [G + '/tests/' + n + '/' + n + '.bin' for n in
          ('atomic-boundary', 'add-longlong', 'smc-div', 'interrupt-vectored', 'memory-stress-small', 'dcache-conflict-writeback')]
 SHORT += [G + '/vm/vm-pagefault-test/vm_pagefault_test.bin', G + '/vm/vm-sum-fetch-test/vm_sum_fetch_test.bin',
-          G + '/vm/vm-sfence-perm-test/vm_sfence_perm_test.bin', G + '/vm/vm-asid-test/vm_asid_test.bin', '/tmp/big/dhrystone.bin']
+          G + '/vm/vm-sfence-perm-test/vm_sfence_perm_test.bin', G + '/vm/vm-asid-test/vm_asid_test.bin', '/Users/ruyaoh/personal/AI-Huma/rtl/programs/big/dhrystone.bin']
 DECL = '  import "DPI-C" function int ttg_mut_sel();\n  int unsigned mut_sel;\n  initial mut_sel = ttg_mut_sel();\n'
 STUB = '#include <cstdlib>\nextern "C" int ttg_mut_sel() { const char* e = getenv("TTG_MUT"); return e ? atoi(e) : 0; }\n'
 

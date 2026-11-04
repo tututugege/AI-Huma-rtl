@@ -25,7 +25,7 @@
 
 ```bash
 # 共享 refsim_tap 由协调者合入；自己试验：复制一份，在副本根目录打补丁并增量重建
-rsync -a /Users/ruyaoh/personal/tututugege-rtl/refsim_tap/ <dir>/refsim_ic/
+rsync -a /Users/ruyaoh/personal/AI-Huma/rtl/refsim_tap/ <dir>/refsim_ic/
 cd <dir>/refsim_ic && patch -p1 < <repo>/docs/analysis/icache-record-hook.patch
 gmake LDFLAGS="-lz" -j8                               # 只重编相关文件（含 front_top.cpp 等，约 1 分钟）
 REFSIM=<dir>/refsim_ic bash scripts/lockstep.sh icache <prog.bin> [拍数]

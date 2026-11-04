@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Coordinator review of the front_basic branch: every module rebuilt with the MAIN harness, replayed on real + generated traces.
-W=/Users/ruyaoh/personal/rtl-wt/front_basic
+W=/Users/ruyaoh/personal/AI-Huma/rtl-wt/front_basic
 M=$(cd "$(dirname "$0")/.." && pwd)
 run() { echo "##### $1"; bash "$M/scripts/review.sh" "$W" "$@" 2>&1 | tail -6; }
 run predecode          dhrystone vm_pagefault_test cjpeg rand_a rand_b

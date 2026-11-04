@@ -18,7 +18,7 @@
 
 ## 2. 使用
 ```bash
-rsync -a /Users/ruyaoh/personal/tututugege-rtl/refsim_tap/ <dir>/refsim_ms/
+rsync -a /Users/ruyaoh/personal/AI-Huma/rtl/refsim_tap/ <dir>/refsim_ms/
 cd <dir>/refsim_ms && patch -p1 < <repo>/docs/analysis/memsys-record-hook.patch
 gmake LDFLAGS="-lz" -j6            # 约 1-2 分钟
 TTG_REC_END=<plugin.dylib> ./build/simulator <prog.bin>

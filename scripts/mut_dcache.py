@@ -9,7 +9,7 @@ import argparse, concurrent.futures as cf, os, re, shutil, subprocess, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 D = 'rtl/memsys/dcache/'
-G = '/Users/ruyaoh/personal/tututugege-trace/build'
+G = '/Users/ruyaoh/personal/AI-Huma/trace-model/build'
 # (name, file, original expression text, mutated expression text) -- the original text must occur in the file
 MUTANTS = [
   ('s1.fill-bank-not-occupied',  'dcache_s1.sv', "!(fill_occupies_bank && fill_bank == req_bank[i])", "1'b1"),
@@ -58,7 +58,7 @@ SCREEN = [('dcache-mshr-pressure', 100000), ('dcache-conflict-writeback', 100000
 
 
 def prog_path(n):
-    for p in (f'{G}/tests/{n}/{n}.bin', f'{ROOT}/build/dcache_tests/{n}/{n}.bin', f'/tmp/big/{n}.bin'):
+    for p in (f'{G}/tests/{n}/{n}.bin', f'{ROOT}/build/dcache_tests/{n}/{n}.bin', f'/Users/ruyaoh/personal/AI-Huma/rtl/programs/big/{n}.bin'):
         if os.path.exists(p):
             return p
     return None

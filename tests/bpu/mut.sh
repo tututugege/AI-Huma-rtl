@@ -15,7 +15,7 @@ s = open(p).read()
 assert s.count(old) >= 1, "pattern not found"
 open(p, "w").write(s.replace(old, new, 1))
 PY
-export REFSIM=${REFSIM:-/Users/ruyaoh/personal/tututugege-rtl/refsim_tap}
+export REFSIM=${REFSIM:-/Users/ruyaoh/personal/AI-Huma/rtl/refsim_tap}
 out=$(bash "$T/scripts/lockstep.sh" "$SPEC" "$PROG" "$CYC" 2>&1)
 if echo "$out" | grep -q "LOCKSTEP PASS"; then echo "SURVIVED  $F: $OLD -> $NEW"
 elif echo "$out" | grep -aq "MISMATCH"; then echo "CAUGHT    $F: $OLD -> $NEW :: $(echo "$out" | grep -a MISMATCH | head -1)"

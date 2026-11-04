@@ -7,10 +7,10 @@ set -uo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 MODULE=${MODULE:-axi_interconnect}; SETS=${SETS:-4096}; WAYS=${WAYS:-16}; CYCLES=${CYCLES:-300000}; JOBS=${JOBS:-2}
 LIST=${1:-}
-G=/Users/ruyaoh/personal/tututugege-trace/build
+G=/Users/ruyaoh/personal/AI-Huma/trace-model/build
 if [ -z "$LIST" ]; then
   LIST=$(mktemp); ls $G/tests/*/*.bin $G/vm/*/*.bin > "$LIST"
-  echo /tmp/big/dhrystone.bin >> "$LIST"; echo /tmp/big/coremark.bin >> "$LIST"
+  echo /Users/ruyaoh/personal/AI-Huma/rtl/programs/big/dhrystone.bin >> "$LIST"; echo /Users/ruyaoh/personal/AI-Huma/rtl/programs/big/coremark.bin >> "$LIST"
   echo /Users/ruyaoh/personal/llm4trace/third_party/tututugege/baseline-sim/src/baremetal/float-test/float_test.bin >> "$LIST"
 fi
 export OUTDIR=${OUT:-$ROOT/build/lockta_${MODULE}_${SETS}x${WAYS}}

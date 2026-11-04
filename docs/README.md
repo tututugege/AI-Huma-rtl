@@ -40,3 +40,9 @@ scripts/     索引见 scripts/README.md
 traces/      参考模型录制的逐拍 trace（不入库）
 build/       构建产物（不入库）
 ```
+
+## 目录位置（2026-11-04 起）
+
+本仓库位于 `~/personal/AI-Huma/rtl`（原 `~/personal/tututugege-rtl`）。测试程序二进制取自 `~/personal/AI-Huma/trace-model/build/{tests,vm}`
+（与旧补丁队列仓库 `tututugege-trace` 的产物逐字节相同）；缩短版 dhrystone/coremark 及其源码和构建脚本在 `programs/big/`（`/tmp/big` 不再被引用）；
+带 AXI 记录钩子的参考模拟器副本在 `refsim_axi/`（git 忽略，按 `docs/analysis/axi-record-hook.md` 重建）。旧的 `rtl-wt/` 工作树已全部清理，不再为每个模块单开工作区。

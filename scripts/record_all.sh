@@ -5,7 +5,7 @@
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 MOD=$1
-GATE=/Users/ruyaoh/personal/tututugege-trace/build/tests
+GATE=/Users/ruyaoh/personal/AI-Huma/trace-model/build/tests
 mkdir -p "$ROOT/build"
 LST=$ROOT/build/progs.$MOD.lst
 { [ -n "${EXTRA_ONLY:-}" ] || ls $GATE/*/*.bin; grep -v '^#' "$ROOT/scripts/progs.txt" | cut -d'|' -f1; } | while read -r p; do [ -f "$p" ] && echo "$p"; done > "$LST" || true

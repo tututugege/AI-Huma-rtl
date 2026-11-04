@@ -3,7 +3,7 @@
 #   usage: bash tests/front_basic/run_fifo.sh [cycles]
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd); cd "$ROOT"
-REF=${REFSIM:-/Users/ruyaoh/personal/tututugege-rtl/refsim_tap}
+REF=${REFSIM:-/Users/ruyaoh/personal/AI-Huma/rtl/refsim_tap}
 SRC=$REF/front-end
 N=${1:-60000}
 INC=()
