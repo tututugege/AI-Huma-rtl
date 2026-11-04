@@ -10,7 +10,7 @@ module sequential_next_pc import ttg_cfg_pkg::*; import front_pkg::*; (
   input  logic        rst_n,
   /* verilator lint_on UNUSEDSIGNAL */
   input  logic [31:0] fetch_pc,
-  input  logic        inst_valid [FETCH_WIDTH],
+  input  logic [FETCH_WIDTH-1:0] inst_valid,
   output logic [31:0] seq_next_pc
 );
 

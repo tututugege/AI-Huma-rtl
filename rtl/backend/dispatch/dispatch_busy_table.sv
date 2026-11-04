@@ -9,9 +9,9 @@ module dispatch_busy_table
 (
   input  logic                     clk,
   input  logic                     rst_n,
-  input  logic                     wake_valid [NUM_WAKE],
+  input  logic [NUM_WAKE-1:0] wake_valid,
   input  logic [PRF_IDX_WIDTH-1:0] wake_preg  [NUM_WAKE],
-  input  logic                     set_valid  [NUM_SLOTS],   // fired instruction with a destination
+  input  logic [NUM_SLOTS-1:0] set_valid,   // fired instruction with a destination
   input  logic [PRF_IDX_WIDTH-1:0] set_preg   [NUM_SLOTS],
   output logic [PRF_NUM-1:0]       busy_q
 );

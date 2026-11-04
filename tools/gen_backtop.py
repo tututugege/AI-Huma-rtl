@@ -28,6 +28,8 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, 'tools'))
 import dimmap  # noqa: E402
+import pack_bits  # noqa: E402
+_PACK = pack_bits.load_names()   # lane-flag arrays emitted as packed vectors (tools/pack_bits_names.txt)
 _s = importlib.util.spec_from_file_location('iogen', os.path.join(ROOT, 'harness/tools/iogen.py'))
 iogen = importlib.util.module_from_spec(_s)
 _s.loader.exec_module(iogen)
@@ -817,10 +819,10 @@ def main():
         os.makedirs(bt_dir, exist_ok=True)
         open(os.path.join(ROOT, 'spec/exu.io'), 'w').write(exu_txt)
         exu_ports = mods['exu']
-        open(os.path.join(bt_dir, 'exu.sv'), 'w').write(gen_exu(exu_ports))
+        open(os.path.join(bt_dir, 'exu.sv'), 'w').write(pack_bits.apply_names(gen_exu(exu_ports), _PACK))
         sel = set(order)
         sv, S = gen_top(TOP_NAME, mods, nets, sel, order)
-        open(os.path.join(bt_dir, TOP_NAME + '.sv'), 'w').write(sv)
+        open(os.path.join(bt_dir, TOP_NAME + '.sv'), 'w').write(pack_bits.apply_names(sv, _PACK))
         open(os.path.join(ROOT, f'spec/{TOP_NAME}.io'), 'w').write(
             gen_spec(TOP_NAME, mods, nets, sel, S,
                      'Whole back end incl. RealLsu: boundary = front end + memory subsystem (SimCpu).' if FULL else

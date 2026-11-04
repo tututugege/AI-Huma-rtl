@@ -12,8 +12,8 @@ module bpu_ras import bpu_pkg::*; (
   input  logic                 spec_push,
   input  logic                 spec_pop,
   input  logic [31:0]          spec_push_val,
-  input  logic                 arch_push     [NCOMMIT],
-  input  logic                 arch_pop      [NCOMMIT],
+  input  logic [NCOMMIT-1:0] arch_push,
+  input  logic [NCOMMIT-1:0] arch_pop,
   input  logic [31:0]          arch_push_val [NCOMMIT],
   output logic                 top_has,
   output logic [31:0]          top_val
@@ -29,7 +29,7 @@ module bpu_ras import bpu_pkg::*; (
   // ---- architectural chain: 8 steps in lane order ----
   logic [RAS_PTR_W-1:0] a_base [NCOMMIT + 1];
   logic [RAS_CNT_W-1:0] a_cnt  [NCOMMIT + 1];
-  logic                 a_we   [NCOMMIT];
+  logic [NCOMMIT-1:0] a_we;
   logic [RAS_PTR_W-1:0] a_slot [NCOMMIT];
 
   assign a_base[0] = arch_base_q;

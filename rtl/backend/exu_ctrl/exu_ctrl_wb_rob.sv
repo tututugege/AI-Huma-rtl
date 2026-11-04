@@ -19,15 +19,15 @@ module exu_ctrl_wb_rob
   input  xc_done_t                  win [ISSUE_WIDTH],
   input  xc_lsu_wb_t                ld_wb  [LSU_LOAD_WB_WIDTH],
   input  xc_lsu_wb_t                sta_wb [LSU_STA_COUNT],
-  output logic                      valid     [ISSUE_WIDTH],
+  output logic [ISSUE_WIDTH-1:0] valid,
   output logic [ROB_IDX_WIDTH-1:0]  rob_idx   [ISSUE_WIDTH],
   output logic [XC_OP_W-1:0]        op        [ISSUE_WIDTH],
   output logic [31:0]               diag_val  [ISSUE_WIDTH],
   output logic [31:0]               result    [ISSUE_WIDTH],
-  output logic                      br_mispred [ISSUE_WIDTH],
+  output logic [ISSUE_WIDTH-1:0] br_mispred,
   output logic                      br_taken  [ISSUE_WIDTH],
-  output logic                      page_fault_load  [ISSUE_WIDTH],
-  output logic                      page_fault_store [ISSUE_WIDTH]
+  output logic [ISSUE_WIDTH-1:0] page_fault_load,
+  output logic [ISSUE_WIDTH-1:0] page_fault_store
 );
 
   for (genvar p = 0; p < ISSUE_WIDTH; p++) begin : g_port

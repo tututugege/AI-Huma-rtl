@@ -7,7 +7,7 @@ module ptw_walk import memcpu_pkg::*; (
   input  logic clk,
   input  logic rst_n,
   input  logic cpu_en,
-  input  logic                    client_req_valid     [PT_NCLIENT],
+  input  logic [PT_NCLIENT-1:0] client_req_valid,
   input  logic [PT_VPN_W-1:0]     client_req_vpn       [PT_NCLIENT],
   input  logic [PT_PPN_IN_W-1:0]  client_req_root_ppn  [PT_NCLIENT],
   input  logic                    client_resp_consumed [PT_NCLIENT],
@@ -24,7 +24,7 @@ module ptw_walk import memcpu_pkg::*; (
   output logic [PT_VPN_W-1:0]     client_resp_vpn        [PT_NCLIENT],
   output logic [PT_PPN_W-1:0]     client_resp_leaf_ppn   [PT_NCLIENT],
   output logic [PT_PERM_W-1:0]    client_resp_leaf_perm  [PT_NCLIENT],
-  output logic                    client_resp_leaf_level [PT_NCLIENT],
+  output logic [PT_NCLIENT-1:0] client_resp_leaf_level,
   output logic                    issue_walk_read,
   output logic [31:0]             walk_read_addr
 );

@@ -10,18 +10,18 @@ module dispatch_lsu_alloc
   import ttg_cfg_pkg::*;
   import dis_pkg::*;
 (
-  input  logic                      inst_valid [NUM_SLOTS],
-  input  logic                      is_load    [NUM_SLOTS],
-  input  logic                      is_store   [NUM_SLOTS],
+  input  logic [NUM_SLOTS-1:0] inst_valid,
+  input  logic [NUM_SLOTS-1:0] is_load,
+  input  logic [NUM_SLOTS-1:0] is_store,
   input  logic [STQ_IDX_WIDTH-1:0]  stq_tail,
   input  logic                      stq_tail_flag,
   input  logic [STQ_FREE_W-1:0]     stq_free,
   input  logic [LDQ_FREE_W-1:0]     ldq_free,
   input  logic [LDQ_IDX_WIDTH-1:0]  ldq_alloc_idx   [LDQ_PORTS],
-  input  logic                      ldq_alloc_valid [LDQ_PORTS],
-  output logic                      lsu_ok  [NUM_SLOTS],
+  input  logic [LDQ_PORTS-1:0] ldq_alloc_valid,
+  output logic [NUM_SLOTS-1:0] lsu_ok,
   output logic [STQ_IDX_WIDTH-1:0]  stq_idx    [NUM_SLOTS],
-  output logic                      stq_flag   [NUM_SLOTS],
+  output logic [NUM_SLOTS-1:0] stq_flag,
   output logic [LDQ_IDX_WIDTH-1:0]  ldq_idx    [NUM_SLOTS],
   output logic [STQ_PORTS-1:0]      st_port_sel [NUM_SLOTS],  // one-hot STQ request port of a granted store
   output logic [LDQ_PORTS-1:0]      ld_port_sel [NUM_SLOTS]   // one-hot LDQ request port of a granted load

@@ -8,7 +8,7 @@ module dispatch_wake_match
 #(
   parameter int NSRC = 2 * NUM_SLOTS
 ) (
-  input  logic                      wake_valid [NUM_WAKE],
+  input  logic [NUM_WAKE-1:0] wake_valid,
   input  logic [PRF_IDX_WIDTH-1:0]  wake_preg  [NUM_WAKE],
   input  logic [PRF_IDX_WIDTH-1:0]  src_preg   [NSRC],
   output logic                      woken      [NSRC]

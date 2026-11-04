@@ -100,38 +100,38 @@ module core_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; i
   output logic rob_bcast_mret,
   output logic [31:0] rob_bcast_pc,
   output logic rob_bcast_sret,
-  output logic rob_commit_commit_entry_uop_br_taken [COMMIT_WIDTH],
+  output logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_br_taken,
   output logic [5:0] rob_commit_commit_entry_uop_dest_areg [COMMIT_WIDTH],
-  output logic rob_commit_commit_entry_uop_dest_en [COMMIT_WIDTH],
-  output logic rob_commit_commit_entry_uop_page_fault_inst [COMMIT_WIDTH],
-  output logic rob_commit_commit_entry_uop_page_fault_load [COMMIT_WIDTH],
-  output logic rob_commit_commit_entry_uop_page_fault_store [COMMIT_WIDTH],
-  output logic rob_commit_commit_entry_uop_rob_flag [COMMIT_WIDTH],
+  output logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_dest_en,
+  output logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_page_fault_inst,
+  output logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_page_fault_load,
+  output logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_page_fault_store,
+  output logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_rob_flag,
   output logic [6:0] rob_commit_commit_entry_uop_rob_idx [COMMIT_WIDTH],
-  output logic rob_commit_commit_entry_uop_stq_flag [COMMIT_WIDTH],
+  output logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_stq_flag,
   output logic [5:0] rob_commit_commit_entry_uop_stq_idx [COMMIT_WIDTH],
   output logic [4:0] rob_commit_commit_entry_uop_type [COMMIT_WIDTH],
-  output logic rob_commit_commit_entry_valid [COMMIT_WIDTH]
+  output logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_valid
 );
 
   // ---- nets between the glue blocks and the back end ----
-  logic front2pre_alt_pred [BACKEND_FETCH_WIDTH];
+  logic [BACKEND_FETCH_WIDTH-1:0] front2pre_alt_pred;
   logic [2:0] front2pre_altpcpn [BACKEND_FETCH_WIDTH];
   logic [31:0] front2pre_inst [BACKEND_FETCH_WIDTH];
-  logic front2pre_page_fault_inst [BACKEND_FETCH_WIDTH];
+  logic [BACKEND_FETCH_WIDTH-1:0] front2pre_page_fault_inst;
   logic [31:0] front2pre_pc [BACKEND_FETCH_WIDTH];
   logic [2:0] front2pre_pcpn [BACKEND_FETCH_WIDTH];
-  logic front2pre_predict_dir [BACKEND_FETCH_WIDTH];
+  logic [BACKEND_FETCH_WIDTH-1:0] front2pre_predict_dir;
   logic [31:0] front2pre_predict_next_fetch_address;
   logic [9:0] front2pre_tage_idx [BACKEND_FETCH_WIDTH][4];
   logic [7:0] front2pre_tage_tag [BACKEND_FETCH_WIDTH][4];
-  logic front2pre_valid [BACKEND_FETCH_WIDTH];
+  logic [BACKEND_FETCH_WIDTH-1:0] front2pre_valid;
   logic [31:0] commit_extra_imm [COMMIT_WIDTH];
   logic [5:0] commit_extra_src1_areg [COMMIT_WIDTH];
   logic [31:0] csr_status_mstatus;
   logic [1:0] csr_status_privilege;
   logic [31:0] csr_status_satp;
-  logic ftq_commit_info_resp_alt_pred [COMMIT_WIDTH];
+  logic [COMMIT_WIDTH-1:0] ftq_commit_info_resp_alt_pred;
   logic [2:0] ftq_commit_info_resp_altpcpn [COMMIT_WIDTH];
   logic [2:0] ftq_commit_info_resp_pcpn [COMMIT_WIDTH];
   logic ftq_commit_info_resp_pred_taken [COMMIT_WIDTH];

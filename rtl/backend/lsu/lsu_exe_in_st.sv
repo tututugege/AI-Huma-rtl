@@ -9,7 +9,7 @@ module lsu_exe_in_st
   input  logic [NSDU-1:0]  sdu_valid,
   input  logic [31:0]      sdu_result    [NSDU],
   input  logic [ROBW-1:0]  sdu_rob_idx   [NSDU],
-  input  logic             sdu_rob_flag  [NSDU],
+  input  logic [NSDU-1:0] sdu_rob_flag,
   input  logic [SQW-1:0]   sdu_stq_idx   [NSDU],
   input  logic [NST-1:0]   sta_valid,
   input  logic [31:0]      sta_result    [NST],

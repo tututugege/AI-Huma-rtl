@@ -7,22 +7,22 @@ module dispatch_lsu_req
   import ttg_cfg_pkg::*;
   import dis_pkg::*;
 (
-  input  logic                      fire        [NUM_SLOTS],
+  input  logic [NUM_SLOTS-1:0] fire,
   input  logic [STQ_PORTS-1:0]      st_port_sel [NUM_SLOTS],
   input  logic [LDQ_PORTS-1:0]      ld_port_sel [NUM_SLOTS],
   input  dis_inst_t                 inst        [NUM_SLOTS],   // for br_mask, func3
   input  dis_res_t                  res         [NUM_SLOTS],
-  output logic                      st_req      [STQ_PORTS],
+  output logic [STQ_PORTS-1:0] st_req,
   output logic [BR_MASK_WIDTH-1:0]  st_br_mask  [STQ_PORTS],
   output logic [2:0]                st_func3    [STQ_PORTS],
   output logic [ROB_IDX_WIDTH-1:0]  st_rob_idx  [STQ_PORTS],
-  output logic                      st_rob_flag [STQ_PORTS],
-  output logic                      st_stq_flag [STQ_PORTS],
-  output logic                      ld_req      [LDQ_PORTS],
+  output logic [STQ_PORTS-1:0] st_rob_flag,
+  output logic [STQ_PORTS-1:0] st_stq_flag,
+  output logic [LDQ_PORTS-1:0] ld_req,
   output logic [LDQ_IDX_WIDTH-1:0]  ld_idx      [LDQ_PORTS],
   output logic [BR_MASK_WIDTH-1:0]  ld_br_mask  [LDQ_PORTS],
   output logic [ROB_IDX_WIDTH-1:0]  ld_rob_idx  [LDQ_PORTS],
-  output logic                      ld_rob_flag [LDQ_PORTS]
+  output logic [LDQ_PORTS-1:0] ld_rob_flag
 );
 
   // Ref: Dispatch::comb_fire step 3 (STQ ports)

@@ -13,18 +13,18 @@ module dispatch_inst_stage
   input  logic                       kill,        // rob_bcast.flush | dec_bcast.mispred
   input  logic                       ready,       // dis2ren.ready: accept a new group from rename
   input  logic [BR_MASK_WIDTH-1:0]   clear_mask,  // resolved-branch bits to drop from every br_mask
-  input  logic                       ren_valid [NUM_SLOTS],
+  input  logic [NUM_SLOTS-1:0] ren_valid,
   input  dis_inst_t                  ren_inst  [NUM_SLOTS],
-  input  logic                       fire      [NUM_SLOTS],
-  input  logic                       alloc_src1_busy [NUM_SLOTS],  // busy after comb_wake
-  input  logic                       alloc_src2_busy [NUM_SLOTS],
-  input  logic                       woken1    [NUM_SLOTS],        // src preg woken by this cycle's wakeups
-  input  logic                       woken2    [NUM_SLOTS],
-  output logic                       valid_q   [NUM_SLOTS],
+  input  logic [NUM_SLOTS-1:0] fire,
+  input  logic [NUM_SLOTS-1:0] alloc_src1_busy,  // busy after comb_wake
+  input  logic [NUM_SLOTS-1:0] alloc_src2_busy,
+  input  logic [NUM_SLOTS-1:0] woken1,        // src preg woken by this cycle's wakeups
+  input  logic [NUM_SLOTS-1:0] woken2,
+  output logic [NUM_SLOTS-1:0] valid_q,
   output dis_inst_t                  inst_q    [NUM_SLOTS]
 );
 
-  logic      valid_d [NUM_SLOTS];
+  logic [NUM_SLOTS-1:0] valid_d;
   dis_inst_t inst_d  [NUM_SLOTS];
 
   for (genvar i = 0; i < NUM_SLOTS; i++) begin : g_lane

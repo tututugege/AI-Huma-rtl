@@ -57,7 +57,9 @@ module lsu_dc_req_st
 
   // ---- ordered decision along the window (position i sees the verdicts of the older positions j < i) ----
   logic           cand [WIN], proceed [WIN], dec [WIN], blocked [WIN], issue [WIN], sup_done [WIN], mm_start [WIN];
-  logic           done_after [WIN];
+  /* verilator lint_off UNUSEDSIGNAL */  // the last window position has no younger reader
+  logic [WIN-1:0] done_after;
+  /* verilator lint_on UNUSEDSIGNAL */
   logic [WIN-1:0] live_conf [WIN];                   // older overlapping store that is not Done (yet)
   logic [RCW-1:0] n_iss [WIN+1];                     // DCache requests issued by positions before i
   assign n_iss[0] = '0;

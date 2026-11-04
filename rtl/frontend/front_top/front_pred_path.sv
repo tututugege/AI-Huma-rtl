@@ -21,20 +21,20 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
   input  logic                f2b_wr_en,
   input  logic                f2b_use_bypass,
   // commit-time update of the BPU (registered back2front)
-  input  logic                upd_valid  [NCOMMIT],
+  input  logic [NCOMMIT-1:0] upd_valid,
   input  logic [31:0]         base_pc    [NCOMMIT],
-  input  logic                actual_dir [NCOMMIT],
+  input  logic [NCOMMIT-1:0] actual_dir,
   input  logic [2:0]          br_type    [NCOMMIT],
   input  logic [31:0]         target     [NCOMMIT],
-  input  logic                pred_dir   [NCOMMIT],
-  input  logic                alt_pred   [NCOMMIT],
+  input  logic [NCOMMIT-1:0] pred_dir,
+  input  logic [NCOMMIT-1:0] alt_pred,
   input  logic [PCPN_W-1:0]   pcpn       [NCOMMIT],
   input  logic [T_TAG_W-1:0]  tags       [NCOMMIT][TN],
   input  logic [T_IDX_W-1:0]  idxs       [NCOMMIT][TN],
   // instruction queue head (predecoded group)
   input  logic [31:0]         inst_rd_instructions             [FETCH_WIDTH],
-  input  logic                inst_rd_page_fault_inst          [FETCH_WIDTH],
-  input  logic                inst_rd_inst_valid               [FETCH_WIDTH],
+  input  logic [FETCH_WIDTH-1:0] inst_rd_page_fault_inst,
+  input  logic [FETCH_WIDTH-1:0] inst_rd_inst_valid,
   input  logic [1:0]          inst_rd_predecode_type           [FETCH_WIDTH],
   input  logic [31:0]         inst_rd_predecode_target_address [FETCH_WIDTH],
   input  logic [31:0]         inst_rd_seq_next_pc,
@@ -49,12 +49,12 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
   output logic                checker_flush_enable,
   output logic [31:0]         checker_flush_address,
   // front.out (valid / per-lane valid are made by the top: out_valid & out_inst_valid)
-  output logic                out_inst_valid      [FETCH_WIDTH],
+  output logic [FETCH_WIDTH-1:0] out_inst_valid,
   output logic [31:0]         out_instructions    [FETCH_WIDTH],
-  output logic                out_page_fault_inst [FETCH_WIDTH],
-  output logic                out_predict_dir     [FETCH_WIDTH],
+  output logic [FETCH_WIDTH-1:0] out_page_fault_inst,
+  output logic [FETCH_WIDTH-1:0] out_predict_dir,
   output logic [31:0]         out_pc              [FETCH_WIDTH],
-  output logic                out_alt_pred        [FETCH_WIDTH],
+  output logic [FETCH_WIDTH-1:0] out_alt_pred,
   output logic [PCPN_W-1:0]   out_altpcpn         [FETCH_WIDTH],
   output logic [PCPN_W-1:0]   out_pcpn            [FETCH_WIDTH],
   output logic [TAGE_IDX_W-1:0] out_tage_idx      [FETCH_WIDTH][TN_MAX],
@@ -64,8 +64,8 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
 
   // ---- BPU ----
   logic [31:0]         bpu_predict_next_fetch_address;
-  logic                bpu_pred_dir [FETCH_WIDTH];
-  logic                bpu_alt_pred [FETCH_WIDTH];
+  logic [FETCH_WIDTH-1:0] bpu_pred_dir;
+  logic [FETCH_WIDTH-1:0] bpu_alt_pred;
   logic [PCPN_W-1:0]   bpu_pcpn     [FETCH_WIDTH];
   logic [PCPN_W-1:0]   bpu_altpcpn  [FETCH_WIDTH];
   logic [T_TAG_W-1:0]  bpu_tage_tags [FETCH_WIDTH][TN];
@@ -91,9 +91,9 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
 
   // ---- PTAB (written with the BPU prediction, read together with the instruction queue) ----
   logic [31:0]         ptab_rd_predict_next_fetch_address;
-  logic                ptab_rd_predict_dir [FETCH_WIDTH];
+  logic [FETCH_WIDTH-1:0] ptab_rd_predict_dir;
   logic [31:0]         ptab_rd_predict_base_pc;
-  logic                ptab_rd_alt_pred [FETCH_WIDTH];
+  logic [FETCH_WIDTH-1:0] ptab_rd_alt_pred;
   logic [PCPN_W-1:0]   ptab_rd_altpcpn  [FETCH_WIDTH];
   logic [PCPN_W-1:0]   ptab_rd_pcpn     [FETCH_WIDTH];
   logic [TAGE_IDX_W-1:0] ptab_rd_tage_idx [FETCH_WIDTH][TN_MAX];
@@ -131,7 +131,7 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
   );
 
   // ---- predecode checker: PTAB head vs predecoded instruction-queue head ----
-  logic        checker_dir_corrected [FETCH_WIDTH];
+  logic [FETCH_WIDTH-1:0] checker_dir_corrected;
   logic [31:0] checker_next_corrected;
 
   predecode_checker u_checker (
@@ -149,11 +149,11 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
 
   // ---- front2back queue: write = checked group, read = what the back end sees next ----
   logic [31:0] f2b_rd_fetch_group [FETCH_WIDTH];
-  logic        f2b_rd_page_fault_inst [FETCH_WIDTH];
-  logic        f2b_rd_inst_valid [FETCH_WIDTH];
-  logic        f2b_rd_predict_dir_corrected [FETCH_WIDTH];
+  logic [FETCH_WIDTH-1:0] f2b_rd_page_fault_inst;
+  logic [FETCH_WIDTH-1:0] f2b_rd_inst_valid;
+  logic [FETCH_WIDTH-1:0] f2b_rd_predict_dir_corrected;
   logic [31:0] f2b_rd_predict_base_pc;
-  logic        f2b_rd_alt_pred [FETCH_WIDTH];
+  logic [FETCH_WIDTH-1:0] f2b_rd_alt_pred;
   logic [PCPN_W-1:0] f2b_rd_altpcpn [FETCH_WIDTH];
   logic [PCPN_W-1:0] f2b_rd_pcpn [FETCH_WIDTH];
   logic [TAGE_IDX_W-1:0] f2b_rd_tage_idx [FETCH_WIDTH][TN_MAX];

@@ -9,18 +9,18 @@
 module dispatch_fire_ctl
   import dis_pkg::*;
 (
-  input  logic       inst_valid  [NUM_SLOTS],
-  input  logic       lsu_ok   [NUM_SLOTS],   // LSU entries granted
-  input  logic       fit         [NUM_SLOTS],   // IQ ports available
-  input  logic       is_csr_like [NUM_SLOTS],
-  input  logic       is_amo      [NUM_SLOTS],
-  input  logic       is_wfi      [NUM_SLOTS],
+  input  logic [NUM_SLOTS-1:0] inst_valid,
+  input  logic [NUM_SLOTS-1:0] lsu_ok,   // LSU entries granted
+  input  logic [NUM_SLOTS-1:0] fit,   // IQ ports available
+  input  logic [NUM_SLOTS-1:0] is_csr_like,
+  input  logic [NUM_SLOTS-1:0] is_amo,
+  input  logic [NUM_SLOTS-1:0] is_wfi,
   input  logic       rob_ready,
   input  logic       rob_empty,
   input  logic       rob_stall,
   input  logic       rob_flush,
   input  logic       dec_mispred,
-  output logic       dis_fire    [NUM_SLOTS],
+  output logic [NUM_SLOTS-1:0] dis_fire,
   output logic       dis2ren_ready
 );
 
@@ -33,7 +33,7 @@ module dispatch_fire_ctl
     for (int i = 0; i < NUM_SLOTS; i++) valid_vec[i] = inst_valid[i];
   end
 
-  logic fire_ideal [NUM_SLOTS];   // lane fires provided no older lane stalled
+  logic [NUM_SLOTS-1:0] fire_ideal;   // lane fires provided no older lane stalled
 
   for (genvar i = 0; i < NUM_SLOTS; i++) begin : g_lane
     localparam logic [NUM_SLOTS-1:0] OLDER = NUM_SLOTS'((1 << i) - 1);

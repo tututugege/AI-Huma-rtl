@@ -80,6 +80,12 @@ end
 - **端口名与 `spec/<module>.io` 完全一致**，类型按 spec：宽度 1 用 `logic`，否则 `logic [W-1:0]`，数组用非压缩维度 `logic [W-1:0] name [D0][D1]`。
 - 端口名取自参考模型对应 IO 结构体的字段名，结构体嵌套用 `_` 连接（`rob_commit.commit_entry[i].valid` → `rob_commit_entry_valid[i]`）。这样 trace 里的字段名和 C++ 源码一一对得上。
 - 模块内部可以用 packed struct 组织，但**边界端口不用 struct**。
+- **1 位元素的通道数组写成打包向量**：`logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_valid`，不写 `logic x [8]`（`spec` 里仍是 `1 [8]`，
+  验证外壳 `iogen` 会按 RTL 里的声明方式生成连接）。多位元素的通道数组仍用非压缩维度。判据与工具：`tools/pack_bits.py`（按信号名一次性转换，
+  名单 `tools/pack_bits_names.txt`；参数化尺寸无法求值的、以及 `*_bank` 这类以模块参数 `N` 定尺寸的端口保持非压缩，`tools/pack_bits_skip.txt`）。
+  新代码直接按此写；扫描式链（`alive[p+1] = alive[p] && ...`，同一 always_comb 内逐位依赖）保持非压缩数组，否则 Verilator 报 ALWCOMBORDER。
+- **数组尺寸用配置参数，不写字面量**：`[COMMIT_WIDTH]`、`[ISSUE_WIDTH]`、`[LSU_LDU_COUNT]`…；边界信号名到参数的对应表在 `tools/dimmap.py`
+  （生成器 `gen_backtop.py` 同样套用）。
 
 ## 5. 位宽与算术
 

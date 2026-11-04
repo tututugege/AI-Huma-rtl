@@ -10,11 +10,11 @@ module dispatch_iq_alloc
   import ttg_cfg_pkg::*;
   import dis_pkg::*;
 (
-  input  logic                         inst_valid [NUM_SLOTS],
+  input  logic [NUM_SLOTS-1:0] inst_valid,
   input  logic [IQ_NUM-1:0]            has_iq     [NUM_SLOTS],
   input  logic [IQ_READY_NUM_WIDTH-1:0] ready_num [IQ_NUM],
   output logic [IQ_PORT_W-1:0]         port_idx   [NUM_SLOTS][IQ_NUM],  // request port of lane's uop in IQ q
-  output logic                         fit        [NUM_SLOTS]           // every targeted IQ has room
+  output logic [NUM_SLOTS-1:0] fit           // every targeted IQ has room
 );
 
   localparam int CNT_W = $clog2(NUM_SLOTS + 1);

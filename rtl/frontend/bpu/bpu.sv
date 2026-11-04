@@ -13,13 +13,13 @@ module bpu import bpu_pkg::*; (
   input  logic                refetch,
   input  logic [31:0]         refetch_address,
   input  logic                icache_read_ready,
-  input  logic                upd_valid  [NCOMMIT],
+  input  logic [NCOMMIT-1:0] upd_valid,
   input  logic [31:0]         base_pc    [NCOMMIT],
-  input  logic                actual_dir [NCOMMIT],
+  input  logic [NCOMMIT-1:0] actual_dir,
   input  logic [2:0]          br_type    [NCOMMIT],
   input  logic [31:0]         target     [NCOMMIT],
-  input  logic                pred_dir   [NCOMMIT],
-  input  logic                alt_pred   [NCOMMIT],
+  input  logic [NCOMMIT-1:0] pred_dir,
+  input  logic [NCOMMIT-1:0] alt_pred,
   input  logic [PCPN_W-1:0]   pcpn       [NCOMMIT],
   input  logic [T_TAG_W-1:0]  tags       [NCOMMIT][TN],
   input  logic [T_IDX_W-1:0]  idxs       [NCOMMIT][TN],
@@ -27,8 +27,8 @@ module bpu import bpu_pkg::*; (
   output logic [31:0]         fetch_address,
   output logic                ptab_write_enable,
   output logic [31:0]         predict_next_fetch_address,
-  output logic                out_pred_dir [NLANE],
-  output logic                out_alt_pred [NLANE],
+  output logic [NLANE-1:0] out_pred_dir,
+  output logic [NLANE-1:0] out_alt_pred,
   output logic [PCPN_W-1:0]   out_pcpn     [NLANE],
   output logic [PCPN_W-1:0]   out_altpcpn  [NLANE],
   output logic [T_TAG_W-1:0]  out_tage_tags [NLANE][TN],
@@ -37,7 +37,7 @@ module bpu import bpu_pkg::*; (
 
   // ---- fetch group ----
   logic [31:0]        boundary;
-  logic               lane_valid  [NLANE];
+  logic [NLANE-1:0] lane_valid;
   logic [31:0]        lane_pc     [NLANE];
   logic [BANK_W-1:0]  bank_sel    [NLANE];
   logic               going_to_do_pred;
@@ -51,7 +51,7 @@ module bpu import bpu_pkg::*; (
   );
 
   // ---- type predictor (prediction lanes + commit lanes) ----
-  logic               type_pred_valid [NLANE];
+  logic [NLANE-1:0] type_pred_valid;
   logic [2:0]         lane_type       [NLANE];
 
   always_comb begin
@@ -67,7 +67,7 @@ module bpu import bpu_pkg::*; (
   );
 
   // ---- per-bank lookup requests: lane i uses the bank of its pc, the 8 lanes cover the 8 banks once ----
-  logic               bank_req      [NBANK];
+  logic [NBANK-1:0] bank_req;
   logic [BPC_W-1:0]   bank_pc       [NBANK];
   logic [2:0]         bank_type     [NBANK];
 
@@ -88,14 +88,14 @@ module bpu import bpu_pkg::*; (
   end
 
   // ---- update queue ----
-  logic               q_valid   [NBANK];
+  logic [NBANK-1:0] q_valid;
   logic [BPC_W-1:0]   q_pc      [NBANK];
   logic [31:0]        q_target  [NBANK];
   logic [2:0]         q_br_type [NBANK];
-  logic               q_dir     [NBANK];
-  logic               tage_en   [NBANK];
-  logic               q_pred_dir [NBANK];
-  logic               q_alt_pred [NBANK];
+  logic [NBANK-1:0] q_dir;
+  logic [NBANK-1:0] tage_en;
+  logic [NBANK-1:0] q_pred_dir;
+  logic [NBANK-1:0] q_alt_pred;
   logic [PCPN_W-1:0]  q_pcpn    [NBANK];
   logic [T_TAG_W-1:0] q_tags    [NBANK][TN];
   logic [T_IDX_W-1:0] q_idxs    [NBANK][TN];
@@ -108,7 +108,7 @@ module bpu import bpu_pkg::*; (
   );
 
   // ---- history / RAS ----
-  logic               lane_taken [NLANE];
+  logic [NLANE-1:0] lane_taken;
   logic [FH_W-1:0]    fh         [FH_K][TN];
   logic               ras_has;
   logic [31:0]        ras_top;
@@ -122,8 +122,8 @@ module bpu import bpu_pkg::*; (
   // ---- TAGE and BTB banks ----
   logic [T_BASE_W-1:0] tage_pred_pc_idx [NBANK];
   logic [T_BASE_W-1:0] tage_upd_pc_idx  [NBANK];
-  logic                tage_pred_out    [NBANK];
-  logic                tage_alt_out     [NBANK];
+  logic [NBANK-1:0] tage_pred_out;
+  logic [NBANK-1:0] tage_alt_out;
   logic [PCPN_W-1:0]   tage_pcpn_out    [NBANK];
   logic [PCPN_W-1:0]   tage_altpcpn_out [NBANK];
   logic [T_TAG_W-1:0]  tage_tag_out     [NBANK][TN];

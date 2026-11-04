@@ -38,8 +38,8 @@ module exu_ctrl_fu_out
   output logic [6:0] exu2fu_sdu_func7 [LSU_SDU_COUNT],
   output logic [31:0] exu2fu_sdu_src1_rdata [LSU_SDU_COUNT],
   output logic [31:0] exu2fu_sdu_src2_rdata [LSU_SDU_COUNT],
-  output logic exu2fu_mc_en [N_MC],
-  output logic exu2fu_mc_consume [N_MC],
+  output logic [N_MC-1:0] exu2fu_mc_en,
+  output logic [N_MC-1:0] exu2fu_mc_consume,
   output logic [2:0] exu2fu_mc_func3 [N_MC],
   output logic [6:0] exu2fu_mc_func7 [N_MC],
   output logic [XC_OP_W-1:0] exu2fu_mc_op [N_MC],
@@ -47,7 +47,7 @@ module exu_ctrl_fu_out
   output logic [31:0] exu2fu_mc_src1_rdata [N_MC],
   output logic [31:0] exu2fu_mc_src2_rdata [N_MC],
   output logic [PRF_IDX_WIDTH-1:0] exu2fu_mc_dest_preg [N_MC],
-  output logic exu2fu_mc_dest_en [N_MC],
+  output logic [N_MC-1:0] exu2fu_mc_dest_en,
   output logic [BR_MASK_WIDTH-1:0] exu2fu_mc_br_mask [N_MC],
   output logic [ROB_IDX_WIDTH-1:0] exu2fu_mc_rob_idx [N_MC]
 );

@@ -17,17 +17,17 @@ module core_back2front import ttg_cfg_pkg::*; import dis_pkg::*; import bpu_pkg:
   input  logic [31:0] out_redirect_pc,
   input  logic        rob_bcast_fence,
   input  logic        rob_bcast_fence_i,
-  input  logic        commit_valid       [COMMIT_WIDTH],
+  input  logic [COMMIT_WIDTH-1:0] commit_valid,
   input  logic [4:0]  commit_type        [COMMIT_WIDTH],
-  input  logic        commit_br_taken    [COMMIT_WIDTH],
-  input  logic        commit_dest_en     [COMMIT_WIDTH],
+  input  logic [COMMIT_WIDTH-1:0] commit_br_taken,
+  input  logic [COMMIT_WIDTH-1:0] commit_dest_en,
   input  logic [5:0]  commit_dest_areg   [COMMIT_WIDTH],
   input  logic [31:0] commit_diag_val    [COMMIT_WIDTH],
   input  logic [31:0] commit_imm         [COMMIT_WIDTH],
   input  logic [5:0]  commit_src1_areg   [COMMIT_WIDTH],
   input  logic [31:0] ftq_pc             [COMMIT_WIDTH],
   input  logic        ftq_pred_taken     [COMMIT_WIDTH],
-  input  logic        ftq_alt_pred       [COMMIT_WIDTH],
+  input  logic [COMMIT_WIDTH-1:0] ftq_alt_pred,
   input  logic [2:0]  ftq_altpcpn        [COMMIT_WIDTH],
   input  logic [2:0]  ftq_pcpn           [COMMIT_WIDTH],
   input  logic [9:0]  ftq_tage_idx       [COMMIT_WIDTH][TN],
@@ -38,24 +38,24 @@ module core_back2front import ttg_cfg_pkg::*; import dis_pkg::*; import bpu_pkg:
   output logic        itlb_flush_q,
   output logic        fence_i_q,
   output logic        stall_q,
-  output logic        upd_valid_q  [COMMIT_WIDTH],
+  output logic [COMMIT_WIDTH-1:0] upd_valid_q,
   output logic [31:0] upd_base_pc_q [COMMIT_WIDTH],
-  output logic        upd_actual_dir_q [COMMIT_WIDTH],
+  output logic [COMMIT_WIDTH-1:0] upd_actual_dir_q,
   output logic [2:0]  upd_br_type_q [COMMIT_WIDTH],
   output logic [31:0] upd_target_q [COMMIT_WIDTH],
-  output logic        upd_pred_dir_q [COMMIT_WIDTH],
-  output logic        upd_alt_pred_q [COMMIT_WIDTH],
+  output logic [COMMIT_WIDTH-1:0] upd_pred_dir_q,
+  output logic [COMMIT_WIDTH-1:0] upd_alt_pred_q,
   output logic [2:0]  upd_pcpn_q [COMMIT_WIDTH],
   output logic [7:0]  upd_tags_q [COMMIT_WIDTH][TN],
   output logic [9:0]  upd_idxs_q [COMMIT_WIDTH][TN]
 );
 
-  logic        is_jal  [COMMIT_WIDTH];
-  logic        is_jalr [COMMIT_WIDTH];
-  logic        is_br   [COMMIT_WIDTH];
-  logic        is_call [COMMIT_WIDTH];
-  logic        is_ret  [COMMIT_WIDTH];
-  logic        class_dir [COMMIT_WIDTH];
+  logic [COMMIT_WIDTH-1:0] is_jal;
+  logic [COMMIT_WIDTH-1:0] is_jalr;
+  logic [COMMIT_WIDTH-1:0] is_br;
+  logic [COMMIT_WIDTH-1:0] is_call;
+  logic [COMMIT_WIDTH-1:0] is_ret;
+  logic [COMMIT_WIDTH-1:0] class_dir;
   logic [2:0]  class_br_type [COMMIT_WIDTH];
   logic [31:0] class_target  [COMMIT_WIDTH];
 
@@ -80,13 +80,13 @@ module core_back2front import ttg_cfg_pkg::*; import dis_pkg::*; import bpu_pkg:
   end
 
   // next-state of the update bundle: payload only for valid slots
-  logic        upd_valid_d  [COMMIT_WIDTH];
+  logic [COMMIT_WIDTH-1:0] upd_valid_d;
   logic [31:0] upd_base_pc_d [COMMIT_WIDTH];
-  logic        upd_actual_dir_d [COMMIT_WIDTH];
+  logic [COMMIT_WIDTH-1:0] upd_actual_dir_d;
   logic [2:0]  upd_br_type_d [COMMIT_WIDTH];
   logic [31:0] upd_target_d [COMMIT_WIDTH];
-  logic        upd_pred_dir_d [COMMIT_WIDTH];
-  logic        upd_alt_pred_d [COMMIT_WIDTH];
+  logic [COMMIT_WIDTH-1:0] upd_pred_dir_d;
+  logic [COMMIT_WIDTH-1:0] upd_alt_pred_d;
   logic [2:0]  upd_pcpn_d [COMMIT_WIDTH];
   logic [7:0]  upd_tags_d [COMMIT_WIDTH][TN];
   logic [9:0]  upd_idxs_d [COMMIT_WIDTH][TN];

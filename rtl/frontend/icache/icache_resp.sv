@@ -14,8 +14,8 @@ module icache_resp import icache_pkg::*; import ttg_cfg_pkg::*; (
   input  logic [IC_LINE_W-1:0] resp_line,
   output logic [31:0]          fetch_pc,
   output logic [31:0]          fetch_group [FETCH_WIDTH],
-  output logic                 page_fault_inst [FETCH_WIDTH],
-  output logic                 inst_valid [FETCH_WIDTH]
+  output logic [FETCH_WIDTH-1:0] page_fault_inst,
+  output logic [FETCH_WIDTH-1:0] inst_valid
 );
 
   localparam logic [31:0] INST_NOP = 32'h0000_0013;

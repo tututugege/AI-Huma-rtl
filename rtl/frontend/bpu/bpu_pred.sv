@@ -7,13 +7,13 @@
 //   next pc: boundary, or for the FIRST taken lane its BTB target (RET with a non-empty RAS: the RAS top)
 module bpu_pred import bpu_pkg::*; (
   input  logic                going_to_do_pred,
-  input  logic                lane_valid   [NLANE],
+  input  logic [NLANE-1:0] lane_valid,
   input  logic [BANK_W-1:0]   bank_sel     [NLANE],
   input  logic [31:0]         boundary,
   input  logic [2:0]          lane_type    [NLANE],
   // per-bank results of this cycle's lookups
-  input  logic                tage_pred    [NBANK],
-  input  logic                tage_alt     [NBANK],
+  input  logic [NBANK-1:0] tage_pred,
+  input  logic [NBANK-1:0] tage_alt,
   input  logic [PCPN_W-1:0]   tage_pcpn    [NBANK],
   input  logic [PCPN_W-1:0]   tage_altpcpn [NBANK],
   input  logic [T_TAG_W-1:0]  tage_tags    [NBANK][TN],
@@ -22,8 +22,8 @@ module bpu_pred import bpu_pkg::*; (
   input  logic                ras_has,
   input  logic [31:0]         ras_top,
   // outputs
-  output logic                lane_taken   [NLANE],        // final_pred_dir
-  output logic                out_alt_pred [NLANE],
+  output logic [NLANE-1:0] lane_taken,        // final_pred_dir
+  output logic [NLANE-1:0] out_alt_pred,
   output logic [PCPN_W-1:0]   out_pcpn     [NLANE],
   output logic [PCPN_W-1:0]   out_altpcpn  [NLANE],
   output logic [T_TAG_W-1:0]  out_tags     [NLANE][TN],

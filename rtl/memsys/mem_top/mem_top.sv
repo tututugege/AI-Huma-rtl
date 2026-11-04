@@ -212,7 +212,7 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
 
   // ======================= ptw_walk =======================
   // client 0 = DTLB, 1 = ITLB
-  logic                 pw_c_req_valid [PT_NCLIENT];
+  logic [PT_NCLIENT-1:0] pw_c_req_valid;
   logic [PT_VPN_W-1:0]  pw_c_req_vpn [PT_NCLIENT];
   logic [PT_PPN_IN_W-1:0] pw_c_req_root [PT_NCLIENT];
   logic                 pw_c_consumed [PT_NCLIENT], pw_c_flush [PT_NCLIENT];
@@ -220,7 +220,7 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
   logic [PT_VPN_W-1:0]  pw_c_resp_vpn [PT_NCLIENT];
   logic [PT_PPN_W-1:0]  pw_c_resp_ppn [PT_NCLIENT];
   logic [PT_PERM_W-1:0] pw_c_resp_perm [PT_NCLIENT];
-  logic                 pw_c_resp_level [PT_NCLIENT];
+  logic [PT_NCLIENT-1:0] pw_c_resp_level;
 
   assign pw_c_req_valid[0] = dtlb_walk_req_valid;
   assign pw_c_req_vpn[0]   = dtlb_walk_req_vpn;

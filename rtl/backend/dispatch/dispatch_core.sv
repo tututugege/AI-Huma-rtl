@@ -11,7 +11,7 @@ module dispatch_core
   input  logic                          clk,
   input  logic                          rst_n,
   // rename
-  input  logic                          ren_valid [NUM_SLOTS],
+  input  logic [NUM_SLOTS-1:0] ren_valid,
   input  dis_inst_t                     ren_inst  [NUM_SLOTS],
   output logic                          dis2ren_ready,
   // rob
@@ -20,7 +20,7 @@ module dispatch_core
   input  logic                          rob_stall,
   input  logic [ROB_LINE_W-1:0]         rob_enq_line,   // ROB line the group will occupy
   input  logic                          rob_enq_flag,
-  output logic                          dis_fire  [NUM_SLOTS],
+  output logic [NUM_SLOTS-1:0] dis_fire,
   output dis_inst_t                     rob_inst  [NUM_SLOTS],
   output dis_res_t                      rob_res   [NUM_SLOTS],
   output logic [CPLT_MASK_W-1:0]        rob_expect_mask [NUM_SLOTS],
@@ -34,20 +34,20 @@ module dispatch_core
   input  logic [STQ_FREE_W-1:0]         stq_free,
   input  logic [LDQ_FREE_W-1:0]         ldq_free,
   input  logic [LDQ_IDX_WIDTH-1:0]      ldq_alloc_idx   [LDQ_PORTS],
-  input  logic                          ldq_alloc_valid [LDQ_PORTS],
-  output logic                          st_req      [STQ_PORTS],
+  input  logic [LDQ_PORTS-1:0] ldq_alloc_valid,
+  output logic [STQ_PORTS-1:0] st_req,
   output logic [BR_MASK_WIDTH-1:0]      st_br_mask  [STQ_PORTS],
   output logic [2:0]                    st_func3    [STQ_PORTS],
   output logic [ROB_IDX_WIDTH-1:0]      st_rob_idx  [STQ_PORTS],
-  output logic                          st_rob_flag [STQ_PORTS],
-  output logic                          st_stq_flag [STQ_PORTS],
-  output logic                          ld_req      [LDQ_PORTS],
+  output logic [STQ_PORTS-1:0] st_rob_flag,
+  output logic [STQ_PORTS-1:0] st_stq_flag,
+  output logic [LDQ_PORTS-1:0] ld_req,
   output logic [LDQ_IDX_WIDTH-1:0]      ld_idx      [LDQ_PORTS],
   output logic [BR_MASK_WIDTH-1:0]      ld_br_mask  [LDQ_PORTS],
   output logic [ROB_IDX_WIDTH-1:0]      ld_rob_idx  [LDQ_PORTS],
-  output logic                          ld_rob_flag [LDQ_PORTS],
+  output logic [LDQ_PORTS-1:0] ld_rob_flag,
   // wakeups (prf_awake ports first, then iss_awake ports) and branch / flush broadcasts
-  input  logic                          wake_valid [NUM_WAKE],
+  input  logic [NUM_WAKE-1:0] wake_valid,
   input  logic [PRF_IDX_WIDTH-1:0]      wake_preg  [NUM_WAKE],
   input  logic                          rob_flush,
   input  logic                          dec_mispred,
@@ -55,15 +55,15 @@ module dispatch_core
 );
 
   // ---- register stage and static classification ----
-  logic       inst_valid [NUM_SLOTS];
+  logic [NUM_SLOTS-1:0] inst_valid;
   dis_inst_t  inst_q     [NUM_SLOTS];
   dis_inst_t  alloc_inst [NUM_SLOTS];   // inst_alloc[]: br_mask cleaned
   dis_class_t cls        [NUM_SLOTS];
-  logic       is_load  [NUM_SLOTS];
-  logic       is_store [NUM_SLOTS];
-  logic       is_csr_like [NUM_SLOTS];
-  logic       is_amo   [NUM_SLOTS];
-  logic       is_wfi   [NUM_SLOTS];
+  logic [NUM_SLOTS-1:0] is_load;
+  logic [NUM_SLOTS-1:0] is_store;
+  logic [NUM_SLOTS-1:0] is_csr_like;
+  logic [NUM_SLOTS-1:0] is_amo;
+  logic [NUM_SLOTS-1:0] is_wfi;
 
   always_comb begin
     for (int i = 0; i < NUM_SLOTS; i++) begin
@@ -80,12 +80,12 @@ module dispatch_core
 
   // ---- comb_alloc: ROB slot + LSU entries ----
   logic [STQ_IDX_WIDTH-1:0] stq_idx [NUM_SLOTS];
-  logic                     stq_flag [NUM_SLOTS];
+  logic [NUM_SLOTS-1:0] stq_flag;
   logic [LDQ_IDX_WIDTH-1:0] ldq_idx [NUM_SLOTS];
   logic [STQ_PORTS-1:0]     st_port_sel [NUM_SLOTS];
   logic [LDQ_PORTS-1:0]     ld_port_sel [NUM_SLOTS];
   dis_res_t                 res [NUM_SLOTS];
-  logic                     lsu_ok [NUM_SLOTS];   // load/store got its LSU entry
+  logic [NUM_SLOTS-1:0] lsu_ok;   // load/store got its LSU entry
 
   dispatch_lsu_alloc u_lsu_alloc (
     .inst_valid(inst_valid), .is_load(is_load), .is_store(is_store), .stq_tail(stq_tail),
@@ -109,10 +109,10 @@ module dispatch_core
   logic [PRF_NUM-1:0]      busy_table;
   logic [PRF_IDX_WIDTH-1:0] src_preg [2 * NUM_SLOTS];   // {src2, src1} of lane i at 2i+1, 2i
   logic                    woken_all [2 * NUM_SLOTS];
-  logic                    woken1 [NUM_SLOTS];
-  logic                    woken2 [NUM_SLOTS];
-  logic                    busy1  [NUM_SLOTS];
-  logic                    busy2  [NUM_SLOTS];
+  logic [NUM_SLOTS-1:0] woken1;
+  logic [NUM_SLOTS-1:0] woken2;
+  logic [NUM_SLOTS-1:0] busy1;
+  logic [NUM_SLOTS-1:0] busy2;
 
   always_comb begin
     for (int i = 0; i < NUM_SLOTS; i++) begin
@@ -135,7 +135,7 @@ module dispatch_core
   dis_iss_uop_t            uop_iq [NUM_SLOTS][IQ_NUM];
   logic [CPLT_MASK_W-1:0]  expect_mask [NUM_SLOTS];
   logic [IQ_PORT_W-1:0]    port_idx [NUM_SLOTS][IQ_NUM];
-  logic                    fit [NUM_SLOTS];
+  logic [NUM_SLOTS-1:0] fit;
 
   for (genvar i = 0; i < NUM_SLOTS; i++) begin : g_decompose
     dis_iss_uop_t lane_uop [IQ_NUM];
@@ -183,7 +183,7 @@ module dispatch_core
     .st_rob_flag(st_rob_flag), .st_stq_flag(st_stq_flag), .ld_req(ld_req), .ld_idx(ld_idx),
     .ld_br_mask(ld_br_mask), .ld_rob_idx(ld_rob_idx), .ld_rob_flag(ld_rob_flag));
 
-  logic                     busy_set_valid [NUM_SLOTS];
+  logic [NUM_SLOTS-1:0] busy_set_valid;
   logic [PRF_IDX_WIDTH-1:0] busy_set_preg  [NUM_SLOTS];
   always_comb begin
     for (int i = 0; i < NUM_SLOTS; i++) begin

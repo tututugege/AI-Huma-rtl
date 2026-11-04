@@ -9,14 +9,14 @@ module dispatch_src_busy
 (
   input  logic [PRF_NUM-1:0] busy_table,
   input  dis_inst_t          inst      [NUM_SLOTS],
-  input  logic               inst_valid [NUM_SLOTS],
-  input  logic               woken1    [NUM_SLOTS],
-  input  logic               woken2    [NUM_SLOTS],
-  output logic               busy1     [NUM_SLOTS],
-  output logic               busy2     [NUM_SLOTS]
+  input  logic [NUM_SLOTS-1:0] inst_valid,
+  input  logic [NUM_SLOTS-1:0] woken1,
+  input  logic [NUM_SLOTS-1:0] woken2,
+  output logic [NUM_SLOTS-1:0] busy1,
+  output logic [NUM_SLOTS-1:0] busy2
 );
 
-  logic dest_written [NUM_SLOTS];   // valid lane writes a real (non-x0) destination
+  logic [NUM_SLOTS-1:0] dest_written;   // valid lane writes a real (non-x0) destination
 
   always_comb begin
     for (int i = 0; i < NUM_SLOTS; i++) begin

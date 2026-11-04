@@ -7,9 +7,9 @@
 module bpu_type import bpu_pkg::*; (
   input  logic        clk,
   input  logic        rst_n,
-  input  logic        pred_valid  [NLANE],
+  input  logic [NLANE-1:0] pred_valid,
   input  logic [31:0] pred_pc     [NLANE],
-  input  logic        upd_valid   [NCOMMIT],
+  input  logic [NCOMMIT-1:0] upd_valid,
   input  logic [31:0] upd_pc      [NCOMMIT],
   input  logic [2:0]  upd_br_type [NCOMMIT],
   output logic [2:0]  pred_type   [NLANE]
@@ -27,7 +27,7 @@ module bpu_type import bpu_pkg::*; (
   tp_entry_t           rd_data1  [NRD];
   tp_entry_t           pred_entry [NLANE][TP_WAYS];
   tp_entry_t           upd_entry_rd [NCOMMIT][TP_WAYS];
-  logic                lane_we    [NCOMMIT];
+  logic [NCOMMIT-1:0] lane_we;
   logic [0:0]          lane_way   [NCOMMIT];
   tp_entry_t           lane_entry [NCOMMIT];
   logic                wr_en0     [NCOMMIT];

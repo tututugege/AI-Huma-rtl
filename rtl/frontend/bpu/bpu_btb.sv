@@ -5,20 +5,20 @@
 module bpu_btb import bpu_pkg::*; (
   input  logic              clk,
   input  logic              rst_n,
-  input  logic              pred_req        [NBANK],
+  input  logic [NBANK-1:0] pred_req,
   input  logic [BPC_W-1:0]  pred_pc         [NBANK],
   input  logic [2:0]        pred_type_in    [NBANK],
-  input  logic              upd_valid       [NBANK],
+  input  logic [NBANK-1:0] upd_valid,
   input  logic [BPC_W-1:0]  upd_pc          [NBANK],
   input  logic [31:0]       upd_actual_addr [NBANK],
   input  logic [2:0]        upd_br_type_in  [NBANK],
-  input  logic              upd_actual_dir  [NBANK],
+  input  logic [NBANK-1:0] upd_actual_dir,
   output logic [31:0]       pred_target     [NBANK]
 );
 
   // pred_req only qualifies pred_target (a lookup has no side effect), so it is not used inside the bank
   /* verilator lint_off UNUSEDSIGNAL */
-  logic pred_req_unused [NBANK];
+  logic [NBANK-1:0] pred_req_unused;
   /* verilator lint_on UNUSEDSIGNAL */
   always_comb begin
     for (int b = 0; b < NBANK; b++) pred_req_unused[b] = pred_req[b];

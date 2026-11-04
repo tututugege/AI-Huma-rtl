@@ -13,15 +13,15 @@ module bpu_hist import bpu_pkg::*; (
   input  logic                rst_n,
   input  logic                refetch,
   input  logic                pred_en,                 // going_to_do_pred
-  input  logic                lane_valid  [NLANE],     // do_pred_on_this_pc
+  input  logic [NLANE-1:0] lane_valid,     // do_pred_on_this_pc
   input  logic [31:0]         lane_pc     [NLANE],
   input  logic [2:0]          lane_type   [NLANE],
-  input  logic                lane_taken  [NLANE],     // final_pred_dir
-  input  logic                upd_valid   [NCOMMIT],
+  input  logic [NLANE-1:0] lane_taken,     // final_pred_dir
+  input  logic [NCOMMIT-1:0] upd_valid,
   input  logic [31:0]         upd_pc      [NCOMMIT],
-  input  logic                actual_dir  [NCOMMIT],
+  input  logic [NCOMMIT-1:0] actual_dir,
   input  logic [2:0]          br_type     [NCOMMIT],
-  input  logic                pred_dir    [NCOMMIT],
+  input  logic [NCOMMIT-1:0] pred_dir,
   output logic [FH_W-1:0]     fh          [FH_K][TN],
   output logic                ras_has,
   output logic [31:0]         ras_top
@@ -112,8 +112,8 @@ module bpu_hist import bpu_pkg::*; (
   logic                spec_push;
   logic                spec_pop;
   logic [31:0]         spec_push_val;
-  logic                arch_push     [NCOMMIT];
-  logic                arch_pop      [NCOMMIT];
+  logic [NCOMMIT-1:0] arch_push;
+  logic [NCOMMIT-1:0] arch_pop;
   logic [31:0]         arch_push_val [NCOMMIT];
   logic [31:0]         first_taken_pc;
   logic [2:0]          spec_taken_type;

@@ -12,12 +12,12 @@ module predecode_checker import ttg_cfg_pkg::*; import front_pkg::*; (
   input  logic        clk,
   input  logic        rst_n,
   /* verilator lint_on UNUSEDSIGNAL */
-  input  logic        predict_dir                           [FETCH_WIDTH],
+  input  logic [FETCH_WIDTH-1:0] predict_dir,
   input  logic [31:0] predict_next_fetch_address,
   input  logic [1:0]  predecode_type                        [FETCH_WIDTH],
   input  logic [31:0] predecode_target_address              [FETCH_WIDTH],
   input  logic [31:0] seq_next_pc,
-  output logic        predict_dir_corrected                 [FETCH_WIDTH],
+  output logic [FETCH_WIDTH-1:0] predict_dir_corrected,
   output logic [31:0] predict_next_fetch_address_corrected,
   output logic        predecode_flush_enable
 );

@@ -8,7 +8,7 @@ module dispatch_iq_req
   import ttg_cfg_pkg::*;
   import dis_pkg::*;
 (
-  input  logic                 fire     [NUM_SLOTS],
+  input  logic [NUM_SLOTS-1:0] fire,
   input  logic [IQ_NUM-1:0]    has_iq   [NUM_SLOTS],
   input  logic [IQ_PORT_W-1:0] port_idx [NUM_SLOTS][IQ_NUM],
   input  dis_iss_uop_t         uop_iq   [NUM_SLOTS][IQ_NUM],

@@ -25,13 +25,13 @@ module front_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; 
   input  logic        csr_status_mstatus_sum,
   input  logic        csr_status_mstatus_mprv,
   input  logic [1:0]  csr_status_mstatus_mpp,
-  input  logic                upd_valid  [NCOMMIT],
+  input  logic [NCOMMIT-1:0] upd_valid,
   input  logic [31:0]         base_pc    [NCOMMIT],
-  input  logic                actual_dir [NCOMMIT],
+  input  logic [NCOMMIT-1:0] actual_dir,
   input  logic [2:0]          br_type    [NCOMMIT],
   input  logic [31:0]         target     [NCOMMIT],
-  input  logic                pred_dir   [NCOMMIT],
-  input  logic                alt_pred   [NCOMMIT],
+  input  logic [NCOMMIT-1:0] pred_dir,
+  input  logic [NCOMMIT-1:0] alt_pred,
   input  logic [PCPN_W-1:0]   pcpn       [NCOMMIT],
   input  logic [T_TAG_W-1:0]  tags       [NCOMMIT][TN],
   input  logic [T_IDX_W-1:0]  idxs       [NCOMMIT][TN],
@@ -55,12 +55,12 @@ module front_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; 
   input  logic        ptw_walk_resp_leaf_level,
   // ---- front end -> back end (front.out, before the back end's no-taken truncation) ----
   output logic        out_valid,
-  output logic        out_lane_valid      [FETCH_WIDTH],
+  output logic [FETCH_WIDTH-1:0] out_lane_valid,
   output logic [31:0] out_instructions    [FETCH_WIDTH],
-  output logic        out_page_fault_inst [FETCH_WIDTH],
-  output logic        out_predict_dir     [FETCH_WIDTH],
+  output logic [FETCH_WIDTH-1:0] out_page_fault_inst,
+  output logic [FETCH_WIDTH-1:0] out_predict_dir,
   output logic [31:0] out_pc              [FETCH_WIDTH],
-  output logic        out_alt_pred        [FETCH_WIDTH],
+  output logic [FETCH_WIDTH-1:0] out_alt_pred,
   output logic [PCPN_W-1:0]     out_altpcpn [FETCH_WIDTH],
   output logic [PCPN_W-1:0]     out_pcpn    [FETCH_WIDTH],
   output logic [TAGE_IDX_W-1:0] out_tage_idx [FETCH_WIDTH][TN_MAX],
@@ -112,13 +112,13 @@ module front_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; 
 
   logic        ic_read_complete;
   logic [31:0] ic_fetch_pc;
-  logic        ic_inst_valid      [FETCH_WIDTH];
-  logic        ic_page_fault_inst [FETCH_WIDTH];
+  logic [FETCH_WIDTH-1:0] ic_inst_valid;
+  logic [FETCH_WIDTH-1:0] ic_page_fault_inst;
   logic [31:0] ic_fetch_group     [FETCH_WIDTH];
 
   logic [31:0] inst_rd_instructions             [FETCH_WIDTH];
-  logic        inst_rd_page_fault_inst          [FETCH_WIDTH];
-  logic        inst_rd_inst_valid               [FETCH_WIDTH];
+  logic [FETCH_WIDTH-1:0] inst_rd_page_fault_inst;
+  logic [FETCH_WIDTH-1:0] inst_rd_inst_valid;
   logic [1:0]  inst_rd_predecode_type           [FETCH_WIDTH];
   logic [31:0] inst_rd_predecode_target_address [FETCH_WIDTH];
   logic [31:0] inst_rd_seq_next_pc;
@@ -160,7 +160,7 @@ module front_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; 
   );
 
   // ---- prediction side + front.out ----
-  logic out_inst_valid [FETCH_WIDTH];
+  logic [FETCH_WIDTH-1:0] out_inst_valid;
 
   front_pred_path u_pred_path (
     .clk, .rst_n,

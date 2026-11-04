@@ -290,13 +290,13 @@ long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
     }
     if (phase == 0 && top->rst_n) {   // the CPU acts in tick 0: look at the retirement stream before the edge
       for (int i = 0; i < 8; ++i)
-        if (top->rob_commit_commit_entry_valid[i]) {
+        if (ttg_getbit(top->rob_commit_commit_entry_valid, i)) {
           ++committed;
           if (std::getenv("SOC_TB_COMMIT")) std::fprintf(stderr, "[cyc %llu] commit[%d] type=%d pc=%08x\n", (unsigned long long)cycles + 1, i,
                                                          top->rob_commit_commit_entry_uop_type[i], top->ftq_commit_info_resp_pc[i]);
           if (top->rob_commit_commit_entry_uop_type[i] == kUopEbreak) done = true;
           // SimCpu::commit_sync: a committing store applies its device effect (PeripheralModel::on_commit_store) from the STQ entry
-          if (top->rob_commit_commit_entry_uop_type[i] == kInstStore && !top->rob_commit_commit_entry_uop_page_fault_store[i]) {
+          if (top->rob_commit_commit_entry_uop_type[i] == kInstStore && !ttg_getbit(top->rob_commit_commit_entry_uop_page_fault_store, i)) {
             const auto &fld = top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__u_lsu__DOT__u_core__DOT__st_fld_q[top->rob_commit_commit_entry_uop_stq_idx[i]];
             auto bits = [&](int lo, int w) { uint64_t v = 0; for (int b = 0; b < w; ++b) { int k = lo + b; v |= uint64_t((fld[k / 32] >> (k % 32)) & 1u) << b; } return uint32_t(v); };
             if (!bits(3, 1) && bits(5, 1) && bits(6, 1)) periph.on_commit_store(bits(91, 32), bits(155, 32), uint8_t(bits(88, 3)));

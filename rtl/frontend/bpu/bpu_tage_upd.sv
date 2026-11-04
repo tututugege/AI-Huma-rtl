@@ -21,12 +21,12 @@ module bpu_tage_upd import bpu_pkg::*; (
   // write requests
   output logic                base_we,
   output logic [1:0]          base_wdata,
-  output logic                cnt_we      [TN],
+  output logic [TN-1:0] cnt_we,
   output logic [2:0]          cnt_wdata   [TN],
-  output logic                useful_we   [TN],
+  output logic [TN-1:0] useful_we,
   output logic [1:0]          useful_wdata [TN],
-  output logic                tag_we      [TN],
-  output logic                reset_we    [TN],         // useful row-clear write of table i
+  output logic [TN-1:0] tag_we,
+  output logic [TN-1:0] reset_we,         // useful row-clear write of table i
   output logic [T_IDX_W-1:0]  reset_row,
   output logic [1:0]          reset_wdata [TN],
   output logic                use_alt_we,

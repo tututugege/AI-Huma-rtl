@@ -20,7 +20,7 @@ module back_top_glue
   input  logic [31:0] br_latch_redirect_pc,
   input  logic        dec_bcast_mispred,
   input  logic        pre2front_ready,
-  input  logic        rob_commit_commit_entry_valid [COMMIT_WIDTH],
+  input  logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_valid,
   input  logic [31:0] rob_commit_commit_entry_uop_diag_val [COMMIT_WIDTH],
   input  logic [31:0] csr_status_mstatus,
   input  logic [6:0]  rob_commit_commit_entry_uop_func7 [COMMIT_WIDTH],
@@ -56,7 +56,7 @@ module back_top_glue
   end
   // (rob_commit_commit_entry_valid only qualifies the diag_val in the boundary spec; the override itself is per slot)
   logic commit_valid_unused;  // lint: kept as a port so the glue's interface documents the qualification
-  assign commit_valid_unused = rob_commit_commit_entry_valid[0];
+  assign commit_valid_unused = |rob_commit_commit_entry_valid;
 
   // LSU reads the AMO sub-opcode of committed stores (RealLsu::comb_stq_commit): amo_op = func7[6:2]
   for (genvar i = 0; i < COMMIT_WIDTH; i++) begin : g_amo

@@ -17,24 +17,24 @@ module core_front2back import ttg_cfg_pkg::*; import front_pkg::*; (
   input  logic        rst_n,
   input  logic        can_read,
   // front.out
-  input  logic        lane_valid       [FETCH_WIDTH],
+  input  logic [FETCH_WIDTH-1:0] lane_valid,
   input  logic [31:0] instructions     [FETCH_WIDTH],
-  input  logic        page_fault_inst  [FETCH_WIDTH],
-  input  logic        predict_dir      [FETCH_WIDTH],
+  input  logic [FETCH_WIDTH-1:0] page_fault_inst,
+  input  logic [FETCH_WIDTH-1:0] predict_dir,
   input  logic [31:0] pc               [FETCH_WIDTH],
-  input  logic        alt_pred         [FETCH_WIDTH],
+  input  logic [FETCH_WIDTH-1:0] alt_pred,
   input  logic [PCPN_W-1:0]       altpcpn [FETCH_WIDTH],
   input  logic [PCPN_W-1:0]       pcpn    [FETCH_WIDTH],
   input  logic [TAGE_IDX_W-1:0]   tage_idx [FETCH_WIDTH][TN_MAX],
   input  logic [TAGE_TAG_W-1:0]   tage_tag [FETCH_WIDTH][TN_MAX],
   input  logic [31:0] predict_next_fetch_address,
   // back.in (front part)
-  output logic        back_valid       [BACKEND_FETCH_WIDTH],
+  output logic [BACKEND_FETCH_WIDTH-1:0] back_valid,
   output logic [31:0] back_inst        [BACKEND_FETCH_WIDTH],
-  output logic        back_page_fault  [BACKEND_FETCH_WIDTH],
+  output logic [BACKEND_FETCH_WIDTH-1:0] back_page_fault,
   output logic [31:0] back_pc          [BACKEND_FETCH_WIDTH],
-  output logic        back_predict_dir [BACKEND_FETCH_WIDTH],
-  output logic        back_alt_pred    [BACKEND_FETCH_WIDTH],
+  output logic [BACKEND_FETCH_WIDTH-1:0] back_predict_dir,
+  output logic [BACKEND_FETCH_WIDTH-1:0] back_alt_pred,
   output logic [PCPN_W-1:0]       back_altpcpn [BACKEND_FETCH_WIDTH],
   output logic [PCPN_W-1:0]       back_pcpn    [BACKEND_FETCH_WIDTH],
   output logic [TAGE_IDX_W-1:0]   back_tage_idx [BACKEND_FETCH_WIDTH][TN_MAX],
@@ -47,7 +47,7 @@ module core_front2back import ttg_cfg_pkg::*; import front_pkg::*; (
   // ---- cut after the first predicted-taken valid lane ----
   logic [FETCH_WIDTH-1:0] taken_lane;      // lane valid and predicted taken (before the cut)
   logic [FETCH_WIDTH-1:0] cut_before;      // a taken lane exists below this one
-  logic                   cut_valid [FETCH_WIDTH];
+  logic [FETCH_WIDTH-1:0] cut_valid;
 
   always_comb begin
     for (int j = 0; j < FETCH_WIDTH; j++) begin
@@ -60,12 +60,12 @@ module core_front2back import ttg_cfg_pkg::*; import front_pkg::*; (
   end
 
   // ---- front end group in the 16-lane back-end format ----
-  logic        fe_valid       [BACKEND_FETCH_WIDTH];
+  logic [BACKEND_FETCH_WIDTH-1:0] fe_valid;
   logic [31:0] fe_inst        [BACKEND_FETCH_WIDTH];
-  logic        fe_page_fault  [BACKEND_FETCH_WIDTH];
+  logic [BACKEND_FETCH_WIDTH-1:0] fe_page_fault;
   logic [31:0] fe_pc          [BACKEND_FETCH_WIDTH];
-  logic        fe_predict_dir [BACKEND_FETCH_WIDTH];
-  logic        fe_alt_pred    [BACKEND_FETCH_WIDTH];
+  logic [BACKEND_FETCH_WIDTH-1:0] fe_predict_dir;
+  logic [BACKEND_FETCH_WIDTH-1:0] fe_alt_pred;
   logic [PCPN_W-1:0]     fe_altpcpn [BACKEND_FETCH_WIDTH];
   logic [PCPN_W-1:0]     fe_pcpn    [BACKEND_FETCH_WIDTH];
   logic [TAGE_IDX_W-1:0] fe_tage_idx [BACKEND_FETCH_WIDTH][TN_MAX];
@@ -99,12 +99,12 @@ module core_front2back import ttg_cfg_pkg::*; import front_pkg::*; (
   end
 
   // ---- hold register: the group as the back end saw it, minus the lanes it accepted ----
-  logic        hold_valid_q       [BACKEND_FETCH_WIDTH];
+  logic [BACKEND_FETCH_WIDTH-1:0] hold_valid_q;
   logic [31:0] hold_inst_q        [BACKEND_FETCH_WIDTH];
-  logic        hold_page_fault_q  [BACKEND_FETCH_WIDTH];
+  logic [BACKEND_FETCH_WIDTH-1:0] hold_page_fault_q;
   logic [31:0] hold_pc_q          [BACKEND_FETCH_WIDTH];
-  logic        hold_predict_dir_q [BACKEND_FETCH_WIDTH];
-  logic        hold_alt_pred_q    [BACKEND_FETCH_WIDTH];
+  logic [BACKEND_FETCH_WIDTH-1:0] hold_predict_dir_q;
+  logic [BACKEND_FETCH_WIDTH-1:0] hold_alt_pred_q;
   logic [PCPN_W-1:0]     hold_altpcpn_q [BACKEND_FETCH_WIDTH];
   logic [PCPN_W-1:0]     hold_pcpn_q    [BACKEND_FETCH_WIDTH];
   logic [TAGE_IDX_W-1:0] hold_tage_idx_q [BACKEND_FETCH_WIDTH][TN_MAX];

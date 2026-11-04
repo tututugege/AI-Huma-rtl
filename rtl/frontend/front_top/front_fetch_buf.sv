@@ -21,15 +21,15 @@ module front_fetch_buf import ttg_cfg_pkg::*; import front_pkg::*; (
   // icache response
   input  logic        ic_read_complete,
   input  logic [31:0] ic_fetch_pc,
-  input  logic        ic_inst_valid      [FETCH_WIDTH],
-  input  logic        ic_page_fault_inst [FETCH_WIDTH],
+  input  logic [FETCH_WIDTH-1:0] ic_inst_valid,
+  input  logic [FETCH_WIDTH-1:0] ic_page_fault_inst,
   input  logic [31:0] ic_fetch_group     [FETCH_WIDTH],
   // instruction queue read side (head of the queue, valid when predecode_can_run)
   input  logic        inst_rd_en,
   output logic        inst_empty,
   output logic [31:0] inst_rd_instructions            [FETCH_WIDTH],
-  output logic        inst_rd_page_fault_inst         [FETCH_WIDTH],
-  output logic        inst_rd_inst_valid              [FETCH_WIDTH],
+  output logic [FETCH_WIDTH-1:0] inst_rd_page_fault_inst,
+  output logic [FETCH_WIDTH-1:0] inst_rd_inst_valid,
   output logic [1:0]  inst_rd_predecode_type          [FETCH_WIDTH],
   output logic [31:0] inst_rd_predecode_target_address [FETCH_WIDTH],
   output logic [31:0] inst_rd_seq_next_pc

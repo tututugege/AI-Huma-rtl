@@ -20,7 +20,7 @@ module bpu_ctrl import bpu_pkg::*; import ttg_cfg_pkg::*; (
   input  logic [31:0]         next_pc,              // predicted next fetch address of this group
   output logic [31:0]         pred_base,
   output logic [31:0]         boundary,
-  output logic                lane_valid [NLANE],
+  output logic [NLANE-1:0] lane_valid,
   output logic [31:0]         lane_pc    [NLANE],
   output logic                going_to_do_pred,
   output logic                icache_read_valid,

@@ -10,7 +10,7 @@ module predecode import ttg_cfg_pkg::*; import front_pkg::*; (
   /* verilator lint_on UNUSEDSIGNAL */
   input  logic [31:0] fetch_pc,
   input  logic [31:0] inst                     [FETCH_WIDTH],
-  input  logic        inst_valid               [FETCH_WIDTH],
+  input  logic [FETCH_WIDTH-1:0] inst_valid,
   output logic [1:0]  predecode_type           [FETCH_WIDTH],
   output logic [31:0] predecode_target_address [FETCH_WIDTH]
 );

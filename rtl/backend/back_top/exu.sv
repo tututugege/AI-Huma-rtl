@@ -16,19 +16,19 @@ module exu
   input  logic [63:0] dec_bcast_br_mask,
   input  logic [63:0] dec_bcast_clear_mask,
   input  logic [31:0] csr2exe_rdata,
-  input  logic prf2exe_iss_entry_valid [ISSUE_WIDTH],
+  input  logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_valid,
   input  logic [31:0] prf2exe_iss_entry_uop_pc [ISSUE_WIDTH],
-  input  logic prf2exe_iss_entry_uop_ftq_pred_taken [ISSUE_WIDTH],
+  input  logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_ftq_pred_taken,
   input  logic [31:0] prf2exe_iss_entry_uop_ftq_next_pc [ISSUE_WIDTH],
   input  logic [6:0] prf2exe_iss_entry_uop_dest_preg [ISSUE_WIDTH],
   input  logic [31:0] prf2exe_iss_entry_uop_src1_rdata [ISSUE_WIDTH],
   input  logic [31:0] prf2exe_iss_entry_uop_src2_rdata [ISSUE_WIDTH],
   input  logic [5:0] prf2exe_iss_entry_uop_ftq_idx [ISSUE_WIDTH],
-  input  logic prf2exe_iss_entry_uop_is_atomic [ISSUE_WIDTH],
-  input  logic prf2exe_iss_entry_uop_dest_en [ISSUE_WIDTH],
-  input  logic prf2exe_iss_entry_uop_src1_en [ISSUE_WIDTH],
-  input  logic prf2exe_iss_entry_uop_src1_is_pc [ISSUE_WIDTH],
-  input  logic prf2exe_iss_entry_uop_src2_is_imm [ISSUE_WIDTH],
+  input  logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_is_atomic,
+  input  logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_dest_en,
+  input  logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_src1_en,
+  input  logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_src1_is_pc,
+  input  logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_src2_is_imm,
   input  logic [2:0] prf2exe_iss_entry_uop_func3 [ISSUE_WIDTH],
   input  logic [6:0] prf2exe_iss_entry_uop_func7 [ISSUE_WIDTH],
   input  logic [31:0] prf2exe_iss_entry_uop_imm [ISSUE_WIDTH],
@@ -36,9 +36,9 @@ module exu
   input  logic [63:0] prf2exe_iss_entry_uop_br_mask [ISSUE_WIDTH],
   input  logic [6:0] prf2exe_iss_entry_uop_rob_idx [ISSUE_WIDTH],
   input  logic [5:0] prf2exe_iss_entry_uop_stq_idx [ISSUE_WIDTH],
-  input  logic prf2exe_iss_entry_uop_stq_flag [ISSUE_WIDTH],
+  input  logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_stq_flag,
   input  logic [5:0] prf2exe_iss_entry_uop_ldq_idx [ISSUE_WIDTH],
-  input  logic prf2exe_iss_entry_uop_rob_flag [ISSUE_WIDTH],
+  input  logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_rob_flag,
   input  logic [4:0] prf2exe_iss_entry_uop_op [ISSUE_WIDTH],
   input  logic [11:0] prf2exe_iss_entry_uop_csr_idx,
   input  logic [31:0] lsu2exe_wb_req_uop_diag_val [LSU_LOAD_WB_WIDTH],
@@ -46,65 +46,65 @@ module exu
   input  logic [6:0] lsu2exe_wb_req_uop_dest_preg [LSU_LOAD_WB_WIDTH],
   input  logic [63:0] lsu2exe_wb_req_uop_br_mask [LSU_LOAD_WB_WIDTH],
   input  logic [6:0] lsu2exe_wb_req_uop_rob_idx [LSU_LOAD_WB_WIDTH],
-  input  logic lsu2exe_wb_req_uop_dest_en [LSU_LOAD_WB_WIDTH],
-  input  logic lsu2exe_wb_req_uop_page_fault_load [LSU_LOAD_WB_WIDTH],
-  input  logic lsu2exe_wb_req_uop_page_fault_store [LSU_LOAD_WB_WIDTH],
-  input  logic lsu2exe_wb_req_valid [LSU_LOAD_WB_WIDTH],
-  input  logic lsu2exe_sta_wb_req_valid [LSU_STA_COUNT],
+  input  logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_dest_en,
+  input  logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_page_fault_load,
+  input  logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_page_fault_store,
+  input  logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_valid,
+  input  logic [LSU_STA_COUNT-1:0] lsu2exe_sta_wb_req_valid,
   input  logic [31:0] lsu2exe_sta_wb_req_uop_diag_val [LSU_STA_COUNT],
   input  logic [31:0] lsu2exe_sta_wb_req_uop_result [LSU_STA_COUNT],
   input  logic [63:0] lsu2exe_sta_wb_req_uop_br_mask [LSU_STA_COUNT],
   input  logic [6:0] lsu2exe_sta_wb_req_uop_rob_idx [LSU_STA_COUNT],
-  input  logic lsu2exe_sta_wb_req_uop_page_fault_store [LSU_STA_COUNT],
+  input  logic [LSU_STA_COUNT-1:0] lsu2exe_sta_wb_req_uop_page_fault_store,
   output logic exe2csr_we,
   output logic exe2csr_re,
   output logic [11:0] exe2csr_idx,
   output logic [31:0] exe2csr_wdata,
   output logic [1:0] exe2csr_wcmd,
   output logic [17:0] exe2iss_fu_ready_mask [ISSUE_WIDTH],
-  output logic exe2prf_entry_valid [ISSUE_WIDTH],
+  output logic [ISSUE_WIDTH-1:0] exe2prf_entry_valid,
   output logic [6:0] exe2prf_entry_uop_dest_preg [ISSUE_WIDTH],
   output logic [31:0] exe2prf_entry_uop_result [ISSUE_WIDTH],
   output logic [63:0] exe2prf_entry_uop_br_mask [ISSUE_WIDTH],
-  output logic exe2prf_entry_uop_dest_en [ISSUE_WIDTH],
+  output logic [ISSUE_WIDTH-1:0] exe2prf_entry_uop_dest_en,
   output logic [4:0] exe2prf_entry_uop_op [ISSUE_WIDTH],
-  output logic exe2prf_bypass_valid [TOTAL_FU_COUNT],
+  output logic [TOTAL_FU_COUNT-1:0] exe2prf_bypass_valid,
   output logic [6:0] exe2prf_bypass_uop_dest_preg [TOTAL_FU_COUNT],
   output logic [31:0] exe2prf_bypass_uop_result [TOTAL_FU_COUNT],
-  output logic exe2prf_bypass_uop_dest_en [TOTAL_FU_COUNT],
-  output logic exu2rob_entry_valid [ISSUE_WIDTH],
+  output logic [TOTAL_FU_COUNT-1:0] exe2prf_bypass_uop_dest_en,
+  output logic [ISSUE_WIDTH-1:0] exu2rob_entry_valid,
   output logic [6:0] exu2rob_entry_uop_rob_idx [ISSUE_WIDTH],
   output logic [4:0] exu2rob_entry_uop_op [ISSUE_WIDTH],
   output logic [31:0] exu2rob_entry_uop_diag_val [ISSUE_WIDTH],
   output logic [31:0] exu2rob_entry_uop_result [ISSUE_WIDTH],
-  output logic exu2rob_entry_uop_mispred [ISSUE_WIDTH],
+  output logic [ISSUE_WIDTH-1:0] exu2rob_entry_uop_mispred,
   output logic exu2rob_entry_uop_br_taken [ISSUE_WIDTH],
-  output logic exu2rob_entry_uop_page_fault_load [ISSUE_WIDTH],
-  output logic exu2rob_entry_uop_page_fault_store [ISSUE_WIDTH],
-  output logic exe2lsu_ldu_req_valid [LSU_LDU_COUNT],
+  output logic [ISSUE_WIDTH-1:0] exu2rob_entry_uop_page_fault_load,
+  output logic [ISSUE_WIDTH-1:0] exu2rob_entry_uop_page_fault_store,
+  output logic [LSU_LDU_COUNT-1:0] exe2lsu_ldu_req_valid,
   output logic [31:0] exe2lsu_ldu_req_uop_result [LSU_LDU_COUNT],
   output logic [6:0] exe2lsu_ldu_req_uop_dest_preg [LSU_LDU_COUNT],
   output logic [2:0] exe2lsu_ldu_req_uop_func3 [LSU_LDU_COUNT],
-  output logic exe2lsu_ldu_req_uop_is_atomic [LSU_LDU_COUNT],
+  output logic [LSU_LDU_COUNT-1:0] exe2lsu_ldu_req_uop_is_atomic,
   output logic [4:0] exe2lsu_ldu_req_uop_amo_op [LSU_LDU_COUNT],
   output logic [6:0] exe2lsu_ldu_req_uop_rob_idx [LSU_LDU_COUNT],
   output logic exe2lsu_ldu_req_uop_rob_flag [LSU_LDU_COUNT],
   output logic [5:0] exe2lsu_ldu_req_uop_stq_idx [LSU_LDU_COUNT],
   output logic exe2lsu_ldu_req_uop_stq_flag [LSU_LDU_COUNT],
   output logic [5:0] exe2lsu_ldu_req_uop_ldq_idx [LSU_LDU_COUNT],
-  output logic exe2lsu_sta_req_valid [LSU_STA_COUNT],
+  output logic [LSU_STA_COUNT-1:0] exe2lsu_sta_req_valid,
   output logic [31:0] exe2lsu_sta_req_uop_result [LSU_STA_COUNT],
   output logic [6:0] exe2lsu_sta_req_uop_dest_preg [LSU_STA_COUNT],
   output logic [2:0] exe2lsu_sta_req_uop_func3 [LSU_STA_COUNT],
-  output logic exe2lsu_sta_req_uop_is_atomic [LSU_STA_COUNT],
+  output logic [LSU_STA_COUNT-1:0] exe2lsu_sta_req_uop_is_atomic,
   output logic [4:0] exe2lsu_sta_req_uop_amo_op [LSU_STA_COUNT],
   output logic [6:0] exe2lsu_sta_req_uop_rob_idx [LSU_STA_COUNT],
   output logic exe2lsu_sta_req_uop_rob_flag [LSU_STA_COUNT],
   output logic [5:0] exe2lsu_sta_req_uop_stq_idx [LSU_STA_COUNT],
-  output logic exe2lsu_sdu_req_valid [LSU_SDU_COUNT],
+  output logic [LSU_SDU_COUNT-1:0] exe2lsu_sdu_req_valid,
   output logic [31:0] exe2lsu_sdu_req_uop_result [LSU_SDU_COUNT],
   output logic [6:0] exe2lsu_sdu_req_uop_rob_idx [LSU_SDU_COUNT],
-  output logic exe2lsu_sdu_req_uop_rob_flag [LSU_SDU_COUNT],
+  output logic [LSU_SDU_COUNT-1:0] exe2lsu_sdu_req_uop_rob_flag,
   output logic [5:0] exe2lsu_sdu_req_uop_stq_idx [LSU_SDU_COUNT],
   output logic exu2id_mispred,
   output logic [63:0] exu2id_clear_mask,
@@ -123,11 +123,11 @@ module exu
   logic [31:0] fu_bru_diag_val [BRU_NUM];
   logic fu_bru_mispred [BRU_NUM];
   logic fu_bru_br_taken [BRU_NUM];
-  logic fu_mc_ready [N_MC];
-  logic fu_mc_complete [N_MC];
+  logic [N_MC-1:0] fu_mc_ready;
+  logic [N_MC-1:0] fu_mc_complete;
   logic [31:0] fu_mc_result [N_MC];
   logic [PRF_IDX_WIDTH-1:0] fu_mc_dest_preg [N_MC];
-  logic fu_mc_dest_en [N_MC];
+  logic [N_MC-1:0] fu_mc_dest_en;
   logic [BR_MASK_WIDTH-1:0] fu_mc_br_mask [N_MC];
   logic [ROB_IDX_WIDTH-1:0] fu_mc_rob_idx [N_MC];
 
@@ -162,8 +162,8 @@ module exu
   logic [6:0] exu2fu_sdu_func7 [LSU_SDU_COUNT];
   logic [31:0] exu2fu_sdu_src1_rdata [LSU_SDU_COUNT];
   logic [31:0] exu2fu_sdu_src2_rdata [LSU_SDU_COUNT];
-  logic exu2fu_mc_en [N_MC];
-  logic exu2fu_mc_consume [N_MC];
+  logic [N_MC-1:0] exu2fu_mc_en;
+  logic [N_MC-1:0] exu2fu_mc_consume;
   logic [2:0] exu2fu_mc_func3 [N_MC];
   logic [6:0] exu2fu_mc_func7 [N_MC];
   logic [XC_OP_W-1:0] exu2fu_mc_op [N_MC];
@@ -171,7 +171,7 @@ module exu
   logic [31:0] exu2fu_mc_src1_rdata [N_MC];
   logic [31:0] exu2fu_mc_src2_rdata [N_MC];
   logic [PRF_IDX_WIDTH-1:0] exu2fu_mc_dest_preg [N_MC];
-  logic exu2fu_mc_dest_en [N_MC];
+  logic [N_MC-1:0] exu2fu_mc_dest_en;
   logic [BR_MASK_WIDTH-1:0] exu2fu_mc_br_mask [N_MC];
   logic [ROB_IDX_WIDTH-1:0] exu2fu_mc_rob_idx [N_MC];
 

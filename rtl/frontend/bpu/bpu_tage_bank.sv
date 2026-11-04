@@ -46,12 +46,12 @@ module bpu_tage_bank import bpu_pkg::*; (
   // update decisions
   logic                base_we;
   logic [1:0]          base_wdata;
-  logic                cnt_we     [TN];
+  logic [TN-1:0] cnt_we;
   logic [2:0]          cnt_wdata  [TN];
-  logic                useful_we  [TN];
+  logic [TN-1:0] useful_we;
   logic [1:0]          useful_wdata [TN];
-  logic                tag_we     [TN];
-  logic                reset_we   [TN];
+  logic [TN-1:0] tag_we;
+  logic [TN-1:0] reset_we;
   logic [T_IDX_W-1:0]  reset_row;
   logic [1:0]          reset_wdata [TN];
   logic                use_alt_we;

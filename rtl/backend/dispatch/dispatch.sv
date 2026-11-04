@@ -9,7 +9,7 @@ module dispatch
 (
   input  logic clk,
   input  logic rst_n,
-  input  logic ren2dis_valid [DECODE_WIDTH],
+  input  logic [DECODE_WIDTH-1:0] ren2dis_valid,
   input  logic [31:0] ren2dis_uop_diag_val [DECODE_WIDTH],
   input  logic [5:0] ren2dis_uop_dest_areg [DECODE_WIDTH],
   input  logic [5:0] ren2dis_uop_src1_areg [DECODE_WIDTH],
@@ -19,22 +19,22 @@ module dispatch
   input  logic [6:0] ren2dis_uop_old_dest_preg [DECODE_WIDTH],
   input  logic [5:0] ren2dis_uop_ftq_idx [DECODE_WIDTH],
   input  logic [3:0] ren2dis_uop_ftq_offset [DECODE_WIDTH],
-  input  logic ren2dis_uop_ftq_is_last [DECODE_WIDTH],
+  input  logic [DECODE_WIDTH-1:0] ren2dis_uop_ftq_is_last,
   input  logic [4:0] ren2dis_uop_type [DECODE_WIDTH],
-  input  logic ren2dis_uop_dest_en [DECODE_WIDTH],
-  input  logic ren2dis_uop_src1_en [DECODE_WIDTH],
-  input  logic ren2dis_uop_src2_en [DECODE_WIDTH],
-  input  logic ren2dis_uop_is_atomic [DECODE_WIDTH],
-  input  logic ren2dis_uop_src1_is_pc [DECODE_WIDTH],
-  input  logic ren2dis_uop_src2_is_imm [DECODE_WIDTH],
+  input  logic [DECODE_WIDTH-1:0] ren2dis_uop_dest_en,
+  input  logic [DECODE_WIDTH-1:0] ren2dis_uop_src1_en,
+  input  logic [DECODE_WIDTH-1:0] ren2dis_uop_src2_en,
+  input  logic [DECODE_WIDTH-1:0] ren2dis_uop_is_atomic,
+  input  logic [DECODE_WIDTH-1:0] ren2dis_uop_src1_is_pc,
+  input  logic [DECODE_WIDTH-1:0] ren2dis_uop_src2_is_imm,
   input  logic [2:0] ren2dis_uop_func3 [DECODE_WIDTH],
   input  logic [6:0] ren2dis_uop_func7 [DECODE_WIDTH],
   input  logic [31:0] ren2dis_uop_imm [DECODE_WIDTH],
   input  logic [5:0] ren2dis_uop_br_id [DECODE_WIDTH],
   input  logic [63:0] ren2dis_uop_br_mask [DECODE_WIDTH],
   input  logic [11:0] ren2dis_uop_csr_idx [DECODE_WIDTH],
-  input  logic ren2dis_uop_page_fault_inst [DECODE_WIDTH],
-  input  logic ren2dis_uop_illegal_inst [DECODE_WIDTH],
+  input  logic [DECODE_WIDTH-1:0] ren2dis_uop_page_fault_inst,
+  input  logic [DECODE_WIDTH-1:0] ren2dis_uop_illegal_inst,
   input  logic rob2dis_ready,
   input  logic rob2dis_empty,
   input  logic rob2dis_stall,
@@ -49,16 +49,16 @@ module dispatch
   input  logic [6:0] lsu2dis_stq_free,
   input  logic [6:0] lsu2dis_ldq_free,
   input  logic [5:0] lsu2dis_ldq_alloc_idx [DECODE_WIDTH],
-  input  logic lsu2dis_ldq_alloc_valid [DECODE_WIDTH],
-  input  logic prf_awake_wake_valid [LSU_LOAD_WB_WIDTH],
+  input  logic [DECODE_WIDTH-1:0] lsu2dis_ldq_alloc_valid,
+  input  logic [LSU_LOAD_WB_WIDTH-1:0] prf_awake_wake_valid,
   input  logic [6:0] prf_awake_wake_preg [LSU_LOAD_WB_WIDTH],
-  input  logic iss_awake_wake_valid [MAX_WAKEUP_PORTS],
+  input  logic [MAX_WAKEUP_PORTS-1:0] iss_awake_wake_valid,
   input  logic [6:0] iss_awake_wake_preg [MAX_WAKEUP_PORTS],
   input  logic rob_bcast_flush,
   input  logic dec_bcast_mispred,
   input  logic [63:0] dec_bcast_clear_mask,
   output logic dis2ren_ready,
-  output logic dis2rob_dis_fire [DECODE_WIDTH],
+  output logic [DECODE_WIDTH-1:0] dis2rob_dis_fire,
   output logic [31:0] dis2rob_uop_diag_val [DECODE_WIDTH],
   output logic [5:0] dis2rob_uop_dest_areg [DECODE_WIDTH],
   output logic [5:0] dis2rob_uop_src1_areg [DECODE_WIDTH],
@@ -66,20 +66,20 @@ module dispatch
   output logic [6:0] dis2rob_uop_old_dest_preg [DECODE_WIDTH],
   output logic [5:0] dis2rob_uop_ftq_idx [DECODE_WIDTH],
   output logic [3:0] dis2rob_uop_ftq_offset [DECODE_WIDTH],
-  output logic dis2rob_uop_ftq_is_last [DECODE_WIDTH],
+  output logic [DECODE_WIDTH-1:0] dis2rob_uop_ftq_is_last,
   output logic [4:0] dis2rob_uop_type [DECODE_WIDTH],
-  output logic dis2rob_uop_dest_en [DECODE_WIDTH],
-  output logic dis2rob_uop_is_atomic [DECODE_WIDTH],
+  output logic [DECODE_WIDTH-1:0] dis2rob_uop_dest_en,
+  output logic [DECODE_WIDTH-1:0] dis2rob_uop_is_atomic,
   output logic [2:0] dis2rob_uop_func3 [DECODE_WIDTH],
   output logic [6:0] dis2rob_uop_func7 [DECODE_WIDTH],
   output logic [31:0] dis2rob_uop_imm [DECODE_WIDTH],
   output logic [6:0] dis2rob_uop_rob_idx [DECODE_WIDTH],
   output logic [5:0] dis2rob_uop_stq_idx [DECODE_WIDTH],
-  output logic dis2rob_uop_stq_flag [DECODE_WIDTH],
+  output logic [DECODE_WIDTH-1:0] dis2rob_uop_stq_flag,
   output logic [2:0] dis2rob_uop_expect_mask [DECODE_WIDTH],
-  output logic dis2rob_uop_rob_flag [DECODE_WIDTH],
-  output logic dis2rob_uop_page_fault_inst [DECODE_WIDTH],
-  output logic dis2rob_uop_illegal_inst [DECODE_WIDTH],
+  output logic [DECODE_WIDTH-1:0] dis2rob_uop_rob_flag,
+  output logic [DECODE_WIDTH-1:0] dis2rob_uop_page_fault_inst,
+  output logic [DECODE_WIDTH-1:0] dis2rob_uop_illegal_inst,
   output logic dis2iss_req_valid [5] [DECODE_WIDTH],
   output logic [6:0] dis2iss_req_uop_dest_preg [5] [DECODE_WIDTH],
   output logic [6:0] dis2iss_req_uop_src1_preg [5] [DECODE_WIDTH],
@@ -106,23 +106,23 @@ module dispatch
   output logic [5:0] dis2iss_req_uop_ldq_idx [5] [DECODE_WIDTH],
   output logic dis2iss_req_uop_rob_flag [5] [DECODE_WIDTH],
   output logic [4:0] dis2iss_req_uop_op [5] [DECODE_WIDTH],
-  output logic dis2lsu_alloc_req [DECODE_WIDTH],
+  output logic [DECODE_WIDTH-1:0] dis2lsu_alloc_req,
   output logic [63:0] dis2lsu_br_mask [DECODE_WIDTH],
   output logic [2:0] dis2lsu_func3 [DECODE_WIDTH],
   output logic [6:0] dis2lsu_rob_idx [DECODE_WIDTH],
-  output logic dis2lsu_rob_flag [DECODE_WIDTH],
-  output logic dis2lsu_stq_flag [DECODE_WIDTH],
-  output logic dis2lsu_ldq_alloc_req [DECODE_WIDTH],
+  output logic [DECODE_WIDTH-1:0] dis2lsu_rob_flag,
+  output logic [DECODE_WIDTH-1:0] dis2lsu_stq_flag,
+  output logic [DECODE_WIDTH-1:0] dis2lsu_ldq_alloc_req,
   output logic [63:0] dis2lsu_ldq_br_mask [DECODE_WIDTH],
   output logic [5:0] dis2lsu_ldq_idx [DECODE_WIDTH],
   output logic [6:0] dis2lsu_ldq_rob_idx [DECODE_WIDTH],
-  output logic dis2lsu_ldq_rob_flag [DECODE_WIDTH]
+  output logic [DECODE_WIDTH-1:0] dis2lsu_ldq_rob_flag
 );
 
-  logic                          ren_valid [NUM_SLOTS];
+  logic [NUM_SLOTS-1:0] ren_valid;
   dis_inst_t                     ren_inst  [NUM_SLOTS];
   logic                          core_ready;
-  logic                          dis_fire  [NUM_SLOTS];
+  logic [NUM_SLOTS-1:0] dis_fire;
   dis_inst_t                     rob_inst  [NUM_SLOTS];
   dis_res_t                      rob_res   [NUM_SLOTS];
   logic [CPLT_MASK_W-1:0]        rob_expect_mask [NUM_SLOTS];
@@ -130,19 +130,19 @@ module dispatch
   logic                          req_valid [IQ_NUM][IQ_PORTS];
   dis_iss_uop_t                  req_uop   [IQ_NUM][IQ_PORTS];
   logic [LDQ_IDX_WIDTH-1:0]      ldq_alloc_idx   [LDQ_PORTS];
-  logic                          ldq_alloc_valid [LDQ_PORTS];
-  logic                          st_req      [STQ_PORTS];
+  logic [LDQ_PORTS-1:0] ldq_alloc_valid;
+  logic [STQ_PORTS-1:0] st_req;
   logic [BR_MASK_WIDTH-1:0]      st_br_mask  [STQ_PORTS];
   logic [2:0]                    st_func3    [STQ_PORTS];
   logic [ROB_IDX_WIDTH-1:0]      st_rob_idx  [STQ_PORTS];
-  logic                          st_rob_flag [STQ_PORTS];
-  logic                          st_stq_flag [STQ_PORTS];
-  logic                          ld_req      [LDQ_PORTS];
+  logic [STQ_PORTS-1:0] st_rob_flag;
+  logic [STQ_PORTS-1:0] st_stq_flag;
+  logic [LDQ_PORTS-1:0] ld_req;
   logic [LDQ_IDX_WIDTH-1:0]      ld_idx      [LDQ_PORTS];
   logic [BR_MASK_WIDTH-1:0]      ld_br_mask  [LDQ_PORTS];
   logic [ROB_IDX_WIDTH-1:0]      ld_rob_idx  [LDQ_PORTS];
-  logic                          ld_rob_flag [LDQ_PORTS];
-  logic                          wake_valid [NUM_WAKE];
+  logic [LDQ_PORTS-1:0] ld_rob_flag;
+  logic [NUM_WAKE-1:0] wake_valid;
   logic [PRF_IDX_WIDTH-1:0]      wake_preg  [NUM_WAKE];
 
   // ---- inputs: pack ----

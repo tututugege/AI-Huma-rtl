@@ -14,17 +14,17 @@ module core_front import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*;
   input  logic [31:0] out_redirect_pc,
   input  logic        rob_bcast_fence,
   input  logic        rob_bcast_fence_i,
-  input  logic        rob_commit_commit_entry_valid [COMMIT_WIDTH],
+  input  logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_valid,
   input  logic [4:0]  rob_commit_commit_entry_uop_type [COMMIT_WIDTH],
-  input  logic        rob_commit_commit_entry_uop_br_taken [COMMIT_WIDTH],
-  input  logic        rob_commit_commit_entry_uop_dest_en [COMMIT_WIDTH],
+  input  logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_br_taken,
+  input  logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_dest_en,
   input  logic [5:0]  rob_commit_commit_entry_uop_dest_areg [COMMIT_WIDTH],
   input  logic [31:0] out_commit_entry_uop_diag_val [COMMIT_WIDTH],
   input  logic [31:0] commit_extra_imm [COMMIT_WIDTH],
   input  logic [5:0]  commit_extra_src1_areg [COMMIT_WIDTH],
   input  logic [31:0] ftq_commit_info_resp_pc [COMMIT_WIDTH],
   input  logic        ftq_commit_info_resp_pred_taken [COMMIT_WIDTH],
-  input  logic        ftq_commit_info_resp_alt_pred [COMMIT_WIDTH],
+  input  logic [COMMIT_WIDTH-1:0] ftq_commit_info_resp_alt_pred,
   input  logic [2:0]  ftq_commit_info_resp_altpcpn [COMMIT_WIDTH],
   input  logic [2:0]  ftq_commit_info_resp_pcpn [COMMIT_WIDTH],
   input  logic [9:0]  ftq_commit_info_resp_tage_idx [COMMIT_WIDTH][TN],
@@ -66,12 +66,12 @@ module core_front import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*;
   output logic        itlb_walk_resp_consumed,
   output logic        itlb_walk_flush,
   // ---- to the back end (back.in, SC-L / loop metadata are constant 0 and added by the core) ----
-  output logic        front2pre_valid [BACKEND_FETCH_WIDTH],
+  output logic [BACKEND_FETCH_WIDTH-1:0] front2pre_valid,
   output logic [31:0] front2pre_inst [BACKEND_FETCH_WIDTH],
-  output logic        front2pre_page_fault_inst [BACKEND_FETCH_WIDTH],
+  output logic [BACKEND_FETCH_WIDTH-1:0] front2pre_page_fault_inst,
   output logic [31:0] front2pre_pc [BACKEND_FETCH_WIDTH],
-  output logic        front2pre_predict_dir [BACKEND_FETCH_WIDTH],
-  output logic        front2pre_alt_pred [BACKEND_FETCH_WIDTH],
+  output logic [BACKEND_FETCH_WIDTH-1:0] front2pre_predict_dir,
+  output logic [BACKEND_FETCH_WIDTH-1:0] front2pre_alt_pred,
   output logic [PCPN_W-1:0]     front2pre_altpcpn [BACKEND_FETCH_WIDTH],
   output logic [PCPN_W-1:0]     front2pre_pcpn [BACKEND_FETCH_WIDTH],
   output logic [TAGE_IDX_W-1:0] front2pre_tage_idx [BACKEND_FETCH_WIDTH][TN_MAX],
@@ -82,13 +82,13 @@ module core_front import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*;
   // ---- back end -> front end: registered back2front ----
   logic        b2f_refetch, b2f_itlb_flush, b2f_fence_i, b2f_stall;
   logic [31:0] b2f_refetch_address;
-  logic        upd_valid    [COMMIT_WIDTH];
+  logic [COMMIT_WIDTH-1:0] upd_valid;
   logic [31:0] upd_base_pc  [COMMIT_WIDTH];
-  logic        upd_actual_dir [COMMIT_WIDTH];
+  logic [COMMIT_WIDTH-1:0] upd_actual_dir;
   logic [2:0]  upd_br_type  [COMMIT_WIDTH];
   logic [31:0] upd_target   [COMMIT_WIDTH];
-  logic        upd_pred_dir [COMMIT_WIDTH];
-  logic        upd_alt_pred [COMMIT_WIDTH];
+  logic [COMMIT_WIDTH-1:0] upd_pred_dir;
+  logic [COMMIT_WIDTH-1:0] upd_alt_pred;
   logic [2:0]  upd_pcpn     [COMMIT_WIDTH];
   logic [7:0]  upd_tags     [COMMIT_WIDTH][TN];
   logic [9:0]  upd_idxs     [COMMIT_WIDTH][TN];
@@ -138,12 +138,12 @@ module core_front import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*;
   assign can_read = !b2f_stall || b2f_refetch;
 
   logic        fe_out_valid;
-  logic        fe_lane_valid      [FETCH_WIDTH];
+  logic [FETCH_WIDTH-1:0] fe_lane_valid;
   logic [31:0] fe_instructions    [FETCH_WIDTH];
-  logic        fe_page_fault_inst [FETCH_WIDTH];
-  logic        fe_predict_dir     [FETCH_WIDTH];
+  logic [FETCH_WIDTH-1:0] fe_page_fault_inst;
+  logic [FETCH_WIDTH-1:0] fe_predict_dir;
   logic [31:0] fe_pc              [FETCH_WIDTH];
-  logic        fe_alt_pred        [FETCH_WIDTH];
+  logic [FETCH_WIDTH-1:0] fe_alt_pred;
   logic [PCPN_W-1:0]     fe_altpcpn [FETCH_WIDTH];
   logic [PCPN_W-1:0]     fe_pcpn    [FETCH_WIDTH];
   logic [TAGE_IDX_W-1:0] fe_tage_idx [FETCH_WIDTH][TN_MAX];
