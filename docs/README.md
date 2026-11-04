@@ -12,6 +12,7 @@
 | [05-module-tracker.md](05-module-tracker.md) | 模块进度表（**自动生成**，来源是各模块笔记头部） | 所有人 |
 | [06-equivalence-policy.md](06-equivalence-policy.md) | 等价性原则：什么必须一致、什么不复刻（总原则在第 0 节） | 所有人 |
 | [07-roadmap.md](07-roadmap.md) | 里程碑与未完成事项（人工维护） | 所有人 |
+| [08-risk-register.md](08-risk-register.md) | 风险登记簿：变异存活/未判定、覆盖缺口、未验证项、最近改动的验证范围（人工维护） | 所有人 |
 | [AGENT_BRIEF.md](AGENT_BRIEF.md) | 给 agent 的任务书（含补充条款） | 派任务的人 |
 | [modules/](modules/) | 每个模块的设计笔记（头部 front-matter 供生成进度表） | 写/评审该模块的人 |
 | [analysis/](analysis/README.md) | 边界分析、录制点补丁、覆盖数据 | 做新区域的人 |
