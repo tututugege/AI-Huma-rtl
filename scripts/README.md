@@ -9,3 +9,4 @@
 | 正确性门禁 | 在 `tb/soc/`：`SOC_FM=1 bash tb/soc/build.sh`，运行 `SOC_TB_FM=1` | 逐条提交对比 function-model（见 `docs/modules/soc_top.md`） |
 
 逐模块锁步、trace 录制/回放、变异检查和旧参考模型副本已退役：脚本在标签 `legacy-reference`（rtl 仓库）里。
+| 分歧定位 | `first_diff.sh`、`first_diff.py` | 同一程序在 trace-model 和 RTL 上各出一份提交轨迹（周期 + PC），对比找第一处不同 |
