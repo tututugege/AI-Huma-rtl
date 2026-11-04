@@ -7,3 +7,11 @@ refsim/
 .DS_Store
 refsim_tap/
 refsim_axi/
+# build products / generated work dirs
+*.o
+*.d
+*.elf
+*.bak
+a.out
+/programs/big/cm/
+/programs/big/dhry/
