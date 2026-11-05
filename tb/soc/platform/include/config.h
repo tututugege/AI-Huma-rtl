@@ -76,7 +76,7 @@ constexpr int BPU_LOOP_META_TAG_BITS = 16;
 
 constexpr int ICACHE_LINE_SIZE = 64; // bytes
 #ifndef CONFIG_CPU_FREQ_MHZ
-#define CONFIG_CPU_FREQ_MHZ 500u
+#define CONFIG_CPU_FREQ_MHZ 1000u
 #endif
 
 #ifndef CONFIG_DDR_SOC_LATENCY_NS
@@ -238,7 +238,7 @@ constexpr int CONFIG_SIM_DDR_LATENCY_CALC = static_cast<int>(
 #define CONFIG_AXI_KIT_DEBUG 0
 #endif
 #ifndef CONFIG_AXI_SUBSYSTEM_FREQ_DIV
-#define CONFIG_AXI_SUBSYSTEM_FREQ_DIV 16u
+#define CONFIG_AXI_SUBSYSTEM_FREQ_DIV 1u  // no AXI subsystem divider (EXP-006); keep equal to trace-model/include/config.h
 #endif
 static_assert(CONFIG_AXI_SUBSYSTEM_FREQ_DIV >= 1,
               "CONFIG_AXI_SUBSYSTEM_FREQ_DIV must be >= 1");

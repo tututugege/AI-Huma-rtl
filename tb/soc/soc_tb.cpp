@@ -1,7 +1,7 @@
 // Closed-loop testbench for rtl/core/soc_top (core + memory subsystem, RTL) with the reference's behavioural platform models:
 // SimDDR (DDR timing) and PhysMemory (RAM image).  DDR / PhysMemory are the unmodified reference sources, so the DDR timing
 // (latencies, write queue, turnaround) is the reference's by construction.
-// One CPU cycle = 16 fast ticks.  The core is clocked by clk_cpu, pulsed together with the fast clock edge that ends tick 0.
+// One CPU cycle = kTicks fast ticks (CONFIG_AXI_SUBSYSTEM_FREQ_DIV, 1 since EXP-006; 16 in the original divided arrangement).  The core is clocked by clk_cpu, pulsed together with the fast clock edge that ends tick 0.
 //   usage: soc_tb <program.bin> [max_cycles]       prints "RTL sim-time(cycle)= N, committed= M" when an ebreak commits.
 #include <cstdint>
 #include <cstdio>
@@ -38,7 +38,8 @@
 long long sim_time = 0;   // the reference's global cycle counter (PeripheralModel's timer reads it)
 
 namespace {
-constexpr int kTicks = 16;
+constexpr int kTicks = CONFIG_AXI_SUBSYSTEM_FREQ_DIV;   // fast ticks per CPU cycle (platform config.h = trace-model config.h = rtl ttg_cfg_pkg)
+static_assert(kTicks >= 1 && kTicks <= 16, "mem_top phase counter is 4 bits");
 constexpr int kInstStore = 6;   // InstType::STORE
 constexpr int kUopEbreak = 10;  // the commit entry's `type` is the instruction type (rob_pkg ITYPE_EBREAK)
 
@@ -234,14 +235,10 @@ int main(int argc, char **argv) {
   if (fm_on) fm.dut_mem = [](uint32_t a) { return pmem_read(a); };
   if (fm_on) for (size_t k = 0; k < stub_words.size(); ++k) refcpu_set_io_word(fm.ctx, uint32_t(4 * k), stub_words[k]);
 #endif
-  const bool fast_skip = std::getenv("SOC_TB_NOSKIP") == nullptr && !skipmask.empty();
+  const bool fast_skip = kTicks >= 16 && std::getenv("SOC_TB_NOSKIP") == nullptr && !skipmask.empty();   // the idle-tick skip needs 16 ticks per cycle
   std::vector<uint8_t> snap(sizeof(*top->rootp));
   unsigned long long skipped_cycles = 0;
-  auto ddr_idle = [&]() {
-    return !ddr.w_active && ddr.w_pending.empty() && ddr.w_data_fifo.empty() && ddr.w_resp_queue.empty() &&
-           ddr.r_transactions.empty() && ddr.w_accept_cooldown == 0 && ddr.w_drain_cooldown == 0 && !ddr.w_drain_mode &&
-           ddr.backend_turnaround_cooldown == 0 && !ddr.backend_switch_pending;
-  };
+  auto ddr_idle = [&]() { return ddr.idle_quiescent(); };
 long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
 #define EVAL() do { auto e0 = std::chrono::steady_clock::now(); top->eval(); eval_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - e0).count(); ev_ns[ev_k++ & 3] += std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - e0).count(); ++eval_n; } while (0)
   uint32_t env_region_prev = 0, env_rdata_prev = 0;
@@ -393,7 +390,7 @@ long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
         }
       }
     }
-    ddr.seq();
+    if (top->rst_n) ddr.seq();   // the DDR model (and DRAMsim3's clock) starts with the first cycle after reset, like the trace-model
     top->clk = 1;
     if (phase == 0) top->clk_cpu = 1;
     EVAL();

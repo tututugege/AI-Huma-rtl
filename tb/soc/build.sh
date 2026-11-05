@@ -12,6 +12,13 @@ FMOPT=(); FMLD=""
 if [ -n "${SOC_FM:-}" ]; then   # per-commit check against the function model (librefcpu, built in ../function-model)
   FMOPT=(-DSOC_TB_FM -I"$AI_HUMA_ROOT/function-model/include/api"); FMLD="$AI_HUMA_ROOT/function-model/librefcpu.a $AI_HUMA_ROOT/function-model/lib/softfloat/softfloat.a -lz"
 fi
+# DRAMsim3 behind SimDDR (EXP-006), on by default; DS3=0 builds the fixed-latency SimDDR.  DS3_DIR: DRAMsim3 checkout with libdramsim3.dylib built.
+DS3FLAGS="-DSIM_DDR_DATA"; DS3LD=""   # SIM_DDR_DATA: SimDDR serves read data from / writes data to PhysMemory
+if [ "${DS3:-1}" != 0 ]; then
+  DS3_DIR=${DS3_DIR:-$HOME/personal/AI-Huma-data/third_party/DRAMsim3}
+  DS3FLAGS="$DS3FLAGS -DSIM_DDR_DS3 -I$DS3_DIR/src -DDS3_CFG_PATH=$DS3_DIR/configs/DDR4_8Gb_x16_3200.ini"
+  DS3LD="-L$DS3_DIR -ldramsim3 -Wl,-rpath,$DS3_DIR"
+fi
 INC=""
 for d in include libs/include back-end back-end/include axi-interconnect-kit/include axi-interconnect-kit/sim_ddr/include \
          axi-interconnect-kit/axi_interconnect/include axi-interconnect-kit/mmio/include MemSubSystem/include diff/include front-end back-end/Exu/include back-end/Lsu/include back-end/tools/include function-model/include/api legacy/mmu/include; do INC="$INC -I$REF/$d"; done
@@ -20,12 +27,12 @@ python3 "$ROOT/tools/gen_soc_probe.py" >/dev/null
 cd "$OUT"
 # reference platform models (not RTL)
 for s in axi-interconnect-kit/sim_ddr/SimDDR.cpp back-end/PhysMemory.cpp; do
-  clang++ -std=c++2a -O2 -w $INC -c "$REF/$s" -o "$(basename "$s" .cpp).o" &
+  clang++ -std=c++2a -O2 -w $INC $DS3FLAGS -c "$REF/$s" -o "$(basename "$s" .cpp).o" &
 done
 wait
 verilator --cc --exe --build -j "${JOBS:-6}" -Wno-fatal -Wno-lint -Wno-style -Wno-UNOPTFLAT ${DEBUG:+--public-flat-rw} $VOPT --x-assign 0 --x-initial 0 \
-  --top-module soc_top -Mdir obj -CFLAGS "$COPT ${FMOPT[*]:-} ${DEBUG:+-DSOC_TB_DEBUG} -std=c++2a -w $INC -I$ROOT/harness/include -I$ROOT/tb/soc" \
-  -LDFLAGS "$OUT/SimDDR.o $OUT/PhysMemory.o $FMLD" \
+  --top-module soc_top -Mdir obj -CFLAGS "$COPT $DS3FLAGS ${FMOPT[*]:-} ${DEBUG:+-DSOC_TB_DEBUG} -std=c++2a -w $INC -I$ROOT/harness/include -I$ROOT/tb/soc" \
+  -LDFLAGS "$OUT/SimDDR.o $OUT/PhysMemory.o $FMLD $DS3LD" \
   "$ROOT/tb/soc/soc_public.vlt" "$ROOT/tb/soc/soc_tb.cpp" "${FILES[@]}" -o soc_tb > build.log 2>&1 || { grep -E "error:|%Error" build.log | grep -v "Command Failed" | head -12 | cut -c1-200; echo "BUILD FAILED, see $OUT/build.log"; exit 1; }
 # idle-tick skip: byte ranges of Verilator scratch temporaries (ignored by the fixed-point compare)
 VI=$(verilator --getenv VERILATOR_ROOT)/include

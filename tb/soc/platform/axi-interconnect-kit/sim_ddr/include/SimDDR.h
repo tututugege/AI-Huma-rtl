@@ -1,229 +1,109 @@
 #pragma once
-extern bool axi_kit_ddr_functional_writes;
 /**
  * @file SimDDR.h
- * @brief SimDDR - DDR Memory Simulator with AXI4 Interface
+ * @brief Timing model of a DDR controller behind an AXI4 slave port.
  *
- * This module simulates DDR memory with standard AXI4 interface.
- * It follows the simulator's comb/seq pattern for cycle-accurate behavior.
- *
- * Features:
- * - 5 AXI4 channels (AW, W, B, AR, R)
- * - Configurable memory latency
- * - Outstanding transaction support (multiple in-flight transactions)
- * - Burst-drain read service with burst-to-burst round-robin fairness
- * - Shared read/write backend service with configurable turnaround
- * - INCR burst mode support
- * - Uses external p_memory for storage (shared with main simulator)
+ * Reads: up to MAX_OUTSTANDING requests, each ready after SIM_DDR_LATENCY cycles; bursts drain contiguously and the next
+ * burst is chosen round-robin. Writes: AW queue, a W beat FIFO that is drained in bursts (high/low watermark), and a
+ * delayed B response. Reads and writes share the backend; switching direction costs a turnaround. No data is stored
+ * (functional memory lives in the trace bridge); with SIM_DDR_DATA (RTL closed-loop platform) read data comes from and write
+ * data goes to PhysMemory (pmem_read / pmem_write).
  */
 
 #include "SimDDR_IO.h"
 #include "axi_interconnect_compat.h"
-#include <cstddef>
 #include <cstdint>
 #include <deque>
-#include <queue>
+#include <memory>
 #include <vector>
 
 namespace sim_ddr {
 
-// ============================================================================
-// SimDDR Configuration
-// ============================================================================
 constexpr uint32_t SIM_DDR_LATENCY = AXI_KIT_SIM_DDR_READ_LATENCY;
-// Write response latency is modeled separately from read latency. Older
-// simulator glue reused a frontend-side latency knob for the whole DDR path,
-// but the current shared-AXI design benefits from controlling write completion
-// independently when analyzing dirty-victim critical paths.
-//
-// Semantics:
-// - The final W handshake enqueues a write response with latency_cnt = 0.
-// - Because comb runs before seq, the earliest observable B response is the
-//   next cycle.
-// - This knob counts the additional full cycles to wait after enqueue before
-//   B can first become visible:
-//   - 0 => visible on the very next cycle
-//   - 1 => one bubble cycle, then visible
-//   - N => N bubble cycles, then visible
-#ifndef AXI_KIT_SIM_DDR_WRITE_RESP_LATENCY
-#ifdef CONFIG_AXI_KIT_SIM_DDR_WRITE_RESP_LATENCY
-#define AXI_KIT_SIM_DDR_WRITE_RESP_LATENCY \
-  CONFIG_AXI_KIT_SIM_DDR_WRITE_RESP_LATENCY
-#else
-#define AXI_KIT_SIM_DDR_WRITE_RESP_LATENCY 1
-#endif
-#endif
-constexpr uint32_t SIM_DDR_WRITE_RESP_LATENCY =
-    AXI_KIT_SIM_DDR_WRITE_RESP_LATENCY;
-constexpr uint32_t SIM_DDR_MAX_BURST = 256; // Max burst length (AXI4 limit)
-#ifndef AXI_KIT_SIM_DDR_MAX_OUTSTANDING
-#ifdef CONFIG_AXI_KIT_SIM_DDR_MAX_OUTSTANDING
-#define AXI_KIT_SIM_DDR_MAX_OUTSTANDING CONFIG_AXI_KIT_SIM_DDR_MAX_OUTSTANDING
-#else
-#define AXI_KIT_SIM_DDR_MAX_OUTSTANDING 8
-#endif
-#endif
-constexpr uint32_t SIM_DDR_MAX_OUTSTANDING =
-    AXI_KIT_SIM_DDR_MAX_OUTSTANDING; // Max outstanding transactions
+// Extra full cycles between the last W beat and B becoming visible (0 = the very next cycle).
+constexpr uint32_t SIM_DDR_WRITE_RESP_LATENCY = AXI_KIT_SIM_DDR_WRITE_RESP_LATENCY;
+constexpr uint32_t SIM_DDR_MAX_OUTSTANDING = AXI_KIT_SIM_DDR_MAX_OUTSTANDING;
+constexpr uint32_t SIM_DDR_WRITE_QUEUE_DEPTH = AXI_KIT_SIM_DDR_WRITE_QUEUE_DEPTH;
+constexpr uint32_t SIM_DDR_WRITE_ACCEPT_GAP = AXI_KIT_SIM_DDR_WRITE_ACCEPT_GAP;
+constexpr uint32_t SIM_DDR_WRITE_DATA_FIFO_DEPTH = AXI_KIT_SIM_DDR_WRITE_DATA_FIFO_DEPTH;
+constexpr uint32_t SIM_DDR_WRITE_DRAIN_GAP = AXI_KIT_SIM_DDR_WRITE_DRAIN_GAP;
+// Buffered W beats at the high watermark start a drain window (WREADY low) that lasts until occupancy is below the low one.
+constexpr uint32_t SIM_DDR_WRITE_DRAIN_HIGH_WATERMARK = AXI_KIT_SIM_DDR_WRITE_DRAIN_HIGH_WATERMARK;
+constexpr uint32_t SIM_DDR_WRITE_DRAIN_LOW_WATERMARK = AXI_KIT_SIM_DDR_WRITE_DRAIN_LOW_WATERMARK;
+constexpr uint32_t SIM_DDR_READ_TO_WRITE_TURNAROUND = AXI_KIT_SIM_DDR_READ_TO_WRITE_TURNAROUND;
+constexpr uint32_t SIM_DDR_WRITE_TO_READ_TURNAROUND = AXI_KIT_SIM_DDR_WRITE_TO_READ_TURNAROUND;
 
-constexpr uint32_t SIM_DDR_WRITE_QUEUE_DEPTH =
-    AXI_KIT_SIM_DDR_WRITE_QUEUE_DEPTH;
-
-constexpr uint32_t SIM_DDR_WRITE_ACCEPT_GAP =
-    AXI_KIT_SIM_DDR_WRITE_ACCEPT_GAP;
-
-constexpr uint32_t SIM_DDR_WRITE_DATA_FIFO_DEPTH =
-    AXI_KIT_SIM_DDR_WRITE_DATA_FIFO_DEPTH;
-
-constexpr uint32_t SIM_DDR_WRITE_DRAIN_GAP =
-    AXI_KIT_SIM_DDR_WRITE_DRAIN_GAP;
-
-// When buffered W beats reach the high watermark, the controller enters a
-// drain window and can keep WREADY low until occupancy falls back below the
-// low watermark. This yields bursty write backpressure instead of a uniform
-// per-beat throttle.
-constexpr uint32_t SIM_DDR_WRITE_DRAIN_HIGH_WATERMARK =
-    AXI_KIT_SIM_DDR_WRITE_DRAIN_HIGH_WATERMARK;
-
-constexpr uint32_t SIM_DDR_WRITE_DRAIN_LOW_WATERMARK =
-    AXI_KIT_SIM_DDR_WRITE_DRAIN_LOW_WATERMARK;
-
-// Direction-switch turnaround is modeled between read-burst service windows
-// and write-drain windows. Reads and writes can still queue addresses while the
-// opposite direction owns the backend, but data service itself switches only
-// after these cooldowns expire.
-constexpr uint32_t SIM_DDR_READ_TO_WRITE_TURNAROUND =
-    AXI_KIT_SIM_DDR_READ_TO_WRITE_TURNAROUND;
-
-constexpr uint32_t SIM_DDR_WRITE_TO_READ_TURNAROUND =
-    AXI_KIT_SIM_DDR_WRITE_TO_READ_TURNAROUND;
-
-// ============================================================================
-// Transaction Structures for Outstanding Support
-// ============================================================================
-
-// Write transaction (after AW handshake, waiting for W data or in latency)
-struct WriteTransaction {
-  uint32_t addr;
-  uint8_t id;
-  uint8_t len; // Burst length - 1
-  uint8_t size;
-  uint8_t burst;
-  uint16_t beats_accepted;
-  uint16_t beats_drained;
-  bool data_done; // All W beats received
-};
-
-// Write response pending (in latency phase after W complete)
-struct WriteRespPending {
-  uint8_t id;
-  uint32_t addr;
-  // Number of full cycles elapsed since the last W beat enqueued the response.
-  uint32_t latency_cnt;
-};
-
-struct WriteBeatPending {
-  uint32_t addr;
-  axi_data_t data;
-  axi_strb_t wstrb;
-};
-
-// Read transaction (after AR handshake, in latency or sending data)
-struct ReadTransaction {
-  uint32_t addr;
-  uint8_t id;
-  uint8_t len; // Burst length - 1
-  uint8_t size;
-  uint8_t burst;
-  uint8_t beat_cnt; // Current beat sent
-  uint32_t latency_cnt;
-  bool in_data_phase; // True if latency done, sending data
-  bool complete;      // True when all beats sent and rlast accepted
-};
-
-// ============================================================================
-// SimDDR Class with Outstanding + Burst-Drain Read Service
-// ============================================================================
 class SimDDR {
+  friend struct DdrShadowAccess;  // lockstep test hook (DDR_SHADOW builds)
 public:
-  // ========== Simulator Interface ==========
   void init();
-
-  // Two-phase combinational logic for proper signal timing
-  void comb_outputs(); // Phase 1: arready, rvalid, rdata, bvalid, bresp
-  void comb_inputs();  // Phase 2: Process arvalid, awvalid, wvalid
-  void comb() {
-    comb_outputs();
-    comb_inputs();
-  } // Convenience wrapper
-
+  void comb_outputs();  // ready/valid/response outputs from the registered state (run before the masters evaluate)
+  void comb_inputs() {} // kept for symmetry with AXI_Interconnect: everything is decided in comb_outputs
+  void comb() { comb_outputs(); comb_inputs(); }
   void seq();
+  bool idle_quiescent() const {
+    return pend_.empty() && fifo_ == 0 && resp_.empty() && rd_.empty() && accept_cd_ == 0 && drain_cd_ == 0 &&
+           !drain_mode_ && turn_cd_ == 0 && !switch_pending_;
+  }
 
-  // ========== IO Ports ==========
   SimDDR_IO_t io;
-
-  // ========== Debug ==========
-  void print_state();
+#ifdef SIM_DDR_DS3
+  SimDDR();
+  void ds3_advance(uint32_t n);
+  ~SimDDR();
+  SimDDR(const SimDDR &) = delete;
+  SimDDR &operator=(const SimDDR &) = delete;
+private:
+  struct Ds3Holder;
+  std::unique_ptr<Ds3Holder> ds3_;
+public:
+#endif
 
 private:
-  enum class BackendServiceMode : uint8_t { None = 0, Read = 1, Write = 2 };
+  enum Mode : uint8_t { None, Read, Write };
+  struct WrTxn { uint16_t beats, accepted, drained; uint8_t id; bool data_done; uint32_t addr = 0; };
+  struct RdTxn { uint32_t lat; uint8_t id, len, beat; bool in_data, complete;
+#ifdef SIM_DDR_DS3
+    uint32_t tag;
+#endif
+    uint32_t addr = 0;
+  };
+  struct Resp { uint8_t id; uint32_t lat; };
 
-  // ========== Write Channel ==========
-  // Write address commands queue independently from write data buffering.
-  bool w_active;
-  WriteTransaction w_current;
-  std::deque<WriteTransaction> w_pending;
-  std::deque<WriteBeatPending> w_data_fifo;
-  uint32_t w_accept_cooldown;
-  uint32_t w_drain_cooldown;
-  bool w_drain_mode;
+  // write side: the data itself is not kept, only the beat count (SIM_DDR_DATA: the beats are kept and written to PhysMemory at drain)
+#ifdef SIM_DDR_DATA
+  struct WBeat { uint32_t addr; axi_data_t data; axi_strb_t strb; };
+  std::deque<WBeat> wbeats_;
+  static void do_memory_write(uint32_t addr, axi_data_t data, axi_strb_t wstrb);
+  static axi_data_t do_memory_read(uint32_t addr);
+#endif
+  std::deque<WrTxn> pend_;
+  uint32_t fifo_, accept_cd_, drain_cd_;
+  bool drain_mode_;
+  std::deque<Resp> resp_;
+  // read side
+  std::vector<RdTxn> rd_;
+  size_t rr_;
+  int sel_, active_;
+  // shared backend
+  Mode last_ = None, switch_target_ = None;
+  uint32_t turn_cd_ = 0;
+  bool read_grant_ = false, write_grant_ = false, switch_pending_ = false, any_pending_ = false;
 
-  // Pending write responses (in latency)
-  std::queue<WriteRespPending> w_resp_queue;
-
-  // ========== Read Channel with Burst-Drain Service ==========
-  // Vector allows access to any transaction while preserving issue order.
-  std::vector<ReadTransaction> r_transactions;
-
-  // Round-robin index for fair burst-to-burst scheduling
-  size_t r_rr_index;
-
-  // Currently selected transaction index for this cycle (-1 if none)
-  int r_selected_idx;
-
-  // Active transaction whose burst is being drained.
-  int r_active_idx;
-
-  // Shared read/write backend arbitration state.
-  BackendServiceMode backend_last_service_mode = BackendServiceMode::None;
-  uint32_t backend_turnaround_cooldown = 0;
-  bool backend_read_grant = false;
-  bool backend_write_grant = false;
-  bool backend_switch_pending = false;
-  bool backend_any_request_pending = false;
-  BackendServiceMode backend_switch_target_mode = BackendServiceMode::None;
-
-  // ========== Combinational Logic Functions ==========
-  void select_read_transaction();
-  void update_backend_arbitration();
-  void comb_write_channel();
-  void comb_read_channel();
-
-  // ========== Helper Functions ==========
-  void do_memory_write(uint32_t addr, axi_data_t data, axi_strb_t wstrb);
-  axi_data_t do_memory_read(uint32_t addr);
-
-  uint32_t turnaround_cycles(BackendServiceMode from,
-                             BackendServiceMode to) const;
-  int find_write_data_target() const;
-  int find_write_drain_target() const;
-  void retire_completed_writes();
-  bool head_write_needs_drain() const;
-  bool should_enter_write_drain_mode() const;
-  bool should_keep_write_drain_mode() const;
-
-  // Find next ready transaction using round-robin once the current burst finishes
-  int find_next_ready_transaction();
+  int first_where(bool (*pred)(const WrTxn &)) const {
+    for (size_t i = 0; i < pend_.size(); i++) if (pred(pend_[i])) return int(i);
+    return -1;
+  }
+  int data_target() const { return first_where([](const WrTxn &t) { return !t.data_done; }); }
+  int drain_target() const { return first_where([](const WrTxn &t) { return t.drained < t.accepted; }); }
+  bool head_needs_drain() const { return !pend_.empty() && pend_.front().data_done && pend_.front().drained < pend_.front().accepted; }
+  bool keep_drain_mode() const { return fifo_ != 0 && (head_needs_drain() || fifo_ > SIM_DDR_WRITE_DRAIN_LOW_WATERMARK); }
+  bool enter_drain_mode() const { return fifo_ != 0 && (head_needs_drain() || fifo_ >= SIM_DDR_WRITE_DRAIN_HIGH_WATERMARK); }
+  static uint32_t turnaround(Mode from, Mode to) {
+    return from == Read && to == Write ? SIM_DDR_READ_TO_WRITE_TURNAROUND : from == Write && to == Read ? SIM_DDR_WRITE_TO_READ_TURNAROUND : 0;
+  }
+  void arbitrate();
+  void retire_writes();
 };
 
 } // namespace sim_ddr
