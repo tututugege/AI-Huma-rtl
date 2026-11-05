@@ -202,3 +202,6 @@ static void soc_probe(Vsoc_top *top, uint8_t *in, uint8_t *out) {
   ttg::put_elem(out + 262, 4, (uint64_t)top->out_redirect_pc);
   for (int i0 = 0; i0 < 8; ++i0) ttg::put_elem(out + 266 + (i0 * 1) * 4, 4, (uint64_t)top->ftq_commit_info_resp_pc[i0]);
 }
+constexpr int kCfg_BR_MASK_WIDTH = 64;
+constexpr int kCfg_ROB_IDX_WIDTH = 7;
+constexpr int kCfg_PRF_IDX_WIDTH = 7;

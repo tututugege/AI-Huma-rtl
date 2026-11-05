@@ -354,7 +354,9 @@ long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
           if (top->rob_commit_commit_entry_uop_type[i] == kInstStore && !ttg_getbit(top->rob_commit_commit_entry_uop_page_fault_store, i)) {
             const auto &fld = top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__u_lsu__DOT__u_core__DOT__st_fld_q[top->rob_commit_commit_entry_uop_stq_idx[i]];
             auto bits = [&](int lo, int w) { uint64_t v = 0; for (int b = 0; b < w; ++b) { int k = lo + b; v |= uint64_t((fld[k / 32] >> (k % 32)) & 1u) << b; } return uint32_t(v); };
-            if (!bits(3, 1) && bits(5, 1) && bits(6, 1)) periph.on_commit_store(bits(91, 32), bits(155, 32), uint8_t(bits(88, 3)));
+            // lsu_pkg::stq_fld_t from the LSB: sc_pass lrsc mmio suppress pf paddr_valid data_valid replay[2] br_mask rob_flag rob_idx dest func3[3] paddr vaddr data
+            constexpr int kFunc3 = 9 + kCfg_BR_MASK_WIDTH + 1 + kCfg_ROB_IDX_WIDTH + kCfg_PRF_IDX_WIDTH, kPaddr = kFunc3 + 3, kData = kPaddr + 64;
+            if (!bits(3, 1) && bits(5, 1) && bits(6, 1)) periph.on_commit_store(bits(kPaddr, 32), bits(kData, 32), uint8_t(bits(kFunc3, 3)));
           }
         }
     }

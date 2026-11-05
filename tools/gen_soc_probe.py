@@ -42,5 +42,10 @@ for (name, is_out, width, nd, d0, d1, d2, d3, nelem, ebytes, off, when) in rows:
         loops = ''.join(f'for (int i{k} = 0; i{k} < {dims[k]}; ++i{k}) ' for k in range(len(dims)))
         out.append(f'  {loops}ttg::put_elem({base} + {off} + ({lin}) * {ebytes}, {ebytes}, (uint64_t){ref}{idx});')
 out.append('}')
+# configuration widths the testbench needs to decode packed RTL structs (e.g. lsu_pkg::stq_fld_t), from the generated config package
+cfg = open(os.path.join(ROOT, 'rtl/common/ttg_cfg_pkg.sv')).read()
+for p in ('BR_MASK_WIDTH', 'ROB_IDX_WIDTH', 'PRF_IDX_WIDTH'):
+    v = re.search(r'localparam int ' + p + r' = (\d+);', cfg).group(1)
+    out.append(f'constexpr int kCfg_{p} = {v};')
 open(os.path.join(ROOT, 'tb/soc/soc_probe.inc'), 'w').write('\n'.join(out) + '\n')
 print(len(rows), 'fields')
