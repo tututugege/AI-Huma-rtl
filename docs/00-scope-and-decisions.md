@@ -2,7 +2,9 @@
 
 ## 目标
 
-（2026-11-04 起）RTL 自己迭代：架构行为与 function-model 逐条提交一致是门禁，周期数和 IPC 是要优化的指标。最初的目标"每个模块每一拍与参考模型一致"已经完成并退役，见 [06-equivalence-policy.md](06-equivalence-policy.md) 和标签 `legacy-reference`。
+rtl 是 AI-Huma 自己的处理器实现。第一阶段（至 2026-11-04）把 tututugege 参考模型逐模块翻译成 SystemVerilog，每个模块每一拍与参考模型一致，作为起点；这个目标已经完成，对应体系退役（[history/](history/)、标签 `legacy-reference`）。
+
+现在（2026-11-04 起）RTL 随项目自己的优化迭代：架构行为与 function-model 逐条提交一致是门禁，周期数、IPC 和面积是要优化的指标；架构改动先在 trace-model 上探索，合入 main 时两者同一配置下周期逐个相等（见 [06-equivalence-policy.md](06-equivalence-policy.md)、总仓库 `docs/WORKFLOW.md` 第 6 节）。
 
 ## 参考
 
