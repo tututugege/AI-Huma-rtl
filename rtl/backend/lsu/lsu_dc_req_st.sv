@@ -32,7 +32,7 @@ module lsu_dc_req_st
   logic [4:0]     strb_w [WIN];
   for (genvar q = 0; q < WIN; q++) begin : g_read
     assign slot_w[q]      = stq_head + RIW'(q);
-    assign in_w[q]        = stq_ccount > RCW'(q);
+    assign in_w[q]        = stq_ccount > RCW'(q) && q < STWIN;   // store window, not WIN
     assign committed_w[q] = st_al[slot_w[q]] == ST_COMMITTED;
     assign done_w[q]      = st_al[slot_w[q]] == ST_DONE;
     assign supp_w[q]      = st_fld[slot_w[q]].suppress;

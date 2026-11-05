@@ -11,7 +11,8 @@ package lsu_pkg;
   localparam int NLD  = LSU_LDU_COUNT;      // load units: DCache / MMU / write-back ports
   localparam int NST  = LSU_STA_COUNT;      // store units: DCache / MMU / STA write-back ports
   localparam int NSDU = LSU_SDU_COUNT;
-  localparam int WIN  = LSU_LOAD_WINDOW_WIDTH;   // == LSU_STORE_WINDOW_WIDTH, window of every queue scan
+  localparam int WIN  = LSU_LOAD_WINDOW_WIDTH;   // array size of every queue scan (the load window)
+  localparam int STWIN = LSU_STORE_WINDOW_WIDTH; // store-queue scan depth (trace-model: LSU_STA_COUNT * 5)
   localparam int GENW = 31 - LDQ_IDX_WIDTH;      // DCache load request generation tag
   localparam int RWW  = LSU_REPLAY_WAIT_CYCLES_WIDTH;
   localparam int NDIS = MAX_LDQ_DISPATCH_WIDTH;
