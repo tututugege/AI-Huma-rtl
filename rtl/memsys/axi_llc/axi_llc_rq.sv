@@ -90,7 +90,7 @@ module axi_llc_rq
   assign data_cur = ent_data_q[0];
 
 `ifndef SYNTHESIS
-  // the C++ queue is 32 deep; the RTL depth is never reached in any measured run
+  // the C++ queue is 32 deep; RQD is the measured need plus margin (Linux boot peak 5), see EXPLORATION.md EXP-006
   assert property (@(posedge clk) disable iff (!rst_n) cnt_d <= CW'(RQD))
     else $error("axi_llc_rq: read response queue full");
 `endif

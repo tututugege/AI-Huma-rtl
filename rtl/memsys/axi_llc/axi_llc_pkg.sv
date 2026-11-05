@@ -26,7 +26,7 @@ package axi_llc_pkg;
   localparam int SB    = $clog2(SETS);
   localparam int WB    = $clog2(WAYS);
   localparam int TAGW  = 32 - 6 - SB;
-  localparam int RQD   = 4;               // read response queue depth (C++ 32; programs 1, random 3)
+  localparam int RQD   = 8;               // read response queue depth (C++ 32; Linux boot peak 5)
   localparam int RQC   = RQD + 1;         // response register + queue = capacity of one read response unit
   localparam int WQD   = 2;               // write request queue depth per master (C++ 32, observed 0 at tick end)
   localparam int VQD   = 8;               // read victim write-back queue depth (C++ 32; programs: 2, random: 7)
