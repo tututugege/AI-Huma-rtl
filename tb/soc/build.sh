@@ -12,12 +12,16 @@ FMOPT=(); FMLD=""
 if [ -n "${SOC_FM:-}" ]; then   # per-commit check against the function model (librefcpu, built in ../function-model)
   FMOPT=(-DSOC_TB_FM -I"$AI_HUMA_ROOT/function-model/include/api"); FMLD="$AI_HUMA_ROOT/function-model/librefcpu.a $AI_HUMA_ROOT/function-model/lib/softfloat/softfloat.a -lz"
 fi
-# DRAMsim3 behind SimDDR (EXP-006), on by default; DS3=0 builds the fixed-latency SimDDR.  DS3_DIR: DRAMsim3 checkout with libdramsim3.dylib built.
+# DRAMsim3 behind SimDDR (EXP-006), on by default; DS3=0 builds the fixed-latency SimDDR.  DRAMsim3 is the pinned submodule of
+# the trace-model repository (TM_DIR, default $AI_HUMA_ROOT/trace-model); its static library is built there by `gmake dramsim3`.
 DS3FLAGS="-DSIM_DDR_DATA"; DS3LD=""   # SIM_DDR_DATA: SimDDR serves read data from / writes data to PhysMemory
 if [ "${DS3:-1}" != 0 ]; then
-  DS3_DIR=${DS3_DIR:-$HOME/personal/AI-Huma-data/third_party/DRAMsim3}
+  TM_DIR=${TM_DIR:-$AI_HUMA_ROOT/trace-model}
+  DS3_DIR=$(cd "${DS3_DIR:-$TM_DIR/third_party/DRAMsim3}" 2>/dev/null && pwd) || { echo "DRAMsim3 not found (run 'git submodule update --init third_party/DRAMsim3' in $TM_DIR, or DS3=0)"; exit 1; }
+  DS3_LIB=${DS3_LIB:-$TM_DIR/build_dramsim3/libdramsim3.a}
+  [ -f "$DS3_LIB" ] || { (cd "$TM_DIR" && { command -v gmake >/dev/null && gmake dramsim3 || make dramsim3; }) || exit 1; }
   DS3FLAGS="$DS3FLAGS -DSIM_DDR_DS3 -I$DS3_DIR/src -DDS3_CFG_PATH=$DS3_DIR/configs/DDR4_8Gb_x16_3200.ini"
-  DS3LD="-L$DS3_DIR -ldramsim3 -Wl,-rpath,$DS3_DIR"
+  DS3LD="$DS3_LIB"
 fi
 INC=""
 for d in include libs/include back-end back-end/include axi-interconnect-kit/include axi-interconnect-kit/sim_ddr/include \
