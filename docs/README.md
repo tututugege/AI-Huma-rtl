@@ -1,48 +1,55 @@
-# tututugege-rtl 文档目录
+# rtl 文档目录
 
-目标：把 tututugege 的 RTL 风格 C++ 乱序核（参考模型）逐模块翻译成 SystemVerilog，并与参考模型**逐拍对照**通过。
+rtl 是 AI-Huma 的 SystemVerilog 实现。正确性 = 整核逐条提交与 function-model 一致；周期数与 trace-model 比较（合入 main 时同一配置下逐个相等）。
+全项目的规则、流程、记录和待办在总仓库 `docs/`（[导航](../../docs/GUIDE.md)），这里只放 rtl 自己的文档。
 
-| 文档 | 内容 | 谁必须读 |
+## 现行文档
+
+| 文档 | 内容 | 什么时候看 |
 | --- | --- | --- |
-| [00-scope-and-decisions.md](00-scope-and-decisions.md) | 范围、参考模型版本、已定的技术决策 | 所有人 |
-| [01-rtl-coding-standard.md](01-rtl-coding-standard.md) | RTL 编码规范（强制，工具检查） | 写 RTL 的人 |
-| [02-development-flow.md](02-development-flow.md) | 单个模块从接口规格到"绿"的完整流程和验收标准 | 所有人 |
-| [03-harness.md](03-harness.md) | 逐拍对照 harness：架构、trace 格式、使用方法、自检 | 所有人 |
-| [04-cpp-to-rtl-mapping.md](04-cpp-to-rtl-mapping.md) | C++ 构造到 SV 构造的翻译规则；隐含依赖、求值顺序怎么处理 | 写 RTL 的人 |
-| [05-module-tracker.md](05-module-tracker.md) | 模块进度表（**自动生成**，来源是各模块笔记头部） | 所有人 |
-| [06-equivalence-policy.md](06-equivalence-policy.md) | 等价性原则：什么必须一致、什么不复刻（总原则在第 0 节） | 所有人 |
-| [07-roadmap.md](07-roadmap.md) | 里程碑与未完成事项（人工维护） | 所有人 |
-| [08-risk-register.md](08-risk-register.md) | 风险登记簿：变异存活/未判定、覆盖缺口、未验证项、最近改动的验证范围（人工维护） | 所有人 |
-| [AGENT_BRIEF.md](AGENT_BRIEF.md) | 给 agent 的任务书（含补充条款） | 派任务的人 |
-| [modules/](modules/) | 每个模块的设计笔记（头部 front-matter 供生成进度表） | 写/评审该模块的人 |
-| [analysis/](analysis/README.md) | 边界分析、录制点补丁、覆盖数据 | 做新区域的人 |
-| [deviations.md](deviations.md) | RTL 与参考模型的所有已批准偏差（默认为空） | 评审人 |
+| [00-scope-and-decisions.md](00-scope-and-decisions.md) | 范围、参考、已定的技术决策 | 第一次接触 rtl |
+| [01-rtl-coding-standard.md](01-rtl-coding-standard.md) | RTL 编码规范（`scripts/lint.sh` 检查） | 写 RTL 前 |
+| [04-cpp-to-rtl-mapping.md](04-cpp-to-rtl-mapping.md) | C++ 构造到 SV 的写法对照 | 照着 trace-model 写新逻辑时 |
+| [05-module-tracker.md](05-module-tracker.md) | 模块进度表（**自动生成**，`make tracker`，来源是各模块笔记头部） | 查某个模块的状态 |
+| [06-equivalence-policy.md](06-equivalence-policy.md) | 正确性原则：现行门禁是什么、不比较什么 | 所有人 |
+| [08-risk-register.md](08-risk-register.md) | 风险登记簿：验证缺口、变异存活、未验证项（只记风险，待办在总仓库 `docs/TODO.md`） | 改动前后、评估可信度 |
+| [09-synthesis-report.md](09-synthesis-report.md) | 综合（面积代理）方法和逐模块数字；第 9 节是第 3 批配置后的对比 | 评估面积 |
+| [modules/](modules/) | 每个模块的设计笔记（[模板](modules/TEMPLATE.md)）。**“验证”一节多是 2026-11-04 之前旧体系的结果**，现行验证看 06 和总仓库 LOG | 写/改该模块 |
+| [analysis/](analysis/README.md) | 翻译阶段的边界与结构分析（设计内容仍可参考） | 深入某个区域 |
+| [deviations.md](deviations.md) | 旧体系下与旧参考模型的差异登记（不再新增；S 编号仍被引用） | 查某个 S 编号 |
+| [../scripts/README.md](../scripts/README.md) | 脚本索引（lint、门禁、综合、闭环） | 跑东西之前 |
 
-## 一分钟上手
+## 历史文档（[history/](history/)，已退役，只供查阅）
+
+逐模块锁步、trace 回放、变异检查体系在 2026-11-04 随旧参考模型退役（代码在标签 `legacy-reference`）。相关文档：
+`02-development-flow.md`（逐模块开发流程）、`03-harness.md`（逐拍对照 harness）、`07-roadmap.md`（翻译阶段的里程碑和待办，仍有效的条目已并入总仓库 `docs/TODO.md`）、
+`AGENT_BRIEF.md`（翻译任务书）、`analysis/*-record-hook.*`（参考模型录制点）。
+
+## 常用命令
 
 ```bash
-make selftest          # 验证 harness 本身：干净 RTL 通过、植入的 bug 全部被抓到
-make lint              # 编码规范 + verilator -Wall
-make tracker           # 由 docs/modules/*.md 头部重新生成 05 进度表
-make cfg               # 从参考模型 config.h 重新生成 rtl/common/ttg_cfg_pkg.sv
-bash scripts/replay.sh <module> [trace...]   # 构建并回放某个模块
+make cfg                                    # 从 trace-model/include/config.h 生成 rtl/common/ttg_cfg_pkg.sv（不要手改）
+bash scripts/lint.sh                        # 编码规范 + verilator -Wall（按目录）
+bash scripts/lint_chip.sh                   # 整芯片 -Wall（CFG=<包> 用别的配置检查）
+SOC_FM=1 SOC_OUT=$PWD/build/soc_fm bash tb/soc/build.sh     # 带 function-model 逐条对比的整核测试平台
+bash scripts/fm_gate.sh $PWD/build/soc_fm/obj/soc_tb $PWD/build/gate   # 66 个程序门禁，并报告与 trace-model 周期不同的个数
+bash scripts/synth_cfg.sh <标签> <配置包> <模块...>                      # 综合对比
+make tracker                                # 由 docs/modules/*.md 头部重新生成 05 进度表
 ```
 
 ## 目录结构
 
 ```
-docs/        本目录
+docs/        本目录（history/ 为退役文档）
 rtl/         所有 RTL（common/ backend/ frontend/ memsys/ core/），说明见 rtl/README.md
-spec/        每个模块的接口规格 <module>.io（harness 的输入，也是接口的唯一定义）
-harness/     include/（trace 格式 + C++ 录制端）src/（通用回放器）tools/（iogen、svlint、gen_cfg_pkg）
-tests/       selftest/（harness 自检）以及各模块的专项测试
+spec/        模块接口规格 <module>.io（tools/gen_backtop.py 由它生成 back_top.sv / exu.sv）
+harness/     tools/（gen_cfg_pkg、iogen、svlint）及旧回放器源码
+tb/soc/      整核测试平台（SimDDR、外设模型、function-model 逐条对比）
+tools/       生成器：gen_backtop、dimmap（字面尺寸 → 配置参数）、pack_bits、gen_soc_probe、gen_soc_top
+tests/       fpu、common 原语等专项测试；selftest/ 是旧 harness 自检
 scripts/     索引见 scripts/README.md
-traces/      参考模型录制的逐拍 trace（不入库）
+programs/    缩短版 dhrystone/coremark 及源码（programs/big）
 build/       构建产物（不入库）
 ```
 
-## 目录位置（2026-11-04 起）
-
-本仓库位于 `~/personal/AI-Huma/rtl`（原 `~/personal/tututugege-rtl`）。测试程序二进制取自 `~/personal/AI-Huma/trace-model/build/{tests,vm}`
-（与旧补丁队列仓库 `tututugege-trace` 的产物逐字节相同）；缩短版 dhrystone/coremark 及其源码和构建脚本在 `programs/big/`（`/tmp/big` 不再被引用）；
-带 AXI 记录钩子的参考模拟器副本在 `refsim_axi/`（git 忽略，按 `docs/analysis/axi-record-hook.md` 重建）。旧的 `rtl-wt/` 工作树已全部清理，不再为每个模块单开工作区。
+测试程序二进制取自 `~/personal/AI-Huma/trace-model/build/{tests,vm}`；Linux 镜像在 `~/personal/AI-Huma-data/linux/`（生成方法见 function-model `linux/README.md`）。

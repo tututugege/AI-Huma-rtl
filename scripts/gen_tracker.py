@@ -50,7 +50,7 @@ def main():
            '> **本文件由 `scripts/gen_tracker.py`（`make tracker`）生成，不要手改。** 改对应的 `docs/modules/<模块>.md` 的头部（front-matter），再重新生成。',
            '> RTL 行数、文件数、spec 数/字段数是脚本实测值；状态、锁步、变异是模块笔记里人工填写并经协调者复核的值。',
            '> 状态：`green` = lint 干净 + 整程序锁步全部通过 + 变异被抓到（存活者已判定）+ 独立复核；`partial` = 有已知缺口，见备注。',
-           '> 未完成事项与路线图见 [07-roadmap.md](07-roadmap.md)。参考模型提交：`2f31e8d`。', '']
+           '> 待办见总仓库 [docs/TODO.md](../../docs/TODO.md)。参考模型提交：`2f31e8d`。', '']
     tot_f = tot_l = 0
     for key, title in AREAS:
         if key not in rows:

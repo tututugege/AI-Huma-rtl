@@ -1,4 +1,4 @@
-> **已退役（2026-11-04）**：本文描述的逐模块锁步 / trace 回放 / 变异检查体系已随旧参考模型退役，脚本在标签 `legacy-reference`。现行规则见 [06-equivalence-policy.md](06-equivalence-policy.md)。
+> **已退役（2026-11-04）**：本文描述的逐模块锁步 / trace 回放 / 变异检查体系已随旧参考模型退役，脚本在标签 `legacy-reference`。现行规则见 [06-equivalence-policy.md](../06-equivalence-policy.md)。
 
 # 03 逐拍对照 Harness
 
@@ -64,7 +64,7 @@ out slot_data  8  [4] when slot_valid   # 逐元素 when
 out lane_sum   4  [2][2]         # 多维数组，行优先
 ```
 
-- `when <v>`：`<v>` 必须是 1 位的输入或输出，且与本字段同维度（逐元素）或是标量。用于"限定为假时参考模型的值无意义"的字段；使用条件和核对方法见 [06-equivalence-policy.md](06-equivalence-policy.md)。
+- `when <v>`：`<v>` 必须是 1 位的输入或输出，且与本字段同维度（逐元素）或是标量。用于"限定为假时参考模型的值无意义"的字段；使用条件和核对方法见 [06-equivalence-policy.md](../06-equivalence-policy.md)。
 - 信号名不得为 `clk rst_n in_bits out_bits`。
 - spec 是接口的**唯一定义**：RTL 端口、trace 布局、录制代码都由它派生。改字段的方向/名字/位宽/维度/顺序会改变哈希，旧 trace 会被回放器拒绝（需重新录制）；`when` 和 `@` 表达式不在哈希里，放宽或收紧比较规则不会使 trace 作废。
 

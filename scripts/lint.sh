@@ -27,7 +27,7 @@ for d in "${DIRS[@]}"; do
   files=(); while IFS= read -r f; do files+=("$f"); done < <(find "$d" -name '*.sv' ! -name '*_pkg.sv' | sort)
   allf=(); while IFS= read -r f; do allf+=("$f"); done < <(find "$d" -name '*.sv' | sort)
   [ ${#allf[@]} -gt 0 ] || continue
-  # axi_subsys: assembly top with a Verilator UNOPTFLAT on axi_llc.in_w (open item in docs/07-roadmap.md); style-checked only
+  # axi_subsys: assembly top with a Verilator UNOPTFLAT on axi_llc.in_w (open item in the top-level docs/TODO.md); style-checked only
   if [ "$(basename "$d")" = axi_subsys ]; then python3 "$TOOLS/../harness/tools/svlint.py" "${allf[@]}"; n=$((n + ${#allf[@]})); continue; fi
   python3 "$TOOLS/../harness/tools/svlint.py" "${allf[@]}"
   n=$((n + ${#allf[@]}))

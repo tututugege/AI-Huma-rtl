@@ -108,7 +108,7 @@ end
 
 ## 8. 每个模块必须附带
 
-1. `spec/<module>.io`：接口规格（格式见 [03-harness.md](03-harness.md) 第 2 节）。
+1. `spec/<module>.io`：接口规格（格式见 [03-harness.md](history/03-harness.md) 第 2 节）。
 2. 参考模型里的录制点（见 02 流程）。
 3. `make lint` 干净、`scripts/replay.sh <module>` 对所有指定 trace 通过。
 4. 至少 3 个变异体检查（见 02 流程第 6 步）。

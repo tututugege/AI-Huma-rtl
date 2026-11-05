@@ -1,4 +1,4 @@
-> **已退役（2026-11-04）**：本文是逐模块翻译阶段给 agent 的简报，对应的旧参考和锁步体系已退役，见 [06-equivalence-policy.md](06-equivalence-policy.md)。
+> **已退役（2026-11-04）**：本文是逐模块翻译阶段给 agent 的简报，对应的旧参考和锁步体系已退役，见 [06-equivalence-policy.md](../06-equivalence-policy.md)。
 
 # 翻译任务书（给负责单个模块的 agent）
 
