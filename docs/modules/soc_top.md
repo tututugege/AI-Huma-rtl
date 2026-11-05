@@ -27,7 +27,7 @@ note: core_top + mem_top；测试平台 tb/soc（Verilator）+ 参考的 SimDDR/
 ## 3. 测试平台 `tb/soc`
 - `soc_tb.cpp`：每个 CPU 周期 16 个 tick：DDR 从口输出 → RTL → RTL 主口输出 → DDR 输入 → DDR seq → 时钟沿。程序结束 = 提交 `type == 10`（`ITYPE_EBREAK`）。
 - 平台模型直接用参考的源码：`SimDDR`（时序由 config.h 决定）、`PhysMemory`、`PeripheralModel`（UART/中断控制器/定时器；`tick()` 每周期一次，驱动中断注入输入）。
-- 设备写（modeled MMIO）在 store **提交**时生效（参考的 `commit_sync` → `on_commit_store`）：测试平台在提交周期从 LSU 的 `st_fld_q[stq_idx]` 读 paddr/data/func3（`public_flat_rw`，依赖 LSU 内部布局）。
+- 设备写（modeled MMIO）在 store **提交**时生效（参考的 `commit_sync` → `on_commit_store`）：测试平台在提交周期从 LSU 的 `st_fld_q[stq_idx]` 读 paddr/data/func3（依赖 `lsu_pkg::stq_fld_t` 的布局；字段位宽取自 `soc_probe.inc` 里的 `kCfg_*`，由 `tools/gen_soc_probe.py` 从配置包生成，配置变化时自动跟上，字段顺序变化要手工改 `soc_tb.cpp`）。
 - `SOC_TB_TRACE=<core_top trace>`：逐周期与参考录制的 `core_top` 边界比较，首个不一致的周期与字段立即报出（`scripts/record.sh core_top <prog>` 录制；对核不消费的输入字段按"配对 valid"放宽）。
 - 构建：`bash tb/soc/build.sh`（`DEBUG=1` 打开内部信号调试打印）；运行：`bash scripts/soc_smoke.sh [最大参考周期]`，参考周期表 `scripts/ref_cycles.txt`。速度约 350 周期/秒。
 

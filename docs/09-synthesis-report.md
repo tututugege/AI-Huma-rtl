@@ -3,7 +3,7 @@
 **这是什么**：对 283 个 RTL 模块逐个做通用门级综合（yosys + yosys-slang），得到每个模块的单元数、触发器数。
 它是**相对面积代理**：用来比较"改动前后"和"哪里最大"，不是流片签核数字（没有工艺库、没有时序约束、没有布局）。
 
-完整逐模块表：[synth/modules.csv](synth/modules.csv)。脚本：[../scripts/synth_module.sh](../scripts/synth_module.sh)。
+完整逐模块表：[synth/modules.csv](synth/modules.csv)。**注意**：本报告和 modules.csv 是改配置之前（`IQ_INT` 128 等）的数字；2026-11-05 起默认配置是第 3 批，受影响模块的新数字见第 9 节。脚本：[../scripts/synth_module.sh](../scripts/synth_module.sh)。
 
 ## 1. 结论
 
@@ -93,3 +93,28 @@ bash scripts/synth_module.sh <模块名> 12000 180     # 结果在 build/synth/<
 ```
 
 yosys-slang 插件放在仓库之外：`/Users/ruyaoh/personal/yosys-slang/build/slang.so`（`SLANG` 环境变量可覆盖）。
+
+## 9. 第 3 批面积配置后的受影响模块（2026-11-05）
+
+配置变化（上层 `docs/EXPLORATION.md` EXP-005）：`BACKEND_FETCH_WIDTH` 16→8、`MAX_BR_NUM` 64→32、ibuf 128→64、front2back 32→8、
+IQ INT/BR/STD 128/64/64 → 64/32/16（LD、STA 不变）、发射端口 LD/STA/STD/BR 4/4/4/4 → 4/3/3/2。
+同一流程（第 2 节设置），`scripts/synth_cfg.sh` 在两种配置包下各综合一遍；“旧”列与 modules.csv 一致。
+
+| 模块 | 旧配置 | 第 3 批 | 变化 |
+|---|---|---|---|
+| isu | 2,119,233 | 1,029,239 | −51% |
+| prf | 376,833 | 282,121 | −25% |
+| ren | 345,198 | 206,193 | −40% |
+| rob | 235,182 | 201,297 | −14% |
+| pre_idu_queue | 188,943 | 49,764 | −74% |
+| exu（含 exu_ctrl、各 FU） | 107,137 | 91,509 | −15% |
+| dispatch | 104,827 | 86,598 | −17% |
+| idu | 97,352 | 30,640 | −69% |
+| lsu_dc_req_st | 87,426 | 86,150 | −1% |
+| tlb_mmu | 60,793 | 53,454 | −12% |
+| 合计（以上 + front2back_fifo） | 3,723,024 | 2,117,024 | 约 −161 万（整机推算约 952 万的 17%） |
+| 触发器（同范围） | 123,595 | 73,873 | 约 −5 万（整机约 18.1 万的 27%） |
+
+- 存储阵列（`$mem`）不在单元数里，按位宽算：FTQ 约 −5.8 万位，front2back 约 −2.3 万位，ibuf 约 −2.8 千位。
+- `lsu`、`dcache` 等综合不出来的聚合模块没算（端口减少在 DCache 写口、LSU STA 通路上的节省没有数字），所以是下限。
+- 第 1 节的整机推算没有按新配置重做。
