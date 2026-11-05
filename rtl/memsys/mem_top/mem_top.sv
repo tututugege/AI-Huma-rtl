@@ -123,14 +123,26 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
   localparam int NLD_ = LSU_LDU_COUNT;
   localparam int NST_ = LSU_STA_COUNT;
 
-  // ---- tick phase: 0 = the CPU tick, 15 = the last one of the cycle ----
+  // ---- tick phase: 0 = the CPU tick, TICKS-1 = the last one of the cycle ----
+  // TICKS = AXI_SUBSYSTEM_FREQ_DIV (trace-model config.h): 1 = the memory domain runs at the CPU clock (phase0 and
+  // phase_last are both always true), 16 = the original divided arrangement.
+  localparam int TICKS = AXI_SUBSYSTEM_FREQ_DIV;
   logic [3:0] phase_q;
   always_ff @(posedge clk) begin
-    if (!rst_n) phase_q <= 4'd0;
-    else        phase_q <= phase_q + 4'd1;
+    if (!rst_n)                       phase_q <= 4'd0;
+    else if (phase_q == 4'(TICKS - 1)) phase_q <= 4'd0;
+    else                              phase_q <= phase_q + 4'd1;
   end
-  assign phase0 = (phase_q == 4'd0);
-  wire phase_last = (phase_q == 4'd15);
+  // TICKS == 1: both are constant, so the 16-tick folding logic of the adapters and the DCache response latches
+  // is removed at elaboration (phase_q is kept only as a probe point of the test bench)
+  logic phase_last;
+  if (TICKS == 1) begin : g_ph_const
+    assign phase0     = 1'b1;
+    assign phase_last = 1'b1;
+  end else begin : g_ph_cnt
+    assign phase0     = (phase_q == 4'd0);
+    assign phase_last = (phase_q == 4'(TICKS - 1));
+  end
 
   // ======================= mem_route =======================
   logic        rt_icache_resp_valid, rt_icache_resp_retry, rt_icache_resp_miss;
