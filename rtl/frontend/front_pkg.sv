@@ -1,16 +1,16 @@
 // Ref: front-end/config/frontend_feature_config.h, front-end/wire_types.h, front-end/predecode.h
 `default_nettype none
 /* verilator lint_off UNUSEDPARAM */
-// Front-end constants that ttg_cfg_pkg (generated from config.h) does not export: FIFO depths, prediction-metadata
+// Front-end constants: FIFO depths (from ttg_cfg_pkg, generated from frontend_feature_config.h), prediction-metadata
 // widths and the predecode type encoding.  Values checked with docs/analysis/tools/widths.cpp (real configuration).
 package front_pkg;
   import ttg_cfg_pkg::*;
 
   // FIFO depths (frontend_feature_config.h: INSTRUCTION_FIFO_SIZE, PTAB_SIZE, ...)
-  localparam int FETCH_ADDR_FIFO_DEPTH = 16;
-  localparam int INST_FIFO_DEPTH       = 16;
-  localparam int PTAB_DEPTH            = 16;
-  localparam int F2B_FIFO_DEPTH        = 32;
+  localparam int FETCH_ADDR_FIFO_DEPTH = FETCH_ADDR_FIFO_SIZE;
+  localparam int INST_FIFO_DEPTH       = INSTRUCTION_FIFO_SIZE;
+  localparam int PTAB_DEPTH            = PTAB_SIZE;
+  localparam int F2B_FIFO_DEPTH        = FRONT2BACK_FIFO_SIZE;
   // "full" thresholds of the C++ latches (front_top.cpp:1841-1848): BPU back-pressure FIFOs go full one entry early
   localparam int FETCH_ADDR_FIFO_FULL_AT = FETCH_ADDR_FIFO_DEPTH - 1;
   localparam int INST_FIFO_FULL_AT       = INST_FIFO_DEPTH;

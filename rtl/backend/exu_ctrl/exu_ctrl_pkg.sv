@@ -73,10 +73,12 @@ package exu_ctrl_pkg;
       5:           return XC_K_FP;
       2:           return XC_K_CSR;
       1, 4, 7, 9, 10, 11: return XC_K_ALU;
-      12, 13, 14, 15: return XC_K_LD;
-      16, 17, 18, 19: return XC_K_STA;
-      20, 21, 22, 23: return XC_K_STD;
-      default:     return XC_K_BR;
+      default: begin   // single-FU ports after the ALU cluster (port = f - 6): kind from the IQ port ranges
+        if (f - 6 >= IQ_BR_PORT_BASE) return XC_K_BR;
+        else if (f - 6 >= IQ_STD_PORT_BASE) return XC_K_STD;
+        else if (f - 6 >= IQ_STA_PORT_BASE) return XC_K_STA;
+        else return XC_K_LD;
+      end
     endcase
   endfunction
 

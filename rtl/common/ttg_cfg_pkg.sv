@@ -97,6 +97,11 @@ package ttg_cfg_pkg;
   localparam int IQ_STD_PORT_BASE = 14;
   localparam int IQ_BR_PORT_BASE = 18;
   localparam int TOTAL_FU_COUNT = 28;
+  localparam int IQ_INT_SIZE = 128;
+  localparam int IQ_LD_SIZE = 64;
+  localparam int IQ_STA_SIZE = 64;
+  localparam int IQ_STD_SIZE = 64;
+  localparam int IQ_BR_SIZE = 64;
   localparam int MAX_IQ_SIZE = 128;
   localparam int IQ_READY_NUM_WIDTH = 8;
   localparam int DCACHE_MISS_NUM = 8;
@@ -153,5 +158,9 @@ package ttg_cfg_pkg;
   localparam longint unsigned SIM_CACHE_ADDR_2_MAX = 64'd2280652800;
   localparam longint unsigned SIM_CACHE_ADDR_3_MIN = 64'd2281701376;
   localparam longint unsigned SIM_CACHE_ADDR_3_MAX = 64'd4293918720;
+  localparam int INSTRUCTION_FIFO_SIZE = 16;
+  localparam int PTAB_SIZE = 16;
+  localparam int FETCH_ADDR_FIFO_SIZE = 16;
+  localparam int FRONT2BACK_FIFO_SIZE = 32;
 endpackage
 `default_nettype wire

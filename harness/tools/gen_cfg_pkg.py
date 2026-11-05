@@ -35,7 +35,11 @@ def main():
     for n in DECL.findall(open(cfg).read()):
         if n not in names:
             names.append(n)
-    prog = ['#include "config.h"', '#include <cstdio>', 'int main(){']
+    # front-end FIFO depths are #defines in front-end/config/frontend_feature_config.h (overridable with -D like the rest)
+    fe = os.path.join(src, 'front-end', 'config', 'frontend_feature_config.h')
+    fe_names = re.findall(r'^#define\s+((?:PTAB|INSTRUCTION_FIFO|FETCH_ADDR_FIFO|FRONT2BACK_FIFO)_SIZE)\s', open(fe).read(), re.M)
+    names += [n for n in fe_names if n not in names]
+    prog = ['#include "config.h"', '#include "frontend_feature_config.h"', '#include <cstdio>', 'int main(){']
     for n in names:
         prog.append(f'  std::printf("%s %llu\\n", "{n}", (unsigned long long)({n}));')
     prog.append('  return 0; }')

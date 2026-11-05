@@ -75,8 +75,8 @@ module isu
 );
 
 `ifndef SYNTHESIS
-  // the static layout below follows config.h: 5 queues, 22 issue ports, 15 wake channels
-  if (ISSUE_WIDTH != 22 || WAKE_PORTS != ALU_NUM || FAST_WAKE_BASE + FAST_UNITS != WAKE_NUM ||
+  // static layout per config.h: 5 queues, the 6-port ALU cluster first (ports 0..5), then LD/STA/STD/BR
+  if (IQ_LD_PORT_BASE != 6 || WAKE_PORTS != ALU_NUM || FAST_WAKE_BASE + FAST_UNITS != WAKE_NUM ||
       IQ_DISPATCH_WIDTH != 8) begin : g_cfg_check
     $error("isu: config.h layout changed, isu_pkg port tables need updating");
   end

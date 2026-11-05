@@ -17,15 +17,15 @@ module lsu
   input  logic rob_bcast_head_incomplete_valid,
   input  logic [6:0] rob_bcast_head_incomplete_rob_idx,
   input  logic dec_bcast_mispred,
-  input  logic [63:0] dec_bcast_br_mask,
-  input  logic [63:0] dec_bcast_clear_mask,
+  input  logic [BR_MASK_WIDTH-1:0] dec_bcast_br_mask,
+  input  logic [BR_MASK_WIDTH-1:0] dec_bcast_clear_mask,
   input  logic [DECODE_WIDTH-1:0] dis2lsu_alloc_req,
-  input  logic [63:0] dis2lsu_br_mask [DECODE_WIDTH],
+  input  logic [BR_MASK_WIDTH-1:0] dis2lsu_br_mask [DECODE_WIDTH],
   input  logic [6:0] dis2lsu_rob_idx [DECODE_WIDTH],
   input  logic [DECODE_WIDTH-1:0] dis2lsu_rob_flag,
   input  logic [DECODE_WIDTH-1:0] dis2lsu_ldq_alloc_req,
   input  logic [5:0] dis2lsu_ldq_idx [DECODE_WIDTH],
-  input  logic [63:0] dis2lsu_ldq_br_mask [DECODE_WIDTH],
+  input  logic [BR_MASK_WIDTH-1:0] dis2lsu_ldq_br_mask [DECODE_WIDTH],
   input  logic [6:0] dis2lsu_ldq_rob_idx [DECODE_WIDTH],
   input  logic [DECODE_WIDTH-1:0] dis2lsu_ldq_rob_flag,
   input  logic [LSU_SDU_COUNT-1:0] exe2lsu_sdu_req_valid,
@@ -86,7 +86,7 @@ module lsu
   output logic [31:0] lsu2exe_wb_req_uop_diag_val [LSU_LOAD_WB_WIDTH],
   output logic [31:0] lsu2exe_wb_req_uop_result [LSU_LOAD_WB_WIDTH],
   output logic [6:0] lsu2exe_wb_req_uop_dest_preg [LSU_LOAD_WB_WIDTH],
-  output logic [63:0] lsu2exe_wb_req_uop_br_mask [LSU_LOAD_WB_WIDTH],
+  output logic [BR_MASK_WIDTH-1:0] lsu2exe_wb_req_uop_br_mask [LSU_LOAD_WB_WIDTH],
   output logic [6:0] lsu2exe_wb_req_uop_rob_idx [LSU_LOAD_WB_WIDTH],
   output logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_dest_en,
   output logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_page_fault_load,
@@ -94,7 +94,7 @@ module lsu
   output logic [LSU_STA_COUNT-1:0] lsu2exe_sta_wb_req_valid,
   output logic [31:0] lsu2exe_sta_wb_req_uop_diag_val [LSU_STA_COUNT],
   output logic [31:0] lsu2exe_sta_wb_req_uop_result [LSU_STA_COUNT],
-  output logic [63:0] lsu2exe_sta_wb_req_uop_br_mask [LSU_STA_COUNT],
+  output logic [BR_MASK_WIDTH-1:0] lsu2exe_sta_wb_req_uop_br_mask [LSU_STA_COUNT],
   output logic [6:0] lsu2exe_sta_wb_req_uop_rob_idx [LSU_STA_COUNT],
   output logic [LSU_STA_COUNT-1:0] lsu2exe_sta_wb_req_uop_page_fault_store,
   output logic peripheral_req_is_mmio,
@@ -123,26 +123,26 @@ module lsu
   logic [8-1:0] cm_valid_vec;
   logic [8-1:0] dis_stq_req_vec;
   logic [8-1:0] dis_ldq_req_vec;
-  logic [4-1:0] sdu_valid_vec;
-  logic [4-1:0] ldu_valid_vec;
-  logic [4-1:0] ldu_is_atomic_vec;
-  logic [4-1:0] sta_valid_vec;
-  logic [4-1:0] sta_is_atomic_vec;
-  logic [4-1:0] dcl_valid_vec;
-  logic [4-1:0] dcs_valid_vec;
-  logic [4-1:0] mmu_ld_valid_vec;
-  logic [4-1:0] mmu_st_valid_vec;
+  logic [LSU_SDU_COUNT-1:0] sdu_valid_vec;
+  logic [LSU_LDU_COUNT-1:0] ldu_valid_vec;
+  logic [LSU_LDU_COUNT-1:0] ldu_is_atomic_vec;
+  logic [LSU_STA_COUNT-1:0] sta_valid_vec;
+  logic [LSU_STA_COUNT-1:0] sta_is_atomic_vec;
+  logic [LSU_LDU_COUNT-1:0] dcl_valid_vec;
+  logic [LSU_STA_COUNT-1:0] dcs_valid_vec;
+  logic [LSU_LDU_COUNT-1:0] mmu_ld_valid_vec;
+  logic [LSU_STA_COUNT-1:0] mmu_st_valid_vec;
   logic [8-1:0] lsu2dis_ldq_alloc_valid_vec;
-  logic [4-1:0] wb_valid_vec;
-  logic [4-1:0] wb_dest_en_vec;
-  logic [4-1:0] wb_pf_load_vec;
-  logic [4-1:0] wb_pf_store_vec;
-  logic [4-1:0] sta_wb_valid_vec;
-  logic [4-1:0] sta_wb_pf_store_vec;
-  logic [4-1:0] dcl_req_valid_vec;
-  logic [4-1:0] dcs_req_valid_vec;
-  logic [4-1:0] mmu_ld_req_valid_vec;
-  logic [4-1:0] mmu_st_req_valid_vec;
+  logic [LSU_LOAD_WB_WIDTH-1:0] wb_valid_vec;
+  logic [LSU_LOAD_WB_WIDTH-1:0] wb_dest_en_vec;
+  logic [LSU_LOAD_WB_WIDTH-1:0] wb_pf_load_vec;
+  logic [LSU_LOAD_WB_WIDTH-1:0] wb_pf_store_vec;
+  logic [LSU_STA_COUNT-1:0] sta_wb_valid_vec;
+  logic [LSU_STA_COUNT-1:0] sta_wb_pf_store_vec;
+  logic [LSU_LDU_COUNT-1:0] dcl_req_valid_vec;
+  logic [LSU_STA_COUNT-1:0] dcs_req_valid_vec;
+  logic [LSU_LDU_COUNT-1:0] mmu_ld_req_valid_vec;
+  logic [LSU_STA_COUNT-1:0] mmu_st_req_valid_vec;
   logic [31:0] sta_wb_vaddr_w [NST];
 
   for (genvar i = 0; i < 8; i++) begin : g_cm_valid
@@ -154,64 +154,64 @@ module lsu
   for (genvar i = 0; i < 8; i++) begin : g_dis_ldq_req
     assign dis_ldq_req_vec[i] = dis2lsu_ldq_alloc_req[i];
   end
-  for (genvar i = 0; i < 4; i++) begin : g_sdu_valid
+  for (genvar i = 0; i < LSU_SDU_COUNT; i++) begin : g_sdu_valid
     assign sdu_valid_vec[i] = exe2lsu_sdu_req_valid[i];
   end
-  for (genvar i = 0; i < 4; i++) begin : g_ldu_valid
+  for (genvar i = 0; i < LSU_LDU_COUNT; i++) begin : g_ldu_valid
     assign ldu_valid_vec[i] = exe2lsu_ldu_req_valid[i];
   end
-  for (genvar i = 0; i < 4; i++) begin : g_ldu_is_atomic
+  for (genvar i = 0; i < LSU_LDU_COUNT; i++) begin : g_ldu_is_atomic
     assign ldu_is_atomic_vec[i] = exe2lsu_ldu_req_uop_is_atomic[i];
   end
-  for (genvar i = 0; i < 4; i++) begin : g_sta_valid
+  for (genvar i = 0; i < LSU_STA_COUNT; i++) begin : g_sta_valid
     assign sta_valid_vec[i] = exe2lsu_sta_req_valid[i];
   end
-  for (genvar i = 0; i < 4; i++) begin : g_sta_is_atomic
+  for (genvar i = 0; i < LSU_STA_COUNT; i++) begin : g_sta_is_atomic
     assign sta_is_atomic_vec[i] = exe2lsu_sta_req_uop_is_atomic[i];
   end
-  for (genvar i = 0; i < 4; i++) begin : g_dcl_valid
+  for (genvar i = 0; i < LSU_LDU_COUNT; i++) begin : g_dcl_valid
     assign dcl_valid_vec[i] = dcache2lsu_load_resps_valid[i];
   end
-  for (genvar i = 0; i < 4; i++) begin : g_dcs_valid
+  for (genvar i = 0; i < LSU_STA_COUNT; i++) begin : g_dcs_valid
     assign dcs_valid_vec[i] = dcache2lsu_store_resps_valid[i];
   end
-  for (genvar i = 0; i < 4; i++) begin : g_mmu_ld_valid
+  for (genvar i = 0; i < LSU_LDU_COUNT; i++) begin : g_mmu_ld_valid
     assign mmu_ld_valid_vec[i] = mmu2lsu_ldq_resp_valid[i];
   end
-  for (genvar i = 0; i < 4; i++) begin : g_mmu_st_valid
+  for (genvar i = 0; i < LSU_STA_COUNT; i++) begin : g_mmu_st_valid
     assign mmu_st_valid_vec[i] = mmu2lsu_stq_resp_valid[i];
   end
   for (genvar i = 0; i < 8; i++) begin : g_lsu2dis_ldq_alloc_valid_oc_valid
     assign lsu2dis_ldq_alloc_valid[i] = lsu2dis_ldq_alloc_valid_vec[i];
   end
-  for (genvar i = 0; i < 4; i++) begin : g_wb_valid_eq_valid
+  for (genvar i = 0; i < LSU_LOAD_WB_WIDTH; i++) begin : g_wb_valid_eq_valid
     assign lsu2exe_wb_req_valid[i] = wb_valid_vec[i];
   end
-  for (genvar i = 0; i < 4; i++) begin : g_wb_dest_en__dest_en
+  for (genvar i = 0; i < LSU_LOAD_WB_WIDTH; i++) begin : g_wb_dest_en__dest_en
     assign lsu2exe_wb_req_uop_dest_en[i] = wb_dest_en_vec[i];
   end
-  for (genvar i = 0; i < 4; i++) begin : g_wb_pf_load_ult_load
+  for (genvar i = 0; i < LSU_LOAD_WB_WIDTH; i++) begin : g_wb_pf_load_ult_load
     assign lsu2exe_wb_req_uop_page_fault_load[i] = wb_pf_load_vec[i];
   end
-  for (genvar i = 0; i < 4; i++) begin : g_wb_pf_store_lt_store
+  for (genvar i = 0; i < LSU_LOAD_WB_WIDTH; i++) begin : g_wb_pf_store_lt_store
     assign lsu2exe_wb_req_uop_page_fault_store[i] = wb_pf_store_vec[i];
   end
-  for (genvar i = 0; i < 4; i++) begin : g_sta_wb_valid_eq_valid
+  for (genvar i = 0; i < LSU_STA_COUNT; i++) begin : g_sta_wb_valid_eq_valid
     assign lsu2exe_sta_wb_req_valid[i] = sta_wb_valid_vec[i];
   end
-  for (genvar i = 0; i < 4; i++) begin : g_sta_wb_pf_store_lt_store
+  for (genvar i = 0; i < LSU_STA_COUNT; i++) begin : g_sta_wb_pf_store_lt_store
     assign lsu2exe_sta_wb_req_uop_page_fault_store[i] = sta_wb_pf_store_vec[i];
   end
-  for (genvar i = 0; i < 4; i++) begin : g_dcl_req_valid_ts_valid
+  for (genvar i = 0; i < LSU_LDU_COUNT; i++) begin : g_dcl_req_valid_ts_valid
     assign lsu2dcache_load_ports_valid[i] = dcl_req_valid_vec[i];
   end
-  for (genvar i = 0; i < 4; i++) begin : g_dcs_req_valid_ts_valid
+  for (genvar i = 0; i < LSU_STA_COUNT; i++) begin : g_dcs_req_valid_ts_valid
     assign lsu2dcache_store_ports_valid[i] = dcs_req_valid_vec[i];
   end
-  for (genvar i = 0; i < 4; i++) begin : g_mmu_ld_req_valid_eq_valid
+  for (genvar i = 0; i < LSU_LDU_COUNT; i++) begin : g_mmu_ld_req_valid_eq_valid
     assign lsu2mmu_ldq_req_valid[i] = mmu_ld_req_valid_vec[i];
   end
-  for (genvar i = 0; i < 4; i++) begin : g_mmu_st_req_valid_eq_valid
+  for (genvar i = 0; i < LSU_STA_COUNT; i++) begin : g_mmu_st_req_valid_eq_valid
     assign lsu2mmu_stq_req_valid[i] = mmu_st_req_valid_vec[i];
   end
   for (genvar i = 0; i < NST; i++) begin : g_sta_dup

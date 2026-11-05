@@ -25,7 +25,13 @@ package isu_pkg;
   localparam int READY_NUM_W = IQ_READY_NUM_WIDTH;          // iss2dis.ready_num width
 
   function automatic int iq_size(int q);
-    return (q == 0) ? 128 : 64;
+    case (q)
+      0: return IQ_INT_SIZE;
+      1: return IQ_LD_SIZE;
+      2: return IQ_STA_SIZE;
+      3: return IQ_STD_SIZE;
+      default: return IQ_BR_SIZE;
+    endcase
   endfunction
 
   function automatic int iq_port_base(int q);

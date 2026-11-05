@@ -310,7 +310,7 @@ def report(mods, nets, issues, bin_, bout, unread):
 # Code generation
 # ----------------------------------------------------------------------------------------------------------------------
 def sv_decl(width, dims, name, kind='logic'):
-    w = '' if width == 1 else f'[{width - 1}:0] '
+    w = '' if width == 1 else dimmap.width_for(name, width) + ' '
     d = ''.join(f'[{dimmap.param_for(name, x) or x}]' for x in dims)
     return f'{kind} {w}{name}{(" " + d) if d else ""}'
 

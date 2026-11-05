@@ -21,7 +21,7 @@ module rob
   input  logic [6:0] dis2rob_uop_dest_preg [DECODE_WIDTH],
   input  logic [6:0] dis2rob_uop_old_dest_preg [DECODE_WIDTH],
   input  logic [5:0] dis2rob_uop_ftq_idx [DECODE_WIDTH],
-  input  logic [3:0] dis2rob_uop_ftq_offset [DECODE_WIDTH],
+  input  logic [FTQ_OFFSET_WIDTH-1:0] dis2rob_uop_ftq_offset [DECODE_WIDTH],
   input  logic [DECODE_WIDTH-1:0] dis2rob_uop_ftq_is_last,
   input  logic [4:0] dis2rob_uop_type [DECODE_WIDTH],
   input  logic [DECODE_WIDTH-1:0] dis2rob_uop_dest_en,
@@ -56,7 +56,7 @@ module rob
   output logic [6:0] rob_commit_commit_entry_uop_dest_preg [COMMIT_WIDTH],
   output logic [6:0] rob_commit_commit_entry_uop_old_dest_preg [COMMIT_WIDTH],
   output logic [5:0] rob_commit_commit_entry_uop_ftq_idx [COMMIT_WIDTH],
-  output logic [3:0] rob_commit_commit_entry_uop_ftq_offset [COMMIT_WIDTH],
+  output logic [FTQ_OFFSET_WIDTH-1:0] rob_commit_commit_entry_uop_ftq_offset [COMMIT_WIDTH],
   output logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_ftq_is_last,
   output logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_mispred,
   output logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_br_taken,
@@ -95,7 +95,7 @@ module rob
   output logic rob_bcast_head_incomplete_valid,
   output logic [0:0] ftq_rob_pc_req_req_valid,
   output logic [5:0] ftq_rob_pc_req_req_ftq_idx [1],
-  output logic [3:0] ftq_rob_pc_req_req_ftq_offset [1]
+  output logic [FTQ_OFFSET_WIDTH-1:0] ftq_rob_pc_req_req_ftq_offset [1]
 );
 
   // ---- spec ports -> internal structs ----
