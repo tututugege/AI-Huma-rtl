@@ -25,9 +25,7 @@ module dcache_pf
   localparam int QW      = 3;
   localparam int SB      = 8;     // stride bits
   localparam int DEGREE  = 8;
-  localparam int DIST    = 2;
   localparam int NTR     = 2;     // training events per cycle
-  localparam int PG_W    = LINE_W - 6;
 
   // ---------------------------------------------------------------- state
   logic [LINE_W-1:0] q_line_q [QD];
@@ -125,16 +123,16 @@ module dcache_pf
 
   // 3. training of the events registered last cycle (sequential over the NTR events, after the generator steps)
   always_comb begin
+    logic [LINE_W-1:0] line, d;
+    logic              in_range;
+    logic signed [LINE_W-1:0] ds;
+    logic [SB-1:0]     cur;
     g_valid_d = g_valid_s; g_next_d = g_next_s; g_base_d = g_base_s; g_stride_d = g_stride_s; g_left_d = g_left_s;
     g2_valid_d = g2_valid_s; g2_next_d = g2_next_s; g2_base_d = g2_base_s;
     st_valid_d = st_valid_q; st_last_d = st_last_q; st_stride_d = st_stride_q; st_conf_d = st_conf_q;
     for (int k = 0; k < NTR; k++) begin
+      d = '0; ds = '0; in_range = 1'b0; cur = '0; line = in_line_q[k];
       if (in_valid_q[k]) begin
-        logic [LINE_W-1:0] line, d;
-        logic              in_range;
-        logic signed [LINE_W-1:0] ds;
-        logic [SB-1:0]     cur;
-        line = in_line_q[k];
         if (in_miss_q[k]) begin
           g2_valid_d = 1'b1; g2_base_d = line; g2_next_d = line + LINE_W'(1);
         end
