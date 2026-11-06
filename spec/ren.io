@@ -34,6 +34,7 @@ in  rob_commit_commit_entry_valid 1 [8] @ bt.rob_commit.commit_entry[i0].valid
 in  rob_commit_commit_entry_uop_dest_areg 6 [8] @ bt.rob_commit.commit_entry[i0].uop.dest_areg
 in  rob_commit_commit_entry_uop_dest_preg 7 [8] @ bt.rob_commit.commit_entry[i0].uop.dest_preg
 in  rob_commit_commit_entry_uop_old_dest_preg 7 [8] @ bt.rob_commit.commit_entry[i0].uop.old_dest_preg
+in  rob_commit_commit_entry_uop_me_elim 1 [8] @ bt.rob_commit.commit_entry[i0].uop.me_elim
 in  rob_commit_commit_entry_uop_dest_en 1 [8] @ bt.rob_commit.commit_entry[i0].uop.dest_en
 in  rob_commit_commit_entry_uop_type 5 [8] @ bt.rob_commit.commit_entry[i0].uop.type
 in  rob_commit_commit_entry_uop_page_fault_inst 1 [8] @ bt.rob_commit.commit_entry[i0].uop.page_fault_inst
@@ -67,3 +68,4 @@ out ren2dis_uop_dest_preg 7 [8] when ren2dis_valid @ bt.ren2dis.uop[i0].dest_pre
 out ren2dis_uop_src1_preg 7 [8] when ren2dis_valid @ bt.ren2dis.uop[i0].src1_preg
 out ren2dis_uop_src2_preg 7 [8] when ren2dis_valid @ bt.ren2dis.uop[i0].src2_preg
 out ren2dis_uop_old_dest_preg 7 [8] when ren2dis_valid @ bt.ren2dis.uop[i0].old_dest_preg
+out ren2dis_uop_me_elim 1 [8] when ren2dis_valid @ bt.ren2dis.uop[i0].me_elim

@@ -33,14 +33,20 @@ module ren_core
 
   localparam int NR = 3 * N;
 
-  logic [N-1:0] inst_valid, alloc_req, alloc_valid, fire, alloc_fire, br_fire;
+  logic [N-1:0] inst_valid, alloc_req, alloc_valid, fire, alloc_fire, rat_fire, br_fire;
+  logic [N-1:0] elim;             // move elimination: renamed away, takes no free register
+  // waiver (reviewed): only consumed by ren_elim_sel, which exists when MOVE_ELIM != 0
+  /* verilator lint_off UNUSEDSIGNAL */
+  logic [N-1:0] move_shape;
+  rat_t         spec_rat;
+  /* verilator lint_on UNUSEDSIGNAL */
   ren_inst_t    inst [N];
   preg_t        window [N], alloc_reg [N], free_count, head;
   // rename
   areg_t        rd_areg [NR];
   preg_t        rd_preg [NR];
   preg_t        dest_normal [N], src1_normal [N], src2_normal [N];
-  preg_t        old_dest_preg [N], src1_preg [N], src2_preg [N];
+  preg_t        old_dest_preg [N], src1_preg [N], src2_preg [N], dest_preg [N];
   areg_t        dest_areg [N], src1_areg [N], src2_areg [N];
   logic [N-2:0] dest_en_older;    // dest_en of every slot except the youngest
   rat_t         snapshot [N];
@@ -51,8 +57,11 @@ module ren_core
   preg_t        ckpt_head;
   // commit
   logic [C-1:0] reclaim;
-  logic [CW-1:0] reclaim_rank [C];
-  logic [CW-1:0] reclaim_total;
+  logic [CW-1:0] alloc_commit_total;
+  logic [C-1:0] free;             // commit slot returns its old register to the free list
+  logic [CW-1:0] free_rank [C];
+  logic [CW-1:0] free_total;
+  logic [C-1:0] c_elim;
   logic [C-1:0] c_valid, c_dest_en, c_pf_inst, c_pf_load, c_pf_store, c_illegal;
   logic [INST_TYPE_WIDTH-1:0] c_type [C];
   areg_t        c_dest_areg [C];
@@ -76,8 +85,12 @@ module ren_core
     assign dest_normal[i]   = rd_preg[i];
     assign src1_normal[i]   = rd_preg[N+i];
     assign src2_normal[i]   = rd_preg[2*N+i];
-    assign alloc_req[i]     = inst_valid[i] & inst[i].dest_en;
-    assign alloc_fire[i]    = fire[i] & inst[i].dest_en;
+    assign move_shape[i]    = ren_is_move_shape(inst[i].inst_type, inst[i].src2_is_imm, inst[i].func3, inst[i].imm,
+                                                inst[i].src1_en, inst[i].src1_is_pc, inst[i].src1_areg,
+                                                inst[i].dest_en, inst[i].dest_areg);
+    assign alloc_req[i]     = inst_valid[i] & inst[i].dest_en & ~elim[i];
+    assign rat_fire[i]      = fire[i] & inst[i].dest_en;
+    assign alloc_fire[i]    = rat_fire[i] & ~elim[i];
     assign br_fire[i]       = fire[i] & ((inst[i].inst_type == ITYPE_BR) | (inst[i].inst_type == ITYPE_JALR));
   end
   for (genvar i = 0; i < N - 1; i++) begin : g_older_view
@@ -86,6 +99,7 @@ module ren_core
   for (genvar k = 0; k < C; k++) begin : g_commit_view
     assign c_valid[k]        = commit[k].valid;
     assign c_dest_en[k]      = commit[k].dest_en;
+    assign c_elim[k]         = commit[k].me_elim;
     assign c_pf_inst[k]      = commit[k].page_fault_inst;
     assign c_pf_load[k]      = commit[k].page_fault_load;
     assign c_pf_store[k]     = commit[k].page_fault_store;
@@ -94,6 +108,16 @@ module ren_core
     assign c_dest_areg[k]    = commit[k].dest_areg;
     assign c_dest_preg[k]    = commit[k].dest_preg;
     assign c_old_dest_preg[k] = commit[k].old_dest_preg;
+  end
+
+  // ---- move elimination: which moves are renamed away (Ren::elim_refs_ok) ----
+  if (MOVE_ELIM != 0) begin : g_elim
+    ren_elim_sel u_elim (
+      .inst_valid(inst_valid), .move_shape(move_shape), .dest_en(dest_en_older), .dest_areg(dest_areg),
+      .src1_areg(src1_areg), .src1_rat(src1_normal), .spec_rat(spec_rat), .elim(elim)
+    );
+  end else begin : g_no_elim
+    assign elim = '0;
   end
 
   // ---- allocation (comb_alloc) ----
@@ -110,8 +134,8 @@ module ren_core
   ren_dep_check u_dep (
     .inst_valid(inst_valid[N-2:0]), .dest_en(dest_en_older), .dest_areg(dest_areg),
     .src1_areg(src1_areg), .src2_areg(src2_areg),
-    .alloc_reg(alloc_reg), .dest_normal(dest_normal), .src1_normal(src1_normal), .src2_normal(src2_normal),
-    .old_dest_preg(old_dest_preg), .src1_preg(src1_preg), .src2_preg(src2_preg)
+    .alloc_reg(alloc_reg), .elim(elim), .dest_normal(dest_normal), .src1_normal(src1_normal), .src2_normal(src2_normal),
+    .old_dest_preg(old_dest_preg), .src1_preg(src1_preg), .src2_preg(src2_preg), .dest_preg_out(dest_preg)
   );
 
   for (genvar i = 0; i < N; i++) begin : g_out
@@ -124,28 +148,42 @@ module ren_core
                               func3: inst[i].func3, func7: inst[i].func7, imm: inst[i].imm, br_id: inst[i].br_id,
                               br_mask: inst[i].br_mask, csr_idx: inst[i].csr_idx,
                               page_fault_inst: inst[i].page_fault_inst, illegal_inst: inst[i].illegal_inst,
-                              dest_preg: alloc_reg[i], src1_preg: src1_preg[i], src2_preg: src2_preg[i],
-                              old_dest_preg: old_dest_preg[i]};
+                              dest_preg: dest_preg[i], src1_preg: src1_preg[i], src2_preg: src2_preg[i],
+                              old_dest_preg: old_dest_preg[i], me_elim: elim[i]};
   end
 
   // ---- commit side ----
   ren_commit_filter u_cf (
     .commit_valid(c_valid), .commit_dest_en(c_dest_en), .commit_page_fault_inst(c_pf_inst),
     .commit_page_fault_load(c_pf_load), .commit_page_fault_store(c_pf_store), .commit_illegal_inst(c_illegal),
-    .commit_inst_type(c_type), .rob_interrupt(rob_interrupt), .reclaim(reclaim), .rank(reclaim_rank),
-    .total(reclaim_total)
+    .commit_inst_type(c_type), .commit_elim(c_elim), .rob_interrupt(rob_interrupt), .reclaim(reclaim),
+    .alloc_total(alloc_commit_total)
   );
+
+  // free-list returns: without move elimination every retiring destination frees its old register; with it, only
+  // when no architectural RAT entry names the register any more
+  if (MOVE_ELIM != 0) begin : g_cnt
+    ren_arch_cnt u_cnt (
+      .clk(clk), .rst_n(rst_n), .reclaim(reclaim), .dest_preg(c_dest_preg), .old_preg(c_old_dest_preg),
+      .free(free)
+    );
+  end else begin : g_no_cnt
+    assign free = reclaim;
+  end
+  ren_rank u_free_rank (.sel(free), .rank(free_rank), .total(free_total));
 
   ren_rat u_rat (
     .clk(clk), .rst_n(rst_n), .rd_areg(rd_areg), .rd_preg(rd_preg),
-    .alloc_fire(alloc_fire), .alloc_areg(dest_areg), .alloc_preg(alloc_reg),
+    .alloc_fire(rat_fire), .alloc_areg(dest_areg), .alloc_preg(dest_preg),
     .reclaim(reclaim), .commit_areg(c_dest_areg), .commit_preg(c_dest_preg),
-    .flush(rob_flush), .mispred(dec_mispred), .ckpt_rat(ckpt_rat), .snapshot(snapshot)
+    .flush(rob_flush), .mispred(dec_mispred), .ckpt_rat(ckpt_rat), .snapshot(snapshot),
+    .spec_rat(spec_rat)
   );
 
   ren_free_list u_fl (
-    .clk(clk), .rst_n(rst_n), .alloc_fire(alloc_fire), .reclaim(reclaim), .reclaim_rank(reclaim_rank),
-    .reclaim_total(reclaim_total), .reclaim_preg(c_old_dest_preg), .flush(rob_flush), .mispred(dec_mispred),
+    .clk(clk), .rst_n(rst_n), .alloc_fire(alloc_fire), .reclaim(free), .reclaim_rank(free_rank),
+    .reclaim_total(free_total), .alloc_commit_total(alloc_commit_total), .reclaim_preg(c_old_dest_preg),
+    .flush(rob_flush), .mispred(dec_mispred),
     .ckpt_head(ckpt_head), .window(window), .free_count(free_count), .head(head)
   );
 

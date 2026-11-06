@@ -155,7 +155,7 @@ module dispatch_core
                    op: UOP_ADD};
     end
     dispatch_decompose u_decompose (
-      .base(base_uop), .itype(alloc_inst[i].itype), .cls(cls[i]),
+      .base(base_uop), .itype(alloc_inst[i].itype), .cls(cls[i]), .me_elim(alloc_inst[i].me_elim),
       .has_iq(has_iq[i]), .uop_iq(lane_uop), .expect_mask(expect_mask[i]));
     always_comb begin
       for (int q = 0; q < IQ_NUM; q++) uop_iq[i][q] = lane_uop[q];
@@ -187,7 +187,8 @@ module dispatch_core
   logic [PRF_IDX_WIDTH-1:0] busy_set_preg  [NUM_SLOTS];
   always_comb begin
     for (int i = 0; i < NUM_SLOTS; i++) begin
-      busy_set_valid[i] = dis_fire[i] && inst_q[i].dest_en;
+      // an eliminated move owns no register: its destination is its source's
+      busy_set_valid[i] = dis_fire[i] && inst_q[i].dest_en && !inst_q[i].me_elim;
       busy_set_preg[i]  = inst_q[i].dest_preg;
     end
   end

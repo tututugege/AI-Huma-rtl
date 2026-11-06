@@ -12,6 +12,7 @@ module dispatch_decompose
   input  dis_iss_uop_t               base,        // make_dis_iss_uop(): the instruction as one uop
   input  inst_type_e                 itype,
   input  dis_class_t                 cls,         // dis_classify(itype, amo op)
+  input  logic                       me_elim,     // eliminated move: no uop at all, completes in the ROB at dispatch
   output logic [IQ_NUM-1:0]          has_iq,
   output dis_iss_uop_t               uop_iq [IQ_NUM],
   output logic [CPLT_MASK_W-1:0]     expect_mask  // ROB completion groups this instruction waits for
@@ -23,7 +24,7 @@ module dispatch_decompose
   always_comb begin
     amo_swap = (base.func7[6:2] == AMO_SWAP);
     amo_rmw  = cls.is_amo && (base.func7[6:2] != AMO_LR) && !cls.is_amo_sc;
-    has_iq[IQ_INT] = cls.to_int;
+    has_iq[IQ_INT] = cls.to_int && !me_elim;
     has_iq[IQ_LD]  = cls.is_load;
     has_iq[IQ_STA] = cls.is_store;
     has_iq[IQ_STD] = cls.is_store;

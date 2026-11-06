@@ -177,6 +177,7 @@ module back_top import ttg_cfg_pkg::*; (
   logic [31:0] ren2dis_uop_imm [DECODE_WIDTH];
   logic [DECODE_WIDTH-1:0] ren2dis_uop_is_atomic;
   logic [6:0] ren2dis_uop_old_dest_preg [DECODE_WIDTH];
+  logic [DECODE_WIDTH-1:0] ren2dis_uop_me_elim;
   logic [DECODE_WIDTH-1:0] ren2dis_uop_page_fault_inst;
   logic [5:0] ren2dis_uop_src1_areg [DECODE_WIDTH];
   logic [DECODE_WIDTH-1:0] ren2dis_uop_src1_en;
@@ -238,6 +239,7 @@ module back_top import ttg_cfg_pkg::*; (
   logic [DECODE_WIDTH-1:0] dis2rob_uop_illegal_inst;
   logic [31:0] dis2rob_uop_imm [DECODE_WIDTH];
   logic [6:0] dis2rob_uop_old_dest_preg [DECODE_WIDTH];
+  logic [DECODE_WIDTH-1:0] dis2rob_uop_me_elim;
   logic [DECODE_WIDTH-1:0] dis2rob_uop_page_fault_inst;
   logic [DECODE_WIDTH-1:0] dis2rob_uop_rob_flag;
   logic [6:0] dis2rob_uop_rob_idx [DECODE_WIDTH];
@@ -402,6 +404,7 @@ module back_top import ttg_cfg_pkg::*; (
   logic [6:0] rob_commit_commit_entry_uop_func7 [COMMIT_WIDTH];
   logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_illegal_inst;
   logic [6:0] rob_commit_commit_entry_uop_old_dest_preg [COMMIT_WIDTH];
+  logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_me_elim;
 
   // ---- nets driven by dtlb: TlbMmu, DTLB instance (back-end/Lsu/TlbMmu.cpp)
   logic [5:0] mmu2lsu_ldq_resp_entry_idx [LSU_LDU_COUNT];
@@ -628,6 +631,7 @@ module back_top import ttg_cfg_pkg::*; (
     .rob_commit_commit_entry_uop_dest_preg(rob_commit_commit_entry_uop_dest_preg),
     .rob_commit_commit_entry_uop_illegal_inst(rob_commit_commit_entry_uop_illegal_inst),
     .rob_commit_commit_entry_uop_old_dest_preg(rob_commit_commit_entry_uop_old_dest_preg),
+    .rob_commit_commit_entry_uop_me_elim(rob_commit_commit_entry_uop_me_elim),
     .rob_commit_commit_entry_uop_page_fault_inst(rob_commit_commit_entry_uop_page_fault_inst),
     .rob_commit_commit_entry_uop_page_fault_load(rob_commit_commit_entry_uop_page_fault_load),
     .rob_commit_commit_entry_uop_page_fault_store(rob_commit_commit_entry_uop_page_fault_store),
@@ -660,7 +664,8 @@ module back_top import ttg_cfg_pkg::*; (
     .ren2dis_uop_dest_preg(ren2dis_uop_dest_preg),
     .ren2dis_uop_src1_preg(ren2dis_uop_src1_preg),
     .ren2dis_uop_src2_preg(ren2dis_uop_src2_preg),
-    .ren2dis_uop_old_dest_preg(ren2dis_uop_old_dest_preg)
+    .ren2dis_uop_old_dest_preg(ren2dis_uop_old_dest_preg),
+    .ren2dis_uop_me_elim(ren2dis_uop_me_elim)
   );
 
   // ================= dis: Dispatch (back-end/Dispatch.cpp)
@@ -701,6 +706,7 @@ module back_top import ttg_cfg_pkg::*; (
     .ren2dis_uop_imm(ren2dis_uop_imm),
     .ren2dis_uop_is_atomic(ren2dis_uop_is_atomic),
     .ren2dis_uop_old_dest_preg(ren2dis_uop_old_dest_preg),
+    .ren2dis_uop_me_elim(ren2dis_uop_me_elim),
     .ren2dis_uop_page_fault_inst(ren2dis_uop_page_fault_inst),
     .ren2dis_uop_src1_areg(ren2dis_uop_src1_areg),
     .ren2dis_uop_src1_en(ren2dis_uop_src1_en),
@@ -726,6 +732,7 @@ module back_top import ttg_cfg_pkg::*; (
     .dis2rob_uop_src1_areg(dis2rob_uop_src1_areg),
     .dis2rob_uop_dest_preg(dis2rob_uop_dest_preg),
     .dis2rob_uop_old_dest_preg(dis2rob_uop_old_dest_preg),
+    .dis2rob_uop_me_elim(dis2rob_uop_me_elim),
     .dis2rob_uop_ftq_idx(dis2rob_uop_ftq_idx),
     .dis2rob_uop_ftq_offset(dis2rob_uop_ftq_offset),
     .dis2rob_uop_ftq_is_last(dis2rob_uop_ftq_is_last),
@@ -1113,6 +1120,7 @@ module back_top import ttg_cfg_pkg::*; (
     .dis2rob_uop_illegal_inst(dis2rob_uop_illegal_inst),
     .dis2rob_uop_imm(dis2rob_uop_imm),
     .dis2rob_uop_old_dest_preg(dis2rob_uop_old_dest_preg),
+    .dis2rob_uop_me_elim(dis2rob_uop_me_elim),
     .dis2rob_uop_page_fault_inst(dis2rob_uop_page_fault_inst),
     .dis2rob_uop_rob_flag(dis2rob_uop_rob_flag),
     .dis2rob_uop_rob_idx(dis2rob_uop_rob_idx),
@@ -1152,6 +1160,7 @@ module back_top import ttg_cfg_pkg::*; (
     .rob_commit_commit_entry_uop_dest_areg(rob_commit_commit_entry_uop_dest_areg),
     .rob_commit_commit_entry_uop_dest_preg(rob_commit_commit_entry_uop_dest_preg),
     .rob_commit_commit_entry_uop_old_dest_preg(rob_commit_commit_entry_uop_old_dest_preg),
+    .rob_commit_commit_entry_uop_me_elim(rob_commit_commit_entry_uop_me_elim),
     .rob_commit_commit_entry_uop_ftq_idx(rob_commit_commit_entry_uop_ftq_idx),
     .rob_commit_commit_entry_uop_ftq_offset(rob_commit_commit_entry_uop_ftq_offset),
     .rob_commit_commit_entry_uop_ftq_is_last(rob_commit_commit_entry_uop_ftq_is_last),

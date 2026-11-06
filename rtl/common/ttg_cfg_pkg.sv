@@ -55,6 +55,8 @@ package ttg_cfg_pkg;
   localparam int PRF_NUM = 128;
   localparam int MAX_BR_NUM = 32;
   localparam int MAX_BR_PER_CYCLE = 8;
+  localparam int MOVE_ELIM = 0;
+  localparam int MOVE_ELIM_MAX_REFS = 7;
   localparam int CSR_NUM = 21;
   localparam int ROB_BANK_NUM = 8;
   localparam int ROB_NUM = 128;

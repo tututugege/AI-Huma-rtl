@@ -28,11 +28,13 @@ module ren_rat
   input  logic              mispred,
   input  rat_t              ckpt_rat,           // RAT_checkpoint[dec_bcast.br_id] (old value)
   // snapshot[i]: spec RAT after slots 0..i have written (stored in the checkpoint of a branch in slot i)
-  output rat_t              snapshot [N]
+  output rat_t              snapshot [N],
+  output rat_t              spec_rat            // spec RAT as of the start of the cycle
 );
 
   rat_t spec_q, spec_d, arch_q, arch_d;
   preg_t spec_entry [RAT_NUM];
+  assign spec_rat = spec_q;
 
   // ---- reads: one-hot decode of the areg, AND-OR over the RAT entries (areg beyond the RAT reads 0) ----
   for (genvar e = 0; e < RAT_NUM; e++) begin : g_entry_view

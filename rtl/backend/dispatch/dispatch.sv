@@ -17,6 +17,7 @@ module dispatch
   input  logic [6:0] ren2dis_uop_src1_preg [DECODE_WIDTH],
   input  logic [6:0] ren2dis_uop_src2_preg [DECODE_WIDTH],
   input  logic [6:0] ren2dis_uop_old_dest_preg [DECODE_WIDTH],
+  input  logic [DECODE_WIDTH-1:0] ren2dis_uop_me_elim,
   input  logic [5:0] ren2dis_uop_ftq_idx [DECODE_WIDTH],
   input  logic [FTQ_OFFSET_WIDTH-1:0] ren2dis_uop_ftq_offset [DECODE_WIDTH],
   input  logic [DECODE_WIDTH-1:0] ren2dis_uop_ftq_is_last,
@@ -64,6 +65,7 @@ module dispatch
   output logic [5:0] dis2rob_uop_src1_areg [DECODE_WIDTH],
   output logic [6:0] dis2rob_uop_dest_preg [DECODE_WIDTH],
   output logic [6:0] dis2rob_uop_old_dest_preg [DECODE_WIDTH],
+  output logic [DECODE_WIDTH-1:0] dis2rob_uop_me_elim,
   output logic [5:0] dis2rob_uop_ftq_idx [DECODE_WIDTH],
   output logic [FTQ_OFFSET_WIDTH-1:0] dis2rob_uop_ftq_offset [DECODE_WIDTH],
   output logic [DECODE_WIDTH-1:0] dis2rob_uop_ftq_is_last,
@@ -157,6 +159,7 @@ module dispatch
       ren_inst[i].src1_preg = ren2dis_uop_src1_preg[i];
       ren_inst[i].src2_preg = ren2dis_uop_src2_preg[i];
       ren_inst[i].old_dest_preg = ren2dis_uop_old_dest_preg[i];
+      ren_inst[i].me_elim = ren2dis_uop_me_elim[i];
       ren_inst[i].ftq_idx = ren2dis_uop_ftq_idx[i];
       ren_inst[i].ftq_offset = ren2dis_uop_ftq_offset[i];
       ren_inst[i].ftq_is_last = ren2dis_uop_ftq_is_last[i];
@@ -219,6 +222,7 @@ module dispatch
       dis2rob_uop_src1_areg[i] = rob_inst[i].src1_areg;
       dis2rob_uop_dest_preg[i] = rob_inst[i].dest_preg;
       dis2rob_uop_old_dest_preg[i] = rob_inst[i].old_dest_preg;
+      dis2rob_uop_me_elim[i] = rob_inst[i].me_elim;
       dis2rob_uop_ftq_idx[i] = rob_inst[i].ftq_idx;
       dis2rob_uop_ftq_offset[i] = rob_inst[i].ftq_offset;
       dis2rob_uop_ftq_is_last[i] = rob_inst[i].ftq_is_last;

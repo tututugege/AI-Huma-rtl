@@ -53,6 +53,7 @@ package rob_pkg;
     logic [AREG_IDX_WIDTH-1:0] src1_areg;
     logic [PRF_IDX_WIDTH-1:0]  dest_preg;
     logic [PRF_IDX_WIDTH-1:0]  old_dest_preg;
+    logic                      me_elim;     // move elimination: allocated no register at rename
     logic                      dest_en;
     logic [FTQ_IDX_WIDTH-1:0]  ftq_idx;
     logic [FTQ_OFFSET_WIDTH-1:0] ftq_offset;
