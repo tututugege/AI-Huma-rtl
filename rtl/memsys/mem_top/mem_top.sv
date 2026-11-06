@@ -13,7 +13,7 @@
 // Port names are the core_top names with the direction flipped, so soc_top can connect the two with `.*`.
 module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::*;
 #(
-  parameter bit PF_EN = 1'b0
+  parameter bit PF_EN = 1'b1
 ) (
   input  logic clk,
   input  logic rst_n,

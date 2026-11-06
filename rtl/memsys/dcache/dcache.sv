@@ -6,7 +6,7 @@
 module dcache
   import dcache_pkg::*;
 #(
-  parameter bit PF_EN = 1'b0                   // L1D data prefetcher h1 (EXP-009); off: no new state is used
+  parameter bit PF_EN = 1'b1                   // L1D data prefetcher h1 (EXP-009); 0: no new state is used
 )
 (
   input  logic                 clk,

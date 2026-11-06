@@ -5,7 +5,7 @@
 
 module soc_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*;
 #(
-  parameter bit PF_EN = 1'b0      // L1D data prefetcher h1 (EXP-009)
+  parameter bit PF_EN = 1'b1      // L1D data prefetcher h1 (EXP-009)
 ) (
   input  logic clk,
   input  logic clk_cpu,
