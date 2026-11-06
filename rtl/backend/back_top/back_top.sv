@@ -73,6 +73,7 @@ module back_top import ttg_cfg_pkg::*; (
   // ---- out: LSU -> MemSubsystem (Back_out.lsu2dcache / peripheral_req)
   output logic [31:0] lsu2dcache_load_ports_addr [LSU_LDU_COUNT],
   output logic [30:0] lsu2dcache_load_ports_req_id [LSU_LDU_COUNT],
+  output logic lsu2dcache_load_ports_replay [LSU_LDU_COUNT],
   output logic lsu2dcache_load_ports_valid [LSU_LDU_COUNT],
   output logic [31:0] lsu2dcache_store_ports_addr [LSU_STA_COUNT],
   output logic [31:0] lsu2dcache_store_ports_data [LSU_STA_COUNT],
@@ -1359,6 +1360,7 @@ module back_top import ttg_cfg_pkg::*; (
     .lsu2dcache_load_ports_valid(lsu2dcache_load_ports_valid),
     .lsu2dcache_load_ports_addr(lsu2dcache_load_ports_addr),
     .lsu2dcache_load_ports_req_id(lsu2dcache_load_ports_req_id),
+    .lsu2dcache_load_ports_replay(lsu2dcache_load_ports_replay),
     .lsu2dcache_store_ports_valid(lsu2dcache_store_ports_valid),
     .lsu2dcache_store_ports_addr(lsu2dcache_store_ports_addr),
     .lsu2dcache_store_ports_data(lsu2dcache_store_ports_data),

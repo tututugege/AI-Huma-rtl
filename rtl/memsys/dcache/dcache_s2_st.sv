@@ -30,12 +30,15 @@ module dcache_s2_st
   output logic [NST-1:0]       pw_en,                   // word write into the cache
   output logic [1:0]           pw_way      [NST],
   output logic [NST-1:0]       lu_en,
-  output logic [NST-1:0]       mrg_en                   // merge into the next fill snapshot
+  output logic [NST-1:0]       mrg_en,                  // merge into the next fill snapshot
+  output logic [CNT_W-1:0]     alloc_cnt                // entries claimed by the stores
 );
 
   logic [NST-1:0]   cand_alloc, alloc_ok;
   logic [CNT_W-1:0] used [NST+1];
   assign used[0] = '0;
+
+  assign alloc_cnt = used[NST];
 
   for (genvar i = 0; i < NST; i++) begin : g_st
     logic [WAYS-1:0] hit_in, hit_oh;

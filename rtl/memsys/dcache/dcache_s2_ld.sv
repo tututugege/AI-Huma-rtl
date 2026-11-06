@@ -9,6 +9,14 @@ module dcache_s2_ld
 (
   input  logic [NLD-1:0]       slot_valid,
   input  logic [NLD-1:0]       slot_replayed,
+  input  logic [NLD-1:0]       slot_pf,                 // prefetch tag probe (no LSU response)
+  input  logic [NLD-1:0]       slot_perf_replay,
+  input  logic [NLD-1:0]       slot_lsu,                // request of the LSU (not PTW/ICache route, not a probe)
+  input  logic [WAYS-1:0]      rd_pf       [NLD],
+  input  logic                 s2f_valid,
+  input  logic [LINE_W-1:0]    s2f_line,
+  input  logic                 fr_valid,
+  input  logic [LINE_W-1:0]    fr_line,
   input  logic [31:0]          slot_addr   [NLD],
   input  logic [NLD-1:0]       retry_issue,
   input  logic [2:0]           icache_req_s2,
@@ -27,7 +35,14 @@ module dcache_s2_ld
   output logic [NLD-1:0]       lu_en,                   // PLRU touch (cache hit)
   output logic [1:0]           lu_way      [NLD],
   output logic [CNT_W-1:0]     alloc_cnt,               // entries claimed by the loads (free-count chain)
-  output logic [NLD-1:0]       byp_and_hit              // coverage only: WB bypass and cache hit at once
+  output logic [NLD-1:0]       byp_and_hit,             // coverage only: WB bypass and cache hit at once
+  // prefetch probe candidate (a miss nobody else has; MSHR space decided by the parent) and training events
+  output logic [NLD-1:0]       pf_cand,
+  output logic [NLD-1:0]       acc_valid,
+  output logic [LINE_W-1:0]    acc_line    [NLD],
+  output logic [NLD-1:0]       acc_miss,
+  output logic [NLD-1:0]       acc_pf_hit,
+  output logic [NLD-1:0]       pfc_en                   // first use of a prefetched line: clear its pf bit
 );
 
   logic [NLD-1:0] cand_alloc, alloc_ok;
@@ -54,7 +69,21 @@ module dcache_s2_ld
       end
     end
 
-    assign normal = slot_valid[i] && !slot_replayed[i];
+    logic dem, pfb, fill_same;
+    assign normal = slot_valid[i] && !slot_replayed[i] && !slot_pf[i];
+    assign dem    = normal && !slot_perf_replay[i] && slot_lsu[i];
+    always_comb begin
+      pfb = 1'b0;
+      for (int w = 0; w < WAYS; w++) if (hit_oh[w] && rd_pf[i][w]) pfb = 1'b1;
+    end
+    assign fill_same = (s2f_valid && s2f_line == slot_addr[i][31:OFF_W]) ||
+                       (fr_valid && fr_line == slot_addr[i][31:OFF_W]);
+    assign pf_cand[i] = slot_valid[i] && slot_pf[i] && !byp_valid[i] && !hit_any && !fill_same && !find_hit[i];
+    assign pfc_en[i]  = dem && !byp_valid[i] && hit_any && pfb;
+    assign acc_pf_hit[i] = pfc_en[i];
+    assign acc_miss[i]   = dem && !byp_valid[i] && !hit_any && !probe;
+    assign acc_valid[i]  = acc_pf_hit[i] || acc_miss[i];
+    assign acc_line[i]   = slot_addr[i][31:OFF_W];
     assign probe  = icache_req_s2 == 3'(i);
     // miss without an MSHR entry yet (neither WB bypass, hit, probe nor existing entry)
     assign cand_alloc[i] = normal && !byp_valid[i] && !hit_any && !probe && !find_hit[i];
@@ -65,7 +94,7 @@ module dcache_s2_ld
     assign byp_and_hit[i] = normal && byp_valid[i] && hit_any;
 
     always_comb begin
-      resp_valid[i]  = slot_valid[i] && !(slot_replayed[i] && retry_issue[i]);
+      resp_valid[i]  = slot_valid[i] && !slot_pf[i] && !(slot_replayed[i] && retry_issue[i]);
       resp_retry[i]  = slot_replayed[i];
       resp_data[i]   = '0;
       resp_replay[i] = RP_CONFLICT;

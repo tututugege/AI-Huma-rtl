@@ -3,7 +3,10 @@
 // DDR / MMIO / PhysMemory stay in the testbench.
 `default_nettype none
 
-module soc_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; (
+module soc_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*;
+#(
+  parameter bit PF_EN = 1'b0      // L1D data prefetcher h1 (EXP-009)
+) (
   input  logic clk,
   input  logic clk_cpu,
   input  logic rst_n,
@@ -126,6 +129,7 @@ module soc_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; (
  logic dtlb_walk_resp_consumed ;
  logic [31:0] lsu2dcache_load_ports_addr [LSU_LDU_COUNT];
  logic [30:0] lsu2dcache_load_ports_req_id [LSU_LDU_COUNT];
+ logic lsu2dcache_load_ports_replay [LSU_LDU_COUNT];
  logic lsu2dcache_load_ports_valid [LSU_LDU_COUNT];
  logic [31:0] lsu2dcache_store_ports_addr [LSU_STA_COUNT];
  logic [31:0] lsu2dcache_store_ports_data [LSU_STA_COUNT];
@@ -139,6 +143,6 @@ module soc_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; (
  logic peripheral_req_wen ;
 
   core_top u_core (.clk(clk_cpu), .*);
-  mem_top  u_mem  (.clk, .*);
+  mem_top #(.PF_EN(PF_EN)) u_mem (.clk, .*);
 endmodule
 `default_nettype wire

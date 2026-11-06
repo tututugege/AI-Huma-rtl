@@ -14,6 +14,7 @@ module dcache_arr
   input  logic [NSLOT-1:0]     rd_en,
   input  logic [31:0]          rd_addr   [NSLOT],
   output logic [WAYS-1:0]      rd_valid  [NSLOT],
+  output logic [WAYS-1:0]      rd_pf     [NSLOT],
   output logic [TAG_W-1:0]     rd_tag    [NSLOT][WAYS],
   output logic [31:0]          rd_data   [NSLOT][WAYS],
   // fill snapshot: whole set (4 ways) of the line being filled
@@ -25,6 +26,8 @@ module dcache_arr
   output logic [TAG_W-1:0]     fs_tag    [WAYS],
   output logic [LINE_BITS-1:0] fs_line   [WAYS],
   // writes (all take effect at the end of the tick)
+  input  logic [NLD-1:0]       pfc_en,                // clear the pf bit of the hit way (load slots)
+  input  logic [1:0]           pfc_way   [NLD],
   input  logic [NST-1:0]       sw_en,
   input  logic [SET_W-1:0]     sw_set    [NST],
   input  logic [1:0]           sw_way    [NST],
@@ -38,6 +41,7 @@ module dcache_arr
   input  logic [1:0]           fw_way,                // resolved target way (existing tag match or victim)
   input  logic [TAG_W-1:0]     fw_tag,
   input  logic                 fw_dirty,
+  input  logic                 fw_pf,
   input  logic [LINE_BITS-1:0] fw_data
 );
 
@@ -56,6 +60,7 @@ module dcache_arr
   // ---- per-bank wires ----
   logic [WAYS-1:0]       b_valid [BANKS];
   logic [WAYS-1:0]       b_dirty [BANKS];
+  logic [WAYS-1:0]       b_pf    [BANKS];
   logic [TAG_W-1:0]      b_tag   [BANKS][WAYS];
   logic [2:0]            b_plru  [BANKS];
   logic [LINE_BITS-1:0]  b_line  [BANKS][WAYS];
@@ -63,6 +68,8 @@ module dcache_arr
   for (genvar b = 0; b < BANKS; b++) begin : g_bank
     logic [ROW_W-1:0]  rd_row;
     logic              fw_en_b;
+    logic [NLD-1:0]    pfc_en_b;
+    logic [ROW_W-1:0]  pfc_row_b [NLD];
     logic [NST-1:0]    sw_en_b;
     logic [ROW_W-1:0]  sw_row_b [NST];
     logic [NSLOT:0]    pl_en_b;
@@ -73,6 +80,10 @@ module dcache_arr
       rd_row = '0;
       for (int k = 0; k <= NSLOT; k++)
         if (req_en[k] && req_set[k][BANK_W-1:0] == BANK_W'(b)) rd_row = rd_row | req_set[k][SET_W-1:BANK_W];
+      for (int k = 0; k < NLD; k++) begin
+        pfc_en_b[k]  = pfc_en[k] && req_set[k][BANK_W-1:0] == BANK_W'(b);
+        pfc_row_b[k] = req_set[k][SET_W-1:BANK_W];
+      end
       fw_en_b = fw_en && fw_set[BANK_W-1:0] == BANK_W'(b);
       for (int p = 0; p < NST; p++) begin
         sw_en_b[p]  = sw_en[p] && sw_set[p][BANK_W-1:0] == BANK_W'(b);
@@ -91,10 +102,11 @@ module dcache_arr
 
     dcache_bank u_bank (
       .clk(clk), .rst_n(rst_n),
-      .rd_row(rd_row), .rd_valid(b_valid[b]), .rd_dirty(b_dirty[b]), .rd_tag(b_tag[b]),
+      .rd_row(rd_row), .rd_valid(b_valid[b]), .rd_dirty(b_dirty[b]), .rd_pf(b_pf[b]), .rd_tag(b_tag[b]),
       .rd_plru(b_plru[b]), .rd_line(b_line[b]),
       .fw_en(fw_en_b), .fw_row(fw_set[SET_W-1:BANK_W]), .fw_way(fw_way), .fw_tag(fw_tag),
-      .fw_dirty(fw_dirty), .fw_data(fw_data),
+      .fw_dirty(fw_dirty), .fw_pf(fw_pf), .fw_data(fw_data),
+      .pfc_en(pfc_en_b), .pfc_row(pfc_row_b), .pfc_way(pfc_way),
       .sw_en(sw_en_b), .sw_row(sw_row_b), .sw_way(sw_way), .sw_word(sw_word), .sw_data(sw_data),
       .sw_strb(sw_strb),
       .pl_en(pl_en_b), .pl_row(pl_row_b), .pl_bits(pl_bits_b)
@@ -106,6 +118,7 @@ module dcache_arr
     logic [BANK_W-1:0] bk;
     assign bk = rd_addr[k][OFF_W +: BANK_W];
     assign rd_valid[k] = b_valid[bk];
+    assign rd_pf[k]    = b_pf[bk];
     for (genvar w = 0; w < WAYS; w++) begin : g_way
       assign rd_tag[k][w]  = b_tag[bk][w];
       assign rd_data[k][w] = line_word(b_line[bk][w], rd_addr[k][2 +: WORD_W]);

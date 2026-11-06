@@ -13,12 +13,18 @@ module dcache_s1
   input  logic [NLD-1:0]       ld_req_valid,
   input  logic [31:0]          ld_req_addr  [NLD],
   input  logic [31:0]          ld_req_id    [NLD],
+  input  logic                 ld_req_replay [NLD],
   input  logic [NST-1:0]       st_req_valid,
   input  logic [31:0]          st_req_addr  [NST],
   input  logic [31:0]          st_req_data  [NST],
   input  logic [3:0]           st_req_strb  [NST],
   input  logic [31:0]          st_req_id    [NST],
   input  logic [2:0]           icache_req,
+  // prefetch tag-probe candidate (FIFO head of dcache_pf); taken when it rides an idle load port
+  input  logic                 pf_head_valid,
+  input  logic [LINE_W-1:0]    pf_head_line,
+  input  logic                 pf_head_llc,
+  output logic                 pf_taken,
   // a response of this port is still waiting in the latch (dcache_resp): hidden retry must not be issued
   input  logic [NSLOT-1:0]     blocked,
   // fill request seen this tick (after the response forwarding merged pending stores into it)
@@ -26,6 +32,7 @@ module dcache_s1
   input  logic [LINE_W-1:0]    fr_line,
   input  logic [MSHR_IDW-1:0]  fr_id,
   input  logic                 fr_dirty,
+  input  logic                 fr_pf,
   input  logic [LINE_BITS-1:0] fr_data,
   // stage-2 results of this tick
   input  logic                 s2_fill_valid,             // out.fill_write.valid
@@ -42,11 +49,15 @@ module dcache_s1
   output logic [31:0]          slot_data    [NST],
   output logic [3:0]           slot_strb    [NST],
   output logic [2:0]           icache_req_s2,
+  output logic [NLD-1:0]       slot_pf,                   // slot is a prefetch tag probe
+  output logic [NLD-1:0]       slot_pf_llc,               // ... whose line only goes to the LLC
+  output logic [NLD-1:0]       slot_perf_replay,          // LSU re-issue or hidden retry (not trained on)
   // replayed bank-conflict LSU request whose retry latch is free: no response
   output logic [NSLOT-1:0]     retry_issue,
   output logic                 s2f_valid,
   output logic [MSHR_IDW-1:0]  s2f_id,
   output logic                 s2f_dirty,
+  output logic                 s2f_pf,
   output logic [LINE_W-1:0]    s2f_line,
   output logic [LINE_BITS-1:0] s2f_data,
   output logic                 same_fill                  // fill request is the line already in stage 2
@@ -59,7 +70,8 @@ module dcache_s1
   logic [31:0]      slot_data_q [NST];
   logic [3:0]       slot_strb_q [NST];
   logic [2:0]       icache_req_r_q;
-  logic             s2f_valid_q, s2f_dirty_q;
+  logic             s2f_valid_q, s2f_dirty_q, s2f_pf_q;
+  logic [NLD-1:0]   slot_pf_q, slot_pfllc_q, slot_prep_q;
   logic [MSHR_IDW-1:0]  s2f_id_q;
   logic [LINE_W-1:0]    s2f_line_q;
   logic [LINE_BITS-1:0] s2f_data_q;
@@ -80,11 +92,16 @@ module dcache_s1
   assign s2f_valid     = s2f_valid_q;
   assign s2f_id        = s2f_id_q;
   assign s2f_dirty     = s2f_dirty_q;
+  assign s2f_pf        = s2f_pf_q;
+  assign slot_pf          = slot_pf_q;
+  assign slot_pf_llc      = slot_pfllc_q;
+  assign slot_perf_replay = slot_prep_q;
   assign s2f_line      = s2f_line_q;
   assign s2f_data      = s2f_data_q;
 
   // ------------------------------------------------------------------ request selection per port
   logic [NSLOT-1:0] use_pend, use_new, req_v;
+  logic [NLD-1:0]   pf_sel, perf_rep_d;
   logic [31:0]      req_addr [NSLOT];
   logic [31:0]      req_id   [NSLOT];
   logic [31:0]      req_data [NST];
@@ -144,11 +161,34 @@ module dcache_s1
     end
   end
 
+  // ------------------------------------------------------------------ prefetch tag probe (lowest priority)
+  // The first load port without a request (real or hidden retry) carries the FIFO head if the bank of its line is free.
+  logic [BANK_W-1:0] pf_bank;
+  logic              pf_bank_busy, pf_go;
+  logic [NLD-1:0]    idle_first;
+  assign pf_bank = pf_head_line[BANK_W-1:0];
+  always_comb begin
+    pf_bank_busy = fill_occupies_bank && fill_bank == pf_bank;
+    for (int j = 0; j < NSLOT; j++) if (grant[j] && req_bank[j] == pf_bank) pf_bank_busy = 1'b1;
+    idle_first = '0;
+    for (int i = NLD - 1; i >= 0; i--) if (!req_v[i]) begin
+      idle_first = '0;
+      idle_first[i] = 1'b1;
+    end
+    pf_go  = pf_head_valid && (|idle_first) && !pf_bank_busy;
+    pf_sel = pf_go ? idle_first : '0;
+  end
+  assign pf_taken = pf_go;
+  for (genvar i = 0; i < NLD; i++) begin : g_prep
+    // hidden retries count as replays; real requests carry the LSU's replay flag
+    assign perf_rep_d[i] = ld_req_valid[i] ? ld_req_replay[i] : 1'b1;
+  end
+
   // ------------------------------------------------------------------ next state
   logic [NSLOT-1:0] rty_set;          // a replayed request that could not be re-issued is parked in the latch
   assign rty_set = retry_issue & ~use_new;
 
-  logic                 s2f_valid_d, s2f_dirty_d;
+  logic                 s2f_valid_d, s2f_dirty_d, s2f_pf_d;
   logic [MSHR_IDW-1:0]  s2f_id_d;
   logic [LINE_W-1:0]    s2f_line_d;
   logic [LINE_BITS-1:0] s2f_data_d;
@@ -158,12 +198,14 @@ module dcache_s1
       s2f_id_d    = s2f_id_q;
       s2f_line_d  = s2f_line_q;
       s2f_dirty_d = s2f_dirty_q;
+      s2f_pf_d    = s2f_pf_q;
       s2f_data_d  = s2f_data_q;
     end else begin
       s2f_valid_d = fill_snap;
       s2f_id_d    = fill_snap ? fr_id : '0;
       s2f_line_d  = fill_snap ? fr_line : '0;
       s2f_dirty_d = fill_snap && fr_dirty;
+      s2f_pf_d    = fill_snap && fr_pf;
       s2f_data_d  = fill_snap ? fr_data : '0;
     end
     // stores of this tick that hit the line being filled are merged into the snapshot (port order, later wins)
@@ -183,7 +225,8 @@ module dcache_s1
       icache_req_r_q  <= '0;
       s2f_valid_q     <= 1'b0;
     end else begin
-      slot_valid_q    <= req_v;
+      slot_valid_q    <= req_v | {{NST{1'b0}}, pf_sel};
+      slot_pf_q       <= pf_sel;
       slot_replayed_q <= req_v & ~grant;
       for (int i = 0; i < NSLOT; i++) begin
         if (use_pend[i]) rty_valid_q[i] <= 1'b0;
@@ -199,6 +242,14 @@ module dcache_s1
     for (int i = 0; i < NSLOT; i++) begin
       slot_addr_q[i] <= req_addr[i];
       slot_id_q[i]   <= req_id[i];
+      if (i < NLD) begin
+        if (pf_sel[i < NLD ? i : 0]) begin
+          slot_addr_q[i] <= {pf_head_line, {OFF_W{1'b0}}};
+          slot_id_q[i]   <= 32'h8000_0000;
+        end
+        slot_pfllc_q[i < NLD ? i : 0] <= pf_head_llc;
+        slot_prep_q[i < NLD ? i : 0]  <= pf_sel[i < NLD ? i : 0] ? 1'b1 : perf_rep_d[i < NLD ? i : 0];
+      end
       if (rty_set[i]) begin
         rty_addr_q[i] <= slot_addr_q[i];
         rty_id_q[i]   <= slot_id_q[i];
@@ -214,6 +265,7 @@ module dcache_s1
     end
     s2f_id_q   <= s2f_id_d;
     s2f_dirty_q <= s2f_dirty_d;
+    s2f_pf_q    <= s2f_pf_d;
     s2f_line_q <= s2f_line_d;
     s2f_data_q <= s2f_data_d;
   end

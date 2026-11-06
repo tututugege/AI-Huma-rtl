@@ -13,6 +13,7 @@ module dcache_bank
   input  logic [ROW_W-1:0]     rd_row,
   output logic [WAYS-1:0]      rd_valid,
   output logic [WAYS-1:0]      rd_dirty,
+  output logic [WAYS-1:0]      rd_pf,       // line brought in by the prefetcher and not used yet (EXP-009)
   output logic [TAG_W-1:0]    rd_tag   [WAYS],
   output logic [2:0]           rd_plru,
   output logic [LINE_BITS-1:0] rd_line  [WAYS],
@@ -22,7 +23,12 @@ module dcache_bank
   input  logic [1:0]           fw_way,
   input  logic [TAG_W-1:0]     fw_tag,
   input  logic                 fw_dirty,
+  input  logic                 fw_pf,
   input  logic [LINE_BITS-1:0] fw_data,
+  // first demand use of a prefetched line: clear its pf bit (one request per bank per tick)
+  input  logic [NLD-1:0]       pfc_en,
+  input  logic [ROW_W-1:0]     pfc_row  [NLD],
+  input  logic [1:0]           pfc_way  [NLD],
   // store word write (sets dirty)
   input  logic [NST-1:0]       sw_en,
   input  logic [ROW_W-1:0]     sw_row   [NST],
@@ -38,6 +44,7 @@ module dcache_bank
 
   logic [ROWS-1:0]     valid_q [WAYS];
   logic [ROWS-1:0]     dirty_q [WAYS];
+  logic [ROWS-1:0]     pf_q    [WAYS];
   logic [2:0]          plru_q  [ROWS];
   logic [TAG_W-1:0]    tag_q   [WAYS][ROWS];
   logic [LINE_BITS-1:0] data_q [WAYS][ROWS];
@@ -45,6 +52,7 @@ module dcache_bank
   for (genvar w = 0; w < WAYS; w++) begin : g_rd
     assign rd_valid[w] = valid_q[w][rd_row];
     assign rd_dirty[w] = dirty_q[w][rd_row];
+    assign rd_pf[w]    = pf_q[w][rd_row];
     assign rd_tag[w]   = tag_q[w][rd_row];
     assign rd_line[w]  = data_q[w][rd_row];
   end
@@ -56,13 +64,16 @@ module dcache_bank
       for (int w = 0; w < WAYS; w++) begin
         valid_q[w] <= '0;
         dirty_q[w] <= '0;
+        pf_q[w]    <= '0;
       end
       for (int r = 0; r < ROWS; r++) plru_q[r] <= '0;
     end else begin
+      for (int k = 0; k < NLD; k++) if (pfc_en[k]) pf_q[pfc_way[k]][pfc_row[k]] <= 1'b0;
       for (int p = 0; p < NST; p++) if (sw_en[p]) dirty_q[sw_way[p]][sw_row[p]] <= 1'b1;
       if (fw_en) begin
         valid_q[fw_way][fw_row] <= 1'b1;
         dirty_q[fw_way][fw_row] <= fw_dirty;
+        pf_q[fw_way][fw_row]    <= fw_pf;
       end
       for (int k = 0; k <= NSLOT; k++) if (pl_en[k]) plru_q[pl_row[k]] <= pl_bits[k];
     end

@@ -13,6 +13,7 @@ module lsu_dc_req_ld
   input  ld_state_t        ld_st_fl  [LQ],
   input  ldq_fld_t         ld_fld    [LQ],
   output logic [NLD-1:0]   req_valid,
+  output logic [NLD-1:0]   req_replay,                 // re-issue of a load that got a non-HIT response before (EXP-009 training filter)
   output logic [31:0]      req_addr  [NLD],
   output logic [RIW+GENW-1:0] req_id [NLD],            // {generation, wait_dcache slot}
   output logic [LQ-1:0]    iss_go,
@@ -45,11 +46,13 @@ module lsu_dc_req_ld
       req_valid[k] = 1'b0;
       req_addr[k]  = '0;
       req_id[k]    = '0;
+      req_replay[k] = 1'b0;
       for (int p = 0; p < WIN; p++) begin
         if (issue[p] && n_iss[p] == RCW'(k)) begin
           req_valid[k] = 1'b1;
           req_addr[k]  = ld_fld[idx_w[p]].paddr;
           req_id[k]    = {req_gen_q + GENW'(k), slot_w[p]};
+          req_replay[k] = ld_fld[idx_w[p]].replay != 2'd0;
         end
       end
     end

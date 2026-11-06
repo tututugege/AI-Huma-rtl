@@ -5,6 +5,9 @@
 // on that tick).
 module dcache
   import dcache_pkg::*;
+#(
+  parameter bit PF_EN = 1'b0                   // L1D data prefetcher h1 (EXP-009); off: no new state is used
+)
 (
   input  logic                 clk,
   input  logic                 rst_n,
@@ -13,6 +16,7 @@ module dcache
   input  logic                 ld_req_valid  [NLD],
   input  logic [31:0]          ld_req_addr   [NLD],
   input  logic [31:0]          ld_req_id     [NLD],
+  input  logic                 ld_req_replay [NLD],
   input  logic                 st_req_valid  [NST],
   input  logic [31:0]          st_req_addr   [NST],
   input  logic [31:0]          st_req_data   [NST],
@@ -66,7 +70,12 @@ module dcache
   logic [31:0]          slot_addr [NSLOT], slot_id [NSLOT], slot_data [NST];
   logic [3:0]           slot_strb [NST];
   logic [2:0]           icache_req_s2;
-  logic                 s2f_valid, s2f_dirty, same_fill;
+  logic                 s2f_valid, s2f_dirty, s2f_pf, same_fill;
+  logic [NLD-1:0]       slot_pf, slot_pf_llc, slot_perf_replay, slot_lsu;
+  // verilator lint_off UNUSEDSIGNAL
+  logic                 pf_head_valid, pf_head_llc, pf_taken, fr_pf, rel_event;   // unused with PF_EN = 0
+  // verilator lint_on UNUSEDSIGNAL
+  logic [LINE_W-1:0]    pf_head_line;
   logic [MSHR_IDW-1:0]  s2f_id;
   logic [LINE_W-1:0]    s2f_line;
   logic [LINE_BITS-1:0] s2f_data;
@@ -105,6 +114,8 @@ module dcache
 
   // ------------------------------------------------------------ arrays
   logic [WAYS-1:0]      rd_valid [NSLOT];
+  logic [WAYS-1:0]      rd_pf    [NSLOT];
+  logic [WAYS-1:0]      ld_rd_pf [NLD];
   logic [TAG_W-1:0]     rd_tag   [NSLOT][WAYS];
   logic [31:0]          rd_data  [NSLOT][WAYS];
   logic [WAYS-1:0]      fs_valid, fs_dirty;
@@ -116,6 +127,8 @@ module dcache
   logic [31:0]          ld_rd_data  [NLD][WAYS];
   for (genvar i = 0; i < NLD; i++) begin : g_rdl
     assign ld_rd_valid[i] = rd_valid[i];
+    assign ld_rd_pf[i]    = rd_pf[i];
+    assign slot_lsu[i]    = !slot_id[i][31];
     assign ld_rd_tag[i]   = rd_tag[i];
     assign ld_rd_data[i]  = rd_data[i];
   end
@@ -128,7 +141,11 @@ module dcache
   logic [NLD-1:0]       ld_mreq, ld_lu, s2ld_valid, s2ld_retry;
   logic [31:0]          s2ld_data [NLD];
   logic [1:0]           s2ld_replay [NLD], ld_lu_way [NLD];
-  logic [CNT_W-1:0]     ld_alloc_cnt;
+  logic [CNT_W-1:0]     ld_alloc_cnt, st_alloc_cnt, pf_free;
+  // verilator lint_off UNUSEDSIGNAL
+  logic [NLD-1:0]       pf_cand, pf_ok, acc_valid, acc_miss, acc_pf_hit, pfc_en;   // training events: PF_EN only
+  logic [LINE_W-1:0]    acc_line [NLD];
+  // verilator lint_on UNUSEDSIGNAL
   logic [NLD-1:0]       ld_byp_and_hit;
   logic [NST-1:0]       st_mreq, st_pw, st_lu, st_mrg, s2st_valid;
   logic [1:0]           s2st_replay [NST], st_pw_way [NST];
@@ -150,6 +167,10 @@ module dcache
     .ld_req_valid(ld_req_v), .ld_req_addr(ld_req_addr), .ld_req_id(ld_req_id),
     .st_req_valid(st_req_v), .st_req_addr(st_req_addr), .st_req_data(st_req_data),
     .st_req_strb(st_req_strb), .st_req_id(st_req_id), .icache_req(icache_req),
+    .ld_req_replay(ld_req_replay),
+    .pf_head_valid(pf_head_valid), .pf_head_line(pf_head_line), .pf_head_llc(pf_head_llc), .pf_taken(pf_taken),
+    .slot_pf(slot_pf), .slot_pf_llc(slot_pf_llc), .slot_perf_replay(slot_perf_replay),
+    .fr_pf(fr_pf), .s2f_pf(s2f_pf),
     .blocked(pend_valid),
     .fr_valid(fr_valid), .fr_line(fr_line), .fr_id(fr_id), .fr_dirty(frf_dirty), .fr_data(frf_data),
     .s2_fill_valid(fill_valid),
@@ -162,7 +183,8 @@ module dcache
 
   dcache_arr u_arr (
     .clk(clk), .rst_n(rst_n),
-    .rd_en(slot_granted), .rd_addr(slot_addr), .rd_valid(rd_valid), .rd_tag(rd_tag), .rd_data(rd_data),
+    .rd_en(slot_granted), .rd_addr(slot_addr), .rd_valid(rd_valid), .rd_pf(rd_pf),
+    .pfc_en(pfc_en), .pfc_way(ld_lu_way), .fw_pf(s2f_pf), .rd_tag(rd_tag), .rd_data(rd_data),
     .fs_en(s2f_valid), .fs_set(s2f_line[SET_W-1:0]), .fs_valid(fs_valid), .fs_dirty(fs_dirty), .fs_plru(fs_plru),
     .fs_tag(fs_tag), .fs_line(fs_line),
     .sw_en(st_pw), .sw_set(st_set), .sw_way(st_pw_way), .sw_word(st_word), .sw_data(slot_data), .sw_strb(slot_strb),
@@ -172,6 +194,10 @@ module dcache
   );
 
   dcache_s2_ld u_ld (
+    .slot_pf(slot_pf), .slot_perf_replay(slot_perf_replay), .slot_lsu(slot_lsu), .rd_pf(ld_rd_pf),
+    .s2f_valid(s2f_valid), .s2f_line(s2f_line), .fr_valid(fr_valid), .fr_line(fr_line),
+    .pf_cand(pf_cand), .acc_valid(acc_valid), .acc_line(acc_line), .acc_miss(acc_miss), .acc_pf_hit(acc_pf_hit),
+    .pfc_en(pfc_en),
     .slot_valid(slot_valid[NLD-1:0]), .slot_replayed(slot_replayed[NLD-1:0]), .slot_addr(ld_addr),
     .retry_issue(retry_issue[NLD-1:0]), .icache_req_s2(icache_req_s2),
     .rd_valid(ld_rd_valid), .rd_tag(ld_rd_tag), .rd_data(ld_rd_data),
@@ -187,7 +213,7 @@ module dcache
     .find_hit(mshr_find_hit[NSLOT-1:NLD]), .free_rem(mshr_free - ld_alloc_cnt),
     .fr_valid(fr_valid), .fr_line(fr_line),
     .resp_valid(s2st_valid), .resp_replay(s2st_replay), .mreq_en(st_mreq), .pw_en(st_pw), .pw_way(st_pw_way),
-    .lu_en(st_lu), .mrg_en(st_mrg)
+    .lu_en(st_lu), .mrg_en(st_mrg), .alloc_cnt(st_alloc_cnt)
   );
 
   dcache_s2_fill u_fill (
@@ -199,6 +225,22 @@ module dcache
     .evict_valid(evict_valid), .evict_line(evict_line), .evict_data(evict_data)
   );
 
+  // ------------------------------------------------------------ prefetcher
+  // probe allocation: lowest priority, MSHR entries left after the demand loads and stores (reserve 0)
+  assign pf_free = mshr_free - ld_alloc_cnt - st_alloc_cnt;
+  assign pf_ok   = pf_cand & {NLD{pf_free != '0}};
+  if (PF_EN) begin : g_pf
+    dcache_pf u_pf (
+      .clk(clk), .rst_n(rst_n),
+      .head_valid(pf_head_valid), .head_line(pf_head_line), .head_llc(pf_head_llc), .head_taken(pf_taken),
+      .acc_valid(acc_valid), .acc_line(acc_line), .acc_miss(acc_miss), .acc_pf_hit(acc_pf_hit)
+    );
+  end else begin : g_nopf
+    assign pf_head_valid = 1'b0;
+    assign pf_head_line  = '0;
+    assign pf_head_llc   = 1'b0;
+  end
+
   // ------------------------------------------------------------ MSHR
   logic [LINE_BITS-1:0] mshr_resp_line;
   logic [LINE_W-1:0]    mshr_ax_line;
@@ -209,8 +251,9 @@ module dcache
     .clk(clk), .rst_n(rst_n),
     .ax_req_accepted(mshr_req_accepted), .ax_req_accepted_id(mshr_req_accepted_id),
     .ax_resp_valid(mshr_resp_valid), .ax_resp_id(mshr_resp_id), .ax_resp_data(mshr_resp_line),
-    .find_en(slot_granted), .find_line(slot_line),
-    .req_valid({st_mreq, ld_mreq}), .req_line(slot_line),
+    .find_en(slot_granted), .find_pf({{NST{1'b0}}, slot_pf}), .find_line(slot_line),
+    .req_valid({st_mreq, ld_mreq | pf_ok}), .req_pf({{NST{1'b0}}, slot_pf}), .req_nofill({{NST{1'b0}}, slot_pf_llc}),
+    .release_event(rel_event), .fr_pf(fr_pf), .req_line(slot_line),
     .req_word(st_word), .req_data(slot_data), .req_strb(slot_strb),
     .fill_done(fill_done), .fill_id(fill_done_id),
     .free(mshr_free), .find_hit(mshr_find_hit),
@@ -252,7 +295,7 @@ module dcache
     .clk(clk), .rst_n(rst_n), .phase0(cpu_phase0),
     .ld_valid(s2ld_valid), .ld_data(s2ld_data), .ld_id(ld_id_w), .ld_retry(s2ld_retry), .ld_replay(s2ld_replay),
     .st_valid(s2st_valid), .st_replay(s2st_replay), .st_id(st_id_w),
-    .fill_valid(fill_valid), .fill_line(s2f_line),
+    .fill_valid(fill_valid), .rel_event(rel_event), .fill_line(s2f_line),
     .slot_addr(slot_addr), .slot_data(slot_data), .slot_strb(slot_strb),
     .fr_valid(fr_valid), .fr_line(fr_line), .fr_dirty(fr_dirty), .fr_data(fr_data),
     .frf_dirty(frf_dirty), .frf_data(frf_data), .pend_valid(pend_valid),

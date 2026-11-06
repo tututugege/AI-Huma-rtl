@@ -105,6 +105,7 @@ module lsu
   output logic lsu2dcache_load_ports_valid [LSU_LDU_COUNT],
   output logic [31:0] lsu2dcache_load_ports_addr [LSU_LDU_COUNT],
   output logic [30:0] lsu2dcache_load_ports_req_id [LSU_LDU_COUNT],
+  output logic lsu2dcache_load_ports_replay [LSU_LDU_COUNT],
   output logic lsu2dcache_store_ports_valid [LSU_STA_COUNT],
   output logic [31:0] lsu2dcache_store_ports_addr [LSU_STA_COUNT],
   output logic [31:0] lsu2dcache_store_ports_data [LSU_STA_COUNT],
@@ -139,7 +140,7 @@ module lsu
   logic [LSU_LOAD_WB_WIDTH-1:0] wb_pf_store_vec;
   logic [LSU_STA_COUNT-1:0] sta_wb_valid_vec;
   logic [LSU_STA_COUNT-1:0] sta_wb_pf_store_vec;
-  logic [LSU_LDU_COUNT-1:0] dcl_req_valid_vec;
+  logic [LSU_LDU_COUNT-1:0] dcl_req_valid_vec, dcl_req_replay_vec;
   logic [LSU_STA_COUNT-1:0] dcs_req_valid_vec;
   logic [LSU_LDU_COUNT-1:0] mmu_ld_req_valid_vec;
   logic [LSU_STA_COUNT-1:0] mmu_st_req_valid_vec;
@@ -204,6 +205,7 @@ module lsu
   end
   for (genvar i = 0; i < LSU_LDU_COUNT; i++) begin : g_dcl_req_valid_ts_valid
     assign lsu2dcache_load_ports_valid[i] = dcl_req_valid_vec[i];
+    assign lsu2dcache_load_ports_replay[i] = dcl_req_replay_vec[i];
   end
   for (genvar i = 0; i < LSU_STA_COUNT; i++) begin : g_dcs_req_valid_ts_valid
     assign lsu2dcache_store_ports_valid[i] = dcs_req_valid_vec[i];
@@ -260,7 +262,7 @@ module lsu
     .sta_wb_rob_idx(lsu2exe_sta_wb_req_uop_rob_idx), .sta_wb_pf_store(sta_wb_pf_store_vec),
     .periph_req_is_mmio(peripheral_req_is_mmio), .periph_req_wen(peripheral_req_wen),
     .periph_req_addr(peripheral_req_mmio_addr), .periph_req_wdata(peripheral_req_mmio_wdata),
-    .periph_req_fun3(peripheral_req_mmio_fun3), .dcl_req_valid(dcl_req_valid_vec),
+    .periph_req_fun3(peripheral_req_mmio_fun3), .dcl_req_valid(dcl_req_valid_vec), .dcl_req_replay(dcl_req_replay_vec),
     .dcl_req_addr(lsu2dcache_load_ports_addr), .dcl_req_id_o(lsu2dcache_load_ports_req_id),
     .dcs_req_valid(dcs_req_valid_vec), .dcs_req_addr(lsu2dcache_store_ports_addr),
     .dcs_req_data(lsu2dcache_store_ports_data), .dcs_req_strb(lsu2dcache_store_ports_strb),

@@ -20,8 +20,11 @@ module dcache_mshr
   input  logic [LINE_BITS-1:0] ax_resp_data,
   // from stage 2 / the slot registers
   input  logic [NSLOT-1:0]     find_en,                 // granted slots (lookup of the line)
+  input  logic [NSLOT-1:0]     find_pf,                 // lookups of prefetch probes (no promotion)
   input  logic [LINE_W-1:0]    find_line  [NSLOT],
   input  logic [NSLOT-1:0]     req_valid,               // allocate / merge request
+  input  logic [NSLOT-1:0]     req_pf,                  // request of a prefetch probe
+  input  logic [NSLOT-1:0]     req_nofill,              // ... that only goes to the LLC
   input  logic [LINE_W-1:0]    req_line   [NSLOT],
   // store requests (ports NLD..) merge their word; load requests only allocate
   input  logic [WORD_W-1:0]    req_word   [NST],
@@ -32,7 +35,9 @@ module dcache_mshr
   // to stage 1/2
   output logic [CNT_W-1:0]     free,
   output logic [NSLOT-1:0]     find_hit,
+  output logic                 release_event,           // an LLC-only prefetch entry was released this tick
   output logic                 fr_valid,
+  output logic                 fr_pf,
   output logic [MSHR_IDW-1:0]  fr_id,
   output logic [LINE_W-1:0]    fr_line,
   output logic                 fr_dirty,
@@ -45,7 +50,7 @@ module dcache_mshr
 );
 
   // ---------------------------------------------------------------- state
-  logic [MSHR_N-1:0]    valid_q, issued_q, mdirty_q;
+  logic [MSHR_N-1:0]    valid_q, issued_q, mdirty_q, pf_q, nofill_q;
   logic [LINE_W-1:0]    line_q  [MSHR_N];
   logic [LINE_BITS-1:0] mdata_q [MSHR_N];
   logic [LINE_BITS/8-1:0] mstrb_q [MSHR_N];            // per byte
@@ -54,8 +59,8 @@ module dcache_mshr
   logic [LINE_BITS-1:0] hold_data_q;
 
   // ---------------------------------------------------------------- A: AXI accept / response
-  logic [MSHR_N-1:0] issued_a, rsel;
-  logic              take, hold_valid_a;
+  logic [MSHR_N-1:0] issued_a, rsel, valid_a, rel_nf, pf_a, nofill_a, promo_a;
+  logic              take_h, take_nf, hold_valid_a;
   logic [MSHR_IDW-1:0]  hold_id_a;
   logic [LINE_BITS-1:0] hold_data_a;
   always_comb begin
@@ -63,24 +68,37 @@ module dcache_mshr
       issued_a[e] = issued_q[e] || (ax_req_accepted && ax_req_accepted_id == 8'(e) && valid_q[e]);
       rsel[e]     = ax_resp_id == 8'(e);
     end
-    take         = !hold_valid_q && ax_resp_valid && |(rsel & valid_q & issued_a);
-    hold_valid_a = hold_valid_q || take;
-    hold_id_a    = take ? ax_resp_id[MSHR_IDW-1:0] : hold_id_q;
-    hold_data_a  = take ? ax_resp_data : hold_data_q;
+    // an LLC-only prefetch response is consumed and dropped: its entry is released at once (no hold slot, no fill)
+    take_nf      = !hold_valid_q && ax_resp_valid && |(rsel & valid_q & issued_a & nofill_q);
+    take_h       = !hold_valid_q && ax_resp_valid && |(rsel & valid_q & issued_a & ~nofill_q);
+    rel_nf       = take_nf ? (rsel & valid_q & issued_a & nofill_q) : '0;
+    valid_a      = valid_q & ~rel_nf;
+    release_event = take_nf;
+    hold_valid_a = hold_valid_q || take_h;
+    hold_id_a    = take_h ? ax_resp_id[MSHR_IDW-1:0] : hold_id_q;
+    hold_data_a  = take_h ? ax_resp_data : hold_data_q;
   end
 
   // free count, find, fill request
   logic [MSHR_IDW:0] n_valid;
-  ttg_popcount #(.N(MSHR_N)) u_cnt (.bits(valid_q), .count(n_valid));
+  ttg_popcount #(.N(MSHR_N)) u_cnt (.bits(valid_a), .count(n_valid));
   assign free = CNT_W'(MSHR_N) - CNT_W'(n_valid);
 
   always_comb begin
+    promo_a = '0;
     for (int k = 0; k < NSLOT; k++) begin
       find_hit[k] = 1'b0;
-      for (int e = 0; e < MSHR_N; e++) if (find_en[k] && valid_q[e] && line_q[e] == find_line[k]) find_hit[k] = 1'b1;
+      for (int e = 0; e < MSHR_N; e++) if (find_en[k] && valid_a[e] && line_q[e] == find_line[k]) begin
+        find_hit[k] = 1'b1;
+        // a demand request that finds an in-flight prefetch makes it a normal miss (it must fill the L1D)
+        if (!find_pf[k]) promo_a[e] = 1'b1;
+      end
     end
+    pf_a     = pf_q & ~promo_a;
+    nofill_a = nofill_q & ~promo_a;
     fr_valid = hold_valid_a;
     fr_id    = hold_id_a;
+    fr_pf    = pf_a[hold_id_a];
     fr_line  = line_q[hold_id_a];
     fr_dirty = mdirty_q[hold_id_a];
     fr_data  = hold_data_a;
@@ -96,7 +114,7 @@ module dcache_mshr
   always_comb begin
     done_ok = fill_done && hold_valid_a && hold_id_a == fill_id && valid_q[fill_id] && issued_a[fill_id];
     for (int e = 0; e < MSHR_N; e++) rel[e] = done_ok && fill_id == MSHR_IDW'(e);
-    valid_af = valid_q & ~rel;
+    valid_af = valid_a & ~rel;
   end
   dcache_mshr_alloc u_alloc (
     .ent_valid(valid_af), .ent_line(line_q), .req_valid(req_valid), .req_line(req_line),
@@ -123,20 +141,45 @@ module dcache_mshr
     end
   end
 
+  // prefetch flags after this tick: a new entry takes those of its request; a demand request merging into an entry
+  // promotes it
+  logic [MSHR_N-1:0] pf_d, nofill_d, promo_b;
+  always_comb begin
+    for (int e = 0; e < MSHR_N; e++) begin
+      pf_d[e]     = pf_a[e];
+      nofill_d[e] = nofill_a[e];
+      promo_b[e]  = 1'b0;
+      for (int j = 0; j < NSLOT; j++) if (tgt[j][e] && req_valid[j]) begin
+        if (alloc_en[e]) begin
+          pf_d[e]     = req_pf[j];
+          nofill_d[e] = req_nofill[j];
+        end else if (!req_pf[j]) begin
+          promo_b[e]  = 1'b1;
+        end
+      end
+      if (promo_b[e]) begin
+        pf_d[e]     = 1'b0;
+        nofill_d[e] = 1'b0;
+      end
+    end
+  end
+
   // ---------------------------------------------------------------- AXI outputs from the final state
-  logic [MSHR_N-1:0] valid_d, issued_d, send_in, send_oh;
+  logic [MSHR_N-1:0] valid_d, issued_d, send_in, send_oh, send_pass;
   logic              send_any, hold_valid_b;
   logic [LINE_W-1:0] line_d [MSHR_N];
   always_comb begin
     for (int e = 0; e < MSHR_N; e++) begin
       valid_d[e]  = valid_af[e] || alloc_en[e];
-      issued_d[e] = (issued_a[e] && !rel[e]) && !alloc_en[e];
+      issued_d[e] = (issued_a[e] && !rel[e] && !rel_nf[e]) && !alloc_en[e];
       line_d[e]   = alloc_en[e] ? alloc_line[e] : line_q[e];
     end
     send_in      = valid_d & ~issued_d;
+    // demand misses go out before prefetches
+    send_pass    = |(send_in & ~pf_d) ? (send_in & ~pf_d) : send_in;
     hold_valid_b = hold_valid_a && !done_ok;
   end
-  ttg_first_set #(.N(MSHR_N)) u_send (.req(send_in), .onehot(send_oh), .any(send_any));
+  ttg_first_set #(.N(MSHR_N)) u_send (.req(send_pass), .onehot(send_oh), .any(send_any));
   always_comb begin
     ax_req_valid = send_any;
     ax_req_line  = '0;
@@ -145,7 +188,7 @@ module dcache_mshr
       ax_req_line = line_d[e];
       ax_req_id   = MSHR_IDW'(e);
     end
-    ax_resp_ready = ax_resp_valid ? take : !hold_valid_b;
+    ax_resp_ready = ax_resp_valid ? (take_h || take_nf) : !hold_valid_b;
   end
 
   // ---------------------------------------------------------------- registers
@@ -153,10 +196,14 @@ module dcache_mshr
     if (!rst_n) begin
       valid_q      <= '0;
       issued_q     <= '0;
+      pf_q         <= '0;
+      nofill_q     <= '0;
       hold_valid_q <= 1'b0;
     end else begin
       valid_q      <= valid_d;
       issued_q     <= issued_d;
+      pf_q         <= pf_d;
+      nofill_q     <= nofill_d;
       hold_valid_q <= hold_valid_b;
     end
   end
@@ -171,7 +218,7 @@ module dcache_mshr
         mstrb_q[e]  <= mstrb_d[e];
       end
     end
-    if (take) begin
+    if (take_h) begin
       hold_id_q   <= hold_id_a;
       hold_data_q <= hold_data_a;
     end

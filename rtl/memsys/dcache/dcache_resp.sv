@@ -23,6 +23,7 @@ module dcache_resp
   input  logic [1:0]           st_replay  [NST],
   input  logic [31:0]          st_id      [NST],
   input  logic                 fill_valid,              // stage-2 fill write (mshr_fill wakeup)
+  input  logic                 rel_event,               // LLC-only prefetch entry released (wakeup, address 0)
   input  logic [LINE_W-1:0]    fill_line,
   // the request each port is answering (stage-1 slot registers)
   input  logic [31:0]          slot_addr  [NSLOT],
@@ -94,8 +95,8 @@ module dcache_resp
       ststrb_a[i]  = st_valid[i] ? slot_strb[i] : ststrb_q[i];
       staddr_a[i]  = st_valid[i] ? slot_addr[NLD+i][31:2] : staddr_q[i];
     end
-    fill_a     = fill_valid || fill_q;
-    fillline_a = fill_valid ? fill_line : fillline_q;
+    fill_a     = fill_valid || rel_event || fill_q;
+    fillline_a = fill_valid ? fill_line : (rel_event ? '0 : fillline_q);
   end
 
 `ifndef SYNTHESIS
