@@ -76,4 +76,5 @@ C++ 规格：trace-model `exp/prefetch-h1`（`MemSubSystem/include/DataPrefetche
 - `PF_EN=1`：`bash scripts/fm_gate.sh ...`（默认表 `ref_cycles.txt` 即预取开）66/66 通过（逐条对比无不一致），周期与 trace-model `PF_ENABLE=1`（`exp/prefetch-h1` `0eb258c`）逐个相同；其中 25 个程序的周期因预取而变化（dhrystone 162,033 → 161,183，coremark 255,335 → 256,573，memory-stress-small 347,305 → 334,635）。
 - 面积代理（yosys 通用门，相对数字）：`dcache_pf` 3,334 个单元、422 个触发器；`dcache_mshr` 95,540（main）→ 95,020（两个标志位的触发器增加，被其他逻辑的差异抵消）；阵列新增 pf 位 256×4 = 1,024 个触发器。工艺库、时序（WNS）：**未做**。
 - 调试中发现的两个实现错误（已修）：`dcache_pf` 里 `g_valid_d` 等在两个 `always_comb` 里赋值，后一个覆盖前一个（预取器从不入队）；`slot_pf_llc` 没有和 `slot_pf` 相与，需求项被标成 `no_fill`（表现为 dhrystone 周期差 2）。
+- 定向压力测试 `pf-stress`（`trace-model/tests/extra/pf-stress.c`，已进两边的门禁，67 个程序）：RTL 与 trace-model 周期相等（开 625,240、关 612,878），统计里 `probe_mshr_full` 17,593、晋升 1,369、LLC-only 释放 3,661、页边界丢弃 174。
 - 未做：`axi_llc` 读响应队列 RQD 重测（预取使 AXI 读请求更密）、SPEC 云上全量复跑、`docs/MAIN_RECORDS.md`（未合入 main）。

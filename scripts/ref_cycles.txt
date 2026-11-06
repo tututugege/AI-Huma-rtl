@@ -65,3 +65,4 @@
 203015 timer-mmio/timer-mmio.bin
 256573 big/coremark.bin
 334635 memory-stress-small/memory-stress-small.bin
+625240 pf-stress/pf-stress.bin
