@@ -2,7 +2,7 @@
 module: dcache_pf
 area: memsys
 rtl: rtl/memsys/dcache
-status: spec (RTL not written yet)
+status: green (PF_EN=0 default; PF_EN=1 cycle-equal to trace-model on 66/66 programs)
 note: L1D prefetcher h1 (EXP-009), cycle contract taken from trace-model branch exp/prefetch-h1 (0eb258c)
 ---
 
@@ -68,3 +68,12 @@ C++ 规格：trace-model `exp/prefetch-h1`（`MemSubSystem/include/DataPrefetche
 - `perf_replay` 位原来是"只喂 perf"的字段，现在影响行为；LSU 侧 `replay_type` 的产生点必须与 trace-model 同拍。
 - 探测占用一个空闲 load 槽的阵列读口与 WB/MSHR 查找口，需确认这些口在 RTL 里按槽复用（`slot_granted`）；pf 槽的 `slot_id[31]=1`，不能被"隐藏重试"逻辑当作 LSU 请求（`retry_issue` 条件含 `!slot_id[31]`，已满足；pf 槽 `replayed=0`，不会进重试）。
 - `no_fill` 项在 AXI 响应当拍释放：C++ `comb_inputs_axi` 的顺序与"保持槽空才收"条件需逐拍对齐，否则与 `mshr_fill` 唤醒错一拍。
+
+## 10. 实现与验证结果（2026-11-06）
+- RTL：`dcache_pf.sv`（新）；`dcache_s1`（探测槽、`perf_replay`、`s2f_pf`）、`dcache_s2_ld`（pf 槽排除、训练事件、`pf_cand`）、`dcache_s2_st`（`alloc_cnt`）、`dcache_mshr`（`is_prefetch/no_fill`、晚到提升、两遍 AXI 选择、`no_fill` 响应当拍释放 + `release_event`）、`dcache_bank/arr`（pf 位）、`dcache_resp`（`release_event` 唤醒）、`dcache`/`mem_top`/`soc_top`（参数 `PF_EN`）、`ld_req_replay` 由 `lsu_dc_req_ld` 经 lsu/back_top/core_top/mem_top/mem_route 接到 dcache。
+- 开关：`soc_top` 参数 `PF_EN`；测试平台 `SOC_VOPT="-GPF_EN=1" SOC_OUT=<dir> SOC_FM=1 bash tb/soc/build.sh`。
+- `PF_EN=0`：`lint.sh rtl/memsys/dcache` 通过，门禁 66/66，周期与 `ref_cycles.txt` 全部相同（新增的 `ld_req_replay`/pf 位被综合掉）。
+- `PF_EN=1`：`REF_CYCLES=scripts/ref_cycles_pf.txt bash scripts/fm_gate.sh ...` 66/66 通过（逐条对比无不一致），周期与 trace-model `PF_ENABLE=1`（`exp/prefetch-h1` `0eb258c`）逐个相同；其中 25 个程序的周期因预取而变化（dhrystone 162,033 → 161,183，coremark 255,335 → 256,573，memory-stress-small 347,305 → 334,635）。
+- 面积代理（yosys 通用门，相对数字）：`dcache_pf` 3,334 个单元、422 个触发器；`dcache_mshr` 95,540（main）→ 95,020（两个标志位的触发器增加，被其他逻辑的差异抵消）；阵列新增 pf 位 256×4 = 1,024 个触发器。工艺库、时序（WNS）：**未做**。
+- 调试中发现的两个实现错误（已修）：`dcache_pf` 里 `g_valid_d` 等在两个 `always_comb` 里赋值，后一个覆盖前一个（预取器从不入队）；`slot_pf_llc` 没有和 `slot_pf` 相与，需求项被标成 `no_fill`（在 NEAR 之外的周期差 2 个周期）。
+- 未做：`axi_llc` 读响应队列 RQD 重测（预取使 AXI 读请求更密）、SPEC 云上全量复跑、`docs/MAIN_RECORDS.md`（未合入 main）。

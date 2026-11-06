@@ -4,7 +4,7 @@
 #   PASS = ebreak reached within 3x(ref)+20000 cycles and no [FM] mismatch line ("rtl=" / "rejects"); the
 #   "[FM] N instructions checked" summary line is not a mismatch. Writes <outdir>/<name>.log and <outdir>/summary.txt
 #   ("PASS name cycles committed ref=..."). Cycles are not compared here: compare summary.txt with ref_cycles.txt / trace-model.
-#   env JOBS (default 6)
+#   env JOBS (default 6), REF_CYCLES (reference table, default scripts/ref_cycles.txt; e.g. a trace-model run with the prefetcher on)
 set -uo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd); . "$ROOT/scripts/env.sh"
 TB=$1; OUT=$2; mkdir -p "$OUT"
@@ -18,6 +18,6 @@ one() {
   if [ -n "$cyc" ] && [ "$fm" = 0 ] && ! echo "$l" | grep -q "NO EBREAK"; then echo "PASS $n $cyc ref=$ref"; else echo "FAIL $n fm=$fm $l"; fi
 }
 export -f one; export OUT TB
-grep -v '^#' "$ROOT/scripts/ref_cycles.txt" | grep . | xargs -P "${JOBS:-6}" -L1 bash -c 'one $0 $1' | sort > "$OUT/summary.txt"
+grep -v '^#' "${REF_CYCLES:-$ROOT/scripts/ref_cycles.txt}" | grep . | xargs -P "${JOBS:-6}" -L1 bash -c 'one $0 $1' | sort > "$OUT/summary.txt"
 echo "== $(basename "$OUT"): PASS $(grep -c '^PASS' "$OUT/summary.txt")  FAIL $(grep -c '^FAIL' "$OUT/summary.txt")  SKIP $(grep -c '^SKIP' "$OUT/summary.txt")"
 awk '$1=="PASS" { split($5, r, "="); if ($3 != r[2]) d++ } END { print "cycles different from ref_cycles.txt: " d+0 }' "$OUT/summary.txt"

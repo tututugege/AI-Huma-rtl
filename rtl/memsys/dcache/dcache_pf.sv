@@ -72,12 +72,16 @@ module dcache_pf
   logic [3:0]        g_left_d;
   logic [1:0]        st_conf_d;
   logic              port_used;
+  logic              g_valid_s, g2_valid_s;
+  logic [LINE_W-1:0] g_next_s, g_base_s, g2_next_s, g2_base_s;
+  logic [SB-1:0]     g_stride_s;
+  logic [3:0]        g_left_s;
 
   always_comb begin
     cnt_a  = q_cnt_q - (QW+1)'(head_taken);
     head_a = q_head_q + QW'(head_taken);
-    g_valid_d = g_valid_q;  g_next_d = g_next_q;  g_base_d = g_base_q;  g_stride_d = g_stride_q;  g_left_d = g_left_q;
-    g2_valid_d = g2_valid_q; g2_next_d = g2_next_q; g2_base_d = g2_base_q;
+    g_valid_s = g_valid_q;  g_next_s = g_next_q;  g_base_s = g_base_q;  g_stride_s = g_stride_q;  g_left_s = g_left_q;
+    g2_valid_s = g2_valid_q; g2_next_s = g2_next_q; g2_base_s = g2_base_q;
     push_en = 1'b0; push_line = '0; push_llc = 1'b0;
     port_used = 1'b0;
 
@@ -85,27 +89,30 @@ module dcache_pf
     if (g_valid_q) begin
       port_used = 1'b1;
       if (g_next_q[LINE_W-1:6] != g_base_q[LINE_W-1:6]) begin
-        g_valid_d = 1'b0;
+        g_valid_s = 1'b0;
       end else begin
         push_en   = 1'b1;
         push_line = g_next_q;
         push_llc  = 1'b0;
-        g_next_d  = g_next_q + sx(g_stride_q);
-        g_left_d  = g_left_q - 4'd1;
-        if (g_left_q == 4'd1) g_valid_d = 1'b0;
+        g_next_s  = g_next_q + sx(g_stride_q);
+        g_left_s  = g_left_q - 4'd1;
+        if (g_left_q == 4'd1) g_valid_s = 1'b0;
       end
     end
     // 2. LLC next-line generator uses the FIFO write port only when the stride generator did not
     if (!port_used && g2_valid_q) begin
       if (g2_next_q[LINE_W-1:6] != g2_base_q[LINE_W-1:6]) begin
-        g2_valid_d = 1'b0;
+        g2_valid_s = 1'b0;
       end else begin
         push_en    = 1'b1;
         push_line  = g2_next_q;
         push_llc   = 1'b1;
-        g2_valid_d = 1'b0;                   // left was 1
+        g2_valid_s = 1'b0;                   // left was 1
       end
     end
+  end
+
+  always_comb begin
     // duplicate: line already in the FIFO (entries after the pop)
     dup = 1'b0;
     for (int e = 0; e < QD; e++) begin
@@ -113,15 +120,18 @@ module dcache_pf
       pos = QW'(e) - head_a;
       if ((QW+1)'(pos) < cnt_a && q_line_q[e] == push_line) dup = 1'b1;
     end
+
   end
 
-  // 3. training of the events registered last cycle (sequential over the NTR events)
+  // 3. training of the events registered last cycle (sequential over the NTR events, after the generator steps)
   always_comb begin
+    g_valid_d = g_valid_s; g_next_d = g_next_s; g_base_d = g_base_s; g_stride_d = g_stride_s; g_left_d = g_left_s;
+    g2_valid_d = g2_valid_s; g2_next_d = g2_next_s; g2_base_d = g2_base_s;
     st_valid_d = st_valid_q; st_last_d = st_last_q; st_stride_d = st_stride_q; st_conf_d = st_conf_q;
     for (int k = 0; k < NTR; k++) begin
       if (in_valid_q[k]) begin
         logic [LINE_W-1:0] line, d;
-        logic              in_range, upd;
+        logic              in_range;
         logic signed [LINE_W-1:0] ds;
         logic [SB-1:0]     cur;
         line = in_line_q[k];
