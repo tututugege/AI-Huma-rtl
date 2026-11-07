@@ -21,6 +21,8 @@ module front2back_fifo import ttg_cfg_pkg::*; import front_pkg::*; (
   input  logic [TAGE_IDX_W-1:0]   wr_tage_idx    [FETCH_WIDTH][TN_MAX],
   input  logic [TAGE_TAG_W-1:0]   wr_tage_tag    [FETCH_WIDTH][TN_MAX],
   input  logic [31:0]             wr_predict_next_fetch_address_corrected,
+  input  logic [BCK_W-1:0]        wr_bpu_ck,
+  input  logic [FETCH_WIDTH-1:0][KIND_W-1:0] wr_slot_kind,
   output logic                    rd_valid,
   output logic [31:0]             rd_fetch_group [FETCH_WIDTH],
   output logic [FETCH_WIDTH-1:0] rd_page_fault_inst,
@@ -33,6 +35,8 @@ module front2back_fifo import ttg_cfg_pkg::*; import front_pkg::*; (
   output logic [TAGE_IDX_W-1:0]   rd_tage_idx    [FETCH_WIDTH][TN_MAX],
   output logic [TAGE_TAG_W-1:0]   rd_tage_tag    [FETCH_WIDTH][TN_MAX],
   output logic [31:0]             rd_predict_next_fetch_address_corrected,
+  output logic [BCK_W-1:0]        rd_bpu_ck,
+  output logic [FETCH_WIDTH-1:0][KIND_W-1:0] rd_slot_kind,
   output logic                    full,
   output logic                    empty
 );
@@ -65,20 +69,28 @@ module front2back_fifo import ttg_cfg_pkg::*; import front_pkg::*; (
         rd_tage_tag[i][j] = rd_entry.meta.tage_tag[i][j];
       end
     end
+    wr_entry.bpu_ck                                 = wr_bpu_ck;
+    wr_entry.slot_kind                              = wr_slot_kind;
+    rd_bpu_ck                                       = rd_entry.bpu_ck;
+    rd_slot_kind                                    = rd_entry.slot_kind;
     wr_entry.meta.predict_base_pc                   = wr_predict_base_pc;
     wr_entry.predict_next_fetch_address_corrected   = wr_predict_next_fetch_address_corrected;
     rd_predict_base_pc                              = rd_entry.meta.predict_base_pc;
     rd_predict_next_fetch_address_corrected         = rd_entry.predict_next_fetch_address_corrected;
   end
 
+  /* verilator lint_off UNUSEDSIGNAL */
+  logic [$clog2(F2B_FIFO_DEPTH + 1)-1:0] size_unused;   // occupancy: only the fetch-address queue and PTAB need it
+  /* verilator lint_on UNUSEDSIGNAL */
+
   front_fifo #(.DEPTH(F2B_FIFO_DEPTH), .W($bits(f2b_fifo_entry_t)), .FULL_AT(F2B_FIFO_FULL_AT)) u_fifo (
     .clk, .rst_n,
     .clear   (refetch),
-    .rd_en, .wr_en,
+    .rd_en, .wr_en, .drop_tail(1'b0),
     .wdata   (wr_entry),
     .rd_valid,
     .rdata   (rd_entry),
-    .full, .empty
+    .full, .empty, .size(size_unused)
   );
 
 endmodule

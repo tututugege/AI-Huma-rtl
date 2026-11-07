@@ -28,6 +28,8 @@ module core_front2back import ttg_cfg_pkg::*; import front_pkg::*; (
   input  logic [TAGE_IDX_W-1:0]   tage_idx [FETCH_WIDTH][TN_MAX],
   input  logic [TAGE_TAG_W-1:0]   tage_tag [FETCH_WIDTH][TN_MAX],
   input  logic [31:0] predict_next_fetch_address,
+  input  logic [BCK_W-1:0] bpu_ck,
+  input  logic [FETCH_WIDTH-1:0][KIND_W-1:0] slot_kind,
   // back.in (front part)
   output logic [BACKEND_FETCH_WIDTH-1:0] back_valid,
   output logic [31:0] back_inst        [BACKEND_FETCH_WIDTH],
@@ -39,7 +41,9 @@ module core_front2back import ttg_cfg_pkg::*; import front_pkg::*; (
   output logic [PCPN_W-1:0]       back_pcpn    [BACKEND_FETCH_WIDTH],
   output logic [TAGE_IDX_W-1:0]   back_tage_idx [BACKEND_FETCH_WIDTH][TN_MAX],
   output logic [TAGE_TAG_W-1:0]   back_tage_tag [BACKEND_FETCH_WIDTH][TN_MAX],
-  output logic [31:0] back_predict_next_fetch_address
+  output logic [31:0] back_predict_next_fetch_address,
+  output logic [BCK_W-1:0] back_bpu_ck,
+  output logic [FETCH_WIDTH-1:0][KIND_W-1:0] back_slot_kind
 );
 
   localparam logic [31:0] INST_NOP_WORD = 32'h00000013;
@@ -110,6 +114,8 @@ module core_front2back import ttg_cfg_pkg::*; import front_pkg::*; (
   logic [TAGE_IDX_W-1:0] hold_tage_idx_q [BACKEND_FETCH_WIDTH][TN_MAX];
   logic [TAGE_TAG_W-1:0] hold_tage_tag_q [BACKEND_FETCH_WIDTH][TN_MAX];
   logic [31:0]           hold_next_q;
+  logic [BCK_W-1:0]      hold_bpu_ck_q;
+  logic [FETCH_WIDTH-1:0][KIND_W-1:0] hold_slot_kind_q;
 
   always_comb begin
     for (int j = 0; j < BACKEND_FETCH_WIDTH; j++) begin
@@ -125,6 +131,8 @@ module core_front2back import ttg_cfg_pkg::*; import front_pkg::*; (
       back_tage_tag[j]    = can_read ? fe_tage_tag[j]    : hold_tage_tag_q[j];
     end
     back_predict_next_fetch_address = can_read ? predict_next_fetch_address : hold_next_q;
+    back_bpu_ck                     = can_read ? bpu_ck : hold_bpu_ck_q;
+    back_slot_kind                  = can_read ? slot_kind : hold_slot_kind_q;
   end
 
   always_ff @(posedge clk) begin
@@ -142,6 +150,8 @@ module core_front2back import ttg_cfg_pkg::*; import front_pkg::*; (
         hold_tage_tag_q[j]    <= '{default: '0};
       end
       hold_next_q <= 32'd0;
+      hold_bpu_ck_q <= '0;
+      hold_slot_kind_q <= '0;
     end else begin
       for (int j = 0; j < BACKEND_FETCH_WIDTH; j++) begin
         hold_valid_q[j]       <= back_valid[j];
@@ -156,6 +166,8 @@ module core_front2back import ttg_cfg_pkg::*; import front_pkg::*; (
         hold_tage_tag_q[j]    <= back_tage_tag[j];
       end
       hold_next_q <= back_predict_next_fetch_address;
+      hold_bpu_ck_q <= back_bpu_ck;
+      hold_slot_kind_q <= back_slot_kind;
     end
   end
 

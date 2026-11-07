@@ -3,11 +3,21 @@
 
 // One TAGE bank: base counters, 4 tagged tables (tag/cnt/useful) and the state registers LSFR, reset counter and
 // use-alt counter.  Prediction and update may share a cycle; both read the START-of-cycle arrays.
-module bpu_tage_bank import bpu_pkg::*; (
+module bpu_tage_bank import bpu_pkg::*; import bpu_stage_pkg::*; (
   input  logic                clk,
   input  logic                rst_n,
-  input  logic [FH_W-1:0]     fh          [FH_K][TN],
-  input  logic [T_BASE_W-1:0] pred_pc_idx,
+  // S1: array read at the indices of the block (index record registered at the end of S0)
+  input  logic [T_BASE_W-1:0] rd_base,
+  input  logic [TN-1:0][T_IDX_W-1:0] rd_idx,
+  output tg_raw_t             rd_raw,
+  // S2: compare / select on the registered S1 read data (the use-alt counter is read in this cycle)
+  input  tg_raw_t             sel_raw,
+  input  logic [TN-1:0][T_TAG_W-1:0] sel_tag_in,
+  output logic                sel_pred,
+  output logic                sel_alt_pred,
+  output logic [PCPN_W-1:0]   sel_pcpn,
+  output logic [PCPN_W-1:0]   sel_altpcpn,
+  // update (one write set per cycle, from the update queue)
   input  logic                update_en,
   input  logic [T_BASE_W-1:0] upd_pc_idx,
   input  logic                real_dir,
@@ -15,13 +25,7 @@ module bpu_tage_bank import bpu_pkg::*; (
   input  logic                alt_pred_in,
   input  logic [PCPN_W-1:0]   pcpn_in,
   input  logic [T_TAG_W-1:0]  tag_in      [TN],
-  input  logic [T_IDX_W-1:0]  idx_in      [TN],
-  output logic                pred_out,
-  output logic                alt_pred_out,
-  output logic [PCPN_W-1:0]   pcpn_out,
-  output logic [PCPN_W-1:0]   altpcpn_out,
-  output logic [T_TAG_W-1:0]  tag_out     [TN],
-  output logic [T_IDX_W-1:0]  idx_out     [TN]
+  input  logic [T_IDX_W-1:0]  idx_in      [TN]
 );
 
   localparam int DEPTH = 1 << T_IDX_W;
@@ -37,9 +41,6 @@ module bpu_tage_bank import bpu_pkg::*; (
   // array reads: prediction at idx_out, update at idx_in (+ the useful row being cleared)
   logic [1:0]          base_rd   [2];
   logic [T_BASE_W-1:0] base_addr [2];
-  logic [T_TAG_W-1:0]  pred_tag  [TN];
-  logic [2:0]          pred_cnt  [TN];
-  logic [1:0]          pred_useful [TN];
   logic [2:0]          upd_cnt   [TN];
   logic [1:0]          upd_useful [TN];
   logic [1:0]          row_useful [TN];
@@ -58,13 +59,15 @@ module bpu_tage_bank import bpu_pkg::*; (
   logic [3:0]          use_alt_wdata;
   logic [3:0]          lsfr_next;
   logic [23:0]         reset_cnt_next;
-  logic [1:0]          pred_base_cnt;
   logic [1:0]          upd_base_cnt;
 
+  logic [T_TAG_W-1:0] sel_tag [TN];
+  always_comb begin
+    for (int i = 0; i < TN; i++) sel_tag[i] = sel_tag_in[i];
+  end
   bpu_tage_pred u_pred (
-    .pc_idx(pred_pc_idx), .fh(fh), .base_cnt(pred_base_cnt), .rd_tag(pred_tag), .rd_cnt(pred_cnt),
-    .rd_useful(pred_useful), .use_alt_ctr(use_alt_q), .idx(idx_out), .tag(tag_out), .pred(pred_out),
-    .alt_pred(alt_pred_out), .pcpn(pcpn_out), .altpcpn(altpcpn_out)
+    .raw(sel_raw), .tag(sel_tag), .use_alt_ctr(use_alt_q), .pred(sel_pred), .alt_pred(sel_alt_pred),
+    .pcpn(sel_pcpn), .altpcpn(sel_altpcpn)
   );
 
   bpu_tage_upd u_upd (
@@ -83,7 +86,7 @@ module bpu_tage_bank import bpu_pkg::*; (
     logic [T_BASE_W-1:0] wr_addr [1];
     logic [1:0] wr_data [1];
     always_comb begin
-      base_addr[0] = pred_pc_idx;
+      base_addr[0] = rd_base;
       base_addr[1] = upd_pc_idx;
       wr_en[0]     = update_en && base_we;
       wr_addr[0]   = upd_pc_idx;
@@ -93,7 +96,7 @@ module bpu_tage_bank import bpu_pkg::*; (
       .clk(clk), .rst_n(rst_n), .rd_addr(base_addr), .rd_data(base_rd),
       .wr_en(wr_en), .wr_addr(wr_addr), .wr_data(wr_data)
     );
-    assign pred_base_cnt = base_rd[0];
+    assign rd_raw.base = base_rd[0];
     assign upd_base_cnt  = base_rd[1];
   end
 
@@ -115,16 +118,16 @@ module bpu_tage_bank import bpu_pkg::*; (
     logic [T_IDX_W-1:0] use_wr_addr [2];
     logic [1:0]         use_wr_data [2];
     always_comb begin
-      tag_rd_addr[0] = idx_out[i];
+      tag_rd_addr[0] = rd_idx[i];
       tag_wr_en[0]   = update_en && tag_we[i];
       tag_wr_addr[0] = idx_in[i];
       tag_wr_data[0] = tag_in[i];
-      cnt_rd_addr[0] = idx_out[i];
+      cnt_rd_addr[0] = rd_idx[i];
       cnt_rd_addr[1] = idx_in[i];
       cnt_wr_en[0]   = update_en && cnt_we[i];
       cnt_wr_addr[0] = idx_in[i];
       cnt_wr_data[0] = cnt_wdata[i];
-      use_rd_addr[0] = idx_out[i];
+      use_rd_addr[0] = rd_idx[i];
       use_rd_addr[1] = idx_in[i];
       use_rd_addr[2] = reset_row;
       use_wr_en[0]   = update_en && useful_we[i];
@@ -146,10 +149,10 @@ module bpu_tage_bank import bpu_pkg::*; (
       .clk(clk), .rst_n(rst_n), .rd_addr(use_rd_addr), .rd_data(use_rd_data),
       .wr_en(use_wr_en), .wr_addr(use_wr_addr), .wr_data(use_wr_data)
     );
-    assign pred_tag[i]    = tag_rd_data[0];
-    assign pred_cnt[i]    = cnt_rd_data[0];
+    assign rd_raw.tag[i]    = tag_rd_data[0];
+    assign rd_raw.cnt[i]    = cnt_rd_data[0];
     assign upd_cnt[i]     = cnt_rd_data[1];
-    assign pred_useful[i] = use_rd_data[0];
+    assign rd_raw.useful[i] = use_rd_data[0];
     assign upd_useful[i]  = use_rd_data[1];
     assign row_useful[i]  = use_rd_data[2];
   end

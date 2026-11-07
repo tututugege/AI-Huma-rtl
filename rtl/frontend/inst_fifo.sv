@@ -46,14 +46,18 @@ module inst_fifo import ttg_cfg_pkg::*; import front_pkg::*; (
     rd_seq_next_pc       = rd_entry.seq_next_pc;
   end
 
+  /* verilator lint_off UNUSEDSIGNAL */
+  logic [$clog2(INST_FIFO_DEPTH + 1)-1:0] size_unused;   // occupancy: only the fetch-address queue and PTAB need it
+  /* verilator lint_on UNUSEDSIGNAL */
+
   front_fifo #(.DEPTH(INST_FIFO_DEPTH), .W($bits(inst_fifo_entry_t)), .FULL_AT(INST_FIFO_FULL_AT)) u_fifo (
     .clk, .rst_n,
     .clear   (refetch),
-    .rd_en, .wr_en,
+    .rd_en, .wr_en, .drop_tail(1'b0),
     .wdata   (wr_entry),
     .rd_valid,
     .rdata   (rd_entry),
-    .full, .empty
+    .full, .empty, .size(size_unused)
   );
 
 endmodule

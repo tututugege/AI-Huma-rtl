@@ -9,13 +9,18 @@
 //   front_fetch_buf  fetch-address queue, predecode, instruction queue
 //   front_pred_path  BPU, PTAB, checker, front2back queue, output bypass
 // Inputs from the back end (be_refetch.., upd_*, csr) are the REGISTERED back2front values of the reference.
-module front_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; import icache_pkg::*;
-  import tlb_mmu_pkg::*; (
+module front_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*;
+  import icache_pkg::*; import tlb_mmu_pkg::*; (
   input  logic        clk,
   input  logic        rst_n,
   // ---- back end -> front end (registered back2front) ----
   input  logic        be_refetch,
   input  logic [31:0] be_refetch_address,
+  input  logic        be_rf_valid,
+  input  logic [HCK_W-1:0] be_rf_ck,
+  input  logic [EPOCH_W-1:0] be_rf_epoch,
+  input  logic [2:0]  be_rf_type,
+  input  logic [31:0] be_rf_pc,
   input  logic        itlb_flush,
   input  logic        fence_i,
   input  logic        fifo_read_enable,
@@ -66,6 +71,8 @@ module front_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; 
   output logic [TAGE_IDX_W-1:0] out_tage_idx [FETCH_WIDTH][TN_MAX],
   output logic [TAGE_TAG_W-1:0] out_tage_tag [FETCH_WIDTH][TN_MAX],
   output logic [31:0] out_predict_next_fetch_address,
+  output logic [BCK_W-1:0] out_bpu_ck,
+  output logic [FETCH_WIDTH-1:0][KIND_W-1:0] out_slot_kind,
   // ---- memory side outputs ----
   output logic        mem_req_valid,
   output logic [31:0] mem_req_addr,
@@ -87,7 +94,9 @@ module front_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; 
   logic [31:0] refetch_address;
   logic        fa_rd_en, predecode_can_run, bpu_can_run, bpu_icache_read_ready;
   logic        fa_wr_en, ptab_wr_en, f2b_wr_en, f2b_use_bypass, front_out_valid, do_predecode_flush;
-  logic        fa_full, fa_empty, inst_empty, ptab_full, ptab_empty, f2b_full, f2b_empty;
+  logic        fa_full, fa_empty, inst_empty, ptab_empty, f2b_full, f2b_empty;
+  logic        fa_drop_tail, bpu_override_valid, bpu_override_squash, refetch_pd;
+  logic [$clog2(FETCH_ADDR_FIFO_DEPTH + 1)-1:0] fa_size;
   logic        bpu_icache_read_valid, bpu_ptab_write_enable;
   logic        checker_flush_enable;
   logic [31:0] checker_flush_address;
@@ -97,12 +106,13 @@ module front_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; 
     .clk, .rst_n,
     .be_refetch, .be_refetch_address,
     .be_fifo_read_enable   (fifo_read_enable),
-    .icache_ready, .fa_full, .fa_empty, .inst_empty, .ptab_full, .ptab_empty, .f2b_full, .f2b_empty,
+    .icache_ready, .fa_full, .fa_empty, .inst_empty, .ptab_empty, .f2b_full, .f2b_empty,
     .bpu_icache_read_valid,
     .bpu_ptab_write_enable,
     .checker_flush_enable, .checker_flush_address,
+    .bpu_override_valid, .bpu_override_squash, .fa_size,
     .global_refetch, .refetch_address, .fa_rd_en, .predecode_can_run, .bpu_can_run, .bpu_icache_read_ready,
-    .fa_wr_en, .ptab_wr_en, .f2b_wr_en, .f2b_use_bypass, .front_out_valid, .do_predecode_flush
+    .fa_wr_en, .fa_drop_tail, .ptab_wr_en, .f2b_wr_en, .f2b_use_bypass, .front_out_valid, .do_predecode_flush
   );
 
   // ---- fetch side ----
@@ -149,9 +159,9 @@ module front_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; 
 
   front_fetch_buf u_fetch_buf (
     .clk, .rst_n, .global_refetch,
-    .fa_rd_en, .fa_wr_en,
+    .fa_rd_en, .fa_wr_en, .fa_drop_tail,
     .fa_wr_address   (bpu_fetch_address),
-    .fa_rd_valid, .fa_rd_address, .fa_full, .fa_empty,
+    .fa_rd_valid, .fa_rd_address, .fa_full, .fa_empty, .fa_size,
     .ic_read_complete, .ic_fetch_pc, .ic_inst_valid, .ic_page_fault_inst, .ic_fetch_group,
     .inst_rd_en      (predecode_can_run),
     .inst_empty,
@@ -165,17 +175,23 @@ module front_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; 
   front_pred_path u_pred_path (
     .clk, .rst_n,
     .global_refetch, .refetch_address, .be_refetch,
+    .refetch_pd, .rf_valid(be_rf_valid), .rf_ck(be_rf_ck), .rf_epoch(be_rf_epoch), .rf_type(be_rf_type),
+    .rf_pc(be_rf_pc),
     .be_fifo_read_enable (fifo_read_enable),
     .bpu_icache_read_ready, .ptab_wr_en, .predecode_can_run, .f2b_wr_en, .f2b_use_bypass,
     .upd_valid, .base_pc, .actual_dir, .br_type, .target, .pred_dir, .alt_pred, .pcpn, .tags, .idxs,
     .inst_rd_instructions, .inst_rd_page_fault_inst, .inst_rd_inst_valid, .inst_rd_predecode_type,
     .inst_rd_predecode_target_address, .inst_rd_seq_next_pc,
     .bpu_icache_read_valid, .bpu_fetch_address, .bpu_ptab_write_enable,
-    .ptab_full, .ptab_empty, .f2b_full, .f2b_empty,
+    .bpu_override_valid, .bpu_override_squash, .ptab_empty, .f2b_full, .f2b_empty,
     .checker_flush_enable, .checker_flush_address,
     .out_inst_valid, .out_instructions, .out_page_fault_inst, .out_predict_dir, .out_pc, .out_alt_pred,
-    .out_altpcpn, .out_pcpn, .out_tage_idx, .out_tage_tag, .out_predict_next_fetch_address
+    .out_altpcpn, .out_pcpn, .out_tage_idx, .out_tage_tag, .out_predict_next_fetch_address,
+    .out_bpu_ck, .out_slot_kind
   );
+
+  // the delayed predecode refetch is the part of the global refetch that does not come from the back end
+  assign refetch_pd = global_refetch && !be_refetch;
 
   // front.out.FIFO_valid and the per-lane valid seen by the back end (back.in.valid[j] = FIFO_valid & inst_valid[j])
   assign out_valid = front_out_valid;

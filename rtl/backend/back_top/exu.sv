@@ -111,7 +111,8 @@ module exu
   output logic [31:0] exu2id_redirect_pc,
   output logic [6:0] exu2id_redirect_rob_idx,
   output logic [BR_TAG_WIDTH-1:0] exu2id_br_id,
-  output logic [5:0] exu2id_ftq_idx
+  output logic [5:0] exu2id_ftq_idx,
+  output logic [31:0] exu2id_br_pc
 );
 
   // Unread FU-side signals below are intentional (single-cycle FUs' complete/ready, exu2fu fields no FU reads).
@@ -279,6 +280,7 @@ module exu
     .exu2id_redirect_rob_idx(exu2id_redirect_rob_idx),
     .exu2id_br_id(exu2id_br_id),
     .exu2id_ftq_idx(exu2id_ftq_idx),
+    .exu2id_br_pc(exu2id_br_pc),
     .fu_alu_result(fu_alu_result),
     .fu_agu_result(fu_agu_result),
     .fu_sdu_result(fu_sdu_result),

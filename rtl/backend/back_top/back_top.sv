@@ -2,10 +2,13 @@
 // Instances: pre, idu, ren, dis, isu, prf, exu, csr, rob, dtlb, lsu, glue.
 `default_nettype none
 
-module back_top import ttg_cfg_pkg::*; (
+module back_top import ttg_cfg_pkg::*; import front_pkg::BCK_W; import front_pkg::KIND_W;
+  import bpu_stage_pkg::HCK_W; import bpu_stage_pkg::EPOCH_W; (
   input  logic clk,
   input  logic rst_n,
   // ---- in: front end -> back end (SimCpu: BackTop::in, FrontPreIO; held registers front2back_hold live in SimCpu)
+  input  logic [BCK_W-1:0] front2pre_bpu_ck,
+  input  logic [FETCH_WIDTH-1:0][KIND_W-1:0] front2pre_slot_kind,
   input  logic [BACKEND_FETCH_WIDTH-1:0] front2pre_alt_pred,
   input  logic [2:0] front2pre_altpcpn [BACKEND_FETCH_WIDTH],
   input  logic [31:0] front2pre_inst [BACKEND_FETCH_WIDTH],
@@ -65,6 +68,11 @@ module back_top import ttg_cfg_pkg::*; (
   output logic [COMMIT_WIDTH-1:0][3:0] ftq_commit_info_resp_valid_t,
   output logic [31:0] out_commit_entry_uop_diag_val [COMMIT_WIDTH],
   output logic out_mispred,
+  output logic out_rf_valid,
+  output logic [HCK_W-1:0] out_rf_ck,
+  output logic [EPOCH_W-1:0] out_rf_epoch,
+  output logic [2:0] out_rf_type,
+  output logic [31:0] out_rf_pc,
   output logic out_no_mispred,
   output logic [31:0] out_redirect_pc,
   output logic out_stall,
@@ -359,6 +367,8 @@ module back_top import ttg_cfg_pkg::*; (
   logic [BR_TAG_WIDTH-1:0] exu2id_br_id;
   logic [BR_MASK_WIDTH-1:0] exu2id_clear_mask;
   logic [5:0] exu2id_ftq_idx;
+  logic [31:0] exu2id_br_pc;
+  logic [31:0] br_latch_br_pc;
   logic exu2id_mispred;
   logic [31:0] exu2id_redirect_pc;
   logic [6:0] exu2id_redirect_rob_idx;
@@ -482,6 +492,12 @@ module back_top import ttg_cfg_pkg::*; (
   pre_idu_queue u_pre (
     .clk(clk),
     .rst_n(rst_n),
+    .front2pre_bpu_ck(front2pre_bpu_ck),
+    .front2pre_slot_kind(front2pre_slot_kind),
+    .rf_br_pc(br_latch_br_pc),
+    .rf_ck(out_rf_ck),
+    .rf_epoch(out_rf_epoch),
+    .rf_type(out_rf_type),
     // inputs from idu
     .idu_br_latch_ftq_idx(br_latch_ftq_idx),
     .idu_br_latch_mispred(br_latch_mispred),
@@ -545,6 +561,7 @@ module back_top import ttg_cfg_pkg::*; (
     .exu2id_br_id(exu2id_br_id),
     .exu2id_clear_mask(exu2id_clear_mask),
     .exu2id_ftq_idx(exu2id_ftq_idx),
+    .exu2id_br_pc(exu2id_br_pc),
     .exu2id_mispred(exu2id_mispred),
     .exu2id_redirect_pc(exu2id_redirect_pc),
     .exu2id_redirect_rob_idx(exu2id_redirect_rob_idx),
@@ -591,7 +608,8 @@ module back_top import ttg_cfg_pkg::*; (
     .idu_consume_fire(idu_consume_fire),
     .br_latch_mispred(br_latch_mispred),
     .br_latch_redirect_pc(br_latch_redirect_pc),
-    .br_latch_ftq_idx(br_latch_ftq_idx)
+    .br_latch_ftq_idx(br_latch_ftq_idx),
+    .br_latch_br_pc(br_latch_br_pc)
   );
 
   // ================= ren: Ren (back-end/Ren.cpp)
@@ -1058,7 +1076,8 @@ module back_top import ttg_cfg_pkg::*; (
     .exu2id_redirect_pc(exu2id_redirect_pc),
     .exu2id_redirect_rob_idx(exu2id_redirect_rob_idx),
     .exu2id_br_id(exu2id_br_id),
-    .exu2id_ftq_idx(exu2id_ftq_idx)
+    .exu2id_ftq_idx(exu2id_ftq_idx),
+    .exu2id_br_pc(exu2id_br_pc)
   );
 
   // ================= csr: Csr (back-end/Exu/Csr.cpp)
@@ -1421,6 +1440,10 @@ module back_top import ttg_cfg_pkg::*; (
     .csr_status_mstatus_mpp(csr_status_mstatus_mpp),
     .rob_commit_commit_entry_uop_amo_op(rob_commit_commit_entry_uop_amo_op)
   );
+
+  // ================= BPU repair: a back-end branch mispredict hands the FTQ checkpoint back to the front end
+  assign out_rf_valid = dec_bcast_mispred && !rob_bcast_flush;
+  assign out_rf_pc    = br_latch_br_pc;
 
 endmodule
 

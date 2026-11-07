@@ -18,6 +18,7 @@ module ptab import ttg_cfg_pkg::*; import front_pkg::*; (
   input  logic [PCPN_W-1:0]       wr_pcpn        [FETCH_WIDTH],
   input  logic [TAGE_IDX_W-1:0]   wr_tage_idx    [FETCH_WIDTH][TN_MAX],
   input  logic [TAGE_TAG_W-1:0]   wr_tage_tag    [FETCH_WIDTH][TN_MAX],
+  input  logic [BCK_W-1:0]        wr_bpu_ck,
   output logic                    rd_valid,
   output logic [31:0]             rd_predict_next_fetch_address,
   output logic [FETCH_WIDTH-1:0] rd_predict_dir,
@@ -27,8 +28,10 @@ module ptab import ttg_cfg_pkg::*; import front_pkg::*; (
   output logic [PCPN_W-1:0]       rd_pcpn        [FETCH_WIDTH],
   output logic [TAGE_IDX_W-1:0]   rd_tage_idx    [FETCH_WIDTH][TN_MAX],
   output logic [TAGE_TAG_W-1:0]   rd_tage_tag    [FETCH_WIDTH][TN_MAX],
+  output logic [BCK_W-1:0]        rd_bpu_ck,
   output logic                    full,
-  output logic                    empty
+  output logic                    empty,
+  output logic [$clog2(PTAB_DEPTH + 1)-1:0] size
 );
 
   ptab_entry_t wr_entry;
@@ -53,6 +56,8 @@ module ptab import ttg_cfg_pkg::*; import front_pkg::*; (
         rd_tage_tag[i][j] = rd_entry.meta.tage_tag[i][j];
       end
     end
+    wr_entry.bpu_ck                       = wr_bpu_ck;
+    rd_bpu_ck                             = rd_entry.bpu_ck;
     wr_entry.meta.predict_base_pc         = wr_predict_base_pc;
     wr_entry.predict_next_fetch_address   = wr_predict_next_fetch_address;
     rd_predict_base_pc                    = rd_entry.meta.predict_base_pc;
@@ -62,11 +67,11 @@ module ptab import ttg_cfg_pkg::*; import front_pkg::*; (
   front_fifo #(.DEPTH(PTAB_DEPTH), .W($bits(ptab_entry_t)), .FULL_AT(PTAB_FULL_AT)) u_fifo (
     .clk, .rst_n,
     .clear   (refetch),
-    .rd_en, .wr_en,
+    .rd_en, .wr_en, .drop_tail(1'b0),
     .wdata   (wr_entry),
     .rd_valid,
     .rdata   (rd_entry),
-    .full, .empty
+    .full, .empty, .size
   );
 
 endmodule
