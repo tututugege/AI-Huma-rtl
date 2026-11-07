@@ -24,7 +24,7 @@ module pre_idu_queue import ttg_cfg_pkg::*; import pre_idu_pkg::*; import front_
   input  logic [TAGE_TAG_W-1:0] front2pre_tage_tag [BACKEND_FETCH_WIDTH] [TAGE_N],
   input  logic [BCK_W-1:0] front2pre_bpu_ck,
   input  logic [FETCH_WIDTH-1:0][KIND_W-1:0] front2pre_slot_kind,
-  input  logic [31:0] rf_br_pc,
+  input  logic [31:0] idu_br_latch_br_pc,
   input  logic [DECODE_WIDTH-1:0] idu_consume_fire,
   input  logic idu_br_latch_mispred,
   input  logic [FTQ_IDX_WIDTH-1:0] idu_br_latch_ftq_idx,
@@ -39,9 +39,9 @@ module pre_idu_queue import ttg_cfg_pkg::*; import pre_idu_pkg::*; import front_
   input  logic [FTQ_ROB_PC_PORT_NUM-1:0] ftq_rob_pc_req_req_valid,
   input  logic [FTQ_IDX_WIDTH-1:0] ftq_rob_pc_req_req_ftq_idx [FTQ_ROB_PC_PORT_NUM],
   input  logic [FTQ_OFFSET_WIDTH-1:0] ftq_rob_pc_req_req_ftq_offset [FTQ_ROB_PC_PORT_NUM],
-  output logic [HCK_W-1:0] rf_ck,
-  output logic [EPOCH_W-1:0] rf_epoch,
-  output logic [2:0] rf_type,
+  output logic [HCK_W-1:0] out_rf_ck,
+  output logic [EPOCH_W-1:0] out_rf_epoch,
+  output logic [2:0] out_rf_type,
   output logic pre2front_ready,
   output logic [BACKEND_FETCH_WIDTH-1:0] pre2front_fire,
   output logic [DECODE_WIDTH-1:0] pre_issue_entries_valid,
@@ -176,8 +176,8 @@ module pre_idu_queue import ttg_cfg_pkg::*; import pre_idu_pkg::*; import front_
 
   pre_idu_ftq_bpu u_bpu (
     .clk, .wr_en(alloc), .wr_idx(ftq_tail), .wr_bck(front2pre_bpu_ck), .wr_kind(front2pre_slot_kind),
-    .wr_base_pc(front_slot_pc[0]), .rd_idx(idu_br_latch_ftq_idx), .rd_br_pc(rf_br_pc), .rd_ck(rf_ck),
-    .rd_epoch(rf_epoch), .rd_type(rf_type)
+    .wr_base_pc(front_slot_pc[0]), .rd_idx(idu_br_latch_ftq_idx), .rd_br_pc(idu_br_latch_br_pc), .rd_ck(out_rf_ck),
+    .rd_epoch(out_rf_epoch), .rd_type(out_rf_type)
   );
 
   // ---- outputs ----

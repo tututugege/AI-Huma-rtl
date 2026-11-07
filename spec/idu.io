@@ -19,6 +19,7 @@ in  exu2id_redirect_pc 32 @ bt.exu2id.redirect_pc
 in  exu2id_redirect_rob_idx 7 @ bt.exu2id.redirect_rob_idx
 in  exu2id_br_id 6 @ bt.exu2id.br_id
 in  exu2id_ftq_idx 6 @ bt.exu2id.ftq_idx
+in  exu2id_br_pc 32 @ bt.exu2id.br_pc
 in  exu2id_clear_mask 64 @ bt.exu2id.clear_mask
 
 # ---- outputs: dec2ren (rename input group); uop payload only meaningful when the lane is valid ----
@@ -58,3 +59,4 @@ out idu_consume_fire 1 [8] @ bt.idu_consume.fire[i0]
 out br_latch_mispred 1 @ bt.idu->br_latch.mispred
 out br_latch_redirect_pc 32 when br_latch_mispred @ bt.idu->br_latch.redirect_pc
 out br_latch_ftq_idx 6 when br_latch_mispred @ bt.idu->br_latch.ftq_idx
+out br_latch_br_pc 32 when br_latch_mispred @ bt.idu->br_latch.br_pc
