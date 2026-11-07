@@ -60,6 +60,7 @@ module dispatch
   input  logic [BR_MASK_WIDTH-1:0] dec_bcast_clear_mask,
   output logic dis2ren_ready,
   output logic [DECODE_WIDTH-1:0] dis2rob_dis_fire,
+  output logic pmu_slot_valid [DECODE_WIDTH],
   output logic [31:0] dis2rob_uop_diag_val [DECODE_WIDTH],
   output logic [5:0] dis2rob_uop_dest_areg [DECODE_WIDTH],
   output logic [5:0] dis2rob_uop_src1_areg [DECODE_WIDTH],
@@ -125,6 +126,7 @@ module dispatch
   dis_inst_t                     ren_inst  [NUM_SLOTS];
   logic                          core_ready;
   logic [NUM_SLOTS-1:0] dis_fire;
+  logic [NUM_SLOTS-1:0] slot_valid_vec;
   dis_inst_t                     rob_inst  [NUM_SLOTS];
   dis_res_t                      rob_res   [NUM_SLOTS];
   logic [CPLT_MASK_W-1:0]        rob_expect_mask [NUM_SLOTS];
@@ -201,7 +203,7 @@ module dispatch
     .ren_valid(ren_valid), .ren_inst(ren_inst), .dis2ren_ready(core_ready),
     .rob_ready(rob2dis_ready), .rob_empty(rob2dis_empty), .rob_stall(rob2dis_stall),
     .rob_enq_line(rob2dis_enq_idx[ROB_LINE_W-1:0]), .rob_enq_flag(rob2dis_rob_flag),
-    .dis_fire(dis_fire), .rob_inst(rob_inst), .rob_res(rob_res),
+    .dis_fire(dis_fire), .slot_valid(slot_valid_vec), .rob_inst(rob_inst), .rob_res(rob_res),
     .rob_expect_mask(rob_expect_mask), .ready_num(ready_num), .req_valid(req_valid), .req_uop(req_uop),
     .stq_tail(lsu2dis_stq_tail), .stq_tail_flag(lsu2dis_stq_tail_flag), .stq_free(lsu2dis_stq_free),
     .ldq_free(lsu2dis_ldq_free), .ldq_alloc_idx(ldq_alloc_idx), .ldq_alloc_valid(ldq_alloc_valid),
@@ -210,6 +212,10 @@ module dispatch
     .ld_br_mask(ld_br_mask), .ld_rob_idx(ld_rob_idx), .ld_rob_flag(ld_rob_flag),
     .wake_valid(wake_valid), .wake_preg(wake_preg), .rob_flush(rob_bcast_flush),
     .dec_mispred(dec_bcast_mispred), .dec_clear_mask(dec_bcast_clear_mask));
+
+  always_comb begin
+    for (int i = 0; i < NUM_SLOTS; i++) pmu_slot_valid[i] = slot_valid_vec[i];
+  end
 
   // ---- outputs: unpack ----
   // Ref: Dispatch::comb_alloc / comb_fire (dis2ren, dis2rob)

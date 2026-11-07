@@ -52,6 +52,7 @@ in  rob_bcast_flush 1 @ bt.rob_bcast.flush
 in  dec_bcast_mispred 1 @ bt.dec_bcast.mispred
 in  dec_bcast_clear_mask 64 @ bt.dec_bcast.clear_mask
 out dis2ren_ready 1 @ bt.dis2ren.ready
+out pmu_slot_valid 1 [8] @ bt.dis->inst_valid[i0]
 out dis2rob_dis_fire 1 [8] @ bt.dis2rob.dis_fire[i0]
 out dis2rob_uop_diag_val 32 [8] when dis2rob_dis_fire @ bt.dis2rob.uop[i0].diag_val
 out dis2rob_uop_dest_areg 6 [8] when dis2rob_dis_fire @ bt.dis2rob.uop[i0].dest_areg

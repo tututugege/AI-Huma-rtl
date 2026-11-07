@@ -70,10 +70,12 @@ module back_top import ttg_cfg_pkg::*; (
   output logic out_stall,
   output logic [BACKEND_FETCH_WIDTH-1:0] pre2front_fire,
   output logic pre2front_ready,
+  // ---- out: PMU (EXP-013): dispatch slot events for the top-down level 1
+  output logic [DECODE_WIDTH-1:0] dis2rob_dis_fire,
   // ---- out: LSU -> MemSubsystem (Back_out.lsu2dcache / peripheral_req)
   output logic [31:0] lsu2dcache_load_ports_addr [LSU_LDU_COUNT],
-  output logic [30:0] lsu2dcache_load_ports_req_id [LSU_LDU_COUNT],
   output logic lsu2dcache_load_ports_replay [LSU_LDU_COUNT],
+  output logic [30:0] lsu2dcache_load_ports_req_id [LSU_LDU_COUNT],
   output logic lsu2dcache_load_ports_valid [LSU_LDU_COUNT],
   output logic [31:0] lsu2dcache_store_ports_addr [LSU_STA_COUNT],
   output logic [31:0] lsu2dcache_store_ports_data [LSU_STA_COUNT],
@@ -85,6 +87,8 @@ module back_top import ttg_cfg_pkg::*; (
   output logic [2:0] peripheral_req_mmio_fun3,
   output logic [31:0] peripheral_req_mmio_wdata,
   output logic peripheral_req_wen,
+  // ---- out: PMU (EXP-013): dispatch slot events for the top-down level 1
+  output logic pmu_slot_valid [8],
   // ---- out: DTLB -> MemSubsystem PTW walk port
   output logic ptw_walk_flush,
   output logic [21:0] ptw_walk_req_root_ppn,
@@ -96,6 +100,7 @@ module back_top import ttg_cfg_pkg::*; (
   output logic rob_bcast_fence,
   output logic rob_bcast_fence_i,
   output logic rob_bcast_flush,
+  output logic rob_bcast_interrupt,
   output logic rob_bcast_mret,
   output logic [31:0] rob_bcast_pc,
   output logic rob_bcast_sret,
@@ -177,8 +182,8 @@ module back_top import ttg_cfg_pkg::*; (
   logic [DECODE_WIDTH-1:0] ren2dis_uop_illegal_inst;
   logic [31:0] ren2dis_uop_imm [DECODE_WIDTH];
   logic [DECODE_WIDTH-1:0] ren2dis_uop_is_atomic;
-  logic [6:0] ren2dis_uop_old_dest_preg [DECODE_WIDTH];
   logic [DECODE_WIDTH-1:0] ren2dis_uop_me_elim;
+  logic [6:0] ren2dis_uop_old_dest_preg [DECODE_WIDTH];
   logic [DECODE_WIDTH-1:0] ren2dis_uop_page_fault_inst;
   logic [5:0] ren2dis_uop_src1_areg [DECODE_WIDTH];
   logic [DECODE_WIDTH-1:0] ren2dis_uop_src1_en;
@@ -227,7 +232,6 @@ module back_top import ttg_cfg_pkg::*; (
   logic [DECODE_WIDTH-1:0] dis2lsu_rob_flag;
   logic [6:0] dis2lsu_rob_idx [DECODE_WIDTH];
   logic dis2ren_ready;
-  logic [DECODE_WIDTH-1:0] dis2rob_dis_fire;
   logic [5:0] dis2rob_uop_dest_areg [DECODE_WIDTH];
   logic [DECODE_WIDTH-1:0] dis2rob_uop_dest_en;
   logic [6:0] dis2rob_uop_dest_preg [DECODE_WIDTH];
@@ -239,8 +243,8 @@ module back_top import ttg_cfg_pkg::*; (
   logic [6:0] dis2rob_uop_func7 [DECODE_WIDTH];
   logic [DECODE_WIDTH-1:0] dis2rob_uop_illegal_inst;
   logic [31:0] dis2rob_uop_imm [DECODE_WIDTH];
-  logic [6:0] dis2rob_uop_old_dest_preg [DECODE_WIDTH];
   logic [DECODE_WIDTH-1:0] dis2rob_uop_me_elim;
+  logic [6:0] dis2rob_uop_old_dest_preg [DECODE_WIDTH];
   logic [DECODE_WIDTH-1:0] dis2rob_uop_page_fault_inst;
   logic [DECODE_WIDTH-1:0] dis2rob_uop_rob_flag;
   logic [6:0] dis2rob_uop_rob_idx [DECODE_WIDTH];
@@ -392,7 +396,6 @@ module back_top import ttg_cfg_pkg::*; (
   logic [6:0] rob_bcast_head_rob_idx;
   logic rob_bcast_head_valid;
   logic rob_bcast_illegal_inst;
-  logic rob_bcast_interrupt;
   logic rob_bcast_page_fault_inst;
   logic rob_bcast_page_fault_load;
   logic rob_bcast_page_fault_store;
@@ -404,8 +407,8 @@ module back_top import ttg_cfg_pkg::*; (
   logic [FTQ_OFFSET_WIDTH-1:0] rob_commit_commit_entry_uop_ftq_offset [COMMIT_WIDTH];
   logic [6:0] rob_commit_commit_entry_uop_func7 [COMMIT_WIDTH];
   logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_illegal_inst;
-  logic [6:0] rob_commit_commit_entry_uop_old_dest_preg [COMMIT_WIDTH];
   logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_me_elim;
+  logic [6:0] rob_commit_commit_entry_uop_old_dest_preg [COMMIT_WIDTH];
 
   // ---- nets driven by dtlb: TlbMmu, DTLB instance (back-end/Lsu/TlbMmu.cpp)
   logic [5:0] mmu2lsu_ldq_resp_entry_idx [LSU_LDU_COUNT];
@@ -631,8 +634,8 @@ module back_top import ttg_cfg_pkg::*; (
     .rob_commit_commit_entry_uop_dest_en(rob_commit_commit_entry_uop_dest_en),
     .rob_commit_commit_entry_uop_dest_preg(rob_commit_commit_entry_uop_dest_preg),
     .rob_commit_commit_entry_uop_illegal_inst(rob_commit_commit_entry_uop_illegal_inst),
-    .rob_commit_commit_entry_uop_old_dest_preg(rob_commit_commit_entry_uop_old_dest_preg),
     .rob_commit_commit_entry_uop_me_elim(rob_commit_commit_entry_uop_me_elim),
+    .rob_commit_commit_entry_uop_old_dest_preg(rob_commit_commit_entry_uop_old_dest_preg),
     .rob_commit_commit_entry_uop_page_fault_inst(rob_commit_commit_entry_uop_page_fault_inst),
     .rob_commit_commit_entry_uop_page_fault_load(rob_commit_commit_entry_uop_page_fault_load),
     .rob_commit_commit_entry_uop_page_fault_store(rob_commit_commit_entry_uop_page_fault_store),
@@ -706,8 +709,8 @@ module back_top import ttg_cfg_pkg::*; (
     .ren2dis_uop_illegal_inst(ren2dis_uop_illegal_inst),
     .ren2dis_uop_imm(ren2dis_uop_imm),
     .ren2dis_uop_is_atomic(ren2dis_uop_is_atomic),
-    .ren2dis_uop_old_dest_preg(ren2dis_uop_old_dest_preg),
     .ren2dis_uop_me_elim(ren2dis_uop_me_elim),
+    .ren2dis_uop_old_dest_preg(ren2dis_uop_old_dest_preg),
     .ren2dis_uop_page_fault_inst(ren2dis_uop_page_fault_inst),
     .ren2dis_uop_src1_areg(ren2dis_uop_src1_areg),
     .ren2dis_uop_src1_en(ren2dis_uop_src1_en),
@@ -727,6 +730,7 @@ module back_top import ttg_cfg_pkg::*; (
     .rob_bcast_flush(rob_bcast_flush),
     // outputs
     .dis2ren_ready(dis2ren_ready),
+    .pmu_slot_valid(pmu_slot_valid),
     .dis2rob_dis_fire(dis2rob_dis_fire),
     .dis2rob_uop_diag_val(dis2rob_uop_diag_val),
     .dis2rob_uop_dest_areg(dis2rob_uop_dest_areg),
@@ -1120,8 +1124,8 @@ module back_top import ttg_cfg_pkg::*; (
     .dis2rob_uop_func7(dis2rob_uop_func7),
     .dis2rob_uop_illegal_inst(dis2rob_uop_illegal_inst),
     .dis2rob_uop_imm(dis2rob_uop_imm),
-    .dis2rob_uop_old_dest_preg(dis2rob_uop_old_dest_preg),
     .dis2rob_uop_me_elim(dis2rob_uop_me_elim),
+    .dis2rob_uop_old_dest_preg(dis2rob_uop_old_dest_preg),
     .dis2rob_uop_page_fault_inst(dis2rob_uop_page_fault_inst),
     .dis2rob_uop_rob_flag(dis2rob_uop_rob_flag),
     .dis2rob_uop_rob_idx(dis2rob_uop_rob_idx),
@@ -1367,9 +1371,9 @@ module back_top import ttg_cfg_pkg::*; (
     .peripheral_req_mmio_wdata(peripheral_req_mmio_wdata),
     .peripheral_req_mmio_fun3(peripheral_req_mmio_fun3),
     .lsu2dcache_load_ports_valid(lsu2dcache_load_ports_valid),
+    .lsu2dcache_load_ports_replay(lsu2dcache_load_ports_replay),
     .lsu2dcache_load_ports_addr(lsu2dcache_load_ports_addr),
     .lsu2dcache_load_ports_req_id(lsu2dcache_load_ports_req_id),
-    .lsu2dcache_load_ports_replay(lsu2dcache_load_ports_replay),
     .lsu2dcache_store_ports_valid(lsu2dcache_store_ports_valid),
     .lsu2dcache_store_ports_addr(lsu2dcache_store_ports_addr),
     .lsu2dcache_store_ports_data(lsu2dcache_store_ports_data),

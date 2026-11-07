@@ -106,6 +106,7 @@ out peripheral_req_mmio_addr 32 when peripheral_req_is_mmio @ bt.out.peripheral_
 out peripheral_req_mmio_wdata 32 when peripheral_req_wen @ bt.out.peripheral_req.mmio_wdata
 out peripheral_req_mmio_fun3 3 when peripheral_req_is_mmio @ bt.out.peripheral_req.mmio_fun3
 out lsu2dcache_load_ports_valid 1 [4] @ bt.out.lsu2dcache.req_ports.load_ports[i0].valid
+out lsu2dcache_load_ports_replay 1 [4] when lsu2dcache_load_ports_valid @ bt.out.lsu2dcache.req_ports.load_ports[i0].replay
 out lsu2dcache_load_ports_addr 32 [4] when lsu2dcache_load_ports_valid @ bt.out.lsu2dcache.req_ports.load_ports[i0].addr
 out lsu2dcache_load_ports_req_id 31 [4] when lsu2dcache_load_ports_valid @ (bt.out.lsu2dcache.req_ports.load_ports[i0].req_id & 0x7fffffffu)
 out lsu2dcache_store_ports_valid 1 [4] @ bt.out.lsu2dcache.req_ports.store_ports[i0].valid

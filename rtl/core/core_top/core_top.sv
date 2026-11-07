@@ -115,6 +115,17 @@ module core_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; i
   output logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_valid
 );
 
+  // ---- PMU event bus, tier 1 (EXP-013): read by the testbench; the pmu counters are not on a CSR yet ----
+  logic rob_bcast_interrupt;
+  logic [COMMIT_WIDTH-1:0] dis2rob_dis_fire, pmu_slot_valid_vec;  // dispatch slots = DECODE_WIDTH = COMMIT_WIDTH
+  logic pmu_slot_valid [COMMIT_WIDTH];
+  always_comb begin
+    for (int i = 0; i < COMMIT_WIDTH; i++) pmu_slot_valid_vec[i] = pmu_slot_valid[i];
+  end
+  /* verilator lint_off UNUSEDSIGNAL */  // read by the testbench only
+  logic [pmu_ev_pkg::PMU_NUM_EV-1:0][pmu_ev_pkg::PMU_INC_W-1:0] pmu_ev_inc;
+  /* verilator lint_on UNUSEDSIGNAL */
+
   // ---- nets between the glue blocks and the back end ----
   logic [BACKEND_FETCH_WIDTH-1:0] front2pre_alt_pred;
   logic [2:0] front2pre_altpcpn [BACKEND_FETCH_WIDTH];
@@ -143,6 +154,12 @@ module core_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; i
   // SC-L / loop predictor metadata of the front-to-back path and the update-queue stall are constant 0 (see front_top)
   always_comb begin
   end
+
+  pmu_ev_core #(.COMMIT_W(COMMIT_WIDTH)) u_pmu_ev (
+    .commit_valid(rob_commit_commit_entry_valid), .commit_type(rob_commit_commit_entry_uop_type),
+    .interrupt(rob_bcast_interrupt), .flush(rob_bcast_flush), .exception(rob_bcast_exception),
+    .redirect(out_mispred), .slot_valid(pmu_slot_valid_vec), .slot_fire(dis2rob_dis_fire),
+    .clk(clk), .rst_n(rst_n), .ev_inc(pmu_ev_inc));
 
   // ---- back end (outputs nobody in the core needs are not connected) ----
   /* verilator lint_off PINMISSING */
@@ -224,6 +241,9 @@ module core_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; i
     .rob_bcast_fence(rob_bcast_fence),
     .rob_bcast_fence_i(rob_bcast_fence_i),
     .rob_bcast_flush(rob_bcast_flush),
+    .rob_bcast_interrupt(rob_bcast_interrupt),
+    .dis2rob_dis_fire(dis2rob_dis_fire),
+    .pmu_slot_valid(pmu_slot_valid),
     .rob_bcast_mret(rob_bcast_mret),
     .rob_bcast_pc(rob_bcast_pc),
     .rob_bcast_sret(rob_bcast_sret),

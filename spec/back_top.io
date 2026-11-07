@@ -50,6 +50,7 @@ out ptw_walk_req_valid 1 @ [&]{ struct M{ virtual ~M(){} PtwWalkPortCombIn in; P
 out ptw_walk_req_vpn 20 when ptw_walk_req_valid @ ((uint32_t)[&]{ struct M{ virtual ~M(){} PtwWalkPortCombIn in; PtwWalkPortSeqIn sq; PtwWalkPortCombOut out; }; return reinterpret_cast<M*>(cpu.mem_subsystem.dtlb_walk_port)->in.req.vaddr; }() >> 12)
 out ptw_walk_resp_consumed 1 @ [&]{ struct M{ virtual ~M(){} PtwWalkPortCombIn in; PtwWalkPortSeqIn sq; PtwWalkPortCombOut out; }; return reinterpret_cast<M*>(cpu.mem_subsystem.dtlb_walk_port)->in.resp_consumed; }()
 out lsu2dcache_load_ports_addr 32 [4] when lsu2dcache_load_ports_valid @ bt.out.lsu2dcache.req_ports.load_ports[i0].addr
+out lsu2dcache_load_ports_replay 1 [4] when lsu2dcache_load_ports_valid @ bt.out.lsu2dcache.req_ports.load_ports[i0].replay
 out lsu2dcache_load_ports_req_id 31 [4] when lsu2dcache_load_ports_valid @ (bt.out.lsu2dcache.req_ports.load_ports[i0].req_id & 0x7fffffffu)
 out lsu2dcache_load_ports_valid 1 [4] @ bt.out.lsu2dcache.req_ports.load_ports[i0].valid
 out lsu2dcache_store_ports_addr 32 [4] when lsu2dcache_store_ports_valid @ bt.out.lsu2dcache.req_ports.store_ports[i0].addr
@@ -62,10 +63,13 @@ out peripheral_req_mmio_addr 32 when peripheral_req_is_mmio @ bt.out.peripheral_
 out peripheral_req_mmio_fun3 3 when peripheral_req_is_mmio @ bt.out.peripheral_req.mmio_fun3
 out peripheral_req_mmio_wdata 32 when peripheral_req_wen @ bt.out.peripheral_req.mmio_wdata
 out peripheral_req_wen 1 @ bt.out.peripheral_req.wen
+out dis2rob_dis_fire 1 [8] @ bt.dis2rob.dis_fire[i0]
+out pmu_slot_valid 1 [8] @ bt.dis->inst_valid[i0]
 out rob_bcast_exception 1 @ bt.rob_bcast.exception
 out rob_bcast_fence 1 @ bt.rob_bcast.fence
 out rob_bcast_fence_i 1 @ bt.rob_bcast.fence_i
 out rob_bcast_flush 1 @ bt.rob_bcast.flush
+out rob_bcast_interrupt 1 @ bt.rob_bcast.interrupt
 out rob_bcast_mret 1 @ bt.rob_bcast.mret
 out rob_bcast_pc 32 when rob_bcast_flush @ bt.rob_bcast.pc
 out rob_bcast_sret 1 @ bt.rob_bcast.sret

@@ -21,6 +21,7 @@ module dispatch_core
   input  logic [ROB_LINE_W-1:0]         rob_enq_line,   // ROB line the group will occupy
   input  logic                          rob_enq_flag,
   output logic [NUM_SLOTS-1:0] dis_fire,
+  output logic [NUM_SLOTS-1:0] slot_valid,  // PMU: the dispatch stage register holds an instruction in this slot
   output dis_inst_t                     rob_inst  [NUM_SLOTS],
   output dis_res_t                      rob_res   [NUM_SLOTS],
   output logic [CPLT_MASK_W-1:0]        rob_expect_mask [NUM_SLOTS],
@@ -207,6 +208,8 @@ module dispatch_core
   end
 
   // ---- comb_pipeline / seq ----
+  assign slot_valid = inst_valid;
+
   dispatch_inst_stage u_inst_stage (
     .clk(clk), .rst_n(rst_n), .kill(rob_flush || dec_mispred), .ready(dis2ren_ready),
     .clear_mask(dec_clear_mask), .ren_valid(ren_valid), .ren_inst(ren_inst), .fire(dis_fire),

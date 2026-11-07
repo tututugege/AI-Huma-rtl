@@ -41,6 +41,8 @@ namespace {
 constexpr int kTicks = CONFIG_AXI_SUBSYSTEM_FREQ_DIV;   // fast ticks per CPU cycle (platform config.h = trace-model config.h = rtl ttg_cfg_pkg)
 static_assert(kTicks >= 1 && kTicks <= 16, "mem_top phase counter is 4 bits");
 constexpr int kInstStore = 6;   // InstType::STORE
+constexpr int kPmuEv = 51;           // pmu_ev_pkg::PMU_NUM_EV (gen_pmu_pkg.py)
+static uint64_t pmu_total[kPmuEv];
 constexpr int kUopEbreak = 10;  // the commit entry's `type` is the instruction type (rob_pkg ITYPE_EBREAK)
 
 void load_image(const char *path) {
@@ -325,6 +327,14 @@ long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
 #ifdef SOC_TB_FM
       if (fm_on && !fm_pend.empty()) fm_flush(cycles);   // commits of the previous cycle: their register values are visible now
 #endif
+      {  // PMU event bus (EXP-013 tier 1): sum every lane; printed at the end, compared with the trace-model's PMU=1 totals
+        const auto &bus = top->rootp->soc_top__DOT__u_core__DOT__pmu_ev_inc;
+        for (int e = 0; e < kPmuEv; ++e) {
+          uint32_t v = 0;
+          for (int b = 0; b < 8; ++b) { const int bit = e * 8 + b; v |= ((bus[bit / 32] >> (bit % 32)) & 1u) << b; }
+          pmu_total[e] += v;
+        }
+      }
       for (int i = 0; i < 8; ++i)
         if (ttg_getbit(top->rob_commit_commit_entry_valid, i)) {
           if (!top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__rob_bcast_interrupt) ++committed;   // reference: commit_num skips interrupt slots
@@ -443,6 +453,7 @@ long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
     ++cycles;
   }
   if (compare_fail) std::printf("FIRST MISMATCH at cycle %llu (see above)\n", (unsigned long long)cycles + 1);
+  if (std::getenv("SOC_TB_PMU")) for (int e = 0; e < kPmuEv; ++e) std::printf("PMU_EV %d %llu\n", e, (unsigned long long)pmu_total[e]);
   std::printf("RTL sim-time(cycle)= %llu, committed= %llu%s\n", (unsigned long long)cycles, (unsigned long long)committed,
               done ? "" : "  (NO EBREAK within the cycle cap)");
   if (std::getenv("SOC_TB_PROF")) std::fprintf(stderr, "eval: n=%lld total=%.2f s  by-index(ns/eval): %.0f %.0f %.0f %.0f\n", eval_n, eval_ns / 1e9, ev_ns[0]*4.0/eval_n, ev_ns[1]*4.0/eval_n, ev_ns[2]*4.0/eval_n, ev_ns[3]*4.0/eval_n);

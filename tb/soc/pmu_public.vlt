@@ -1,0 +1,3 @@
+// signals the PMU parity check reads (EXP-013)
+`verilator_config
+public_flat_rd -module "core_top" -var "pmu_ev_inc"

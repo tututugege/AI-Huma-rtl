@@ -137,8 +137,9 @@ if FULL:
         r'^rob_commit_commit_entry_(valid|uop_(dest_areg|dest_en|type|br_taken|page_fault_inst|page_fault_load|'
         r'page_fault_store|stq_idx|stq_flag|rob_idx|rob_flag))$',
         r'^commit_extra_.*$',
-        r'^rob_bcast_(flush|fence|fence_i|exception|mret|sret|pc)$',
+        r'^rob_bcast_(flush|fence|fence_i|exception|interrupt|mret|sret|pc)$',
         r'^csr_status_(sstatus|mstatus|satp|privilege)$',
+        r'^dis2rob_dis_fire$', r'^pmu_slot_valid$',   # PMU (EXP-013): top-down slot events
         r'^lsu2dcache_.*$', r'^peripheral_req_.*$',
         r'^ptw_walk_(req_.*|resp_consumed|flush)$',
         r'^out_.*$',
@@ -154,6 +155,7 @@ IN_GROUPS = [  # (regex, comment) in order: first match wins
 OUT_GROUPS = [
     (r'^(pre2front_.*|out_.*|ftq_commit_info_.*|csr_status_.*|commit_extra_.*)$', 'to SimCpu / front end (Back_out, back2front training data)'),
     (r'^(rob_commit_.*)$', 'ROB commit: SimCpu commit_sync / front end, and LSU (amo_op, stq_idx)'),
+    (r'^(dis2rob_dis_fire|pmu_slot_valid)$', 'PMU (EXP-013): dispatch slot events for the top-down level 1'),
     (r'^(rob_bcast_.*|dec_bcast_.*)$', 'ROB / Idu broadcasts: SimCpu (flush, fence, difftest) and LSU'),
     (r'^(dis2lsu_.*|exe2lsu_.*)$', 'to LSU (RealLsu inputs dis2lsu / exe2lsu)'),
     (r'^(lsu2dcache_.*|peripheral_req_.*)$', 'LSU -> MemSubsystem (Back_out.lsu2dcache / peripheral_req)'),
