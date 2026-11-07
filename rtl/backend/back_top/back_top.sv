@@ -8,12 +8,14 @@ module back_top import ttg_cfg_pkg::*; (
   // ---- in: front end -> back end (SimCpu: BackTop::in, FrontPreIO; held registers front2back_hold live in SimCpu)
   input  logic [BACKEND_FETCH_WIDTH-1:0] front2pre_alt_pred,
   input  logic [2:0] front2pre_altpcpn [BACKEND_FETCH_WIDTH],
+  input  logic [147:0] front2pre_bpu_ck,
   input  logic [31:0] front2pre_inst [BACKEND_FETCH_WIDTH],
   input  logic [BACKEND_FETCH_WIDTH-1:0] front2pre_page_fault_inst,
   input  logic [31:0] front2pre_pc [BACKEND_FETCH_WIDTH],
   input  logic [2:0] front2pre_pcpn [BACKEND_FETCH_WIDTH],
   input  logic [BACKEND_FETCH_WIDTH-1:0] front2pre_predict_dir,
   input  logic [31:0] front2pre_predict_next_fetch_address,
+  input  logic [23:0] front2pre_slot_kind,
   input  logic [9:0] front2pre_tage_idx [BACKEND_FETCH_WIDTH][4],
   input  logic [7:0] front2pre_tage_tag [BACKEND_FETCH_WIDTH][4],
   input  logic [BACKEND_FETCH_WIDTH-1:0] front2pre_valid,
@@ -69,6 +71,11 @@ module back_top import ttg_cfg_pkg::*; (
   output logic out_mispred,
   output logic out_no_mispred,
   output logic [31:0] out_redirect_pc,
+  output logic [139:0] out_rf_ck,
+  output logic [7:0] out_rf_epoch,
+  output logic [31:0] out_rf_pc,
+  output logic [2:0] out_rf_type,
+  output logic out_rf_valid,
   output logic out_stall,
   output logic [BACKEND_FETCH_WIDTH-1:0] pre2front_fire,
   output logic pre2front_ready,
@@ -134,6 +141,7 @@ module back_top import ttg_cfg_pkg::*; (
   logic [DECODE_WIDTH-1:0] pre_issue_entries_valid;
 
   // ---- nets driven by idu: Idu (back-end/Idu.cpp)
+  logic [31:0] br_latch_br_pc;
   logic [5:0] br_latch_ftq_idx;
   logic br_latch_mispred;
   logic [31:0] br_latch_redirect_pc;
@@ -359,6 +367,7 @@ module back_top import ttg_cfg_pkg::*; (
   logic [31:0] exe2prf_entry_uop_result [ISSUE_WIDTH];
   logic [ISSUE_WIDTH-1:0] exe2prf_entry_valid;
   logic [BR_TAG_WIDTH-1:0] exu2id_br_id;
+  logic [31:0] exu2id_br_pc;
   logic [BR_MASK_WIDTH-1:0] exu2id_clear_mask;
   logic [5:0] exu2id_ftq_idx;
   logic exu2id_mispred;
@@ -496,6 +505,7 @@ module back_top import ttg_cfg_pkg::*; (
     .clk(clk),
     .rst_n(rst_n),
     // inputs from idu
+    .idu_br_latch_br_pc(br_latch_br_pc),
     .idu_br_latch_ftq_idx(br_latch_ftq_idx),
     .idu_br_latch_mispred(br_latch_mispred),
     .idu_consume_fire(idu_consume_fire),
@@ -515,17 +525,22 @@ module back_top import ttg_cfg_pkg::*; (
     // inputs from top input
     .front2pre_alt_pred(front2pre_alt_pred),
     .front2pre_altpcpn(front2pre_altpcpn),
+    .front2pre_bpu_ck(front2pre_bpu_ck),
     .front2pre_inst(front2pre_inst),
     .front2pre_page_fault_inst(front2pre_page_fault_inst),
     .front2pre_pc(front2pre_pc),
     .front2pre_pcpn(front2pre_pcpn),
     .front2pre_predict_dir(front2pre_predict_dir),
     .front2pre_predict_next_fetch_address(front2pre_predict_next_fetch_address),
+    .front2pre_slot_kind(front2pre_slot_kind),
     .front2pre_tage_idx(front2pre_tage_idx),
     .front2pre_tage_tag(front2pre_tage_tag),
     .front2pre_valid(front2pre_valid),
     // outputs
     .pre2front_ready(pre2front_ready),
+    .out_rf_ck(out_rf_ck),
+    .out_rf_epoch(out_rf_epoch),
+    .out_rf_type(out_rf_type),
     .pre2front_fire(pre2front_fire),
     .pre_issue_entries_valid(pre_issue_entries_valid),
     .pre_issue_entries_inst(pre_issue_entries_inst),
@@ -556,6 +571,7 @@ module back_top import ttg_cfg_pkg::*; (
     .rst_n(rst_n),
     // inputs from exu
     .exu2id_br_id(exu2id_br_id),
+    .exu2id_br_pc(exu2id_br_pc),
     .exu2id_clear_mask(exu2id_clear_mask),
     .exu2id_ftq_idx(exu2id_ftq_idx),
     .exu2id_mispred(exu2id_mispred),
@@ -604,7 +620,8 @@ module back_top import ttg_cfg_pkg::*; (
     .idu_consume_fire(idu_consume_fire),
     .br_latch_mispred(br_latch_mispred),
     .br_latch_redirect_pc(br_latch_redirect_pc),
-    .br_latch_ftq_idx(br_latch_ftq_idx)
+    .br_latch_ftq_idx(br_latch_ftq_idx),
+    .br_latch_br_pc(br_latch_br_pc)
   );
 
   // ================= ren: Ren (back-end/Ren.cpp)
@@ -1084,7 +1101,8 @@ module back_top import ttg_cfg_pkg::*; (
     .exu2id_redirect_pc(exu2id_redirect_pc),
     .exu2id_redirect_rob_idx(exu2id_redirect_rob_idx),
     .exu2id_br_id(exu2id_br_id),
-    .exu2id_ftq_idx(exu2id_ftq_idx)
+    .exu2id_ftq_idx(exu2id_ftq_idx),
+    .exu2id_br_pc(exu2id_br_pc)
   );
 
   // ================= csr: Csr (back-end/Exu/Csr.cpp)
@@ -1428,6 +1446,7 @@ module back_top import ttg_cfg_pkg::*; (
     .csr2front_trap_pc(csr2front_trap_pc),
     .csr_status_mstatus(csr_status_mstatus),
     // inputs from idu
+    .br_latch_br_pc(br_latch_br_pc),
     .br_latch_redirect_pc(br_latch_redirect_pc),
     .dec_bcast_mispred(dec_bcast_mispred),
     // inputs from pre
@@ -1446,6 +1465,8 @@ module back_top import ttg_cfg_pkg::*; (
     .out_no_mispred(out_no_mispred),
     .out_stall(out_stall),
     .out_redirect_pc(out_redirect_pc),
+    .out_rf_valid(out_rf_valid),
+    .out_rf_pc(out_rf_pc),
     .out_commit_entry_uop_diag_val(out_commit_entry_uop_diag_val),
     .csr_status_mstatus_mxr(csr_status_mstatus_mxr),
     .csr_status_mstatus_sum(csr_status_mstatus_sum),

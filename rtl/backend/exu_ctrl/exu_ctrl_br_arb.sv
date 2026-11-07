@@ -12,11 +12,13 @@ module exu_ctrl_br_arb
   output logic [31:0]                  redirect_pc,
   output logic [ROB_IDX_WIDTH-1:0]     redirect_rob_idx,
   output logic [BR_TAG_WIDTH-1:0]      br_id,
-  output logic [FTQ_IDX_WIDTH-1:0]     ftq_idx
+  output logic [FTQ_IDX_WIDTH-1:0]     ftq_idx,
+  output logic [31:0]                  br_pc
 );
 
   localparam int NBR = BRU_NUM;
-  localparam int DW  = 32 + ROB_IDX_WIDTH + BR_TAG_WIDTH + FTQ_IDX_WIDTH;   // {diag_val, rob_idx, br_id, ftq_idx}
+  // {diag_val, rob_idx, br_id, ftq_idx, pc}
+  localparam int DW  = 32 + ROB_IDX_WIDTH + BR_TAG_WIDTH + FTQ_IDX_WIDTH + 32;
 
   logic [NBR-1:0] resolved;          // BRU produced a result (it is never flushed: see notes 4.2-1)
   logic [NBR-1:0] wrong;             // resolved and mispredicted
@@ -30,7 +32,8 @@ module exu_ctrl_br_arb
     logic [NBR-1:0] beaten_by;       // other mispredicted branches that win against branch i
     assign resolved[i] = fu_done[FU].complete;
     assign wrong[i]    = resolved[i] && fu_done[FU].mispred;
-    assign cand[i]     = {fu_done[FU].diag_val, fu_done[FU].rob_idx, fu_done[FU].br_id, fu_done[FU].ftq_idx};
+    assign cand[i]     = {fu_done[FU].diag_val, fu_done[FU].rob_idx, fu_done[FU].br_id, fu_done[FU].ftq_idx,
+                          fu_done[FU].pc};
     assign tag_bits[i] = resolved[i] ? (BR_MASK_WIDTH'(1) << fu_done[FU].br_id) : '0;
     for (genvar j = 0; j < NBR; j++) begin : g_cmp
       if (j == i) begin : g_self
@@ -55,7 +58,7 @@ module exu_ctrl_br_arb
 
   always_comb begin
     mispred = |wrong;
-    {redirect_pc, redirect_rob_idx, br_id, ftq_idx} = oldest_bits;
+    {redirect_pc, redirect_rob_idx, br_id, ftq_idx, br_pc} = oldest_bits;
   end
 
 endmodule

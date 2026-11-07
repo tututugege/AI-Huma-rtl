@@ -23,6 +23,10 @@ package front_pkg;
   localparam int TAGE_IDX_W    = 10;
   localparam int TAGE_TAG_W    = 8;
   localparam int INST_BYTES    = 4;
+  // BPU repair record of a fetch group: history checkpoint of the block + history epoch (travels with the block to the
+  // back-end FTQ and is returned with a branch mispredict), and the BPU type of every slot (predecode)
+  localparam int BCK_W         = bpu_stage_pkg::HCK_W + bpu_stage_pkg::EPOCH_W;
+  localparam int KIND_W        = 3;
 
   // predecode_type_t (predecode.h)
   localparam logic [1:0] PREDECODE_NON_BRANCH           = 2'd0;
@@ -60,6 +64,7 @@ package front_pkg;
   // PTAB entry: BPU prediction of one fetch group
   typedef struct packed {
     pred_meta_t                    meta;
+    logic [BCK_W-1:0]              bpu_ck;
     logic [FETCH_WIDTH-1:0]        predict_dir;
     logic [31:0]                   predict_next_fetch_address;
   } ptab_entry_t;
@@ -68,6 +73,8 @@ package front_pkg;
   typedef struct packed {
     logic [31:0]                   predict_next_fetch_address_corrected;
     pred_meta_t                    meta;
+    logic [BCK_W-1:0]              bpu_ck;
+    logic [FETCH_WIDTH-1:0][KIND_W-1:0] slot_kind;
     logic [FETCH_WIDTH-1:0]        predict_dir_corrected;
     logic [FETCH_WIDTH-1:0]        inst_valid;
     logic [FETCH_WIDTH-1:0]        page_fault_inst;

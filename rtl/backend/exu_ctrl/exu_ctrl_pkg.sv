@@ -259,6 +259,7 @@ package exu_ctrl_pkg;
     logic                     br_taken;
     logic [BR_TAG_WIDTH-1:0]  br_id;
     logic [FTQ_IDX_WIDTH-1:0] ftq_idx;
+    logic [31:0]              pc;          // pc of the instruction (the mispredicted branch: BPU history repair)
     logic [2:0]               func3;
     logic [4:0]               amo_op;      // func7[6:2]
     logic                     is_atomic;

@@ -20,6 +20,7 @@ package bpu_pkg;
   localparam logic [2:0] BR_IDIRECT = 3'd3;
   localparam logic [2:0] BR_NONCTL  = 3'd4;
   localparam logic [2:0] BR_JAL     = 3'd5;
+  localparam logic [2:0] BR_ICALL   = 3'd6;   // jalr rd=ra: indirect target and RAS push of its own pc+4 (BPU_ACC)
 
   // ---- type predictor ----
   localparam int TP_WAYS  = 2;

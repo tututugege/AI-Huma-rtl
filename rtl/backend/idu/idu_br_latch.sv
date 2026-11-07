@@ -12,12 +12,14 @@ module idu_br_latch import ttg_cfg_pkg::*; (
   input  logic [ROB_IDX_WIDTH-1:0]    exu_redirect_rob_idx,
   input  logic [BR_TAG_WIDTH-1:0]     exu_br_id,
   input  logic [FTQ_IDX_WIDTH-1:0]    exu_ftq_idx,
+  input  logic [31:0]                 exu_br_pc,
   input  logic [BR_MASK_WIDTH-1:0]    exu_clear_mask,
   output logic                        mispred,
   output logic [31:0]                 redirect_pc,
   output logic [ROB_IDX_WIDTH-1:0]    redirect_rob_idx,
   output logic [BR_TAG_WIDTH-1:0]     br_id,
   output logic [FTQ_IDX_WIDTH-1:0]    ftq_idx,
+  output logic [31:0]                 br_pc,
   output logic [BR_MASK_WIDTH-1:0]    clear_mask
 );
 
@@ -27,6 +29,7 @@ module idu_br_latch import ttg_cfg_pkg::*; (
   logic [ROB_IDX_WIDTH-1:0]    redirect_rob_idx_q;
   logic [BR_TAG_WIDTH-1:0]     br_id_q;
   logic [FTQ_IDX_WIDTH-1:0]    ftq_idx_q;
+  logic [31:0]                 br_pc_q;
 
   // Ref: Idu::comb_fire  (flush -> br_latch_1 = {})
   always_comb begin
@@ -43,6 +46,7 @@ module idu_br_latch import ttg_cfg_pkg::*; (
       redirect_rob_idx_q <= '0;
       br_id_q            <= '0;
       ftq_idx_q          <= '0;
+      br_pc_q            <= '0;
     end else begin
       mispred_q          <= mispred_d;
       clear_mask_q       <= clear_mask_d;
@@ -50,6 +54,7 @@ module idu_br_latch import ttg_cfg_pkg::*; (
       redirect_rob_idx_q <= exu_redirect_rob_idx;
       br_id_q            <= exu_br_id;
       ftq_idx_q          <= exu_ftq_idx;
+      br_pc_q            <= exu_br_pc;
     end
   end
 
@@ -59,6 +64,7 @@ module idu_br_latch import ttg_cfg_pkg::*; (
   assign redirect_rob_idx = redirect_rob_idx_q;
   assign br_id            = br_id_q;
   assign ftq_idx          = ftq_idx_q;
+  assign br_pc            = br_pc_q;
 
 endmodule
 

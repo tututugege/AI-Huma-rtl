@@ -8,13 +8,18 @@
 //   update lane i = the i-th commit slot: type-derived actual direction / target / branch class + FTQ prediction info
 // The C++ keeps the update fields of an invalid commit slot at their previous value; every consumer (BPU update queue,
 // history, type predictor) is gated by upd_valid, so invalid slots are zeroed here instead (no hold registers).
-module core_back2front import ttg_cfg_pkg::*; import dis_pkg::*; import bpu_pkg::*; (
+module core_back2front import ttg_cfg_pkg::*; import dis_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; (
   input  logic        clk,
   input  logic        rst_n,
   // back end outputs (cycle t)
   input  logic        out_mispred,
   input  logic        out_stall,
   input  logic [31:0] out_redirect_pc,
+  input  logic        out_rf_valid,
+  input  logic [HCK_W-1:0] out_rf_ck,
+  input  logic [EPOCH_W-1:0] out_rf_epoch,
+  input  logic [2:0]  out_rf_type,
+  input  logic [31:0] out_rf_pc,
   input  logic        rob_bcast_fence,
   input  logic        rob_bcast_fence_i,
   input  logic [COMMIT_WIDTH-1:0] commit_valid,
@@ -35,6 +40,11 @@ module core_back2front import ttg_cfg_pkg::*; import dis_pkg::*; import bpu_pkg:
   // registered: front end inputs (cycle t+1)
   output logic        refetch_q,
   output logic [31:0] refetch_address_q,
+  output logic        rf_valid_q,
+  output logic [HCK_W-1:0] rf_ck_q,
+  output logic [EPOCH_W-1:0] rf_epoch_q,
+  output logic [2:0]  rf_type_q,
+  output logic [31:0] rf_pc_q,
   output logic        itlb_flush_q,
   output logic        fence_i_q,
   output logic        stall_q,
@@ -54,6 +64,7 @@ module core_back2front import ttg_cfg_pkg::*; import dis_pkg::*; import bpu_pkg:
   logic [COMMIT_WIDTH-1:0] is_jalr;
   logic [COMMIT_WIDTH-1:0] is_br;
   logic [COMMIT_WIDTH-1:0] is_call;
+  logic [COMMIT_WIDTH-1:0] is_icall;
   logic [COMMIT_WIDTH-1:0] is_ret;
   logic [COMMIT_WIDTH-1:0] class_dir;
   logic [2:0]  class_br_type [COMMIT_WIDTH];
@@ -65,12 +76,15 @@ module core_back2front import ttg_cfg_pkg::*; import dis_pkg::*; import bpu_pkg:
       is_jal[i]  = (commit_type[i] == INST_JAL);
       is_jalr[i] = (commit_type[i] == INST_JALR);
       is_br[i]   = (commit_type[i] == INST_BR);
-      is_call[i] = is_jal[i] && commit_dest_en[i] && (commit_dest_areg[i] == 6'd1);
+      // jalr rd=ra (never a return: that has rd=x0)
+      is_icall[i] = is_jalr[i] && commit_dest_en[i] && (commit_dest_areg[i] == 6'd1);
+      is_call[i] = (is_jal[i] && commit_dest_en[i] && (commit_dest_areg[i] == 6'd1)) || is_icall[i];
       is_ret[i]  = is_jalr[i] && (commit_src1_areg[i] == 6'd1) && (commit_dest_areg[i] == 6'd0)
                    && (commit_imm[i] == 32'd0);
       class_dir[i]    = is_jal[i] || is_jalr[i] || commit_br_taken[i];
       class_target[i] = (is_br[i] || is_jal[i] || is_jalr[i]) ? commit_diag_val[i] : ftq_pc[i] + 32'd4;
-      if (is_call[i])      class_br_type[i] = BR_CALL;
+      if (is_icall[i])     class_br_type[i] = BR_ICALL;
+      else if (is_call[i]) class_br_type[i] = BR_CALL;
       else if (is_ret[i])  class_br_type[i] = BR_RET;
       else if (is_jalr[i]) class_br_type[i] = BR_IDIRECT;
       else if (is_jal[i])  class_br_type[i] = BR_JAL;
@@ -112,12 +126,22 @@ module core_back2front import ttg_cfg_pkg::*; import dis_pkg::*; import bpu_pkg:
     if (!rst_n) begin
       refetch_q         <= 1'b0;
       refetch_address_q <= 32'd0;
+      rf_valid_q        <= 1'b0;
+      rf_ck_q           <= '0;
+      rf_epoch_q        <= '0;
+      rf_type_q         <= '0;
+      rf_pc_q           <= '0;
       itlb_flush_q      <= 1'b0;
       fence_i_q         <= 1'b0;
       stall_q           <= 1'b0;
     end else begin
       refetch_q         <= out_mispred;
       refetch_address_q <= out_redirect_pc;   // only read in refetch cycles
+      rf_valid_q        <= out_rf_valid;
+      rf_ck_q           <= out_rf_ck;         // the repair record is only read in refetch cycles
+      rf_epoch_q        <= out_rf_epoch;
+      rf_type_q         <= out_rf_type;
+      rf_pc_q           <= out_rf_pc;
       itlb_flush_q      <= rob_bcast_fence;
       fence_i_q         <= rob_bcast_fence_i;
       stall_q           <= out_stall;

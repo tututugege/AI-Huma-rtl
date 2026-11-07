@@ -79,13 +79,14 @@ CONN_EXPR = {
 GLUE_IN = {
     'rob_bcast_flush': (1, []), 'rob_bcast_mret': (1, []), 'rob_bcast_sret': (1, []), 'rob_bcast_exception': (1, []),
     'rob_bcast_pc': (32, []), 'csr2front_epc': (32, []), 'csr2front_trap_pc': (32, []),
-    'br_latch_redirect_pc': (32, []), 'dec_bcast_mispred': (1, []), 'pre2front_ready': (1, []),
+    'br_latch_redirect_pc': (32, []), 'br_latch_br_pc': (32, []), 'dec_bcast_mispred': (1, []), 'pre2front_ready': (1, []),
     'rob_commit_commit_entry_valid': (1, [8]), 'rob_commit_commit_entry_uop_diag_val': (32, [8]),
     'csr_status_mstatus': (32, []),
     'rob_commit_commit_entry_uop_func7': (7, [8]),
 }
 GLUE_OUT = {
     'out_mispred': (1, []), 'out_no_mispred': (1, []), 'out_stall': (1, []), 'out_redirect_pc': (32, []),
+    'out_rf_valid': (1, []), 'out_rf_pc': (32, []),
     'out_commit_entry_uop_diag_val': (32, [8]),
     'csr_status_mstatus_mxr': (1, []), 'csr_status_mstatus_sum': (1, []), 'csr_status_mstatus_mprv': (1, []),
     'csr_status_mstatus_mpp': (2, []),
@@ -99,6 +100,8 @@ GLUE_EXPORT = {
     'out_no_mispred': (None, '(uint64_t)!bt.out.mispred'),
     'out_stall': ('out_no_mispred', 'bt.out.stall'),
     'out_redirect_pc': ('out_mispred', 'bt.out.redirect_pc'),
+    'out_rf_valid': (None, 'bt.out.rf_valid'),
+    'out_rf_pc': ('out_rf_valid', 'bt.out.rf_pc'),
     'out_commit_entry_uop_diag_val': ('rob_commit_commit_entry_valid', 'bt.out.commit_entry[i0].uop.diag_val'),
 }
 

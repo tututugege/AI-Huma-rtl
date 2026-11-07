@@ -149,6 +149,7 @@ out exu2id_redirect_pc 32 when exu2id_mispred @ bt.exu2id.redirect_pc
 out exu2id_redirect_rob_idx 7 when exu2id_mispred @ bt.exu2id.redirect_rob_idx
 out exu2id_br_id 6 when exu2id_mispred @ bt.exu2id.br_id
 out exu2id_ftq_idx 6 when exu2id_mispred @ bt.exu2id.ftq_idx
+out exu2id_br_pc 32 when exu2id_mispred @ bt.exu2id.br_pc
 
 # ---- exu2fu (to the FUs). flush/clear are identical for all 28 FUs (Exu::comb_fu_ctrl): one copy. Instruction fields only where en.
 out exu2fu_flush 1 @ bt.exu->out.exu2fu->entry[0].flush

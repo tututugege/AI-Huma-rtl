@@ -7,8 +7,8 @@
 // Boundary = everything outside the core: the icache AXI read master / DCache probe / ITLB walk client, the LSU's
 // DCache / MMIO / DTLB walk ports, interrupt injection; plus the retirement stream (rob_commit / rob_bcast).
 // Order of SimCpu::cycle(): registered back2front -> front comb -> back comb -> back2front / hold registers.
-module core_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; import icache_pkg::*;
-  import tlb_mmu_pkg::*; (
+module core_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*;
+  import icache_pkg::*; import tlb_mmu_pkg::*; (
   input  logic clk,
   input  logic rst_n,
   // ---- icache memory side (AXI read master, DCache coherent probe) ----
@@ -129,6 +129,13 @@ module core_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; i
   /* verilator lint_on UNUSEDSIGNAL */
 
   // ---- nets between the glue blocks and the back end ----
+  logic [BCK_W-1:0] front2pre_bpu_ck;
+  logic [FETCH_WIDTH-1:0][KIND_W-1:0] front2pre_slot_kind;
+  logic        out_rf_valid;
+  logic [HCK_W-1:0] out_rf_ck;
+  logic [EPOCH_W-1:0] out_rf_epoch;
+  logic [2:0]  out_rf_type;
+  logic [31:0] out_rf_pc;
   logic [BACKEND_FETCH_WIDTH-1:0] front2pre_alt_pred;
   logic [2:0] front2pre_altpcpn [BACKEND_FETCH_WIDTH];
   logic [31:0] front2pre_inst [BACKEND_FETCH_WIDTH];
@@ -167,6 +174,13 @@ module core_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; i
   /* verilator lint_off PINMISSING */
   back_top u_back (
     .clk, .rst_n,
+    .front2pre_bpu_ck(front2pre_bpu_ck),
+    .front2pre_slot_kind(front2pre_slot_kind),
+    .out_rf_valid(out_rf_valid),
+    .out_rf_ck(out_rf_ck),
+    .out_rf_epoch(out_rf_epoch),
+    .out_rf_type(out_rf_type),
+    .out_rf_pc(out_rf_pc),
     .front2pre_alt_pred(front2pre_alt_pred),
     .front2pre_altpcpn(front2pre_altpcpn),
     .front2pre_inst(front2pre_inst),
@@ -269,6 +283,13 @@ module core_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; i
   core_front u_front (
     .clk, .rst_n,
     .out_mispred,
+    .out_rf_valid,
+    .out_rf_ck,
+    .out_rf_epoch,
+    .out_rf_type,
+    .out_rf_pc,
+    .front2pre_bpu_ck,
+    .front2pre_slot_kind,
     .out_stall,
     .out_redirect_pc,
     .rob_bcast_fence,
