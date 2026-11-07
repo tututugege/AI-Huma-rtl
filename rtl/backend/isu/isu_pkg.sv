@@ -34,6 +34,17 @@ package isu_pkg;
     endcase
   endfunction
 
+  // enqueue lanes of queue q (config.h IQ_*_ENQ_WIDTH); dispatch fills lanes 0.. in order, higher lanes are unused
+  function automatic int iq_enq_width(int q);
+    case (q)
+      0: return IQ_INT_ENQ_WIDTH;
+      1: return IQ_LD_ENQ_WIDTH;
+      2: return IQ_STA_ENQ_WIDTH;
+      3: return IQ_STD_ENQ_WIDTH;
+      default: return IQ_BR_ENQ_WIDTH;
+    endcase
+  endfunction
+
   function automatic int iq_port_base(int q);
     case (q)
       0: return IQ_ALU_PORT_BASE;

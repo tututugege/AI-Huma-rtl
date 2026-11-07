@@ -149,14 +149,16 @@ module isu
     localparam int SIZE = iq_size(q);
     localparam int NP   = iq_port_num(q);
     localparam int PB   = iq_port_base(q);
+    localparam int EW   = iq_enq_width(q);   // enqueue lanes actually present (<= IQ_DISPATCH_WIDTH)
 
-    logic [IQ_DISPATCH_WIDTH-1:0] enq_valid;
-    isu_enq_t                     enq [IQ_DISPATCH_WIDTH];
+    logic [EW-1:0]                enq_valid;
+    isu_enq_t                     enq [EW];
+    logic [READY_NUM_W-1:0]       free_slots;
     op_set_t                      fu_ready [NP];
     logic [NP-1:0]                g_valid;
     isu_uop_t                     g_uop [NP];
 
-    for (genvar w = 0; w < IQ_DISPATCH_WIDTH; w++) begin : g_enq
+    for (genvar w = 0; w < EW; w++) begin : g_enq
       assign enq_valid[w] = dis2iss_req_valid[q][w];
       assign enq[w] = '{
         uop: '{
@@ -195,11 +197,14 @@ module isu
       assign grant_uop[PB + p]    = g_uop[p];
     end
 
-    isu_iq #(.SIZE(SIZE), .DW(IQ_DISPATCH_WIDTH), .NP(NP), .PORT_BASE(PB)) u_iq (
+    // dispatch may place at most EW uops per cycle: report min(free entries, EW) (the model checks both limits)
+    assign iss2dis_ready_num[q] = (free_slots > READY_NUM_W'(EW)) ? READY_NUM_W'(EW) : free_slots;
+
+    isu_iq #(.SIZE(SIZE), .DW(EW), .NP(NP), .PORT_BASE(PB)) u_iq (
       .clk(clk), .rst_n(rst_n), .enq_valid(enq_valid), .enq(enq), .woken(woken), .fu_ready(fu_ready),
       .issue_block(issue_block), .flush_all(rob_bcast_flush), .flush_br(flush_br),
       .flush_br_mask(dec_bcast_br_mask), .clear_mask(dec_bcast_clear_mask),
-      .cancel_v(cancel_v), .free_slots(iss2dis_ready_num[q]), .grant_valid(g_valid), .grant_uop(g_uop));
+      .cancel_v(cancel_v), .free_slots(free_slots), .grant_valid(g_valid), .grant_uop(g_uop));
   end
 
   // ---- issue ports to the PRF ----
