@@ -100,3 +100,12 @@ SLANG_OPTS="--unroll-limit 100000 -Wno-error=index-oob" SYNTH_LIGHT=1 SYNTH_MEM=
 结论：**不是预测精度问题**（误预测数持平，历史修复让返回误预测还少了），是纯取指气泡：coremark 每块约 2.5 条指令、108,910 条条件分支/538k 指令，块数 217k，1.36 拍一个块，uBTB 只在提交的 taken 事件上训练、hist 模式下不为顺序块建项，每次 S0 猜错要 2 拍（L1 覆盖 1 拍），共约 10.7k×2 + 11.1k ≈ 32.5k 拍加重取多 2 拍，与 +44.5k 周期同量级。
 同一组 67 个程序里，周期 > 20,000 的 9 个按零气泡对比几何平均 +3.2%，与 BPU_OPT/ACC 文档的 SPEC 数字（S+R 约 -2.6% 到 -3.3%）一致；个别小循环、taken 密集的程序（dhrystone +11.8%、coremark +17.8%）远高于平均，其余为 -0.7% 到 +1.2%。这类程序和 SPEC 30 点里最差的 sjeng（-9%）、gcc 同类，不是配置错误。
 模型配置与 SPEC 评估一致：`BPU_PIPE=3 BPO_HIST=1 BPO_HSYM=3 BPO_BANKBLK=4 BPO_PDCKPT=1 BPO_L1_ENTRIES=512 BPA_ITTH=1 BPA_ITTN=256 BPA_NOTC=1`，唯一差别是 `BPA_REPAIR=3`（评估里用 1），两者误预测数在噪声内。RTL 与模型周期逐个相等，所以 RTL 侧没有额外损失。
+
+## 9. 30 点精确预热 SPEC（模型，合并 main 后的默认 S+R 对旧设计）
+本机运行（`ba_eval.sh`，`FW=0 COV=0.25`，8 个程序 30 个点，10M 详细预热 + 10M；二进制 `trace-model-bpuopt/build_rtl`，结果 `tim_ba_m_p0`、`tim_ba_m_def`）。旧设计 = 零气泡 + ICALL（`BPU_PIPE=0 BPO_HIST=0 BPO_HSYM=2 BPA_REPAIR=0 BPA_NOTC=0 BPA_ITTH= BPO_PDCKPT=0 BPO_L1_ENTRIES=0 BPO_BANKBLK=0`），新 = 默认值（S+R，`BPA_REPAIR=3`）。
+
+| 配置 | IPC 几何平均 | perl | gcc | mcf | gobmk | hmmer | sjeng | h264 | astar | MPKI（事件口径） |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 新默认相对旧设计 | **+1.90%** | +11.7 | -7.7 | +0.8 | +6.6 | +0.1 | +7.2 | -0.4 | -0.4 | 8.65 |
+
+新设计比不带 R 的零气泡还快 1.9%，与 BPU_ACC 的结论一致（R 的历史修复、ITT 在流水线里的收益 > 气泡损失；相对“同样加了 R 的零气泡”仍差约 1.8pp）。gcc 是最差项（-7.7%），coremark/dhrystone 这类小循环程序不在 SPEC 里（第 8 节）。因为运行已经在本机进行到一半，这一次没有搬到服务器；之后的 SPEC 按规则走 `fleet.sh`。
