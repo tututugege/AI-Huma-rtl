@@ -39,14 +39,29 @@ module bpu_spec import bpu_pkg::*; import bpu_stage_pkg::*; (
   hist_t spec_q, spec_d, arch_q, arch_d;
   ras_t  sras_q, sras_d, aras_q, aras_d;
 
-  // Ref: push_arch / commit loop: a taken control instruction pushes its symbol, calls / returns move the RAS
+  // Ref: push_arch: every taken control instruction of the commit lanes pushes its symbol (newest bit first in d)
+  logic [23:0] arch_d_bits;
+  logic [4:0]  arch_n;
+
   always_comb begin
-    arch_d = arch_q;
+    arch_d_bits = '0;
+    arch_n      = '0;
+    for (int i = 0; i < NCOMMIT; i++) begin
+      if (upd_valid[i] && (br_type[i] != BR_NONCTL) && actual_dir[i]) begin
+        arch_d_bits = {arch_d_bits[20:0], hsym_of(base_pc[i], target[i])[0], hsym_of(base_pc[i], target[i])[1],
+                       hsym_of(base_pc[i], target[i])[2]};
+        arch_n      = arch_n + 5'd3;
+      end
+    end
+  end
+
+  bpu_hist_vec u_arch_push (.h(arch_q), .n(arch_n), .d(arch_d_bits), .h_next(arch_d));
+
+  // Ref: commit loop: calls / returns move the architectural RAS
+  always_comb begin
     aras_d = aras_q;
     for (int i = 0; i < NCOMMIT; i++) begin
       if (upd_valid[i]) begin
-        arch_d = hist_push_sym(arch_d, (br_type[i] != BR_NONCTL) && actual_dir[i],
-                               hsym_of(base_pc[i], target[i]));
         if (br_type[i] == BR_CALL || br_type[i] == BR_ICALL) aras_d = ras_push(aras_d, base_pc[i] + 32'd4);
         else if (br_type[i] == BR_RET)                       aras_d = ras_pop(aras_d);
       end
