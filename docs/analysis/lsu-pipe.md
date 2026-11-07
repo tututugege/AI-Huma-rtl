@@ -408,4 +408,5 @@ trace-model 跑 Linux 时分级 LSU 在 ROB 头死锁（共享 DTLB 页表遍历
 验证（提交后的树）：`lint.sh` 0 警告（316 个文件）、`lint_chip.sh` 0；`fm_gate.sh` 预取开 67/67 PASS、周期 67/67 与参考相等；预取关（`-GPF_EN=0`）67/67 PASS、周期 67/67 相等；Linux 见下。
 综合（`synth_depth.sh`，通用门数 / 最长路径层数，main → 合并后）：`dispatch` 72,586/46 → 82,244/44；`isu` 1,166,243/182 → 1,346,857/199；`prf` 297,853/36 → 310,639/35；`dcache_s1` 12,953/46 → 12,970/45；新增 `lp_core` 1,300,459/124、`lp_rp` 4,538/53。旧 `lsu` 整体综合超 12 GB 被杀（第 8 节同样），所以没有整体的旧/新对比。
 K-1：合入的默认配置下 67/67 周期逐个相等，不出现（见 06-equivalence-policy.md）。
+Linux 从复位启动（提交 `ec493f4` 的树，预取开，`SOC_FM=1`、`-DTTG_EBREAK_TRAP`，`SOC_TB_FM=1 SOC_TB_SEMIHOST=1`，400 M 周期上限）：约 47 分钟（本机，4 线程）到 `rv32 login:`，全程逐条对比 0 条 `[FM]` 不一致行（登录后手动结束，所以没有打印“N instructions checked”汇总）。模型同配置也到登录（110 M 周期之前）。日志 `~/personal/AI-Huma-data/linux/lsupipe_main/boot.log`。第 12.2 节的 `srp` 死锁修法因此在 RTL 上也通过了 Linux。
 
