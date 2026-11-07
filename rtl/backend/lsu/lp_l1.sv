@@ -57,17 +57,21 @@ module lp_l1
 
   // ---- load slots ----
   logic [2:0]     pre [NLD+1];
-  logic [2:0]     nnew, n1;
-  logic           ok0, ok1;
+  logic [2:0]     nnew;
+  logic [2:0]     rpos [NRP];     // load slot of replay register r (after the new loads and the older replays)
+  logic [NRP-1:0] rp_ok;
+  logic [2:0]     acc;
   always_comb begin
     pre[0] = '0;
     for (int i = 0; i < NLD; i++) pre[i+1] = pre[i] + 3'(ag_acc[i]);
     nnew = pre[NLD];
-    rp_cons[0] = rp_v[0] && nnew < 3'(NLD);
-    ok0 = rp_cons[0] && rp_pipe[0];
-    n1 = nnew + 3'(ok0);
-    rp_cons[1] = rp_v[1] && n1 < 3'(NLD);
-    ok1 = rp_cons[1] && rp_pipe[1];
+    acc = nnew;
+    for (int r = 0; r < NRP; r++) begin
+      rpos[r] = acc;
+      rp_cons[r] = rp_v[r] && rpos[r] < 3'(NLD);
+      rp_ok[r] = rp_cons[r] && rp_pipe[r];
+      acc = acc + 3'(rp_ok[r]);
+    end
   end
 
   always_comb begin
@@ -85,7 +89,7 @@ module lp_l1
         end
       end
       for (int r = 0; r < NRP; r++) begin
-        if ((r == 0 ? ok0 : ok1) && (r == 0 ? nnew : n1) == 3'(k)) begin
+        if (rp_ok[r] && rpos[r] == 3'(k)) begin
           l1[k].v = 1'b1;
           l1[k].replay = 1'b1;
           l1[k].need_tlb = !rp_f[r].pa_v;

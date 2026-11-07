@@ -110,7 +110,7 @@ module lp_core
   // ------------------------------------------------------------------ queue state / views
   lp_ldq_t         ldq_q [LQ];
   lp_stq_t         sq [SQ];
-  logic [LQ-1:0]   empty_w, l2_ok, rs_ok, wbp3, pipe_r, wb3_r, wbp_r, pipe5, pipe8, empty8, dead_r, rdy9;
+  logic [LQ-1:0]   empty_w, l2_ok, rs_ok, wbp3, wbp_m, pipe_r, wb3_r, wbp_r, pipe5, pipe8, empty8, dead_r, rdy9;
   logic [31:0]     res_v [LQ];
   logic [EPW-1:0]  epoch_nx [LQ];
   logic [NLD-1:0]  ag_acc;
@@ -185,7 +185,7 @@ module lp_core
 
   logic [LQ-1:0]   wbp_sel, pipe8_sel;
   assign pipe8_sel = ((LP_CUT & 65536) != 0) ? ~dead_r : pipe8;
-  assign wbp_sel = ((LP_CUT & 8) != 0) ? wbp_r : wbp3;
+  assign wbp_sel = ((LP_CUT & 8) != 0) ? (((LP_CUT & 131072) != 0) ? (wbp_r | wbp_m) : wbp_r) : wbp3;  // F, FM
   lp_wb u_wb (
     .wbd_v(wbw_v), .wbd_idx(wbw_idx), .wbd_hasdata(wbw_hd), .wbd_data(wbw_data),
     .ldq_q(ldq_q), .ldq_res(res_v), .wbp_vec(wbp_sel), .sq(sq), .alive_w(alive_w), .head_q(head_q),
@@ -317,7 +317,7 @@ module lp_core
     .sta_info(sta_info), .sdw(sdw), .fill_v(fill_en), .fill_line(fill_line),
     .rp_pick(rp_pick),
     .q_o(ldq_q), .empty_w(empty_w), .l2_ok(l2_ok), .rs_ok(rs_ok), .res_v(res_v), .wbp3(wbp3),
-    .pipe_r(pipe_r), .wb3_r(wb3_r), .wbp_r(wbp_r),
+    .pipe_r(pipe_r), .wb3_r(wb3_r), .wbp_r(wbp_r), .wbp_m(wbp_m),
     .ag_acc(ag_acc), .pipe5(pipe5), .pipe8(pipe8), .dead_r(dead_r), .empty8(empty8), .epoch_nx(epoch_nx), .rdy9(rdy9),
     .mi_v(mi_v), .mi_idx(mi_idx), .mi_addr(mi_addr), .mi_func3(mi_func3));
 

@@ -11,7 +11,10 @@ package lp_pkg;
   // critical-path cuts (docs/analysis/lsu-pipe.md section 9):
   //   bit0 B, bit1 R, bit2 D, bit3 F, bit4 G, bit5 E1, bit6 A, bit7 E2, bit8 C1, bit9 C2,
   //   bit10 E3, bit11 E4, bit12 E5, bit13 H, bit14 E6, bit15 E7, bit16 E8
-  localparam int LP_CUT = 131071;
+  //   bit17 FM : (with F) the load whose MMIO response arrives in this cycle may still be written back in this cycle
+  // Default 262143 = all. F kept (without F lp_core is 36 levels deeper, section 15); F alone cost h264ref 10 points
+  // (serial MMIO loads each paid the extra cycle), FM removes it. Model: LSU_PIPE_CUT 127.
+  localparam int LP_CUT = 262143;
   // L2 cuts (docs/analysis/lsu-pipe.md section 10), default 1907 = a+a2+F+M+S+W+P+T (model LSU_PIPE_L2=115), no d.
   // Bits 0..3 = model LSU_PIPE_L2; bits 8.. are RTL-only and equivalent (no cycle change):
   //   bit0 a   : L3 register, the direct completion decided at L2 is written back one cycle later (load-to-use +1)
@@ -26,8 +29,9 @@ package lp_pkg;
   //   bit11 R  : wake-up confirm range compare against thresholds from the load side (no adder after the store)
   //   bit10 T  : STQ mispredict cut: first hit searched without the count mask in front (equivalent)
   localparam int LP_L2 = 1907;
-  localparam int NRP  = 2;                  // load replay registers
-  localparam int NDR  = (NST < 2) ? NST : 2;  // committed-store drain ports
+  localparam int NRP  = 4;                  // load replay registers (model CFG_LSU_PIPE_RP)
+  localparam int NDR  = (NST < 3) ? NST : 3;  // committed-store drain ports (model CFG_LSU_PIPE_DRAIN)
+  localparam int NDC  = 4;                  // committed-store drain candidates = CAMs (model CFG_LSU_PIPE_DCAND)
   localparam int NRET = 4;                  // STQ head entries freed per cycle
   localparam int NDIS = MAX_LDQ_DISPATCH_WIDTH;
   localparam int NCM  = COMMIT_WIDTH;

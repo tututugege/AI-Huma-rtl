@@ -410,3 +410,40 @@ trace-model 跑 Linux 时分级 LSU 在 ROB 头死锁（共享 DTLB 页表遍历
 K-1：合入的默认配置下 67/67 周期逐个相等，不出现（见 06-equivalence-policy.md）。
 Linux 从复位启动（提交 `ec493f4` 的树，预取开，`SOC_FM=1`、`-DTTG_EBREAK_TRAP`，`SOC_TB_FM=1 SOC_TB_SEMIHOST=1`，400 M 周期上限）：约 47 分钟（本机，4 线程）到 `rv32 login:`，全程逐条对比 0 条 `[FM]` 不一致行（登录后手动结束，所以没有打印“N instructions checked”汇总）。模型同配置也到登录（110 M 周期之前）。日志 `~/personal/AI-Huma-data/linux/lsupipe_main/boot.log`。第 12.2 节的 `srp` 死锁修法因此在 RTL 上也通过了 Linux。
 
+## 15. IPC 修复（分支 `lsu-pipe-rtl-fix`，对应模型 `lsu-pipe-fix`，2026-11-07）
+
+研究结论见模型仓库 `docs/LSU_PIPE_IPC.md`、`docs/LSU_PIPE.md` 第 11 节。30 点 SPEC 几何平均 IPC 对 legacy：-4.98% → **-1.39%**（排空修复 +2.0、RP4 +0.8、MMIO 豁免 FM +0.8；另：去 F 为 -1.52%，加推测唤醒 L2=123 为 +1.34%，仅供参考）。
+
+### 15.1 RTL 改动（默认值）
+| 参数 | 旧 | 新 | 模型 |
+| --- | --- | --- | --- |
+| `NDR` 排空口 | 2 | **3** | `CFG_LSU_PIPE_DRAIN` 3 |
+| `NDC` 排空候选（CAM 数） | 2（候选 m 占口 m，被挡的候选口闲置） | **4**：前 4 个 ready 非 MMIO 候选各一个 64 项 CAM；被挡的不占口，第 m 个未被挡的候选用第 m 个无隐藏重试的口 | `CFG_LSU_PIPE_DCAND` 4 |
+| `NRP` 重放寄存器 | 2 | **4**：第 j 个空闲寄存器取第 j 个 RDY（轮转 find-first，`lp_pickn` K=4） | `CFG_LSU_PIPE_RP` 4 |
+| `LP_CUT` | 131071 | **262143**：F（位 3）保留，新增位 17 = FM：MMIO 响应的那一个 load 当拍仍可写回（`wbp_sel = wbp_r | wbp_m`，`wbp_m = mm_go && st_q==MMR`，早到信号） | `CFG_LSU_PIPE_CUT` 127（位 64 = FM） |
+`ttg_cfg_pkg.sv` 重新生成，与旧版逐字节相同（新参数在 `lp_pkg`，与 `LP_CUT/LP_L2` 同处，不在 config.h 的 constexpr 里）。没有按生成位开关的死逻辑：NRP/NDR/NDC 是 localparam，循环按它们展开；FM 位关掉时 `wbp_m` 被综合掉（`LP_CUT & 131072` 常量）。
+
+### 15.2 F 不能删（与任务里“F off: 131063”不同，实测）
+去 F（`LP_CUT=131063`）模型 IPC -1.52%（比 FM 的 -1.39% 只高 0.13），但 `lp_core` 综合：F 保留 131 层，**去 F 167 层**（+36，F 是关键路径上的切断，旧估计“约 6 层”不对）。第一版 FM 用 `st3==WBP && st_q==MMR`（带晚到的 L2 决定）是 164 层，改成早到的 `mm_go && st_q==MMR` 后 131 层。所以采用 F + FM。
+h264ref sp9 去 F 少 16% 的原因：该 checkpoint 有 278 万个 MMIO load，串行，F 使每个多 1 拍（模型文档 11.3）。
+
+### 15.3 验证
+* `lint.sh` 全目录 0（316 文件），`lint_chip.sh` 0。
+* fm_gate（`SOC_FM=1`，逐条提交对 function-model），参考 = 模型 `LSU_PIPE_NOWD=1`（RTL 没有看门狗），`ref_cycles.txt` / `ref_cycles_nopf.txt` 已重新生成：**预取器开 67/67 PASS、周期与模型逐个相等；预取器关 67/67 PASS、逐个相等**。
+* 中途一次差 1 拍（sub-longlong 1906 对 1905）的原因：RP=4 使模型的“load 卡在 DCW”看门狗（63 拍）触发，RTL 没有；用 NOWD 参考后相等，终版默认值下有无 NOWD 相同。
+
+### 15.4 综合（`synth_depth.sh`，通用门数 / 层数；旧 = 3a365d7）
+| 模块 | 旧 | 新（终版） |
+| --- | --- | --- |
+| `lp_drain` | 48,882 / 73 | 86,260 / 83（4 个 CAM、压缩） |
+| `lp_rp` | 4,538 / 53 | 8,992 / 76（4 级 first-set） |
+| `lp_l1` | 3,058 / 24 | 3,618 / 35 |
+| `lp_core` | 1,300,459 / 124 | **1,365,743 / 131**（+5.0% 面积，+7 层） |
+变体：F 去掉 + 新排空/RP4：1,365,534 / 167；F 去掉 + RP2：1,344,555 / 167；F 保留不加 FM：1,364,262 / 131。lp_core 的 +7 层来自 RP4 / 3 口排空（RP=2 且去 F 的变体与 RP=4 去 F 都是 167，说明 RP 数不是 167 的原因）；临界路径仍在 L2 段，具体段落未逐段重测。
+`lp_rp` 76 层在 `lp_core` 内不是最长路径的一部分（核内 131）。
+
+### 15.5 未做 / 待办
+* RTL Linux boot 未跑（集成阶段跑）。模型 Linux boot 到 login：见模型文档 11.4。
+* “load 卡在 DCW”（DCache 请求无响应，只见于错误路径）在 RP=4 下 30 个运行 4,267 次（RP=2 时 403 次）：根因未查，RTL 没有看门狗，**开放问题**。
+* 剩余 -1.39%：perlbench -9.1%、gobmk/sjeng/astar 约 -4%（D 切断与重放路径）。
+

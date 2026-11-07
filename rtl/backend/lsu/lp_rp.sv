@@ -29,27 +29,37 @@ module lp_rp
 
   logic [LQW-1:0]  rp_ptr_q;
   logic [NRP-1:0]  rp_v_c, rp_take;
-  logic [LQ-1:0]   rdy_rot, rp_oh [NRP];
+  logic [LQ-1:0]   rdy_rot, rp_oh [NRP], rp_selo [NRP];
   logic [LQW-1:0]  rp_ix [NRP], rp_new [NRP];
   logic [NRP-1:0]  rp_pv;
   logic [LQW-1:0]  rp_ptr_d;
   assign rdy_rot = LQ'(rotr64(64'(rdy9), rp_ptr_q));
   lp_pickn #(.N(LQ), .K(NRP)) u_rp (.vec(rdy_rot), .onehot(rp_oh), .idx(rp_ix), .v(rp_pv));
 
-  // register 0 takes the first RDY entry (in rotated order), register 1 the next one (or the first when register 0
-  // stays busy)
+  // the j-th free register takes the j-th RDY entry (in rotated order); busy registers keep theirs
+  logic [2:0] nfb [NRP];  // free registers before r
   always_comb begin
-    for (int r = 0; r < NRP; r++) rp_v_c[r] = rp_v_q[r] && !rp_cons[r] && !empty8[rp_ldq_q[r]];
-    rp_take[0] = !rp_v_c[0] && rp_pv[0];
-    rp_take[1] = !rp_v_c[1] && (rp_v_c[0] ? rp_pv[0] : rp_pv[1]);
-    rp_new[0] = rp_ix[0] + rp_ptr_q;
-    rp_new[1] = (rp_v_c[0] ? rp_ix[0] : rp_ix[1]) + rp_ptr_q;
     rp_pick = '0;
-    if (rp_take[0]) rp_pick = rp_pick | rotl64(64'(rp_oh[0]), rp_ptr_q);
-    if (rp_take[1]) rp_pick = rp_pick | rotl64(64'(rp_v_c[0] ? rp_oh[0] : rp_oh[1]), rp_ptr_q);
     rp_ptr_d = rp_ptr_q;
-    if (rp_take[0]) rp_ptr_d = rp_new[0] + LQW'(1);
-    if (rp_take[1]) rp_ptr_d = rp_new[1] + LQW'(1);
+    for (int r = 0; r < NRP; r++) begin
+      rp_v_c[r] = rp_v_q[r] && !rp_cons[r] && !empty8[rp_ldq_q[r]];
+      nfb[r] = '0;
+      for (int k = 0; k < r; k++) nfb[r] = nfb[r] + 3'(!rp_v_c[k]);
+      rp_take[r] = 1'b0;
+      rp_new[r] = '0;
+      rp_selo[r] = '0;
+      for (int j = 0; j < NRP; j++) begin
+        if (nfb[r] == 3'(j)) begin
+          rp_take[r] = !rp_v_c[r] && rp_pv[j];
+          rp_new[r] = rp_ix[j] + rp_ptr_q;
+          rp_selo[r] = rp_oh[j];
+        end
+      end
+    end
+    for (int r = 0; r < NRP; r++) begin
+      if (rp_take[r]) rp_pick = rp_pick | rotl64(64'(rp_selo[r]), rp_ptr_q);
+      if (rp_take[r]) rp_ptr_d = rp_new[r] + LQW'(1);
+    end
   end
 
   always_ff @(posedge clk) begin

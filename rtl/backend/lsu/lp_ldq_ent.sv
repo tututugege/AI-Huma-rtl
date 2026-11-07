@@ -59,6 +59,7 @@ module lp_ldq_ent
   output logic                pipe_r,              // registered state == PIPE
   output logic                wb3_r,               // registered state == WB3 (L3 register of the port holds it)
   output logic                wbp_r,               // registered state == WBP
+  output logic                wbp_m,               // MMIO response of this cycle: MMR -> WBP (LP_CUT[17], F exemption)
   output logic                pipe5,               // state PIPE after the AGU arrival (replay register check)
   output logic                dead_r,              // killed by this cycle's flush / mispredict (registered fields only)
   output logic                empty8,              // killed / free after the flush step
@@ -142,6 +143,7 @@ module lp_ldq_ent
     else if (rs_ok && rs_hit && ((LP_L2 & 1) != 0)) st3 = LS_WB3;
     if (park_b) st3 = LS_RPW;
     st3_wbp = st3 == LS_WBP;
+    wbp_m = mm_go && st_q == LS_MMR;
   end
 
   // ---- fields after P3 (park information, rtype) ----
