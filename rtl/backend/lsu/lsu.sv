@@ -65,6 +65,11 @@ module lsu
   input  logic [1:0] dcache2lsu_store_resps_replay [LSU_STA_COUNT],
   input  logic dcache2lsu_mshr_fill,
   input  logic [25:0] dcache2lsu_mshr_fill_line,
+  // hidden DCache bank-retry latches (registered bits); used by the staged LSU only (LSU_PIPE)
+  /* verilator lint_off UNUSEDSIGNAL */
+  input  logic dcache2lsu_load_retry_busy [LSU_LDU_COUNT],
+  input  logic dcache2lsu_store_retry_busy [LSU_STA_COUNT],
+  /* verilator lint_on UNUSEDSIGNAL */
   input  logic [LSU_LDU_COUNT-1:0] mmu2lsu_ldq_resp_valid,
   input  logic [31:0] mmu2lsu_ldq_resp_paddr [LSU_LDU_COUNT],
   input  logic [1:0] mmu2lsu_ldq_resp_result [LSU_LDU_COUNT],
@@ -82,6 +87,11 @@ module lsu
   output logic [DECODE_WIDTH-1:0] lsu2dis_ldq_alloc_valid,
   output logic [5:0] lsu2dis_ldq_alloc_idx [DECODE_WIDTH],
   output logic lsu2rob_committed_store_pending,
+  // wake-ups of the load consumers driven by the LSU (LSU_PIPE, LP_L2): [p] L2 speculative, [LDU+p] L3
+  output logic [2*LSU_LDU_COUNT-1:0] lsu2iss_wake_valid,
+  output logic [6:0] lsu2iss_wake_preg [2*LSU_LDU_COUNT],
+  output logic [LSU_LDU_COUNT-1:0] lsu2iss_cancel_valid,
+  output logic [6:0] lsu2iss_cancel_preg [LSU_LDU_COUNT],
   output logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_valid,
   output logic [31:0] lsu2exe_wb_req_uop_diag_val [LSU_LOAD_WB_WIDTH],
   output logic [31:0] lsu2exe_wb_req_uop_result [LSU_LOAD_WB_WIDTH],
@@ -120,6 +130,20 @@ module lsu
   output logic [5:0] lsu2mmu_stq_req_entry_idx [LSU_STA_COUNT],
   output logic [5:0] lsu2mmu_stq_req_wait_idx [LSU_STA_COUNT]
 );
+
+  if (LSU_PIPE != 0) begin : g_pipe
+    lsu_pipe u_pipe (.*);
+  end else begin : g_legacy
+
+  // the legacy LSU has no LSU-driven wake-ups
+  assign lsu2iss_wake_valid = '0;
+  assign lsu2iss_cancel_valid = '0;
+  for (genvar k = 0; k < 2 * LSU_LDU_COUNT; k++) begin : g_nowake
+    assign lsu2iss_wake_preg[k] = '0;
+  end
+  for (genvar k = 0; k < LSU_LDU_COUNT; k++) begin : g_nocancel
+    assign lsu2iss_cancel_preg[k] = '0;
+  end
 
   logic [8-1:0] cm_valid_vec;
   logic [8-1:0] dis_stq_req_vec;
@@ -271,6 +295,8 @@ module lsu
     .mmu_ld_req_wait_idx(lsu2mmu_ldq_req_wait_idx), .mmu_st_req_valid(mmu_st_req_valid_vec),
     .mmu_st_req_vaddr(lsu2mmu_stq_req_vaddr), .mmu_st_req_entry_idx(lsu2mmu_stq_req_entry_idx),
     .mmu_st_req_wait_idx(lsu2mmu_stq_req_wait_idx), .sta_wb_vaddr(sta_wb_vaddr_w));
+
+  end
 
 endmodule
 

@@ -165,5 +165,6 @@ package ttg_cfg_pkg;
   localparam int PTAB_SIZE = 16;
   localparam int FETCH_ADDR_FIFO_SIZE = 16;
   localparam int FRONT2BACK_FIFO_SIZE = 8;
+  localparam int LSU_PIPE = 1;
 endpackage
 `default_nettype wire

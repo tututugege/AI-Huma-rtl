@@ -47,6 +47,11 @@ module prf import ttg_cfg_pkg::*; #(
   input  logic [PRF_IDX_WIDTH-1:0] exe2prf_bypass_uop_dest_preg [TOTAL_FU_COUNT],
   input  logic [31:0] exe2prf_bypass_uop_result [TOTAL_FU_COUNT],
   input  logic [TOTAL_FU_COUNT-1:0] exe2prf_bypass_uop_dest_en,
+  // LSU write-back requests of this cycle as a bypass source (LP_L2 speculative wake-up: the consumer reads the load
+  // result in the cycle of the write-back request); all zero otherwise
+  input  logic [LSU_LOAD_WB_WIDTH-1:0] lsu_byp_valid,
+  input  logic [PRF_IDX_WIDTH-1:0] lsu_byp_dest_preg [LSU_LOAD_WB_WIDTH],
+  input  logic [31:0] lsu_byp_result [LSU_LOAD_WB_WIDTH],
   input  logic [31:0] ftq_prf_pc_resp_resp_pc [FTQ_PRF_PC_PORT_NUM],
   input  logic [FTQ_PRF_PC_PORT_NUM-1:0] ftq_prf_pc_resp_resp_pred_taken,
   input  logic [31:0] ftq_prf_pc_resp_resp_next_pc [FTQ_PRF_PC_PORT_NUM],
@@ -136,8 +141,21 @@ module prf import ttg_cfg_pkg::*; #(
     assign prf2exe_iss_entry_uop_rob_flag[i] = iss2prf_iss_entry_uop_rob_flag[i];
     assign prf2exe_iss_entry_uop_op[i] = iss2prf_iss_entry_uop_op[i];
   end
+  // bypass sources of the operand read: execution-unit results, then the LSU write-back requests
+  localparam int BYP_NUM = TOTAL_FU_COUNT + LSU_LOAD_WB_WIDTH;
+  logic [BYP_NUM-1:0]      byp_wen_vec;
+  logic [PRF_IDX_WIDTH-1:0] byp_dest_preg [BYP_NUM];
+  logic [31:0]             byp_result [BYP_NUM];
   for (genvar k = 0; k < TOTAL_FU_COUNT; k++) begin : g_fu
     assign fu_wen_vec[k] = exe2prf_bypass_valid[k] && exe2prf_bypass_uop_dest_en[k];
+    assign byp_wen_vec[k] = fu_wen_vec[k];
+    assign byp_dest_preg[k] = exe2prf_bypass_uop_dest_preg[k];
+    assign byp_result[k] = exe2prf_bypass_uop_result[k];
+  end
+  for (genvar k = 0; k < LSU_LOAD_WB_WIDTH; k++) begin : g_lsu_byp
+    assign byp_wen_vec[TOTAL_FU_COUNT + k] = lsu_byp_valid[k];
+    assign byp_dest_preg[TOTAL_FU_COUNT + k] = lsu_byp_dest_preg[k];
+    assign byp_result[TOTAL_FU_COUNT + k] = lsu_byp_result[k];
   end
   for (genvar k = 0; k < LSU_LOAD_WB_WIDTH; k++) begin : g_wake
     assign prf_awake_wake_valid[k] = wake_valid_vec[k];
@@ -176,16 +194,16 @@ module prf import ttg_cfg_pkg::*; #(
   // ---- operand read ports with bypass: 2 per issue lane ----
   for (genvar s = 0; s < 2; s++) begin : g_src
     for (genvar i = 0; i < LANES; i++) begin : g_rd
-      prf_bypass #(.WB_LANES(LANES), .FU_NUM(TOTAL_FU_COUNT)) u_bypass (
+      prf_bypass #(.WB_LANES(LANES), .FU_NUM(BYP_NUM)) u_bypass (
         .src_en       (src_en_arr[s][i]),
         .src_preg     (src_preg_arr[s][i]),
         .rf_data      (rf_rdata[s][i]),
         .wb_wen       (wb_wen_q),
         .wb_dest_preg (wb_dest_preg_q),
         .wb_result    (wb_result_q),
-        .fu_wen       (fu_wen_vec),
-        .fu_dest_preg (exe2prf_bypass_uop_dest_preg),
-        .fu_result    (exe2prf_bypass_uop_result),
+        .fu_wen       (byp_wen_vec),
+        .fu_dest_preg (byp_dest_preg),
+        .fu_result    (byp_result),
         .rdata        (src_rdata[s][i])
       );
     end

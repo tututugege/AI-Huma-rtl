@@ -16,6 +16,7 @@ module isu_iq
   input  logic [DW-1:0]            enq_valid,
   input  isu_enq_t                 enq [DW],
   input  logic [PRF_NUM-1:0]       woken,
+  input  logic [PRF_NUM-1:0]       cancel_v,        // wake-up of the previous cycle was wrong: waiting again (LP_L2)
   input  op_set_t                  fu_ready [NP],   // per port: op classes the functional unit accepts now
   input  logic                     issue_block,     // rob flush or misprediction this cycle
   input  logic                     flush_all,
@@ -80,6 +81,7 @@ module isu_iq
   isu_iq_store #(.SIZE(SIZE), .DW(DW)) u_store (
     .clk(clk), .rst_n(rst_n),
     .enq_slot(enq_slot), .enq_uop(enq_uop), .enq_wait1(enq_wait1), .enq_wait2(enq_wait2), .woken(woken),
+    .cancel_v(cancel_v),
     .issue_clear(granted_slot), .flush_all(flush_all), .flush_br(flush_br), .flush_br_mask(flush_br_mask),
     .clear_mask(clear_mask),
     .slot_valid(slot_valid), .slot_ready(slot_ready), .slot_uop(slot_uop), .slot_op(slot_op));

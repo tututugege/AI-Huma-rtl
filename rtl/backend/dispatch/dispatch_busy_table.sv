@@ -9,6 +9,7 @@ module dispatch_busy_table
 (
   input  logic                     clk,
   input  logic                     rst_n,
+  input  logic [PRF_NUM-1:0]       cancel_v,    // wake-up of the previous cycle was wrong (LP_L2): busy again
   input  logic [NUM_WAKE-1:0] wake_valid,
   input  logic [PRF_IDX_WIDTH-1:0] wake_preg  [NUM_WAKE],
   input  logic [NUM_SLOTS-1:0] set_valid,   // fired instruction with a destination
@@ -32,7 +33,7 @@ module dispatch_busy_table
         dest_set[p] = dest_set[p] || (set_valid[i] && (set_preg[i] == PRF_IDX_WIDTH'(p)));
       end
     end
-    busy_d = dest_set | (busy_q & ~wake_clear);
+    busy_d = dest_set | ((busy_q | cancel_v) & ~wake_clear);
   end
 
   // Ref: Dispatch::seq

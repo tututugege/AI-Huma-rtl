@@ -23,6 +23,8 @@ module back_top import ttg_cfg_pkg::*; (
   input  logic [1:0] dcache2lsu_load_resps_replay [LSU_LDU_COUNT],
   input  logic [31:0] dcache2lsu_load_resps_req_id [LSU_LDU_COUNT],
   input  logic dcache2lsu_load_resps_valid [LSU_LDU_COUNT],
+  input  logic dcache2lsu_load_retry_busy [LSU_LDU_COUNT],
+  input  logic dcache2lsu_store_retry_busy [LSU_STA_COUNT],
   input  logic dcache2lsu_mshr_fill,
   input  logic [25:0] dcache2lsu_mshr_fill_line,
   input  logic [1:0] dcache2lsu_store_resps_replay [LSU_STA_COUNT],
@@ -453,6 +455,17 @@ module back_top import ttg_cfg_pkg::*; (
   logic [LSU_STA_COUNT-1:0] lsu2mmu_stq_req_valid;
   logic [5:0] lsu2mmu_stq_req_wait_idx [LSU_STA_COUNT];
   logic lsu2rob_committed_store_pending;
+  // LP_L2[3] with LP_L2[0]: a consumer woken at L2 reads the load result in the cycle of the write-back request
+  logic [LSU_LOAD_WB_WIDTH-1:0] lsu_byp_valid;
+  always_comb begin
+    for (int k = 0; k < LSU_LOAD_WB_WIDTH; k++)
+      lsu_byp_valid[k] = (LSU_PIPE != 0) && ((lp_pkg::LP_L2 & 9) == 9) && lsu2exe_wb_req_valid[k] &&
+                         lsu2exe_wb_req_uop_dest_en[k];
+  end
+  logic [2*LSU_LDU_COUNT-1:0] lsu2iss_wake_valid;
+  logic [6:0] lsu2iss_wake_preg [2*LSU_LDU_COUNT];
+  logic [LSU_LDU_COUNT-1:0] lsu2iss_cancel_valid;
+  logic [6:0] lsu2iss_cancel_preg [LSU_LDU_COUNT];
 
   // ---- nets driven by glue: BackTop-level glue (back-end/BackTop.cpp), see back_top_glue.sv
   logic [1:0] csr_status_mstatus_mpp;
@@ -684,6 +697,10 @@ module back_top import ttg_cfg_pkg::*; (
     .iss_awake_wake_preg(iss_awake_wake_preg),
     .iss_awake_wake_valid(iss_awake_wake_valid),
     // inputs from lsu
+    .lsu2iss_wake_valid(lsu2iss_wake_valid),
+    .lsu2iss_wake_preg(lsu2iss_wake_preg),
+    .lsu2iss_cancel_valid(lsu2iss_cancel_valid),
+    .lsu2iss_cancel_preg(lsu2iss_cancel_preg),
     .lsu2dis_ldq_alloc_idx(lsu2dis_ldq_alloc_idx),
     .lsu2dis_ldq_alloc_valid(lsu2dis_ldq_alloc_valid),
     .lsu2dis_ldq_free(lsu2dis_ldq_free),
@@ -797,6 +814,11 @@ module back_top import ttg_cfg_pkg::*; (
   isu u_isu (
     .clk(clk),
     .rst_n(rst_n),
+    // inputs from lsu: wake-ups driven by the LSU (LP_L2) and the cancel of a wrong speculative one
+    .lsu2iss_wake_valid(lsu2iss_wake_valid),
+    .lsu2iss_wake_preg(lsu2iss_wake_preg),
+    .lsu2iss_cancel_valid(lsu2iss_cancel_valid),
+    .lsu2iss_cancel_preg(lsu2iss_cancel_preg),
     // inputs from dis
     .dis2iss_req_uop_br_id(dis2iss_req_uop_br_id),
     .dis2iss_req_uop_br_mask(dis2iss_req_uop_br_mask),
@@ -869,6 +891,10 @@ module back_top import ttg_cfg_pkg::*; (
   prf u_prf (
     .clk(clk),
     .rst_n(rst_n),
+    // LSU write-back requests as an operand bypass source (only with the speculative wake-up on top of the L3 register)
+    .lsu_byp_valid(lsu_byp_valid),
+    .lsu_byp_dest_preg(lsu2exe_wb_req_uop_dest_preg),
+    .lsu_byp_result(lsu2exe_wb_req_uop_result),
     // inputs from exu
     .exe2prf_bypass_uop_dest_en(exe2prf_bypass_uop_dest_en),
     .exe2prf_bypass_uop_dest_preg(exe2prf_bypass_uop_dest_preg),
@@ -1334,6 +1360,8 @@ module back_top import ttg_cfg_pkg::*; (
     .dcache2lsu_load_resps_replay(dcache2lsu_load_resps_replay),
     .dcache2lsu_load_resps_req_id(dcache2lsu_load_resps_req_id),
     .dcache2lsu_load_resps_valid(dcache2lsu_load_resps_valid),
+    .dcache2lsu_load_retry_busy(dcache2lsu_load_retry_busy),
+    .dcache2lsu_store_retry_busy(dcache2lsu_store_retry_busy),
     .dcache2lsu_mshr_fill(dcache2lsu_mshr_fill),
     .dcache2lsu_mshr_fill_line(dcache2lsu_mshr_fill_line),
     .dcache2lsu_store_resps_replay(dcache2lsu_store_resps_replay),
@@ -1350,6 +1378,10 @@ module back_top import ttg_cfg_pkg::*; (
     .lsu2dis_ldq_alloc_valid(lsu2dis_ldq_alloc_valid),
     .lsu2dis_ldq_alloc_idx(lsu2dis_ldq_alloc_idx),
     .lsu2rob_committed_store_pending(lsu2rob_committed_store_pending),
+    .lsu2iss_wake_valid(lsu2iss_wake_valid),
+    .lsu2iss_wake_preg(lsu2iss_wake_preg),
+    .lsu2iss_cancel_valid(lsu2iss_cancel_valid),
+    .lsu2iss_cancel_preg(lsu2iss_cancel_preg),
     .lsu2exe_wb_req_valid(lsu2exe_wb_req_valid),
     .lsu2exe_wb_req_uop_diag_val(lsu2exe_wb_req_uop_diag_val),
     .lsu2exe_wb_req_uop_result(lsu2exe_wb_req_uop_result),

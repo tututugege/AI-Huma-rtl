@@ -38,6 +38,10 @@ in  exe2prf_entry_uop_br_mask 64 [22] @ bt.exe2prf.entry[i0].uop.br_mask
 in  exe2prf_entry_uop_dest_en 1 [22] @ bt.exe2prf.entry[i0].uop.dest_en
 in  exe2prf_entry_uop_op 5 [22] @ bt.exe2prf.entry[i0].uop.op
 in  exe2prf_bypass_valid 1 [28] @ bt.exe2prf.bypass[i0].valid
+# RTL-only data bypass of the LSU write-back requests (LP_L2 speculative wake-up with the L3 register); the model has no data path
+in  lsu_byp_valid 1 [4] @ 0
+in  lsu_byp_dest_preg 7 [4] @ 0
+in  lsu_byp_result 32 [4] @ 0
 in  exe2prf_bypass_uop_dest_preg 7 [28] @ bt.exe2prf.bypass[i0].uop.dest_preg
 in  exe2prf_bypass_uop_result 32 [28] @ bt.exe2prf.bypass[i0].uop.result
 in  exe2prf_bypass_uop_dest_en 1 [28] @ bt.exe2prf.bypass[i0].uop.dest_en

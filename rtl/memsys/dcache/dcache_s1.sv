@@ -6,6 +6,7 @@
 // and the hidden retry latches.  The payload of an invalid slot is don't-care, so it is rewritten every tick.
 module dcache_s1
   import dcache_pkg::*;
+  import ttg_cfg_pkg::LSU_PIPE;
 (
   input  logic                 clk,
   input  logic                 rst_n,
@@ -54,6 +55,8 @@ module dcache_s1
   output logic [NLD-1:0]       slot_perf_replay,          // LSU re-issue or hidden retry (not trained on)
   // replayed bank-conflict LSU request whose retry latch is free: no response
   output logic [NSLOT-1:0]     retry_issue,
+  // hidden retry latch valid per port (registered): the staged LSU (LSU_PIPE) leaves such a port idle
+  output logic [NSLOT-1:0]     retry_busy,
   output logic                 s2f_valid,
   output logic [MSHR_IDW-1:0]  s2f_id,
   output logic                 s2f_dirty,
@@ -82,6 +85,7 @@ module dcache_s1
   logic [31:0]      rty_data_q [NST];
   logic [3:0]       rty_strb_q [NST];
 
+  assign retry_busy    = rty_valid_q;
   assign slot_valid    = slot_valid_q;
   assign slot_replayed = slot_replayed_q;
   assign slot_addr     = slot_addr_q;
@@ -147,16 +151,24 @@ module dcache_s1
   assign fill_bank          = fr_line[BANK_W-1:0];
 
   // ------------------------------------------------------------------ bank grant
-  logic [NSLOT-1:0] grant;
+  // Order: fill snapshot, loads, stores; port order inside a class.  With LSU_PIPE the ports that issue a hidden retry
+  // this cycle (use_pend | use_new) are granted first inside their class (a retry cannot be starved by a lower port).
+  logic [NSLOT-1:0] grant, retry_first;
   logic [BANK_W-1:0] req_bank [NSLOT];
+  logic [1:0] key [NSLOT];
   for (genvar i = 0; i < NSLOT; i++) begin : g_bank
     assign req_bank[i] = req_addr[i][OFF_W +: BANK_W];
+    assign retry_first[i] = (LSU_PIPE != 0) && (use_pend[i] || use_new[i]);
+    assign key[i] = {i >= NLD, !retry_first[i]};
   end
   for (genvar i = 0; i < NSLOT; i++) begin : g_grant
     logic no_earlier_same_bank;
     always_comb begin
       no_earlier_same_bank = 1'b1;
-      for (int j = 0; j < i; j++) if (req_v[j] && req_bank[j] == req_bank[i]) no_earlier_same_bank = 1'b0;
+      for (int j = 0; j < NSLOT; j++) begin
+        if (j != i && req_v[j] && req_bank[j] == req_bank[i] && (key[j] < key[i] || (key[j] == key[i] && j < i)))
+          no_earlier_same_bank = 1'b0;
+      end
       grant[i] = req_v[i] && !(fill_occupies_bank && fill_bank == req_bank[i]) && no_earlier_same_bank;
     end
   end

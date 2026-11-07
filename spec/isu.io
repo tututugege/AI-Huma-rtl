@@ -32,6 +32,10 @@ in  dis2iss_req_uop_ldq_idx 6 [5] [8] @ bt.dis2iss.req[i0][i1].uop.ldq_idx
 in  dis2iss_req_uop_rob_flag 1 [5] [8] @ bt.dis2iss.req[i0][i1].uop.rob_flag
 in  dis2iss_req_uop_op 5 [5] [8] @ bt.dis2iss.req[i0][i1].uop.op
 in  prf_awake_wake_valid 1 [4] @ bt.prf_awake.wake[i0].valid
+in  lsu2iss_wake_valid 1 [8] @ bt.lsu_awake.wake[i0].valid
+in  lsu2iss_wake_preg 7 [8] @ bt.lsu_awake.wake[i0].preg
+in  lsu2iss_cancel_valid 1 [4] @ bt.lsu_awake.cancel[i0].valid
+in  lsu2iss_cancel_preg 7 [4] @ bt.lsu_awake.cancel[i0].preg
 in  prf_awake_wake_preg 7 [4] @ bt.prf_awake.wake[i0].preg
 in  exe2iss_fu_ready_mask 18 [22] @ bt.exe2iss.fu_ready_mask[i0]
 in  rob_bcast_flush 1 @ bt.rob_bcast.flush

@@ -29,6 +29,8 @@ in  dcache2lsu_load_resps_data 32 [4] @ bt.in.dcache2lsu.resp_ports.load_resps[i
 in  dcache2lsu_load_resps_replay 2 [4] @ (uint32_t)bt.in.dcache2lsu.resp_ports.load_resps[i0].replay
 in  dcache2lsu_load_resps_req_id 32 [4] @ bt.in.dcache2lsu.resp_ports.load_resps[i0].req_id
 in  dcache2lsu_load_resps_valid 1 [4] @ bt.in.dcache2lsu.resp_ports.load_resps[i0].valid
+in  dcache2lsu_load_retry_busy 1 [4] @ bt.in.dcache2lsu.load_retry_busy[i0]
+in  dcache2lsu_store_retry_busy 1 [4] @ bt.in.dcache2lsu.store_retry_busy[i0]
 in  dcache2lsu_mshr_fill 1 @ bt.in.dcache2lsu.mshr_fill
 in  dcache2lsu_mshr_fill_line 26 @ (bt.in.dcache2lsu.mshr_fill_addr >> 6)
 in  dcache2lsu_store_resps_replay 2 [4] @ (uint32_t)bt.in.dcache2lsu.resp_ports.store_resps[i0].replay

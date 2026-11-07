@@ -38,6 +38,8 @@ out ld_resp_replay 2 [4] when ld_resp_valid @ (int)TTG_MS.t[TTG_MS.cur].resp_pub
 out st_resp_valid 1 [4] @ TTG_MS.t[TTG_MS.cur].resp_pub.resp_ports.store_resps[i0].valid
 out st_resp_replay 2 [4] when st_resp_valid @ (int)TTG_MS.t[TTG_MS.cur].resp_pub.resp_ports.store_resps[i0].replay
 out st_resp_id 32 [4] when st_resp_valid @ TTG_MS.t[TTG_MS.cur].resp_pub.resp_ports.store_resps[i0].req_id
+out ld_retry_busy 1 [4] @ TTG_MS.dcache_.load_retry_pending(i0)
+out st_retry_busy 1 [4] @ TTG_MS.dcache_.store_retry_pending(i0)
 out mshr_fill 1 @ TTG_MS.t[TTG_MS.cur].resp_pub.mshr_fill
 out mshr_fill_addr 32 when mshr_fill @ TTG_MS.t[TTG_MS.cur].resp_pub.mshr_fill_addr
 

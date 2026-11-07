@@ -64,6 +64,8 @@ in  dcache2lsu_load_resps_replay 2 [4] @ (uint32_t)bt.in.dcache2lsu.resp_ports.l
 in  dcache2lsu_store_resps_valid 1 [4] @ bt.in.dcache2lsu.resp_ports.store_resps[i0].valid
 in  dcache2lsu_store_resps_req_id 32 [4] @ bt.in.dcache2lsu.resp_ports.store_resps[i0].req_id
 in  dcache2lsu_store_resps_replay 2 [4] @ (uint32_t)bt.in.dcache2lsu.resp_ports.store_resps[i0].replay
+in  dcache2lsu_load_retry_busy 1 [4] @ bt.in.dcache2lsu.load_retry_busy[i0]
+in  dcache2lsu_store_retry_busy 1 [4] @ bt.in.dcache2lsu.store_retry_busy[i0]
 in  dcache2lsu_mshr_fill 1 @ bt.in.dcache2lsu.mshr_fill
 in  dcache2lsu_mshr_fill_line 26 @ (bt.in.dcache2lsu.mshr_fill_addr >> 6)
 in  mmu2lsu_ldq_resp_valid 1 [4] @ bt.mmu2lsu_io.ldq_resp[i0].valid
@@ -85,6 +87,11 @@ out lsu2dis_ldq_free 7 @ bt.lsu2dis.ldq_free
 out lsu2dis_ldq_alloc_valid 1 [8] @ bt.lsu2dis.ldq_alloc_valid[i0]
 out lsu2dis_ldq_alloc_idx 6 [8] when lsu2dis_ldq_alloc_valid @ bt.lsu2dis.ldq_alloc_idx[i0]
 out lsu2rob_committed_store_pending 1 @ bt.lsu2rob.committed_store_pending
+# wake-ups driven by the LSU (LSU_PIPE_L2 / LP_L2): [p] L2 speculative, [4+p] L3 register; cancel of a wrong speculative one
+out lsu2iss_wake_valid 1 [8] @ bt.lsu_awake.wake[i0].valid
+out lsu2iss_wake_preg 7 [8] when lsu2iss_wake_valid @ bt.lsu_awake.wake[i0].preg
+out lsu2iss_cancel_valid 1 [4] @ bt.lsu_awake.cancel[i0].valid
+out lsu2iss_cancel_preg 7 [4] when lsu2iss_cancel_valid @ bt.lsu_awake.cancel[i0].preg
 out lsu2exe_wb_req_valid 1 [4] @ bt.lsu2exe.wb_req[i0].valid
 out lsu2exe_wb_req_uop_diag_val 32 [4] when lsu2exe_wb_req_valid @ bt.lsu2exe.wb_req[i0].uop.diag_val
 out lsu2exe_wb_req_uop_result 32 [4] when lsu2exe_wb_req_valid @ bt.lsu2exe.wb_req[i0].uop.result

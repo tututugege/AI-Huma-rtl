@@ -40,6 +40,8 @@ module dcache
   output logic                 st_resp_valid  [NST],
   output logic [1:0]           st_resp_replay [NST],
   output logic [31:0]          st_resp_id     [NST],
+  output logic                 ld_retry_busy  [NLD],
+  output logic                 st_retry_busy  [NST],
   output logic                 mshr_fill,
   output logic [31:0]          mshr_fill_addr,
   // AXI outputs
@@ -60,13 +62,17 @@ module dcache
     assign ld_resp_valid[i]  = pub_ld_valid[i];
     assign ld_resp_retry[i]  = pub_ld_retry[i];
   end
+  for (genvar i = 0; i < NLD; i++) begin : g_bnd_rb_ld
+    assign ld_retry_busy[i] = retry_busy[i];
+  end
   for (genvar i = 0; i < NST; i++) begin : g_bnd_st
+    assign st_retry_busy[i] = retry_busy[NLD+i];
     assign st_req_v[i]       = st_req_valid[i];
     assign st_resp_valid[i]  = pub_st_valid[i];
   end
 
   // ------------------------------------------------------------ stage-1 registers
-  logic [NSLOT-1:0]     slot_valid, slot_replayed, slot_granted, retry_issue, pend_valid;
+  logic [NSLOT-1:0]     slot_valid, slot_replayed, slot_granted, retry_issue, pend_valid, retry_busy;
   logic [31:0]          slot_addr [NSLOT], slot_id [NSLOT], slot_data [NST];
   logic [3:0]           slot_strb [NST];
   logic [2:0]           icache_req_s2;
@@ -177,6 +183,7 @@ module dcache
     .mrg_en(st_mrg), .mrg_data(slot_data), .mrg_strb(slot_strb), .mrg_word(st_word),
     .slot_valid(slot_valid), .slot_replayed(slot_replayed), .slot_addr(slot_addr), .slot_id(slot_id),
     .slot_data(slot_data), .slot_strb(slot_strb), .icache_req_s2(icache_req_s2), .retry_issue(retry_issue),
+    .retry_busy(retry_busy),
     .s2f_valid(s2f_valid), .s2f_id(s2f_id), .s2f_dirty(s2f_dirty), .s2f_line(s2f_line), .s2f_data(s2f_data),
     .same_fill(same_fill)
   );

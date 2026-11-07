@@ -22,7 +22,7 @@ package dis_pkg;
   localparam int STQ_FREE_W = $clog2(STQ_SIZE + 1);         // bit_width_for_count(STQ_SIZE + 1)
   localparam int LDQ_FREE_W = $clog2(LDQ_SIZE + 1);
   localparam int STQ_POS_W = STQ_IDX_WIDTH + 1;             // STQ ring position incl. wrap carry
-  localparam int NUM_WAKE = LSU_LOAD_WB_WIDTH + MAX_WAKEUP_PORTS;  // prf_awake + iss_awake ports
+  localparam int NUM_WAKE = LSU_LOAD_WB_WIDTH + MAX_WAKEUP_PORTS + 2 * LSU_LDU_COUNT;  // prf + iss + LSU wakes
   localparam int ROB_BANK_W = $clog2(ROB_BANK_NUM);         // lane bits inside a ROB line
   localparam int ROB_LINE_W = ROB_IDX_WIDTH - ROB_BANK_W;   // ROB line (enqueue group) index bits
   localparam int INST_TYPE_W = 5;                           // bit_width_for_count(20 InstType values)

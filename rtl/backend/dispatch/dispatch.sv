@@ -55,6 +55,10 @@ module dispatch
   input  logic [6:0] prf_awake_wake_preg [LSU_LOAD_WB_WIDTH],
   input  logic [MAX_WAKEUP_PORTS-1:0] iss_awake_wake_valid,
   input  logic [6:0] iss_awake_wake_preg [MAX_WAKEUP_PORTS],
+  input  logic [2*LSU_LDU_COUNT-1:0] lsu2iss_wake_valid,
+  input  logic [6:0] lsu2iss_wake_preg [2*LSU_LDU_COUNT],
+  input  logic [LSU_LDU_COUNT-1:0] lsu2iss_cancel_valid,
+  input  logic [6:0] lsu2iss_cancel_preg [LSU_LDU_COUNT],
   input  logic rob_bcast_flush,
   input  logic dec_bcast_mispred,
   input  logic [BR_MASK_WIDTH-1:0] dec_bcast_clear_mask,
@@ -196,10 +200,22 @@ module dispatch
       wake_valid[LSU_LOAD_WB_WIDTH + w] = iss_awake_wake_valid[w];
       wake_preg[LSU_LOAD_WB_WIDTH + w]  = iss_awake_wake_preg[w];
     end
+    for (int w = 0; w < 2 * LSU_LDU_COUNT; w++) begin
+      wake_valid[LSU_LOAD_WB_WIDTH + MAX_WAKEUP_PORTS + w] = lsu2iss_wake_valid[w];
+      wake_preg[LSU_LOAD_WB_WIDTH + MAX_WAKEUP_PORTS + w]  = lsu2iss_wake_preg[w];
+    end
+  end
+
+  // cancel of a wrong speculative load wake-up (LP_L2): the registers are busy again before this cycle's lookups
+  logic [PRF_NUM-1:0] cancel_v;
+  always_comb begin
+    cancel_v = '0;
+    for (int k = 0; k < LSU_LDU_COUNT; k++)
+      if (lsu2iss_cancel_valid[k]) cancel_v[lsu2iss_cancel_preg[k]] = 1'b1;
   end
 
   dispatch_core u_core (
-    .clk(clk), .rst_n(rst_n),
+    .clk(clk), .rst_n(rst_n), .cancel_v(cancel_v),
     .ren_valid(ren_valid), .ren_inst(ren_inst), .dis2ren_ready(core_ready),
     .rob_ready(rob2dis_ready), .rob_empty(rob2dis_empty), .rob_stall(rob2dis_stall),
     .rob_enq_line(rob2dis_enq_idx[ROB_LINE_W-1:0]), .rob_enq_flag(rob2dis_rob_flag),

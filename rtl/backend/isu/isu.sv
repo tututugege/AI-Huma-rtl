@@ -36,6 +36,11 @@ module isu
   input  logic [LDQ_IDX_WIDTH-1:0] dis2iss_req_uop_ldq_idx [IQ_NUM][IQ_DISPATCH_WIDTH],
   input  logic dis2iss_req_uop_rob_flag [IQ_NUM][IQ_DISPATCH_WIDTH],
   input  logic [OP_W-1:0] dis2iss_req_uop_op [IQ_NUM][IQ_DISPATCH_WIDTH],
+  // wake-ups driven by the LSU ([p] L2 speculative, [LDU+p] L3 register) and the cancel of a wrong speculative one
+  input  logic [2*LSU_LDU_COUNT-1:0] lsu2iss_wake_valid,
+  input  logic [PRF_IDX_WIDTH-1:0] lsu2iss_wake_preg [2*LSU_LDU_COUNT],
+  input  logic [LSU_LDU_COUNT-1:0] lsu2iss_cancel_valid,
+  input  logic [PRF_IDX_WIDTH-1:0] lsu2iss_cancel_preg [LSU_LDU_COUNT],
   // load write-back wake-ups, FU readiness, broadcasts
   input  logic [LSU_LOAD_WB_WIDTH-1:0] prf_awake_wake_valid,
   input  logic [PRF_IDX_WIDTH-1:0] prf_awake_wake_preg [LSU_LOAD_WB_WIDTH],
@@ -106,7 +111,13 @@ module isu
     .flush_br_mask(dec_bcast_br_mask), .clear_mask(dec_bcast_clear_mask),
     .wake_valid(wake_valid), .wake_preg(wake_preg));
 
-  isu_wake_bus u_wake_bus (.wake_valid(wake_valid), .wake_preg(wake_preg), .woken(woken));
+  logic [PRF_NUM-1:0] woken_main, woken_lsu, cancel_v;
+  isu_wake_bus u_wake_bus (.wake_valid(wake_valid), .wake_preg(wake_preg), .woken(woken_main));
+  isu_wake_bus #(.N(2 * LSU_LDU_COUNT)) u_wake_lsu (.wake_valid(lsu2iss_wake_valid), .wake_preg(lsu2iss_wake_preg),
+                                                      .woken(woken_lsu));
+  isu_wake_bus #(.N(LSU_LDU_COUNT)) u_cancel (.wake_valid(lsu2iss_cancel_valid), .wake_preg(lsu2iss_cancel_preg),
+                                              .woken(cancel_v));
+  assign woken = woken_main | woken_lsu;
 
   for (genvar k = 0; k < WAKE_NUM; k++) begin : g_awake_out
     assign iss_awake_wake_valid[k] = wake_valid[k];
@@ -168,7 +179,7 @@ module isu
       .clk(clk), .rst_n(rst_n), .enq_valid(enq_valid), .enq(enq), .woken(woken), .fu_ready(fu_ready),
       .issue_block(issue_block), .flush_all(rob_bcast_flush), .flush_br(flush_br),
       .flush_br_mask(dec_bcast_br_mask), .clear_mask(dec_bcast_clear_mask),
-      .free_slots(iss2dis_ready_num[q]), .grant_valid(g_valid), .grant_uop(g_uop));
+      .cancel_v(cancel_v), .free_slots(iss2dis_ready_num[q]), .grant_valid(g_valid), .grant_uop(g_uop));
   end
 
   // ---- issue ports to the PRF ----

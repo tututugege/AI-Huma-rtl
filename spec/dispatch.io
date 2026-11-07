@@ -45,6 +45,10 @@ in  lsu2dis_ldq_free 7 @ bt.lsu2dis.ldq_free
 in  lsu2dis_ldq_alloc_idx 6 [8] @ bt.lsu2dis.ldq_alloc_idx[i0]
 in  lsu2dis_ldq_alloc_valid 1 [8] @ bt.lsu2dis.ldq_alloc_valid[i0]
 in  prf_awake_wake_valid 1 [4] @ bt.prf_awake.wake[i0].valid
+in  lsu2iss_wake_valid 1 [8] @ bt.lsu_awake.wake[i0].valid
+in  lsu2iss_wake_preg 7 [8] @ bt.lsu_awake.wake[i0].preg
+in  lsu2iss_cancel_valid 1 [4] @ bt.lsu_awake.cancel[i0].valid
+in  lsu2iss_cancel_preg 7 [4] @ bt.lsu_awake.cancel[i0].preg
 in  prf_awake_wake_preg 7 [4] @ bt.prf_awake.wake[i0].preg
 in  iss_awake_wake_valid 1 [15] @ bt.iss_awake.wake[i0].valid
 in  iss_awake_wake_preg 7 [15] @ bt.iss_awake.wake[i0].preg

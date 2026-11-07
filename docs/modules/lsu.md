@@ -11,6 +11,10 @@ note: 已手写重构（表项模块 + 队列操作链，无生成文件）；�
 
 # lsu 设计笔记
 
+> **分级流水 LSU（`ttg_cfg_pkg::LSU_PIPE = 1`）**：`rtl/backend/lsu/lp_*.sv` + `lsu_pipe.sv`，规格和 RTL 行为清单见 [analysis/lsu-pipe.md](../analysis/lsu-pipe.md)
+> （对应 trace-model-lsupipe 的 `LSU_PIPE=1`）。下面的内容是**旧 LSU**（`LSU_PIPE = 0`，`lsu_core`）的设计笔记，该路径原样保留用于对比。
+> `lsu.sv` 顶层按 `LSU_PIPE` 选择 `lsu_pipe`（新）或 `lsu_core`（旧）；两者端口相同，新增的两个输入 `dcache2lsu_load_retry_busy / store_retry_busy` 旧路径不用。
+
 ## 1. 对应的 C++
 
 - `back-end/Lsu/RealLsu.cpp`（1527 行）、`include/RealLsu.h`、`include/MemUtils.h`、`RealLsuBsdConfig.h`；`RealLsuPerf.cpp` 只在

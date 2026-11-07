@@ -63,6 +63,9 @@ def main():
             lines.append(f"  localparam longint unsigned {n} = 64'd{x};")
         else:
             lines.append(f'  localparam int {n} = {x};')
+    # RTL-only switch (not a trace-model constant): 1 = staged LSU (rtl/backend/lsu/lp_*.sv, docs/analysis/lsu-pipe.md), 0 = legacy LSU.
+    # Default 1 (staged LSU); pass -DLSU_PIPE=0 to select the legacy LSU (trace-model counterpart: CFG_LSU_PIPE, default 1; env LSU_PIPE=0 there is the legacy LSU).
+    lines.append('  localparam int LSU_PIPE = %d;' % (0 if '-DLSU_PIPE=0' in defs else 1))
     lines += ['endpackage', '`default_nettype wire', '']
     os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
     open(out, 'w').write('\n'.join(lines))

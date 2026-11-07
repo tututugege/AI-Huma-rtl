@@ -19,6 +19,7 @@ module isu_iq_store
   input  logic [DW-1:0]            enq_wait1,
   input  logic [DW-1:0]            enq_wait2,
   input  logic [PRF_NUM-1:0]       woken,
+  input  logic [PRF_NUM-1:0]       cancel_v,       // the wake-up of the previous cycle was wrong: entries wait again
   input  logic [SIZE-1:0]          issue_clear,    // slots granted this cycle
   input  logic                     flush_all,
   input  logic                     flush_br,       // misprediction without a global flush
@@ -45,6 +46,7 @@ module isu_iq_store
     logic          valid_q, valid_d;
     isu_uop_t      uop_q, uop_d;
     logic          wait1_q, wait1_d, wait2_q, wait2_d;
+    logic          wait1_c, wait2_c;     // wait bits with this cycle's cancel (applied before the select)
     logic          killed_by_branch;
 
     for (genvar w = 0; w < DW; w++) begin : g_hit
@@ -53,11 +55,14 @@ module isu_iq_store
     assign write = |hit;
     ttg_onehot_mux #(.N(DW), .W(UW)) u_new (.sel(hit), .data(enq_bits), .out(new_bits));
 
+    assign wait1_c = wait1_q || (uop_q.src1_en && cancel_v[uop_q.src1_preg]);
+    assign wait2_c = wait2_q || (uop_q.src2_en && cancel_v[uop_q.src2_preg]);
+
     // Ref: IssueQueue::enqueue / comb_wakeup / commit_issue / flush_br / clear_br / flush_all
     always_comb begin
       uop_d   = write ? isu_uop_t'(new_bits) : uop_q;
-      wait1_d = write ? |(hit & enq_wait1) : (wait1_q & ~woken[uop_q.src1_preg]);
-      wait2_d = write ? |(hit & enq_wait2) : (wait2_q & ~woken[uop_q.src2_preg]);
+      wait1_d = write ? |(hit & enq_wait1) : (wait1_c & ~woken[uop_q.src1_preg]);
+      wait2_d = write ? |(hit & enq_wait2) : (wait2_c & ~woken[uop_q.src2_preg]);
       killed_by_branch = flush_br && ((uop_d.br_mask & flush_br_mask) != '0);   // mask before the clear below
       valid_d = ((valid_q && !issue_clear[i]) || write) && !flush_all && !killed_by_branch;
       uop_d.br_mask = uop_d.br_mask & ~clear_mask;
@@ -78,7 +83,7 @@ module isu_iq_store
     end
 
     assign slot_valid[i] = valid_q;
-    assign slot_ready[i] = valid_q && !wait1_q && !wait2_q;
+    assign slot_ready[i] = valid_q && !wait1_c && !wait2_c;
     assign slot_uop[i]   = uop_q;
     assign slot_op[i]    = op_onehot(uop_q.op);
   end

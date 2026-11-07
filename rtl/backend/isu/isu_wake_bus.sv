@@ -6,9 +6,11 @@
 module isu_wake_bus
   import ttg_cfg_pkg::*;
   import isu_pkg::*;
-(
-  input  logic [WAKE_NUM-1:0]      wake_valid,
-  input  logic [PRF_IDX_WIDTH-1:0] wake_preg [WAKE_NUM],
+#(
+  parameter int N = WAKE_NUM
+) (
+  input  logic [N-1:0]             wake_valid,
+  input  logic [PRF_IDX_WIDTH-1:0] wake_preg [N],
   output logic [PRF_NUM-1:0]       woken
 );
 
@@ -16,7 +18,7 @@ module isu_wake_bus
   always_comb begin
     for (int r = 0; r < PRF_NUM; r++) begin
       woken[r] = 1'b0;
-      for (int k = 0; k < WAKE_NUM; k++) woken[r] = woken[r] | (wake_valid[k] & (wake_preg[k] == PRF_IDX_WIDTH'(r)));
+      for (int k = 0; k < N; k++) woken[r] = woken[r] | (wake_valid[k] & (wake_preg[k] == PRF_IDX_WIDTH'(r)));
     end
   end
 

@@ -23,6 +23,7 @@ if [ "${DS3:-1}" != 0 ]; then
   DS3FLAGS="$DS3FLAGS -DSIM_DDR_DS3 -I$DS3_DIR/src -DDS3_CFG_PATH=$DS3_DIR/configs/DDR4_8Gb_x16_3200.ini"
   DS3LD="$DS3_LIB"
 fi
+LSUPFLAG=""; grep -q "LSU_PIPE = 1;" "$ROOT/rtl/common/ttg_cfg_pkg.sv" && LSUPFLAG="-DSOC_LSU_PIPE"   # staged LSU: the testbench reads its STQ entry
 INC=""
 for d in include libs/include back-end back-end/include axi-interconnect-kit/include axi-interconnect-kit/sim_ddr/include \
          axi-interconnect-kit/axi_interconnect/include axi-interconnect-kit/mmio/include MemSubSystem/include diff/include front-end back-end/Exu/include back-end/Lsu/include back-end/tools/include function-model/include/api legacy/mmu/include; do INC="$INC -I$REF/$d"; done
@@ -35,7 +36,7 @@ for s in axi-interconnect-kit/sim_ddr/SimDDR.cpp back-end/PhysMemory.cpp; do
 done
 wait
 verilator --cc --exe --build -j "${JOBS:-6}" -Wno-fatal -Wno-lint -Wno-style -Wno-UNOPTFLAT ${DEBUG:+--public-flat-rw} $VOPT --x-assign 0 --x-initial 0 \
-  --top-module soc_top -Mdir obj -CFLAGS "$COPT $DS3FLAGS ${FMOPT[*]:-} ${DEBUG:+-DSOC_TB_DEBUG} -std=c++2a -w $INC -I$ROOT/harness/include -I$ROOT/tb/soc" \
+  --top-module soc_top -Mdir obj -CFLAGS "$COPT $DS3FLAGS $LSUPFLAG ${FMOPT[*]:-} ${DEBUG:+-DSOC_TB_DEBUG} -std=c++2a -w $INC -I$ROOT/harness/include -I$ROOT/tb/soc" \
   -LDFLAGS "$OUT/SimDDR.o $OUT/PhysMemory.o $FMLD $DS3LD" \
   "$ROOT/tb/soc/soc_public.vlt" "$ROOT/tb/soc/pmu_public.vlt" "$ROOT/tb/soc/soc_tb.cpp" "${FILES[@]}" -o soc_tb > build.log 2>&1 || { grep -E "error:|%Error" build.log | grep -v "Command Failed" | head -12 | cut -c1-200; echo "BUILD FAILED, see $OUT/build.log"; exit 1; }
 # idle-tick skip: byte ranges of Verilator scratch temporaries (ignored by the fixed-point compare)

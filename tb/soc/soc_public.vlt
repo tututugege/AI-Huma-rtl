@@ -73,6 +73,7 @@ public_flat_rd -module "mem_top" -var "phase_q"
 public_flat_rd -module "back_top" -var "rob_bcast_interrupt"
 // committed-store info for the platform device model
 public_flat_rd -module "lsu_core" -var "st_fld_q"
+public_flat_rd -module "lp_core" -var "sq"
 // function-model check: the destination register of each committed instruction and the physical register file
 public_flat_rd -module "rob" -var "rob_commit_commit_entry_uop_dest_preg"
 public_flat_rd -module "prf_regfile" -var "reg_file_q"

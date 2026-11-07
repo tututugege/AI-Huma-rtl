@@ -48,6 +48,7 @@ module dispatch_core
   output logic [ROB_IDX_WIDTH-1:0]      ld_rob_idx  [LDQ_PORTS],
   output logic [LDQ_PORTS-1:0] ld_rob_flag,
   // wakeups (prf_awake ports first, then iss_awake ports) and branch / flush broadcasts
+  input  logic [PRF_NUM-1:0] cancel_v,
   input  logic [NUM_WAKE-1:0] wake_valid,
   input  logic [PRF_IDX_WIDTH-1:0]      wake_preg  [NUM_WAKE],
   input  logic                          rob_flush,
@@ -128,7 +129,7 @@ module dispatch_core
     .wake_valid(wake_valid), .wake_preg(wake_preg), .src_preg(src_preg), .woken(woken_all));
 
   dispatch_src_busy u_src_busy (
-    .busy_table(busy_table), .inst(alloc_inst), .inst_valid(inst_valid),
+    .busy_table(busy_table | cancel_v), .inst(alloc_inst), .inst_valid(inst_valid),
     .woken1(woken1), .woken2(woken2), .busy1(busy1), .busy2(busy2));
 
   // ---- comb_dispatch: uop split and IQ port allocation ----
@@ -195,7 +196,7 @@ module dispatch_core
   end
 
   dispatch_busy_table u_busy_table (
-    .clk(clk), .rst_n(rst_n), .wake_valid(wake_valid), .wake_preg(wake_preg),
+    .clk(clk), .rst_n(rst_n), .cancel_v(cancel_v), .wake_valid(wake_valid), .wake_preg(wake_preg),
     .set_valid(busy_set_valid), .set_preg(busy_set_preg), .busy_q(busy_table));
 
   // ---- outputs towards the ROB (consumed only for lanes that fire) ----

@@ -101,6 +101,8 @@ module soc_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*;
  logic [1:0] dcache2lsu_load_resps_replay [LSU_LDU_COUNT];
  logic [31:0] dcache2lsu_load_resps_req_id [LSU_LDU_COUNT];
  logic dcache2lsu_load_resps_valid [LSU_LDU_COUNT];
+ logic dcache2lsu_load_retry_busy [LSU_LDU_COUNT];
+ logic dcache2lsu_store_retry_busy [LSU_STA_COUNT];
  logic dcache2lsu_mshr_fill ;
  logic [25:0] dcache2lsu_mshr_fill_line ;
  logic [1:0] dcache2lsu_store_resps_replay [LSU_STA_COUNT];
