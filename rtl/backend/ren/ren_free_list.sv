@@ -20,6 +20,7 @@ module ren_free_list
   input  logic [C-1:0]         reclaim,
   input  logic [CW-1:0]        reclaim_rank [C],
   input  logic [CW-1:0]        reclaim_total,
+  input  logic [CW-1:0]        alloc_commit_total,  // committing slots that took a register (head_commit advance)
   input  preg_t                reclaim_preg [C],  // old_dest_preg of committing slots
   input  logic                 flush,
   input  logic                 mispred,
@@ -70,7 +71,7 @@ module ren_free_list
   // appends at tail (C++ rolls tail back on mispredict, but only matters if a commit coincides with a mispredict,
   // which makes the C++ free-list sanity check fail: unreachable, not replicated).
   always_comb begin
-    head_commit_d = head_commit_q + preg_t'(reclaim_total);
+    head_commit_d = head_commit_q + preg_t'(alloc_commit_total);
     tail_d        = tail_q + preg_t'(reclaim_total);
     if (flush)         head_d = head_commit_d;
     else if (mispred)  head_d = ckpt_head;

@@ -58,6 +58,7 @@ package dis_pkg;
     logic [PRF_IDX_WIDTH-1:0]  src1_preg;
     logic [PRF_IDX_WIDTH-1:0]  src2_preg;
     logic [PRF_IDX_WIDTH-1:0]  old_dest_preg;
+    logic                      me_elim;       // move elimination: dest_preg is src1_preg, no uop
     logic [FTQ_IDX_WIDTH-1:0]  ftq_idx;
     logic [FTQ_OFFSET_WIDTH-1:0] ftq_offset;
     logic                      ftq_is_last;

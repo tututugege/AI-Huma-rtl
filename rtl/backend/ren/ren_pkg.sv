@@ -11,6 +11,7 @@ package ren_pkg;
   localparam int RAT_NUM = ARF_NUM + 1;
   // InstType enum values used by Ren (types.h)
   localparam logic [INST_TYPE_WIDTH-1:0] ITYPE_JALR = INST_TYPE_WIDTH'(2);
+  localparam logic [INST_TYPE_WIDTH-1:0] ITYPE_ADD = INST_TYPE_WIDTH'(3);
   localparam logic [INST_TYPE_WIDTH-1:0] ITYPE_BR = INST_TYPE_WIDTH'(4);
   localparam logic [INST_TYPE_WIDTH-1:0] ITYPE_ECALL = INST_TYPE_WIDTH'(9);
 
@@ -18,6 +19,9 @@ package ren_pkg;
   typedef logic [AREG_IDX_WIDTH-1:0] areg_t;
   typedef logic [BR_TAG_WIDTH-1:0] br_tag_t;
   typedef logic [BR_MASK_WIDTH-1:0] br_mask_t;
+  // move elimination: arch_cnt[p] = number of arch_RAT entries naming p (at most MOVE_ELIM_MAX_REFS: Ren::elim_refs_ok)
+  localparam int CNT_W = $clog2(MOVE_ELIM_MAX_REFS + 1);
+  typedef logic [CNT_W-1:0] cnt_t;
   typedef preg_t [RAT_NUM-1:0] rat_t;
 
   // one decoded instruction as held in the Rename pipeline register (DecRenIO::DecRenInst; only fields with a
@@ -77,6 +81,7 @@ package ren_pkg;
     preg_t src1_preg;
     preg_t src2_preg;
     preg_t old_dest_preg;
+    logic me_elim;     // move elimination: dest_preg is src1_preg's register, no uop is issued
   } ren_out_uop_t;
 
   // the part of a ROB commit entry Ren reads (RobCommitIO::RobCommitEntry)
@@ -91,7 +96,17 @@ package ren_pkg;
     logic page_fault_store;
     logic illegal_inst;
     logic [INST_TYPE_WIDTH-1:0] inst_type;
+    logic me_elim;
   } ren_commit_t;
+
+  // `addi rd, rs, 0` with rd and rs real registers (back-end/include/util.h is_move_shape)
+  function automatic logic ren_is_move_shape(input logic [INST_TYPE_WIDTH-1:0] t, input logic src2_is_imm,
+                                             input logic [2:0] func3, input logic [31:0] imm, input logic src1_en,
+                                             input logic src1_is_pc, input areg_t src1_areg, input logic dest_en,
+                                             input areg_t dest_areg);
+    return (t == ITYPE_ADD) && src2_is_imm && (func3 == 3'd0) && (imm == 32'd0) && src1_en && !src1_is_pc &&
+           (src1_areg != areg_t'(0)) && dest_en && (dest_areg != areg_t'(0));
+  endfunction
 
   // reset value of a RAT: arch/spec reg i -> preg i (Ren::init)
   function automatic rat_t rat_identity();

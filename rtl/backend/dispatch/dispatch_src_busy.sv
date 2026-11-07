@@ -20,7 +20,8 @@ module dispatch_src_busy
 
   always_comb begin
     for (int i = 0; i < NUM_SLOTS; i++) begin
-      dest_written[i] = inst_valid[i] && inst[i].dest_en && (inst[i].dest_areg != '0);
+      // an eliminated move writes nothing (its register is its source's: no writer to wait for)
+      dest_written[i] = inst_valid[i] && inst[i].dest_en && (inst[i].dest_areg != '0) && !inst[i].me_elim;
     end
   end
 

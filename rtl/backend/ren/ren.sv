@@ -43,6 +43,7 @@ module ren
   input  logic [PRF_IDX_WIDTH-1:0] rob_commit_commit_entry_uop_old_dest_preg [COMMIT_WIDTH],
   input  logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_dest_en,
   input  logic [INST_TYPE_WIDTH-1:0] rob_commit_commit_entry_uop_type [COMMIT_WIDTH],
+  input  logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_me_elim,
   input  logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_page_fault_inst,
   input  logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_page_fault_load,
   input  logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_page_fault_store,
@@ -73,7 +74,8 @@ module ren
   output logic [PRF_IDX_WIDTH-1:0] ren2dis_uop_dest_preg [DECODE_WIDTH],
   output logic [PRF_IDX_WIDTH-1:0] ren2dis_uop_src1_preg [DECODE_WIDTH],
   output logic [PRF_IDX_WIDTH-1:0] ren2dis_uop_src2_preg [DECODE_WIDTH],
-  output logic [PRF_IDX_WIDTH-1:0] ren2dis_uop_old_dest_preg [DECODE_WIDTH]
+  output logic [PRF_IDX_WIDTH-1:0] ren2dis_uop_old_dest_preg [DECODE_WIDTH],
+  output logic [DECODE_WIDTH-1:0] ren2dis_uop_me_elim
 );
 
   logic [DECODE_WIDTH-1:0] dec_valid;
@@ -133,6 +135,7 @@ diag_val: dec2ren_uop_diag_val[i],
     assign ren2dis_uop_src1_preg[i] = out_uop[i].src1_preg;
     assign ren2dis_uop_src2_preg[i] = out_uop[i].src2_preg;
     assign ren2dis_uop_old_dest_preg[i] = out_uop[i].old_dest_preg;
+    assign ren2dis_uop_me_elim[i] = out_uop[i].me_elim;
   end
 
   for (genvar k = 0; k < COMMIT_WIDTH; k++) begin : g_commit
@@ -142,6 +145,7 @@ dest_areg: rob_commit_commit_entry_uop_dest_areg[k],
                          old_dest_preg: rob_commit_commit_entry_uop_old_dest_preg[k],
                          dest_en: rob_commit_commit_entry_uop_dest_en[k],
                          inst_type: rob_commit_commit_entry_uop_type[k],
+                         me_elim: rob_commit_commit_entry_uop_me_elim[k],
                          page_fault_inst: rob_commit_commit_entry_uop_page_fault_inst[k],
                          page_fault_load: rob_commit_commit_entry_uop_page_fault_load[k],
                          page_fault_store: rob_commit_commit_entry_uop_page_fault_store[k],

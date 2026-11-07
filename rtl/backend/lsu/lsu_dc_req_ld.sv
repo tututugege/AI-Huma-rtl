@@ -13,7 +13,8 @@ module lsu_dc_req_ld
   input  ld_state_t        ld_st_fl  [LQ],
   input  ldq_fld_t         ld_fld    [LQ],
   output logic [NLD-1:0]   req_valid,
-  output logic [NLD-1:0]   req_replay,                 // re-issue of a load that got a non-HIT response before (EXP-009 training filter)
+  // re-issue of a load that got a non-HIT response before (EXP-009 training filter)
+  output logic [NLD-1:0]   req_replay,
   output logic [31:0]      req_addr  [NLD],
   output logic [RIW+GENW-1:0] req_id [NLD],            // {generation, wait_dcache slot}
   output logic [LQ-1:0]    iss_go,

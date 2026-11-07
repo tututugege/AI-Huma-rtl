@@ -15,6 +15,7 @@ in  dis2rob_uop_dest_areg 6 [8] @ bt.dis2rob.uop[i0].dest_areg
 in  dis2rob_uop_src1_areg 6 [8] @ bt.dis2rob.uop[i0].src1_areg
 in  dis2rob_uop_dest_preg 7 [8] @ bt.dis2rob.uop[i0].dest_preg
 in  dis2rob_uop_old_dest_preg 7 [8] @ bt.dis2rob.uop[i0].old_dest_preg
+in  dis2rob_uop_me_elim 1 [8] @ bt.dis2rob.uop[i0].me_elim
 in  dis2rob_uop_ftq_idx 6 [8] @ bt.dis2rob.uop[i0].ftq_idx
 in  dis2rob_uop_ftq_offset 4 [8] @ bt.dis2rob.uop[i0].ftq_offset
 in  dis2rob_uop_ftq_is_last 1 [8] @ bt.dis2rob.uop[i0].ftq_is_last
@@ -52,6 +53,7 @@ out rob_commit_commit_entry_uop_diag_val 32 [8] when rob_commit_commit_entry_val
 out rob_commit_commit_entry_uop_dest_areg 6 [8] when rob_commit_commit_entry_valid @ bt.rob_commit.commit_entry[i0].uop.dest_areg
 out rob_commit_commit_entry_uop_dest_preg 7 [8] when rob_commit_commit_entry_valid @ bt.rob_commit.commit_entry[i0].uop.dest_preg
 out rob_commit_commit_entry_uop_old_dest_preg 7 [8] when rob_commit_commit_entry_valid @ bt.rob_commit.commit_entry[i0].uop.old_dest_preg
+out rob_commit_commit_entry_uop_me_elim 1 [8] when rob_commit_commit_entry_valid @ bt.rob_commit.commit_entry[i0].uop.me_elim
 out rob_commit_commit_entry_uop_ftq_idx 6 [8] when rob_commit_commit_entry_valid @ bt.rob_commit.commit_entry[i0].uop.ftq_idx
 out rob_commit_commit_entry_uop_ftq_offset 4 [8] when rob_commit_commit_entry_valid @ bt.rob_commit.commit_entry[i0].uop.ftq_offset
 out rob_commit_commit_entry_uop_ftq_is_last 1 [8] when rob_commit_commit_entry_valid @ bt.rob_commit.commit_entry[i0].uop.ftq_is_last

@@ -367,7 +367,8 @@ module lsu_core
   // ---- M / N: DCache requests ----
   lsu_dc_req_ld u_dc_req_ld (
     .wdc_i(wdc_v3), .wd_wait(wd_wait_wk), .req_gen_q(req_gen_q), .ld_st_fl(ld_st_fl), .ld_fld(ld_fld_e),
-    .req_valid(dcl_req_valid), .req_replay(dcl_req_replay), .req_addr(dcl_req_addr), .req_id(dcl_req_id_o), .iss_go(ld_iss), .wd_dec(wd_dec),
+    .req_valid(dcl_req_valid), .req_replay(dcl_req_replay), .req_addr(dcl_req_addr), .req_id(dcl_req_id_o),
+    .iss_go(ld_iss), .wd_dec(wd_dec),
     .gen_we(wd_gen_we), .gen_wd(wd_gen_wd), .n_iss_total(n_iss));
   lsu_wd_slot u_wd_slot (
     .clk(clk), .rst_n(rst_n), .set(wd_set), .set_val(wd_set_val), .clr(wd_clr), .dec(wd_dec), .gen_we(wd_gen_we),

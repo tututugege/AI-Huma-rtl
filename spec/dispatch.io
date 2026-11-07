@@ -13,6 +13,7 @@ in  ren2dis_uop_dest_preg 7 [8] @ bt.ren2dis.uop[i0].dest_preg
 in  ren2dis_uop_src1_preg 7 [8] @ bt.ren2dis.uop[i0].src1_preg
 in  ren2dis_uop_src2_preg 7 [8] @ bt.ren2dis.uop[i0].src2_preg
 in  ren2dis_uop_old_dest_preg 7 [8] @ bt.ren2dis.uop[i0].old_dest_preg
+in  ren2dis_uop_me_elim 1 [8] @ bt.ren2dis.uop[i0].me_elim
 in  ren2dis_uop_ftq_idx 6 [8] @ bt.ren2dis.uop[i0].ftq_idx
 in  ren2dis_uop_ftq_offset 4 [8] @ bt.ren2dis.uop[i0].ftq_offset
 in  ren2dis_uop_ftq_is_last 1 [8] @ bt.ren2dis.uop[i0].ftq_is_last
@@ -57,6 +58,7 @@ out dis2rob_uop_dest_areg 6 [8] when dis2rob_dis_fire @ bt.dis2rob.uop[i0].dest_
 out dis2rob_uop_src1_areg 6 [8] when dis2rob_dis_fire @ bt.dis2rob.uop[i0].src1_areg
 out dis2rob_uop_dest_preg 7 [8] when dis2rob_dis_fire @ bt.dis2rob.uop[i0].dest_preg
 out dis2rob_uop_old_dest_preg 7 [8] when dis2rob_dis_fire @ bt.dis2rob.uop[i0].old_dest_preg
+out dis2rob_uop_me_elim 1 [8] when dis2rob_dis_fire @ bt.dis2rob.uop[i0].me_elim
 out dis2rob_uop_ftq_idx 6 [8] when dis2rob_dis_fire @ bt.dis2rob.uop[i0].ftq_idx
 out dis2rob_uop_ftq_offset 4 [8] when dis2rob_dis_fire @ bt.dis2rob.uop[i0].ftq_offset
 out dis2rob_uop_ftq_is_last 1 [8] when dis2rob_dis_fire @ bt.dis2rob.uop[i0].ftq_is_last
