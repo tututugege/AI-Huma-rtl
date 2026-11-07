@@ -44,7 +44,7 @@
 10990 smc-div/smc-div.bin
 2306 software-interrupt-vectored/software-interrupt-vectored.bin
 1057 stlf-overlap-boundary/stlf-overlap-boundary.bin
-1883 sub-longlong/sub-longlong.bin
+1880 sub-longlong/sub-longlong.bin
 1275 sum/sum.bin
 2389 supervisor-external-interrupt-vectored/supervisor-external-interrupt-vectored.bin
 1736 supervisor-illegal-delegation/supervisor-illegal-delegation.bin

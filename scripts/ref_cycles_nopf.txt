@@ -1,13 +1,13 @@
 # Trace-model cycles, staged LSU (trace-model lsu-pipe-fix default LSU_PIPE=1 CUT=127 L2=115 DRAIN=3 DCAND=4 RP=4, LSU_PIPE_NOWD=1) with the prefetcher off (PF_ENABLE=0; RTL: SOC_VOPT="-GPF_EN=0"). Legacy LSU: ref_cycles_legacy_lsu_nopf.txt.
 2077 add-longlong/add-longlong.bin
-1391 add/add.bin
+1387 add/add.bin
 2237 atomic-boundary/atomic-boundary.bin
 295351 big/coremark.bin
 124953 big/dhrystone.bin
 1646 bit/bit.bin
 2904 bitmanip-boundary/bitmanip-boundary.bin
 5112 bubble-sort/bubble-sort.bin
-3345 crc32/crc32.bin
+3337 crc32/crc32.bin
 2119 csr-alias-boundary/csr-alias-boundary.bin
 5652 dcache-conflict-writeback/dcache-conflict-writeback.bin
 1381 dcache-mshr-pressure/dcache-mshr-pressure.bin
