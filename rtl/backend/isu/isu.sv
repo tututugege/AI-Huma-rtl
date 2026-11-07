@@ -113,10 +113,30 @@ module isu
 
   logic [PRF_NUM-1:0] woken_main, woken_lsu, cancel_v;
   isu_wake_bus u_wake_bus (.wake_valid(wake_valid), .wake_preg(wake_preg), .woken(woken_main));
-  isu_wake_bus #(.N(2 * LSU_LDU_COUNT)) u_wake_lsu (.wake_valid(lsu2iss_wake_valid), .wake_preg(lsu2iss_wake_preg),
-                                                      .woken(woken_lsu));
-  isu_wake_bus #(.N(LSU_LDU_COUNT)) u_cancel (.wake_valid(lsu2iss_cancel_valid), .wake_preg(lsu2iss_cancel_preg),
-                                              .woken(cancel_v));
+  // LP_L2[3] (speculative load wake-up): the [p] wake-ups and the cancel exist only then. Without it the cancel is
+  // compiled out; in a per-module synthesis the cancel inputs are free and its 128:1 selects per IQ entry would
+  // otherwise add ~17 levels in front of slot_ready.
+  if ((lp_pkg::LP_L2 & 8) != 0) begin : g_spec_wake
+    isu_wake_bus #(.N(2 * LSU_LDU_COUNT)) u_wake_lsu (.wake_valid(lsu2iss_wake_valid), .wake_preg(lsu2iss_wake_preg),
+                                                        .woken(woken_lsu));
+    isu_wake_bus #(.N(LSU_LDU_COUNT)) u_cancel (.wake_valid(lsu2iss_cancel_valid), .wake_preg(lsu2iss_cancel_preg),
+                                                .woken(cancel_v));
+  end else begin : g_nospec_wake
+    logic [PRF_IDX_WIDTH-1:0] l3_preg [LSU_LDU_COUNT];
+    for (genvar p = 0; p < LSU_LDU_COUNT; p++) begin : g_l3
+      assign l3_preg[p] = lsu2iss_wake_preg[LSU_LDU_COUNT + p];
+    end
+    isu_wake_bus #(.N(LSU_LDU_COUNT)) u_wake_lsu (.wake_valid(lsu2iss_wake_valid[2*LSU_LDU_COUNT-1:LSU_LDU_COUNT]),
+                                                    .wake_preg(l3_preg), .woken(woken_lsu));
+    assign cancel_v = '0;
+    logic [LSU_LDU_COUNT-1:0] unused_spec_valid;  // spec wake-up / cancel inputs have no consumer
+    assign unused_spec_valid = lsu2iss_wake_valid[LSU_LDU_COUNT-1:0] | lsu2iss_cancel_valid;
+    logic unused_spec_preg;
+    always_comb begin
+      unused_spec_preg = 1'b0;
+      for (int p = 0; p < LSU_LDU_COUNT; p++) unused_spec_preg ^= ^{lsu2iss_cancel_preg[p], lsu2iss_wake_preg[p]};
+    end
+  end
   assign woken = woken_main | woken_lsu;
 
   for (genvar k = 0; k < WAKE_NUM; k++) begin : g_awake_out

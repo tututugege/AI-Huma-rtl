@@ -208,10 +208,19 @@ module dispatch
 
   // cancel of a wrong speculative load wake-up (LP_L2): the registers are busy again before this cycle's lookups
   logic [PRF_NUM-1:0] cancel_v;
-  always_comb begin
-    cancel_v = '0;
-    for (int k = 0; k < LSU_LDU_COUNT; k++)
-      if (lsu2iss_cancel_valid[k]) cancel_v[lsu2iss_cancel_preg[k]] = 1'b1;
+  if ((lp_pkg::LP_L2 & 8) != 0) begin : g_cancel
+    always_comb begin
+      cancel_v = '0;
+      for (int k = 0; k < LSU_LDU_COUNT; k++)
+        if (lsu2iss_cancel_valid[k]) cancel_v[lsu2iss_cancel_preg[k]] = 1'b1;
+    end
+  end else begin : g_no_cancel
+    assign cancel_v = '0;
+    logic unused_cancel;  // the cancel inputs have no consumer without LP_L2[3]
+    always_comb begin
+      unused_cancel = 1'b0;
+      for (int k = 0; k < LSU_LDU_COUNT; k++) unused_cancel ^= lsu2iss_cancel_valid[k] ^ (^lsu2iss_cancel_preg[k]);
+    end
   end
 
   dispatch_core u_core (
