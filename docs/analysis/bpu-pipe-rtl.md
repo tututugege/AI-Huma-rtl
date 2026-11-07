@@ -33,7 +33,7 @@ S2  比较选择：类型、TAGE provider/alt、BTB/ITT 目标、第一条 taken
 |---|---|
 | `scripts/lint.sh`、`lint_chip.sh` | 0 警告 |
 | ICALL 单独（零气泡 RTL vs 模型 `BPU_PIPE=0` + ICALL） | 67/67 周期逐个相等 |
-| `fm_gate.sh`（逐条提交对比 function-model） | 67/67 PASS，与 `scripts/ref_cycles_bpupipe.txt`（模型默认配置）周期不同的个数 0（串行结构改并行之后重跑，同样 0） |
+| `fm_gate.sh`（逐条提交对比 function-model） | 67/67 PASS，与 `scripts/ref_cycles.txt`（模型默认配置）周期不同的个数 0（串行结构改并行之后重跑，同样 0） |
 | 大程序 | dhrystone 116,054、coremark 295,445、smc-addi 10,244、smc-div 10,802、pf-stress 621,150、memory-stress-small 335,923，全部相等 |
 | 逐提交周期轨迹（`first_diff.sh`，300k 周期） | sha-test、cjpeg、parser-125k、linear_alg、coremark、memory-stress：全部提交（约 20 万到 100 万条）周期与 pc 完全一致（恒定偏移 1，是该脚本的约定） |
 | 已知例外 | `load-store`（不在门禁）：RTL 与旧 RTL 都在“Misaligned Load”处被 function-model 检查中止，与 BPU 无关 |
@@ -71,7 +71,7 @@ S2  比较选择：类型、TAGE provider/alt、BTB/ITT 目标、第一条 taken
 ```
 cd rtl-bpupipe
 SOC_FM=1 SOC_OUT=$PWD/build/soc_bp JOBS=3 bash tb/soc/build.sh
-JOBS=3 REF_CYCLES=$PWD/scripts/ref_cycles_bpupipe.txt bash scripts/fm_gate.sh $PWD/build/soc_bp/obj/soc_tb $PWD/build/gate_bp
+JOBS=3 bash scripts/fm_gate.sh $PWD/build/soc_bp/obj/soc_tb $PWD/build/gate_bp
 # 模型参考周期：JOBS=3 bash scripts/tm_cycles.sh ../trace-model-bpuopt/build_rtl/simulator out.txt
 TM=../trace-model-bpuopt/build_rtl/simulator SOC_TB=$PWD/build/soc_bp/obj/soc_tb bash scripts/first_diff.sh programs/extra/sha-test.bin 100000
 bash scripts/lint.sh; bash scripts/lint_chip.sh
