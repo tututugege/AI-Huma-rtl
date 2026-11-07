@@ -122,11 +122,11 @@ module bpu_hist import bpu_pkg::*; (
   ttg_onehot_mux #(.N(NLANE), .W(3)) u_taken_type (.sel(first_taken), .data(lane_type), .out(spec_taken_type));
 
   always_comb begin
-    spec_push     = pred_gate && any_taken && (spec_taken_type == BR_CALL);
+    spec_push     = pred_gate && any_taken && (spec_taken_type == BR_CALL || spec_taken_type == BR_ICALL);
     spec_pop      = pred_gate && any_taken && (spec_taken_type == BR_RET);
     spec_push_val = first_taken_pc + 32'd4;
     for (int l = 0; l < NCOMMIT; l++) begin
-      arch_push[l]     = upd_valid[l] && (br_type[l] == BR_CALL);
+      arch_push[l]     = upd_valid[l] && (br_type[l] == BR_CALL || br_type[l] == BR_ICALL);
       arch_pop[l]      = upd_valid[l] && (br_type[l] == BR_RET);
       arch_push_val[l] = upd_pc[l] + 32'd4;
     end

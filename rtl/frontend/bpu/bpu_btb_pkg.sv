@@ -60,7 +60,7 @@ package bpu_btb_pkg;
     logic [31:0] t;
     c = {24'd0, cur};
     t = target >> 2;
-    if (br_type == BR_IDIRECT) return BHT_DW'((c ^ (c << 5) ^ (c >> 2)) ^ (t ^ (t >> 11) ^ (t >> 19)) ^ SALT_BHT_UPD);
+    if (br_type == BR_IDIRECT || br_type == BR_ICALL) return BHT_DW'((c ^ (c << 5) ^ (c >> 2)) ^ (t ^ (t >> 11) ^ (t >> 19)) ^ SALT_BHT_UPD);
     return BHT_DW'((c << 1) | {31'd0, dir});
   endfunction
 

@@ -42,7 +42,7 @@ module bpu_pred import bpu_pkg::*; (
       act[i] = going_to_do_pred && lane_valid[i];
       case (lane_type[i])
         BR_NONCTL: lane_taken[i] = 1'b0;
-        BR_RET, BR_CALL, BR_IDIRECT, BR_JAL: lane_taken[i] = act[i];
+        BR_RET, BR_CALL, BR_IDIRECT, BR_ICALL, BR_JAL: lane_taken[i] = act[i];
         default: lane_taken[i] = act[i] && tage_pred[bank_sel[i]];
       endcase
       taken_vec[i]    = lane_taken[i];

@@ -48,7 +48,7 @@ module bpu_btb_pred import bpu_pkg::*; import bpu_btb_pkg::*; (
   // Ref: btb_pred_output_comb
   always_comb begin
     pred_target = pc_plus4;
-    if (br_type == BR_IDIRECT) begin
+    if (br_type == BR_IDIRECT || br_type == BR_ICALL) begin
       if (tc_pre_hit && (!tc_hit || tc_mode >= TC_MODE_BIAS)) pred_target = tc_pre_target;
       else if (tc_hit)                                        pred_target = tc_target;
       else if (btb_hit)                                       pred_target = btb_target;   // INDIRECT_BTB_FALLBACK

@@ -68,9 +68,9 @@ module bpu_btb_upd import bpu_pkg::*; import bpu_btb_pkg::*; (
     tc_tag           = tc_tag_of(upd_pc);
     tc_pred_idx      = tc_idx_of(upd_pc, bht_old);
     tc_write_idx     = tc_idx_of(upd_pc, bht_next);
-    is_idirect_taken = upd_actual_dir && (upd_br_type == BR_IDIRECT);
+    is_idirect_taken = upd_actual_dir && (upd_br_type == BR_IDIRECT || upd_br_type == BR_ICALL);
     writes_btb       = (upd_br_type == BR_DIRECT) || (upd_br_type == BR_CALL) || (upd_br_type == BR_RET) ||
-                       (upd_br_type == BR_JAL) || (upd_br_type == BR_IDIRECT);   // ENABLE_INDIRECT_BTB_TRAIN
+                       (upd_br_type == BR_JAL) || (upd_br_type == BR_IDIRECT) || (upd_br_type == BR_ICALL);   // ENABLE_INDIRECT_BTB_TRAIN
     for (int w = 0; w < B_WAYS; w++) hit_way[w] = btb_set[w].valid && (btb_set[w].tag == tag);
     hit     = |hit_way;
     hit_idx = hit_way[0] ? 2'd0 : hit_way[1] ? 2'd1 : hit_way[2] ? 2'd2 : 2'd3;
@@ -90,7 +90,7 @@ module bpu_btb_upd import bpu_pkg::*; import bpu_btb_pkg::*; (
     btb_wdata.valid  = 1'b1;
     btb_wdata.tag    = tag;
     btb_wdata.bta    = upd_actual_addr;
-    btb_wdata.useful = (upd_br_type == BR_IDIRECT) ? 3'd0 :
+    btb_wdata.useful = (upd_br_type == BR_IDIRECT || upd_br_type == BR_ICALL) ? 3'd0 :
                        hit ? useful_next_of(btb_set[write_way].useful, correct_pred) : 3'd1;
   end
 

@@ -54,6 +54,7 @@ module core_back2front import ttg_cfg_pkg::*; import dis_pkg::*; import bpu_pkg:
   logic [COMMIT_WIDTH-1:0] is_jalr;
   logic [COMMIT_WIDTH-1:0] is_br;
   logic [COMMIT_WIDTH-1:0] is_call;
+  logic [COMMIT_WIDTH-1:0] is_icall;
   logic [COMMIT_WIDTH-1:0] is_ret;
   logic [COMMIT_WIDTH-1:0] class_dir;
   logic [2:0]  class_br_type [COMMIT_WIDTH];
@@ -65,12 +66,14 @@ module core_back2front import ttg_cfg_pkg::*; import dis_pkg::*; import bpu_pkg:
       is_jal[i]  = (commit_type[i] == INST_JAL);
       is_jalr[i] = (commit_type[i] == INST_JALR);
       is_br[i]   = (commit_type[i] == INST_BR);
-      is_call[i] = is_jal[i] && commit_dest_en[i] && (commit_dest_areg[i] == 6'd1);
+      is_icall[i] = is_jalr[i] && commit_dest_en[i] && (commit_dest_areg[i] == 6'd1);   // jalr rd=ra (never a return: that has rd=x0)
+      is_call[i] = (is_jal[i] && commit_dest_en[i] && (commit_dest_areg[i] == 6'd1)) || is_icall[i];
       is_ret[i]  = is_jalr[i] && (commit_src1_areg[i] == 6'd1) && (commit_dest_areg[i] == 6'd0)
                    && (commit_imm[i] == 32'd0);
       class_dir[i]    = is_jal[i] || is_jalr[i] || commit_br_taken[i];
       class_target[i] = (is_br[i] || is_jal[i] || is_jalr[i]) ? commit_diag_val[i] : ftq_pc[i] + 32'd4;
-      if (is_call[i])      class_br_type[i] = BR_CALL;
+      if (is_icall[i])     class_br_type[i] = BR_ICALL;
+      else if (is_call[i]) class_br_type[i] = BR_CALL;
       else if (is_ret[i])  class_br_type[i] = BR_RET;
       else if (is_jalr[i]) class_br_type[i] = BR_IDIRECT;
       else if (is_jal[i])  class_br_type[i] = BR_JAL;
