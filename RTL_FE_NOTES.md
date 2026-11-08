@@ -69,6 +69,43 @@ alone is as deep (186) although its own path (refetch address -> S0) is short. C
 3. BFAST bit1 only if still needed: issue the corrected block's fetch address in the S2 cycle but look it up in S0 with the *registered* corrected pc one cycle later (that is the current design: no gain) or issue it with a fall-through guess (no S0 lookup) and let S2 fix a wrong taken guess with a normal override (keeps the 1-cycle gain on not-taken blocks, costs a bubble on taken ones). The model needs a run to price that.
 The PTAB bypass path (S2 `fin` -> PTAB write-through -> checker -> `predecode_refetch_q`) is the second same-cycle path; it is inside `front_pred_path` (+58 levels in total, mostly the S0 chain above, not separable with this proxy). `pre_idu_queue`: the bypass mux is one mux level inside the module, the real path (front2back bypass -> `front_valid` -> issue group -> IDU decode -> `consume_fire` -> pop count) crosses modules and was not measured.
 
+## Update 2026-11-09: shallower paths, per-bit measurements, recommendation
+
+Changes (pure restructure, no event changes timing, so the model needed no change; model = exp/fe-refs `b02eaf6`):
+- RFAST bit0 only (no BFAST): S0 uses a refetch-only copy of the restore command (`bpu_cmd.hr_*/rr_*`, state `spec_r1` / `sras_r1` in `bpu_spec`), selected by `refetch`;
+  no dependence on the S2 / S1 decisions. The normal (non-refetch) update keeps the old structure; the result is a mux on `refetch`.
+- Fast configurations push history with one linear multi-bit step (`bpu_hist_vec`, up to 6 bits: command push plus S0 push) instead of chained single-bit pushes.
+- `front_pred_path`: `slot_kind` declared before its use (one-line order change; slang accepted it afterwards, lint 0 warnings in all settings).
+- `scripts/fe_sweep.sh` (per-setting build + fm_gate), `scripts/fe_refs/ref_r<R>_b<B>.txt` (model references per setting).
+
+Per setting (RTL: lint.sh + lint_chip.sh 0 warnings in all ten; fm_gate and cycle equality with the model for the same bits on the server (`fe_sweep.sh`);
+depth: `synth_depth.sh`, generic gates, noise about +-10 %; gain: model, 25 points of `points_fe.lst`, precise warm-up, PF_ENABLE=1, geomean IPC change vs all-off):
+
+| RFAST | BFAST | bpu depth | front_pred_path depth | bpu cells | cycles == model (67 prog.) | model IPC gain (25 pts) |
+|---|---|---|---|---|---|---|
+| 0 | 0 | 151 | 138 | 199,240 | 67/67 | 0 |
+| 1 (S0 in refetch cycle) | 0 | 141 | 142 | 237,174 (+19 %) | 67/67 | +1.15 % |
+| 2 (PTAB bypass) | 0 | 151 | 137 | 199,240 | 67/67 | +0.86 % |
+| 4 (I$ ready after kill) | 0 | 151 | 138 | 199,240 | 67/67 | 0.00 % (needs bit0) |
+| 8 (pre-IDU bypass) | 0 | 151 | 138 | 199,240 | 67/67 | +0.99 % |
+| 14 (bits 1,2,3) | 0 | 151 | 137 | 199,240 | 67/67 | +2.02 % |
+| 15 (all) | 0 | 141 | 142 | 237,174 (+19 %) | 67/67 | **+2.61 %** |
+| 0 | 1 (S1 override) | 202 (+34 %) | 195 (+41 %) | 217,154 | 67/67 | +1.17 % |
+| 0 | 2 (S_D override) | 202 (+34 %) | 195 (+41 %) | 217,177 | 67/67 | +1.76 % |
+| 15 | 3 | 199 (+32 %) | 202 (+46 %) | 218,713 | 67/67 | +5.03 % |
+
+(server gate: 64/67 PASS plus 3 zfinx programs that fail the function-model check on the server's older `librefcpu.a` in every setting including all-off; the
+final configuration RFAST=15 BFAST=0 passes 67/67 on the local testbench, cycles equal to the model.)
+
+Per benchmark IPC change of the model for RFAST=15 BFAST=0: perlbench +3.1, bzip2 +0.5, gcc +0.6, gobmk +3.2, hmmer +0.5, sjeng +5.4, h264ref +0.3, astar +5.2, xalancbmk +1.7 %.
+
+Recommendation: **RFAST=15, BFAST=0 on by default**: +2.61 % IPC at no depth cost (bpu 141 vs 151, front_pred_path 142 vs 138 = +3 %, inside the 5 % criterion) for +19 % bpu area
+(two extra history-update networks: the refetch-only state and its push; the area could be recovered by deriving `spec_r2` from `spec_r1` at the price of depth).
+Bit 4 is only useful together with bit 0. BFAST costs +34 % depth (202 vs 151) for +1.2 % (bit0) / +1.8 % (bit1) / about +2.4 % (both on top of RFAST=15): the chain
+S1/S2 compare -> corrected pc -> uBTB set read + tag compare -> history push cannot be shortened without changing event timing (the uBTB index is the late compare result);
+without a frequency target we recommend leaving BFAST off, or taking bit1 alone (+1.8 %) only if the cycle time is set by something deeper than ~200 levels (the
+off-config commit-training path is 151).
+
 ## FE_PAIR (dual-block fetch): cost and plan, not started
 
 FE_PAIR fetches the block at a predicted-taken target in the same cycle as the first block. In the RTL this is a rewrite of the BPU front, not a
