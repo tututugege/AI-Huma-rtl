@@ -59,7 +59,10 @@ module bpu_spec import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
   localparam logic [1:0] M_CK   = 2'd2;
   localparam logic [1:0] M_ARCH = 2'd3;
 
-  hist_t spec_q, spec_d, spec_d1, arch_q, arch_d;
+  /* verilator lint_off UNUSEDSIGNAL */   // only head / folded histories of spec_d1 are read (S0 view)
+  hist_t spec_d1;
+  /* verilator lint_on UNUSEDSIGNAL */
+  hist_t spec_q, spec_d, arch_q, arch_d;
   ras_t  sras_q, sras_d, sras_d1, sras_old, aras_q, aras_d;
 
   // Ref: push_arch: every taken control instruction of the commit lanes pushes its symbol (newest bit first in d)
