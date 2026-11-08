@@ -16,7 +16,9 @@ module lp_ent_ms
   input  lp_ld_st_t           st4,       // state after the write-back frees
   input  logic                wb_go,
   input  logic                wb_go_d,   // the write-back comes from the direct / L3 path (not a WBP pick)
+  /* verilator lint_off UNUSEDSIGNAL */  // the entry view: only the speculation fields are read
   input  lp_ldq_t             f_q,
+  /* verilator lint_on UNUSEDSIGNAL */
   input  logic [SQW:0]        head_tag,
   input  logic [CNTW-1:0]     count_q,
   input  logic                unk_any,   // some store of the STQ ring has no address yet
