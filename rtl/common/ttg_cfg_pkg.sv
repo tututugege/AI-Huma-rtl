@@ -58,7 +58,7 @@ package ttg_cfg_pkg;
   localparam int MOVE_ELIM = 1;
   localparam int MOVE_ELIM_MAX_REFS = 7;
   localparam int LSU_MEMSPEC = 0;
-  localparam int LSU_MDP_BITS = 12;
+  localparam int LSU_MDP_BITS = 6;
   localparam int LSU_MDP_CLR = 2000;
   localparam int CSR_NUM = 21;
   localparam int ROB_BANK_NUM = 8;

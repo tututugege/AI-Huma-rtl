@@ -69,7 +69,7 @@ module lp_cam
   for (genvar j = 0; j < SQ; j++) begin : g_unk
     assign unk_rev[j] = unk_rot[SQ-1-j];
   end
-  assign unk = MS && spec_ok && (|(unk_rev & ~hit_ge));
+  assign unk = (|(unk_rev & ~hit_ge));   // 0 when the load may not pass (an unknown store is then a hit)
 
 endmodule
 

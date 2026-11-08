@@ -4,7 +4,7 @@
 1303 add/add.bin
 2237 atomic-boundary/atomic-boundary.bin
 294272 big/coremark.bin
-115896 big/dhrystone.bin
+116217 big/dhrystone.bin
 1658 bit/bit.bin
 2904 bitmanip-boundary/bitmanip-boundary.bin
 5025 bubble-sort/bubble-sort.bin
@@ -57,9 +57,9 @@
 2024 trap-boundary/trap-boundary.bin
 1285 trap-precise-store/trap-precise-store.bin
 1242 unalign/unalign.bin
-41097 vm-asid-test/vm_asid_test.bin
-19271 vm-pagefault-test/vm_pagefault_test.bin
-25341 vm-sfence-perm-test/vm_sfence_perm_test.bin
+41113 vm-asid-test/vm_asid_test.bin
+19170 vm-pagefault-test/vm_pagefault_test.bin
+25305 vm-sfence-perm-test/vm_sfence_perm_test.bin
 4003 vm-sum-fetch-test/vm_sum_fetch_test.bin
 4558 wanshu/wanshu.bin
 959 wfi-boundary/wfi-boundary.bin
@@ -67,4 +67,4 @@
 1324 zfinx-fdiv/zfinx-fdiv.bin
 1141 zfinx-fsqrt/zfinx-fsqrt.bin
 750 zfinx/zfinx.bin
-3451 directed/memspec_vio.bin
+3438 directed/memspec_vio.bin
