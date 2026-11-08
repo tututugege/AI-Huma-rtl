@@ -89,10 +89,17 @@ FE_IPF (I$ prefetch) is not started: the model's version bypasses the real LLC/A
 
 ## Server / Linux
 
-LINUX_STATUS
+Server 106.14.7.26 (shared; load 20-40 from other agents' jobs when I started, 12 of my 13 segments ran at once = 12 cores). Source sent with
+`RTL_SRC=rtl-fe RTL_DST=/root/rtlroot/rtlfe ./fleet.sh rtlsrc` (tree checked: my `icache_kill` comment present), package switched to RFAST=15 BFAST=3 with `sed`,
+testbench `SOC_FM=1 SOC_VOPT=-DTTG_EBREAK_TRAP tb/soc/build.sh` (single thread), `add` = 1276 cycles (= `ref_cycles_fe_on.txt`).
+`scripts/linux_segments.sh` on the 13 checkpoints `/root/rtlroot/linux/ckpt` (16,000,000 cycles per segment, per-commit function-model check):
+**13 PASS, 0 FAIL**, 0 mismatch lines, 7.0 M - 25.0 M instructions checked per segment (s01 25.0 M, s02 24.5 M, s03 18.8 M, s04 17.7 M, s05 19.7 M, s06 22.0 M, s07 22.8 M,
+s08 22.8 M, s09 18.5 M, s10 11.6 M, s11 7.0 M, s12 7.0 M, s13 7.1 M). Wall time about 1 h 15 min (s13 about 1 h 5 min alone). Results stay on the server in
+`/root/rtlroot/rtlfe/linux_seg` (summary.txt, logs). A single from-reset run to `rv32 login:` (3-4 h) was not repeated for this configuration;
+the segments cover the whole boot (s01-s13) with cold microarchitectural state at every segment start.
 
 ## Housekeeping
 
-Sibling directories used for experiments (`rtl-fe-on`, `rtl-fe-off`, `rtl-fe-r1`, `rtl-fe-b2`: rsync copies with a different generated package) are scratch and
-can be deleted. The first attempt to build a second testbench (`rtl-fe-b2`) ran in the main `rtl` checkout by mistake (`cd` into a directory that was not
+Scratch rsync copies with a different generated package (`rtl-fe-on`, `rtl-fe-off`, `rtl-fe-r1`, `rtl-fe-b2`, next to this worktree) were used for the switches-on builds and
+synthesis and were deleted at the end; `/root/rtlroot/rtlfe` on the server (about 2 GB) is kept until the results are copied. The first attempt to build a second testbench (`rtl-fe-b2`) ran in the main `rtl` checkout by mistake (`cd` into a directory that was not
 created yet): it rebuilt `rtl/build/soc_fm/obj/soc_tb` from the unchanged main sources (same source, new timestamp); nothing else there changed.
