@@ -81,13 +81,20 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_btb_pkg::*; impo
 
   // FE_RFAST bit0 / FE_BFAST: S0 looks up the block at the pc the redirect of this cycle produces, with the history /
   // RAS that redirect leaves, instead of the pc register and the registered speculative state.
-  localparam bit FAST = (FE_RFAST & 1) != 0 || FE_BFAST != 0;
+  localparam bit FAST    = (FE_RFAST & 1) != 0 || FE_BFAST != 0;
+  localparam bit REFONLY = FAST && (FE_BFAST & 3) == 0;   // S0 re-issues only in the refetch cycle: refetch-only state
   always_comb begin
     s0_base         = FAST ? pc1 : pc_q;
     s0_ck           = FAST ? spec1_ck : spec_ck;
     s0_ras_nonempty = FAST ? spec1_ras_nonempty : spec_ras_nonempty;
     s0_ras_top      = FAST ? spec1_ras_top : spec_ras_top;
     s0_fh           = FAST ? spec1_fh : spec_fh;
+    if (REFONLY && !refetch) begin
+      s0_ck           = spec_ck;
+      s0_ras_nonempty = spec_ras_nonempty;
+      s0_ras_top      = spec_ras_top;
+      s0_fh           = spec_fh;
+    end
   end
 
   assign s0_bnd = block_bnd(s0_base);
@@ -174,17 +181,26 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_btb_pkg::*; impo
   logic [1:0]  r2_op;
   logic [31:0] r2_val;
 
+  logic [1:0]  hr_mode, rr_mode, rr_op;
+  hist_ck_t    hr_ck;
+  logic        hr_push_en;
+  logic [HSYM_W-1:0] hr_push_bits;
+  ras_ck_t     rr_ck;
+  logic [31:0] rr_val;
+
   bpu_cmd u_cmd (
     .refetch, .pd_restore, .rep_ok, .ovr, .l1_ov, .issue, .s0_go, .pc(pc_q), .refetch_address, .g0, .g1, .fin,
     .r0(r0_q), .r1(r1_q), .pd_ck, .pd_hv, .pd_hbits, .pd_ras_op, .pd_ras_val, .rf_ck(hist_ck_t'(rf_ck)),
     .rf_type, .rf_pc, .h_mode, .h_ck, .h_push_en, .h_push_bits, .r_mode, .r_ck, .r_op, .r_val, .pc1,
-    .h2_en, .h2_bits, .r2_op, .r2_val, .pc_d
+    .h2_en, .h2_bits, .r2_op, .r2_val, .pc_d,
+    .hr_mode, .hr_ck, .hr_push_en, .hr_push_bits, .rr_mode, .rr_ck, .rr_op, .rr_val
   );
 
   bpu_spec u_spec (
     .clk, .rst_n, .upd_valid, .base_pc, .br_type, .actual_dir, .target, .h_mode, .h_ck, .h_push_en, .h_push_bits,
     .r_mode, .r_ck, .r_op, .r_val, .h2_en, .h2_bits, .r2_op, .r2_val,
-    .spec_ck, .spec_ras_nonempty, .spec_ras_top, .spec_fh, .spec1_ck, .spec1_ras_nonempty, .spec1_ras_top, .spec1_fh
+    .spec_ck, .spec_ras_nonempty, .spec_ras_top, .spec_fh, .spec1_ck, .spec1_ras_nonempty, .spec1_ras_top, .spec1_fh,
+    .refetch, .hr_mode, .hr_ck, .hr_push_en, .hr_push_bits, .rr_mode, .rr_ck, .rr_op, .rr_val
   );
 
   bpu_pdq u_pdq (
