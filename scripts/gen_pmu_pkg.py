@@ -13,9 +13,14 @@ from pathlib import Path
 root = Path(__file__).resolve().parent.parent
 src = Path(sys.argv[1] if len(sys.argv) > 1 else os.environ.get("PMU_EVENTS_DEF", root.parent / "trace-model" / "include" / "pmu_events.def"))
 evs = []
+skipped = False
 for line in src.read_text().splitlines():
-    m = re.match(r'\s*PMU_EV\((\w+),\s*(\w+),\s*(\d+),\s*"(.*)"\)\s*$', line)
+    m = re.match(r'\s*PMU_EV\((\w+),\s*(\w+),\s*(\d+),\s*"(.*)"\)\s*(//.*)?$', line)
     if m:
+        if m.group(5) and "model-only" in m.group(5):   # trailing "// model-only": counted by the trace-model only, no RTL lane
+            skipped = True
+            continue
+        assert not skipped, f"{m.group(1)}: an event with an RTL lane follows a model-only one; ids would no longer match the model's list (tag only the tail of the table)"
         evs.append((m.group(1), m.group(2), int(m.group(3)), m.group(4)))
 assert evs, f"no events in {src}"
 inc_w = max(w for _, _, w, _ in evs)
