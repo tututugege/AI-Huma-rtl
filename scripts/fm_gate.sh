@@ -8,7 +8,7 @@
 set -uo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd); . "$ROOT/scripts/env.sh"
 TB=$1; OUT=$2; mkdir -p "$OUT"
-{ ls "$TTG_PROGS"/tests/*/*.bin "$TTG_PROGS"/vm/*/*.bin; echo "$TTG_BIG/dhrystone.bin"; echo "$TTG_BIG/coremark.bin"; } > "$OUT/progs.txt"
+{ ls "$TTG_PROGS"/tests/*/*.bin "$TTG_PROGS"/vm/*/*.bin "$ROOT"/programs/directed/*.bin; echo "$TTG_BIG/dhrystone.bin"; echo "$TTG_BIG/coremark.bin"; } > "$OUT/progs.txt"
 one() {
   ref=$1; rel=$2; n=$(basename "$rel" .bin)
   p=$(grep -F "/$rel" "$OUT/progs.txt" | head -1); [ -n "$p" ] || { echo "SKIP $n"; return; }

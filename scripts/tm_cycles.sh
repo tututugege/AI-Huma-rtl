@@ -9,6 +9,7 @@ one() {
   rel=$1
   case "$rel" in
     big/*) p=$TTG_BIG/${rel#big/} ;;
+    directed/*) p=$ROOT/programs/$rel ;;
     *) p=$TTG_PROGS/tests/$rel; [ -f "$p" ] || p=$TTG_PROGS/vm/$rel ;;
   esac
   c=$(cd "$(dirname "$(dirname "$SIMB")")" && perl -e 'alarm 900; exec @ARGV' "$SIMB" "$p" 2>&1 | grep -a -o 'sim-time(cycle)= *[0-9]*' | tail -1 | grep -o '[0-9]*$')
