@@ -1,10 +1,10 @@
-# Trace-model cycles of the default configuration plus LSU_MEMSPEC=1 (EXP-019, trace-model exp/memspec-refs, LSU_MDP_HW=1 default, LSU_MDP_NTR=2) and the directed test directed/memspec_vio.bin: staged LSU (trace-model lsu-pipe-fix default LSU_PIPE=1 CUT=127 L2=115 DRAIN=3 DCAND=4 RP=4, run with LSU_PIPE_NOWD=1 (the RTL has no watchdog); RTL LP_CUT=262143, LP_L2=1907, NRP=4, NDR=3, NDC=4), L1D prefetcher on, move elimination on.
+# Trace-model cycles of the default configuration plus LSU_MEMSPEC=1 LSU_MS_DATA=1 (EXP-019/020, trace-model exp/memspec-refs after the merge of exp/ms-data, LSU_MDP_HW=1, LSU_MDP_NTR=2) and the directed test directed/memspec_vio.bin: staged LSU (trace-model lsu-pipe-fix default LSU_PIPE=1 CUT=127 L2=115 DRAIN=3 DCAND=4 RP=4, run with LSU_PIPE_NOWD=1 (the RTL has no watchdog); RTL LP_CUT=262143, LP_L2=1907, NRP=4, NDR=3, NDC=4), L1D prefetcher on, move elimination on.
 # Legacy LSU (before LSU_PIPE): ref_cycles_legacy_lsu.txt.  Prefetcher off: ref_cycles_nopf.txt (RTL: SOC_VOPT="-GPF_EN=0", trace-model PF_ENABLE=0).
 1887 add-longlong/add-longlong.bin
 1303 add/add.bin
 2237 atomic-boundary/atomic-boundary.bin
 294272 big/coremark.bin
-115830 big/dhrystone.bin
+115896 big/dhrystone.bin
 1658 bit/bit.bin
 2904 bitmanip-boundary/bitmanip-boundary.bin
 5025 bubble-sort/bubble-sort.bin
@@ -58,7 +58,7 @@
 1285 trap-precise-store/trap-precise-store.bin
 1242 unalign/unalign.bin
 41097 vm-asid-test/vm_asid_test.bin
-19270 vm-pagefault-test/vm_pagefault_test.bin
+19271 vm-pagefault-test/vm_pagefault_test.bin
 25341 vm-sfence-perm-test/vm_sfence_perm_test.bin
 4003 vm-sum-fetch-test/vm_sum_fetch_test.bin
 4558 wanshu/wanshu.bin
