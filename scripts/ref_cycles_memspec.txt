@@ -67,4 +67,4 @@
 1324 zfinx-fdiv/zfinx-fdiv.bin
 1141 zfinx-fsqrt/zfinx-fsqrt.bin
 750 zfinx/zfinx.bin
-3467 directed/memspec_vio.bin
+3451 directed/memspec_vio.bin
