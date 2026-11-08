@@ -238,6 +238,12 @@ module back_top import ttg_cfg_pkg::*; (
   logic [BR_MASK_WIDTH-1:0] dis2lsu_ldq_br_mask [DECODE_WIDTH];
   logic [5:0] dis2lsu_ldq_idx [DECODE_WIDTH];
   logic [DECODE_WIDTH-1:0] dis2lsu_ldq_rob_flag;
+  logic [LSU_MDP_BITS-1:0] dis2lsu_ldq_mdp [DECODE_WIDTH];
+  logic [LSU_MDP_BITS-1:0] ren2dis_uop_mdp [DECODE_WIDTH];
+  logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_rob_defer;
+  logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_flush_pipe;
+  logic [ISSUE_WIDTH-1:0] exu2rob_entry_uop_rob_defer;
+  logic [ISSUE_WIDTH-1:0] exu2rob_entry_uop_flush_pipe;
   logic [6:0] dis2lsu_ldq_rob_idx [DECODE_WIDTH];
   logic [DECODE_WIDTH-1:0] dis2lsu_rob_flag;
   logic [6:0] dis2lsu_rob_idx [DECODE_WIDTH];
@@ -513,6 +519,10 @@ module back_top import ttg_cfg_pkg::*; (
     .ftq_prf_pc_req_req_ftq_idx(ftq_prf_pc_req_req_ftq_idx),
     .ftq_prf_pc_req_req_ftq_offset(ftq_prf_pc_req_req_ftq_offset),
     .ftq_prf_pc_req_req_valid(ftq_prf_pc_req_req_valid),
+    // wait-table index of the loads entering dispatch (LSU_MEMSPEC)
+    .ftq_dis_req_ftq_idx(ren2dis_uop_ftq_idx),
+    .ftq_dis_req_ftq_offset(ren2dis_uop_ftq_offset),
+    .ftq_dis_resp_mdp(ren2dis_uop_mdp),
     // inputs from rob
     .ftq_rob_pc_req_req_ftq_idx(ftq_rob_pc_req_req_ftq_idx),
     .ftq_rob_pc_req_req_ftq_offset(ftq_rob_pc_req_req_ftq_offset),
@@ -738,6 +748,7 @@ module back_top import ttg_cfg_pkg::*; (
     .ren2dis_uop_ftq_idx(ren2dis_uop_ftq_idx),
     .ren2dis_uop_ftq_is_last(ren2dis_uop_ftq_is_last),
     .ren2dis_uop_ftq_offset(ren2dis_uop_ftq_offset),
+    .ren2dis_uop_mdp(ren2dis_uop_mdp),
     .ren2dis_uop_func3(ren2dis_uop_func3),
     .ren2dis_uop_func7(ren2dis_uop_func7),
     .ren2dis_uop_illegal_inst(ren2dis_uop_illegal_inst),
@@ -824,7 +835,8 @@ module back_top import ttg_cfg_pkg::*; (
     .dis2lsu_ldq_br_mask(dis2lsu_ldq_br_mask),
     .dis2lsu_ldq_idx(dis2lsu_ldq_idx),
     .dis2lsu_ldq_rob_idx(dis2lsu_ldq_rob_idx),
-    .dis2lsu_ldq_rob_flag(dis2lsu_ldq_rob_flag)
+    .dis2lsu_ldq_rob_flag(dis2lsu_ldq_rob_flag),
+    .dis2lsu_ldq_mdp(dis2lsu_ldq_mdp)
   );
 
   // ================= isu: Isu + IssueQueue (back-end/Isu.cpp)
@@ -1014,6 +1026,8 @@ module back_top import ttg_cfg_pkg::*; (
     .lsu2exe_wb_req_uop_diag_val(lsu2exe_wb_req_uop_diag_val),
     .lsu2exe_wb_req_uop_page_fault_load(lsu2exe_wb_req_uop_page_fault_load),
     .lsu2exe_wb_req_uop_page_fault_store(lsu2exe_wb_req_uop_page_fault_store),
+    .lsu2exe_wb_req_uop_rob_defer(lsu2exe_wb_req_uop_rob_defer),
+    .lsu2exe_wb_req_uop_flush_pipe(lsu2exe_wb_req_uop_flush_pipe),
     .lsu2exe_wb_req_uop_result(lsu2exe_wb_req_uop_result),
     .lsu2exe_wb_req_uop_rob_idx(lsu2exe_wb_req_uop_rob_idx),
     .lsu2exe_wb_req_valid(lsu2exe_wb_req_valid),
@@ -1071,6 +1085,8 @@ module back_top import ttg_cfg_pkg::*; (
     .exu2rob_entry_uop_br_taken(exu2rob_entry_uop_br_taken),
     .exu2rob_entry_uop_page_fault_load(exu2rob_entry_uop_page_fault_load),
     .exu2rob_entry_uop_page_fault_store(exu2rob_entry_uop_page_fault_store),
+    .exu2rob_entry_uop_rob_defer(exu2rob_entry_uop_rob_defer),
+    .exu2rob_entry_uop_flush_pipe(exu2rob_entry_uop_flush_pipe),
     .exe2lsu_ldu_req_valid(exe2lsu_ldu_req_valid),
     .exe2lsu_ldu_req_uop_result(exe2lsu_ldu_req_uop_result),
     .exe2lsu_ldu_req_uop_dest_preg(exe2lsu_ldu_req_uop_dest_preg),
@@ -1184,6 +1200,8 @@ module back_top import ttg_cfg_pkg::*; (
     .exu2rob_entry_uop_op(exu2rob_entry_uop_op),
     .exu2rob_entry_uop_page_fault_load(exu2rob_entry_uop_page_fault_load),
     .exu2rob_entry_uop_page_fault_store(exu2rob_entry_uop_page_fault_store),
+    .exu2rob_entry_uop_rob_defer(exu2rob_entry_uop_rob_defer),
+    .exu2rob_entry_uop_flush_pipe(exu2rob_entry_uop_flush_pipe),
     .exu2rob_entry_uop_result(exu2rob_entry_uop_result),
     .exu2rob_entry_uop_rob_idx(exu2rob_entry_uop_rob_idx),
     .exu2rob_entry_valid(exu2rob_entry_valid),
@@ -1318,6 +1336,7 @@ module back_top import ttg_cfg_pkg::*; (
     .dis2lsu_ldq_br_mask(dis2lsu_ldq_br_mask),
     .dis2lsu_ldq_idx(dis2lsu_ldq_idx),
     .dis2lsu_ldq_rob_flag(dis2lsu_ldq_rob_flag),
+    .dis2lsu_ldq_mdp(dis2lsu_ldq_mdp),
     .dis2lsu_ldq_rob_idx(dis2lsu_ldq_rob_idx),
     .dis2lsu_rob_flag(dis2lsu_rob_flag),
     .dis2lsu_rob_idx(dis2lsu_rob_idx),
@@ -1409,6 +1428,8 @@ module back_top import ttg_cfg_pkg::*; (
     .lsu2exe_wb_req_uop_dest_en(lsu2exe_wb_req_uop_dest_en),
     .lsu2exe_wb_req_uop_page_fault_load(lsu2exe_wb_req_uop_page_fault_load),
     .lsu2exe_wb_req_uop_page_fault_store(lsu2exe_wb_req_uop_page_fault_store),
+    .lsu2exe_wb_req_uop_rob_defer(lsu2exe_wb_req_uop_rob_defer),
+    .lsu2exe_wb_req_uop_flush_pipe(lsu2exe_wb_req_uop_flush_pipe),
     .lsu2exe_sta_wb_req_valid(lsu2exe_sta_wb_req_valid),
     .lsu2exe_sta_wb_req_uop_diag_val(lsu2exe_sta_wb_req_uop_diag_val),
     .lsu2exe_sta_wb_req_uop_result(lsu2exe_sta_wb_req_uop_result),

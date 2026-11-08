@@ -79,6 +79,7 @@ package dis_pkg;
     logic [CSR_IDX_WIDTH-1:0]  csr_idx;
     logic                      page_fault_inst;
     logic                      illegal_inst;
+    logic [LSU_MDP_BITS-1:0]   mdp;           // wait-table index of the PC (LSU_MEMSPEC; loads only use it)
   } dis_inst_t;
 
   // Resources assigned to a slot in the allocation stage (ROB line slot, STQ/LDQ entries).

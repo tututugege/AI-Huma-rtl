@@ -50,7 +50,8 @@ module lp_wake
       end
       // L3 wake-up (a2): not for a load that was woken speculatively
       if ((LP_L2 & 3) == 3) begin
-        wk_valid[NLD + p] = wbw_v[p] && !l3_sw_q[p] && ldq_q[wbw_idx[p]].dest_preg != '0 && !flush &&
+        wk_valid[NLD + p] = wbw_v[p] && !l3_sw_q[p] && !(MS && ldq_q[wbw_idx[p]].second) &&
+                            ldq_q[wbw_idx[p]].dest_preg != '0 && !flush &&
                             !(mispred && (ldq_q[wbw_idx[p]].br_mask & dec_br_mask) != '0);
         wk_preg[NLD + p] = ldq_q[wbw_idx[p]].dest_preg;
       end

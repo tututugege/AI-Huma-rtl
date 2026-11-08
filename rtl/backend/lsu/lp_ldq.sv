@@ -28,6 +28,22 @@ module lp_ldq
   input  logic [NLD-1:0]      rs_busy,
   // P5 write-back
   input  logic [LQ-1:0]       wb_go,
+  input  logic [LQ-1:0]       wb_go_d,
+  input  logic [NLD-1:0]      wbd_v,
+  input  logic [LQW-1:0]      wbd_idx [NLD],
+  input  logic [31:0]         wbd_data [NLD],
+  // memory speculation
+  input  logic [SQW:0]        head_tag,
+  input  logic [CNTW-1:0]     count_q,
+  input  logic                unk_any,
+  input  logic [SQW-1:0]      unk_rank,
+  input  logic [NST-1:0]      sa_v,
+  input  logic [SQW-1:0]      sa_rank [NST],
+  input  logic [11:0]         sa_voff [NST],
+  input  logic [2:0]          sa_f3 [NST],
+  input  logic [NLD-1:0]      cam_en,
+  input  logic [NLD-1:0]      cam_unk,
+  output logic [LQ-1:0]       vio_new,
   // P6 / P8 / P12 L1
   input  lp_agu_ld_t          agl [NLD],
   input  lp_l1in_t            l1 [NLD],
@@ -125,6 +141,8 @@ module lp_ldq
     logic [31:0]     rs_raw_e;
     logic [NLD-1:0]  tl_tgt, l1_tgt;
     lp_wk_t          l2w_e;
+    logic            sp_we, sp_val;
+    logic [31:0]     wb_d_data;
 
     always_comb begin
       l2_v = 1'b0;
@@ -137,9 +155,17 @@ module lp_ldq
       rs_rep_e = '0;
       rs_raw_e = '0;
       l2w_e = '0;
+      sp_we = 1'b0;
+      sp_val = 1'b0;
+      wb_d_data = '0;
       for (int p = 0; p < NLD; p++) begin
         tl_tgt[p] = l1[p].v && l1[p].need_tlb && l1[p].ldq == LQW'(e);
         l1_tgt[p] = l1[p].v && l1[p].ldq == LQW'(e);
+        if (wbd_v[p] && wbd_idx[p] == LQW'(e)) wb_d_data = wbd_data[p];
+        if (l1_tgt[p] && cam_en[p]) begin
+          sp_we = 1'b1;
+          sp_val = cam_unk[p];
+        end
         if (pl12[p].v && pl12[p].ldq == LQW'(e)) begin
           l2_v = 1'b1;
           l2_ep = pl12[p].epoch;
@@ -163,8 +189,11 @@ module lp_ldq
       .l2_v(l2_v), .l2_ep(l2_ep), .l2_dec(l2_dec_e), .l2_ok(l2_ok[e]),
       .rs_v(rs_v), .rs_ep(rs_ep), .rs_hit(rs_hit_e), .rs_rep(rs_rep_e), .rs_raw(rs_raw_e), .rs_busy(rs_busy_e),
       .rs_ok(rs_ok[e]),
-      .wb_go(wb_go[e]), .st3_wbp(wbp3[e]), .pipe_r(pipe_r[e]), .wb3_r(wb3_r[e]), .wbp_r(wbp_r[e]),
+      .wb_go(wb_go[e]), .wb_go_d(wb_go_d[e]), .wb_d_data(wb_d_data), .st3_wbp(wbp3[e]), .pipe_r(pipe_r[e]),
+      .wb3_r(wb3_r[e]), .wbp_r(wbp_r[e]),
       .wbp_m(wbp_m[e]), .res_v(res_v[e]),
+      .head_tag(head_tag), .count_q(count_q), .unk_any(unk_any), .unk_rank(unk_rank), .sa_v(sa_v),
+      .sa_rank(sa_rank), .sa_voff(sa_voff), .sa_f3(sa_f3), .sp_we(sp_we), .sp_val(sp_val), .vio_new(vio_new[e]),
       .ag(agl), .ag_acc(ag_acc_e[e]),
       .tl_tgt(tl_tgt), .tl(tl_l),
       .rb_hi_valid(rb_hi_valid), .rb_hi_rob_idx(rb_hi_rob_idx), .rb_head_valid(rb_head_valid),

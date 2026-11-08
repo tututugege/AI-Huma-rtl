@@ -279,6 +279,8 @@ package exu_ctrl_pkg;
     logic                     dest_en;
     logic                     page_fault_load;
     logic                     page_fault_store;
+    logic                     rob_defer;       // LSU_MEMSPEC: the ROB completion of the load is deferred
+    logic                     flush_pipe;      // LSU_MEMSPEC: final write-back of a violating load
   } xc_lsu_wb_t;
 
 endpackage

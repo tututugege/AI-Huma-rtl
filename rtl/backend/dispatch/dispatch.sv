@@ -21,6 +21,7 @@ module dispatch
   input  logic [5:0] ren2dis_uop_ftq_idx [DECODE_WIDTH],
   input  logic [FTQ_OFFSET_WIDTH-1:0] ren2dis_uop_ftq_offset [DECODE_WIDTH],
   input  logic [DECODE_WIDTH-1:0] ren2dis_uop_ftq_is_last,
+  input  logic [LSU_MDP_BITS-1:0] ren2dis_uop_mdp [DECODE_WIDTH],   // wait-table index of the PC (LSU_MEMSPEC)
   input  logic [4:0] ren2dis_uop_type [DECODE_WIDTH],
   input  logic [DECODE_WIDTH-1:0] ren2dis_uop_dest_en,
   input  logic [DECODE_WIDTH-1:0] ren2dis_uop_src1_en,
@@ -123,7 +124,8 @@ module dispatch
   output logic [BR_MASK_WIDTH-1:0] dis2lsu_ldq_br_mask [DECODE_WIDTH],
   output logic [5:0] dis2lsu_ldq_idx [DECODE_WIDTH],
   output logic [6:0] dis2lsu_ldq_rob_idx [DECODE_WIDTH],
-  output logic [DECODE_WIDTH-1:0] dis2lsu_ldq_rob_flag
+  output logic [DECODE_WIDTH-1:0] dis2lsu_ldq_rob_flag,
+  output logic [LSU_MDP_BITS-1:0] dis2lsu_ldq_mdp [DECODE_WIDTH]
 );
 
   logic [NUM_SLOTS-1:0] ren_valid;
@@ -150,6 +152,7 @@ module dispatch
   logic [BR_MASK_WIDTH-1:0]      ld_br_mask  [LDQ_PORTS];
   logic [ROB_IDX_WIDTH-1:0]      ld_rob_idx  [LDQ_PORTS];
   logic [LDQ_PORTS-1:0] ld_rob_flag;
+  logic [LSU_MDP_BITS-1:0]       ld_mdp      [LDQ_PORTS];
   logic [NUM_WAKE-1:0] wake_valid;
   logic [PRF_IDX_WIDTH-1:0]      wake_preg  [NUM_WAKE];
 
@@ -169,6 +172,7 @@ module dispatch
       ren_inst[i].ftq_idx = ren2dis_uop_ftq_idx[i];
       ren_inst[i].ftq_offset = ren2dis_uop_ftq_offset[i];
       ren_inst[i].ftq_is_last = ren2dis_uop_ftq_is_last[i];
+      ren_inst[i].mdp = ren2dis_uop_mdp[i];
       ren_inst[i].dest_en = ren2dis_uop_dest_en[i];
       ren_inst[i].src1_en = ren2dis_uop_src1_en[i];
       ren_inst[i].src2_en = ren2dis_uop_src2_en[i];
@@ -234,7 +238,7 @@ module dispatch
     .ldq_free(lsu2dis_ldq_free), .ldq_alloc_idx(ldq_alloc_idx), .ldq_alloc_valid(ldq_alloc_valid),
     .st_req(st_req), .st_br_mask(st_br_mask), .st_func3(st_func3), .st_rob_idx(st_rob_idx),
     .st_rob_flag(st_rob_flag), .st_stq_flag(st_stq_flag), .ld_req(ld_req), .ld_idx(ld_idx),
-    .ld_br_mask(ld_br_mask), .ld_rob_idx(ld_rob_idx), .ld_rob_flag(ld_rob_flag),
+    .ld_br_mask(ld_br_mask), .ld_rob_idx(ld_rob_idx), .ld_rob_flag(ld_rob_flag), .ld_mdp(ld_mdp),
     .wake_valid(wake_valid), .wake_preg(wake_preg), .rob_flush(rob_bcast_flush),
     .dec_mispred(dec_bcast_mispred), .dec_clear_mask(dec_bcast_clear_mask));
 
@@ -323,6 +327,7 @@ module dispatch
       dis2lsu_ldq_br_mask[k]   = ld_br_mask[k];
       dis2lsu_ldq_rob_idx[k]   = ld_rob_idx[k];
       dis2lsu_ldq_rob_flag[k]  = ld_rob_flag[k];
+      dis2lsu_ldq_mdp[k]       = ld_mdp[k];
     end
   end
 

@@ -60,6 +60,8 @@ module exu_ctrl
   input  logic [ROB_IDX_WIDTH-1:0] lsu2exe_wb_req_uop_rob_idx [LSU_LOAD_WB_WIDTH],
   input  logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_dest_en,
   input  logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_page_fault_load,
+  input  logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_rob_defer,
+  input  logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_flush_pipe,
   input  logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_page_fault_store,
   input  logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_valid,
   input  logic [LSU_STA_COUNT-1:0] lsu2exe_sta_wb_req_valid,
@@ -92,6 +94,8 @@ module exu_ctrl
   output logic [ISSUE_WIDTH-1:0] exu2rob_entry_uop_mispred,
   output logic exu2rob_entry_uop_br_taken [ISSUE_WIDTH],
   output logic [ISSUE_WIDTH-1:0] exu2rob_entry_uop_page_fault_load,
+  output logic [ISSUE_WIDTH-1:0] exu2rob_entry_uop_rob_defer,
+  output logic [ISSUE_WIDTH-1:0] exu2rob_entry_uop_flush_pipe,
   output logic [ISSUE_WIDTH-1:0] exu2rob_entry_uop_page_fault_store,
   output logic [LSU_LDU_COUNT-1:0] exe2lsu_ldu_req_valid,
   output logic [31:0] exe2lsu_ldu_req_uop_result [LSU_LDU_COUNT],
@@ -226,7 +230,9 @@ module exu_ctrl
       rob_idx:          lsu2exe_wb_req_uop_rob_idx[i],
       dest_en:          lsu2exe_wb_req_uop_dest_en[i],
       page_fault_load:  lsu2exe_wb_req_uop_page_fault_load[i],
-      page_fault_store: lsu2exe_wb_req_uop_page_fault_store[i]
+      page_fault_store: lsu2exe_wb_req_uop_page_fault_store[i],
+      rob_defer:        lsu2exe_wb_req_uop_rob_defer[i],
+      flush_pipe:       lsu2exe_wb_req_uop_flush_pipe[i]
     };
   end
 
@@ -240,7 +246,9 @@ module exu_ctrl
       rob_idx:          lsu2exe_sta_wb_req_uop_rob_idx[i],
       dest_en:          1'b0,
       page_fault_load:  1'b0,
-      page_fault_store: lsu2exe_sta_wb_req_uop_page_fault_store[i]
+      page_fault_store: lsu2exe_sta_wb_req_uop_page_fault_store[i],
+      rob_defer:        1'b0,
+      flush_pipe:       1'b0
     };
   end
 
@@ -300,7 +308,8 @@ module exu_ctrl
     .valid(exu2rob_entry_valid), .rob_idx(exu2rob_entry_uop_rob_idx), .op(exu2rob_entry_uop_op),
     .diag_val(exu2rob_entry_uop_diag_val), .result(exu2rob_entry_uop_result),
     .br_mispred(exu2rob_entry_uop_mispred), .br_taken(exu2rob_entry_uop_br_taken),
-    .page_fault_load(exu2rob_entry_uop_page_fault_load), .page_fault_store(exu2rob_entry_uop_page_fault_store)
+    .page_fault_load(exu2rob_entry_uop_page_fault_load), .page_fault_store(exu2rob_entry_uop_page_fault_store),
+    .rob_defer(exu2rob_entry_uop_rob_defer), .flush_pipe(exu2rob_entry_uop_flush_pipe)
   );
 
   exu_ctrl_br_arb u_br (

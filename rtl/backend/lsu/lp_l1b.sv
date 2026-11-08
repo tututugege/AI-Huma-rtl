@@ -23,6 +23,9 @@ module lp_l1b
   input  logic [11:0]         cv_voff [SQ],
   input  logic [2:0]          cv_f3 [SQ],
   input  lp_stq_t             sq [SQ],
+  input  logic [NLD-1:0]      spec_ok,         // memory speculation: the load of slot k may pass unknown-address stores
+  output logic [NLD-1:0]      cam_en,          // slot k wrote its CAM result: spec flag update
+  output logic [NLD-1:0]      cam_unk,
   output logic [NLD-1:0]      l1_launch,
   output logic [NLD-1:0]      dcl_req_valid,
   output logic [31:0]         dcl_req_addr [NLD],
@@ -35,13 +38,15 @@ module lp_l1b
   logic [NLD-1:0]  ok8, dcblk;
   for (genvar k = 0; k < NLD; k++) begin : g_cam
     logic en;
-    logic cv;
+    logic cv, cu;
     logic [SQW-1:0] ci;
     assign en = l1[k].v && l_hit[k] && !l_mmio[k];
     lp_cam u_cam (.voff(l1[k].vaddr[11:0]), .func3(l1[k].func3), .paddr(l_paddr[k]), .full(!l1[k].need_tlb),
                   .snap_idx(l1[k].snap_idx), .snap_flag(l1[k].snap_flag), .head(head_q), .head_flag(head_flag_q),
                   .count(count_q), .cv_va(cv_va), .cv_voff(cv_voff), .cv_f3(cv_f3), .sq(sq),
-                  .cand_v(cv), .cand(ci));
+                  .spec_ok(spec_ok[k]), .cand_v(cv), .cand(ci), .unk(cu));
+    assign cam_en[k] = en;
+    assign cam_unk[k] = cu;
     assign cam_v[k] = en && cv;
     assign cam_i[k] = ci;
   end

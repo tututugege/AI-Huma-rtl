@@ -72,6 +72,8 @@ module lp_core
   output logic [NLD-1:0]      wb_dest_en,
   output logic [NLD-1:0]      wb_pf_load,
   output logic [NLD-1:0]      wb_pf_store,
+  output logic [NLD-1:0]      wb_defer,
+  output logic [NLD-1:0]      wb_flushp,
   output logic [NST-1:0]      sta_valid,
   output logic [31:0]         sta_vaddr [NST],
   output logic [BRW-1:0]      sta_br [NST],
@@ -99,7 +101,6 @@ module lp_core
   output logic [31:0]         mmu_s_req_vaddr [NST],
   output logic [SQW-1:0]      mmu_s_req_idx [NST]
 );
-
   // ------------------------------------------------------------------ registers outside the queues
   lp_pl12_t        pl12_q [NLD];
   logic [NRP-1:0]  rp_v_q;
@@ -118,13 +119,11 @@ module lp_core
   logic [LQW-1:0]  mi_idx;
   logic [31:0]     mi_addr;
   logic [2:0]      mi_func3;
-
   logic [SQW-1:0]  head_q;
   logic            head_flag_q;
   logic [CNTW-1:0] count_q, ccount_q, count_flushed;
-  logic [SQ-1:0]   alive_w, win4, win13, alive_post, alive_fl, cm_go, al_v, ev_ret;
+  logic [SQ-1:0]   alive_w, win4, win13, alive_post, alive_fl, cm_go, al_v, ev_ret, done_q_v;
   logic [SQ-1:0][NDIS-1:0] al_slot;
-  logic [SQ-1:0]   done_q_v;
   logic [SQ-1:0]   cv_va, done_v, trp_v, d_elig, d_rdy, d_blk, sd_acc;
   logic [11:0]     cv_voff [SQ];
   logic [2:0]      cv_f3 [SQ];
@@ -177,7 +176,7 @@ module lp_core
                   .cn_preg(o_cn_preg));
 
   // ------------------------------------------------------------------ write-back (P5)
-  logic [LQ-1:0]   wb_go;
+  logic [LQ-1:0]   wb_go, wb_go_d;
   logic [SQ-1:0]   wb_go_s, sc_go;
   logic            lr1_v, sc_clr, lr2_v;
   logic [31:0]     lr1_addr, lr2_addr;
@@ -189,9 +188,11 @@ module lp_core
   lp_wb u_wb (
     .wbd_v(wbw_v), .wbd_idx(wbw_idx), .wbd_hasdata(wbw_hd), .wbd_data(wbw_data),
     .ldq_q(ldq_q), .ldq_res(res_v), .wbp_vec(wbp_sel), .sq(sq), .alive_w(alive_w), .head_q(head_q),
-    .rsv_valid(rsv_valid_q), .rsv_addr(rsv_addr_q), .wb_go(wb_go), .wb_go_s(wb_go_s), .sc_go(sc_go),
+    .rsv_valid(rsv_valid_q), .rsv_addr(rsv_addr_q), .wb_go(wb_go), .wb_go_d(wb_go_d), .wb_go_s(wb_go_s),
+    .sc_go(sc_go),
     .wb_valid(wb_valid), .wb_diag(wb_diag), .wb_result(wb_result), .wb_dest(wb_dest), .wb_br(wb_br),
     .wb_rob(wb_rob), .wb_dest_en(wb_dest_en), .wb_pf_load(wb_pf_load), .wb_pf_store(wb_pf_store),
+    .wb_defer(wb_defer), .wb_flushp(wb_flushp),
     .sta_valid(sta_valid), .sta_vaddr(sta_vaddr), .sta_br(sta_br), .sta_rob(sta_rob), .sta_pf(sta_pf),
     .lr1_v(lr1_v), .lr1_addr(lr1_addr), .lr1_br(lr1_br), .sc_clr(sc_clr),
     .lr2_v(lr2_v), .lr2_addr(lr2_addr), .lr2_br(lr2_br));
@@ -228,11 +229,23 @@ module lp_core
     .s1_v(s1_v), .s1_replay(s1_replay), .s1_stq(s1_stq), .tl_s(tl_s), .tl_s_miss(tl_s_miss),
     .srp_cons(srp_cons), .pf_any(pf_any));
 
-  logic [NLD-1:0]  l1_launch;
+  // memory speculation (LSU_MEMSPEC): store-queue views, wait table, per-slot permission to pass unknown stores
+  logic [NLD-1:0]  l1_launch, cam_en, cam_unk, spec_ok;
+  logic            unk_any;
+  logic [SQW-1:0]  unk_rank, sa_rank [NST];
+  logic [11:0]     sa_voff [NST];
+  logic [2:0]      sa_f3 [NST];
+  logic [LQ-1:0]   vio_new;
+  lp_dis_ld_t      dis_ldw [NDIS];
+  lp_ms u_ms (.clk(clk), .rst_n(rst_n), .sq(sq), .head_q(head_q), .ags(ags), .dis_ld(dis_ld), .vio_new(vio_new),
+              .ldq_q(ldq_q), .l1(l1), .unk_any(unk_any), .unk_rank(unk_rank), .sa_rank(sa_rank), .sa_voff(sa_voff),
+              .sa_f3(sa_f3), .dis_ldw(dis_ldw), .spec_ok(spec_ok));
+
   lp_l1b u_l1b (.clk(clk), .l1(l1), .l_hit(l_hit), .l_mmio(l_mmio), .l_paddr(l_paddr), .l_tlb(l_tlb),
                 .ld_retry_busy(ld_retry_busy), .pipe8(pipe8_sel), .epoch_nx(epoch_nx), .head_q(head_q),
                 .head_flag_q(head_flag_q), .count_q(count_q), .cv_va(cv_va), .cv_voff(cv_voff), .cv_f3(cv_f3), .sq(sq),
-                .l1_launch(l1_launch), .dcl_req_valid(dcl_req_valid), .dcl_req_addr(dcl_req_addr),
+                .spec_ok(spec_ok), .cam_en(cam_en), .cam_unk(cam_unk), .l1_launch(l1_launch),
+                .dcl_req_valid(dcl_req_valid), .dcl_req_addr(dcl_req_addr),
                 .dcl_req_id_o(dcl_req_id_o), .pl12_q(pl12_q));
 
   for (genvar k = 0; k < NLD; k++) begin : g_rpl  // EXP-009 filter: last DCache response of the entry was not HIT
@@ -308,10 +321,13 @@ module lp_core
     .mm_go(resp_fire && unc_is_load_q), .mm_idx(unc_idx_q), .mm_data(periph_rdata),
     .pl12(pl12_q), .l2_dec(l2_dec), .dcl_valid(dcl_valid), .dcl_req_id(dcl_req_id), .dcl_data(dcl_data),
     .dcl_replay(dcl_replay), .rs_busy(wbd_l2),
-    .wb_go(wb_go), .agl(agl), .l1(l1), .tl_l(tl_l), .l1_launch(l1_launch),
+    .wb_go(wb_go), .wb_go_d(wb_go_d), .wbd_v(wbw_v), .wbd_idx(wbw_idx), .wbd_data(wbw_data), .agl(agl), .l1(l1),
+    .tl_l(tl_l), .l1_launch(l1_launch),
+    .head_tag({head_flag_q, head_q}), .count_q(count_q), .unk_any(unk_any), .unk_rank(unk_rank), .sa_v(sa_acc),
+    .sa_rank(sa_rank), .sa_voff(sa_voff), .sa_f3(sa_f3), .cam_en(cam_en), .cam_unk(cam_unk), .vio_new(vio_new),
     .rb_hi_valid(rb_hi_valid), .rb_hi_rob_idx(rb_hi_rob_idx), .rb_head_valid(rb_head_valid),
     .rb_head_rob_idx(rb_head_rob_idx), .stq_head_tag({head_flag_q, head_q}), .unc_busy(unc_valid_post_resp),
-    .dis(dis_ld),
+    .dis(dis_ldw),
     .ev_sta(ev_sta), .ev_data(sd_acc), .ev_ret(ev_ret), .ev_sc(ev_sc),
     .alive_post(((LP_CUT & 1) != 0) ? alive_w : alive_post),
     .sta_info(sta_info), .sdw(sdw), .fill_v(fill_en), .fill_line(fill_line),
@@ -373,27 +389,11 @@ module lp_core
               .trp_v(trp_v), .alive_post(alive_post), .alive_fl(alive_fl), .rp_v_q(rp_v_q),
               .rp_ldq_q(rp_ldq_q), .rp_pick(rp_pick), .srp_v_q(srp_v_q), .srp_stq_q(srp_stq_q), .srp_take(srp_take));
 
-  // ------------------------------------------------------------------ outputs to dispatch / ROB
-  /* verilator lint_off UNUSEDSIGNAL */  // primitive output not needed here
-  logic [LQ-1:0] ld_free_oh [NDIS];
-  /* verilator lint_on UNUSEDSIGNAL */
-  logic [LQW-1:0] ld_free_ix [NDIS];
-  logic [NDIS-1:0] ld_free_v;
-  logic [LQW:0] ld_free_cnt;
-  lp_pickn #(.N(LQ), .K(NDIS)) u_alloc (.vec(empty_w), .onehot(ld_free_oh), .idx(ld_free_ix), .v(ld_free_v));
-  ttg_popcount #(.N(LQ), .CW(LQW+1)) u_cnt (.bits(empty_w), .count(ld_free_cnt));
-  assign o_ldq_alloc_valid = ld_free_v;
-  assign o_ldq_free = CNTW'(ld_free_cnt);
-  always_comb begin
-    for (int i = 0; i < NDIS; i++) o_ldq_alloc_idx[i] = ld_free_ix[i];
-  end
-  logic [CNTW:0] tail_sum;
-  assign tail_sum = (CNTW+1)'(head_q) + (CNTW+1)'(count_q);
-  assign o_stq_tail = head_q + SQW'(count_q);
-  assign o_stq_tail_flag = tail_sum >= (CNTW+1)'(SQ) ? !head_flag_q : head_flag_q;
-  assign o_stq_free = CNTW'(SQ) - count_q;
-  assign o_committed_store_pending = ccount_q != '0;
-
+  // outputs to dispatch / ROB
+  lp_out u_out (.empty_w(empty_w), .head_q(head_q), .head_flag_q(head_flag_q), .count_q(count_q), .ccount_q(ccount_q),
+                .o_stq_tail(o_stq_tail), .o_stq_tail_flag(o_stq_tail_flag), .o_stq_free(o_stq_free),
+                .o_ldq_free(o_ldq_free), .o_ldq_alloc_valid(o_ldq_alloc_valid), .o_ldq_alloc_idx(o_ldq_alloc_idx),
+                .o_committed_store_pending(o_committed_store_pending));
 endmodule
 
 `default_nettype wire

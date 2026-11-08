@@ -71,6 +71,7 @@ package rob_pkg;
     logic                      pf_load;
     logic                      pf_store;
     logic                      illegal_inst;
+    logic                      flush_pipe;  // LSU_MEMSPEC: memory-order violator, flushes the younger ones at commit
     logic [INST_TYPE_W-1:0]    itype;
   } rob_entry_t;
 
@@ -87,6 +88,8 @@ package rob_pkg;
     logic                     pf_inst;
     logic                     pf_load;
     logic                     pf_store;
+    logic                     defer;       // LSU_MEMSPEC: speculative load write-back, completes later
+    logic                     flush_pipe;
     logic [UOP_TYPE_W-1:0]    op;
   } rob_wb_t;
 
@@ -104,6 +107,7 @@ package rob_pkg;
     logic                     br_we;
     logic                     br_mispred;
     logic                     br_taken;
+    logic                     flush_pipe;
   } rob_event_t;
 
   // ---- classification of a stored instruction (Rob.cpp anonymous namespace) ----
@@ -118,7 +122,7 @@ package rob_pkg;
   function automatic logic rob_is_flush_inst(input rob_entry_t e);
     return (e.itype == ITYPE_CSR) | (e.itype == ITYPE_ECALL) | (e.itype == ITYPE_MRET) | (e.itype == ITYPE_SRET) |
            (e.itype == ITYPE_SFENCE_VMA) | (e.itype == ITYPE_FENCE_I) | (e.itype == ITYPE_EBREAK) |
-           rob_is_exception(e);
+           rob_is_exception(e) | e.flush_pipe;
   endfunction
 
   function automatic logic rob_is_fence_inst(input rob_entry_t e);
@@ -155,7 +159,7 @@ package rob_pkg;
     has_pf = wb.pf_inst | wb.pf_load | wb.pf_store;
     is_br = (wb.op == UOP_JUMP) | (wb.op == UOP_BR);
     mem_port = is_ld | is_sta;
-    ev.valid = wb.valid;
+    ev.valid = wb.valid & ~wb.defer;   // a deferred write-back changes nothing in the slot
     ev.rob_idx = wb.rob_idx;
     ev.cplt_bit = cplt_bit;
     ev.diag_we = mem_port | is_br;
@@ -167,6 +171,7 @@ package rob_pkg;
     ev.br_we = is_br;
     ev.br_mispred = wb.mispred;
     ev.br_taken = wb.br_taken;
+    ev.flush_pipe = wb.flush_pipe;
     return ev;
   endfunction
 
@@ -178,6 +183,7 @@ package rob_pkg;
     nxt.pf_inst = cur.pf_inst | ev.pf_inst;
     nxt.pf_load = cur.pf_load | ev.pf_load;
     nxt.pf_store = cur.pf_store | ev.pf_store;
+    nxt.flush_pipe = cur.flush_pipe | ev.flush_pipe;
     if (ev.sta_clr_load && nxt.pf_store) nxt.pf_load = 1'b0;
     if (ev.br_we) begin
       nxt.mispred = ev.br_mispred;

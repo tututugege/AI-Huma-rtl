@@ -86,6 +86,7 @@ module lp_l1
           l1[k].func3 = ag[i].func3;
           l1[k].snap_idx = ag[i].snap_idx;
           l1[k].snap_flag = ag[i].snap_flag;
+          l1[k].lrsc = ag[i].lr;
         end
       end
       for (int r = 0; r < NRP; r++) begin
@@ -101,6 +102,7 @@ module lp_l1
           l1[k].pa_v = rp_f[r].pa_v;
           l1[k].paddr_reg = rp_f[r].paddr;
           l1[k].mmio_reg = rp_f[r].mmio;
+          l1[k].lrsc = rp_f[r].lrsc;
         end
       end
     end

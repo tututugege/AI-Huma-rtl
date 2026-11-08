@@ -39,6 +39,12 @@ module pre_idu_queue import ttg_cfg_pkg::*; import pre_idu_pkg::*; import front_
   input  logic [FTQ_ROB_PC_PORT_NUM-1:0] ftq_rob_pc_req_req_valid,
   input  logic [FTQ_IDX_WIDTH-1:0] ftq_rob_pc_req_req_ftq_idx [FTQ_ROB_PC_PORT_NUM],
   input  logic [FTQ_OFFSET_WIDTH-1:0] ftq_rob_pc_req_req_ftq_offset [FTQ_ROB_PC_PORT_NUM],
+  // wait-table index (PC hash) of the instructions entering dispatch (LSU_MEMSPEC; zero otherwise)
+  /* verilator lint_off UNUSEDSIGNAL */  // the request ports are used only with LSU_MEMSPEC
+  input  logic [FTQ_IDX_WIDTH-1:0] ftq_dis_req_ftq_idx [DECODE_WIDTH],
+  input  logic [FTQ_OFFSET_WIDTH-1:0] ftq_dis_req_ftq_offset [DECODE_WIDTH],
+  /* verilator lint_on UNUSEDSIGNAL */
+  output logic [LSU_MDP_BITS-1:0] ftq_dis_resp_mdp [DECODE_WIDTH],
   output logic [HCK_W-1:0] out_rf_ck,
   output logic [EPOCH_W-1:0] out_rf_epoch,
   output logic [2:0] out_rf_type,
@@ -67,9 +73,11 @@ module pre_idu_queue import ttg_cfg_pkg::*; import pre_idu_pkg::*; import front_
   output logic [TAGE_TAG_W-1:0] ftq_commit_info_resp_tage_tag [COMMIT_WIDTH] [TAGE_N]
 );
 
-  localparam int NPORT_PC = FTQ_PRF_PC_PORT_NUM + FTQ_ROB_PC_PORT_NUM + COMMIT_WIDTH;
+  localparam int NPORT_DIS = (LSU_MEMSPEC != 0) ? DECODE_WIDTH : 0;   // dispatch read ports (wait-table index)
+  localparam int NPORT_PC = FTQ_PRF_PC_PORT_NUM + FTQ_ROB_PC_PORT_NUM + COMMIT_WIDTH + NPORT_DIS;
   localparam int PORT_ROB = FTQ_PRF_PC_PORT_NUM;
   localparam int PORT_COMMIT = FTQ_PRF_PC_PORT_NUM + FTQ_ROB_PC_PORT_NUM;
+  localparam int PORT_DIS = PORT_COMMIT + COMMIT_WIDTH;
 
   // ---- flat spec ports <-> internal vectors / structs ----
   logic [BACKEND_FETCH_WIDTH-1:0] front_valid;
@@ -144,6 +152,17 @@ module pre_idu_queue import ttg_cfg_pkg::*; import pre_idu_pkg::*; import front_
       pc_rd_offset[PORT_COMMIT+p] = rob_commit_commit_entry_uop_ftq_offset[p];
     end
   end
+  for (genvar p = 0; p < DECODE_WIDTH; p++) begin : g_dis_pc
+    if (LSU_MEMSPEC != 0) begin : g_on
+      assign pc_rd_idx[PORT_DIS+p]    = ftq_dis_req_ftq_idx[p];
+      assign pc_rd_offset[PORT_DIS+p] = ftq_dis_req_ftq_offset[p];
+      // wait-table index of the load PC: pc[2+B-1:2] ^ pc[2+2B-1:2+B]
+      assign ftq_dis_resp_mdp[p] = pc_rd_pc[PORT_DIS+p][2 +: LSU_MDP_BITS] ^
+                                   pc_rd_pc[PORT_DIS+p][2+LSU_MDP_BITS +: LSU_MDP_BITS];
+    end else begin : g_off
+      assign ftq_dis_resp_mdp[p] = '0;
+    end
+  end
 
   pre_idu_ctrl u_ctrl (
     .clk, .rst_n,
@@ -162,7 +181,7 @@ module pre_idu_queue import ttg_cfg_pkg::*; import pre_idu_pkg::*; import front_
     .recover_idx(idu_br_latch_ftq_idx), .pop_cnt(ftq_pop_cnt), .tail(ftq_tail), .count(ftq_count)
   );
 
-  pre_idu_ftq_pc u_pc (
+  pre_idu_ftq_pc #(.NPORT(NPORT_PC)) u_pc (
     .clk, .wr_en(alloc), .wr_idx(ftq_tail), .wr_slot_pc(front_slot_pc), .wr_pred_taken(front_pred_taken),
     .wr_next_pc(front2pre_predict_next_fetch_address),
     .rd_idx(pc_rd_idx), .rd_offset(pc_rd_offset), .rd_pc(pc_rd_pc), .rd_pred_taken(pc_rd_pred_taken),

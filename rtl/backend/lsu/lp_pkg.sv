@@ -29,6 +29,10 @@ package lp_pkg;
   //   bit11 R  : wake-up confirm range compare against thresholds from the load side (no adder after the store)
   //   bit10 T  : STQ mispredict cut: first hit searched without the count mask in front (equivalent)
   localparam int LP_L2 = 1907;
+  // memory-dependence speculation (EXP-018, model CFG_LSU_MEMSPEC): loads pass older stores with an unknown address
+  localparam bit MS   = LSU_MEMSPEC != 0;
+  localparam int MDPW = LSU_MDP_BITS;       // wait-table index width (PC hash)
+  localparam int MDPN = 2;                  // wait-table write ports = trains per cycle (model LSU_MDP_NTR)
   localparam int NRP  = 4;                  // load replay registers (model CFG_LSU_PIPE_RP)
   localparam int NDR  = (NST < 3) ? NST : 3;  // committed-store drain ports (model CFG_LSU_PIPE_DRAIN)
   localparam int NDC  = 4;                  // committed-store drain candidates = CAMs (model CFG_LSU_PIPE_DCAND)
@@ -59,7 +63,8 @@ package lp_pkg;
     LS_WBP,       // result ready, waiting for a load write-back port
     LS_MMW,       // MMIO load waiting to be the oldest instruction
     LS_MMR,       // MMIO load on the bus
-    LS_WB3        // LP_L2[0]: decided at L2, in the L3 register, written back next cycle
+    LS_WB3,       // LP_L2[0]: decided at L2, in the L3 register, written back next cycle
+    LS_SPD        // memory speculation: written back (consumers woken), ROB completion pending
   } lp_ld_st_t;
 
   typedef enum logic [2:0] {
@@ -123,6 +128,7 @@ package lp_pkg;
     logic            pa_v;         // replay with a known physical address
     logic [31:0]     paddr_reg;
     logic            mmio_reg;
+    logic            lrsc;         // LR (new load: from the AGU, replay: from the entry)
   } lp_l1in_t;
 
   // DTLB result of one L1 slot
@@ -172,6 +178,8 @@ package lp_pkg;
     logic [ROBW-1:0] rob_idx;
     logic            rob_flag;
     logic [BRW-1:0]  br_mask;
+    logic [MDPW-1:0] mdp;          // wait-table index of the load PC (memory speculation)
+    logic            wait_b;       // wait-table bit read at dispatch: this load does not pass unknown-address stores
   } lp_dis_ld_t;
 
   typedef struct packed {
@@ -230,9 +238,23 @@ package lp_pkg;
     logic [RWW-1:0]  rwait;
     logic [1:0]      rtype;
     logic [EPW-1:0]  epoch;
+    logic            spec;         // passed an older store whose address was unknown at L1
+    logic            vio;          // an overlapping older store address arrived later
+    logic            second;       // second pass: completion write-back / re-execution after a violation
+    logic            wait_b;       // predictor: does not pass unknown-address stores
+    logic [MDPW-1:0] mdp;          // wait-table index
   } lp_ldq_t;
 
   // ---- helpers ----
+  // number of older stores of a load: distance (snapshot tag, head tag) on the 2N tag ring, clipped to the STQ count
+  function automatic logic [CNTW-1:0] older_cnt(input logic snap_flag, input logic [SQW-1:0] snap_idx,
+                                                input logic head_flag, input logic [SQW-1:0] head,
+                                                input logic [CNTW-1:0] count);
+    logic [SQW:0] d;
+    d = {snap_flag, snap_idx} - {head_flag, head};
+    return (CNTW'(d) > count) ? count : CNTW'(d);
+  endfunction
+
   function automatic logic [12:0] ld_width13(input logic [2:0] func3);   // access size in bytes (1, 2, 4)
     case (func3[1:0])
       2'b00:   return 13'd1;

@@ -21,6 +21,7 @@ module lp_wb
   input  logic                rsv_valid,
   input  logic [31:0]         rsv_addr,
   output logic [LQ-1:0]       wb_go,               // LDQ entries written back this cycle (freed)
+  output logic [LQ-1:0]       wb_go_d,             // ... of them, those of the direct / L3 write-back (not a WBP pick)
   output logic [SQ-1:0]       wb_go_s,             // STQ entries whose STA / SC completion is sent
   output logic [SQ-1:0]       sc_go,
   // load write-back ports
@@ -33,6 +34,8 @@ module lp_wb
   output logic [NLD-1:0]      wb_dest_en,
   output logic [NLD-1:0]      wb_pf_load,
   output logic [NLD-1:0]      wb_pf_store,
+  output logic [NLD-1:0]      wb_defer,            // memory speculation: ROB completion deferred
+  output logic [NLD-1:0]      wb_flushp,           // memory speculation: final write-back of a violator
   // STA write-back ports
   output logic [NST-1:0]      sta_valid,
   output logic [31:0]         sta_vaddr [NST],
@@ -149,7 +152,12 @@ module lp_wb
       wb_dest_en[p] = 1'b0;
       wb_pf_load[p] = 1'b0;
       wb_pf_store[p] = 1'b0;
+      wb_defer[p] = 1'b0;
+      wb_flushp[p] = 1'b0;
       if (ld_v[p]) begin
+        wb_defer[p] = MS && !ldq_q[ld_i[p]].second && ldq_q[ld_i[p]].spec && !ldq_q[ld_i[p]].pf &&
+                      !ldq_q[ld_i[p]].mmio && !ldq_q[ld_i[p]].lrsc;
+        wb_flushp[p] = MS && ldq_q[ld_i[p]].second && ldq_q[ld_i[p]].vio;
         wb_diag[p] = ldq_q[ld_i[p]].vaddr;
         wb_result[p] = ldq_q[ld_i[p]].pf ? ldq_q[ld_i[p]].vaddr : ld_res[p];
         wb_dest[p] = ldq_q[ld_i[p]].dest_preg;
@@ -173,7 +181,9 @@ module lp_wb
   // ---- bookkeeping: freed LDQ entries, STQ completions ----
   always_comb begin
     wb_go = '0;
+    wb_go_d = '0;
     for (int p = 0; p < NLD; p++) if (ld_v[p]) wb_go[ld_i[p]] = 1'b1;
+    for (int p = 0; p < NLD; p++) if (wbd_v[p]) wb_go_d[wbd_idx[p]] = 1'b1;
     wb_go_s = '0;
     sc_go = '0;
     for (int m = 0; m < NST; m++) if (st_pv[m]) wb_go_s[st_abs[m]] = 1'b1;

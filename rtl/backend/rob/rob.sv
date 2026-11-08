@@ -43,6 +43,8 @@ module rob
   input  logic exu2rob_entry_uop_br_taken [ISSUE_WIDTH],
   input  logic [ISSUE_WIDTH-1:0] exu2rob_entry_uop_page_fault_load,
   input  logic [ISSUE_WIDTH-1:0] exu2rob_entry_uop_page_fault_store,
+  input  logic [ISSUE_WIDTH-1:0] exu2rob_entry_uop_rob_defer,    // LSU_MEMSPEC: write-back does not complete
+  input  logic [ISSUE_WIDTH-1:0] exu2rob_entry_uop_flush_pipe,   // LSU_MEMSPEC: flush the pipe at commit
   input  logic [4:0] exu2rob_entry_uop_op [ISSUE_WIDTH],
   output logic rob2dis_stall,
   output logic rob2dis_empty,
@@ -132,6 +134,7 @@ module rob
       pf_load:       1'b0,
       pf_store:      1'b0,
       illegal_inst:  dis2rob_uop_illegal_inst[b],
+      flush_pipe:    1'b0,
       itype:         dis2rob_uop_type[b]
     };
   end
@@ -147,6 +150,8 @@ module rob
       pf_inst:    1'b0,   // no writer in the back end (instruction page faults come from the front end)
       pf_load:    exu2rob_entry_uop_page_fault_load[p],
       pf_store:   exu2rob_entry_uop_page_fault_store[p],
+      defer:      exu2rob_entry_uop_rob_defer[p],
+      flush_pipe: exu2rob_entry_uop_flush_pipe[p],
       op:         exu2rob_entry_uop_op[p]
     };
   end

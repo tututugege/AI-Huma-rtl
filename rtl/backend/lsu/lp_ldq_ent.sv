@@ -34,8 +34,22 @@ module lp_ldq_ent
   output logic                rs_ok,
   // P5 write-back
   input  logic                wb_go,
+  input  logic                wb_go_d,             // the write-back comes from the direct / L3 path (not a WBP pick)
+  input  logic [31:0]         wb_d_data,           // ... and its data (kept when the completion is deferred)
   output logic                st3_wbp,
   output logic [31:0]         res_v,               // result as seen by the write-back (after P2 / P3)
+  // memory speculation: store-queue view (registers) for the SPD release and the violation check
+  input  logic [SQW:0]        head_tag,
+  input  logic [CNTW-1:0]     count_q,
+  input  logic                unk_any,             // some store of the STQ ring has no address yet
+  input  logic [SQW-1:0]      unk_rank,            // rank (from the head) of the oldest such store
+  input  logic [NST-1:0]      sa_v,                // accepted STA arrivals of this cycle
+  input  logic [SQW-1:0]      sa_rank [NST],       // their rank from the head
+  input  logic [11:0]         sa_voff [NST],
+  input  logic [2:0]          sa_f3 [NST],
+  input  logic                sp_we,               // L1 CAM result for this entry: spec flag update
+  input  logic                sp_val,
+  output logic                vio_new,             // the entry became a violator in this cycle
   // P6 AGU arrivals
   input  lp_agu_ld_t          ag [NLD],
   output logic [NLD-1:0]      ag_acc,
@@ -95,7 +109,6 @@ module lp_ldq_ent
 
   assign q_o     = f_q;
   assign empty_w = st_q == LS_EMPTY;
-
   // ---- decode of the arrivals / allocation ----
   logic [NLD-1:0] ag_hit;
   /* verilator lint_off UNUSEDSIGNAL */
@@ -175,7 +188,10 @@ module lp_ldq_ent
   end
 
   // ---- P5 .. P9: write-back frees, AGU arrival, DTLB result, MMIO issue ----
-  lp_ld_st_t st4, st5, st6;
+  lp_ld_st_t st4, st4r, st4v, st5, st6;
+  logic      dfr, rel, sec4, sec4v, v_elig, vio_n;
+  logic [NST-1:0] ovl;
+  logic [CNTW-1:0] older_e;
   logic      tl_hit, tl_pf;
   logic [31:0] tl_pa, vaddr6;
   lp_tl_t    tl_s;
@@ -183,7 +199,41 @@ module lp_ldq_ent
     tl_s = '0;
     for (int k = 0; k < NLD; k++) if (tl_tgt[k]) tl_s = tl[k];
     st4 = wb_go ? LS_EMPTY : st3;
-    st5 = (|ag_acc) ? LS_PIPE : st4;
+    st4r = st4;
+    st4v = st4;
+    sec4v = f_q.second;
+    vio_n = f_q.vio;
+    vio_new = 1'b0;
+    dfr = 1'b0;
+    rel = 1'b0;
+    sec4 = f_q.second;
+    v_elig = 1'b0;
+    ovl = '0;
+    older_e = '0;
+    if (MS) begin
+      // P5: a load that passed an unknown-address store keeps its entry after the write-back (SPD, or RDY for the
+      // re-execution if a violation is already known); an SPD load whose older store addresses are all known now
+      // (checked for the registered SPD entries and the direct write-backs of this cycle, not for the WBP picks that
+      // follow) goes to WBP for the completion write-back.
+      dfr = wb_go && !f_q.second && f_q.spec && !f_q.pf && !f_q.mmio && !f_q.lrsc;
+      older_e = older_cnt(f_q.snap_flag, f_q.snap_idx, head_tag[SQW], head_tag[SQW-1:0], count_q);
+      if (dfr) st4r = f_q.vio ? LS_RDY : LS_SPD;
+      rel = st4r == LS_SPD && !(wb_go && !wb_go_d) && (!unk_any || older_e <= CNTW'(unk_rank));
+      if (rel) st4r = LS_WBP;
+      sec4 = f_q.second || (dfr && f_q.vio) || rel;
+      // P6: STA arrivals against the loads that passed older unknown-address stores
+      v_elig = f_q.spec && !f_q.vio && !sec4 &&
+               (st4r == LS_PIPE || st4r == LS_DCW || st4r == LS_WBP || st4r == LS_WB3 || st4r == LS_SPD);
+      ovl = '0;
+      for (int k = 0; k < NST; k++)
+        ovl[k] = sa_v[k] && CNTW'(sa_rank[k]) < older_e &&
+                 rel12(f_q.vaddr[11:0], f_q.func3, sa_voff[k], sa_f3[k]) != 2'd0;
+      vio_new = v_elig && (|ovl);
+      st4v = (vio_new && st4r == LS_SPD) ? LS_RDY : st4r;
+      sec4v = sec4 || (vio_new && st4r == LS_SPD);
+      vio_n = f_q.vio || vio_new;
+    end
+    st5 = (|ag_acc) ? LS_PIPE : st4v;
     pipe5 = st5 == LS_PIPE;
     pipe_r = st_q == LS_PIPE;
     wb3_r = st_q == LS_WB3;
@@ -294,7 +344,16 @@ module lp_ldq_ent
     f_q.rwait  <= wt9;
     f_q.rtype  <= rt3;
     f_q.result <= res9;
+    f_q.vio    <= vio_n;
+    f_q.second <= sec4v;
+    if (dfr && wb_go_d) f_q.result <= wb_d_data;
+    if (sp_we) f_q.spec <= sp_val;
     if (al) begin
+      f_q.vio      <= 1'b0;
+      f_q.second   <= 1'b0;
+      f_q.spec     <= 1'b0;
+      f_q.wait_b   <= al_d.wait_b;
+      f_q.mdp      <= al_d.mdp;
       f_q.rob_idx  <= al_d.rob_idx;
       f_q.rob_flag <= al_d.rob_flag;
       f_q.dest_preg <= '0;

@@ -28,6 +28,7 @@ module lsu
   input  logic [BR_MASK_WIDTH-1:0] dis2lsu_ldq_br_mask [DECODE_WIDTH],
   input  logic [6:0] dis2lsu_ldq_rob_idx [DECODE_WIDTH],
   input  logic [DECODE_WIDTH-1:0] dis2lsu_ldq_rob_flag,
+  input  logic [LSU_MDP_BITS-1:0] dis2lsu_ldq_mdp [DECODE_WIDTH],   // wait-table index of the load PC (LSU_MEMSPEC)
   input  logic [LSU_SDU_COUNT-1:0] exe2lsu_sdu_req_valid,
   input  logic [31:0] exe2lsu_sdu_req_uop_result [LSU_SDU_COUNT],
   input  logic [6:0] exe2lsu_sdu_req_uop_rob_idx [LSU_SDU_COUNT],
@@ -101,6 +102,8 @@ module lsu
   output logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_dest_en,
   output logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_page_fault_load,
   output logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_page_fault_store,
+  output logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_rob_defer,    // LSU_MEMSPEC: ROB completion deferred
+  output logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_flush_pipe,   // LSU_MEMSPEC: write-back of a violator
   output logic [LSU_STA_COUNT-1:0] lsu2exe_sta_wb_req_valid,
   output logic [31:0] lsu2exe_sta_wb_req_uop_diag_val [LSU_STA_COUNT],
   output logic [31:0] lsu2exe_sta_wb_req_uop_result [LSU_STA_COUNT],
@@ -135,7 +138,9 @@ module lsu
     lsu_pipe u_pipe (.*);
   end else begin : g_legacy
 
-  // the legacy LSU has no LSU-driven wake-ups
+  // the legacy LSU has no memory speculation and no LSU-driven wake-ups
+  assign lsu2exe_wb_req_uop_rob_defer = '0;
+  assign lsu2exe_wb_req_uop_flush_pipe = '0;
   assign lsu2iss_wake_valid = '0;
   assign lsu2iss_cancel_valid = '0;
   for (genvar k = 0; k < 2 * LSU_LDU_COUNT; k++) begin : g_nowake

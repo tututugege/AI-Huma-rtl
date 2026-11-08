@@ -27,7 +27,9 @@ module exu_ctrl_wb_rob
   output logic [ISSUE_WIDTH-1:0] br_mispred,
   output logic                      br_taken  [ISSUE_WIDTH],
   output logic [ISSUE_WIDTH-1:0] page_fault_load,
-  output logic [ISSUE_WIDTH-1:0] page_fault_store
+  output logic [ISSUE_WIDTH-1:0] page_fault_store,
+  output logic [ISSUE_WIDTH-1:0] rob_defer,
+  output logic [ISSUE_WIDTH-1:0] flush_pipe
 );
 
   for (genvar p = 0; p < ISSUE_WIDTH; p++) begin : g_port
@@ -48,6 +50,8 @@ module exu_ctrl_wb_rob
       assign br_taken[p]         = 1'b0;
       assign page_fault_load[p]  = IS_LD && ld_wb[I].page_fault_load;
       assign page_fault_store[p] = IS_LD ? ld_wb[I].page_fault_store : sta_wb[I].page_fault_store;
+      assign rob_defer[p]        = IS_LD && ld_wb[I].rob_defer;
+      assign flush_pipe[p]       = IS_LD && ld_wb[I].flush_pipe;
     end else begin : g_fu
       // functional-unit completion (never flushed, see notes 4.2-1)
       assign valid[p]            = win_valid[p];
@@ -59,6 +63,8 @@ module exu_ctrl_wb_rob
       assign br_taken[p]         = IS_BR && win[p].br_taken;
       assign page_fault_load[p]  = 1'b0;
       assign page_fault_store[p] = 1'b0;
+      assign rob_defer[p]        = 1'b0;
+      assign flush_pipe[p]       = 1'b0;
     end
   end
 

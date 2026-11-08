@@ -28,6 +28,7 @@ module lsu_pipe
   input  logic [BR_MASK_WIDTH-1:0] dis2lsu_ldq_br_mask [DECODE_WIDTH],
   input  logic [6:0] dis2lsu_ldq_rob_idx [DECODE_WIDTH],
   input  logic [DECODE_WIDTH-1:0] dis2lsu_ldq_rob_flag,
+  input  logic [LSU_MDP_BITS-1:0] dis2lsu_ldq_mdp [DECODE_WIDTH],   // wait-table index of the load PC (LSU_MEMSPEC)
   input  logic [LSU_SDU_COUNT-1:0] exe2lsu_sdu_req_valid,
   input  logic [31:0] exe2lsu_sdu_req_uop_result [LSU_SDU_COUNT],
   input  logic [6:0] exe2lsu_sdu_req_uop_rob_idx [LSU_SDU_COUNT],
@@ -99,6 +100,8 @@ module lsu_pipe
   output logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_dest_en,
   output logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_page_fault_load,
   output logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_page_fault_store,
+  output logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_rob_defer,    // LSU_MEMSPEC: ROB completion deferred
+  output logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_flush_pipe,   // LSU_MEMSPEC: write-back of a violator
   output logic [LSU_STA_COUNT-1:0] lsu2exe_sta_wb_req_valid,
   output logic [31:0] lsu2exe_sta_wb_req_uop_diag_val [LSU_STA_COUNT],
   output logic [31:0] lsu2exe_sta_wb_req_uop_result [LSU_STA_COUNT],
@@ -148,6 +151,8 @@ module lsu_pipe
       dis_ld[i].rob_idx = dis2lsu_ldq_rob_idx[i];
       dis_ld[i].rob_flag = dis2lsu_ldq_rob_flag[i];
       dis_ld[i].br_mask = dis2lsu_ldq_br_mask[i];
+      dis_ld[i].mdp = dis2lsu_ldq_mdp[i];
+      dis_ld[i].wait_b = 1'b0;
       dis_st[i].v = dis2lsu_alloc_req[i];
       dis_st[i].rob_idx = dis2lsu_rob_idx[i];
       dis_st[i].rob_flag = dis2lsu_rob_flag[i];
@@ -222,6 +227,7 @@ module lsu_pipe
     .wb_dest(lsu2exe_wb_req_uop_dest_preg), .wb_br(lsu2exe_wb_req_uop_br_mask), .wb_rob(lsu2exe_wb_req_uop_rob_idx),
     .wb_dest_en(lsu2exe_wb_req_uop_dest_en), .wb_pf_load(lsu2exe_wb_req_uop_page_fault_load),
     .wb_pf_store(lsu2exe_wb_req_uop_page_fault_store),
+    .wb_defer(lsu2exe_wb_req_uop_rob_defer), .wb_flushp(lsu2exe_wb_req_uop_flush_pipe),
     .sta_valid(lsu2exe_sta_wb_req_valid), .sta_vaddr(sta_vaddr_w), .sta_br(lsu2exe_sta_wb_req_uop_br_mask),
     .sta_rob(lsu2exe_sta_wb_req_uop_rob_idx), .sta_pf(lsu2exe_sta_wb_req_uop_page_fault_store),
     .per_is_mmio(peripheral_req_is_mmio), .per_wen(peripheral_req_wen), .per_addr(peripheral_req_mmio_addr),
