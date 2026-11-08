@@ -106,6 +106,10 @@ S1/S2 compare -> corrected pc -> uBTB set read + tag compare -> history push can
 without a frequency target we recommend leaving BFAST off, or taking bit1 alone (+1.8 %) only if the cycle time is set by something deeper than ~200 levels (the
 off-config commit-training path is 151).
 
+Linux with the final configuration (RFAST=15, BFAST=0, tree `36a23c8`): (a) full boot from reset, local testbench (`--threads 4 -DTTG_EBREAK_TRAP`, `SOC_TB_FM=1 SOC_TB_SEMIHOST=1`,
+per-commit function-model check) reached `rv32 login:` with 0 `[FM]` mismatch lines; (b) the 13 checkpoint segments on the server (16 M cycles each, per-commit check):
+13 PASS, 0 FAIL, 6.9 M - 24.1 M instructions checked per segment.
+
 ## FE_PAIR (dual-block fetch): cost and plan, not started
 
 FE_PAIR fetches the block at a predicted-taken target in the same cycle as the first block. In the RTL this is a rewrite of the BPU front, not a
