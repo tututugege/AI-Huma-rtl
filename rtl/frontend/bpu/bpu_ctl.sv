@@ -7,6 +7,8 @@
 //   l1_ov    the L1 table (S1) hits and disagrees with the S0 guess of the block in S1: that block gets the L1
 //            guess and S0 does not issue this cycle (one bubble instead of two).
 //   issue    S0 sends the block at the pc register to the ICache (fetch-address queue) and to S1.
+//   fast     FE_RFAST bit0 / FE_BFAST: S0 also issues in the cycle of a refetch / an S2 override / an S1 (L1)
+//            override, on the state the redirect leaves (the block at the corrected pc); s0_go = issue | fast.
 //   Priority: refetch > ovr > l1_ov > issue.  A predecode flush with a PDCKPT record restores from the record, a
 //   back-end branch mispredict from the checkpoint the FTQ returned (same epoch), anything else from the
 //   committed state.
@@ -31,11 +33,16 @@ module bpu_ctl import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*
   output logic        squash,
   output logic        l1_ov,
   output logic        issue,
+  output logic        fast,
+  output logic        s0_go,
   output logic        pd_restore,
   output logic        rep_ok
 );
 
   logic ptab_stall;
+  localparam bit RF0   = (FE_RFAST & 1) != 0;
+  localparam bit BF_L1 = (FE_BFAST & 1) != 0;
+  localparam bit BF_SD = (FE_BFAST & 2) != 0;
 
   // Ref: decide / l1_override
   always_comb begin
@@ -50,6 +57,11 @@ module bpu_ctl import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*
     ptab_stall = icache_read_ready &&
                  (int'(ptab_size) + int'(r0.valid) + int'(r1.valid) >= PTAB_SIZE - 1);
     issue      = !refetch && !ovr && !l1_ov && icache_read_ready && !ptab_stall;
+    // Ref: comb, FE_RFAST bit0 (refetch) / FE_BFAST bit0, bit1 (overrides): ptab_size + 1 < PTAB_SIZE - 1
+    fast       = icache_read_ready &&
+                 ((RF0 && refetch) ||
+                  (((BF_SD && ovr) || (BF_L1 && l1_ov)) && (int'(ptab_size) + 1 < PTAB_SIZE - 1)));
+    s0_go      = issue || fast;
   end
 
   // Ref: comb, refetch handling

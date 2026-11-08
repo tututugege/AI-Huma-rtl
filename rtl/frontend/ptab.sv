@@ -64,7 +64,8 @@ module ptab import ttg_cfg_pkg::*; import front_pkg::*; (
     rd_predict_next_fetch_address         = rd_entry.predict_next_fetch_address;
   end
 
-  front_fifo #(.DEPTH(PTAB_DEPTH), .W($bits(ptab_entry_t)), .FULL_AT(PTAB_FULL_AT)) u_fifo (
+  front_fifo #(.DEPTH(PTAB_DEPTH), .W($bits(ptab_entry_t)), .FULL_AT(PTAB_FULL_AT),
+                  .BYPASS((FE_RFAST & 2) != 0)) u_fifo (
     .clk, .rst_n,
     .clear   (refetch),
     .rd_en, .wr_en, .drop_tail(1'b0),

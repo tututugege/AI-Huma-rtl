@@ -3,7 +3,9 @@
 
 // Instruction ring buffer: a fetch group is written compacted at the tail, Idu reads the oldest DECODE_WIDTH slots.
 // Slot j is written by the lane i with push_en[i] && tail + rank[i] == j (ranks are unique, so one-hot).
-module pre_idu_ibuf import ttg_cfg_pkg::*; import pre_idu_pkg::*; (
+module pre_idu_ibuf import ttg_cfg_pkg::*; import pre_idu_pkg::*; #(
+  parameter bit BYPASS = (FE_RFAST & 8) != 0
+) (
   input  logic                           clk,
   input  logic                           rst_n,
   input  logic                           clear,
@@ -63,10 +65,33 @@ module pre_idu_ibuf import ttg_cfg_pkg::*; import pre_idu_pkg::*; (
   end
 
   // Ref: PreIduQueue::comb_begin (issue->entries[i] = ibuf.peek(i) for i < count)
+  logic      buf_valid [DECODE_WIDTH];
+  ib_entry_t buf_entry [DECODE_WIDTH];
   always_comb begin
     for (int i = 0; i < DECODE_WIDTH; i++) begin
-      issue_valid[i] = count_q > IB_COUNT_W'(i);
-      issue_entry[i] = entry_q[head_q + IB_IDX_W'(i)];
+      buf_valid[i] = count_q > IB_COUNT_W'(i);
+      buf_entry[i] = entry_q[head_q + IB_IDX_W'(i)];
+    end
+  end
+
+  // Ref: FE_RFAST bit3 (PreIduQueue::comb_accept_front, g_bypass): with an empty buffer the group accepted this cycle
+  // (compacted by rank) is the issue group.  The buffer update is unchanged (push then pop of what decode took).
+  if (BYPASS) begin : g_bypass
+    logic [BACKEND_FETCH_WIDTH-1:0] bp_sel [DECODE_WIDTH];
+    ib_entry_t                      bp_entry [DECODE_WIDTH];
+    for (genvar i = 0; i < DECODE_WIDTH; i++) begin : g_slot
+      always_comb begin
+        for (int l = 0; l < BACKEND_FETCH_WIDTH; l++) bp_sel[i][l] = push_en[l] && (push_rank[l] == LANE_CNT_W'(i));
+      end
+      ttg_onehot_mux #(.N(BACKEND_FETCH_WIDTH), .W($bits(ib_entry_t))) u_bp (
+        .sel(bp_sel[i]), .data(push_entry), .out(bp_entry[i]));
+      assign issue_valid[i] = (count_q == '0) ? (|bp_sel[i]) : buf_valid[i];
+      assign issue_entry[i] = (count_q == '0) ? bp_entry[i] : buf_entry[i];
+    end
+  end else begin : g_nobypass
+    for (genvar i = 0; i < DECODE_WIDTH; i++) begin : g_slot
+      assign issue_valid[i] = buf_valid[i];
+      assign issue_entry[i] = buf_entry[i];
     end
   end
 

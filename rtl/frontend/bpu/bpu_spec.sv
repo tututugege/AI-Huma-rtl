@@ -25,19 +25,29 @@ module bpu_spec import bpu_pkg::*; import bpu_stage_pkg::*; (
   input  ras_ck_t             r_ck,
   input  logic [1:0]          r_op,
   input  logic [31:0]         r_val,
+  // second step on the state the command leaves: the S0 push of FE_RFAST bit0 / FE_BFAST (en = 0 / op = 0 otherwise)
+  input  logic                h2_en,
+  input  logic [HSYM_W-1:0]   h2_bits,
+  input  logic [1:0]          r2_op,
+  input  logic [31:0]         r2_val,
   // state before this cycle's update
   output ck_t                 spec_ck,
   output logic                spec_ras_nonempty,
   output logic [31:0]         spec_ras_top,
-  output fh_t                 spec_fh
+  output fh_t                 spec_fh,
+  // state after the command, before the second step (the state S0 looks up with in the FAST configuration)
+  output ck_t                 spec1_ck,
+  output logic                spec1_ras_nonempty,
+  output logic [31:0]         spec1_ras_top,
+  output fh_t                 spec1_fh
 );
 
   localparam logic [1:0] M_PUSH = 2'd1;
   localparam logic [1:0] M_CK   = 2'd2;
   localparam logic [1:0] M_ARCH = 2'd3;
 
-  hist_t spec_q, spec_d, arch_q, arch_d;
-  ras_t  sras_q, sras_d, aras_q, aras_d;
+  hist_t spec_q, spec_d, spec_d1, arch_q, arch_d;
+  ras_t  sras_q, sras_d, sras_d1, aras_q, aras_d;
 
   // Ref: push_arch: every taken control instruction of the commit lanes pushes its symbol (newest bit first in d)
   logic [23:0] arch_d_bits;
@@ -70,25 +80,28 @@ module bpu_spec import bpu_pkg::*; import bpu_stage_pkg::*; (
 
   // Ref: comb: spec history update
   always_comb begin
-    spec_d = spec_q;
+    spec_d1 = spec_q;
     case (h_mode)
-      M_PUSH: spec_d = hist_push_sym(spec_q, h_push_en, h_push_bits);
-      M_CK:   spec_d = hist_push_sym(hist_restore(spec_q, h_ck), h_push_en, h_push_bits);
-      M_ARCH: spec_d = hist_push_sym(arch_d, h_push_en, h_push_bits);
-      default: spec_d = spec_q;
+      M_PUSH: spec_d1 = hist_push_sym(spec_q, h_push_en, h_push_bits);
+      M_CK:   spec_d1 = hist_push_sym(hist_restore(spec_q, h_ck), h_push_en, h_push_bits);
+      M_ARCH: spec_d1 = hist_push_sym(arch_d, h_push_en, h_push_bits);
+      default: spec_d1 = spec_q;
     endcase
   end
+  // separate blocks: no false loop through S0 (spec1 -> g0 -> h2)
+  always_comb spec_d = hist_push_sym(spec_d1, h2_en, h2_bits);
 
   // Ref: comb: spec RAS update
   always_comb begin
-    sras_d = sras_q;
+    sras_d1 = sras_q;
     case (r_mode)
-      M_PUSH: sras_d = ras_op(sras_q, r_op, r_val);
-      M_CK:   sras_d = ras_op(ras_restore(sras_q, r_ck), r_op, r_val);
-      M_ARCH: sras_d = ras_op(aras_d, r_op, r_val);
-      default: sras_d = sras_q;
+      M_PUSH: sras_d1 = ras_op(sras_q, r_op, r_val);
+      M_CK:   sras_d1 = ras_op(ras_restore(sras_q, r_ck), r_op, r_val);
+      M_ARCH: sras_d1 = ras_op(aras_d, r_op, r_val);
+      default: sras_d1 = sras_q;
     endcase
   end
+  always_comb sras_d = ras_op(sras_d1, r2_op, r2_val);
 
   always_comb begin
     spec_ck.h.head    = spec_q.head;
@@ -97,6 +110,12 @@ module bpu_spec import bpu_pkg::*; import bpu_stage_pkg::*; (
     spec_ras_nonempty = (sras_q.cnt != '0);
     spec_ras_top      = sras_q.st[sras_q.ptr];
     spec_fh           = spec_q.fh;
+    spec1_ck.h.head    = spec_d1.head;
+    spec1_ck.h.fh      = spec_d1.fh;
+    spec1_ck.r         = ras_take(sras_d1);
+    spec1_ras_nonempty = (sras_d1.cnt != '0);
+    spec1_ras_top      = sras_d1.st[sras_d1.ptr];
+    spec1_fh           = spec_d1.fh;
   end
 
   always_ff @(posedge clk) begin

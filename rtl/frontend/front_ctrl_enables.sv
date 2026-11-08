@@ -48,7 +48,9 @@ module front_ctrl_enables import ttg_cfg_pkg::*; import front_pkg::*; (
     // an override takes the youngest fetch-address entry away: do not pop it (the queue holds only that entry)
     fa_rd_en          = icache_ready && !fa_empty && !global_refetch &&
                         !(bpu_override_valid && fa_size <= squash_n);
-    predecode_can_run = !inst_empty && !ptab_empty && !f2b_full && !global_refetch;
+    // FE_RFAST bit1: the block leaving the BPU's last stage is written into the PTAB and may be read by the checker in the same cycle
+    predecode_can_run = !inst_empty && (!ptab_empty || ((FE_RFAST & 2) != 0 && bpu_ptab_write_enable)) && !f2b_full &&
+                        !global_refetch;
   end
 
   // Ref: front_bpu_control_comb; S5 (fetch_addr write); S9 (PTAB write)

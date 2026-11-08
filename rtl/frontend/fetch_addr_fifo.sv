@@ -2,7 +2,7 @@
 `default_nettype none
 
 // fetch_address_FIFO: 16 x 32b queue of BPU fetch addresses waiting for the icache.  Port adaptation only.
-module fetch_addr_fifo import front_pkg::*; (
+module fetch_addr_fifo import ttg_cfg_pkg::*; import front_pkg::*; (
   input  logic        clk,
   input  logic        rst_n,
   input  logic        refetch,
@@ -17,7 +17,8 @@ module fetch_addr_fifo import front_pkg::*; (
   output logic [$clog2(FETCH_ADDR_FIFO_DEPTH + 1)-1:0] size
 );
 
-  front_fifo #(.DEPTH(FETCH_ADDR_FIFO_DEPTH), .W(32), .FULL_AT(FETCH_ADDR_FIFO_FULL_AT)) u_fifo (
+  front_fifo #(.DEPTH(FETCH_ADDR_FIFO_DEPTH), .W(32), .FULL_AT(FETCH_ADDR_FIFO_FULL_AT),
+                  .WR_AFTER_DROP((FE_BFAST & 3) != 0)) u_fifo (
     .clk, .rst_n,
     .clear   (refetch),
     .rd_en, .wr_en, .drop_tail,
