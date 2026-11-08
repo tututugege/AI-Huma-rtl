@@ -139,3 +139,7 @@ Worst path per module, main -> now: `lp_cam` 81 -> 82 (ABC noise: without the un
 | `dispatch` | 91,937 / 1,632 | 92,518 / 1,680 |
 | `pre_idu_queue` + FTQ pc reads | 49,795 | 50,138 (+16.9k for the base-pc reads, counted separately above) |
 Flops added in total: 779 (LSU) + 128 (ROB) + 48 (dispatch).
+
+## 13. Final-tree verification (exp/memspec-rtl 74cbd42+, exp/memspec-rtl-on 37182cd)
+lint / lint_chip: 0 / 0 warnings for both trees. `fm_gate` off 67/67 (cycles equal to `ref_cycles.txt`), on 68/68 (cycles equal to `ref_cycles_memspec.txt` on all 68, directed test 3,438). Linux, server, tb of the on tree: **13/13 segments PASS** (5.9M..23.6M instructions each).
+Recommended default: `LSU_MEMSPEC=1`-capable design as built here with `LSU_MDP_HW=2`, `LSU_MDP_BITS=6` (price versus the old 12-bit / 2-port design: none, +0.13% geomean). Model geomean 30 points: +5.35% vs base (msdata1: +5.21%).
