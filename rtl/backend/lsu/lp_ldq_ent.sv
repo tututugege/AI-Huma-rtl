@@ -188,51 +188,19 @@ module lp_ldq_ent
   end
 
   // ---- P5 .. P9: write-back frees, AGU arrival, DTLB result, MMIO issue ----
-  lp_ld_st_t st4, st4r, st4v, st5, st6;
-  logic      dfr, rel, sec4, sec4v, v_elig, vio_n;
-  logic [NST-1:0] ovl;
-  logic [CNTW-1:0] older_e;
+  lp_ld_st_t st4, st4v, st5, st6;
+  logic      dfr, sec4v, vio_n;
   logic      tl_hit, tl_pf;
   logic [31:0] tl_pa, vaddr6;
   lp_tl_t    tl_s;
+  assign st4 = wb_go ? LS_EMPTY : st3;
+  // memory speculation (LSU_MEMSPEC): P5 SPD handling, P6 violation check
+  lp_ent_ms u_ms (.st4(st4), .wb_go(wb_go), .wb_go_d(wb_go_d), .f_q(f_q), .head_tag(head_tag), .count_q(count_q),
+                  .unk_any(unk_any), .unk_rank(unk_rank), .sa_v(sa_v), .sa_rank(sa_rank), .sa_voff(sa_voff),
+                  .sa_f3(sa_f3), .st4v(st4v), .dfr(dfr), .sec4v(sec4v), .vio_n(vio_n), .vio_new(vio_new));
   always_comb begin
     tl_s = '0;
     for (int k = 0; k < NLD; k++) if (tl_tgt[k]) tl_s = tl[k];
-    st4 = wb_go ? LS_EMPTY : st3;
-    st4r = st4;
-    st4v = st4;
-    sec4v = f_q.second;
-    vio_n = f_q.vio;
-    vio_new = 1'b0;
-    dfr = 1'b0;
-    rel = 1'b0;
-    sec4 = f_q.second;
-    v_elig = 1'b0;
-    ovl = '0;
-    older_e = '0;
-    if (MS) begin
-      // P5: a load that passed an unknown-address store keeps its entry after the write-back (SPD, or RDY for the
-      // re-execution if a violation is already known); an SPD load whose older store addresses are all known now
-      // (checked for the registered SPD entries and the direct write-backs of this cycle, not for the WBP picks that
-      // follow) goes to WBP for the completion write-back.
-      dfr = wb_go && !f_q.second && f_q.spec && !f_q.pf && !f_q.mmio && !f_q.lrsc;
-      older_e = older_cnt(f_q.snap_flag, f_q.snap_idx, head_tag[SQW], head_tag[SQW-1:0], count_q);
-      if (dfr) st4r = f_q.vio ? LS_RDY : LS_SPD;
-      rel = st4r == LS_SPD && !(wb_go && !wb_go_d) && (!unk_any || older_e <= CNTW'(unk_rank));
-      if (rel) st4r = LS_WBP;
-      sec4 = f_q.second || (dfr && f_q.vio) || rel;
-      // P6: STA arrivals against the loads that passed older unknown-address stores
-      v_elig = f_q.spec && !f_q.vio && !sec4 &&
-               (st4r == LS_PIPE || st4r == LS_DCW || st4r == LS_WBP || st4r == LS_WB3 || st4r == LS_SPD);
-      ovl = '0;
-      for (int k = 0; k < NST; k++)
-        ovl[k] = sa_v[k] && CNTW'(sa_rank[k]) < older_e &&
-                 rel12(f_q.vaddr[11:0], f_q.func3, sa_voff[k], sa_f3[k]) != 2'd0;
-      vio_new = v_elig && (|ovl);
-      st4v = (vio_new && st4r == LS_SPD) ? LS_RDY : st4r;
-      sec4v = sec4 || (vio_new && st4r == LS_SPD);
-      vio_n = f_q.vio || vio_new;
-    end
     st5 = (|ag_acc) ? LS_PIPE : st4v;
     pipe5 = st5 == LS_PIPE;
     pipe_r = st_q == LS_PIPE;
