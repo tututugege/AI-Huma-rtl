@@ -25,6 +25,13 @@ INC_DIRS = ['include', 'libs/include', 'back-end/include', 'back-end/Exu/include
             'axi-interconnect-kit/mmio/include']
 
 
+# Design constants fixed in the RTL (never exported from the model's config.h even if the model has a constexpr of that name):
+#   LSU_MDP_BITS  wait table of the memory-dependence speculation: 2^LSU_MDP_BITS x 1 bit, indexed by a PC hash
+#   LSU_MDP_CLR   the table is cleared lazily every LSU_MDP_CLR cycles (training: one flagged entry per cycle, lp_mdp)
+#   FE_RFAST      front-end redirect fast paths of the refetch (bits 0..3): all on
+FIXED = {'LSU_MDP_BITS': 6, 'LSU_MDP_CLR': 2000, 'FE_RFAST': 15}
+
+
 def main():
     if len(sys.argv) < 3:
         sys.exit(__doc__)
@@ -58,6 +65,8 @@ def main():
         if not v:
             continue
         n, x = v.split()
+        if n in FIXED:   # design decisions of the RTL, not configuration: emitted below as fixed constants
+            continue
         x = int(x)
         if x >= 1 << 31:
             lines.append(f"  localparam longint unsigned {n} = 64'd{x};")
@@ -66,6 +75,8 @@ def main():
     # RTL-only switch (not a trace-model constant): 1 = staged LSU (rtl/backend/lsu/lp_*.sv, docs/analysis/lsu-pipe.md), 0 = legacy LSU.
     # Default 1 (staged LSU); pass -DLSU_PIPE=0 to select the legacy LSU (trace-model counterpart: CFG_LSU_PIPE, default 1; env LSU_PIPE=0 there is the legacy LSU).
     lines.append('  localparam int LSU_PIPE = %d;' % (0 if '-DLSU_PIPE=0' in defs else 1))
+    lines.append('  // fixed design constants (harness/tools/gen_cfg_pkg.py FIXED), not exported from the model')
+    lines += ['  localparam int %s = %d;' % (k, v) for k, v in FIXED.items()]
     lines += ['endpackage', '`default_nettype wire', '']
     os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
     open(out, 'w').write('\n'.join(lines))
