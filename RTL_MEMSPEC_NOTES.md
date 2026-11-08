@@ -96,3 +96,46 @@ So the span from detection to resumption is 28..52 cycles (the earlier 20-30 gue
 
 ## 8. Linux result (server, `exp/memspec-rtl-on` at the RPW fix, tb `SOC_FM=1 --threads 4 -DTTG_EBREAK_TRAP`, `linux_segments.sh` JOBS=4)
 13/13 segments PASS (10.7M..23.6M instructions checked per segment, no mismatch). Reproduce: `bash scripts/gen_cfg.sh -DCFG_LSU_MEMSPEC=1` (or check out `exp/memspec-rtl-on`), build the tb, `scripts/linux_segments.sh <tb> <ckpt dir> <out>`.
+
+
+# Part 2 (follow-up): align with the model value path, reduce area and depth
+
+## 9. Model value path (exp/ms-data merged into exp/memspec-refs)
+`LSU_MS_DATA=1` (model, default off, off identical) gives the stale-value effects of the RTL. With it: dhrystone 115,896 and vm_pagefault_test 19,271 =
+RTL; `fm_gate` on 68/68, **RTL cycles equal to the model on all 68** (the two differences of section 3 are gone), off trees 67/67 equal to `ref_cycles.txt`.
+`scripts/ref_cycles_memspec.txt` is generated with `LSU_MEMSPEC=1 LSU_MS_DATA=1 LSU_PIPE_NOWD=1`. The RTL needs nothing from `LSU_MS_DATA`.
+
+## 10. What changed in the RTL (model first, then RTL, cycle equality on all 68 after every step)
+| change | model | effect |
+| --- | --- | --- |
+| overlap test `lp_ovl`: one log-depth comparator (|so - lo| < access size via equality / "a == b + 1" prefix-AND on the upper address bits) instead of two adders + three compares (`rel32/rel12 != 0`); exact incl. the no-wrap case, checked against `rel12/rel32` on 6M random + corner vectors | none | `lp_cam` 73.7k -> 31.3k cells (x4 ports), `lp_ent_ms` 1,183 -> 697; **helps the switch-off design too** |
+| wait-table training from a flag register (`trn_q`, one bit per LDQ entry), one write port, table written two cycles after the violation | `LSU_MDP_HW=2` (new default); 67 programs identical to HW=1 | no STA-arrival -> table-write path (it ends in 64 flops); 2 -> 1 write port |
+| wait table 64 x 1 (`LSU_MDP_BITS=6`) | default 6 | 69.5k -> 2.7k cells, 4,096 -> 64 flops; IPC +5.35% (12 bit: +5.27%) |
+| FTQ: 8 dispatch lookups read the 64:1 base pc and add 4 * offset (slots of an entry are consecutive) instead of 8 x 512:1 slot-pc read ports | none | +16.9k cells (measured with memories mapped to logic: base 340.0k, +8 old-style ports 491k incl. unused outputs, new 356.9k; the old-style used-bits-only estimate is about 100k) |
+| `lp_cam`: `unk` built on the prefix-OR of the find-first-set, no redundant `spec_ok` gate | none | `lp_cam` 96 -> 82 levels |
+Not done: carrying the hash through ibuf / idu / ren (64 x 6 + 3 x 8 x 6 flops plus write ports, more than the +16.9k of the FTQ read); `LSU_MS_SLOTS` in the RTL (section 11).
+
+## 11. Model data (30 points, `PF_ENABLE=1 PMU=1 FASTWARM=1000000 LSU_MEMSPEC=1 LSU_MS_DATA=1`, geomean IPC; `base` = `~/personal/AI-Huma-data/memspec/base`, `msdata1` = the earlier default run, reproduced exactly by `def`)
+| variant | vs base | vs msdata1 |
+| --- | --- | --- |
+| def (12 bit, 2 train ports, direct train) | +5.21% | 0 |
+| HW=2, 12 bit | +5.27% | +0.06% |
+| HW=2, 8 bit | +5.30% | +0.08% |
+| **HW=2, 6 bit (new default)** | **+5.35%** | **+0.13%** |
+| HW=1, 1 train port, 6 bit (dhrystone no longer loses with LSU_MS_DATA=1) | +5.31% | +0.09% |
+| HW=2, 6 bit, `LSU_MS_SLOTS=16` | +5.06% | -0.15% |
+`LSU_MS_SLOTS=16` would shrink the per-entry check (now 697 cells x 64 = 45k, plus the release logic) to at most 16 tracking entries: at most about 30k cells (3%) for -0.4 point, and a new slot table; rejected.
+
+## 12. Depth (generic gate levels, `synth_depth.sh`) and area, main vs final (switch on)
+Worst path per module, main -> now: `lp_cam` 81 -> 82 (ABC noise: without the unknown-store output the module is 67), `lp_l1b` 82 -> 83, `lp_ldq` 78 -> 78, `lp_ldq_ent` 61 -> 61, `lp_wb` 63 -> 57, `lp_core` 131 -> 128, `rob` 47 -> 46, `dispatch` 46 -> 45, `pre_idu_queue` 30 -> 30. New modules: `lp_ent_ms` 34, `lp_ms` 45, `lp_mdp` 43 (all inside the depth of `lp_core`). Only `lp_cam` / `lp_l1b` are +1 over main; every other module is not deeper.
+| module | main cells / flops | now cells / flops |
+| --- | --- | --- |
+| `lsu` / `lp_core` | 969,441 / 22,572 | **894,874** / 23,351 (-7.7%, +779 flops) |
+| `lp_ldq` | 330,074 / 11,456 | 386,345 / 12,096 |
+| `lp_cam` | 69,666 | 31,279 |
+| `lp_ms` + `lp_mdp` + `lp_ent_ms` x 64 | - | 4.3k (incl. 2.7k table) + 44.6k |
+| `lp_l1b` | 248,896 | 110,854 |
+| `rob` | 201,672 / 17,802 | 206,695 / 17,930 |
+| `dispatch` | 91,937 / 1,632 | 92,518 / 1,680 |
+| `pre_idu_queue` + FTQ pc reads | 49,795 | 50,138 (+16.9k for the base-pc reads, counted separately above) |
+Flops added in total: 779 (LSU) + 128 (ROB) + 48 (dispatch).
