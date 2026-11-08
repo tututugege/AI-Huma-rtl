@@ -50,7 +50,8 @@ module lp_ent_ms
       if (rel) st4r = LS_WBP;
       sec4 = f_q.second || (dfr && f_q.vio) || rel;
       v_elig = f_q.spec && !f_q.vio && !sec4 &&
-               (st4r == LS_PIPE || st4r == LS_DCW || st4r == LS_WBP || st4r == LS_WB3 || st4r == LS_SPD);
+               (st4r == LS_PIPE || st4r == LS_DCW || st4r == LS_WBP || st4r == LS_WB3 || st4r == LS_SPD ||
+                st4r == LS_RPW);   // RPW: a parked load forwards from its blocker when woken, no second CAM pass
       for (int k = 0; k < NST; k++)
         ovl[k] = sa_v[k] && CNTW'(sa_rank[k]) < older_e &&
                  rel12(f_q.vaddr[11:0], f_q.func3, sa_voff[k], sa_f3[k]) != 2'd0;
