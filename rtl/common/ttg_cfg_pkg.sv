@@ -57,9 +57,8 @@ package ttg_cfg_pkg;
   localparam int MAX_BR_PER_CYCLE = 8;
   localparam int MOVE_ELIM = 1;
   localparam int MOVE_ELIM_MAX_REFS = 7;
-  localparam int LSU_MEMSPEC = 0;
-  localparam int LSU_MDP_BITS = 6;
-  localparam int LSU_MDP_CLR = 2000;
+  localparam int LSU_MEMSPEC = 1;
+  localparam int FE_BFAST = 0;
   localparam int CSR_NUM = 21;
   localparam int ROB_BANK_NUM = 8;
   localparam int ROB_NUM = 128;
@@ -174,5 +173,9 @@ package ttg_cfg_pkg;
   localparam int FETCH_ADDR_FIFO_SIZE = 16;
   localparam int FRONT2BACK_FIFO_SIZE = 8;
   localparam int LSU_PIPE = 1;
+  // fixed design constants (harness/tools/gen_cfg_pkg.py FIXED), not exported from the model
+  localparam int LSU_MDP_BITS = 6;
+  localparam int LSU_MDP_CLR = 2000;
+  localparam int FE_RFAST = 15;
 endpackage
 `default_nettype wire

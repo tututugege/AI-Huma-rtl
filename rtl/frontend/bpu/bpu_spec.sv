@@ -7,7 +7,7 @@
 //   history mode  HOLD: keep   PUSH: push on the current state   CK: load a checkpoint (head + folds), then push
 //                 ARCH: load the architectural copy (after this cycle's commits)
 //   RAS mode      same four, with ARCH = architectural stack, CK = (ptr, cnt, top) restore
-module bpu_spec import bpu_pkg::*; import bpu_stage_pkg::*; (
+module bpu_spec import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; (
   input  logic                clk,
   input  logic                rst_n,
   // commit stream (architectural copies)
@@ -25,19 +25,45 @@ module bpu_spec import bpu_pkg::*; import bpu_stage_pkg::*; (
   input  ras_ck_t             r_ck,
   input  logic [1:0]          r_op,
   input  logic [31:0]         r_val,
+  // second step on the state the command leaves: the S0 push of FE_RFAST bit0 / FE_BFAST (en = 0 / op = 0 otherwise)
+  input  logic                h2_en,
+  input  logic [HSYM_W-1:0]   h2_bits,
+  input  logic [1:0]          r2_op,
+  input  logic [31:0]         r2_val,
   // state before this cycle's update
   output ck_t                 spec_ck,
   output logic                spec_ras_nonempty,
   output logic [31:0]         spec_ras_top,
-  output fh_t                 spec_fh
+  output fh_t                 spec_fh,
+  // state after the command, before the second step (the state S0 looks up with in the FAST configuration)
+  output ck_t                 spec1_ck,
+  output logic                spec1_ras_nonempty,
+  output logic [31:0]         spec1_ras_top,
+  output fh_t                 spec1_fh,
+  // REFONLY: refetch flag and the refetch-only command (see bpu_cmd); spec1_* then is the state after that command
+  input  logic                refetch,
+  input  logic [1:0]          hr_mode,
+  input  hist_ck_t            hr_ck,
+  input  logic                hr_push_en,
+  input  logic [HSYM_W-1:0]   hr_push_bits,
+  input  logic [1:0]          rr_mode,
+  input  ras_ck_t             rr_ck,
+  input  logic [1:0]          rr_op,
+  input  logic [31:0]         rr_val
 );
 
-  localparam logic [1:0] M_PUSH = 2'd1;
+  localparam bit FAST    = (FE_RFAST & 1) != 0 || FE_BFAST != 0;
+  localparam bit BFANY   = (FE_BFAST & 3) != 0;
+  localparam bit REFONLY = FAST && !BFANY;
+
   localparam logic [1:0] M_CK   = 2'd2;
   localparam logic [1:0] M_ARCH = 2'd3;
 
+  /* verilator lint_off UNUSEDSIGNAL */   // only head / folded histories of spec_d1 are read (S0 view)
+  hist_t spec_d1;
+  /* verilator lint_on UNUSEDSIGNAL */
   hist_t spec_q, spec_d, arch_q, arch_d;
-  ras_t  sras_q, sras_d, aras_q, aras_d;
+  ras_t  sras_q, sras_d, sras_d1, sras_old, aras_q, aras_d;
 
   // Ref: push_arch: every taken control instruction of the commit lanes pushes its symbol (newest bit first in d)
   logic [23:0] arch_d_bits;
@@ -68,26 +94,76 @@ module bpu_spec import bpu_pkg::*; import bpu_stage_pkg::*; (
     end
   end
 
-  // Ref: comb: spec history update
+  // history bits of up to two pushes as the (newest first) word of bpu_hist_vec; a push is 3 bits, bit 0 first
+  function automatic logic [23:0] dbits(input logic en1, input logic [HSYM_W-1:0] b1, input logic en2,
+                                        input logic [HSYM_W-1:0] b2);
+    logic [23:0] d;
+    d = '0;
+    if (en2) begin
+      d[2:0] = {b2[0], b2[1], b2[2]};
+      if (en1) d[5:3] = {b1[0], b1[1], b1[2]};
+    end else if (en1) begin
+      d[2:0] = {b1[0], b1[1], b1[2]};
+    end
+    return d;
+  endfunction
+
+  // Ref: comb: spec history update (command; the base state of the command is spec_q / checkpoint / architectural copy)
+  hist_t base1;
+  logic  en1;
   always_comb begin
-    spec_d = spec_q;
+    base1 = spec_q;
     case (h_mode)
-      M_PUSH: spec_d = hist_push_sym(spec_q, h_push_en, h_push_bits);
-      M_CK:   spec_d = hist_push_sym(hist_restore(spec_q, h_ck), h_push_en, h_push_bits);
-      M_ARCH: spec_d = hist_push_sym(arch_d, h_push_en, h_push_bits);
-      default: spec_d = spec_q;
+      M_CK:    base1 = hist_restore(spec_q, h_ck);
+      M_ARCH:  base1 = arch_d;
+      default: base1 = spec_q;
     endcase
+    en1 = (h_mode != 2'd0) && h_push_en;
+  end
+
+  if (!FAST) begin : g_h_old
+    always_comb begin
+      spec_d1 = hist_push_sym(base1, en1, h_push_bits);
+      spec_d  = spec_d1;
+    end
+  end else if (BFANY) begin : g_h_bf
+    // one linear multi-bit push per result instead of chained single-bit pushes (command push, then S0 push)
+    bpu_hist_vec u_v1 (.h(base1), .n(en1 ? 5'd3 : 5'd0), .d(dbits(en1, h_push_bits, 1'b0, '0)), .h_next(spec_d1));
+    bpu_hist_vec u_v2 (.h(base1), .n(5'(3 * (int'(en1) + int'(h2_en)))), .d(dbits(en1, h_push_bits, h2_en, h2_bits)),
+                       .h_next(spec_d));
+  end else begin : g_h_ref
+    hist_t spec_old, spec_r1, spec_r2, base_r;
+    always_comb begin
+      spec_old = hist_push_sym(base1, en1, h_push_bits);
+      base_r   = (hr_mode == M_CK) ? hist_restore(spec_q, hr_ck) : arch_d;
+      spec_d1  = spec_r1;
+    end
+    bpu_hist_vec u_r1 (.h(base_r), .n(hr_push_en ? 5'd3 : 5'd0), .d(dbits(hr_push_en, hr_push_bits, 1'b0, '0)),
+                       .h_next(spec_r1));
+    bpu_hist_vec u_r2 (.h(base_r), .n(5'(3 * (int'(hr_push_en) + int'(h2_en)))),
+                       .d(dbits(hr_push_en, hr_push_bits, h2_en, h2_bits)), .h_next(spec_r2));
+    always_comb spec_d = refetch ? spec_r2 : spec_old;
   end
 
   // Ref: comb: spec RAS update
+  ras_t rbase1;
   always_comb begin
-    sras_d = sras_q;
+    rbase1 = sras_q;
     case (r_mode)
-      M_PUSH: sras_d = ras_op(sras_q, r_op, r_val);
-      M_CK:   sras_d = ras_op(ras_restore(sras_q, r_ck), r_op, r_val);
-      M_ARCH: sras_d = ras_op(aras_d, r_op, r_val);
-      default: sras_d = sras_q;
+      M_CK:    rbase1 = ras_restore(sras_q, r_ck);
+      M_ARCH:  rbase1 = aras_d;
+      default: rbase1 = sras_q;
     endcase
+  end
+  always_comb sras_old = (r_mode == 2'd0) ? sras_q : ras_op(rbase1, r_op, r_val);
+  if (REFONLY) begin : g_r_ref
+    ras_t sras_r1;
+    always_comb sras_r1 = ras_op((rr_mode == M_CK) ? ras_restore(sras_q, rr_ck) : aras_d, rr_op, rr_val);
+    always_comb sras_d1 = sras_r1;
+    always_comb sras_d  = refetch ? ras_op(sras_r1, r2_op, r2_val) : sras_old;
+  end else begin : g_r_std
+    always_comb sras_d1 = sras_old;
+    always_comb sras_d  = ras_op(sras_d1, r2_op, r2_val);
   end
 
   always_comb begin
@@ -97,6 +173,12 @@ module bpu_spec import bpu_pkg::*; import bpu_stage_pkg::*; (
     spec_ras_nonempty = (sras_q.cnt != '0);
     spec_ras_top      = sras_q.st[sras_q.ptr];
     spec_fh           = spec_q.fh;
+    spec1_ck.h.head    = spec_d1.head;
+    spec1_ck.h.fh      = spec_d1.fh;
+    spec1_ck.r         = ras_take(sras_d1);
+    spec1_ras_nonempty = (sras_d1.cnt != '0);
+    spec1_ras_top      = sras_d1.st[sras_d1.ptr];
+    spec1_fh           = spec_d1.fh;
   end
 
   always_ff @(posedge clk) begin
@@ -112,6 +194,12 @@ module bpu_spec import bpu_pkg::*; import bpu_stage_pkg::*; (
       aras_q <= aras_d;
     end
   end
+
+  /* verilator lint_off UNUSEDSIGNAL */
+  logic unused_ok;   // refetch-only command: used only in REFONLY
+  assign unused_ok = ^{h2_en, h2_bits, refetch, hr_mode, hr_ck, hr_push_en, hr_push_bits, rr_mode, rr_ck, rr_op,
+                       rr_val};
+  /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule
 

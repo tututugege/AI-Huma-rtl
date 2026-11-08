@@ -169,6 +169,7 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
   );
 
   // ---- predecode checker: PTAB head vs predecoded instruction-queue head ----
+  logic [FETCH_WIDTH-1:0][KIND_W-1:0] slot_kind;
   logic [FETCH_WIDTH-1:0] checker_dir_corrected;
   logic [31:0] checker_next_corrected;
 
@@ -211,7 +212,6 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
   logic [31:0] f2b_rd_predict_next_fetch_address_corrected;
   logic [BCK_W-1:0] f2b_rd_bck;
   logic [FETCH_WIDTH-1:0][KIND_W-1:0] f2b_rd_kind;
-  logic [FETCH_WIDTH-1:0][KIND_W-1:0] slot_kind;
 
   /* verilator lint_off UNUSEDSIGNAL */
   logic                f2b_rd_valid;

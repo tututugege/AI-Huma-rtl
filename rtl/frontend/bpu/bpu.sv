@@ -10,7 +10,7 @@
 //       guess (override = squash the younger block, restart S0, two bubbles).
 // History repair: the history checkpoint (and epoch) of every block travels to the back-end FTQ; a back-end branch
 // mispredict returns it, a predecode flush uses the PDCKPT queue.
-module bpu import bpu_pkg::*; import bpu_btb_pkg::*; import bpu_stage_pkg::*; (
+module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_btb_pkg::*; import bpu_stage_pkg::*; (
   input  logic                clk,
   input  logic                rst_n,
   input  logic                refetch,
@@ -70,21 +70,39 @@ module bpu import bpu_pkg::*; import bpu_btb_pkg::*; import bpu_stage_pkg::*; (
   logic [EPOCH_W-1:0] epoch_q, epoch_d;
 
   // ---- S0 ----
-  ck_t         spec_ck;
-  logic        spec_ras_nonempty;
-  logic [31:0] spec_ras_top;
-  fh_t         spec_fh;
+  ck_t         spec_ck, spec1_ck, s0_ck;
+  logic        spec_ras_nonempty, spec1_ras_nonempty, s0_ras_nonempty;
+  logic [31:0] spec_ras_top, spec1_ras_top, s0_ras_top;
+  fh_t         spec_fh, spec1_fh, s0_fh;
   tix_all_t    s0_tix;
   pred_t       g0;
   pred_t       g1;
-  logic [31:0] s0_bnd;
+  logic [31:0] s0_bnd, s0_base, pc1;
 
-  assign s0_bnd = block_bnd(pc_q);
-  bpu_stage0 u_stage0 (.base(pc_q), .spec_fh, .tix(s0_tix));
+  // FE_RFAST bit0 / FE_BFAST: S0 looks up the block at the pc the redirect of this cycle produces, with the history /
+  // RAS that redirect leaves, instead of the pc register and the registered speculative state.
+  localparam bit FAST    = (FE_RFAST & 1) != 0 || FE_BFAST != 0;
+  localparam bit REFONLY = FAST && (FE_BFAST & 3) == 0;   // S0 re-issues only in the refetch cycle: refetch-only state
+  always_comb begin
+    s0_base         = FAST ? pc1 : pc_q;
+    s0_ck           = FAST ? spec1_ck : spec_ck;
+    s0_ras_nonempty = FAST ? spec1_ras_nonempty : spec_ras_nonempty;
+    s0_ras_top      = FAST ? spec1_ras_top : spec_ras_top;
+    s0_fh           = FAST ? spec1_fh : spec_fh;
+    if (REFONLY && !refetch) begin
+      s0_ck           = spec_ck;
+      s0_ras_nonempty = spec_ras_nonempty;
+      s0_ras_top      = spec_ras_top;
+      s0_fh           = spec_fh;
+    end
+  end
+
+  assign s0_bnd = block_bnd(s0_base);
+  bpu_stage0 u_stage0 (.base(s0_base), .spec_fh(s0_fh), .tix(s0_tix));
 
   bpu_ubtb u_ubtb (
     .clk, .rst_n, .upd_valid, .base_pc, .br_type, .actual_dir, .pred_dir, .target,
-    .s0_base(pc_q), .s0_bnd, .s0_ras_nonempty(spec_ras_nonempty), .s0_ras_top(spec_ras_top), .s0_guess(g0),
+    .s0_base, .s0_bnd, .s0_ras_nonempty, .s0_ras_top, .s0_guess(g0),
     .s1_base(r0_q.base), .s1_bnd(block_bnd(r0_q.base)), .s1_ras_nonempty(r0_q.ck.r.cnt != '0),
     .s1_ras_top(r0_q.ck.r.top), .s1_guess(g1)
   );
@@ -141,7 +159,7 @@ module bpu import bpu_pkg::*; import bpu_btb_pkg::*; import bpu_stage_pkg::*; (
   );
 
   // ---- decisions, speculative state, PDCKPT ----
-  logic d_valid, ovr, squash, l1_ov, issue, pd_restore, rep_ok;
+  logic d_valid, ovr, squash, l1_ov, issue, fast, s0_go, pd_restore, rep_ok;
   logic pdq_have;
   ck_t  pd_ck;
   logic [1:0]  h_mode, r_mode, r_op;
@@ -153,19 +171,36 @@ module bpu import bpu_pkg::*; import bpu_btb_pkg::*; import bpu_stage_pkg::*; (
 
   bpu_ctl u_ctl (
     .refetch, .refetch_pd, .rf_valid, .rf_epoch_ok(rf_epoch == epoch_q), .pd_valid, .pd_flush, .pdq_have,
-    .icache_read_ready, .ptab_size, .r0(r0_q), .r1(r1_q), .fin, .g1, .d_valid, .ovr, .squash, .l1_ov, .issue,
+    .icache_read_ready, .ptab_size, .r0(r0_q), .r1(r1_q), .fin, .g1, .d_valid, .ovr, .squash, .l1_ov, .issue, .fast,
+    .s0_go,
     .pd_restore, .rep_ok
   );
 
+  logic        h2_en;
+  logic [HSYM_W-1:0] h2_bits;
+  logic [1:0]  r2_op;
+  logic [31:0] r2_val;
+
+  logic [1:0]  hr_mode, rr_mode, rr_op;
+  hist_ck_t    hr_ck;
+  logic        hr_push_en;
+  logic [HSYM_W-1:0] hr_push_bits;
+  ras_ck_t     rr_ck;
+  logic [31:0] rr_val;
+
   bpu_cmd u_cmd (
-    .refetch, .pd_restore, .rep_ok, .ovr, .l1_ov, .issue, .pc(pc_q), .refetch_address, .g0, .g1, .fin,
+    .refetch, .pd_restore, .rep_ok, .ovr, .l1_ov, .issue, .s0_go, .pc(pc_q), .refetch_address, .g0, .g1, .fin,
     .r0(r0_q), .r1(r1_q), .pd_ck, .pd_hv, .pd_hbits, .pd_ras_op, .pd_ras_val, .rf_ck(hist_ck_t'(rf_ck)),
-    .rf_type, .rf_pc, .h_mode, .h_ck, .h_push_en, .h_push_bits, .r_mode, .r_ck, .r_op, .r_val, .pc_d
+    .rf_type, .rf_pc, .h_mode, .h_ck, .h_push_en, .h_push_bits, .r_mode, .r_ck, .r_op, .r_val, .pc1,
+    .h2_en, .h2_bits, .r2_op, .r2_val, .pc_d,
+    .hr_mode, .hr_ck, .hr_push_en, .hr_push_bits, .rr_mode, .rr_ck, .rr_op, .rr_val
   );
 
   bpu_spec u_spec (
     .clk, .rst_n, .upd_valid, .base_pc, .br_type, .actual_dir, .target, .h_mode, .h_ck, .h_push_en, .h_push_bits,
-    .r_mode, .r_ck, .r_op, .r_val, .spec_ck, .spec_ras_nonempty, .spec_ras_top, .spec_fh
+    .r_mode, .r_ck, .r_op, .r_val, .h2_en, .h2_bits, .r2_op, .r2_val,
+    .spec_ck, .spec_ras_nonempty, .spec_ras_top, .spec_fh, .spec1_ck, .spec1_ras_nonempty, .spec1_ras_top, .spec1_fh,
+    .refetch, .hr_mode, .hr_ck, .hr_push_en, .hr_push_bits, .rr_mode, .rr_ck, .rr_op, .rr_val
   );
 
   bpu_pdq u_pdq (
@@ -176,10 +211,10 @@ module bpu import bpu_pkg::*; import bpu_btb_pkg::*; import bpu_stage_pkg::*; (
   // ---- next stage registers ----
   always_comb begin
     r0_d = '0;
-    r0_d.valid = issue;
-    r0_d.base  = pc_q;
+    r0_d.valid = s0_go;
+    r0_d.base  = s0_base;
     r0_d.g     = g0;
-    r0_d.ck    = spec_ck;
+    r0_d.ck    = s0_ck;
     r1_d       = r0_q;
     r1_d.valid = r0_q.valid && !refetch && !ovr;
     if (l1_ov) r1_d.g = g1;
@@ -206,8 +241,8 @@ module bpu import bpu_pkg::*; import bpu_btb_pkg::*; import bpu_stage_pkg::*; (
     r1_raw_q <= s1_raw;
   end
 
-  assign icache_read_valid          = issue;
-  assign fetch_address              = pc_q;
+  assign icache_read_valid          = s0_go;
+  assign fetch_address              = s0_base;
   assign override_valid             = ovr;
   assign override_squash            = squash;
   assign ptab_write_enable          = d_valid;
@@ -218,7 +253,7 @@ module bpu import bpu_pkg::*; import bpu_btb_pkg::*; import bpu_stage_pkg::*; (
 
   /* verilator lint_off UNUSEDSIGNAL */
   logic unused_ok;   // S0 / S1 guess slot and type fields are statistics-only
-  assign unused_ok = ^{g0.slot, g0.ty, g1.slot, g1.ty, fin.slot, fin.ty};
+  assign unused_ok = ^{g0.slot, g0.ty, g1.slot, g1.ty, fin.slot, fin.ty, fast, spec_ck.h.head, pc1};
   /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

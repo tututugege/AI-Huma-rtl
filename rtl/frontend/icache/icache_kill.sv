@@ -10,7 +10,7 @@
 //     outstanding the FSM waits one cycle for it (CANCEL_WAIT); otherwise everything is simply released;
 //   - in SWAP_IN the DCache probe is stepped first (reference behaviour: it may issue a probe request in this
 // very cycle).
-module icache_kill import icache_pkg::*; (
+module icache_kill import ttg_cfg_pkg::*; import icache_pkg::*; (
   input  ic_regs_t                r,
   input  logic                    mem_req_ready,
   input  logic                    mem_req_accepted,
@@ -81,6 +81,10 @@ module icache_kill import icache_pkg::*; (
       end
       default: r_n.state = IC_IDLE;
     endcase
+    // FE_RFAST bit2: no dead cycle after a redirect: ready again at once unless it must wait for an AXI accept.  The
+    // reference model sees the accept pulse one cycle after this RTL: a kill in the cycle of the pulse is still a
+    // "ready seen, accept outstanding" kill there (CANCEL_WAIT_ACCEPT, not ready): accepted_now holds the ready back.
+    if ((FE_RFAST & 4) != 0) r_n.ifu_ready = r_n.state == IC_IDLE && !accepted_now;
   end
 
 endmodule

@@ -5,15 +5,18 @@
 // One cycle, in this order (the C++ "read call then write call, accumulated" protocol collapses to exactly this):
 //   clear (refetch)  ->  drop the youngest entry if drop_tail  ->  push wdata if wr_en  ->  pop the head if rd_valid.
 // The read port shows the head as it was at the START of the cycle (a push this cycle is not visible; there is no
-// write-through into an empty queue: that C++ path is never exercised, see docs/analysis/frontend-boundary.md 3.1).
-// rd_valid = rd_en & ~clear & queue non-empty; rdata is only meaningful when rd_valid.
+// write-through into an empty queue: that C++ path is never exercised, see docs/analysis/frontend-boundary.md 3.1),
+// unless BYPASS: then an empty queue shows the entry pushed this cycle (PTAB write-to-read bypass, FE_RFAST bit1).
+// rd_valid = rd_en & ~clear & (queue non-empty | BYPASS & wr_en); rdata is only meaningful when rd_valid.
 // full / empty are functions of the START-of-cycle size (they replace the 8 redundant C++ latches):
 // full = size >= FULL_AT.
 // Writing into a completely full queue (without clear) is illegal (the C++ model exit(1)s on overflow).
 module front_fifo #(
   parameter int DEPTH   = 16,
   parameter int W       = 32,
-  parameter int FULL_AT = DEPTH
+  parameter int FULL_AT = DEPTH,
+  parameter bit WR_AFTER_DROP = 1'b0,   // FE_BFAST: a push in the cycle of a drop_tail takes the slot of the dropped entry
+  parameter bit BYPASS        = 1'b0    // FE_RFAST bit1: a push into an empty queue is visible on the read port the same cycle
 ) (
   input  logic         clk,
   input  logic         rst_n,
@@ -45,11 +48,15 @@ module front_fifo #(
   assign empty = (count_q == '0);
   assign size  = count_q;
   assign full  = (count_q >= CNT_W'(FULL_AT));
-  assign rdata = mem_q[rd_ptr_q];
+  if (BYPASS) begin : g_bypass
+    assign rdata = empty ? wdata : mem_q[rd_ptr_q];
+  end else begin : g_nobypass
+    assign rdata = mem_q[rd_ptr_q];
+  end
 
   // Ref: *_FIFO_comb (do_read) and *_FIFO model seq_write (clear -> push -> pop)
   always_comb begin
-    rd_valid          = rd_en && !clear && !empty;
+    rd_valid          = rd_en && !clear && (!empty || (BYPASS && wr_en));
     count_after_clear = clear ? '0 : count_q;
     drop_eff          = drop_tail && !clear && !empty;
     count_d           = count_after_clear - CNT_W'(drop_eff) + CNT_W'(wr_en) - CNT_W'(rd_valid);
@@ -71,8 +78,10 @@ module front_fifo #(
   end
 
   // Storage: written like a memory (no reset: only entries between rd_ptr and wr_ptr are ever read as valid data)
+  logic [PTR_W-1:0] wr_slot;
+  assign wr_slot = WR_AFTER_DROP ? wr_ptr_q - PTR_W'(drop_eff) : wr_ptr_q;
   always_ff @(posedge clk) begin
-    if (wr_en) mem_q[wr_ptr_q] <= wdata;
+    if (wr_en) mem_q[wr_slot] <= wdata;
   end
 
 `ifndef SYNTHESIS
