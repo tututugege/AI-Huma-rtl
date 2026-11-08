@@ -238,8 +238,8 @@ module lp_core
   logic [LQ-1:0]   vio_new;
   lp_dis_ld_t      dis_ldw [NDIS];
   lp_ms u_ms (.clk(clk), .rst_n(rst_n), .sq(sq), .head_q(head_q), .ags(ags), .dis_ld(dis_ld), .vio_new(vio_new),
-              .ldq_q(ldq_q), .l1(l1), .unk_any(unk_any), .unk_rank(unk_rank), .sa_rank(sa_rank), .sa_voff(sa_voff),
-              .sa_f3(sa_f3), .dis_ldw(dis_ldw), .spec_ok(spec_ok));
+              .empty_w(empty_w), .ldq_q(ldq_q), .l1(l1), .unk_any(unk_any), .unk_rank(unk_rank),
+              .sa_rank(sa_rank), .sa_voff(sa_voff), .sa_f3(sa_f3), .dis_ldw(dis_ldw), .spec_ok(spec_ok));
 
   lp_l1b u_l1b (.clk(clk), .l1(l1), .l_hit(l_hit), .l_mmio(l_mmio), .l_paddr(l_paddr), .l_tlb(l_tlb),
                 .ld_retry_busy(ld_retry_busy), .pipe8(pipe8_sel), .epoch_nx(epoch_nx), .head_q(head_q),

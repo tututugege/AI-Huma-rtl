@@ -42,8 +42,8 @@ module lp_cam
 
   for (genvar j = 0; j < SQ; j++) begin : g_cmp
     logic ov_full, ov_part;
-    assign ov_full = rel32(paddr, func3, sq[j].paddr, sq[j].func3) != 2'd0;
-    assign ov_part = rel12(voff, func3, cv_voff[j], cv_f3[j]) != 2'd0;
+    lp_ovl #(.W(32)) u_full (.lo(paddr), .lf(func3), .so(sq[j].paddr), .sf(sq[j].func3), .ovl(ov_full));
+    lp_ovl #(.W(12)) u_part (.lo(voff), .lf(func3), .so(cv_voff[j]), .sf(cv_f3[j]), .ovl(ov_part));
     assign hit[j] = older_mask[j] && !sq[j].suppress &&
                     (!cv_va[j] ? !(MS && spec_ok) : ((full && sq[j].pa_v) ? ov_full : ov_part));
     assign unk_v[j] = older_mask[j] && !sq[j].suppress && !cv_va[j];
@@ -54,18 +54,17 @@ module lp_cam
     assign hit_rev[j] = hit_rot[SQ-1-j];
     assign last_pos[j] = last_rev[SQ-1-j];
   end
-  lp_ffs #(.N(SQ)) u_last (.req(hit_rev), .onehot(last_rev), .any(any_hit));
+  lp_ffs_p #(.N(SQ)) u_last (.req(hit_rev), .onehot(last_rev), .any(any_hit), .pre(hit_ge));
   ttg_onehot_to_idx #(.N(SQ)) u_idx (.onehot(last_pos), .idx(pos_idx));
   assign cand_v = any_hit;
   assign cand = pos_idx + head;
 
   // memory speculation: youngest passed (unknown-address) store younger than the youngest hit.  In the reversed
-  // rank order (index 0 = youngest) that is an unknown bit with no hit at or before it: prefix-OR of the hits.
+  // rank order (index 0 = youngest) that is an unknown bit with no hit at or before it: the prefix-OR of the hits
+  // (hit_ge, shared with the find-first-set above).
   logic [SQ-1:0] unk_rot;
   always_comb begin
     unk_rot = SQ'(rotr64(64'(unk_v), head));
-    hit_ge = hit_rev;
-    for (int s = 1; s < SQ; s = s * 2) hit_ge = hit_ge | (hit_ge << s);
   end
   for (genvar j = 0; j < SQ; j++) begin : g_unk
     assign unk_rev[j] = unk_rot[SQ-1-j];

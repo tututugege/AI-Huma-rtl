@@ -73,11 +73,9 @@ module pre_idu_queue import ttg_cfg_pkg::*; import pre_idu_pkg::*; import front_
   output logic [TAGE_TAG_W-1:0] ftq_commit_info_resp_tage_tag [COMMIT_WIDTH] [TAGE_N]
 );
 
-  localparam int NPORT_DIS = (LSU_MEMSPEC != 0) ? DECODE_WIDTH : 0;   // dispatch read ports (wait-table index)
-  localparam int NPORT_PC = FTQ_PRF_PC_PORT_NUM + FTQ_ROB_PC_PORT_NUM + COMMIT_WIDTH + NPORT_DIS;
+  localparam int NPORT_PC = FTQ_PRF_PC_PORT_NUM + FTQ_ROB_PC_PORT_NUM + COMMIT_WIDTH;
   localparam int PORT_ROB = FTQ_PRF_PC_PORT_NUM;
   localparam int PORT_COMMIT = FTQ_PRF_PC_PORT_NUM + FTQ_ROB_PC_PORT_NUM;
-  localparam int PORT_DIS = PORT_COMMIT + COMMIT_WIDTH;
 
   // ---- flat spec ports <-> internal vectors / structs ----
   logic [BACKEND_FETCH_WIDTH-1:0] front_valid;
@@ -152,14 +150,16 @@ module pre_idu_queue import ttg_cfg_pkg::*; import pre_idu_pkg::*; import front_
       pc_rd_offset[PORT_COMMIT+p] = rob_commit_commit_entry_uop_ftq_offset[p];
     end
   end
+  logic [31:0] dis_pc [DECODE_WIDTH];
   for (genvar p = 0; p < DECODE_WIDTH; p++) begin : g_dis_pc
     if (LSU_MEMSPEC != 0) begin : g_on
-      assign pc_rd_idx[PORT_DIS+p]    = ftq_dis_req_ftq_idx[p];
-      assign pc_rd_offset[PORT_DIS+p] = ftq_dis_req_ftq_offset[p];
       // wait-table index of the load PC: pc[2+B-1:2] ^ pc[2+2B-1:2+B]
-      assign ftq_dis_resp_mdp[p] = pc_rd_pc[PORT_DIS+p][2 +: LSU_MDP_BITS] ^
-                                   pc_rd_pc[PORT_DIS+p][2+LSU_MDP_BITS +: LSU_MDP_BITS];
+      assign ftq_dis_resp_mdp[p] = dis_pc[p][2 +: LSU_MDP_BITS] ^ dis_pc[p][2+LSU_MDP_BITS +: LSU_MDP_BITS];
     end else begin : g_off
+      /* verilator lint_off UNUSEDSIGNAL */
+      logic unused;
+      assign unused = ^dis_pc[p];
+      /* verilator lint_on UNUSEDSIGNAL */
       assign ftq_dis_resp_mdp[p] = '0;
     end
   end
@@ -184,7 +184,8 @@ module pre_idu_queue import ttg_cfg_pkg::*; import pre_idu_pkg::*; import front_
   pre_idu_ftq_pc #(.NPORT(NPORT_PC)) u_pc (
     .clk, .wr_en(alloc), .wr_idx(ftq_tail), .wr_slot_pc(front_slot_pc), .wr_pred_taken(front_pred_taken),
     .wr_next_pc(front2pre_predict_next_fetch_address),
-    .rd_idx(pc_rd_idx), .rd_offset(pc_rd_offset), .rd_pc(pc_rd_pc), .rd_pred_taken(pc_rd_pred_taken),
+    .rd_idx(pc_rd_idx), .rd_offset(pc_rd_offset), .dis_idx(ftq_dis_req_ftq_idx), .dis_off(ftq_dis_req_ftq_offset),
+    .dis_pc(dis_pc), .rd_pc(pc_rd_pc), .rd_pred_taken(pc_rd_pred_taken),
     .rd_next_pc(pc_rd_next_pc)
   );
 

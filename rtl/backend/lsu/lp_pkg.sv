@@ -32,7 +32,6 @@ package lp_pkg;
   // memory-dependence speculation (EXP-018, model CFG_LSU_MEMSPEC): loads pass older stores with an unknown address
   localparam bit MS   = LSU_MEMSPEC != 0;
   localparam int MDPW = LSU_MDP_BITS;       // wait-table index width (PC hash)
-  localparam int MDPN = 2;                  // wait-table write ports = trains per cycle (model LSU_MDP_NTR)
   localparam int NRP  = 4;                  // load replay registers (model CFG_LSU_PIPE_RP)
   localparam int NDR  = (NST < 3) ? NST : 3;  // committed-store drain ports (model CFG_LSU_PIPE_DRAIN)
   localparam int NDC  = 4;                  // committed-store drain candidates = CAMs (model CFG_LSU_PIPE_DCAND)

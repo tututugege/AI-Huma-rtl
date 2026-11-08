@@ -20,6 +20,7 @@ module lp_ms
   input  lp_dis_ld_t          dis_ld [NDIS],
   /* verilator lint_off UNUSEDSIGNAL */
   input  logic [LQ-1:0]       vio_new,
+  input  logic [LQ-1:0]       empty_w,
   /* verilator lint_on UNUSEDSIGNAL */
   input  lp_ldq_t             ldq_q [LQ],
   input  lp_l1in_t            l1 [NLD],
@@ -54,7 +55,8 @@ module lp_ms
   ttg_onehot_to_idx #(.N(SQ)) u_unkx (.onehot(unk_oh), .idx(unk_rank));
 
   if (MS) begin : g_mdp
-    lp_mdp u_mdp (.clk(clk), .rst_n(rst_n), .dis(dis_ld), .vio_new(vio_new), .ldq_q(ldq_q), .dis_wait(mdp_wait));
+    lp_mdp u_mdp (.clk(clk), .rst_n(rst_n), .dis(dis_ld), .vio_new(vio_new), .empty_w(empty_w), .ldq_q(ldq_q),
+                  .dis_wait(mdp_wait));
   end else begin : g_nomdp
     assign mdp_wait = '0;
   end

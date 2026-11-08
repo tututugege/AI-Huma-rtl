@@ -14,6 +14,11 @@ module pre_idu_ftq_pc import ttg_cfg_pkg::*; import pre_idu_pkg::*; #(
   input  logic [31:0]                  wr_next_pc,
   input  logic [FTQ_IDX_WIDTH-1:0]     rd_idx [NPORT],
   input  logic [FTQ_OFFSET_WIDTH-1:0]  rd_offset [NPORT],
+  // pc of fetch slot `dis_off` of entry `dis_idx` as base pc + 4 * offset (the slots of an entry are consecutive): a
+  // 64:1 read of the base pc per port instead of a 512:1 read of the slot pc (LSU_MEMSPEC wait-table index)
+  input  logic [FTQ_IDX_WIDTH-1:0]     dis_idx [DECODE_WIDTH],
+  input  logic [FTQ_OFFSET_WIDTH-1:0]  dis_off [DECODE_WIDTH],
+  output logic [31:0]                  dis_pc [DECODE_WIDTH],
   output logic [31:0]                  rd_pc [NPORT],
   output logic                         rd_pred_taken [NPORT],
   output logic [31:0]                  rd_next_pc [NPORT]
@@ -22,6 +27,10 @@ module pre_idu_ftq_pc import ttg_cfg_pkg::*; import pre_idu_pkg::*; #(
   logic [31:0]                    slot_pc_q [FTQ_SIZE][BACKEND_FETCH_WIDTH];
   logic [BACKEND_FETCH_WIDTH-1:0] pred_taken_q [FTQ_SIZE];
   logic [31:0]                    next_pc_q [FTQ_SIZE];
+
+  always_comb begin
+    for (int p = 0; p < DECODE_WIDTH; p++) dis_pc[p] = slot_pc_q[dis_idx[p]][0] + {27'b0, dis_off[p], 2'b00};
+  end
 
   // Ref: comb_ftq_lookup_prf / comb_ftq_lookup_rob / comb_commit_info (pc, pred_taken) -- reads the registered state
   always_comb begin

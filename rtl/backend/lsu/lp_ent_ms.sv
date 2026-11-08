@@ -39,7 +39,10 @@ module lp_ent_ms
   if (MS) begin : g_on
     lp_ld_st_t       st4r;
     logic            rel, sec4, v_elig;
-    logic [NST-1:0]  ovl;
+    logic [NST-1:0]  ovl, ov12;
+    for (genvar k = 0; k < NST; k++) begin : g_ov
+      lp_ovl #(.W(12)) u_ovl (.lo(f_q.vaddr[11:0]), .lf(f_q.func3), .so(sa_voff[k]), .sf(sa_f3[k]), .ovl(ov12[k]));
+    end
     logic [CNTW-1:0] older_e;
     always_comb begin
       dfr = wb_go && !f_q.second && f_q.spec && !f_q.pf && !f_q.mmio && !f_q.lrsc;
@@ -52,9 +55,7 @@ module lp_ent_ms
       v_elig = f_q.spec && !f_q.vio && !sec4 &&
                (st4r == LS_PIPE || st4r == LS_DCW || st4r == LS_WBP || st4r == LS_WB3 || st4r == LS_SPD ||
                 st4r == LS_RPW);   // RPW: a parked load forwards from its blocker when woken, no second CAM pass
-      for (int k = 0; k < NST; k++)
-        ovl[k] = sa_v[k] && CNTW'(sa_rank[k]) < older_e &&
-                 rel12(f_q.vaddr[11:0], f_q.func3, sa_voff[k], sa_f3[k]) != 2'd0;
+      for (int k = 0; k < NST; k++) ovl[k] = sa_v[k] && CNTW'(sa_rank[k]) < older_e && ov12[k];
       vio_new = v_elig && (|ovl);
       st4v = (vio_new && st4r == LS_SPD) ? LS_RDY : st4r;
       sec4v = sec4 || (vio_new && st4r == LS_SPD);
