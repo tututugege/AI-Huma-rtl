@@ -89,15 +89,22 @@ module dcache_wb
   // head entry as seen by the AXI request: merges of this tick that hit the head, or the freshly appended line
   // (empty buffer)
   logic [LINE_BITS-1:0] head_data;
+  logic [NST-1:0]       en_h;
+  logic [NST-1:0][WORD_W-1:0] qw1, qw2;
+  logic [NST-1:0][31:0]       qd1, qd2;
+  logic [NST-1:0][3:0]        qs1, qs2;
+  always_comb begin
+    for (int p = 0; p < NST; p++) begin
+      qw1[p] = mrg_word[p];  qd1[p] = mrg_data[p];  qs1[p] = mrg_strb[p];
+      qw2[p] = mrg_l2[p].word;  qd2[p] = mrg_l2[p].data;  qs2[p] = mrg_l2[p].strb;
+    end
+  end
   logic [LINE_W-1:0]    head_line;
   always_comb begin
     head_data = data_q[head_a];
     head_line = line_q[head_a];
-    for (int p = 0; p < NST; p++)
-      if (mrg_ok[p] && mrg_idx[p] == head_a) begin
-        head_data = line_merge(head_data, mrg_word[p], mrg_data[p], mrg_strb[p]);
-        head_data = line_merge(head_data, mrg_l2[p].word, mrg_l2[p].data, mrg_l2[p].strb);
-      end
+    for (int p = 0; p < NST; p++) en_h[p] = mrg_ok[p] && mrg_idx[p] == head_a;
+    head_data = line_merge_n(head_data, en_h, qw1, qd1, qs1, qw2, qd2, qs2);
     if (push_ok && tail == head_a) begin
       head_data = push_data;
       head_line = push_line;
@@ -123,13 +130,12 @@ module dcache_wb
   // entry storage (no reset: entries are only read inside [head, head+count))
   always_ff @(posedge clk) begin
     for (int p = 0; p < NST; p++)
-      for (int b = 0; b < 4; b++)
+      for (int b = 0; b < 4; b++) begin
         if (mrg_ok[p] && mrg_strb[p][b])
           data_q[mrg_idx[p]][(32'(mrg_word[p]) << 5) + 32'(8 * b) +: 8] <= mrg_data[p][8*b +: 8];
-    for (int p = 0; p < NST; p++)
-      for (int b = 0; b < 4; b++)
         if (mrg_ok[p] && mrg_l2[p].strb[b])
           data_q[mrg_idx[p]][(32'(mrg_l2[p].word) << 5) + 32'(8 * b) +: 8] <= mrg_l2[p].data[8*b +: 8];
+      end
     if (push_ok) begin
       line_q[tail] <= push_line;
       data_q[tail] <= push_data;

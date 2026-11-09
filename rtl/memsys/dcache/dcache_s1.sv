@@ -208,6 +208,16 @@ module dcache_s1
   logic [NSLOT-1:0] rty_set;          // a replayed request that could not be re-issued is parked in the latch
   assign rty_set = retry_issue & ~use_new;
 
+  logic [NST-1:0][WORD_W-1:0] mw1, mw2;
+  logic [NST-1:0][31:0]       md1, md2;
+  logic [NST-1:0][3:0]        ms1, ms2;
+  always_comb begin
+    for (int p = 0; p < NST; p++) begin
+      mw1[p] = mrg_word[p];  md1[p] = mrg_data[p];  ms1[p] = mrg_strb[p];
+      mw2[p] = mrg_l2[p].word;  md2[p] = mrg_l2[p].data;  ms2[p] = mrg_l2[p].strb;
+    end
+  end
+
   logic                 s2f_valid_d, s2f_dirty_d, s2f_pf_d;
   logic [MSHR_IDW-1:0]  s2f_id_d;
   logic [LINE_W-1:0]    s2f_line_d;
@@ -230,11 +240,8 @@ module dcache_s1
     end
     // stores of this tick that hit the line being filled are merged into the snapshot (port order, later wins)
     if (s2f_valid_d) begin
-      for (int p = 0; p < NST; p++) if (mrg_en[p]) begin
-        s2f_data_d  = line_merge(s2f_data_d, mrg_word[p], mrg_data[p], mrg_strb[p]);
-        s2f_data_d  = line_merge(s2f_data_d, mrg_l2[p].word, mrg_l2[p].data, mrg_l2[p].strb);
-        s2f_dirty_d = 1'b1;
-      end
+      s2f_data_d = line_merge_n(s2f_data_d, mrg_en, mw1, md1, ms1, mw2, md2, ms2);
+      if (|mrg_en) s2f_dirty_d = 1'b1;
     end
   end
 

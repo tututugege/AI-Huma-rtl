@@ -63,6 +63,40 @@ package dcache_pkg;
     return r;
   endfunction
 
+  // All store words of one tick merged into a line in one parallel step per byte (EXP-024: two words per port).
+  // Priority (later wins): port order, lane 1 before lane 2.  Replaces a chain of line_merge() calls.
+  function automatic logic [LINE_BITS-1:0] line_merge_n(
+    input logic [LINE_BITS-1:0]       l,
+    input logic [NST-1:0]             en,
+    input logic [NST-1:0][WORD_W-1:0] w1, input logic [NST-1:0][31:0] d1, input logic [NST-1:0][3:0] s1,
+    input logic [NST-1:0][WORD_W-1:0] w2, input logic [NST-1:0][31:0] d2, input logic [NST-1:0][3:0] s2);
+    logic [LINE_BITS-1:0] r;
+    r = l;
+    for (int bi = 0; bi < LINE_BITS / 8; bi++) begin
+      for (int k = 0; k < NST; k++) begin
+        if (en[k] && w1[k] == WORD_W'(bi / 4) && s1[k][bi % 4]) r[8*bi +: 8] = d1[k][8*(bi % 4) +: 8];
+        if (en[k] && w2[k] == WORD_W'(bi / 4) && s2[k][bi % 4]) r[8*bi +: 8] = d2[k][8*(bi % 4) +: 8];
+      end
+    end
+    return r;
+  endfunction
+
+  // byte mask of the bytes written by the same set of store words
+  function automatic logic [LINE_BITS/8-1:0] line_strb_n(
+    input logic [NST-1:0]             en,
+    input logic [NST-1:0][WORD_W-1:0] w1, input logic [NST-1:0][3:0] s1,
+    input logic [NST-1:0][WORD_W-1:0] w2, input logic [NST-1:0][3:0] s2);
+    logic [LINE_BITS/8-1:0] m;
+    m = '0;
+    for (int bi = 0; bi < LINE_BITS / 8; bi++) begin
+      for (int k = 0; k < NST; k++) begin
+        if (en[k] && w1[k] == WORD_W'(bi / 4) && s1[k][bi % 4]) m[bi] = 1'b1;
+        if (en[k] && w2[k] == WORD_W'(bi / 4) && s2[k][bi % 4]) m[bi] = 1'b1;
+      end
+    end
+    return m;
+  endfunction
+
   // tree-PLRU (4 ways): bit0 root (1 = victim on the right), bit1 = left pair, bit2 = right pair
   function automatic logic [2:0] plru_touch(input logic [2:0] bits, input logic [1:0] way);
     logic [2:0] n;

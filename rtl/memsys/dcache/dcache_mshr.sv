@@ -127,17 +127,24 @@ module dcache_mshr
   logic [LINE_BITS-1:0] mdata_d [MSHR_N];
   logic [LINE_BITS/8-1:0] mstrb_d [MSHR_N];
   logic [MSHR_N-1:0]    mupd;
+  logic [NST-1:0][WORD_W-1:0] qw1, qw2;
+  logic [NST-1:0][31:0]       qd1, qd2;
+  logic [NST-1:0][3:0]        qs1, qs2;
+  logic [NST-1:0]             en_e;
   always_comb begin
+    for (int p = 0; p < NST; p++) begin
+      qw1[p] = req_word[p];  qd1[p] = req_data[p];  qs1[p] = req_strb[p];
+      qw2[p] = req_l2[p].word;  qd2[p] = req_l2[p].data;  qs2[p] = req_l2[p].strb;
+    end
     for (int e = 0; e < MSHR_N; e++) begin
       mdirty_d[e] = alloc_en[e] ? 1'b0 : mdirty_q[e];
       mdata_d[e]  = alloc_en[e] ? '0 : mdata_q[e];
       mstrb_d[e]  = alloc_en[e] ? '0 : mstrb_q[e];
       mupd[e]     = alloc_en[e];
-      for (int p = 0; p < NST; p++) if (tgt[NLD+p][e]) begin
-        mdata_d[e]  = line_merge(mdata_d[e], req_word[p], req_data[p], req_strb[p]);
-        for (int b = 0; b < 4; b++) if (req_strb[p][b]) mstrb_d[e][4 * int'(req_word[p]) + b] = 1'b1;
-        mdata_d[e]  = line_merge(mdata_d[e], req_l2[p].word, req_l2[p].data, req_l2[p].strb);
-        for (int b = 0; b < 4; b++) if (req_l2[p].strb[b]) mstrb_d[e][4 * int'(req_l2[p].word) + b] = 1'b1;
+      for (int p = 0; p < NST; p++) en_e[p] = tgt[NLD+p][e];
+      mdata_d[e]  = line_merge_n(mdata_d[e], en_e, qw1, qd1, qs1, qw2, qd2, qs2);
+      mstrb_d[e]  = mstrb_d[e] | line_strb_n(en_e, qw1, qs1, qw2, qs2);
+      if (|en_e) begin
         mdirty_d[e] = 1'b1;
         mupd[e]     = 1'b1;
       end

@@ -119,6 +119,10 @@ module dcache_resp
   logic [1:0]     ldrp_f [NLD];
   logic [1:0]     strp_f [NST];
   logic [LINE_BITS-1:0] frd_f;
+  logic [NST-1:0]       fen;
+  logic [NST-1:0][WORD_W-1:0] fw1, fw2;
+  logic [NST-1:0][31:0]       fd1, fd2;
+  logic [NST-1:0][3:0]        fs1, fs2;
   logic                 frdirty_f;
   always_comb begin
     frd_f     = fr_data;
@@ -134,13 +138,13 @@ module dcache_resp
     end
     for (int i = 0; i < NST; i++) begin
       strp_f[i] = strp_a[i];
-      if (stv_a[i] && fr_valid && strp_a[i][1] && staddr_a[i][29:OFF_W-2] == fr_line) begin
-        frd_f     = line_merge(frd_f, staddr_a[i][WORD_W-1:0], stdata_a[i], ststrb_a[i]);
-        frd_f     = line_merge(frd_f, stl2_a[i].word, stl2_a[i].data, stl2_a[i].strb);
-        frdirty_f = 1'b1;
-        strp_f[i] = RP_HIT;
-      end
+      fen[i] = stv_a[i] && fr_valid && strp_a[i][1] && staddr_a[i][29:OFF_W-2] == fr_line;
+      fw1[i] = staddr_a[i][WORD_W-1:0];  fd1[i] = stdata_a[i];  fs1[i] = ststrb_a[i];
+      fw2[i] = stl2_a[i].word;  fd2[i] = stl2_a[i].data;  fs2[i] = stl2_a[i].strb;
+      if (fen[i]) strp_f[i] = RP_HIT;
     end
+    frd_f = line_merge_n(frd_f, fen, fw1, fd1, fs1, fw2, fd2, fs2);
+    if (|fen) frdirty_f = 1'b1;
   end
 `ifndef SYNTHESIS
   // coverage: forwarding paths
