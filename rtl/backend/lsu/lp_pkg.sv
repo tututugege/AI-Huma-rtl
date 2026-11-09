@@ -218,6 +218,29 @@ package lp_pkg;
     logic [RWW-1:0]  rwait;
   } lp_stq_t;
 
+  // EXP-024 write buffer: entries of up to two stores of one cache line, and the store handed to the insertion
+  localparam int NWB = 4;
+  typedef struct packed {
+    logic            v, st, mg, two;     // valid, sent to the DCache, mergeable, holds two stores
+    logic [25:0]     line;
+    logic [SQW-1:0]  m0, m1;             // STQ indices of the stores (first = leader)
+    logic [31:0]     a0, a1, d0, d1;     // their physical address / data
+    logic [1:0]      f0, f1;             // their size
+  } wbe_t;
+  typedef wbe_t [NWB-1:0]            wbs_t;   // all entries
+  typedef logic [NWB-1:0][NWB-1:0]   ltm_t;   // age matrix
+  typedef struct packed {
+    logic            mmio, done, lrsc;
+    logic [31:0]     paddr, data;
+    logic [1:0]      f3;
+  } wbi_t;
+  typedef struct packed {                // state of one insertion batch
+    logic            go, tail_v, tail_new, t_mg, t_two;
+    logic [1:0]      tail;
+    logic [25:0]     t_line;
+    logic [NWB-1:0]  alloc;
+  } wbb_t;
+
   // LDQ entry registers visible to the glue (write-back, MMIO, wake)
   typedef struct packed {
     logic [ROBW-1:0] rob_idx;

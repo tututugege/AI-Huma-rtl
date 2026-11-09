@@ -52,7 +52,6 @@ module lp_stq_ent
   input  logic                dr_mmio,
   output logic                d_elig,
   output logic                d_rdy,
-  output logic                d_blk,
   // P14
   input  logic                srp_take,
   // views
@@ -189,7 +188,6 @@ module lp_stq_ent
   always_comb begin
     d_elig = win13 && (((LP_CUT & 8192) != 0) ? (ent_q.cmt && !done4n) : (cmt1 && !done4)) && !ent_q.iss && !mmw2;
     d_rdy = d_elig && (((LP_CUT & 16) != 0) ? rw5g == '0 : rw5[RWW-1:1] == '0);
-    d_blk = win13 && (((LP_CUT & 8192) != 0) ? (ent_q.cmt && !done4n) : (cmt1 && !done4));
     rw_dec = d_elig && rw5 != '0;
     rw13 = rw_dec ? rw5 - RWW'(1) : rw5;
     done_v = done4;

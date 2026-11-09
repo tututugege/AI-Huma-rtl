@@ -125,7 +125,7 @@ module lp_core
   logic [CNTW-1:0] count_q, ccount_q, count_flushed;
   logic [SQ-1:0]   alive_w, win4, win13, alive_post, alive_fl, cm_go, al_v, ev_ret, done_q_v;
   logic [SQ-1:0][NDIS-1:0] al_slot;
-  logic [SQ-1:0]   cv_va, done_v, trp_v, d_elig, d_rdy, d_blk, sd_acc;
+  logic [SQ-1:0]   cv_va, done_v, trp_v, d_elig, d_rdy, sd_acc;
   logic [11:0]     cv_voff [SQ];
   logic [2:0]      cv_f3 [SQ];
   lp_sta_info_t    vw [SQ];
@@ -296,7 +296,7 @@ module lp_core
     .alive_w(alive_w), .win4(win4), .win13(win13), .alive_post(alive_post),
     .count_flushed(count_flushed), .alive_fl(alive_fl));
 
-  logic [SQ-1:0] dr_pick, dr_mmio, dr_fol;  logic [SQW-1:0] dr_ml [SQ];
+  logic [SQ-1:0] dr_pick, dr_mmio, dr_fol, wb_mark, wbi_v;  logic [SQW-1:0] dr_ml [SQ];
   logic [SQ-1:0] alive_flushed;
   logic fill_en;
   assign fill_en = fill_valid && LSU_WAIT_MSHR_FILL != 0;
@@ -310,8 +310,9 @@ module lp_core
     .sdw(sdw), .ags(ags), .s1_v(s1_v), .s1_stq(s1_stq), .tl_s_miss(tl_s_miss), .tl_s(tl_s),
     .al_v(al_v), .al_slot(al_slot), .dis_st(dis_st),
     .dr_pick(dr_pick), .dr_fol(dr_fol), .dr_ml(dr_ml), .dr_mmio(dr_mmio), .srp_take(srp_take),
+    .wb_mark(wb_mark), .wbi_v(wbi_v),
     .sq(sq), .cv_va(cv_va), .cv_voff(cv_voff), .cv_f3(cv_f3), .vw(vw), .done_v(done_v), .trp_v(trp_v),
-    .d_elig(d_elig), .d_rdy(d_rdy), .d_blk(d_blk), .sd_acc(sd_acc), .sa_acc(sa_acc));
+    .d_elig(d_elig), .d_rdy(d_rdy), .sd_acc(sd_acc), .sa_acc(sa_acc));
 
   lp_ldq u_ldq (
     .clk(clk), .rst_n(rst_n), .flush(rb_flush), .mispred(dec_mispred), .dec_br_mask(dec_br_mask),
@@ -348,9 +349,9 @@ module lp_core
   end
 
   lp_drain u_drain (
-    .sq(sq), .d_rdy(d_rdy), .d_blk(d_blk), .d_elig(d_elig), .head_q(head_q), .retry_busy(dcs_busy_in),
-    .unc_busy(unc_valid_pre_st), .dr_pick(dr_pick), .dr_fol(dr_fol), .dr_ml(dr_ml),
-    .dr_mmio(dr_mmio),
+    .clk(clk), .rst_n(rst_n), .sq(sq), .d_rdy(d_rdy), .d_elig(d_elig), .wbi_v(wbi_v), .head_q(head_q),
+    .retry_busy(dcs_busy_in), .unc_busy(unc_valid_pre_st), .dcs_valid(dcs_valid), .dcs_req_id(dcs_req_id),
+    .dcs_replay(dcs_replay), .wb_mark(wb_mark), .dr_pick(dr_pick), .dr_fol(dr_fol), .dr_ml(dr_ml), .dr_mmio(dr_mmio),
     .req_valid(dcs_req_valid), .req_addr(dcs_req_addr), .req_data(dcs_req_data), .req_strb(dcs_req_strb),
     .req_l2(dcs_req_l2), .req_id(dcs_req_id_o), .st_set(st_set), .st_addr(st_addr), .st_wdata(st_wdata),
     .st_func3(st_func3), .st_idx(st_idx));

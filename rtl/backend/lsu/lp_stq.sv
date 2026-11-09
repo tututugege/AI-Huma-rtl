@@ -44,6 +44,7 @@ module lp_stq
   // P13 / P14
   input  logic [SQ-1:0]       dr_pick,
   input  logic [SQ-1:0]       dr_fol,
+  input  logic [SQ-1:0]       wb_mark,
   input  logic [SQW-1:0]      dr_ml [SQ],
   input  logic [SQ-1:0]       dr_mmio,
   input  logic [SQ-1:0]       srp_take,
@@ -57,7 +58,7 @@ module lp_stq
   output logic [SQ-1:0]       trp_v,
   output logic [SQ-1:0]       d_elig,
   output logic [SQ-1:0]       d_rdy,
-  output logic [SQ-1:0]       d_blk,
+  output logic [SQ-1:0]       wbi_v,              // handled by the write-buffer insertion
   output logic [SQ-1:0]       sd_acc,
   output logic [NST-1:0]      sa_acc
 );
@@ -103,7 +104,11 @@ module lp_stq
       for (int i = 0; i < NDIS; i++) if (al_slot[j][i]) al_d = dis_st[i];
     end
 
+    logic wbi_q;                       // handled by the write-buffer insertion
+    assign wbi_v[j] = wbi_q;
     always_ff @(posedge clk) begin
+      if (!rst_n || al_v[j]) wbi_q <= 1'b0;
+      else if (wb_mark[j]) wbi_q <= 1'b1;
       if (!rst_n) mf_q <= 1'b0;
       else if (dr_pick[j]) mf_q <= dr_fol[j];
       if (dr_pick[j]) ml_q <= dr_ml[j];
@@ -119,7 +124,7 @@ module lp_stq
       .tl_tgt(tl_tgt), .tl_miss(tl_s_miss), .tl(tl_s),
       .al_v(al_v[j]), .al_d(al_d),
       .win13(win13[j]), .dr_pick(dr_pick[j]), .dr_mmio(dr_mmio[j]),
-      .d_elig(d_elig[j]), .d_rdy(d_rdy[j]), .d_blk(d_blk[j]),
+      .d_elig(d_elig[j]), .d_rdy(d_rdy[j]),
       .srp_take(srp_take[j]),
       .q_o(sq[j]), .cv_va(cv_va[j]), .cv_voff(cv_voff[j]), .cv_f3(cv_f3[j]), .vw(vw[j]),
       .done_v(done_v[j]), .trp_v(trp_v[j]));
