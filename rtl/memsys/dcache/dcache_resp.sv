@@ -29,6 +29,7 @@ module dcache_resp
   input  logic [31:0]          slot_addr  [NSLOT],
   input  logic [31:0]          slot_data  [NST],
   input  logic [3:0]           slot_strb  [NST],
+  input  st2_t                 slot_l2    [NST],
   // fill request of this tick from the MSHR
   input  logic                 fr_valid,
   input  logic [LINE_W-1:0]    fr_line,
@@ -61,6 +62,7 @@ module dcache_resp
   logic [1:0]     strp_q [NST];
   logic [31:0]    stid_q [NST], stdata_q [NST];
   logic [3:0]     ststrb_q [NST];
+  st2_t           stl2_q [NST];
   logic [29:0]    staddr_q [NST];
   logic           fill_q;
   logic [LINE_W-1:0] fillline_q;
@@ -74,6 +76,7 @@ module dcache_resp
   logic [1:0]     strp_a [NST];
   logic [31:0]    stid_a [NST], stdata_a [NST];
   logic [3:0]     ststrb_a [NST];
+  st2_t           stl2_a [NST];
   logic [29:0]    staddr_a [NST];
   logic              fill_a;
   logic [LINE_W-1:0] fillline_a;
@@ -93,6 +96,7 @@ module dcache_resp
       stid_a[i]    = st_valid[i] ? st_id[i]     : stid_q[i];
       stdata_a[i]  = st_valid[i] ? slot_data[i] : stdata_q[i];
       ststrb_a[i]  = st_valid[i] ? slot_strb[i] : ststrb_q[i];
+      stl2_a[i]    = st_valid[i] ? slot_l2[i]   : stl2_q[i];
       staddr_a[i]  = st_valid[i] ? slot_addr[NLD+i][31:2] : staddr_q[i];
     end
     fill_a     = fill_valid || rel_event || fill_q;
@@ -132,6 +136,7 @@ module dcache_resp
       strp_f[i] = strp_a[i];
       if (stv_a[i] && fr_valid && strp_a[i][1] && staddr_a[i][29:OFF_W-2] == fr_line) begin
         frd_f     = line_merge(frd_f, staddr_a[i][WORD_W-1:0], stdata_a[i], ststrb_a[i]);
+        frd_f     = line_merge(frd_f, stl2_a[i].word, stl2_a[i].data, stl2_a[i].strb);
         frdirty_f = 1'b1;
         strp_f[i] = RP_HIT;
       end
@@ -208,6 +213,7 @@ module dcache_resp
       stid_q[i]   <= stid_a[i];
       stdata_q[i] <= stdata_a[i];
       ststrb_q[i] <= ststrb_a[i];
+      stl2_q[i]   <= stl2_a[i];
       staddr_q[i] <= staddr_a[i];
     end
     fillline_q <= fillline_a;

@@ -21,6 +21,7 @@ module dcache
   input  logic [31:0]          st_req_addr   [NST],
   input  logic [31:0]          st_req_data   [NST],
   input  logic [3:0]           st_req_strb   [NST],
+  input  st2_t                 st_req_l2     [NST],
   input  logic [31:0]          st_req_id     [NST],
   input  logic [2:0]           icache_req,
   // AXI inputs
@@ -75,6 +76,7 @@ module dcache
   logic [NSLOT-1:0]     slot_valid, slot_replayed, slot_granted, retry_issue, pend_valid, retry_busy;
   logic [31:0]          slot_addr [NSLOT], slot_id [NSLOT], slot_data [NST];
   logic [3:0]           slot_strb [NST];
+  st2_t                 slot_l2   [NST];
   logic [2:0]           icache_req_s2;
   logic                 s2f_valid, s2f_dirty, s2f_pf, same_fill;
   logic [NLD-1:0]       slot_pf, slot_pf_llc, slot_perf_replay, slot_lsu;
@@ -172,7 +174,7 @@ module dcache
     .clk(clk), .rst_n(rst_n),
     .ld_req_valid(ld_req_v), .ld_req_addr(ld_req_addr), .ld_req_id(ld_req_id),
     .st_req_valid(st_req_v), .st_req_addr(st_req_addr), .st_req_data(st_req_data),
-    .st_req_strb(st_req_strb), .st_req_id(st_req_id), .icache_req(icache_req),
+    .st_req_strb(st_req_strb), .st_req_l2(st_req_l2), .st_req_id(st_req_id), .icache_req(icache_req),
     .ld_req_replay(ld_req_replay),
     .pf_head_valid(pf_head_valid), .pf_head_line(pf_head_line), .pf_head_llc(pf_head_llc), .pf_taken(pf_taken),
     .slot_pf(slot_pf), .slot_pf_llc(slot_pf_llc), .slot_perf_replay(slot_perf_replay),
@@ -181,8 +183,10 @@ module dcache
     .fr_valid(fr_valid), .fr_line(fr_line), .fr_id(fr_id), .fr_dirty(frf_dirty), .fr_data(frf_data),
     .s2_fill_valid(fill_valid),
     .mrg_en(st_mrg), .mrg_data(slot_data), .mrg_strb(slot_strb), .mrg_word(st_word),
+    .mrg_l2(slot_l2),
     .slot_valid(slot_valid), .slot_replayed(slot_replayed), .slot_addr(slot_addr), .slot_id(slot_id),
-    .slot_data(slot_data), .slot_strb(slot_strb), .icache_req_s2(icache_req_s2), .retry_issue(retry_issue),
+    .slot_data(slot_data), .slot_strb(slot_strb), .slot_l2(slot_l2), .icache_req_s2(icache_req_s2),
+    .retry_issue(retry_issue),
     .retry_busy(retry_busy),
     .s2f_valid(s2f_valid), .s2f_id(s2f_id), .s2f_dirty(s2f_dirty), .s2f_line(s2f_line), .s2f_data(s2f_data),
     .same_fill(same_fill)
@@ -195,6 +199,7 @@ module dcache
     .fs_en(s2f_valid), .fs_set(s2f_line[SET_W-1:0]), .fs_valid(fs_valid), .fs_dirty(fs_dirty), .fs_plru(fs_plru),
     .fs_tag(fs_tag), .fs_line(fs_line),
     .sw_en(st_pw), .sw_set(st_set), .sw_way(st_pw_way), .sw_word(st_word), .sw_data(slot_data), .sw_strb(slot_strb),
+    .sw_l2(slot_l2),
     .lu_en({st_lu, ld_lu}), .lu_way(lu_way_w),
     .fw_en(fill_valid), .fw_set(s2f_line[SET_W-1:0]), .fw_way(fill_way_tgt), .fw_tag(s2f_line[LINE_W-1:SET_W]),
     .fw_dirty(fill_dirty), .fw_data(fill_data)
@@ -262,7 +267,7 @@ module dcache
     .req_valid({st_mreq, ld_mreq | pf_ok}), .req_pf({{NST{1'b0}}, slot_pf}),
     .req_nofill({{NST{1'b0}}, slot_pf_llc & slot_pf}),
     .release_event(rel_event), .fr_pf(fr_pf), .req_line(slot_line),
-    .req_word(st_word), .req_data(slot_data), .req_strb(slot_strb),
+    .req_word(st_word), .req_data(slot_data), .req_strb(slot_strb), .req_l2(slot_l2),
     .fill_done(fill_done), .fill_id(fill_done_id),
     .free(mshr_free), .find_hit(mshr_find_hit),
     .fr_valid(fr_valid), .fr_id(fr_id), .fr_line(fr_line), .fr_dirty(fr_dirty), .fr_data(fr_data),
@@ -279,7 +284,7 @@ module dcache
     .ax_req_accepted(wb_req_accepted), .ax_resp_valid(wb_resp_valid),
     .byp_en(slot_granted[NLD-1:0]), .byp_line(ld_line), .byp_word(ld_word),
     .mrg_en(slot_granted[NSLOT-1:NLD]), .mrg_line(st_line), .mrg_word(st_word), .mrg_data(slot_data),
-    .mrg_strb(slot_strb),
+    .mrg_strb(slot_strb), .mrg_l2(slot_l2),
     .push_valid(evict_valid), .push_line(evict_line), .push_data(evict_data),
     .free(wb_free), .byp_hit(byp_hit), .byp_data(byp_data), .mrg_ok(wb_mrg_ok), .mrg_busy(wb_mrg_busy),
     .ax_req_valid(wb_req_valid), .ax_req_line(wb_ax_line), .ax_req_data(wb_ax_data)
@@ -304,7 +309,7 @@ module dcache
     .ld_valid(s2ld_valid), .ld_data(s2ld_data), .ld_id(ld_id_w), .ld_retry(s2ld_retry), .ld_replay(s2ld_replay),
     .st_valid(s2st_valid), .st_replay(s2st_replay), .st_id(st_id_w),
     .fill_valid(fill_valid), .rel_event(rel_event), .fill_line(s2f_line),
-    .slot_addr(slot_addr), .slot_data(slot_data), .slot_strb(slot_strb),
+    .slot_addr(slot_addr), .slot_data(slot_data), .slot_strb(slot_strb), .slot_l2(slot_l2),
     .fr_valid(fr_valid), .fr_line(fr_line), .fr_dirty(fr_dirty), .fr_data(fr_data),
     .frf_dirty(frf_dirty), .frf_data(frf_data), .pend_valid(pend_valid),
     .pub_ld_valid(pub_ld_valid), .pub_ld_data(ld_resp_data), .pub_ld_id(ld_resp_id),

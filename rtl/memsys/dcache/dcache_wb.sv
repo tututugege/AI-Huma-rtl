@@ -25,6 +25,7 @@ module dcache_wb
   input  logic [WORD_W-1:0]    mrg_word  [NST],
   input  logic [31:0]          mrg_data  [NST],
   input  logic [3:0]           mrg_strb  [NST],
+  input  st2_t                 mrg_l2    [NST],
   // evicted dirty line from stage 2
   input  logic                 push_valid,
   input  logic [LINE_W-1:0]    push_line,
@@ -93,7 +94,10 @@ module dcache_wb
     head_data = data_q[head_a];
     head_line = line_q[head_a];
     for (int p = 0; p < NST; p++)
-      if (mrg_ok[p] && mrg_idx[p] == head_a) head_data = line_merge(head_data, mrg_word[p], mrg_data[p], mrg_strb[p]);
+      if (mrg_ok[p] && mrg_idx[p] == head_a) begin
+        head_data = line_merge(head_data, mrg_word[p], mrg_data[p], mrg_strb[p]);
+        head_data = line_merge(head_data, mrg_l2[p].word, mrg_l2[p].data, mrg_l2[p].strb);
+      end
     if (push_ok && tail == head_a) begin
       head_data = push_data;
       head_line = push_line;
@@ -122,6 +126,10 @@ module dcache_wb
       for (int b = 0; b < 4; b++)
         if (mrg_ok[p] && mrg_strb[p][b])
           data_q[mrg_idx[p]][(32'(mrg_word[p]) << 5) + 32'(8 * b) +: 8] <= mrg_data[p][8*b +: 8];
+    for (int p = 0; p < NST; p++)
+      for (int b = 0; b < 4; b++)
+        if (mrg_ok[p] && mrg_l2[p].strb[b])
+          data_q[mrg_idx[p]][(32'(mrg_l2[p].word) << 5) + 32'(8 * b) +: 8] <= mrg_l2[p].data[8*b +: 8];
     if (push_ok) begin
       line_q[tail] <= push_line;
       data_q[tail] <= push_data;

@@ -27,6 +27,7 @@ module mem_route import ttg_cfg_pkg::*; import memcpu_pkg::*; (
   input  logic [31:0] lsu_req_store_addr        [NST],
   input  logic [31:0] lsu_req_store_data        [NST],
   input  logic [ST_STRB_W-1:0] lsu_req_store_strb [NST],
+  input  logic [39:0]          lsu_req_store_l2   [NST],
   input  logic [ST_ID_W-1:0]   lsu_req_store_req_id [NST],
   // ICache and PTW walk requests
   input  logic        icache_req_valid,
@@ -60,6 +61,7 @@ module mem_route import ttg_cfg_pkg::*; import memcpu_pkg::*; (
   output logic [31:0] dcache_req_store_addr     [NST],
   output logic [31:0] dcache_req_store_data     [NST],
   output logic [ST_STRB_W-1:0] dcache_req_store_strb [NST],
+  output logic [39:0]          dcache_req_store_l2   [NST],
   output logic [ST_ID_W-1:0]   dcache_req_store_req_id [NST],
   output logic        dcache_req_icache_probe,
   output logic        ptw_grant_valid,
@@ -124,6 +126,7 @@ module mem_route import ttg_cfg_pkg::*; import memcpu_pkg::*; (
     assign dcache_req_store_addr[s]   = lsu_req_store_addr[s];
     assign dcache_req_store_data[s]   = lsu_req_store_data[s];
     assign dcache_req_store_strb[s]   = lsu_req_store_strb[s];
+    assign dcache_req_store_l2[s]     = lsu_req_store_l2[s];
     assign dcache_req_store_req_id[s] = lsu_req_store_req_id[s];
   end
   assign lsu_resp_mshr_fill      = dcache_resp_mshr_fill;

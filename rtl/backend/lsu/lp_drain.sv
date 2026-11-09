@@ -2,10 +2,13 @@
 `default_nettype none
 
 // Committed-store drain of the staged LSU: the NDC oldest ready stores (not MMIO) are candidates for the NDR store
-// ports.  A candidate is dropped for this cycle when an older committed, not done store overlaps its bytes (NDC x 64
-// CAM: same word + byte strobe); a dropped candidate does not take a port.  The m-th remaining candidate uses the m-th
-// port without a pending DCache hidden retry (candidates beyond the free ports wait).  The head store, when it is MMIO,
-// takes the uncached unit.
+// ports.  Store merging (EXP-024, model LSU_PIPE_MERGE=2 / MGRAN=16): an unblocked candidate that
+// lies in the same 16-byte granule as an earlier candidate that took a port (a leader without a follower yet) does not
+// take a port: it rides on the request of that leader as its second word (req_l2) and completes with the leader's
+// response.  The first leader in candidate order wins.  A candidate is dropped for this cycle when an older
+// committed, not done store overlaps its bytes (NDC x 64 CAM: same word + byte strobe); a dropped candidate does not
+// take a port.  The m-th remaining leader candidate uses the m-th port without a pending DCache hidden retry
+// (candidates beyond the free ports wait).  The head store, when it is MMIO, takes the uncached unit.
 module lp_drain
   import ttg_cfg_pkg::*;
   import lp_pkg::*;
@@ -17,12 +20,15 @@ module lp_drain
   input  logic [SQW-1:0]      head_q,
   input  logic [NST-1:0]      retry_busy,
   input  logic                unc_busy,
-  output logic [SQ-1:0]       dr_pick,
+  output logic [SQ-1:0]       dr_pick,         // leaders and followers
+  output logic [SQ-1:0]       dr_fol,          // followers
+  output logic [SQW-1:0]      dr_ml [SQ],      // leader of a follower
   output logic [SQ-1:0]       dr_mmio,
   output logic [NST-1:0]      req_valid,
   output logic [31:0]         req_addr [NST],
   output logic [31:0]         req_data [NST],
   output logic [4:0]          req_strb [NST],
+  output logic [39:0]         req_l2 [NST],
   output logic [SQW-1:0]      req_id [NST],
   output logic                st_set,
   output logic [31:0]         st_addr,
@@ -57,10 +63,11 @@ module lp_drain
   lp_pickn #(.N(NDR), .K(NDR), .IW(2)) u_f (.vec(free_p), .onehot(f_oh), .idx(f_ix), .v(f_v));
 
   // ---- NDC x 64 overlap CAM; a blocked candidate does not take a port ----
-  logic [NDC-1:0] ok, issue;
+  logic [NDC-1:0] ok, lead, fol;
   logic [SQW-1:0] c_abs [NDC];
-  logic [2:0]     rk [NDC];      // number of unblocked candidates before m = the port rank of m
-  logic [NDR-1:0] c_port [NDC];  // port of candidate m (one-hot)
+  logic [NDR-1:0] c_port [NDC];    // port of leader m (one-hot)
+  logic [NDC-1:0] fl [NDC];        // fl[m]: the leader of follower m (one-hot over the candidates)
+  logic [27:0]    gran [NDC];
   always_comb begin
     for (int m = 0; m < NDC; m++) begin
       logic [SQ-1:0] older;
@@ -75,19 +82,50 @@ module lp_drain
             (lsu_pkg::store_strb(sq[q].paddr[1:0], sq[q].func3[1:0]) & sm) != 5'b0) hit = 1'b1;
       end
       ok[m] = c_v[m] && !hit;
+      gran[m] = sq[c_abs[m]].paddr[31:4];
     end
-    for (int m = 0; m < NDC; m++) begin
-      rk[m] = '0;
-      for (int k = 0; k < m; k++) rk[m] = rk[m] + 3'(ok[k]);
-      c_port[m] = '0;
-      for (int r = 0; r < NDR; r++) if (rk[m] == 3'(r)) c_port[m] = f_oh[r];
-      issue[m] = ok[m] && (c_port[m] != '0);
+    begin
+      logic [NDC-1:0] has_fol;
+      int             cnt;
+      has_fol = '0;
+      cnt = 0;
+      for (int m = 0; m < NDC; m++) begin
+        logic found;
+        found = 1'b0;
+        fl[m] = '0;
+        c_port[m] = '0;
+        lead[m] = 1'b0;
+        fol[m] = 1'b0;
+        for (int l = 0; l < m; l++) begin
+          if (ok[m] && !found && lead[l] && !has_fol[l] && gran[l] == gran[m]) begin
+            found = 1'b1;
+            fl[m][l] = 1'b1;
+            has_fol[l] = 1'b1;
+          end
+        end
+        fol[m] = found;
+        if (ok[m] && !found) begin
+          if (cnt < NDR) begin
+            for (int r = 0; r < NDR; r++) if (cnt == r) c_port[m] = f_oh[r];
+            lead[m] = c_port[m] != '0;
+            cnt = cnt + 1;
+          end
+        end
+      end
     end
   end
 
   always_comb begin
     dr_pick = '0;
-    for (int m = 0; m < NDC; m++) if (issue[m]) dr_pick[c_abs[m]] = 1'b1;
+    dr_fol = '0;
+    for (int j = 0; j < SQ; j++) dr_ml[j] = '0;
+    for (int m = 0; m < NDC; m++) begin
+      if (lead[m] || fol[m]) dr_pick[c_abs[m]] = 1'b1;
+      if (fol[m]) begin
+        dr_fol[c_abs[m]] = 1'b1;
+        for (int l = 0; l < m; l++) if (fl[m][l]) dr_ml[c_abs[m]] = c_abs[l];
+      end
+    end
   end
 
   // ---- request ports ----
@@ -98,13 +136,22 @@ module lp_drain
       req_data[t] = '0;
       req_strb[t] = '0;
       req_id[t] = '0;
+      req_l2[t] = '0;
       for (int m = 0; m < NDC; m++) begin
-        if (t < NDR && issue[m] && c_port[m][t]) begin
+        if (t < NDR && lead[m] && c_port[m][t]) begin
           req_valid[t] = 1'b1;
           req_addr[t] = sq[c_abs[m]].paddr;
           req_data[t] = lsu_pkg::align_store_data(sq[c_abs[m]].data, sq[c_abs[m]].paddr[1:0], sq[c_abs[m]].func3[1:0]);
           req_strb[t] = lsu_pkg::store_strb(sq[c_abs[m]].paddr[1:0], sq[c_abs[m]].func3[1:0]);
           req_id[t] = c_abs[m];
+          for (int f = 0; f < NDC; f++) begin
+            if (fol[f] && fl[f][m]) begin
+              req_l2[t][31:0]  = lsu_pkg::align_store_data(sq[c_abs[f]].data, sq[c_abs[f]].paddr[1:0],
+                                                           sq[c_abs[f]].func3[1:0]);
+              req_l2[t][35:32] = sq[c_abs[f]].paddr[5:2];
+              req_l2[t][39:36] = lsu_pkg::store_strb(sq[c_abs[f]].paddr[1:0], sq[c_abs[f]].func3[1:0])[3:0];
+            end
+          end
         end
       end
     end

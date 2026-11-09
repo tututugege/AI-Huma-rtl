@@ -121,6 +121,7 @@ module lsu_pipe
   output logic [31:0] lsu2dcache_store_ports_addr [LSU_STA_COUNT],
   output logic [31:0] lsu2dcache_store_ports_data [LSU_STA_COUNT],
   output logic [4:0] lsu2dcache_store_ports_strb [LSU_STA_COUNT],
+  output logic [39:0] lsu2dcache_store_ports_l2 [LSU_STA_COUNT],
   output logic [5:0] lsu2dcache_store_ports_req_id [LSU_STA_COUNT],
   output logic [LSU_LDU_COUNT-1:0] lsu2mmu_ldq_req_valid,
   output logic [31:0] lsu2mmu_ldq_req_vaddr [LSU_LDU_COUNT],
@@ -236,7 +237,8 @@ module lsu_pipe
     .dcl_req_id_o(lsu2dcache_load_ports_req_id),
     .dcs_req_valid(dcs_req_valid_w), .dcs_req_addr(lsu2dcache_store_ports_addr),
     .dcs_req_data(lsu2dcache_store_ports_data),
-    .dcs_req_strb(lsu2dcache_store_ports_strb), .dcs_req_id_o(lsu2dcache_store_ports_req_id),
+    .dcs_req_strb(lsu2dcache_store_ports_strb), .dcs_req_l2(lsu2dcache_store_ports_l2),
+    .dcs_req_id_o(lsu2dcache_store_ports_req_id),
     .mmu_l_req_valid(lsu2mmu_ldq_req_valid), .mmu_l_req_vaddr(lsu2mmu_ldq_req_vaddr),
     .mmu_l_req_idx(lsu2mmu_ldq_req_entry_idx), .mmu_s_req_valid(lsu2mmu_stq_req_valid),
     .mmu_s_req_vaddr(lsu2mmu_stq_req_vaddr), .mmu_s_req_idx(lsu2mmu_stq_req_entry_idx));

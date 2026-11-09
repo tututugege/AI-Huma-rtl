@@ -45,6 +45,7 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
   input  logic [31:0] lsu2dcache_store_ports_data [LSU_STA_COUNT],
   input  logic [5:0] lsu2dcache_store_ports_req_id [LSU_STA_COUNT],
   input  logic [4:0] lsu2dcache_store_ports_strb [LSU_STA_COUNT],
+  input  logic [39:0] lsu2dcache_store_ports_l2 [LSU_STA_COUNT],
   input  logic lsu2dcache_store_ports_valid [LSU_STA_COUNT],
   input  logic peripheral_req_is_mmio,
   input  logic [31:0] peripheral_req_mmio_addr,
@@ -161,7 +162,7 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
   logic        rt_dc_st_valid [NST_];
   logic [31:0] rt_dc_st_addr [NST_], rt_dc_st_data [NST_];
   logic [ST_STRB_W-1:0] rt_dc_st_strb [NST_];
-  logic [ST_ID_W-1:0]   rt_dc_st_id [NST_];
+  logic [39:0] rt_dc_st_l2 [NST_];  logic [ST_ID_W-1:0] rt_dc_st_id [NST_];
   logic        rt_dc_icache_probe;
 
   // dcache -> route
@@ -190,7 +191,7 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
     .lsu_req_load_req_id(lsu2dcache_load_ports_req_id), .lsu_req_load_replay(lsu2dcache_load_ports_replay),
     .lsu_req_store_valid(lsu2dcache_store_ports_valid), .lsu_req_store_addr(lsu2dcache_store_ports_addr),
     .lsu_req_store_data(lsu2dcache_store_ports_data), .lsu_req_store_strb(lsu2dcache_store_ports_strb),
-    .lsu_req_store_req_id(lsu2dcache_store_ports_req_id),
+    .lsu_req_store_l2(lsu2dcache_store_ports_l2), .lsu_req_store_req_id(lsu2dcache_store_ports_req_id),
     .icache_req_valid(dc_req_valid), .icache_req_addr(dc_req_addr),
     .ptw_walk_req_valid(pw_issue_walk_read), .ptw_walk_req_addr(pw_walk_read_addr),
     .lsu_resp_load_valid(dcache2lsu_load_resps_valid), .lsu_resp_load_req_id(dcache2lsu_load_resps_req_id),
@@ -206,7 +207,7 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
     .dcache_req_load_replay(rt_dc_ld_replay),
     .dcache_req_store_valid(rt_dc_st_valid), .dcache_req_store_addr(rt_dc_st_addr),
     .dcache_req_store_data(rt_dc_st_data), .dcache_req_store_strb(rt_dc_st_strb),
-    .dcache_req_store_req_id(rt_dc_st_id),
+    .dcache_req_store_l2(rt_dc_st_l2), .dcache_req_store_req_id(rt_dc_st_id),
     .dcache_req_icache_probe(rt_dc_icache_probe),
     .ptw_grant_valid(rt_ptw_grant_valid), .ptw_grant_req_id(rt_ptw_grant_req_id)
   );
@@ -300,13 +301,12 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
   logic [2:0] dc_icache_req;
   assign dc_icache_req = (phase0 && rt_dc_icache_probe) ? 3'(NLD_ - 1) : 3'(NLD_);
 
-  logic [3:0] rt_dc_st_strb4 [NST_];
-  for (genvar s = 0; s < NST_; s++) begin : g_strb
-    assign rt_dc_st_strb4[s] = rt_dc_st_strb[s][3:0];
-  end
+  logic [3:0] rt_dc_st_strb4 [NST_];  dcache_pkg::st2_t rt_dc_st_l2c [NST_];
   logic [31:0] rt_dc_st_id32 [NST_];
-  for (genvar s = 0; s < NST_; s++) begin : g_stid
-    assign rt_dc_st_id32[s] = 32'(rt_dc_st_id[s]);
+  for (genvar s = 0; s < NST_; s++) begin : g_stconv
+    assign rt_dc_st_strb4[s] = rt_dc_st_strb[s][3:0];
+    assign rt_dc_st_l2c[s]   = dcache_pkg::st2_t'(rt_dc_st_l2[s]);
+    assign rt_dc_st_id32[s]  = 32'(rt_dc_st_id[s]);
   end
 
   // AXI-side handshake wires (declared before their first use by u_dcache)
@@ -320,7 +320,7 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
     .ld_req_valid(dc_ld_valid_in), .ld_req_addr(rt_dc_ld_addr), .ld_req_id(rt_dc_ld_id),
     .ld_req_replay(rt_dc_ld_replay),
     .st_req_valid(dc_st_valid_in), .st_req_addr(rt_dc_st_addr), .st_req_data(rt_dc_st_data),
-    .st_req_strb(rt_dc_st_strb4), .st_req_id(rt_dc_st_id32),
+    .st_req_strb(rt_dc_st_strb4), .st_req_l2(rt_dc_st_l2c), .st_req_id(rt_dc_st_id32),
     .icache_req(dc_icache_req),
     .mshr_req_accepted(ax_mshr_acc), .mshr_req_accepted_id({4'b0, ax_mshr_acc_id}),
     .mshr_resp_valid(ax_mshr_rv), .mshr_resp_id({4'b0, ax_mshr_rid}),

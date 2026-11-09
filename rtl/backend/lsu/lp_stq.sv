@@ -43,6 +43,8 @@ module lp_stq
   input  lp_dis_st_t          dis_st [NDIS],
   // P13 / P14
   input  logic [SQ-1:0]       dr_pick,
+  input  logic [SQ-1:0]       dr_fol,
+  input  logic [SQW-1:0]      dr_ml [SQ],
   input  logic [SQ-1:0]       dr_mmio,
   input  logic [SQ-1:0]       srp_take,
   // views
@@ -82,6 +84,8 @@ module lp_stq
   for (genvar j = 0; j < SQ; j++) begin : g_e
     logic          rsp_v;
     logic [1:0]    rsp_rep;
+    logic          mf_q;               // sent as the follower of the store ml_q (shares its port and response)
+    logic [SQW-1:0] ml_q;
     logic [NST-1:0] tl_tgt;
     lp_dis_st_t    al_d;
 
@@ -90,13 +94,19 @@ module lp_stq
       rsp_rep = '0;
       for (int k = 0; k < NST; k++) begin
         tl_tgt[k] = s1_v[k] && s1_stq[k] == SQW'(j);
-        if (dcs_valid[k] && dcs_req_id[k] == 32'(j)) begin
+        if (dcs_valid[k] && (dcs_req_id[k] == 32'(j) || (mf_q && dcs_req_id[k] == 32'(ml_q)))) begin
           rsp_v = 1'b1;
           rsp_rep = dcs_replay[k];
         end
       end
       al_d = '0;
       for (int i = 0; i < NDIS; i++) if (al_slot[j][i]) al_d = dis_st[i];
+    end
+
+    always_ff @(posedge clk) begin
+      if (!rst_n) mf_q <= 1'b0;
+      else if (dr_pick[j]) mf_q <= dr_fol[j];
+      if (dr_pick[j]) ml_q <= dr_ml[j];
     end
 
     lp_stq_ent #(.IDX(j)) u_ent (

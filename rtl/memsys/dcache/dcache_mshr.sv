@@ -30,6 +30,7 @@ module dcache_mshr
   input  logic [WORD_W-1:0]    req_word   [NST],
   input  logic [31:0]          req_data   [NST],
   input  logic [3:0]           req_strb   [NST],
+  input  st2_t                 req_l2     [NST],
   input  logic                 fill_done,
   input  logic [MSHR_IDW-1:0]  fill_id,
   // to stage 1/2
@@ -135,6 +136,8 @@ module dcache_mshr
       for (int p = 0; p < NST; p++) if (tgt[NLD+p][e]) begin
         mdata_d[e]  = line_merge(mdata_d[e], req_word[p], req_data[p], req_strb[p]);
         for (int b = 0; b < 4; b++) if (req_strb[p][b]) mstrb_d[e][4 * int'(req_word[p]) + b] = 1'b1;
+        mdata_d[e]  = line_merge(mdata_d[e], req_l2[p].word, req_l2[p].data, req_l2[p].strb);
+        for (int b = 0; b < 4; b++) if (req_l2[p].strb[b]) mstrb_d[e][4 * int'(req_l2[p].word) + b] = 1'b1;
         mdirty_d[e] = 1'b1;
         mupd[e]     = 1'b1;
       end

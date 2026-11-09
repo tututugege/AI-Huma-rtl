@@ -123,6 +123,7 @@ module lsu
   output logic [31:0] lsu2dcache_store_ports_addr [LSU_STA_COUNT],
   output logic [31:0] lsu2dcache_store_ports_data [LSU_STA_COUNT],
   output logic [4:0] lsu2dcache_store_ports_strb [LSU_STA_COUNT],
+  output logic [39:0] lsu2dcache_store_ports_l2 [LSU_STA_COUNT],
   output logic [5:0] lsu2dcache_store_ports_req_id [LSU_STA_COUNT],
   output logic [LSU_LDU_COUNT-1:0] lsu2mmu_ldq_req_valid,
   output logic [31:0] lsu2mmu_ldq_req_vaddr [LSU_LDU_COUNT],
@@ -138,7 +139,10 @@ module lsu
     lsu_pipe u_pipe (.*);
   end else begin : g_legacy
 
-  // the legacy LSU has no memory speculation and no LSU-driven wake-ups
+  // the legacy LSU has no memory speculation, no LSU-driven wake-ups and no merged stores
+  for (genvar s = 0; s < LSU_STA_COUNT; s++) begin : g_l2z
+    assign lsu2dcache_store_ports_l2[s] = '0;
+  end
   assign lsu2exe_wb_req_uop_rob_defer = '0;
   assign lsu2exe_wb_req_uop_flush_pipe = '0;
   assign lsu2iss_wake_valid = '0;

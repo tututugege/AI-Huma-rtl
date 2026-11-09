@@ -34,6 +34,7 @@ module dcache_arr
   input  logic [WORD_W-1:0]    sw_word   [NST],
   input  logic [31:0]          sw_data   [NST],
   input  logic [3:0]           sw_strb   [NST],
+  input  st2_t                 sw_l2     [NST],
   input  logic [NSLOT-1:0]     lu_en,                 // PLRU touch of a slot's set (hit way)
   input  logic [1:0]           lu_way    [NSLOT],
   input  logic                 fw_en,
@@ -108,7 +109,7 @@ module dcache_arr
       .fw_dirty(fw_dirty), .fw_pf(fw_pf), .fw_data(fw_data),
       .pfc_en(pfc_en_b), .pfc_row(pfc_row_b), .pfc_way(pfc_way),
       .sw_en(sw_en_b), .sw_row(sw_row_b), .sw_way(sw_way), .sw_word(sw_word), .sw_data(sw_data),
-      .sw_strb(sw_strb),
+      .sw_strb(sw_strb), .sw_l2(sw_l2),
       .pl_en(pl_en_b), .pl_row(pl_row_b), .pl_bits(pl_bits_b)
     );
   end

@@ -36,6 +36,7 @@ module dcache_bank
   input  logic [WORD_W-1:0]    sw_word  [NST],
   input  logic [31:0]          sw_data  [NST],
   input  logic [3:0]           sw_strb  [NST],
+  input  st2_t                 sw_l2    [NST],     // second word of the same row (merged store): same bank, same way
   // PLRU word write (later ports win)
   input  logic [NSLOT:0]       pl_en,
   input  logic [ROW_W-1:0]     pl_row   [NSLOT+1],
@@ -85,6 +86,10 @@ module dcache_bank
       for (int b = 0; b < 4; b++)
         if (sw_en[p] && sw_strb[p][b])
           data_q[sw_way[p]][sw_row[p]][(32'(sw_word[p]) << 5) + 32'(8 * b) +: 8] <= sw_data[p][8*b +: 8];
+    for (int p = 0; p < NST; p++)
+      for (int b = 0; b < 4; b++)
+        if (sw_en[p] && sw_l2[p].strb[b])
+          data_q[sw_way[p]][sw_row[p]][(32'(sw_l2[p].word) << 5) + 32'(8 * b) +: 8] <= sw_l2[p].data[8*b +: 8];
     if (fw_en) begin
       tag_q[fw_way][fw_row]  <= fw_tag;
       data_q[fw_way][fw_row] <= fw_data;

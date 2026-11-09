@@ -33,8 +33,8 @@ package lp_pkg;
   localparam bit MS   = LSU_MEMSPEC != 0;
   localparam int MDPW = LSU_MDP_BITS;       // wait-table index width (PC hash)
   localparam int NRP  = 4;                  // load replay registers (model CFG_LSU_PIPE_RP)
-  localparam int NDR  = (NST < 3) ? NST : 3;  // committed-store drain ports (model CFG_LSU_PIPE_DRAIN)
-  localparam int NDC  = 4;                  // committed-store drain candidates = CAMs (model CFG_LSU_PIPE_DCAND)
+  localparam int NDR  = (NST < 2) ? NST : 2;  // committed-store drain ports (model CFG_LSU_PIPE_DRAIN)
+  localparam int NDC  = 6;                  // committed-store drain candidates = CAMs (model CFG_LSU_PIPE_DCAND)
   localparam int NRET = 4;                  // STQ head entries freed per cycle
   localparam int NDIS = MAX_LDQ_DISPATCH_WIDTH;
   localparam int NCM  = COMMIT_WIDTH;

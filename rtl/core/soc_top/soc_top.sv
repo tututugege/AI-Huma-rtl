@@ -137,6 +137,7 @@ module soc_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*;
  logic [31:0] lsu2dcache_store_ports_data [LSU_STA_COUNT];
  logic [5:0] lsu2dcache_store_ports_req_id [LSU_STA_COUNT];
  logic [4:0] lsu2dcache_store_ports_strb [LSU_STA_COUNT];
+ logic [39:0] lsu2dcache_store_ports_l2 [LSU_STA_COUNT];
  logic lsu2dcache_store_ports_valid [LSU_STA_COUNT];
  logic peripheral_req_is_mmio ;
  logic [31:0] peripheral_req_mmio_addr ;

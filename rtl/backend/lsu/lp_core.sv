@@ -93,6 +93,7 @@ module lp_core
   output logic [31:0]         dcs_req_addr [NST],
   output logic [31:0]         dcs_req_data [NST],
   output logic [4:0]          dcs_req_strb [NST],
+  output logic [39:0]         dcs_req_l2 [NST],  // merged store {strb2, word2, data2}; strb2 == 0: none
   output logic [SQW-1:0]      dcs_req_id_o [NST],
   output logic [NLD-1:0]      mmu_l_req_valid,
   output logic [31:0]         mmu_l_req_vaddr [NLD],
@@ -146,7 +147,6 @@ module lp_core
   logic [NLD-1:0]  wbd_l2, rs_dir, wbd_v, wbd_hasdata;
   logic [LQW-1:0]  rs_idx [NLD], wbd_idx [NLD];
   logic [31:0]     wbd_data [NLD];
-
   lp_l2 u_l2 (.pl12(pl12_q), .sq(sq), .alive_w(alive_w), .dec(l2_dec), .fwd_data(fwd_data));
 
   always_comb begin
@@ -169,7 +169,6 @@ module lp_core
   lp_l3 u_l3 (.clk(clk), .rst_n(rst_n), .wbd_v(wbd_v), .wbd_idx(wbd_idx), .wbd_hasdata(wbd_hasdata),
               .wbd_data(wbd_data), .wb3_r(wb3_r), .wbw_v(wbw_v), .wbw_idx(wbw_idx), .wbw_hd(wbw_hd),
               .wbw_data(wbw_data));
-
   lp_wake u_wake (.clk(clk), .rst_n(rst_n), .flush(rb_flush), .mispred(dec_mispred), .dec_br_mask(dec_br_mask),
                   .pl12(pl12_q), .l2_ok(l2_ok), .ldq_q(ldq_q), .wbd_v(wbd_v), .wbd_idx(wbd_idx), .wbw_v(wbw_v),
                   .wbw_idx(wbw_idx), .wk_valid(o_wk_valid), .wk_preg(o_wk_preg), .cn_valid(o_cn_valid),
@@ -240,7 +239,6 @@ module lp_core
   lp_ms u_ms (.clk(clk), .rst_n(rst_n), .sq(sq), .head_q(head_q), .ags(ags), .dis_ld(dis_ld), .vio_new(vio_new),
               .empty_w(empty_w), .ldq_q(ldq_q), .l1(l1), .unk_any(unk_any), .unk_rank(unk_rank),
               .sa_rank(sa_rank), .sa_voff(sa_voff), .sa_f3(sa_f3), .dis_ldw(dis_ldw), .spec_ok(spec_ok));
-
   lp_l1b u_l1b (.clk(clk), .l1(l1), .l_hit(l_hit), .l_mmio(l_mmio), .l_paddr(l_paddr), .l_tlb(l_tlb),
                 .ld_retry_busy(ld_retry_busy), .pipe8(pipe8_sel), .epoch_nx(epoch_nx), .head_q(head_q),
                 .head_flag_q(head_flag_q), .count_q(count_q), .cv_va(cv_va), .cv_voff(cv_voff), .cv_f3(cv_f3), .sq(sq),
@@ -298,7 +296,7 @@ module lp_core
     .alive_w(alive_w), .win4(win4), .win13(win13), .alive_post(alive_post),
     .count_flushed(count_flushed), .alive_fl(alive_fl));
 
-  logic [SQ-1:0] dr_pick, dr_mmio;
+  logic [SQ-1:0] dr_pick, dr_mmio, dr_fol;  logic [SQW-1:0] dr_ml [SQ];
   logic [SQ-1:0] alive_flushed;
   logic fill_en;
   assign fill_en = fill_valid && LSU_WAIT_MSHR_FILL != 0;
@@ -311,7 +309,7 @@ module lp_core
     .wb_go_s(wb_go_s), .sc_go(sc_go), .rsv_valid(rsv_valid_q), .rsv_addr(rsv_addr_q),
     .sdw(sdw), .ags(ags), .s1_v(s1_v), .s1_stq(s1_stq), .tl_s_miss(tl_s_miss), .tl_s(tl_s),
     .al_v(al_v), .al_slot(al_slot), .dis_st(dis_st),
-    .dr_pick(dr_pick), .dr_mmio(dr_mmio), .srp_take(srp_take),
+    .dr_pick(dr_pick), .dr_fol(dr_fol), .dr_ml(dr_ml), .dr_mmio(dr_mmio), .srp_take(srp_take),
     .sq(sq), .cv_va(cv_va), .cv_voff(cv_voff), .cv_f3(cv_f3), .vw(vw), .done_v(done_v), .trp_v(trp_v),
     .d_elig(d_elig), .d_rdy(d_rdy), .d_blk(d_blk), .sd_acc(sd_acc), .sa_acc(sa_acc));
 
@@ -351,10 +349,11 @@ module lp_core
 
   lp_drain u_drain (
     .sq(sq), .d_rdy(d_rdy), .d_blk(d_blk), .d_elig(d_elig), .head_q(head_q), .retry_busy(dcs_busy_in),
-    .unc_busy(unc_valid_pre_st), .dr_pick(dr_pick), .dr_mmio(dr_mmio),
+    .unc_busy(unc_valid_pre_st), .dr_pick(dr_pick), .dr_fol(dr_fol), .dr_ml(dr_ml),
+    .dr_mmio(dr_mmio),
     .req_valid(dcs_req_valid), .req_addr(dcs_req_addr), .req_data(dcs_req_data), .req_strb(dcs_req_strb),
-    .req_id(dcs_req_id_o), .st_set(st_set), .st_addr(st_addr), .st_wdata(st_wdata), .st_func3(st_func3),
-    .st_idx(st_idx));
+    .req_l2(dcs_req_l2), .req_id(dcs_req_id_o), .st_set(st_set), .st_addr(st_addr), .st_wdata(st_wdata),
+    .st_func3(st_func3), .st_idx(st_idx));
 
   lp_unc u_unc (
     .clk(clk), .rst_n(rst_n), .resp_fire(resp_fire), .valid_q(unc_valid_q), .is_load_q(unc_is_load_q),

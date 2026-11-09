@@ -26,6 +26,14 @@ package dcache_pkg;
   localparam int WB_IDW    = DCACHE_WB_BITS;
   localparam int CNT_W     = DCACHE_MSHR_COUNT_BITS;       // 4: counts 0..8 (MSHR and WB have the same size)
 
+  // second store word of a merged store request (EXP-024, model LSU_PIPE_MERGE): same line as the first word of
+  // its port; strb == 0 means no second word, so every consumer can apply it unconditionally after the first
+  typedef struct packed {
+    logic [3:0]        strb;
+    logic [WORD_W-1:0] word;
+    logic [31:0]       data;
+  } st2_t;
+
   // ReplayType
   localparam logic [1:0] RP_HIT       = 2'd0;
   localparam logic [1:0] RP_CONFLICT  = 2'd1;
