@@ -32,7 +32,7 @@ make cfg                                    # 从 trace-model/include/config.h �
 bash scripts/lint.sh                        # 编码规范 + verilator -Wall（按目录）
 bash scripts/lint_chip.sh                   # 整芯片 -Wall（CFG=<包> 用别的配置检查）
 SOC_FM=1 SOC_OUT=$PWD/build/soc_fm bash tb/soc/build.sh     # 带 function-model 逐条对比的整核测试平台
-bash scripts/fm_gate.sh $PWD/build/soc_fm/obj/soc_tb $PWD/build/gate   # 66 个程序门禁，并报告与 trace-model 周期不同的个数
+bash scripts/fm_gate.sh $PWD/build/soc_fm/obj/soc_tb $PWD/build/gate   # 69 个程序门禁，并报告与 trace-model 周期不同的个数
 bash scripts/synth_cfg.sh <标签> <配置包> <模块...>                      # 综合对比
 make tracker                                # 由 docs/modules/*.md 头部重新生成 05 进度表
 ```
