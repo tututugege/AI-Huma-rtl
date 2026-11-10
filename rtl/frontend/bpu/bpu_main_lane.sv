@@ -9,10 +9,8 @@ module bpu_main_lane import bpu_pkg::*; import bpu_btb_pkg::*; import bpu_stage_
   input  tp_entry_t           ty_way [TP_WAYS],
   input  logic                tg_pred,
   input  btb_ent_t            btb_set [B_WAYS],
-  input  logic                itt_valid,
-  input  logic [T_TAG_W-1:0]  itt_entry_tag,
-  input  logic [31:0]         itt_target,
-  input  logic [T_TAG_W-1:0]  itt_tag,
+  input  itt_ent_t [NITT-1:0] itt,
+  input  logic [NITT-1:0][T_TAG_W-1:0] itt_tag,
   output logic [2:0]          ty,
   output logic                taken,
   output logic [31:0]         target
@@ -34,8 +32,7 @@ module bpu_main_lane import bpu_pkg::*; import bpu_btb_pkg::*; import bpu_stage_
   end
 
   bpu_btb_sel u_sel (
-    .bank_pc(bank_pc), .br_type(ty), .btb_set(btb_set), .itt_valid(itt_valid), .itt_entry_tag(itt_entry_tag),
-    .itt_target(itt_target), .itt_tag(itt_tag), .target(target)
+    .bank_pc(bank_pc), .br_type(ty), .btb_set(btb_set), .itt(itt), .itt_tag(itt_tag), .target(target)
   );
 
 endmodule

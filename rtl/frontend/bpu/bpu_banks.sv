@@ -45,12 +45,13 @@ module bpu_banks import bpu_pkg::*; import bpu_btb_pkg::*; import bpu_stage_pkg:
   for (genvar b = 0; b < NBANK; b++) begin : g_bank
     tg_raw_t               tg_rd;
     btb_ent_t              btb_rd [B_WAYS];
-    itt_ent_t              itt_rd;
+    itt_ent_t [NITT-1:0]   itt_rd;
     logic                  tg_en;
     logic [T_TAG_W-1:0]    upd_tag [TN];
     logic [T_IDX_W-1:0]    upd_idx [TN];
-    logic [T_TAG_W-1:0]    upd_itt_tag;
-    logic [ITT_IDX_W-1:0]  upd_itt_idx;
+    logic [NITT-1:0][T_TAG_W-1:0]   upd_itt_tag;
+    logic [NITT-1:0][ITT_IDX_W-1:0] upd_itt_idx;
+    logic [NITT-1:0][ITT_IDX_W-1:0] rd_itt_idx;
 
     always_comb begin
       tg_en = wr_valid[b] && (wr_ent[b].ty == BR_DIRECT);
@@ -58,8 +59,11 @@ module bpu_banks import bpu_pkg::*; import bpu_btb_pkg::*; import bpu_stage_pkg:
         upd_tag[t] = wr_ent[b].tag[t];
         upd_idx[t] = wr_ent[b].idx[t];
       end
-      upd_itt_tag = wr_ent[b].tag[ITT_TBL];
-      upd_itt_idx = ITT_IDX_W'(wr_ent[b].idx[ITT_TBL]);
+      for (int k = 0; k < NITT; k++) begin
+        upd_itt_tag[k] = wr_ent[b].tag[ITT_TBL[k]];
+        upd_itt_idx[k] = ITT_IDX_W'(wr_ent[b].idx[ITT_TBL[k]]);
+        rd_itt_idx[k]  = ITT_IDX_W'(s1_tix[b].idx[ITT_TBL[k]]);
+      end
     end
 
     bpu_tage_bank u_tage (
@@ -72,7 +76,7 @@ module bpu_banks import bpu_pkg::*; import bpu_btb_pkg::*; import bpu_stage_pkg:
     );
 
     bpu_btb_bank u_btb (
-      .clk, .rst_n, .rd_pc(slot_pc[b][31:BANK_W]), .rd_itt_idx(ITT_IDX_W'(s1_tix[b].idx[ITT_TBL])),
+      .clk, .rst_n, .rd_pc(slot_pc[b][31:BANK_W]), .rd_itt_idx,
       .rd_btb(btb_rd), .rd_itt(itt_rd), .upd_valid(wr_valid[b]), .upd_pc(wr_pc[b][31:BANK_W]),
       .upd_actual_addr(wr_ent[b].tgt), .upd_br_type_in(wr_ent[b].ty), .upd_actual_dir(wr_ent[b].dir),
       .upd_itt_idx, .upd_itt_tag

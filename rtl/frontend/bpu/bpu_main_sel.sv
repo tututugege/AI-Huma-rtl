@@ -15,7 +15,7 @@ module bpu_main_sel import bpu_pkg::*; import bpu_btb_pkg::*; import bpu_stage_p
   input  logic [PCPN_W-1:0]   tg_altpcpn [NBANK],
   input  tg_ix_t              ix       [NBANK],
   input  btb_ent_t            btb_set  [NBANK][B_WAYS],
-  input  itt_ent_t            itt      [NBANK],
+  input  itt_ent_t [NITT-1:0] itt      [NBANK],
   output pred_t               pred,
   output logic [NLANE-1:0]    lane_dir,
   output logic [NLANE-1:0]    lane_alt,
@@ -31,6 +31,7 @@ module bpu_main_sel import bpu_pkg::*; import bpu_btb_pkg::*; import bpu_stage_p
   logic [BANK_W-1:0]  lane_bank   [NLANE];
   logic [2:0]         lane_ty     [NLANE];
   logic [NLANE-1:0]   lane_taken;
+  logic [NITT-1:0][T_TAG_W-1:0] lane_itt_tag [NLANE];
   logic [31:0]        lane_target [NLANE];
   logic [NLANE-1:0]   first_taken;
   logic               any_taken;
@@ -52,11 +53,12 @@ module bpu_main_sel import bpu_pkg::*; import bpu_btb_pkg::*; import bpu_stage_p
     bpu_main_lane u_lane (
       .pc(lane_pc[i][31:BANK_W]), .valid(lane_valid[i]), .ty_way(ty_way[lane_bank[i]]),
       .tg_pred(tg_pred[lane_bank[i]]),
-      .btb_set(btb_set[lane_bank[i]]), .itt_valid(itt[lane_bank[i]].valid),
-      .itt_entry_tag(itt[lane_bank[i]].tag), .itt_target(itt[lane_bank[i]].target),
-      .itt_tag(ix[lane_bank[i]].tag[ITT_TBL]),
+      .btb_set(btb_set[lane_bank[i]]), .itt(itt[lane_bank[i]]), .itt_tag(lane_itt_tag[i]),
       .ty(lane_ty[i]), .taken(lane_taken[i]), .target(lane_target[i])
     );
+    always_comb begin
+      for (int k = 0; k < NITT; k++) lane_itt_tag[i][k] = ix[lane_bank[i]].tag[ITT_TBL[k]];
+    end
     // slot metadata of the prediction (zero for slots beyond the block end)
     assign lane_dir[i]    = lane_taken[i];
     assign lane_alt[i]    = lane_valid[i] && tg_alt[lane_bank[i]];

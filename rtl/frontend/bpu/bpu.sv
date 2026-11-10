@@ -138,7 +138,7 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_btb_pkg::*; impo
   pred_t             fin;
   tp_entry_t         s2_ty    [NBANK][TP_WAYS];
   btb_ent_t          s2_btb   [NBANK][B_WAYS];
-  itt_ent_t          s2_itt   [NBANK];
+  itt_ent_t [NITT-1:0] s2_itt [NBANK];
   tg_ix_t            s2_ix    [NBANK];
 
   always_comb begin

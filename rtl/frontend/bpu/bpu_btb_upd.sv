@@ -4,24 +4,26 @@
 // Update decision of one BTB bank (one update per cycle, from the update queue).  Reads are done by the bank: this
 // module gets the START-of-cycle contents and returns the write requests (all arrays are written at the clock edge).
 //   BTB: taken control instructions write the hit way, else the victim (invalid, else smallest useful).
-//   ITT: taken indirect jumps (idirect, icall) train the entry at the TAGE index of table ITT_TBL: a hit entry counts
-//        up on the same target, else counts down and is replaced at confidence 0; a miss allocates over an invalid or
-//        not-useful entry, else clears the useful bit.
+//   ITT: taken indirect jumps (idirect, icall) train the tables at the TAGE indices of their ITT_TBL: the provider (the
+//        hit entry of the longest-history table) counts up on the same target, else counts down and is replaced at
+//        confidence 0; unless the provider was right, the first longer table (all tables when there was no hit) whose
+//        entry is invalid or not useful gets a new entry, and the useful bit of every longer entry passed on the way is
+//        cleared.  With NITT = 1 this is the single-table rule.
 module bpu_btb_upd import bpu_pkg::*; import bpu_btb_pkg::*; import bpu_stage_pkg::*; (
   input  logic                upd_valid,
   input  logic [31:0]         upd_pc,           // bank pc
   input  logic [31:0]         upd_actual_addr,
   input  logic [2:0]          upd_br_type,
   input  logic                upd_actual_dir,
-  input  logic [T_TAG_W-1:0]  upd_itt_tag,
+  input  logic [NITT-1:0][T_TAG_W-1:0] upd_itt_tag,
   input  btb_ent_t            btb_set    [B_WAYS],     // set at btb_idx
-  input  itt_ent_t            itt_old,                 // ITT entry at the recorded index
+  input  itt_ent_t [NITT-1:0] itt_old,                 // ITT entry of every table at its recorded index
   output logic [B_IDX_W-1:0]  btb_idx,
   output logic                btb_we,
   output logic [1:0]          btb_way,
   output btb_ent_t            btb_wdata,
-  output logic                itt_we,
-  output itt_ent_t            itt_wdata
+  output logic [NITT-1:0]     itt_we,
+  output itt_ent_t [NITT-1:0] itt_wdata
 );
 
   logic                is_idirect_taken;
@@ -33,8 +35,11 @@ module bpu_btb_upd import bpu_pkg::*; import bpu_btb_pkg::*; import bpu_stage_pk
   logic [1:0]          victim;
   logic [1:0]          write_way;
   logic                correct_pred;
-  logic                itt_hit;
-  logic                itt_same;
+  logic [NITT-1:0]     itt_hit;
+  int                  itt_prov;                    // provider table, -1 = no hit
+  int                  itt_alloc_from;              // first table that may get a new entry
+  logic                itt_alloc_done;
+  logic                itt_en;
 
   // Ref: btb_comb, BTB way choice
   always_comb begin
@@ -66,27 +71,43 @@ module bpu_btb_upd import bpu_pkg::*; import bpu_btb_pkg::*; import bpu_stage_pk
 
   // Ref: Btb::update, ITT
   always_comb begin
-    itt_hit  = itt_old.valid && (itt_old.tag == upd_itt_tag);
-    itt_same = (itt_old.target == upd_actual_addr);
-    itt_we   = upd_valid && is_idirect_taken;
-    itt_wdata = itt_old;
-    if (itt_hit) begin
-      if (itt_same) begin
-        itt_wdata.conf   = (itt_old.conf == 2'd3) ? 2'd3 : itt_old.conf + 2'd1;
-        itt_wdata.useful = 1'b1;
-      end else begin
-        if (itt_old.conf != 2'd0) itt_wdata.conf = itt_old.conf - 2'd1;
-        else                      itt_wdata.target = upd_actual_addr;
-        itt_wdata.useful = 1'b0;
+    itt_en = upd_valid && is_idirect_taken;
+    for (int k = 0; k < NITT; k++) itt_hit[k] = itt_old[k].valid && (itt_old[k].tag == upd_itt_tag[k]);
+    itt_prov = -1;
+    for (int k = 0; k < NITT; k++) if (itt_hit[k]) itt_prov = k;        // the longest-history hit provides
+    itt_we         = '0;
+    itt_wdata      = itt_old;
+    itt_alloc_from = 0;
+    for (int k = 0; k < NITT; k++) begin
+      if (k == itt_prov) begin
+        itt_we[k] = itt_en;
+        if (itt_old[k].target == upd_actual_addr) begin
+          itt_wdata[k].conf   = (itt_old[k].conf == 2'd3) ? 2'd3 : itt_old[k].conf + 2'd1;
+          itt_wdata[k].useful = 1'b1;
+          itt_alloc_from      = NITT;
+        end else begin
+          if (itt_old[k].conf != 2'd0) itt_wdata[k].conf = itt_old[k].conf - 2'd1;
+          else                         itt_wdata[k].target = upd_actual_addr;
+          itt_wdata[k].useful = 1'b0;
+          itt_alloc_from      = k + 1;
+        end
       end
-    end else if (!itt_old.valid || !itt_old.useful) begin
-      itt_wdata.valid  = 1'b1;
-      itt_wdata.tag    = upd_itt_tag;
-      itt_wdata.conf   = 2'd0;
-      itt_wdata.useful = 1'b0;
-      itt_wdata.target = upd_actual_addr;
-    end else begin
-      itt_wdata.useful = 1'b0;
+    end
+    itt_alloc_done = 1'b0;
+    for (int k = 0; k < NITT; k++) begin
+      if (k >= itt_alloc_from && !itt_alloc_done) begin
+        itt_we[k] = itt_en;
+        if (!itt_old[k].valid || !itt_old[k].useful) begin
+          itt_wdata[k].valid  = 1'b1;
+          itt_wdata[k].tag    = upd_itt_tag[k];
+          itt_wdata[k].conf   = 2'd0;
+          itt_wdata[k].useful = 1'b0;
+          itt_wdata[k].target = upd_actual_addr;
+          itt_alloc_done      = 1'b1;
+        end else begin
+          itt_wdata[k].useful = 1'b0;
+        end
+      end
     end
   end
 

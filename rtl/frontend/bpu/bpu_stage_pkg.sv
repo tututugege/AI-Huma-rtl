@@ -26,8 +26,9 @@ package bpu_stage_pkg;
   localparam int UQ_PORTS  = 2;                // leader writes per cycle
   localparam int TQ_DEPTH  = 4;                // uBTB / L1 train queue
   localparam int PQ_DEPTH  = 32;               // PDCKPT records (blocks between the end of S2 and the predecode check)
-  localparam int ITT_IDX_W = 8;                // ITT: 256 entries per bank, indexed by the TAGE index of table ITT_TBL
-  localparam int ITT_TBL   = 1;                // TAGE history table whose index / tag the ITT reuses (history 13)
+  localparam int NITT      = 3;                // ITT tables per bank (trace-model CFG_ITT_H = "1,2,3")
+  localparam int ITT_IDX_W = 6;                // ITT: 64 entries per table and bank (CFG_ITT_SIZE)
+  localparam int ITT_TBL [NITT] = '{1, 2, 3};  // TAGE tables (history 13 / 32 / 119) whose index / tag the ITT reuses
   localparam int EPOCH_W   = 8;
   localparam int LANE_W    = 3;                // log2(NLANE)
 
@@ -106,7 +107,7 @@ package bpu_stage_pkg;
     logic [TN-1:0][T_IDX_W-1:0]  idx;
     logic [TN-1:0][T_TAG_W-1:0]  tag;
   } tg_ix_t;
-  // ITT entry (indirect target table indexed like TAGE table ITT_TBL)
+  // ITT entry (indirect target table k is indexed like TAGE table ITT_TBL[k])
   typedef struct packed {
     logic        valid;
     logic [T_TAG_W-1:0] tag;
@@ -142,7 +143,7 @@ package bpu_stage_pkg;
     tp_entry_t [TP_WAYS-1:0] ty;
     tg_raw_t                 tg;
     btb_ent_t [B_WAYS-1:0]   btb;
-    itt_ent_t                itt;
+    itt_ent_t [NITT-1:0]     itt;
   } bank_raw_t;
   typedef bank_raw_t [NBANK-1:0] raw_all_t;
 
