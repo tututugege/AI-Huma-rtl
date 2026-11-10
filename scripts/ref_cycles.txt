@@ -1,10 +1,10 @@
 # Trace-model cycles of the integrated default configuration (trace-model exp/store-wb: write buffer EXP-024 on, 4 entries x 2 stores, 2 drain ports; LSU_PIPE_NOWD=1 as the RTL has no LDQ/STQ watchdog): LSU_MEMSPEC=1 with the value path (LSU_MS_DATA=1), wait table 64x1, FE_RFAST=15, FE_BFAST=0, prefetcher on, move elimination on.
-# 67 programs + directed/memspec_vio.bin. Kill switch LSU_MEMSPEC=0: ref_cycles_nomemspec.txt. Other legacy tables: ref_cycles_legacy_lsu*.txt, ref_cycles_nopf.txt (older configurations, not regenerated).
+# 67 programs + directed/memspec_vio.bin + directed/itt-dispatch.bin (EXP-025: 3-table ITT). Kill switch LSU_MEMSPEC=0: ref_cycles_nomemspec.txt. Other legacy tables: ref_cycles_legacy_lsu*.txt, ref_cycles_nopf.txt (older configurations, not regenerated).
 1870 add-longlong/add-longlong.bin
 1276 add/add.bin
 2217 atomic-boundary/atomic-boundary.bin
-283270 big/coremark.bin
-114418 big/dhrystone.bin
+283240 big/coremark.bin
+114685 big/dhrystone.bin
 1567 bit/bit.bin
 2767 bitmanip-boundary/bitmanip-boundary.bin
 4985 bubble-sort/bubble-sort.bin
@@ -68,3 +68,4 @@
 1129 zfinx-fsqrt/zfinx-fsqrt.bin
 744 zfinx/zfinx.bin
 3423 directed/memspec_vio.bin
+222445 directed/itt-dispatch.bin
