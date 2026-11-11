@@ -61,12 +61,19 @@ package exu_fu_pkg;
     logic       clmul;
     logic       clmulr;
     logic       clmulh;
+    // rv64 *W instructions (is_word): operand preconditioning and result sign-extension
+    logic       w_res;     // result = sext32(result[31:0])
+    logic       w_zext_a;  // operand1 = zext32(operand1) before the adder / shifter (add.uw, shNadd.uw, slli.uw, srlw)
+    logic       w_sext_a;  // operand1 = sext32(operand1) before the shifter (sraw)
+    logic       w_rot;     // 32-bit rotate: shifter input {a[31:0], a[31:0]}
+    logic       w_shamt5;  // shift amount is operand2[4:0] (else operand2[5:0] on rv64)
+    logic       w_cnt;     // clzw / ctzw / cpopw: bit-count unit sees the low word only
   } alu_ctl_t;
 
   // ---- payload of a multi-cycle FU entry: the ExuInst fields the Exu consumers read for a MUL/DIV uop
   //      (to_exe_prf_wb_uop / to_exu_rob_uop; every other ExuInst field of a MUL/DIV is constant 0 or unread) ----
   typedef struct packed {
-    logic [31:0]                result;
+    logic [XLEN_BITS-1:0]                result;
     logic [ROB_IDX_WIDTH-1:0]   rob_idx;
     logic [PRF_IDX_WIDTH-1:0]   dest_preg;
     logic                       dest_en;

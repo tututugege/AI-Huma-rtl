@@ -9,11 +9,13 @@
 // (OP_MASK_ALU), so the C++ `op == UOP_JUMP -> operand2 = 4` special case is not translated (docs/modules/exu_int.md).
 module alu_decode
   import exu_fu_pkg::*;
+  import ttg_cfg_pkg::*;
 (
   input  logic [OP_W-1:0] op,
   input  logic [2:0]      func3,
-  input  logic [6:0]      func7,
+  input  logic [6:0]      func7_in,
   input  logic            src2_is_imm,
+  input  logic            is_word,   // rv64 OP-IMM-32 / OP-32
   input  logic [4:0]      imm_lo,    // imm[4:0]: sub-opcode of the Zbb unary ops, shamt check of rev8 / orc.b
   output alu_ctl_t        ctl
 );
@@ -27,6 +29,10 @@ module alu_decode
   localparam logic [6:0] F7_BCLR   = 7'h24;  // Zbs bclr/bext
   localparam logic [6:0] F7_BSET   = 7'h14;  // Zbs bset, Zbb orc.b
   localparam logic [6:0] F7_BINV   = 7'h34;  // Zbs binv, Zbb rev8
+
+  // rv64 immediate shifts / unary ops: funct7[0] is shamt[5], not an opcode bit
+  logic [6:0] func7;
+  assign func7 = (XLEN_BITS == 64 && src2_is_imm) ? {func7_in[6:1], 1'b0} : func7_in;
 
   // ---- field predicates ----
   logic op_is_add, op_is_wfi, imm_form, reg_form;
@@ -60,6 +66,7 @@ module alu_decode
   // ---- shifts / rotates / single-bit ops (func3 = 1 and 5) ----
   logic sll_s, rol_s, srl_s, sra_s, ror_s, bclr_s, bset_s, binv_s, bext_s, unary_s, clmul_s, rev8_s, orcb_s;
   logic srl_other;
+  logic uw_add, uw_sll;   // rv64 add.uw / shNadd.uw, slli.uw
   always_comb begin
     sll_s   = f3_sll && f7_base;
     rol_s   = f3_sll && f7_rot && reg_form;
@@ -78,6 +85,8 @@ module alu_decode
     srl_other  = alt_r || (func7[5] && imm_form) || f7_rot || f7_bclr || (f7_binv && imm_form)
               || (f7_bset && imm_form) || mm_r;
     srl_s      = f3_srl && !srl_other;
+    uw_add     = is_word && reg_form && func7 == F7_PACK && f3_sub;                     // add.uw
+    uw_sll     = is_word && imm_form && f3_sll && func7 == F7_PACK;                    // slli.uw
   end
 
   // ---- assemble the control word ----
@@ -97,8 +106,8 @@ module alu_decode
       ctl.mm        = mm_r && (f3_xor || f3_or || f3_srl || f3_and);
       ctl.mm_max    = mm_r && (f3_or || f3_and);
       ctl.mm_uns    = mm_r && (f3_srl || f3_and);
-      ctl.shf       = sll_s || rol_s || srl_s || sra_s || ror_s;
-      ctl.shf_left  = sll_s || rol_s;
+      ctl.shf       = sll_s || rol_s || srl_s || sra_s || ror_s || uw_sll;
+      ctl.shf_left  = sll_s || rol_s || uw_sll;
       ctl.shf_rot   = rol_s || ror_s;
       ctl.shf_arith = sra_s;
       ctl.bext      = bext_s;
@@ -114,6 +123,13 @@ module alu_decode
       ctl.clmul     = clmul_s;
       ctl.clmulr    = f3_slt && mm_r;
       ctl.clmulh    = f3_sltu && mm_r;
+      // rv64 word operations
+      ctl.w_res     = is_word && !uw_add && !uw_sll && !(shadd_r && (f3_slt || f3_xor || f3_or));
+      ctl.w_zext_a  = uw_add || uw_sll || (is_word && shadd_r) || (is_word && srl_s);
+      ctl.w_sext_a  = is_word && sra_s;
+      ctl.w_rot     = is_word && (rol_s || ror_s);
+      ctl.w_shamt5  = is_word && !uw_sll;
+      ctl.w_cnt     = is_word && unary_s;
     end else begin
       ctl.add       = !op_is_wfi;  // FENCE/ECALL/...: operand1 + operand2; WFI: 0
     end

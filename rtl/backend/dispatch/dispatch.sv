@@ -10,7 +10,7 @@ module dispatch
   input  logic clk,
   input  logic rst_n,
   input  logic [DECODE_WIDTH-1:0] ren2dis_valid,
-  input  logic [31:0] ren2dis_uop_diag_val [DECODE_WIDTH],
+  input  logic [XLEN_BITS-1:0] ren2dis_uop_diag_val [DECODE_WIDTH],
   input  logic [5:0] ren2dis_uop_dest_areg [DECODE_WIDTH],
   input  logic [5:0] ren2dis_uop_src1_areg [DECODE_WIDTH],
   input  logic [6:0] ren2dis_uop_dest_preg [DECODE_WIDTH],
@@ -29,6 +29,7 @@ module dispatch
   input  logic [DECODE_WIDTH-1:0] ren2dis_uop_is_atomic,
   input  logic [DECODE_WIDTH-1:0] ren2dis_uop_src1_is_pc,
   input  logic [DECODE_WIDTH-1:0] ren2dis_uop_src2_is_imm,
+  input  logic [DECODE_WIDTH-1:0] ren2dis_uop_is_word,
   input  logic [2:0] ren2dis_uop_func3 [DECODE_WIDTH],
   input  logic [6:0] ren2dis_uop_func7 [DECODE_WIDTH],
   input  logic [31:0] ren2dis_uop_imm [DECODE_WIDTH],
@@ -66,7 +67,7 @@ module dispatch
   output logic dis2ren_ready,
   output logic [DECODE_WIDTH-1:0] dis2rob_dis_fire,
   output logic pmu_slot_valid [DECODE_WIDTH],
-  output logic [31:0] dis2rob_uop_diag_val [DECODE_WIDTH],
+  output logic [XLEN_BITS-1:0] dis2rob_uop_diag_val [DECODE_WIDTH],
   output logic [5:0] dis2rob_uop_dest_areg [DECODE_WIDTH],
   output logic [5:0] dis2rob_uop_src1_areg [DECODE_WIDTH],
   output logic [6:0] dis2rob_uop_dest_preg [DECODE_WIDTH],
@@ -102,6 +103,7 @@ module dispatch
   output logic dis2iss_req_uop_src2_busy [5] [DECODE_WIDTH],
   output logic dis2iss_req_uop_src1_is_pc [5] [DECODE_WIDTH],
   output logic dis2iss_req_uop_src2_is_imm [5] [DECODE_WIDTH],
+  output logic dis2iss_req_uop_is_word [5] [DECODE_WIDTH],
   output logic [2:0] dis2iss_req_uop_func3 [5] [DECODE_WIDTH],
   output logic [6:0] dis2iss_req_uop_func7 [5] [DECODE_WIDTH],
   output logic [31:0] dis2iss_req_uop_imm [5] [DECODE_WIDTH],
@@ -181,6 +183,7 @@ module dispatch
       ren_inst[i].src2_busy = 1'b0;
       ren_inst[i].src1_is_pc = ren2dis_uop_src1_is_pc[i];
       ren_inst[i].src2_is_imm = ren2dis_uop_src2_is_imm[i];
+      ren_inst[i].is_word = ren2dis_uop_is_word[i];
       ren_inst[i].func3 = ren2dis_uop_func3[i];
       ren_inst[i].func7 = ren2dis_uop_func7[i];
       ren_inst[i].imm = ren2dis_uop_imm[i];
@@ -295,6 +298,7 @@ module dispatch
         dis2iss_req_uop_src2_busy[q][s] = req_uop[q][s].src2_busy;
         dis2iss_req_uop_src1_is_pc[q][s] = req_uop[q][s].src1_is_pc;
         dis2iss_req_uop_src2_is_imm[q][s] = req_uop[q][s].src2_is_imm;
+        dis2iss_req_uop_is_word[q][s] = req_uop[q][s].is_word;
         dis2iss_req_uop_func3[q][s] = req_uop[q][s].func3;
         dis2iss_req_uop_func7[q][s] = req_uop[q][s].func7;
         dis2iss_req_uop_imm[q][s] = req_uop[q][s].imm;

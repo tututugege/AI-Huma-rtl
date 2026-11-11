@@ -11,14 +11,14 @@ module tlb_mmu import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; #(
   input  logic clk,
   input  logic rst_n,
   input  logic [LSU_LDU_COUNT-1:0] ldq_req_valid,
-  input  logic [31:0] ldq_req_vaddr [LSU_LDU_COUNT],
+  input  logic [XLEN_BITS-1:0] ldq_req_vaddr [LSU_LDU_COUNT],
   input  logic [IDX_W-1:0] ldq_req_entry_idx [LSU_LDU_COUNT],
   input  logic [IDX_W-1:0] ldq_req_wait_idx [LSU_LDU_COUNT],
   input  logic [LSU_STA_COUNT-1:0] stq_req_valid,
-  input  logic [31:0] stq_req_vaddr [LSU_STA_COUNT],
+  input  logic [XLEN_BITS-1:0] stq_req_vaddr [LSU_STA_COUNT],
   input  logic [IDX_W-1:0] stq_req_entry_idx [LSU_STA_COUNT],
   input  logic [IDX_W-1:0] stq_req_wait_idx [LSU_STA_COUNT],
-  input  logic [31:0] csr_status_satp,
+  input  logic [XLEN_BITS-1:0] csr_status_satp,
   input  logic [1:0] csr_status_privilege,
   input  logic csr_status_mstatus_mxr,
   input  logic csr_status_mstatus_sum,
@@ -56,7 +56,7 @@ module tlb_mmu import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; #(
   localparam int LANES = LSU_LDU_COUNT + LSU_STA_COUNT;
 
   logic        lane_req_valid [LANES];
-  logic [31:0] lane_req_vaddr [LANES];
+  logic [XLEN_BITS-1:0] lane_req_vaddr [LANES];
   logic        lane_resp_valid [LANES];
   logic [1:0]  lane_resp_result [LANES];
   logic [31:0] lane_resp_paddr [LANES];

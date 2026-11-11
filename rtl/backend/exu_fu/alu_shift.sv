@@ -1,27 +1,27 @@
-// Ref: back-end/Exu/include/Fu.h  AluUnit::impl_compute (sll/srl/sra/rol/ror)
+// Ref: back-end/Exu/include/Fu.h  AluUnit shifter (sll/srl/sra/rol/ror, XLEN wide)
 `default_nettype none
 
-// One 64->32 funnel shifter serves all shifts and rotates: right shifts feed {fill, x}, rotates feed {x, x}, and the
-// left variants run the same datapath on the bit-reversed operand (rotl = rev(rotr(rev x)), sll = rev(srl(rev x))).
-// Rotate by 0 returns x (the C++ `x >> (32 - 0)` is undefined behaviour; see docs/modules/exu_int.md, D-EXU-1).
-module alu_shift (
-  input  logic [31:0] x,
-  input  logic [4:0]  shamt,
-  input  logic        left,
-  input  logic        rot,
-  input  logic        arith,
-  output logic [31:0] y
+// Funnel shifter: right shift of {fill, x} by shamt; a left shift / rotate runs it around two bit-reversals.
+// A rotate fills with x itself, an arithmetic shift with the sign, a logical shift with zeros.  The caller applies the
+// rv64 word-op operand preconditioning (zero/sign extension, {a, a} for rotates).
+module alu_shift import ttg_cfg_pkg::*; (
+  input  logic [XLEN_BITS-1:0]         x,
+  input  logic [$clog2(XLEN_BITS)-1:0] shamt,
+  input  logic                         left,
+  input  logic                         rot,
+  input  logic                         arith,
+  output logic [XLEN_BITS-1:0]         y
 );
 
-  logic [31:0] x_dir, y_dir, fill;
-  logic [63:0] wide;
+  logic [XLEN_BITS-1:0]   x_dir, y_dir, fill;
+  logic [2*XLEN_BITS-1:0] wide;
 
   always_comb begin
-    for (int i = 0; i < 32; i++) x_dir[i] = left ? x[31 - i] : x[i];
-    fill    = rot ? x_dir : {32{arith && x[31]}};
+    for (int i = 0; i < XLEN_BITS; i++) x_dir[i] = left ? x[XLEN_BITS - 1 - i] : x[i];
+    fill    = rot ? x_dir : {XLEN_BITS{arith && x[XLEN_BITS-1]}};
     wide    = {fill, x_dir};
-    y_dir   = 32'(wide >> shamt);
-    for (int i = 0; i < 32; i++) y[i] = left ? y_dir[31 - i] : y_dir[i];
+    y_dir   = XLEN_BITS'(wide >> shamt);
+    for (int i = 0; i < XLEN_BITS; i++) y[i] = left ? y_dir[XLEN_BITS - 1 - i] : y_dir[i];
   end
 
 endmodule

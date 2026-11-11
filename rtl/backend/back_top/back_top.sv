@@ -11,17 +11,17 @@ module back_top import ttg_cfg_pkg::*; (
   input  logic [147:0] front2pre_bpu_ck,
   input  logic [31:0] front2pre_inst [BACKEND_FETCH_WIDTH],
   input  logic [BACKEND_FETCH_WIDTH-1:0] front2pre_page_fault_inst,
-  input  logic [31:0] front2pre_pc [BACKEND_FETCH_WIDTH],
+  input  logic [XLEN_BITS-1:0] front2pre_pc [BACKEND_FETCH_WIDTH],
   input  logic [2:0] front2pre_pcpn [BACKEND_FETCH_WIDTH],
   input  logic [BACKEND_FETCH_WIDTH-1:0] front2pre_predict_dir,
-  input  logic [31:0] front2pre_predict_next_fetch_address,
+  input  logic [XLEN_BITS-1:0] front2pre_predict_next_fetch_address,
   input  logic [23:0] front2pre_slot_kind,
   input  logic [9:0] front2pre_tage_idx [BACKEND_FETCH_WIDTH][4],
   input  logic [7:0] front2pre_tage_tag [BACKEND_FETCH_WIDTH][4],
   input  logic [BACKEND_FETCH_WIDTH-1:0] front2pre_valid,
   input  logic front_stall,
   // ---- in: MemSubsystem -> LSU (BackTop::in.peripheral_resp / dcache2lsu)
-  input  logic [31:0] dcache2lsu_load_resps_data [LSU_LDU_COUNT],
+  input  logic [XLEN_BITS-1:0] dcache2lsu_load_resps_data [LSU_LDU_COUNT],
   input  logic [1:0] dcache2lsu_load_resps_replay [LSU_LDU_COUNT],
   input  logic [31:0] dcache2lsu_load_resps_req_id [LSU_LDU_COUNT],
   input  logic dcache2lsu_load_resps_valid [LSU_LDU_COUNT],
@@ -41,7 +41,7 @@ module back_top import ttg_cfg_pkg::*; (
   input  logic interrupt_inject_timer_irq_pending_valid,
   // ---- in: MemSubsystem -> LSU (BackTop::in.peripheral_resp / dcache2lsu)
   input  logic peripheral_resp_is_mmio,
-  input  logic [31:0] peripheral_resp_mmio_rdata,
+  input  logic [XLEN_BITS-1:0] peripheral_resp_mmio_rdata,
   input  logic peripheral_resp_ready,
   // ---- in: MemSubsystem PTW walk port -> DTLB
   input  logic ptw_walk_req_ready,
@@ -54,26 +54,26 @@ module back_top import ttg_cfg_pkg::*; (
   // ---- out: to SimCpu / front end (Back_out, back2front training data)
   output logic [31:0] commit_extra_imm [COMMIT_WIDTH],
   output logic [5:0] commit_extra_src1_areg [COMMIT_WIDTH],
-  output logic [31:0] csr_status_mstatus,
+  output logic [XLEN_BITS-1:0] csr_status_mstatus,
   output logic [1:0] csr_status_privilege,
-  output logic [31:0] csr_status_satp,
-  output logic [31:0] csr_status_sstatus,
+  output logic [XLEN_BITS-1:0] csr_status_satp,
+  output logic [XLEN_BITS-1:0] csr_status_sstatus,
   output logic [COMMIT_WIDTH-1:0] ftq_commit_info_resp_alt_pred,
   output logic [2:0] ftq_commit_info_resp_altpcpn [COMMIT_WIDTH],
-  output logic [31:0] ftq_commit_info_resp_pc [COMMIT_WIDTH],
+  output logic [XLEN_BITS-1:0] ftq_commit_info_resp_pc [COMMIT_WIDTH],
   output logic [2:0] ftq_commit_info_resp_pcpn [COMMIT_WIDTH],
   output logic ftq_commit_info_resp_pred_taken [COMMIT_WIDTH],
   output logic [9:0] ftq_commit_info_resp_tage_idx [COMMIT_WIDTH][4],
   output logic [7:0] ftq_commit_info_resp_tage_tag [COMMIT_WIDTH][4],
   output logic [COMMIT_WIDTH-1:0] ftq_commit_info_resp_valid,
   output logic [COMMIT_WIDTH-1:0][3:0] ftq_commit_info_resp_valid_t,
-  output logic [31:0] out_commit_entry_uop_diag_val [COMMIT_WIDTH],
+  output logic [XLEN_BITS-1:0] out_commit_entry_uop_diag_val [COMMIT_WIDTH],
   output logic out_mispred,
   output logic out_no_mispred,
-  output logic [31:0] out_redirect_pc,
+  output logic [XLEN_BITS-1:0] out_redirect_pc,
   output logic [139:0] out_rf_ck,
   output logic [7:0] out_rf_epoch,
-  output logic [31:0] out_rf_pc,
+  output logic [XLEN_BITS-1:0] out_rf_pc,
   output logic [2:0] out_rf_type,
   output logic out_rf_valid,
   output logic out_stall,
@@ -87,7 +87,7 @@ module back_top import ttg_cfg_pkg::*; (
   output logic [30:0] lsu2dcache_load_ports_req_id [LSU_LDU_COUNT],
   output logic lsu2dcache_load_ports_valid [LSU_LDU_COUNT],
   output logic [31:0] lsu2dcache_store_ports_addr [LSU_STA_COUNT],
-  output logic [31:0] lsu2dcache_store_ports_data [LSU_STA_COUNT],
+  output logic [XLEN_BITS-1:0] lsu2dcache_store_ports_data [LSU_STA_COUNT],
   output logic [5:0] lsu2dcache_store_ports_req_id [LSU_STA_COUNT],
   output logic [4:0] lsu2dcache_store_ports_strb [LSU_STA_COUNT],
   output logic [39:0] lsu2dcache_store_ports_l2 [LSU_STA_COUNT],
@@ -95,7 +95,7 @@ module back_top import ttg_cfg_pkg::*; (
   output logic peripheral_req_is_mmio,
   output logic [31:0] peripheral_req_mmio_addr,
   output logic [2:0] peripheral_req_mmio_fun3,
-  output logic [31:0] peripheral_req_mmio_wdata,
+  output logic [XLEN_BITS-1:0] peripheral_req_mmio_wdata,
   output logic peripheral_req_wen,
   // ---- out: PMU (EXP-013): dispatch slot events for the top-down level 1
   output logic pmu_slot_valid [8],
@@ -112,7 +112,7 @@ module back_top import ttg_cfg_pkg::*; (
   output logic rob_bcast_flush,
   output logic rob_bcast_interrupt,
   output logic rob_bcast_mret,
-  output logic [31:0] rob_bcast_pc,
+  output logic [XLEN_BITS-1:0] rob_bcast_pc,
   output logic rob_bcast_sret,
   // ---- out: ROB commit: SimCpu commit_sync / front end, and LSU (amo_op, stq_idx)
   output logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_br_taken,
@@ -130,10 +130,10 @@ module back_top import ttg_cfg_pkg::*; (
 );
 
   // ---- nets driven by pre: PreIduQueue (back-end/PreIduQueue.cpp)
-  logic [31:0] ftq_prf_pc_resp_resp_next_pc [FTQ_PRF_PC_PORT_NUM];
-  logic [31:0] ftq_prf_pc_resp_resp_pc [FTQ_PRF_PC_PORT_NUM];
+  logic [XLEN_BITS-1:0] ftq_prf_pc_resp_resp_next_pc [FTQ_PRF_PC_PORT_NUM];
+  logic [XLEN_BITS-1:0] ftq_prf_pc_resp_resp_pc [FTQ_PRF_PC_PORT_NUM];
   logic [FTQ_PRF_PC_PORT_NUM-1:0] ftq_prf_pc_resp_resp_pred_taken;
-  logic [31:0] ftq_rob_pc_resp_resp_pc [1];
+  logic [XLEN_BITS-1:0] ftq_rob_pc_resp_resp_pc [1];
   logic [5:0] pre_issue_entries_ftq_idx [DECODE_WIDTH];
   logic [DECODE_WIDTH-1:0] pre_issue_entries_ftq_is_last;
   logic [FTQ_OFFSET_WIDTH-1:0] pre_issue_entries_ftq_offset [DECODE_WIDTH];
@@ -142,16 +142,16 @@ module back_top import ttg_cfg_pkg::*; (
   logic [DECODE_WIDTH-1:0] pre_issue_entries_valid;
 
   // ---- nets driven by idu: Idu (back-end/Idu.cpp)
-  logic [31:0] br_latch_br_pc;
+  logic [XLEN_BITS-1:0] br_latch_br_pc;
   logic [5:0] br_latch_ftq_idx;
   logic br_latch_mispred;
-  logic [31:0] br_latch_redirect_pc;
+  logic [XLEN_BITS-1:0] br_latch_redirect_pc;
   logic [BR_TAG_WIDTH-1:0] dec2ren_uop_br_id [DECODE_WIDTH];
   logic [BR_MASK_WIDTH-1:0] dec2ren_uop_br_mask [DECODE_WIDTH];
   logic [11:0] dec2ren_uop_csr_idx [DECODE_WIDTH];
   logic [5:0] dec2ren_uop_dest_areg [DECODE_WIDTH];
   logic [DECODE_WIDTH-1:0] dec2ren_uop_dest_en;
-  logic [31:0] dec2ren_uop_diag_val [DECODE_WIDTH];
+  logic [XLEN_BITS-1:0] dec2ren_uop_diag_val [DECODE_WIDTH];
   logic [5:0] dec2ren_uop_ftq_idx [DECODE_WIDTH];
   logic [DECODE_WIDTH-1:0] dec2ren_uop_ftq_is_last;
   logic [FTQ_OFFSET_WIDTH-1:0] dec2ren_uop_ftq_offset [DECODE_WIDTH];
@@ -167,6 +167,7 @@ module back_top import ttg_cfg_pkg::*; (
   logic [5:0] dec2ren_uop_src2_areg [DECODE_WIDTH];
   logic [DECODE_WIDTH-1:0] dec2ren_uop_src2_en;
   logic [DECODE_WIDTH-1:0] dec2ren_uop_src2_is_imm;
+  logic [DECODE_WIDTH-1:0] dec2ren_uop_is_word;
   logic [4:0] dec2ren_uop_type [DECODE_WIDTH];
   logic [DECODE_WIDTH-1:0] dec2ren_valid;
   logic [BR_TAG_WIDTH-1:0] dec_bcast_br_id;
@@ -184,7 +185,7 @@ module back_top import ttg_cfg_pkg::*; (
   logic [5:0] ren2dis_uop_dest_areg [DECODE_WIDTH];
   logic [DECODE_WIDTH-1:0] ren2dis_uop_dest_en;
   logic [6:0] ren2dis_uop_dest_preg [DECODE_WIDTH];
-  logic [31:0] ren2dis_uop_diag_val [DECODE_WIDTH];
+  logic [XLEN_BITS-1:0] ren2dis_uop_diag_val [DECODE_WIDTH];
   logic [5:0] ren2dis_uop_ftq_idx [DECODE_WIDTH];
   logic [DECODE_WIDTH-1:0] ren2dis_uop_ftq_is_last;
   logic [FTQ_OFFSET_WIDTH-1:0] ren2dis_uop_ftq_offset [DECODE_WIDTH];
@@ -202,6 +203,7 @@ module back_top import ttg_cfg_pkg::*; (
   logic [6:0] ren2dis_uop_src1_preg [DECODE_WIDTH];
   logic [DECODE_WIDTH-1:0] ren2dis_uop_src2_en;
   logic [DECODE_WIDTH-1:0] ren2dis_uop_src2_is_imm;
+  logic [DECODE_WIDTH-1:0] ren2dis_uop_is_word;
   logic [6:0] ren2dis_uop_src2_preg [DECODE_WIDTH];
   logic [4:0] ren2dis_uop_type [DECODE_WIDTH];
   logic [DECODE_WIDTH-1:0] ren2dis_valid;
@@ -229,6 +231,7 @@ module back_top import ttg_cfg_pkg::*; (
   logic dis2iss_req_uop_src2_busy [5][DECODE_WIDTH];
   logic dis2iss_req_uop_src2_en [5][DECODE_WIDTH];
   logic dis2iss_req_uop_src2_is_imm [5][DECODE_WIDTH];
+  logic dis2iss_req_uop_is_word [5][DECODE_WIDTH];
   logic [6:0] dis2iss_req_uop_src2_preg [5][DECODE_WIDTH];
   logic dis2iss_req_uop_stq_flag [5][DECODE_WIDTH];
   logic [5:0] dis2iss_req_uop_stq_idx [5][DECODE_WIDTH];
@@ -252,7 +255,7 @@ module back_top import ttg_cfg_pkg::*; (
   logic [5:0] dis2rob_uop_dest_areg [DECODE_WIDTH];
   logic [DECODE_WIDTH-1:0] dis2rob_uop_dest_en;
   logic [6:0] dis2rob_uop_dest_preg [DECODE_WIDTH];
-  logic [31:0] dis2rob_uop_diag_val [DECODE_WIDTH];
+  logic [XLEN_BITS-1:0] dis2rob_uop_diag_val [DECODE_WIDTH];
   logic [2:0] dis2rob_uop_expect_mask [DECODE_WIDTH];
   logic [5:0] dis2rob_uop_ftq_idx [DECODE_WIDTH];
   logic [DECODE_WIDTH-1:0] dis2rob_uop_ftq_is_last;
@@ -292,6 +295,7 @@ module back_top import ttg_cfg_pkg::*; (
   logic [6:0] iss2prf_iss_entry_uop_src1_preg [ISSUE_WIDTH];
   logic [ISSUE_WIDTH-1:0] iss2prf_iss_entry_uop_src2_en;
   logic [ISSUE_WIDTH-1:0] iss2prf_iss_entry_uop_src2_is_imm;
+  logic [ISSUE_WIDTH-1:0] iss2prf_iss_entry_uop_is_word;
   logic [6:0] iss2prf_iss_entry_uop_src2_preg [ISSUE_WIDTH];
   logic [ISSUE_WIDTH-1:0] iss2prf_iss_entry_uop_stq_flag;
   logic [5:0] iss2prf_iss_entry_uop_stq_idx [ISSUE_WIDTH];
@@ -309,7 +313,7 @@ module back_top import ttg_cfg_pkg::*; (
   logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_dest_en;
   logic [6:0] prf2exe_iss_entry_uop_dest_preg [ISSUE_WIDTH];
   logic [5:0] prf2exe_iss_entry_uop_ftq_idx [ISSUE_WIDTH];
-  logic [31:0] prf2exe_iss_entry_uop_ftq_next_pc [ISSUE_WIDTH];
+  logic [XLEN_BITS-1:0] prf2exe_iss_entry_uop_ftq_next_pc [ISSUE_WIDTH];
   logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_ftq_pred_taken;
   logic [2:0] prf2exe_iss_entry_uop_func3 [ISSUE_WIDTH];
   logic [6:0] prf2exe_iss_entry_uop_func7 [ISSUE_WIDTH];
@@ -317,14 +321,15 @@ module back_top import ttg_cfg_pkg::*; (
   logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_is_atomic;
   logic [5:0] prf2exe_iss_entry_uop_ldq_idx [ISSUE_WIDTH];
   logic [4:0] prf2exe_iss_entry_uop_op [ISSUE_WIDTH];
-  logic [31:0] prf2exe_iss_entry_uop_pc [ISSUE_WIDTH];
+  logic [XLEN_BITS-1:0] prf2exe_iss_entry_uop_pc [ISSUE_WIDTH];
   logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_rob_flag;
   logic [6:0] prf2exe_iss_entry_uop_rob_idx [ISSUE_WIDTH];
   logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_src1_en;
   logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_src1_is_pc;
-  logic [31:0] prf2exe_iss_entry_uop_src1_rdata [ISSUE_WIDTH];
+  logic [XLEN_BITS-1:0] prf2exe_iss_entry_uop_src1_rdata [ISSUE_WIDTH];
   logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_src2_is_imm;
-  logic [31:0] prf2exe_iss_entry_uop_src2_rdata [ISSUE_WIDTH];
+  logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_is_word;
+  logic [XLEN_BITS-1:0] prf2exe_iss_entry_uop_src2_rdata [ISSUE_WIDTH];
   logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_stq_flag;
   logic [5:0] prf2exe_iss_entry_uop_stq_idx [ISSUE_WIDTH];
   logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_valid;
@@ -335,7 +340,7 @@ module back_top import ttg_cfg_pkg::*; (
   logic [11:0] exe2csr_idx;
   logic exe2csr_re;
   logic [1:0] exe2csr_wcmd;
-  logic [31:0] exe2csr_wdata;
+  logic [XLEN_BITS-1:0] exe2csr_wdata;
   logic exe2csr_we;
   logic [17:0] exe2iss_fu_ready_mask [ISSUE_WIDTH];
   logic [4:0] exe2lsu_ldu_req_uop_amo_op [LSU_LDU_COUNT];
@@ -343,13 +348,13 @@ module back_top import ttg_cfg_pkg::*; (
   logic [2:0] exe2lsu_ldu_req_uop_func3 [LSU_LDU_COUNT];
   logic [LSU_LDU_COUNT-1:0] exe2lsu_ldu_req_uop_is_atomic;
   logic [5:0] exe2lsu_ldu_req_uop_ldq_idx [LSU_LDU_COUNT];
-  logic [31:0] exe2lsu_ldu_req_uop_result [LSU_LDU_COUNT];
+  logic [XLEN_BITS-1:0] exe2lsu_ldu_req_uop_result [LSU_LDU_COUNT];
   logic exe2lsu_ldu_req_uop_rob_flag [LSU_LDU_COUNT];
   logic [6:0] exe2lsu_ldu_req_uop_rob_idx [LSU_LDU_COUNT];
   logic exe2lsu_ldu_req_uop_stq_flag [LSU_LDU_COUNT];
   logic [5:0] exe2lsu_ldu_req_uop_stq_idx [LSU_LDU_COUNT];
   logic [LSU_LDU_COUNT-1:0] exe2lsu_ldu_req_valid;
-  logic [31:0] exe2lsu_sdu_req_uop_result [LSU_SDU_COUNT];
+  logic [XLEN_BITS-1:0] exe2lsu_sdu_req_uop_result [LSU_SDU_COUNT];
   logic [LSU_SDU_COUNT-1:0] exe2lsu_sdu_req_uop_rob_flag;
   logic [6:0] exe2lsu_sdu_req_uop_rob_idx [LSU_SDU_COUNT];
   logic [5:0] exe2lsu_sdu_req_uop_stq_idx [LSU_SDU_COUNT];
@@ -358,42 +363,42 @@ module back_top import ttg_cfg_pkg::*; (
   logic [6:0] exe2lsu_sta_req_uop_dest_preg [LSU_STA_COUNT];
   logic [2:0] exe2lsu_sta_req_uop_func3 [LSU_STA_COUNT];
   logic [LSU_STA_COUNT-1:0] exe2lsu_sta_req_uop_is_atomic;
-  logic [31:0] exe2lsu_sta_req_uop_result [LSU_STA_COUNT];
+  logic [XLEN_BITS-1:0] exe2lsu_sta_req_uop_result [LSU_STA_COUNT];
   logic exe2lsu_sta_req_uop_rob_flag [LSU_STA_COUNT];
   logic [6:0] exe2lsu_sta_req_uop_rob_idx [LSU_STA_COUNT];
   logic [5:0] exe2lsu_sta_req_uop_stq_idx [LSU_STA_COUNT];
   logic [LSU_STA_COUNT-1:0] exe2lsu_sta_req_valid;
   logic [TOTAL_FU_COUNT-1:0] exe2prf_bypass_uop_dest_en;
   logic [6:0] exe2prf_bypass_uop_dest_preg [TOTAL_FU_COUNT];
-  logic [31:0] exe2prf_bypass_uop_result [TOTAL_FU_COUNT];
+  logic [XLEN_BITS-1:0] exe2prf_bypass_uop_result [TOTAL_FU_COUNT];
   logic [TOTAL_FU_COUNT-1:0] exe2prf_bypass_valid;
   logic [BR_MASK_WIDTH-1:0] exe2prf_entry_uop_br_mask [ISSUE_WIDTH];
   logic [ISSUE_WIDTH-1:0] exe2prf_entry_uop_dest_en;
   logic [6:0] exe2prf_entry_uop_dest_preg [ISSUE_WIDTH];
   logic [4:0] exe2prf_entry_uop_op [ISSUE_WIDTH];
-  logic [31:0] exe2prf_entry_uop_result [ISSUE_WIDTH];
+  logic [XLEN_BITS-1:0] exe2prf_entry_uop_result [ISSUE_WIDTH];
   logic [ISSUE_WIDTH-1:0] exe2prf_entry_valid;
   logic [BR_TAG_WIDTH-1:0] exu2id_br_id;
-  logic [31:0] exu2id_br_pc;
+  logic [XLEN_BITS-1:0] exu2id_br_pc;
   logic [BR_MASK_WIDTH-1:0] exu2id_clear_mask;
   logic [5:0] exu2id_ftq_idx;
   logic exu2id_mispred;
-  logic [31:0] exu2id_redirect_pc;
+  logic [XLEN_BITS-1:0] exu2id_redirect_pc;
   logic [6:0] exu2id_redirect_rob_idx;
   logic exu2rob_entry_uop_br_taken [ISSUE_WIDTH];
-  logic [31:0] exu2rob_entry_uop_diag_val [ISSUE_WIDTH];
+  logic [XLEN_BITS-1:0] exu2rob_entry_uop_diag_val [ISSUE_WIDTH];
   logic [ISSUE_WIDTH-1:0] exu2rob_entry_uop_mispred;
   logic [4:0] exu2rob_entry_uop_op [ISSUE_WIDTH];
   logic [ISSUE_WIDTH-1:0] exu2rob_entry_uop_page_fault_load;
   logic [ISSUE_WIDTH-1:0] exu2rob_entry_uop_page_fault_store;
-  logic [31:0] exu2rob_entry_uop_result [ISSUE_WIDTH];
+  logic [XLEN_BITS-1:0] exu2rob_entry_uop_result [ISSUE_WIDTH];
   logic [6:0] exu2rob_entry_uop_rob_idx [ISSUE_WIDTH];
   logic [ISSUE_WIDTH-1:0] exu2rob_entry_valid;
 
   // ---- nets driven by csr: Csr (back-end/Exu/Csr.cpp)
-  logic [31:0] csr2exe_rdata;
-  logic [31:0] csr2front_epc;
-  logic [31:0] csr2front_trap_pc;
+  logic [XLEN_BITS-1:0] csr2exe_rdata;
+  logic [XLEN_BITS-1:0] csr2front_epc;
+  logic [XLEN_BITS-1:0] csr2front_trap_pc;
   logic csr2rob_interrupt_req;
 
   // ---- nets driven by rob: Rob (back-end/Rob.cpp)
@@ -417,9 +422,9 @@ module back_top import ttg_cfg_pkg::*; (
   logic rob_bcast_page_fault_inst;
   logic rob_bcast_page_fault_load;
   logic rob_bcast_page_fault_store;
-  logic [31:0] rob_bcast_trap_val;
+  logic [XLEN_BITS-1:0] rob_bcast_trap_val;
   logic [6:0] rob_commit_commit_entry_uop_dest_preg [COMMIT_WIDTH];
-  logic [31:0] rob_commit_commit_entry_uop_diag_val [COMMIT_WIDTH];
+  logic [XLEN_BITS-1:0] rob_commit_commit_entry_uop_diag_val [COMMIT_WIDTH];
   logic [5:0] rob_commit_commit_entry_uop_ftq_idx [COMMIT_WIDTH];
   logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_ftq_is_last;
   logic [FTQ_OFFSET_WIDTH-1:0] rob_commit_commit_entry_uop_ftq_offset [COMMIT_WIDTH];
@@ -448,26 +453,26 @@ module back_top import ttg_cfg_pkg::*; (
   logic [5:0] lsu2dis_stq_tail;
   logic lsu2dis_stq_tail_flag;
   logic [BR_MASK_WIDTH-1:0] lsu2exe_sta_wb_req_uop_br_mask [LSU_STA_COUNT];
-  logic [31:0] lsu2exe_sta_wb_req_uop_diag_val [LSU_STA_COUNT];
+  logic [XLEN_BITS-1:0] lsu2exe_sta_wb_req_uop_diag_val [LSU_STA_COUNT];
   logic [LSU_STA_COUNT-1:0] lsu2exe_sta_wb_req_uop_page_fault_store;
-  logic [31:0] lsu2exe_sta_wb_req_uop_result [LSU_STA_COUNT];
+  logic [XLEN_BITS-1:0] lsu2exe_sta_wb_req_uop_result [LSU_STA_COUNT];
   logic [6:0] lsu2exe_sta_wb_req_uop_rob_idx [LSU_STA_COUNT];
   logic [LSU_STA_COUNT-1:0] lsu2exe_sta_wb_req_valid;
   logic [BR_MASK_WIDTH-1:0] lsu2exe_wb_req_uop_br_mask [LSU_LOAD_WB_WIDTH];
   logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_dest_en;
   logic [6:0] lsu2exe_wb_req_uop_dest_preg [LSU_LOAD_WB_WIDTH];
-  logic [31:0] lsu2exe_wb_req_uop_diag_val [LSU_LOAD_WB_WIDTH];
+  logic [XLEN_BITS-1:0] lsu2exe_wb_req_uop_diag_val [LSU_LOAD_WB_WIDTH];
   logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_page_fault_load;
   logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_page_fault_store;
-  logic [31:0] lsu2exe_wb_req_uop_result [LSU_LOAD_WB_WIDTH];
+  logic [XLEN_BITS-1:0] lsu2exe_wb_req_uop_result [LSU_LOAD_WB_WIDTH];
   logic [6:0] lsu2exe_wb_req_uop_rob_idx [LSU_LOAD_WB_WIDTH];
   logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_valid;
   logic [5:0] lsu2mmu_ldq_req_entry_idx [LSU_LDU_COUNT];
-  logic [31:0] lsu2mmu_ldq_req_vaddr [LSU_LDU_COUNT];
+  logic [XLEN_BITS-1:0] lsu2mmu_ldq_req_vaddr [LSU_LDU_COUNT];
   logic [LSU_LDU_COUNT-1:0] lsu2mmu_ldq_req_valid;
   logic [5:0] lsu2mmu_ldq_req_wait_idx [LSU_LDU_COUNT];
   logic [5:0] lsu2mmu_stq_req_entry_idx [LSU_STA_COUNT];
-  logic [31:0] lsu2mmu_stq_req_vaddr [LSU_STA_COUNT];
+  logic [XLEN_BITS-1:0] lsu2mmu_stq_req_vaddr [LSU_STA_COUNT];
   logic [LSU_STA_COUNT-1:0] lsu2mmu_stq_req_valid;
   logic [5:0] lsu2mmu_stq_req_wait_idx [LSU_STA_COUNT];
   logic lsu2rob_committed_store_pending;
@@ -615,6 +620,7 @@ module back_top import ttg_cfg_pkg::*; (
     .dec2ren_uop_is_atomic(dec2ren_uop_is_atomic),
     .dec2ren_uop_src1_is_pc(dec2ren_uop_src1_is_pc),
     .dec2ren_uop_src2_is_imm(dec2ren_uop_src2_is_imm),
+    .dec2ren_uop_is_word(dec2ren_uop_is_word),
     .dec2ren_uop_func3(dec2ren_uop_func3),
     .dec2ren_uop_func7(dec2ren_uop_func7),
     .dec2ren_uop_imm(dec2ren_uop_imm),
@@ -663,6 +669,7 @@ module back_top import ttg_cfg_pkg::*; (
     .dec2ren_uop_src2_areg(dec2ren_uop_src2_areg),
     .dec2ren_uop_src2_en(dec2ren_uop_src2_en),
     .dec2ren_uop_src2_is_imm(dec2ren_uop_src2_is_imm),
+    .dec2ren_uop_is_word(dec2ren_uop_is_word),
     .dec2ren_uop_type(dec2ren_uop_type),
     .dec2ren_valid(dec2ren_valid),
     .dec_bcast_br_id(dec_bcast_br_id),
@@ -698,6 +705,7 @@ module back_top import ttg_cfg_pkg::*; (
     .ren2dis_uop_is_atomic(ren2dis_uop_is_atomic),
     .ren2dis_uop_src1_is_pc(ren2dis_uop_src1_is_pc),
     .ren2dis_uop_src2_is_imm(ren2dis_uop_src2_is_imm),
+    .ren2dis_uop_is_word(ren2dis_uop_is_word),
     .ren2dis_uop_func3(ren2dis_uop_func3),
     .ren2dis_uop_func7(ren2dis_uop_func7),
     .ren2dis_uop_imm(ren2dis_uop_imm),
@@ -764,6 +772,7 @@ module back_top import ttg_cfg_pkg::*; (
     .ren2dis_uop_src1_preg(ren2dis_uop_src1_preg),
     .ren2dis_uop_src2_en(ren2dis_uop_src2_en),
     .ren2dis_uop_src2_is_imm(ren2dis_uop_src2_is_imm),
+    .ren2dis_uop_is_word(ren2dis_uop_is_word),
     .ren2dis_uop_src2_preg(ren2dis_uop_src2_preg),
     .ren2dis_uop_type(ren2dis_uop_type),
     .ren2dis_valid(ren2dis_valid),
@@ -814,6 +823,7 @@ module back_top import ttg_cfg_pkg::*; (
     .dis2iss_req_uop_src2_busy(dis2iss_req_uop_src2_busy),
     .dis2iss_req_uop_src1_is_pc(dis2iss_req_uop_src1_is_pc),
     .dis2iss_req_uop_src2_is_imm(dis2iss_req_uop_src2_is_imm),
+    .dis2iss_req_uop_is_word(dis2iss_req_uop_is_word),
     .dis2iss_req_uop_func3(dis2iss_req_uop_func3),
     .dis2iss_req_uop_func7(dis2iss_req_uop_func7),
     .dis2iss_req_uop_imm(dis2iss_req_uop_imm),
@@ -872,6 +882,7 @@ module back_top import ttg_cfg_pkg::*; (
     .dis2iss_req_uop_src2_busy(dis2iss_req_uop_src2_busy),
     .dis2iss_req_uop_src2_en(dis2iss_req_uop_src2_en),
     .dis2iss_req_uop_src2_is_imm(dis2iss_req_uop_src2_is_imm),
+    .dis2iss_req_uop_is_word(dis2iss_req_uop_is_word),
     .dis2iss_req_uop_src2_preg(dis2iss_req_uop_src2_preg),
     .dis2iss_req_uop_stq_flag(dis2iss_req_uop_stq_flag),
     .dis2iss_req_uop_stq_idx(dis2iss_req_uop_stq_idx),
@@ -901,6 +912,7 @@ module back_top import ttg_cfg_pkg::*; (
     .iss2prf_iss_entry_uop_src2_en(iss2prf_iss_entry_uop_src2_en),
     .iss2prf_iss_entry_uop_src1_is_pc(iss2prf_iss_entry_uop_src1_is_pc),
     .iss2prf_iss_entry_uop_src2_is_imm(iss2prf_iss_entry_uop_src2_is_imm),
+    .iss2prf_iss_entry_uop_is_word(iss2prf_iss_entry_uop_is_word),
     .iss2prf_iss_entry_uop_func3(iss2prf_iss_entry_uop_func3),
     .iss2prf_iss_entry_uop_func7(iss2prf_iss_entry_uop_func7),
     .iss2prf_iss_entry_uop_imm(iss2prf_iss_entry_uop_imm),
@@ -961,6 +973,7 @@ module back_top import ttg_cfg_pkg::*; (
     .iss2prf_iss_entry_uop_src1_preg(iss2prf_iss_entry_uop_src1_preg),
     .iss2prf_iss_entry_uop_src2_en(iss2prf_iss_entry_uop_src2_en),
     .iss2prf_iss_entry_uop_src2_is_imm(iss2prf_iss_entry_uop_src2_is_imm),
+    .iss2prf_iss_entry_uop_is_word(iss2prf_iss_entry_uop_is_word),
     .iss2prf_iss_entry_uop_src2_preg(iss2prf_iss_entry_uop_src2_preg),
     .iss2prf_iss_entry_uop_stq_flag(iss2prf_iss_entry_uop_stq_flag),
     .iss2prf_iss_entry_uop_stq_idx(iss2prf_iss_entry_uop_stq_idx),
@@ -990,6 +1003,7 @@ module back_top import ttg_cfg_pkg::*; (
     .prf2exe_iss_entry_uop_src1_en(prf2exe_iss_entry_uop_src1_en),
     .prf2exe_iss_entry_uop_src1_is_pc(prf2exe_iss_entry_uop_src1_is_pc),
     .prf2exe_iss_entry_uop_src2_is_imm(prf2exe_iss_entry_uop_src2_is_imm),
+    .prf2exe_iss_entry_uop_is_word(prf2exe_iss_entry_uop_is_word),
     .prf2exe_iss_entry_uop_func3(prf2exe_iss_entry_uop_func3),
     .prf2exe_iss_entry_uop_func7(prf2exe_iss_entry_uop_func7),
     .prf2exe_iss_entry_uop_imm(prf2exe_iss_entry_uop_imm),
@@ -1054,6 +1068,7 @@ module back_top import ttg_cfg_pkg::*; (
     .prf2exe_iss_entry_uop_src1_is_pc(prf2exe_iss_entry_uop_src1_is_pc),
     .prf2exe_iss_entry_uop_src1_rdata(prf2exe_iss_entry_uop_src1_rdata),
     .prf2exe_iss_entry_uop_src2_is_imm(prf2exe_iss_entry_uop_src2_is_imm),
+    .prf2exe_iss_entry_uop_is_word(prf2exe_iss_entry_uop_is_word),
     .prf2exe_iss_entry_uop_src2_rdata(prf2exe_iss_entry_uop_src2_rdata),
     .prf2exe_iss_entry_uop_stq_flag(prf2exe_iss_entry_uop_stq_flag),
     .prf2exe_iss_entry_uop_stq_idx(prf2exe_iss_entry_uop_stq_idx),

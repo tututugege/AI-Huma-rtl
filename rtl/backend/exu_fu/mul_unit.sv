@@ -15,25 +15,28 @@ module mul_unit
   input  logic [BR_MASK_WIDTH-1:0]   flush_mask,
   input  logic [BR_MASK_WIDTH-1:0]   clear_mask,
   input  logic [1:0]                 func3,
-  input  logic [31:0]                src1_rdata,
-  input  logic [31:0]                src2_rdata,
+  input  logic                       is_word,
+  input  logic [XLEN_BITS-1:0]                src1_rdata,
+  input  logic [XLEN_BITS-1:0]                src2_rdata,
   input  logic [ROB_IDX_WIDTH-1:0]   rob_idx,
   input  logic [PRF_IDX_WIDTH-1:0]   dest_preg,
   input  logic                       dest_en,
   input  logic [BR_MASK_WIDTH-1:0]   br_mask,
   output logic                       complete,
   output logic                       ready,
-  output logic [31:0]                result,
+  output logic [XLEN_BITS-1:0]                result,
   output logic [ROB_IDX_WIDTH-1:0]   done_rob_idx,
   output logic [PRF_IDX_WIDTH-1:0]   done_dest_preg,
   output logic                       done_dest_en,
   output logic [BR_MASK_WIDTH-1:0]   done_br_mask
 );
 
-  logic [31:0] product;
+  logic [XLEN_BITS-1:0] product;
   fu_uop_t     en_uop, done_uop;
 
-  mul_core u_core (.func3(func3), .src1_rdata(src1_rdata), .src2_rdata(src2_rdata), .result(product));
+  mul_core u_core (
+    .func3(func3), .is_word(is_word), .src1_rdata(src1_rdata), .src2_rdata(src2_rdata), .result(product)
+  );
 
   always_comb begin
     en_uop = '{result: product, rob_idx: rob_idx, dest_preg: dest_preg, dest_en: dest_en, br_mask: br_mask};

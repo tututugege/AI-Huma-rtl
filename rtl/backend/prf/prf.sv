@@ -25,6 +25,7 @@ module prf import ttg_cfg_pkg::*; #(
   input  logic [ISSUE_WIDTH-1:0] iss2prf_iss_entry_uop_src2_en,
   input  logic [ISSUE_WIDTH-1:0] iss2prf_iss_entry_uop_src1_is_pc,
   input  logic [ISSUE_WIDTH-1:0] iss2prf_iss_entry_uop_src2_is_imm,
+  input  logic [ISSUE_WIDTH-1:0] iss2prf_iss_entry_uop_is_word,
   input  logic [2:0] iss2prf_iss_entry_uop_func3 [ISSUE_WIDTH],
   input  logic [6:0] iss2prf_iss_entry_uop_func7 [ISSUE_WIDTH],
   input  logic [31:0] iss2prf_iss_entry_uop_imm [ISSUE_WIDTH],
@@ -39,33 +40,33 @@ module prf import ttg_cfg_pkg::*; #(
   input  logic [UOP_TYPE_WIDTH-1:0] iss2prf_iss_entry_uop_op [ISSUE_WIDTH],
   input  logic [ISSUE_WIDTH-1:0] exe2prf_entry_valid,
   input  logic [PRF_IDX_WIDTH-1:0] exe2prf_entry_uop_dest_preg [ISSUE_WIDTH],
-  input  logic [31:0] exe2prf_entry_uop_result [ISSUE_WIDTH],
+  input  logic [XLEN_BITS-1:0] exe2prf_entry_uop_result [ISSUE_WIDTH],
   input  logic [BR_MASK_WIDTH-1:0] exe2prf_entry_uop_br_mask [ISSUE_WIDTH],
   input  logic [ISSUE_WIDTH-1:0] exe2prf_entry_uop_dest_en,
   input  logic [UOP_TYPE_WIDTH-1:0] exe2prf_entry_uop_op [ISSUE_WIDTH],
   input  logic [TOTAL_FU_COUNT-1:0] exe2prf_bypass_valid,
   input  logic [PRF_IDX_WIDTH-1:0] exe2prf_bypass_uop_dest_preg [TOTAL_FU_COUNT],
-  input  logic [31:0] exe2prf_bypass_uop_result [TOTAL_FU_COUNT],
+  input  logic [XLEN_BITS-1:0] exe2prf_bypass_uop_result [TOTAL_FU_COUNT],
   input  logic [TOTAL_FU_COUNT-1:0] exe2prf_bypass_uop_dest_en,
   // LSU write-back requests of this cycle as a bypass source (LP_L2 speculative wake-up: the consumer reads the load
   // result in the cycle of the write-back request); all zero otherwise
   input  logic [LSU_LOAD_WB_WIDTH-1:0] lsu_byp_valid,
   input  logic [PRF_IDX_WIDTH-1:0] lsu_byp_dest_preg [LSU_LOAD_WB_WIDTH],
-  input  logic [31:0] lsu_byp_result [LSU_LOAD_WB_WIDTH],
-  input  logic [31:0] ftq_prf_pc_resp_resp_pc [FTQ_PRF_PC_PORT_NUM],
+  input  logic [XLEN_BITS-1:0] lsu_byp_result [LSU_LOAD_WB_WIDTH],
+  input  logic [XLEN_BITS-1:0] ftq_prf_pc_resp_resp_pc [FTQ_PRF_PC_PORT_NUM],
   input  logic [FTQ_PRF_PC_PORT_NUM-1:0] ftq_prf_pc_resp_resp_pred_taken,
-  input  logic [31:0] ftq_prf_pc_resp_resp_next_pc [FTQ_PRF_PC_PORT_NUM],
+  input  logic [XLEN_BITS-1:0] ftq_prf_pc_resp_resp_next_pc [FTQ_PRF_PC_PORT_NUM],
   output logic [FTQ_PRF_PC_PORT_NUM-1:0] ftq_prf_pc_req_req_valid,
   output logic [FTQ_IDX_WIDTH-1:0] ftq_prf_pc_req_req_ftq_idx [FTQ_PRF_PC_PORT_NUM],
   output logic [FTQ_OFFSET_WIDTH-1:0] ftq_prf_pc_req_req_ftq_offset [FTQ_PRF_PC_PORT_NUM],
   output logic [LSU_LOAD_WB_WIDTH-1:0] prf_awake_wake_valid,
   output logic [PRF_IDX_WIDTH-1:0] prf_awake_wake_preg [LSU_LOAD_WB_WIDTH],
   output logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_valid,
-  output logic [31:0] prf2exe_iss_entry_uop_pc [ISSUE_WIDTH],
+  output logic [XLEN_BITS-1:0] prf2exe_iss_entry_uop_pc [ISSUE_WIDTH],
   output logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_ftq_pred_taken,
-  output logic [31:0] prf2exe_iss_entry_uop_ftq_next_pc [ISSUE_WIDTH],
-  output logic [31:0] prf2exe_iss_entry_uop_src1_rdata [ISSUE_WIDTH],
-  output logic [31:0] prf2exe_iss_entry_uop_src2_rdata [ISSUE_WIDTH],
+  output logic [XLEN_BITS-1:0] prf2exe_iss_entry_uop_ftq_next_pc [ISSUE_WIDTH],
+  output logic [XLEN_BITS-1:0] prf2exe_iss_entry_uop_src1_rdata [ISSUE_WIDTH],
+  output logic [XLEN_BITS-1:0] prf2exe_iss_entry_uop_src2_rdata [ISSUE_WIDTH],
   output logic [PRF_IDX_WIDTH-1:0] prf2exe_iss_entry_uop_dest_preg [ISSUE_WIDTH],
   output logic [FTQ_IDX_WIDTH-1:0] prf2exe_iss_entry_uop_ftq_idx [ISSUE_WIDTH],
   output logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_is_atomic,
@@ -73,6 +74,7 @@ module prf import ttg_cfg_pkg::*; #(
   output logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_src1_en,
   output logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_src1_is_pc,
   output logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_src2_is_imm,
+  output logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_is_word,
   output logic [2:0] prf2exe_iss_entry_uop_func3 [ISSUE_WIDTH],
   output logic [6:0] prf2exe_iss_entry_uop_func7 [ISSUE_WIDTH],
   output logic [31:0] prf2exe_iss_entry_uop_imm [ISSUE_WIDTH],
@@ -94,15 +96,15 @@ module prf import ttg_cfg_pkg::*; #(
   logic [LANES-1:0]          exe_valid_vec, exe_dest_en_vec, exe_is_load_vec;
   logic [LANES-1:0]          wb_wen_q, wb_is_load_q;
   logic [PRF_IDX_WIDTH-1:0]  wb_dest_preg_q [LANES];
-  logic [31:0]               wb_result_q    [LANES];
+  logic [XLEN_BITS-1:0]               wb_result_q    [LANES];
   logic [BR_MASK_WIDTH-1:0]  wb_br_mask_q   [LANES];
   logic [TOTAL_FU_COUNT-1:0] fu_wen_vec;
   logic                      src_en_arr   [2][LANES];
   logic [PRF_IDX_WIDTH-1:0]  src_preg_arr [2][LANES];
-  logic [31:0]               rf_rdata     [2][LANES];
-  logic [31:0]               src_rdata    [2][LANES];
+  logic [XLEN_BITS-1:0]               rf_rdata     [2][LANES];
+  logic [XLEN_BITS-1:0]               src_rdata    [2][LANES];
   logic [PRF_NUM-1:0]        reg_wr_en;
-  logic [31:0]               reg_wr_data  [PRF_NUM];
+  logic [XLEN_BITS-1:0]               reg_wr_data  [PRF_NUM];
   logic [ALU_NUM-1:0]        alu_valid_vec, alu_src1_is_pc_vec;
   logic [BRU_NUM-1:0]        br_valid_vec;
   logic [UOP_TYPE_WIDTH-1:0] alu_op [ALU_NUM];
@@ -128,6 +130,7 @@ module prf import ttg_cfg_pkg::*; #(
     assign prf2exe_iss_entry_uop_src1_en[i] = iss2prf_iss_entry_uop_src1_en[i];
     assign prf2exe_iss_entry_uop_src1_is_pc[i] = iss2prf_iss_entry_uop_src1_is_pc[i];
     assign prf2exe_iss_entry_uop_src2_is_imm[i] = iss2prf_iss_entry_uop_src2_is_imm[i];
+    assign prf2exe_iss_entry_uop_is_word[i] = iss2prf_iss_entry_uop_is_word[i];
     assign prf2exe_iss_entry_uop_func3[i] = iss2prf_iss_entry_uop_func3[i];
     assign prf2exe_iss_entry_uop_func7[i] = iss2prf_iss_entry_uop_func7[i];
     assign prf2exe_iss_entry_uop_imm[i] = iss2prf_iss_entry_uop_imm[i];
@@ -145,7 +148,7 @@ module prf import ttg_cfg_pkg::*; #(
   localparam int BYP_NUM = TOTAL_FU_COUNT + LSU_LOAD_WB_WIDTH;
   logic [BYP_NUM-1:0]      byp_wen_vec;
   logic [PRF_IDX_WIDTH-1:0] byp_dest_preg [BYP_NUM];
-  logic [31:0]             byp_result [BYP_NUM];
+  logic [XLEN_BITS-1:0]             byp_result [BYP_NUM];
   for (genvar k = 0; k < TOTAL_FU_COUNT; k++) begin : g_fu
     assign fu_wen_vec[k] = exe2prf_bypass_valid[k] && exe2prf_bypass_uop_dest_en[k];
     assign byp_wen_vec[k] = fu_wen_vec[k];

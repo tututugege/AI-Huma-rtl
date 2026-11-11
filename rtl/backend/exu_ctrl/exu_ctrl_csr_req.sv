@@ -12,12 +12,12 @@ module exu_ctrl_csr_req
   input  logic [31:0]              imm,
   input  logic [PRF_IDX_WIDTH-1:0] dest_preg,
   input  logic                     src2_is_imm,
-  input  logic [31:0]              src1_rdata,
+  input  logic [XLEN_BITS-1:0]              src1_rdata,
   input  logic [CSR_IDX_WIDTH-1:0] csr_idx,
   output logic                     we,
   output logic                     re,
   output logic [CSR_IDX_WIDTH-1:0] idx,
-  output logic [31:0]              wdata,
+  output logic [XLEN_BITS-1:0]              wdata,
   output logic [1:0]               wcmd
 );
 
@@ -32,7 +32,7 @@ module exu_ctrl_csr_req
     we    = csr_en && (csrrw_family || !src_is_zero);
     re    = csr_en && (!csrrw_family || !rd_is_zero);
     idx   = csr_en ? csr_idx : '0;
-    wdata = src2_is_imm ? imm : src1_rdata;
+    wdata = src2_is_imm ? XLEN_BITS'(imm) : src1_rdata;   // zimm: zero-extended
     wcmd  = func3[1:0];
   end
 

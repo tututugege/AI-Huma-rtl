@@ -2,6 +2,7 @@
 `default_nettype none
 /* verilator lint_off UNUSEDPARAM */  // package constants are used by other files
 package csr_pkg;
+  import ttg_cfg_pkg::*;
 
   // ---- stored registers (sstatus / sie / sip are views of mstatus / mie / mip and are not stored) ----
   localparam int NREG = 18;
@@ -24,7 +25,13 @@ package csr_pkg;
   localparam int R_MHARTID  = 16;
   localparam int R_MISA     = 17;
 
-  localparam logic [31:0] MISA_RESET = 32'h40141103;  // U/S/M RV32IAMB
+  // misa: MXL (rv32: 1, rv64: 2) in the top two bits; extensions A(0) B(1) I(8) M(12) S(18) U(20)
+  localparam logic [XLEN_BITS-1:0] MISA_RESET =
+      XLEN_BITS'((XLEN_BITS == 64) ? 64'h8000000000141103 : 64'h40141103);
+
+  // mstatus reset: rv64 UXL = SXL = 2
+
+  localparam logic [XLEN_BITS-1:0] MSTATUS_RESET = XLEN_BITS'((XLEN_BITS == 64) ? 64'hA00000000 : 64'h0);
 
   // ---- CSR address table: address, backing register, write mask, read mask ----
   localparam int NENT = 21;
@@ -38,21 +45,24 @@ package csr_pkg;
     R_SEPC, R_STVEC, R_SCAUSE, R_SSCRATCH, R_STVAL, R_SATP, R_MHARTID, R_MISA,
     R_MSTATUS, R_MIE, R_MIP
   };
-  localparam logic [31:0] MSTATUS_WMASK = 32'h807FF9BB;
-  localparam logic [31:0] SSTATUS_MASK  = 32'h800DE133;  // also the sstatus read mask
+  localparam logic [XLEN_BITS-1:0] MSTATUS_WMASK = XLEN_BITS'((XLEN_BITS == 64) ? 64'h7FF9BB : 64'h807FF9BB);
+  localparam logic [XLEN_BITS-1:0] SSTATUS_MASK =
+      XLEN_BITS'((XLEN_BITS == 64) ? 64'h3000DE133 : 64'h800DE133);  // sstatus read mask
+  localparam logic [XLEN_BITS-1:0] SSTATUS_WMASK =
+      XLEN_BITS'((XLEN_BITS == 64) ? 64'hDE133 : 64'h800DE133);  // rv64: UXL read-only
   // Interrupt CSRs per the privileged spec (no N extension; same as the function model):
   //   mie / mip hold SSI/MSI/STI/MTI/SEI/MEI (0xAAA), mideleg holds SSI/STI/SEI (0x222),
   //   the supervisor views sie / sip show only the bits delegated by mideleg (ENT_DELEG), and sip can only write SSIP.
-  localparam logic [31:0] MIE_WMASK     = 32'h00000AAA;  // mie and mip
-  localparam logic [31:0] DELEG_MASK    = 32'h00000222;  // mideleg, and the sie view
-  localparam logic [31:0] SIP_WMASK     = 32'h00000002;  // SSIP
-  localparam logic [31:0] ALL_ONES      = 32'hFFFFFFFF;
-  localparam logic [31:0] ENT_WMASK [NENT] = '{
+  localparam logic [XLEN_BITS-1:0] MIE_WMASK     = XLEN_BITS'(32'h00000AAA);  // mie and mip
+  localparam logic [XLEN_BITS-1:0] DELEG_MASK    = XLEN_BITS'(32'h00000222);  // mideleg, and the sie view
+  localparam logic [XLEN_BITS-1:0] SIP_WMASK     = XLEN_BITS'(32'h00000002);  // SSIP
+  localparam logic [XLEN_BITS-1:0] ALL_ONES      = '1;
+  localparam logic [XLEN_BITS-1:0] ENT_WMASK [NENT] = '{
     ALL_ONES, ALL_ONES, ALL_ONES, MIE_WMASK, MIE_WMASK, ALL_ONES, ALL_ONES, MSTATUS_WMASK, DELEG_MASK, ALL_ONES,
     ALL_ONES, ALL_ONES, ALL_ONES, ALL_ONES, ALL_ONES, ALL_ONES, ALL_ONES, ALL_ONES,
-    SSTATUS_MASK, DELEG_MASK, SIP_WMASK
+    SSTATUS_WMASK, DELEG_MASK, SIP_WMASK
   };
-  localparam logic [31:0] ENT_RMASK [NENT] = '{
+  localparam logic [XLEN_BITS-1:0] ENT_RMASK [NENT] = '{
     ALL_ONES, ALL_ONES, ALL_ONES, ALL_ONES, ALL_ONES, ALL_ONES, ALL_ONES, ALL_ONES, ALL_ONES, ALL_ONES,
     ALL_ONES, ALL_ONES, ALL_ONES, ALL_ONES, ALL_ONES, ALL_ONES, ALL_ONES, ALL_ONES,
     SSTATUS_MASK, DELEG_MASK, DELEG_MASK

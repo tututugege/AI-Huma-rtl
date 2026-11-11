@@ -13,18 +13,18 @@ module pre_idu_queue import ttg_cfg_pkg::*; import pre_idu_pkg::*; import front_
   input  logic rst_n,
   input  logic [BACKEND_FETCH_WIDTH-1:0] front2pre_valid,
   input  logic [31:0] front2pre_inst [BACKEND_FETCH_WIDTH],
-  input  logic [31:0] front2pre_pc [BACKEND_FETCH_WIDTH],
+  input  logic [XLEN_BITS-1:0] front2pre_pc [BACKEND_FETCH_WIDTH],
   input  logic [BACKEND_FETCH_WIDTH-1:0] front2pre_page_fault_inst,
   input  logic [BACKEND_FETCH_WIDTH-1:0] front2pre_predict_dir,
   input  logic [BACKEND_FETCH_WIDTH-1:0] front2pre_alt_pred,
   input  logic [PCPN_W-1:0] front2pre_altpcpn [BACKEND_FETCH_WIDTH],
   input  logic [PCPN_W-1:0] front2pre_pcpn [BACKEND_FETCH_WIDTH],
-  input  logic [31:0] front2pre_predict_next_fetch_address,
+  input  logic [XLEN_BITS-1:0] front2pre_predict_next_fetch_address,
   input  logic [TAGE_IDX_W-1:0] front2pre_tage_idx [BACKEND_FETCH_WIDTH] [TAGE_N],
   input  logic [TAGE_TAG_W-1:0] front2pre_tage_tag [BACKEND_FETCH_WIDTH] [TAGE_N],
   input  logic [BCK_W-1:0] front2pre_bpu_ck,
   input  logic [FETCH_WIDTH-1:0][KIND_W-1:0] front2pre_slot_kind,
-  input  logic [31:0] idu_br_latch_br_pc,
+  input  logic [XLEN_BITS-1:0] idu_br_latch_br_pc,
   input  logic [DECODE_WIDTH-1:0] idu_consume_fire,
   input  logic idu_br_latch_mispred,
   input  logic [FTQ_IDX_WIDTH-1:0] idu_br_latch_ftq_idx,
@@ -57,14 +57,14 @@ module pre_idu_queue import ttg_cfg_pkg::*; import pre_idu_pkg::*; import front_
   output logic [FTQ_OFFSET_WIDTH-1:0] pre_issue_entries_ftq_offset [DECODE_WIDTH],
   output logic [DECODE_WIDTH-1:0] pre_issue_entries_ftq_is_last,
   output logic [FTQ_PRF_PC_PORT_NUM-1:0] ftq_prf_pc_resp_resp_valid,
-  output logic [31:0] ftq_prf_pc_resp_resp_pc [FTQ_PRF_PC_PORT_NUM],
+  output logic [XLEN_BITS-1:0] ftq_prf_pc_resp_resp_pc [FTQ_PRF_PC_PORT_NUM],
   output logic [FTQ_PRF_PC_PORT_NUM-1:0] ftq_prf_pc_resp_resp_pred_taken,
-  output logic [31:0] ftq_prf_pc_resp_resp_next_pc [FTQ_PRF_PC_PORT_NUM],
+  output logic [XLEN_BITS-1:0] ftq_prf_pc_resp_resp_next_pc [FTQ_PRF_PC_PORT_NUM],
   output logic [FTQ_ROB_PC_PORT_NUM-1:0] ftq_rob_pc_resp_resp_valid,
-  output logic [31:0] ftq_rob_pc_resp_resp_pc [FTQ_ROB_PC_PORT_NUM],
+  output logic [XLEN_BITS-1:0] ftq_rob_pc_resp_resp_pc [FTQ_ROB_PC_PORT_NUM],
   output logic [COMMIT_WIDTH-1:0][TAGE_N-1:0] ftq_commit_info_resp_valid_t,
   output logic [COMMIT_WIDTH-1:0] ftq_commit_info_resp_valid,
-  output logic [31:0] ftq_commit_info_resp_pc [COMMIT_WIDTH],
+  output logic [XLEN_BITS-1:0] ftq_commit_info_resp_pc [COMMIT_WIDTH],
   output logic ftq_commit_info_resp_pred_taken [COMMIT_WIDTH],
   output logic [COMMIT_WIDTH-1:0] ftq_commit_info_resp_alt_pred,
   output logic [PCPN_W-1:0] ftq_commit_info_resp_altpcpn [COMMIT_WIDTH],
@@ -83,7 +83,7 @@ module pre_idu_queue import ttg_cfg_pkg::*; import pre_idu_pkg::*; import front_
   logic [DECODE_WIDTH-1:0]        idu_fire;
   logic [COMMIT_WIDTH-1:0]        commit_valid;
   logic [COMMIT_WIDTH-1:0]        commit_is_last;
-  logic [31:0]                    front_slot_pc [BACKEND_FETCH_WIDTH];
+  logic [XLEN_BITS-1:0]                    front_slot_pc [BACKEND_FETCH_WIDTH];
   ftq_meta_t                      wr_meta [BACKEND_FETCH_WIDTH];
   ib_entry_t                      push_entry [BACKEND_FETCH_WIDTH];
   ib_entry_t                      issue_entry [DECODE_WIDTH];
@@ -92,9 +92,9 @@ module pre_idu_queue import ttg_cfg_pkg::*; import pre_idu_pkg::*; import front_
 
   logic [FTQ_IDX_WIDTH-1:0]       pc_rd_idx [NPORT_PC];
   logic [FTQ_OFFSET_WIDTH-1:0]    pc_rd_offset [NPORT_PC];
-  logic [31:0]                    pc_rd_pc [NPORT_PC];
+  logic [XLEN_BITS-1:0]                    pc_rd_pc [NPORT_PC];
   logic                           pc_rd_pred_taken [NPORT_PC];
-  logic [31:0]                    pc_rd_next_pc [NPORT_PC];
+  logic [XLEN_BITS-1:0]                    pc_rd_next_pc [NPORT_PC];
 
   logic                           ready;
   logic [BACKEND_FETCH_WIDTH-1:0] fire;
@@ -150,7 +150,7 @@ module pre_idu_queue import ttg_cfg_pkg::*; import pre_idu_pkg::*; import front_
       pc_rd_offset[PORT_COMMIT+p] = rob_commit_commit_entry_uop_ftq_offset[p];
     end
   end
-  logic [31:0] dis_pc [DECODE_WIDTH];
+  logic [XLEN_BITS-1:0] dis_pc [DECODE_WIDTH];
   for (genvar p = 0; p < DECODE_WIDTH; p++) begin : g_dis_pc
     if (LSU_MEMSPEC != 0) begin : g_on
       // wait-table index of the load PC: pc[2+B-1:2] ^ pc[2+2B-1:2+B]

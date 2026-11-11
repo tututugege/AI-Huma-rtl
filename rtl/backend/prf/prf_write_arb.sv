@@ -10,9 +10,9 @@ module prf_write_arb import ttg_cfg_pkg::*; #(
 ) (
   input  logic [LANES-1:0]         wb_wen,
   input  logic [PRF_IDX_WIDTH-1:0] wb_dest_preg [LANES],
-  input  logic [31:0]              wb_result    [LANES],
+  input  logic [XLEN_BITS-1:0]              wb_result    [LANES],
   output logic [NREG-1:0]          reg_wr_en,
-  output logic [31:0]              reg_wr_data  [NREG]
+  output logic [XLEN_BITS-1:0]              reg_wr_data  [NREG]
 );
 
   for (genvar p = 0; p < NREG; p++) begin : g_reg
@@ -20,7 +20,7 @@ module prf_write_arb import ttg_cfg_pkg::*; #(
     always_comb begin
       for (int i = 0; i < LANES; i++) lane_hits[i] = wb_wen[i] && (wb_dest_preg[i] == PRF_IDX_WIDTH'(p));
     end
-    ttg_onehot_mux #(.N(LANES), .W(32)) u_data (.sel(lane_hits), .data(wb_result), .out(reg_wr_data[p]));
+    ttg_onehot_mux #(.N(LANES), .W(XLEN_BITS)) u_data (.sel(lane_hits), .data(wb_result), .out(reg_wr_data[p]));
     assign reg_wr_en[p] = |lane_hits;
   end
 

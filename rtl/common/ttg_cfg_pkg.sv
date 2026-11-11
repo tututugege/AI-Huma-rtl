@@ -2,6 +2,7 @@
 `default_nettype none
 /* verilator lint_off UNUSEDPARAM */
 package ttg_cfg_pkg;
+  localparam int XLEN_BITS = 32;
   localparam int VIRTUAL_MEMORY_LENGTH = 268435456;
   localparam int PHYSICAL_MEMORY_LENGTH = 536870912;
   localparam longint unsigned RAM_SIZE = 64'd2147483648;

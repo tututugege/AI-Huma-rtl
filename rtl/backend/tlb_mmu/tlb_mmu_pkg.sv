@@ -2,6 +2,7 @@
 `default_nettype none
 /* verilator lint_off UNUSEDPARAM */  // constants package: not every constant is used by every module
 package tlb_mmu_pkg;
+  import ttg_cfg_pkg::*;
 
   localparam int ASID_W = 9;           // Sv32 satp[30:22]
   localparam int VPN_W = 20;           // vaddr[31:12]
@@ -53,7 +54,7 @@ package tlb_mmu_pkg;
     logic             req_sent;
     logic [VPN_W-1:0] vpn;
     logic [1:0]       access_type;
-    logic [31:0]      satp;
+    logic [XLEN_BITS-1:0]      satp;
     logic [1:0]       eff_priv;
     logic             mxr;
     logic             sum;

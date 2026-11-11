@@ -7,13 +7,13 @@
 //   bare mode            -> HIT, paddr = vaddr
 //   refill / table hit   -> permission check -> HIT or FAULT
 //   miss                 -> walk state machine: start / wait / request / consume the response
-module tlb_mmu_lane import tlb_mmu_pkg::*; #(
+module tlb_mmu_lane import tlb_mmu_pkg::*; import ttg_cfg_pkg::*; #(
   parameter logic [1:0] ACCESS_TYPE = ACC_LOAD
 ) (
   input  logic                valid,
-  input  logic [31:0]         vaddr,
+  input  logic [XLEN_BITS-1:0]         vaddr,
   // translation context (shared by all ports of the cycle)
-  input  logic [31:0]         satp,
+  input  logic [XLEN_BITS-1:0]         satp,
   input  logic [1:0]          privilege,
   input  logic                mxr,
   input  logic                sum,

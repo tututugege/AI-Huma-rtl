@@ -17,15 +17,16 @@ module div_unit
   input  logic [BR_MASK_WIDTH-1:0]   flush_mask,
   input  logic [BR_MASK_WIDTH-1:0]   clear_mask,
   input  logic [1:0]                 func3,
-  input  logic [31:0]                src1_rdata,
-  input  logic [31:0]                src2_rdata,
+  input  logic                       is_word,   // rv64 divw/divuw/remw/remuw: half the iterations
+  input  logic [XLEN_BITS-1:0]                src1_rdata,
+  input  logic [XLEN_BITS-1:0]                src2_rdata,
   input  logic [ROB_IDX_WIDTH-1:0]   rob_idx,
   input  logic [PRF_IDX_WIDTH-1:0]   dest_preg,
   input  logic                       dest_en,
   input  logic [BR_MASK_WIDTH-1:0]   br_mask,
   output logic                       complete,
   output logic                       ready,
-  output logic [31:0]                result,
+  output logic [XLEN_BITS-1:0]                result,
   output logic [ROB_IDX_WIDTH-1:0]   done_rob_idx,
   output logic [PRF_IDX_WIDTH-1:0]   done_dest_preg,
   output logic                       done_dest_en,
@@ -38,12 +39,13 @@ module div_unit
 
   exu_iter_ctl #(.CW(CW)) u_ctl (
     .clk(clk), .rst_n(rst_n), .flush(flush), .flush_mask(flush_mask), .clear_mask(clear_mask),
-    .en(en), .consume(consume), .lat_m1(CW'(LAT - 1)), .en_br_mask(br_mask),
+    .en(en), .consume(consume), .en_br_mask(br_mask),
+    .lat_m1(is_word && XLEN_BITS == 64 ? CW'(LAT / 2 - 1) : CW'(LAT - 1)),
     .accept(accept), .run(run), .complete(complete), .ready(ready), .done_br_mask(done_br_mask)
   );
 
   div_core #(.LAT(LAT)) u_core (
-    .clk(clk), .rst_n(rst_n), .accept(accept), .run(run), .func3(func3),
+    .clk(clk), .rst_n(rst_n), .accept(accept), .run(run), .func3(func3), .is_word(is_word),
     .src1_rdata(src1_rdata), .src2_rdata(src2_rdata), .result(result)
   );
 

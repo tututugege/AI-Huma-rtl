@@ -14,24 +14,24 @@ module back_top_glue
   input  logic        rob_bcast_mret,
   input  logic        rob_bcast_sret,
   input  logic        rob_bcast_exception,
-  input  logic [31:0] rob_bcast_pc,
-  input  logic [31:0] csr2front_epc,
-  input  logic [31:0] csr2front_trap_pc,
-  input  logic [31:0] br_latch_redirect_pc,
-  input  logic [31:0] br_latch_br_pc,
+  input  logic [XLEN_BITS-1:0] rob_bcast_pc,
+  input  logic [XLEN_BITS-1:0] csr2front_epc,
+  input  logic [XLEN_BITS-1:0] csr2front_trap_pc,
+  input  logic [XLEN_BITS-1:0] br_latch_redirect_pc,
+  input  logic [XLEN_BITS-1:0] br_latch_br_pc,
   input  logic        dec_bcast_mispred,
   input  logic        pre2front_ready,
   input  logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_valid,
-  input  logic [31:0] rob_commit_commit_entry_uop_diag_val [COMMIT_WIDTH],
-  input  logic [31:0] csr_status_mstatus,
+  input  logic [XLEN_BITS-1:0] rob_commit_commit_entry_uop_diag_val [COMMIT_WIDTH],
+  input  logic [XLEN_BITS-1:0] csr_status_mstatus,
   input  logic [6:0]  rob_commit_commit_entry_uop_func7 [COMMIT_WIDTH],
   output logic        out_mispred,
   output logic        out_no_mispred,  // qualifies out_stall in the boundary spec (stall is stale on redirect cycles)
   output logic        out_stall,
-  output logic [31:0] out_redirect_pc,
+  output logic [XLEN_BITS-1:0] out_redirect_pc,
   output logic        out_rf_valid,    // the redirect is a branch mispredict (not a ROB flush): BPU history repair
-  output logic [31:0] out_rf_pc,       // pc of the mispredicted branch
-  output logic [31:0] out_commit_entry_uop_diag_val [COMMIT_WIDTH],
+  output logic [XLEN_BITS-1:0] out_rf_pc,       // pc of the mispredicted branch
+  output logic [XLEN_BITS-1:0] out_commit_entry_uop_diag_val [COMMIT_WIDTH],
   output logic        csr_status_mstatus_mxr,
   output logic        csr_status_mstatus_sum,
   output logic        csr_status_mstatus_mprv,
@@ -40,7 +40,7 @@ module back_top_glue
 );
 
   // Ref: BackTop::comb, "Normal case" / flush branch. Valid when out_mispred (SimCpu reads it only then).
-  logic [31:0] flush_redirect_pc;
+  logic [XLEN_BITS-1:0] flush_redirect_pc;
   always_comb begin
     if (rob_bcast_mret || rob_bcast_sret) flush_redirect_pc = csr2front_epc;
     else if (rob_bcast_exception)         flush_redirect_pc = csr2front_trap_pc;
@@ -80,7 +80,7 @@ module back_top_glue
 
   // the other mstatus bits are not read here (they leave the chip through csr_status_mstatus)
   /* verilator lint_off UNUSEDSIGNAL */
-  logic [31:0] mstatus_other_bits;
+  logic [XLEN_BITS-1:0] mstatus_other_bits;
   /* verilator lint_on UNUSEDSIGNAL */
   assign mstatus_other_bits = csr_status_mstatus & ~32'h000E_1800;
 

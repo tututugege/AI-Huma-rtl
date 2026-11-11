@@ -16,36 +16,39 @@ module exu_ctrl_fu_out
   output logic [6:0] exu2fu_alu_func7 [ALU_NUM],
   output logic exu2fu_alu_src1_is_pc [ALU_NUM],
   output logic exu2fu_alu_src2_is_imm [ALU_NUM],
-  output logic [31:0] exu2fu_alu_pc [ALU_NUM],
+  output logic exu2fu_alu_is_word [ALU_NUM],
+  output logic [XLEN_BITS-1:0] exu2fu_alu_pc [ALU_NUM],
   output logic [31:0] exu2fu_alu_imm [ALU_NUM],
-  output logic [31:0] exu2fu_alu_src1_rdata [ALU_NUM],
-  output logic [31:0] exu2fu_alu_src2_rdata [ALU_NUM],
+  output logic [XLEN_BITS-1:0] exu2fu_alu_src1_rdata [ALU_NUM],
+  output logic [XLEN_BITS-1:0] exu2fu_alu_src2_rdata [ALU_NUM],
   output logic exu2fu_bru_en [BRU_NUM],
   output logic [XC_OP_W-1:0] exu2fu_bru_op [BRU_NUM],
   output logic [2:0] exu2fu_bru_func3 [BRU_NUM],
   output logic exu2fu_bru_src1_en [BRU_NUM],
-  output logic [31:0] exu2fu_bru_src1_rdata [BRU_NUM],
-  output logic [31:0] exu2fu_bru_src2_rdata [BRU_NUM],
-  output logic [31:0] exu2fu_bru_pc [BRU_NUM],
+  output logic [XLEN_BITS-1:0] exu2fu_bru_src1_rdata [BRU_NUM],
+  output logic [XLEN_BITS-1:0] exu2fu_bru_src2_rdata [BRU_NUM],
+  output logic [XLEN_BITS-1:0] exu2fu_bru_pc [BRU_NUM],
   output logic [31:0] exu2fu_bru_imm [BRU_NUM],
   output logic exu2fu_bru_ftq_pred_taken [BRU_NUM],
-  output logic [31:0] exu2fu_bru_ftq_next_pc [BRU_NUM],
+  output logic [XLEN_BITS-1:0] exu2fu_bru_ftq_next_pc [BRU_NUM],
   output logic exu2fu_agu_en [LSU_AGU_COUNT],
-  output logic [31:0] exu2fu_agu_src1_rdata [LSU_AGU_COUNT],
+  output logic [XLEN_BITS-1:0] exu2fu_agu_src1_rdata [LSU_AGU_COUNT],
   output logic [31:0] exu2fu_agu_imm [LSU_AGU_COUNT],
   output logic exu2fu_sdu_en [LSU_SDU_COUNT],
   output logic exu2fu_sdu_is_atomic [LSU_SDU_COUNT],
   output logic [6:0] exu2fu_sdu_func7 [LSU_SDU_COUNT],
-  output logic [31:0] exu2fu_sdu_src1_rdata [LSU_SDU_COUNT],
-  output logic [31:0] exu2fu_sdu_src2_rdata [LSU_SDU_COUNT],
+  output logic exu2fu_sdu_amo_w [LSU_SDU_COUNT],
+  output logic [XLEN_BITS-1:0] exu2fu_sdu_src1_rdata [LSU_SDU_COUNT],
+  output logic [XLEN_BITS-1:0] exu2fu_sdu_src2_rdata [LSU_SDU_COUNT],
   output logic [N_MC-1:0] exu2fu_mc_en,
   output logic [N_MC-1:0] exu2fu_mc_consume,
   output logic [2:0] exu2fu_mc_func3 [N_MC],
+  output logic exu2fu_mc_is_word [N_MC],
   output logic [6:0] exu2fu_mc_func7 [N_MC],
   output logic [XC_OP_W-1:0] exu2fu_mc_op [N_MC],
   output logic [31:0] exu2fu_mc_imm [N_MC],
-  output logic [31:0] exu2fu_mc_src1_rdata [N_MC],
-  output logic [31:0] exu2fu_mc_src2_rdata [N_MC],
+  output logic [XLEN_BITS-1:0] exu2fu_mc_src1_rdata [N_MC],
+  output logic [XLEN_BITS-1:0] exu2fu_mc_src2_rdata [N_MC],
   output logic [PRF_IDX_WIDTH-1:0] exu2fu_mc_dest_preg [N_MC],
   output logic [N_MC-1:0] exu2fu_mc_dest_en,
   output logic [BR_MASK_WIDTH-1:0] exu2fu_mc_br_mask [N_MC],
@@ -60,6 +63,7 @@ module exu_ctrl_fu_out
     assign exu2fu_alu_func7[i]       = fu_inst[FU].func7;
     assign exu2fu_alu_src1_is_pc[i]  = fu_inst[FU].src1_is_pc;
     assign exu2fu_alu_src2_is_imm[i] = fu_inst[FU].src2_is_imm;
+    assign exu2fu_alu_is_word[i] = fu_inst[FU].is_word;
     assign exu2fu_alu_pc[i]          = fu_inst[FU].pc;
     assign exu2fu_alu_imm[i]         = fu_inst[FU].imm;
     assign exu2fu_alu_src1_rdata[i]  = fu_inst[FU].src1_rdata;
@@ -92,6 +96,7 @@ module exu_ctrl_fu_out
     assign exu2fu_sdu_en[i]         = fu_en[FU];
     assign exu2fu_sdu_is_atomic[i]  = fu_inst[FU].is_atomic;
     assign exu2fu_sdu_func7[i]      = fu_inst[FU].func7;
+    assign exu2fu_sdu_amo_w[i]      = (fu_inst[FU].func3 == 3'd2);   // amo*.w (else .d)
     assign exu2fu_sdu_src1_rdata[i] = fu_inst[FU].src1_rdata;
     assign exu2fu_sdu_src2_rdata[i] = fu_inst[FU].src2_rdata;
   end
@@ -101,6 +106,7 @@ module exu_ctrl_fu_out
     assign exu2fu_mc_en[i]         = fu_en[FU];
     assign exu2fu_mc_consume[i]    = consume[FU];
     assign exu2fu_mc_func3[i]      = fu_inst[FU].func3;
+    assign exu2fu_mc_is_word[i]    = fu_inst[FU].is_word;
     assign exu2fu_mc_func7[i]      = fu_inst[FU].func7;
     assign exu2fu_mc_op[i]         = fu_inst[FU].op;
     assign exu2fu_mc_imm[i]        = fu_inst[FU].imm;

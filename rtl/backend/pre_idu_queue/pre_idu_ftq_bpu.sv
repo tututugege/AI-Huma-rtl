@@ -12,9 +12,11 @@ module pre_idu_ftq_bpu import ttg_cfg_pkg::*; import front_pkg::BCK_W; import fr
   input  logic [FTQ_IDX_WIDTH-1:0]    wr_idx,
   input  logic [BCK_W-1:0]            wr_bck,
   input  logic [FETCH_WIDTH-1:0][KIND_W-1:0] wr_kind,
-  input  logic [31:0]                 wr_base_pc,
+  /* verilator lint_off UNUSEDSIGNAL */  // only pc[4:2] (the slot inside the block) matters to the repair record
+  input  logic [XLEN_BITS-1:0]        wr_base_pc,
   input  logic [FTQ_IDX_WIDTH-1:0]    rd_idx,
-  input  logic [31:0]                 rd_br_pc,
+  input  logic [XLEN_BITS-1:0]        rd_br_pc,
+  /* verilator lint_on UNUSEDSIGNAL */
   output logic [HCK_W-1:0]            rd_ck,
   output logic [EPOCH_W-1:0]          rd_epoch,
   output logic [2:0]                  rd_type

@@ -10,28 +10,28 @@ module prf_bypass import ttg_cfg_pkg::*; #(
 ) (
   input  logic                     src_en,
   input  logic [PRF_IDX_WIDTH-1:0] src_preg,
-  input  logic [31:0]              rf_data,
+  input  logic [XLEN_BITS-1:0]              rf_data,
   input  logic [WB_LANES-1:0]      wb_wen,
   input  logic [PRF_IDX_WIDTH-1:0] wb_dest_preg [WB_LANES],
-  input  logic [31:0]              wb_result    [WB_LANES],
+  input  logic [XLEN_BITS-1:0]              wb_result    [WB_LANES],
   input  logic [FU_NUM-1:0]        fu_wen,
   input  logic [PRF_IDX_WIDTH-1:0] fu_dest_preg [FU_NUM],
-  input  logic [31:0]              fu_result    [FU_NUM],
-  output logic [31:0]              rdata
+  input  logic [XLEN_BITS-1:0]              fu_result    [FU_NUM],
+  output logic [XLEN_BITS-1:0]              rdata
 );
 
   logic [WB_LANES-1:0] wb_hits;
   logic [FU_NUM-1:0]   fu_hits;
-  logic [31:0]         wb_data;
-  logic [31:0]         fu_data;
+  logic [XLEN_BITS-1:0]         wb_data;
+  logic [XLEN_BITS-1:0]         fu_data;
 
   always_comb begin
     for (int i = 0; i < WB_LANES; i++) wb_hits[i] = wb_wen[i] && (wb_dest_preg[i] == src_preg);
     for (int k = 0; k < FU_NUM; k++)   fu_hits[k] = fu_wen[k] && (fu_dest_preg[k] == src_preg);
   end
 
-  ttg_onehot_mux #(.N(WB_LANES), .W(32)) u_wb_data (.sel(wb_hits), .data(wb_result), .out(wb_data));
-  ttg_onehot_mux #(.N(FU_NUM),   .W(32)) u_fu_data (.sel(fu_hits), .data(fu_result), .out(fu_data));
+  ttg_onehot_mux #(.N(WB_LANES), .W(XLEN_BITS)) u_wb_data (.sel(wb_hits), .data(wb_result), .out(wb_data));
+  ttg_onehot_mux #(.N(FU_NUM),   .W(XLEN_BITS)) u_fu_data (.sel(fu_hits), .data(fu_result), .out(fu_data));
 
   always_comb begin
     if (!src_en || src_preg == '0)    rdata = '0;

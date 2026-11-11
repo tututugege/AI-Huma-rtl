@@ -4,9 +4,10 @@
 // Classifies this cycle's trap: which mode takes it (M wins over S) and the cause word of each mode.
 module csr_trap_class
   import csr_pkg::*;
+  import ttg_cfg_pkg::*;
 (
   input  logic [1:0]      privilege,
-  input  logic [31:0]     medeleg,
+  input  logic [XLEN_BITS-1:0]     medeleg,
   input  logic [NIRQ-1:0] m_pending,
   input  logic [NIRQ-1:0] s_pending,
   input  logic            interrupt_resp,

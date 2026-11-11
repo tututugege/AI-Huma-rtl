@@ -4,7 +4,7 @@
 // Instruction -> control word. The opcode/funct fields are first classified into ONE mutually exclusive class
 // (one-hot, NCLS bits); every control bit is then a lookup in a constant table indexed by that class (AND-OR mux).
 // The C++ `switch (opcode)` + nested if/else chains become: class one-hot (below) + ROM (further below).
-module idu_ctrl_decode (
+module idu_ctrl_decode import ttg_cfg_pkg::*; (
   input  logic [31:0] inst,
   output logic [4:0]  uop_type,
   output logic        dest_en,
@@ -12,6 +12,7 @@ module idu_ctrl_decode (
   output logic        src2_en,
   output logic        src1_is_pc,
   output logic        src2_is_imm,
+  output logic        is_word,           // rv64 OP-IMM-32 / OP-32: 32-bit operation, result sign-extended
   output logic        is_atomic,
   output logic [2:0]  func3,
   output logic [5:0]  dest_areg,
@@ -33,7 +34,7 @@ module idu_ctrl_decode (
                          OPC_JALR = 7'b1100111, OPC_BRANCH = 7'b1100011, OPC_LOAD = 7'b0000011,
                          OPC_STORE = 7'b0100011, OPC_OPIMM = 7'b0010011, OPC_OP = 7'b0110011,
                          OPC_FENCE = 7'b0001111, OPC_SYSTEM = 7'b1110011, OPC_AMO = 7'b0101111,
-                         OPC_FP = 7'b1010011;
+                         OPC_FP = 7'b1010011, OPC_OPIMM32 = 7'b0011011, OPC_OP32 = 7'b0111011;
 
   // exact encodings (Ref: include/RISCV.h INST_*)
   localparam logic [31:0] INST_ECALL = 32'h00000073, INST_EBREAK = 32'h00100073, INST_MRET = 32'h30200073,
@@ -53,7 +54,8 @@ module idu_ctrl_decode (
                  CLS_OPIMM = 7, CLS_OP_ALU = 8, CLS_OP_MUL = 9, CLS_OP_DIV = 10, CLS_FENCE = 11, CLS_FENCE_I = 12,
                  CLS_CSR = 13, CLS_CSR_NOP = 14, CLS_ECALL = 15, CLS_EBREAK = 16, CLS_MRET = 17, CLS_WFI = 18,
                  CLS_SRET = 19, CLS_SFENCE = 20, CLS_SYS_NOP = 21, CLS_AMO = 22, CLS_AMO_LR = 23, CLS_FP = 24,
-                 CLS_FP_UNARY = 25, CLS_ILLEGAL = 26, NCLS = 27;
+                 CLS_FP_UNARY = 25, CLS_OPIMM32 = 26, CLS_OP32_ALU = 27, CLS_OP32_MUL = 28, CLS_OP32_DIV = 29,
+                 CLS_ILLEGAL = 30, NCLS = 31;
 
   // ---- ROM word: {type[4:0], dest_en, src1_en, src2_en, src1_is_pc, src2_is_imm, is_atomic, func3_zero,
   //                  src1_areg_zero, illegal, is_branch, imm_sel[6:0]} ----
@@ -95,6 +97,10 @@ module idu_ctrl_decode (
     CLS_AMO_LR:   row(T_AMO,        1, 1, 0, 0, 1, 1, 0, 0, 0, 0, IMM_NONE),
     CLS_FP:       row(T_FP,         1, 1, 1, 0, 0, 0, 0, 0, 0, 0, IMM_RS2),
     CLS_FP_UNARY: row(T_FP,         1, 1, 0, 0, 0, 0, 0, 0, 0, 0, IMM_RS2),
+    CLS_OPIMM32:  row(T_ADD,        1, 1, 0, 0, 1, 0, 0, 0, 0, 0, IMM_I),
+    CLS_OP32_ALU: row(T_ADD,        1, 1, 1, 0, 0, 0, 0, 0, 0, 0, IMM_NONE),
+    CLS_OP32_MUL: row(T_MUL,        1, 1, 1, 0, 0, 0, 0, 0, 0, 0, IMM_NONE),
+    CLS_OP32_DIV: row(T_DIV,        1, 1, 1, 0, 0, 0, 0, 0, 0, 0, IMM_NONE),
     CLS_ILLEGAL:  row(T_NOP,        0, 0, 0, 0, 1, 0, 0, 0, 1, 0, IMM_NONE)};
 
   // ---- instruction fields ----
@@ -168,8 +174,14 @@ module idu_ctrl_decode (
   assign cls[CLS_SYS_NOP]  = sys_plain & ~(is_ecall | is_ebreak | is_mret | is_wfi | is_sret | is_sfence);
   assign cls[CLS_AMO]      = (opcode == OPC_AMO) & (amo_op != AMO_LR);
   assign cls[CLS_AMO_LR]   = (opcode == OPC_AMO) & (amo_op == AMO_LR);
-  assign cls[CLS_FP_UNARY] = (opcode == OPC_FP) & fp_unary_f7;
-  assign cls[CLS_FP]       = (opcode == OPC_FP) & ~fp_unary_f7;
+  // rv32: Zfinx FP in the OP-FP opcode; rv64: no F/D yet (OP-FP is illegal), 32-bit ops in OP-IMM-32 / OP-32
+  localparam bit RV64 = (XLEN_BITS == 64);
+  assign cls[CLS_FP_UNARY] = !RV64 & (opcode == OPC_FP) & fp_unary_f7;
+  assign cls[CLS_FP]       = !RV64 & (opcode == OPC_FP) & ~fp_unary_f7;
+  assign cls[CLS_OPIMM32]  = RV64 & (opcode == OPC_OPIMM32);
+  assign cls[CLS_OP32_ALU] = RV64 & (opcode == OPC_OP32) & (funct7 != 7'd1);
+  assign cls[CLS_OP32_MUL] = RV64 & (opcode == OPC_OP32) & (funct7 == 7'd1) & ~funct3[2];
+  assign cls[CLS_OP32_DIV] = RV64 & (opcode == OPC_OP32) & (funct7 == 7'd1) & funct3[2];
   assign cls[CLS_ILLEGAL]  = ~|cls[NCLS-2:0];   // opcode not listed above
 
   // ---- table lookup ----
@@ -186,6 +198,7 @@ module idu_ctrl_decode (
      rom_src1_zero, rom_illegal, is_branch, imm_sel} = rom_word;
     // SYSTEM opcode overrides src2_is_imm with "CSR immediate form" and masks src2_en of csrrwi/si/ci
     src2_is_imm = op_system ? csr_imm_form : rom_src2_is_imm;
+    is_word     = cls[CLS_OPIMM32] | cls[CLS_OP32_ALU] | cls[CLS_OP32_MUL] | cls[CLS_OP32_DIV];
     src2_en     = rom_src2_en & ~(op_system & csr_imm_form);
     func3       = rom_func3_zero ? 3'd0 : funct3;
     // AMO (not LR/SC) with rd == x0 writes pseudo areg 32 (keeps dest_en); everything else keeps rd

@@ -9,7 +9,7 @@ module ren
   input  logic clk,
   input  logic rst_n,
   input  logic [DECODE_WIDTH-1:0] dec2ren_valid,
-  input  logic [31:0] dec2ren_uop_diag_val [DECODE_WIDTH],
+  input  logic [XLEN_BITS-1:0] dec2ren_uop_diag_val [DECODE_WIDTH],
   input  logic [AREG_IDX_WIDTH-1:0] dec2ren_uop_dest_areg [DECODE_WIDTH],
   input  logic [AREG_IDX_WIDTH-1:0] dec2ren_uop_src1_areg [DECODE_WIDTH],
   input  logic [AREG_IDX_WIDTH-1:0] dec2ren_uop_src2_areg [DECODE_WIDTH],
@@ -23,6 +23,7 @@ module ren
   input  logic [DECODE_WIDTH-1:0] dec2ren_uop_is_atomic,
   input  logic [DECODE_WIDTH-1:0] dec2ren_uop_src1_is_pc,
   input  logic [DECODE_WIDTH-1:0] dec2ren_uop_src2_is_imm,
+  input  logic [DECODE_WIDTH-1:0] dec2ren_uop_is_word,
   input  logic [2:0] dec2ren_uop_func3 [DECODE_WIDTH],
   input  logic [6:0] dec2ren_uop_func7 [DECODE_WIDTH],
   input  logic [31:0] dec2ren_uop_imm [DECODE_WIDTH],
@@ -50,7 +51,7 @@ module ren
   input  logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_illegal_inst,
   output logic ren2dec_ready,
   output logic [DECODE_WIDTH-1:0] ren2dis_valid,
-  output logic [31:0] ren2dis_uop_diag_val [DECODE_WIDTH],
+  output logic [XLEN_BITS-1:0] ren2dis_uop_diag_val [DECODE_WIDTH],
   output logic [AREG_IDX_WIDTH-1:0] ren2dis_uop_dest_areg [DECODE_WIDTH],
   output logic [AREG_IDX_WIDTH-1:0] ren2dis_uop_src1_areg [DECODE_WIDTH],
   output logic [FTQ_IDX_WIDTH-1:0] ren2dis_uop_ftq_idx [DECODE_WIDTH],
@@ -63,6 +64,7 @@ module ren
   output logic [DECODE_WIDTH-1:0] ren2dis_uop_is_atomic,
   output logic [DECODE_WIDTH-1:0] ren2dis_uop_src1_is_pc,
   output logic [DECODE_WIDTH-1:0] ren2dis_uop_src2_is_imm,
+  output logic [DECODE_WIDTH-1:0] ren2dis_uop_is_word,
   output logic [2:0] ren2dis_uop_func3 [DECODE_WIDTH],
   output logic [6:0] ren2dis_uop_func7 [DECODE_WIDTH],
   output logic [31:0] ren2dis_uop_imm [DECODE_WIDTH],
@@ -101,6 +103,7 @@ diag_val: dec2ren_uop_diag_val[i],
                           is_atomic: dec2ren_uop_is_atomic[i],
                           src1_is_pc: dec2ren_uop_src1_is_pc[i],
                           src2_is_imm: dec2ren_uop_src2_is_imm[i],
+                          is_word: dec2ren_uop_is_word[i],
                           func3: dec2ren_uop_func3[i],
                           func7: dec2ren_uop_func7[i],
                           imm: dec2ren_uop_imm[i],
@@ -123,6 +126,7 @@ diag_val: dec2ren_uop_diag_val[i],
     assign ren2dis_uop_is_atomic[i] = out_uop[i].is_atomic;
     assign ren2dis_uop_src1_is_pc[i] = out_uop[i].src1_is_pc;
     assign ren2dis_uop_src2_is_imm[i] = out_uop[i].src2_is_imm;
+    assign ren2dis_uop_is_word[i] = out_uop[i].is_word;
     assign ren2dis_uop_func3[i] = out_uop[i].func3;
     assign ren2dis_uop_func7[i] = out_uop[i].func7;
     assign ren2dis_uop_imm[i] = out_uop[i].imm;

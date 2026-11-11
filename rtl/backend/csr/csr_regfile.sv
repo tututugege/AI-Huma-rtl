@@ -5,16 +5,17 @@
 // hold < trap/xRET < committed CSR write < interrupt inject (mip only).
 module csr_regfile
   import csr_pkg::*;
+  import ttg_cfg_pkg::*;
 (
   input  logic        clk,
   input  logic        rst_n,
   // trap / xRET write requests
   input  logic        trap_wr_en  [NREG],
-  input  logic [31:0] trap_wr_val [NREG],
+  input  logic [XLEN_BITS-1:0] trap_wr_val [NREG],
   // committed CSR write
   input  logic        commit_fire,
   input  logic [11:0] commit_idx,
-  input  logic [31:0] commit_wdata,
+  input  logic [XLEN_BITS-1:0] commit_wdata,
   // interrupt inject (peripheral model)
   input  logic        inj_external_valid,
   input  logic        inj_external,
@@ -22,37 +23,42 @@ module csr_regfile
   input  logic        inj_supervisor_external,
   input  logic        inj_timer_valid,
   input  logic        inj_timer,
-  output logic [31:0] regs [NREG]
+  output logic [XLEN_BITS-1:0] regs [NREG]
 );
+
+  // satp: rv64 implements Bare (0) and Sv39 (8) only; a write of any other mode has no effect
+  logic satp_wr_ok;
+  assign satp_wr_ok = (XLEN_BITS == 32) | (commit_wdata[XLEN_BITS-1 -: 4] == 4'd0)
+                    | (commit_wdata[XLEN_BITS-1 -: 4] == 4'd8);
 
   logic [NENT-1:0] hit;
   for (genvar e = 0; e < NENT; e++) begin : g_hit
     assign hit[e] = commit_fire & (commit_idx == ENT_ADDR[e]);
   end
 
-  logic [31:0] regs_q [NREG];
-  logic [31:0] regs_d [NREG];
+  logic [XLEN_BITS-1:0] regs_q [NREG];
+  logic [XLEN_BITS-1:0] regs_d [NREG];
   assign regs = regs_q;
 
   for (genvar r = 0; r < NREG; r++) begin : g_reg
     // committed write: the matching table entries that target this register supply the write mask
     logic        commit_hit;
-    logic [31:0] commit_mask;
+    logic [XLEN_BITS-1:0] commit_mask;
     always_comb begin
       commit_hit  = 1'b0;
-      commit_mask = 32'd0;
+      commit_mask = '0;
       for (int e = 0; e < NENT; e++) begin
         if (ENT_REG[e] == r) begin
-          commit_hit  = commit_hit | hit[e];
+          commit_hit  = commit_hit | (hit[e] & ((r != R_SATP) | satp_wr_ok));
           // sie / sip: only the delegated bits are writable
           commit_mask = commit_mask
-                      | (ENT_WMASK[e] & (ENT_DELEG[e] ? regs_q[R_MIDELEG] : ALL_ONES) & {32{hit[e]}});
+                      | (ENT_WMASK[e] & (ENT_DELEG[e] ? regs_q[R_MIDELEG] : ALL_ONES) & {XLEN_BITS{hit[e]}});
         end
       end
     end
 
     logic        regs_we;
-    logic [31:0] merged;
+    logic [XLEN_BITS-1:0] merged;
     always_comb begin
       merged = regs_q[r];
       if (trap_wr_en[r]) merged = trap_wr_val[r];
@@ -74,7 +80,7 @@ module csr_regfile
     end
 
     always_ff @(posedge clk) begin
-      if (!rst_n) regs_q[r] <= (r == R_MISA) ? MISA_RESET : 32'd0;
+      if (!rst_n) regs_q[r] <= (r == R_MISA) ? MISA_RESET : (r == R_MSTATUS) ? MSTATUS_RESET : '0;
       else if (regs_we) regs_q[r] <= regs_d[r];
     end
   end
