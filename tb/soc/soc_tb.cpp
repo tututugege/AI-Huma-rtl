@@ -40,7 +40,8 @@
 #endif
 typedef uint64_t tb_xlen_t;   // wide enough for either width
 constexpr int kXlen = XLEN;
-long long sim_time = 0;   // the reference's global cycle counter (PeripheralModel's timer reads it)
+long long sim_time = 0;
+tb_xlen_t last_commit_pc = 0;   // the reference's global cycle counter (PeripheralModel's timer reads it)
 
 namespace {
 constexpr int kTicks = CONFIG_AXI_SUBSYSTEM_FREQ_DIV;   // fast ticks per CPU cycle (platform config.h = trace-model config.h = rtl ttg_cfg_pkg)
@@ -425,6 +426,7 @@ long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
                                top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__u_rob__DOT__rob_commit_commit_entry_uop_dest_preg[i], false});
           }
 #endif
+          last_commit_pc = tb_xlen_t(top->ftq_commit_info_resp_pc[i]);
           if (std::getenv("SOC_TB_COMMIT")) std::fprintf(stderr, "[cyc %llu] commit[%d] type=%d pc=%llx\n", (unsigned long long)cycles + 1, i,
                                                          top->rob_commit_commit_entry_uop_type[i], (unsigned long long)top->ftq_commit_info_resp_pc[i]);
           if (top->rob_commit_commit_entry_uop_type[i] == kUopEbreak) {
@@ -535,6 +537,10 @@ long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
     for (int p = 0; p < kTicks; ++p) tick(p);
   top->rst_n = 1;
   const bool trace_cyc = std::getenv("SOC_TB_CYC") != nullptr;
+  // SOC_TB_LOG=<n>: every n cycles print the cycle, the committed instructions, the last committed pc, the speed and (with a cycle cap) the time left
+  const uint64_t log_every = std::getenv("SOC_TB_LOG") ? std::strtoull(std::getenv("SOC_TB_LOG"), nullptr, 0) : 0;
+  const auto t_start = std::chrono::steady_clock::now();
+  auto t_last = t_start; uint64_t cyc_last = 0;
   while (!done && cycles < max_cycles) {
     sim_time = static_cast<long long>(cycles);
     if (trace_cyc) std::fprintf(stderr, "cyc %llu\n", (unsigned long long)cycles + 1);
@@ -548,6 +554,16 @@ long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
       }
     }
     ++cycles;
+    if (log_every && cycles % log_every == 0) {
+      const auto now = std::chrono::steady_clock::now();
+      const double el = std::chrono::duration<double>(now - t_start).count(), dt = std::chrono::duration<double>(now - t_last).count();
+      const double rate = double(cycles - cyc_last) / (dt > 0 ? dt : 1), avg = double(cycles) / (el > 0 ? el : 1);
+      std::fprintf(stderr, "[LOG] cyc=%llu commit=%llu pc=%llx elapsed=%.0fs speed=%.0f cyc/s (avg %.0f)", (unsigned long long)cycles, (unsigned long long)committed,
+                   (unsigned long long)last_commit_pc, el, rate, avg);
+      if (max_cycles > cycles) std::fprintf(stderr, " eta=%.0fs (to cap %llu)", double(max_cycles - cycles) / avg, (unsigned long long)max_cycles);
+      std::fprintf(stderr, "\n");
+      t_last = now; cyc_last = cycles;
+    }
   }
   if (compare_fail) std::printf("FIRST MISMATCH at cycle %llu (see above)\n", (unsigned long long)cycles + 1);
   if (std::getenv("SOC_TB_PMU")) for (int e = 0; e < kPmuEv; ++e) std::printf("PMU_EV %d %llu\n", e, (unsigned long long)pmu_total[e]);
