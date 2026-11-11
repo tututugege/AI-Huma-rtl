@@ -50,9 +50,7 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
   input  logic peripheral_req_is_mmio,
   input  logic [31:0] peripheral_req_mmio_addr,
   input  logic [2:0] peripheral_req_mmio_fun3,
-  /* verilator lint_off UNUSEDSIGNAL */
-  input logic [XLEN_BITS-1:0] peripheral_req_mmio_wdata,
-  /* verilator lint_on UNUSEDSIGNAL */
+  input  logic [XLEN_BITS-1:0] peripheral_req_mmio_wdata,
   input  logic peripheral_req_wen,
   // ---- memory -> core ----
   output logic mem_req_ready,
@@ -94,13 +92,13 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
   output logic peripheral_resp_ready,
   // ---- peripheral environment (testbench side: PeripheralModel / uncached RAM) ----
   input  logic [1:0] env_region,
-  input  logic [31:0] env_rdata,
+  input  logic [XLEN_BITS-1:0] env_rdata,
   output logic env_rd_en,
   output logic [31:0] env_rd_addr,
   output logic [2:0] env_rd_func3,
   output logic env_wr_en,
   output logic [31:0] env_wr_addr,
-  output logic [31:0] env_wr_data,
+  output logic [XLEN_BITS-1:0] env_wr_data,
   output logic [2:0] env_wr_func3,
   // ---- DDR slave port (testbench side: SimDDR) ----
   input  logic d_arready,
@@ -340,7 +338,7 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
 
   // ======================= peripheral_axi + hold register =======================
   logic        pa_resp_ready, pa_resp_is_mmio;
-  logic [31:0] pa_resp_rdata;
+  logic [XLEN_BITS-1:0] pa_resp_rdata;
   logic        pa_rd_valid, pa_rd_resp_ready, pa_wr_valid, pa_wr_resp_ready;
   logic [31:0] pa_rd_addr, pa_wr_addr, pa_wr_wdata;
   logic [PA_SIZE_W-1:0] pa_rd_size, pa_wr_size;
@@ -351,7 +349,7 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
   peripheral_axi u_periph (
     .clk, .rst_n, .cpu_en(phase0),
     .req_is_mmio(peripheral_req_is_mmio), .req_wen(peripheral_req_wen), .req_addr(peripheral_req_mmio_addr),
-    .req_wdata(peripheral_req_mmio_wdata[31:0]), .req_func3(peripheral_req_mmio_fun3),
+    .req_wdata(peripheral_req_mmio_wdata), .req_func3(peripheral_req_mmio_fun3),
     .env_region(env_region), .env_rdata(env_rdata),
     .axi_rd_req_accepted(ax_pa_rd_acc), .axi_rd_resp_valid(ax_pa_rd_rv), .axi_rd_resp_data(ax_pa_rd_data),
     .axi_wr_req_accepted(ax_pa_wr_acc), .axi_wr_resp_valid(ax_pa_wr_rv),
@@ -365,17 +363,17 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
 
   // SimCpu::peripheral_resp_hold: this cycle's peripheral response is what the core sees in the next cycle
   logic        hold_ready_q, hold_is_mmio_q;
-  logic [31:0] hold_rdata_q;
+  logic [XLEN_BITS-1:0] hold_rdata_q;
   always_ff @(posedge clk) begin
     if (!rst_n) begin
-      hold_ready_q <= 1'b0; hold_is_mmio_q <= 1'b0; hold_rdata_q <= 32'd0;
+      hold_ready_q <= 1'b0; hold_is_mmio_q <= 1'b0; hold_rdata_q <= '0;
     end else if (phase0) begin
       hold_ready_q <= pa_resp_ready; hold_is_mmio_q <= pa_resp_is_mmio; hold_rdata_q <= pa_resp_rdata;
     end
   end
   assign peripheral_resp_ready   = hold_ready_q;
   assign peripheral_resp_is_mmio = hold_is_mmio_q;
-  assign peripheral_resp_mmio_rdata = XLEN_BITS'($signed(hold_rdata_q));   // 64-bit MMIO: next step
+  assign peripheral_resp_mmio_rdata = hold_rdata_q;
   // ======================= AXI side =======================
   mem_axi u_axi (
     .clk, .rst_n, .phase0, .phase_last,

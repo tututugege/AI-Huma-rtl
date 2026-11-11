@@ -155,29 +155,40 @@ int compare_boundary(const uint8_t *got_in, const uint8_t *got_out, const uint8_
 }
 
 // ---- peripheral environment (the reference's PeripheralModel + uncached RAM), see docs/modules/peripheral_axi.md ----
-uint8_t uncached_size(uint8_t func3) { switch (func3 & 3u) { case 0: return 1; case 1: return 2; default: return 4; } }
-uint32_t extract_uncached(uint32_t raw, uint8_t func3) {
+uint8_t uncached_size(uint8_t func3) { switch (func3 & 3u) { case 0: return 1; case 1: return 2; case 2: return 4; default: return kXlen == 64 ? 8 : 4; } }
+// value of a load of `func3` from the little-endian bytes `raw`, extended to the register width (rv32: the low 32 bits)
+uint64_t extend_load(uint64_t raw, uint8_t func3) {
+  uint64_t v;
   switch (func3) {
-    case 0: { uint32_t v = raw & 0xFFu; return (v & 0x80u) ? (v | 0xFFFFFF00u) : v; }
-    case 1: { uint32_t v = raw & 0xFFFFu; return (v & 0x8000u) ? (v | 0xFFFF0000u) : v; }
-    case 4: return raw & 0xFFu;
-    case 5: return raw & 0xFFFFu;
-    default: return raw;
+    case 0: v = uint64_t(int64_t(int8_t(raw))); break;
+    case 1: v = uint64_t(int64_t(int16_t(raw))); break;
+    case 2: v = uint64_t(int64_t(int32_t(raw))); break;
+    case 4: v = raw & 0xFFu; break;
+    case 5: v = raw & 0xFFFFu; break;
+    case 6: v = raw & 0xFFFFFFFFu; break;
+    default: v = raw; break;   // ld (rv64)
   }
+  return kXlen == 64 ? v : (v & 0xFFFFFFFFu);
 }
-uint32_t read_uncached_ram(uint32_t addr, uint8_t func3) {
-  uint32_t raw = 0;
+uint64_t read_uncached_ram(uint32_t addr, uint8_t func3) {
+  uint64_t raw = 0;
   for (uint8_t i = 0; i < uncached_size(func3); i++) {
     uint32_t a = addr + i;
-    raw |= ((pmem_read(a & ~0x3u) >> ((a & 3u) * 8u)) & 0xFFu) << (i * 8u);
+    raw |= uint64_t((pmem_read(a & ~0x3u) >> ((a & 3u) * 8u)) & 0xFFu) << (i * 8u);
   }
-  return extract_uncached(raw, func3);
+  return extend_load(raw, func3);
 }
-void write_uncached_ram(uint32_t addr, uint32_t data, uint8_t func3) {
+void write_uncached_ram(uint32_t addr, uint64_t data, uint8_t func3) {
   for (uint8_t i = 0; i < uncached_size(func3); i++) {
     uint32_t a = addr + i, w = a & ~0x3u, sh = (a & 3u) * 8u;
-    pmem_write(w, (pmem_read(w) & ~(0xFFu << sh)) | (((data >> (i * 8u)) & 0xFFu) << sh));
+    pmem_write(w, (pmem_read(w) & ~(0xFFu << sh)) | (uint32_t((data >> (i * 8u)) & 0xFFu) << sh));
   }
+}
+// a load from the modeled MMIO (the platform's PeripheralModel is word based): ld = two word reads, as the trace-model does
+uint64_t read_mmio(PeripheralModel &periph, uint32_t addr, uint8_t func3) {
+  if (func3 == 3 && kXlen == 64) return uint64_t(uint32_t(periph.read_load(addr, 2))) | (uint64_t(uint32_t(periph.read_load(addr + 4, 2))) << 32);
+  if (func3 == 6) return uint64_t(uint32_t(periph.read_load(addr, 2)));
+  return extend_load(uint64_t(uint32_t(periph.read_load(addr, uint8_t(func3)))), func3 == 3 ? 2 : func3);   // the model already extended lb/lh/lw to 32 bits
 }
 }  // namespace
 
@@ -258,7 +269,7 @@ int main(int argc, char **argv) {
   auto ddr_idle = [&]() { return ddr.idle_quiescent(); };
 long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
 #define EVAL() do { auto e0 = std::chrono::steady_clock::now(); top->eval(); eval_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - e0).count(); ev_ns[ev_k++ & 3] += std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - e0).count(); ++eval_n; } while (0)
-  uint32_t env_region_prev = 0, env_rdata_prev = 0;
+  uint32_t env_region_prev = 0; uint64_t env_rdata_prev = 0;
   bool skip_request = false;
   auto tick = [&](int phase) {
     // DDR slave outputs -> RTL
@@ -279,7 +290,7 @@ long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
       const uint8_t pf3 = Rt->soc_top__DOT__peripheral_req_mmio_fun3;
       top->env_region = simulator_is_uncached_memory_addr(pa) ? 1 : (PeripheralModel::is_modeled_mmio(pa) ? 2 : 0);
       top->env_rdata = top->env_rd_en ? (top->env_region == 1 ? read_uncached_ram(top->env_rd_addr, top->env_rd_func3)
-                                                              : periph.read_load(top->env_rd_addr, top->env_rd_func3)) : 0;
+                                                              : read_mmio(periph, top->env_rd_addr, top->env_rd_func3)) : 0;
       (void)pf3;
       if (top->env_region != env_region_prev || top->env_rdata != env_rdata_prev) EVAL();   // an eval with unchanged inputs is a no-op
       env_region_prev = top->env_region; env_rdata_prev = top->env_rdata;
@@ -440,7 +451,9 @@ long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
               if ((pa_ & ~7u) == want && !bits(kSuppress, 1))
                 std::fprintf(stderr, "[STLOG] cyc %llu pc=%llx pa=%08x f3=%u data=%llx\n", (unsigned long long)cycles + 1, (unsigned long long)top->ftq_commit_info_resp_pc[i], pa_, unsigned(bits(kFunc3, 3)), (unsigned long long)bits(kData, kXlen));
             }
-            if (!bits(kSuppress, 1) && bits(kPaV, 1) && bits(kDataV, 1)) periph.on_commit_store(uint32_t(bits(kPaddr, 32)), uint32_t(bits(kData, 32)), uint8_t(bits(kFunc3, 3)));   // rv64: an sd to MMIO loses its high word (peripheral step)
+            if (!bits(kSuppress, 1) && bits(kPaV, 1) && bits(kDataV, 1)) { const uint32_t pa_ = uint32_t(bits(kPaddr, 32)); const uint64_t d_ = bits(kData, kXlen); const uint8_t f3_ = uint8_t(bits(kFunc3, 3));
+              if (kXlen == 64 && (f3_ & 3) == 3) { periph.on_commit_store(pa_, uint32_t(d_), 2); periph.on_commit_store(pa_ + 4, uint32_t(d_ >> 32), 2); }   // sd = two word stores (as the model)
+              else periph.on_commit_store(pa_, uint32_t(d_), f3_); }
 #else
             const auto &fld = top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__u_lsu__DOT__g_legacy__DOT__u_core__DOT__st_fld_q[top->rob_commit_commit_entry_uop_stq_idx[i]];
             auto bits = [&](int lo, int w) { uint64_t v = 0; for (int b = 0; b < w; ++b) { int k = lo + b; v |= uint64_t((fld[k / 32] >> (k % 32)) & 1u) << b; } return uint32_t(v); };
