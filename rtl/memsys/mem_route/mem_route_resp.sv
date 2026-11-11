@@ -8,19 +8,20 @@
 module mem_route_resp import ttg_cfg_pkg::*; import memcpu_pkg::*; (
   input  logic                      resp_valid   [NLD],
   input  logic [31:0]               resp_req_id  [NLD],
-  input  logic [31:0]               resp_data    [NLD],
+  input  logic [XLEN_BITS-1:0]               resp_data    [NLD],
   input  logic [1:0]                resp_replay  [NLD],
   input  logic                      resp3_retry,
   input  logic                      mshr_fill,
   input  route_owner_e              issued_owner_q,
   input  logic [RT_ID_W-1:0]        issued_id_q,
   input  logic                      ptw_wait_q,
+  input  logic                      issued_hi_q,      // address bit 2 of the route request (word inside a dword)
   input  logic                      lsu_replay_valid_q,
   input  logic [LD_ID_W-1:0]        lsu_replay_id_q,
   // LSU view of the load responses
   output logic                      lsu_valid    [NLD],
   output logic [31:0]               lsu_req_id   [NLD],
-  output logic [31:0]               lsu_data     [NLD],
+  output logic [XLEN_BITS-1:0]               lsu_data     [NLD],
   output logic [1:0]                lsu_replay   [NLD],
   // ICache response
   output logic                      ic_valid,
@@ -29,7 +30,7 @@ module mem_route_resp import ttg_cfg_pkg::*; import memcpu_pkg::*; (
   output logic [31:0]               ic_data,
   // PTW feedback
   output logic                      ptw_event_valid,
-  output logic [31:0]               ptw_event_data,
+  output logic [XLEN_BITS-1:0]      ptw_event_data,
   output logic [RT_ID_W-1:0]        ptw_event_req_id,
   output logic                      wakeup_walk,
   output logic                      ptw_wait_d
@@ -55,7 +56,7 @@ module mem_route_resp import ttg_cfg_pkg::*; import memcpu_pkg::*; (
     if (p == P3) begin : g_shared
       assign lsu_valid[p]  = own_resp ? lsu_replay_valid_q : (resp_valid[p] && !route_resp[p]);
       assign lsu_req_id[p] = own_resp ? {1'b0, lsu_replay_id_q} : resp_req_id[p];
-      assign lsu_data[p]   = own_resp ? 32'd0 : resp_data[p];
+      assign lsu_data[p]   = own_resp ? '0 : resp_data[p];
       assign lsu_replay[p] = own_resp ? REPLAY_CONFLICT : resp_replay[p];
     end else begin : g_plain
       assign lsu_valid[p]  = resp_valid[p] && !route_resp[p];
@@ -69,7 +70,12 @@ module mem_route_resp import ttg_cfg_pkg::*; import memcpu_pkg::*; (
   assign ic_valid = owner_ic && (is_hit || is_conf || is_wait);
   assign ic_retry = owner_ic && is_conf && resp3_retry;
   assign ic_miss  = owner_ic && (is_wait || (is_conf && !resp3_retry));
-  assign ic_data  = (owner_ic && is_hit) ? resp_data[P3] : 32'd0;
+  // the dcache answers with a data word of XLEN bits; the ICache wants the 32-bit word the probe addressed
+  /* verilator lint_off UNUSEDSIGNAL */  // only the addressed 32-bit word reaches the ICache
+  logic [XLEN_BITS-1:0] ic_word;
+  /* verilator lint_on UNUSEDSIGNAL */
+  assign ic_word  = (XLEN_BITS == 64 && issued_hi_q) ? (resp_data[P3] >> 32) : resp_data[P3];
+  assign ic_data  = (owner_ic && is_hit) ? ic_word[31:0] : 32'd0;
 
   // ---- PTW feedback ----
   assign ptw_event_valid  = owner_walk && is_hit;

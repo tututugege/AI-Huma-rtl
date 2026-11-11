@@ -23,8 +23,8 @@ module dcache_wb
   input  logic [NST-1:0]       mrg_en,
   input  logic [LINE_W-1:0]    mrg_line  [NST],
   input  logic [WORD_W-1:0]    mrg_word  [NST],
-  input  logic [31:0]          mrg_data  [NST],
-  input  logic [3:0]           mrg_strb  [NST],
+  input  logic [DW-1:0]          mrg_data  [NST],
+  input  logic [SBW-1:0]           mrg_strb  [NST],
   input  st2_t                 mrg_l2    [NST],
   // evicted dirty line from stage 2
   input  logic                 push_valid,
@@ -32,7 +32,7 @@ module dcache_wb
   input  logic [LINE_BITS-1:0] push_data,
   output logic [CNT_W-1:0]     free,
   output logic [NLD-1:0]       byp_hit,
-  output logic [31:0]          byp_data  [NLD],
+  output logic [DW-1:0]          byp_data  [NLD],
   output logic [NST-1:0]       mrg_ok,
   output logic [NST-1:0]       mrg_busy,
   // AXI write master outputs (after the whole tick; write response ready is constant 1)
@@ -91,8 +91,8 @@ module dcache_wb
   logic [LINE_BITS-1:0] head_data;
   logic [NST-1:0]       en_h;
   logic [NST-1:0][WORD_W-1:0] qw1, qw2;
-  logic [NST-1:0][31:0]       qd1, qd2;
-  logic [NST-1:0][3:0]        qs1, qs2;
+  logic [NST-1:0][DW-1:0]       qd1, qd2;
+  logic [NST-1:0][SBW-1:0]        qs1, qs2;
   always_comb begin
     for (int p = 0; p < NST; p++) begin
       qw1[p] = mrg_word[p];  qd1[p] = mrg_data[p];  qs1[p] = mrg_strb[p];
@@ -130,11 +130,11 @@ module dcache_wb
   // entry storage (no reset: entries are only read inside [head, head+count))
   always_ff @(posedge clk) begin
     for (int p = 0; p < NST; p++)
-      for (int b = 0; b < 4; b++) begin
+      for (int b = 0; b < SBW; b++) begin
         if (mrg_ok[p] && mrg_strb[p][b])
-          data_q[mrg_idx[p]][(32'(mrg_word[p]) << 5) + 32'(8 * b) +: 8] <= mrg_data[p][8*b +: 8];
+          data_q[mrg_idx[p]][(32'(mrg_word[p]) * DW) + 32'(8 * b) +: 8] <= mrg_data[p][8*b +: 8];
         if (mrg_ok[p] && mrg_l2[p].strb[b])
-          data_q[mrg_idx[p]][(32'(mrg_l2[p].word) << 5) + 32'(8 * b) +: 8] <= mrg_l2[p].data[8*b +: 8];
+          data_q[mrg_idx[p]][(32'(mrg_l2[p].word) * DW) + 32'(8 * b) +: 8] <= mrg_l2[p].data[8*b +: 8];
       end
     if (push_ok) begin
       line_q[tail] <= push_line;

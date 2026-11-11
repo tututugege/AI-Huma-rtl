@@ -22,8 +22,8 @@ module exu_ctrl_wb_rob
   output logic [ISSUE_WIDTH-1:0] valid,
   output logic [ROB_IDX_WIDTH-1:0]  rob_idx   [ISSUE_WIDTH],
   output logic [XC_OP_W-1:0]        op        [ISSUE_WIDTH],
-  output logic [31:0]               diag_val  [ISSUE_WIDTH],
-  output logic [31:0]               result    [ISSUE_WIDTH],
+  output logic [XLEN_BITS-1:0]               diag_val  [ISSUE_WIDTH],
+  output logic [XLEN_BITS-1:0]               result    [ISSUE_WIDTH],
   output logic [ISSUE_WIDTH-1:0] br_mispred,
   output logic                      br_taken  [ISSUE_WIDTH],
   output logic [ISSUE_WIDTH-1:0] page_fault_load,
@@ -57,8 +57,8 @@ module exu_ctrl_wb_rob
       assign valid[p]            = win_valid[p];
       assign rob_idx[p]          = win[p].rob_idx;
       assign op[p]               = win[p].op;
-      assign diag_val[p]         = IS_BR ? win[p].diag_val : 32'd0;
-      assign result[p]           = 32'd0;
+      assign diag_val[p]         = IS_BR ? win[p].diag_val : '0;
+      assign result[p]           = '0;
       assign br_mispred[p]       = IS_BR && win[p].mispred;
       assign br_taken[p]         = IS_BR && win[p].br_taken;
       assign page_fault_load[p]  = 1'b0;

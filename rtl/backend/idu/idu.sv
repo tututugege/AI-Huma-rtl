@@ -18,15 +18,15 @@ module idu import ttg_cfg_pkg::*; (
   input  logic                        rob_bcast_flush,
   // EXU branch resolution
   input  logic                        exu2id_mispred,
-  input  logic [31:0]                 exu2id_redirect_pc,
+  input  logic [XLEN_BITS-1:0]                 exu2id_redirect_pc,
   input  logic [ROB_IDX_WIDTH-1:0]    exu2id_redirect_rob_idx,
   input  logic [BR_TAG_WIDTH-1:0]     exu2id_br_id,
   input  logic [FTQ_IDX_WIDTH-1:0]    exu2id_ftq_idx,
-  input  logic [31:0]                 exu2id_br_pc,
+  input  logic [XLEN_BITS-1:0]                 exu2id_br_pc,
   input  logic [BR_MASK_WIDTH-1:0]    exu2id_clear_mask,
   // dec2ren
   output logic [DECODE_WIDTH-1:0] dec2ren_valid,
-  output logic [31:0]                 dec2ren_uop_diag_val [DECODE_WIDTH],
+  output logic [XLEN_BITS-1:0]                 dec2ren_uop_diag_val [DECODE_WIDTH],
   output logic [AREG_IDX_WIDTH-1:0]   dec2ren_uop_dest_areg [DECODE_WIDTH],
   output logic [AREG_IDX_WIDTH-1:0]   dec2ren_uop_src1_areg [DECODE_WIDTH],
   output logic [AREG_IDX_WIDTH-1:0]   dec2ren_uop_src2_areg [DECODE_WIDTH],
@@ -40,6 +40,7 @@ module idu import ttg_cfg_pkg::*; (
   output logic [DECODE_WIDTH-1:0] dec2ren_uop_is_atomic,
   output logic [DECODE_WIDTH-1:0] dec2ren_uop_src1_is_pc,
   output logic [DECODE_WIDTH-1:0] dec2ren_uop_src2_is_imm,
+  output logic [DECODE_WIDTH-1:0] dec2ren_uop_is_word,
   output logic [2:0]                  dec2ren_uop_func3 [DECODE_WIDTH],
   output logic [6:0]                  dec2ren_uop_func7 [DECODE_WIDTH],
   output logic [31:0]                 dec2ren_uop_imm [DECODE_WIDTH],
@@ -58,9 +59,9 @@ module idu import ttg_cfg_pkg::*; (
   output logic [DECODE_WIDTH-1:0] idu_consume_fire,
   // br_latch (read directly by BackTop / PreIduQueue)
   output logic                        br_latch_mispred,
-  output logic [31:0]                 br_latch_redirect_pc,
+  output logic [XLEN_BITS-1:0]                 br_latch_redirect_pc,
   output logic [FTQ_IDX_WIDTH-1:0]    br_latch_ftq_idx,
-  output logic [31:0]                 br_latch_br_pc
+  output logic [XLEN_BITS-1:0]                 br_latch_br_pc
 );
 
   // ---- internal nets ----
@@ -100,6 +101,7 @@ module idu import ttg_cfg_pkg::*; (
       .uop_dest_en(dec2ren_uop_dest_en[i]), .uop_src1_en(dec2ren_uop_src1_en[i]),
       .uop_src2_en(dec2ren_uop_src2_en[i]), .uop_is_atomic(dec2ren_uop_is_atomic[i]),
       .uop_src1_is_pc(dec2ren_uop_src1_is_pc[i]), .uop_src2_is_imm(dec2ren_uop_src2_is_imm[i]),
+      .uop_is_word(dec2ren_uop_is_word[i]),
       .uop_func3(dec2ren_uop_func3[i]), .uop_func7(dec2ren_uop_func7[i]), .uop_imm(dec2ren_uop_imm[i]),
       .uop_csr_idx(dec2ren_uop_csr_idx[i]), .uop_page_fault_inst(dec2ren_uop_page_fault_inst[i]),
       .uop_illegal_inst(dec2ren_uop_illegal_inst[i]),

@@ -5,10 +5,10 @@
 // IDLE step (no kill).  A fetch whose translation is available in the cycle it is presented is answered at once
 // (fast path: hit or page fault); otherwise the request is registered by icache_slot and answered from the register
 // next cycle(s) (registered path).  A registered miss allocates an AXI transaction id and enters SWAP_IN.
-module icache_idle import icache_pkg::*; (
+module icache_idle import ttg_cfg_pkg::*; import icache_pkg::*; (
   input  ic_regs_t                r,
   input  logic                    req_valid_in,
-  input  logic [31:0]             pc,
+  input  logic [XLEN_BITS-1:0]             pc,
   input  logic                    ppn_valid,
   input  logic                    page_fault,
   input  logic [IC_TAG_W-1:0]     ppn,
@@ -16,7 +16,7 @@ module icache_idle import icache_pkg::*; (
   input  logic [IC_LINE_W-1:0]    hit_line,
   output ic_regs_t                r_n,            // only state/ppn/miss/probe fields change here
   output logic                    resp_valid,
-  output logic [31:0]             resp_pc,
+  output logic [XLEN_BITS-1:0]             resp_pc,
   output logic                    resp_page_fault,
   output logic [IC_LINE_W-1:0]    resp_line,
   output logic                    req_ready,      // req_ready_w

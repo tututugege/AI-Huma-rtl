@@ -27,7 +27,7 @@ package ren_pkg;
   // one decoded instruction as held in the Rename pipeline register (DecRenIO::DecRenInst; only fields with a
   // consumer: tma/dbg and the always-zero expect_mask/cplt_mask are dropped)
   typedef struct packed {
-    logic [31:0] diag_val;
+    logic [XLEN_BITS-1:0] diag_val;
     areg_t dest_areg;
     areg_t src1_areg;
     areg_t src2_areg;
@@ -41,6 +41,7 @@ package ren_pkg;
     logic is_atomic;
     logic src1_is_pc;
     logic src2_is_imm;
+    logic is_word;
     logic [2:0] func3;
     logic [6:0] func7;
     logic [31:0] imm;
@@ -56,7 +57,7 @@ package ren_pkg;
   // src1_areg IS consumed: Dispatch -> Rob keeps it and Rob::commit_extra hands it to the front end (RET detection),
   // found only at BackTop integration (docs/modules/back_top.md, finding I-1).
   typedef struct packed {
-    logic [31:0] diag_val;
+    logic [XLEN_BITS-1:0] diag_val;
     areg_t dest_areg;
     areg_t src1_areg;
     logic [FTQ_IDX_WIDTH-1:0] ftq_idx;
@@ -69,6 +70,7 @@ package ren_pkg;
     logic is_atomic;
     logic src1_is_pc;
     logic src2_is_imm;
+    logic is_word;
     logic [2:0] func3;
     logic [6:0] func7;
     logic [31:0] imm;
@@ -101,10 +103,12 @@ package ren_pkg;
 
   // `addi rd, rs, 0` with rd and rs real registers (back-end/include/util.h is_move_shape)
   function automatic logic ren_is_move_shape(input logic [INST_TYPE_WIDTH-1:0] t, input logic src2_is_imm,
-                                             input logic [2:0] func3, input logic [31:0] imm, input logic src1_en,
+                                             input logic is_word, input logic [2:0] func3,
+                                             input logic [31:0] imm, input logic src1_en,
                                              input logic src1_is_pc, input areg_t src1_areg, input logic dest_en,
                                              input areg_t dest_areg);
-    return (t == ITYPE_ADD) && src2_is_imm && (func3 == 3'd0) && (imm == 32'd0) && src1_en && !src1_is_pc &&
+    return (t == ITYPE_ADD) && src2_is_imm && !is_word && (func3 == 3'd0) && (imm == 32'd0) && src1_en &&
+           !src1_is_pc &&
            (src1_areg != areg_t'(0)) && dest_en && (dest_areg != areg_t'(0));
   endfunction
 

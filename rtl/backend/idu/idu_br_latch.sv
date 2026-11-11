@@ -8,28 +8,28 @@ module idu_br_latch import ttg_cfg_pkg::*; (
   input  logic                        rst_n,
   input  logic                        rob_flush,
   input  logic                        exu_mispred,
-  input  logic [31:0]                 exu_redirect_pc,
+  input  logic [XLEN_BITS-1:0]                 exu_redirect_pc,
   input  logic [ROB_IDX_WIDTH-1:0]    exu_redirect_rob_idx,
   input  logic [BR_TAG_WIDTH-1:0]     exu_br_id,
   input  logic [FTQ_IDX_WIDTH-1:0]    exu_ftq_idx,
-  input  logic [31:0]                 exu_br_pc,
+  input  logic [XLEN_BITS-1:0]                 exu_br_pc,
   input  logic [BR_MASK_WIDTH-1:0]    exu_clear_mask,
   output logic                        mispred,
-  output logic [31:0]                 redirect_pc,
+  output logic [XLEN_BITS-1:0]                 redirect_pc,
   output logic [ROB_IDX_WIDTH-1:0]    redirect_rob_idx,
   output logic [BR_TAG_WIDTH-1:0]     br_id,
   output logic [FTQ_IDX_WIDTH-1:0]    ftq_idx,
-  output logic [31:0]                 br_pc,
+  output logic [XLEN_BITS-1:0]                 br_pc,
   output logic [BR_MASK_WIDTH-1:0]    clear_mask
 );
 
   logic                        mispred_q, mispred_d;
   logic [BR_MASK_WIDTH-1:0]    clear_mask_q, clear_mask_d;
-  logic [31:0]                 redirect_pc_q;
+  logic [XLEN_BITS-1:0]                 redirect_pc_q;
   logic [ROB_IDX_WIDTH-1:0]    redirect_rob_idx_q;
   logic [BR_TAG_WIDTH-1:0]     br_id_q;
   logic [FTQ_IDX_WIDTH-1:0]    ftq_idx_q;
-  logic [31:0]                 br_pc_q;
+  logic [XLEN_BITS-1:0]                 br_pc_q;
 
   // Ref: Idu::comb_fire  (flush -> br_latch_1 = {})
   always_comb begin

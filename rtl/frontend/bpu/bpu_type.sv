@@ -6,13 +6,13 @@
 //       registered by the caller and compared with the tag in the compare stage (bpu_type_lane).
 //   update: lane b is the update of bank b, taken from the update queue, at most one per bank and cycle; it reads the
 //       START-of-cycle set and writes at the clock edge.
-module bpu_type import bpu_pkg::*; (
+module bpu_type import ttg_cfg_pkg::*; import bpu_pkg::*; (
   input  logic        clk,
   input  logic        rst_n,
-  input  logic [31:0] rd_pc       [NBANK],
+  input  logic [XLEN_BITS-1:0] rd_pc       [NBANK],
   output tp_entry_t   rd_way      [NBANK][TP_WAYS],
   input  logic [NBANK-1:0] upd_valid,
-  input  logic [31:0] upd_pc      [NBANK],
+  input  logic [XLEN_BITS-1:0] upd_pc      [NBANK],
   input  logic [2:0]  upd_br_type [NBANK]
 );
 

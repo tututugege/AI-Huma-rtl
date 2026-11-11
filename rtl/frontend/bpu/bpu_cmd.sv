@@ -18,8 +18,8 @@ module bpu_cmd import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*
   input  logic        l1_ov,
   input  logic        issue,
   input  logic        s0_go,
-  input  logic [31:0] pc,
-  input  logic [31:0] refetch_address,
+  input  logic [XLEN_BITS-1:0] pc,
+  input  logic [XLEN_BITS-1:0] refetch_address,
   /* verilator lint_off UNUSEDSIGNAL */   // block / guess structs: only some fields are used here
   input  pred_t       g0,
   input  pred_t       g1,
@@ -31,10 +31,10 @@ module bpu_cmd import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*
   input  logic        pd_hv,              // the corrected block pushes a history symbol
   input  logic [HSYM_W-1:0] pd_hbits,
   input  logic [1:0]  pd_ras_op,
-  input  logic [31:0] pd_ras_val,
+  input  logic [XLEN_BITS-1:0] pd_ras_val,
   input  hist_ck_t    rf_ck,
   input  logic [2:0]  rf_type,
-  input  logic [31:0] rf_pc,
+  input  logic [XLEN_BITS-1:0] rf_pc,
   output logic [1:0]  h_mode,
   output hist_ck_t    h_ck,
   output logic        h_push_en,
@@ -42,13 +42,13 @@ module bpu_cmd import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*
   output logic [1:0]  r_mode,
   output ras_ck_t     r_ck,
   output logic [1:0]  r_op,
-  output logic [31:0] r_val,
-  output logic [31:0] pc1,                // pc after the first command (what S0 looks up in the FAST configuration)
+  output logic [XLEN_BITS-1:0] r_val,
+  output logic [XLEN_BITS-1:0] pc1,  // pc after the first command (what S0 looks up in the FAST configuration)
   output logic        h2_en,              // S0 push after the first command (FAST)
   output logic [HSYM_W-1:0] h2_bits,
   output logic [1:0]  r2_op,
-  output logic [31:0] r2_val,
-  output logic [31:0] pc_d,
+  output logic [XLEN_BITS-1:0] r2_val,
+  output logic [XLEN_BITS-1:0] pc_d,
   // refetch-only copy of the command (REFONLY): no dependence on the S2 / S1 decisions, valid when refetch
   output logic [1:0]  hr_mode,
   output hist_ck_t    hr_ck,
@@ -57,7 +57,7 @@ module bpu_cmd import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*
   output logic [1:0]  rr_mode,
   output ras_ck_t     rr_ck,
   output logic [1:0]  rr_op,
-  output logic [31:0] rr_val
+  output logic [XLEN_BITS-1:0] rr_val
 );
 
   localparam bit FAST    = (FE_RFAST & 1) != 0 || FE_BFAST != 0;
@@ -72,7 +72,7 @@ module bpu_cmd import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*
   logic rf_taken;
 
   always_comb begin
-    rf_taken = (rf_type == BR_DIRECT) ? (refetch_address != rf_pc + 32'd4) : 1'b1;
+    rf_taken = (rf_type == BR_DIRECT) ? (refetch_address != rf_pc + XLEN_BITS'(4)) : 1'b1;
   end
 
   // Ref: comb: history command
@@ -103,7 +103,7 @@ module bpu_cmd import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*
         r_mode = M_CK; r_ck = pd_ck.r; r_op = pd_ras_op; r_val = pd_ras_val;
       end else if (rep_ok) begin
         r_op  = (rf_type == BR_CALL || rf_type == BR_ICALL) ? 2'd1 : (rf_type == BR_RET) ? 2'd2 : 2'd0;
-        r_val = rf_pc + 32'd4;
+        r_val = rf_pc + XLEN_BITS'(4);
       end
     end else if (ovr) begin
       r_mode = M_CK; r_ck = r1.ck.r; r_op = fin.ras_op; r_val = fin.ras_val;
@@ -151,7 +151,7 @@ module bpu_cmd import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*
     end else if (rep_ok) begin
       hr_mode = M_CK; hr_ck = rf_ck; hr_push_en = rf_taken; hr_push_bits = hsym_of(rf_pc, refetch_address);
       rr_op  = (rf_type == BR_CALL || rf_type == BR_ICALL) ? 2'd1 : (rf_type == BR_RET) ? 2'd2 : 2'd0;
-      rr_val = rf_pc + 32'd4;
+      rr_val = rf_pc + XLEN_BITS'(4);
     end
   end
 

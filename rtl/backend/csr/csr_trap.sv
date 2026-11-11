@@ -7,10 +7,11 @@
 // and the redirect addresses read by the front end.
 module csr_trap
   import csr_pkg::*;
+  import ttg_cfg_pkg::*;
 (
   input  logic        clk,
   input  logic        rst_n,
-  input  logic [31:0] regs [NREG],
+  input  logic [XLEN_BITS-1:0] regs [NREG],
   input  logic [NIRQ-1:0] m_pending,
   input  logic [NIRQ-1:0] s_pending,
   input  logic        interrupt_resp,
@@ -22,15 +23,15 @@ module csr_trap
   input  logic        page_fault_store,
   input  logic        illegal_inst,
   input  logic        breakpoint,
-  input  logic [31:0] trap_val,
-  input  logic [31:0] pc,
+  input  logic [XLEN_BITS-1:0] trap_val,
+  input  logic [XLEN_BITS-1:0] pc,
   output logic [1:0]  privilege,
   output logic        trap_taken,        // M or S trap
-  output logic [31:0] trap_pc,
+  output logic [XLEN_BITS-1:0] trap_pc,
   output logic        xret_taken,        // mret or sret actually performed (no trap this cycle)
-  output logic [31:0] epc,
+  output logic [XLEN_BITS-1:0] epc,
   output logic        wr_en  [NREG],
-  output logic [31:0] wr_val [NREG]
+  output logic [XLEN_BITS-1:0] wr_val [NREG]
 );
 
   logic [1:0] privilege_q, privilege_d;
@@ -55,19 +56,19 @@ module csr_trap
   assign xret_taken  = mret_act | sret_act;
 
   // ---- redirect addresses ----
-  logic [31:0] m_target, s_target;
+  logic [XLEN_BITS-1:0] m_target, s_target;
   csr_trap_target u_m_target (.tvec(regs[R_MTVEC]), .is_interrupt(m_is_irq), .cause_code(m_code), .target_pc(m_target));
   csr_trap_target u_s_target (.tvec(regs[R_STVEC]), .is_interrupt(s_is_irq), .cause_code(s_code), .target_pc(s_target));
   assign trap_pc = m_trap ? m_target : s_target;
   assign epc     = mret_act ? regs[R_MEPC] : regs[R_SEPC];
 
   // ---- trap value: fault-type causes and the breakpoint (its pc) record a value, interrupts and ecall write 0 ----
-  logic [31:0] tval;
-  assign tval = (page_fault_inst | page_fault_load | page_fault_store | illegal_inst | breakpoint) ? trap_val : 32'd0;
+  logic [XLEN_BITS-1:0] tval;
+  assign tval = (page_fault_inst | page_fault_load | page_fault_store | illegal_inst | breakpoint) ? trap_val : '0;
 
   // ---- mstatus update per event ----
-  logic [31:0] mstatus_m_trap, mstatus_s_trap, mstatus_mret, mstatus_sret;
-  logic [31:0] mstatus;
+  logic [XLEN_BITS-1:0] mstatus_m_trap, mstatus_s_trap, mstatus_mret, mstatus_sret;
+  logic [XLEN_BITS-1:0] mstatus;
   assign mstatus = regs[R_MSTATUS];
   always_comb begin
     mstatus_m_trap = mstatus;
@@ -95,23 +96,23 @@ module csr_trap
   always_comb begin
     for (int r = 0; r < NREG; r++) begin
       wr_en[r]  = 1'b0;
-      wr_val[r] = 32'd0;
+      wr_val[r] = '0;
     end
     wr_en[R_MEPC]    = m_trap;
     wr_val[R_MEPC]   = pc;
     wr_en[R_MCAUSE]  = m_trap;
-    wr_val[R_MCAUSE] = {m_is_irq, 27'd0, m_code};
+    wr_val[R_MCAUSE] = {m_is_irq, {(XLEN_BITS - 5){1'b0}}, m_code};
     wr_en[R_MTVAL]   = m_trap;
     wr_val[R_MTVAL]  = tval;
     wr_en[R_SEPC]    = s_trap_only;
     wr_val[R_SEPC]   = pc;
     wr_en[R_SCAUSE]  = s_trap_only;
-    wr_val[R_SCAUSE] = {s_is_irq, 27'd0, s_code};
+    wr_val[R_SCAUSE] = {s_is_irq, {(XLEN_BITS - 5){1'b0}}, s_code};
     wr_en[R_STVAL]   = s_trap_only;
     wr_val[R_STVAL]  = tval;
     wr_en[R_MSTATUS] = m_trap | s_trap_only | mret_act | sret_act;
-    wr_val[R_MSTATUS] = ({32{m_trap}} & mstatus_m_trap) | ({32{s_trap_only}} & mstatus_s_trap)
-                      | ({32{mret_act}} & mstatus_mret) | ({32{sret_act}} & mstatus_sret);
+    wr_val[R_MSTATUS] = ({XLEN_BITS{m_trap}} & mstatus_m_trap) | ({XLEN_BITS{s_trap_only}} & mstatus_s_trap)
+                      | ({XLEN_BITS{mret_act}} & mstatus_mret) | ({XLEN_BITS{sret_act}} & mstatus_sret);
   end
 
   // ---- privilege: reset M. mret -> MPP (raw), sret -> SPP ----

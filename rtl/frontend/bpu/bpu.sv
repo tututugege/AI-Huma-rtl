@@ -14,7 +14,7 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_btb_pkg::*; impo
   input  logic                clk,
   input  logic                rst_n,
   input  logic                refetch,
-  input  logic [31:0]         refetch_address,
+  input  logic [XLEN_BITS-1:0]         refetch_address,
   input  logic                refetch_pd,
   input  logic                icache_read_ready,
   input  logic [7:0]          ptab_size,
@@ -23,20 +23,20 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_btb_pkg::*; impo
   input  logic [HCK_W-1:0]    rf_ck,
   input  logic [EPOCH_W-1:0]  rf_epoch,
   input  logic [2:0]          rf_type,
-  input  logic [31:0]         rf_pc,
+  input  logic [XLEN_BITS-1:0]         rf_pc,
   // result of the predecode check of the previous cycle
   input  logic                pd_valid,
   input  logic                pd_flush,
   input  logic                pd_hv,
   input  logic [HSYM_W-1:0]   pd_hbits,
   input  logic [1:0]          pd_ras_op,
-  input  logic [31:0]         pd_ras_val,
+  input  logic [XLEN_BITS-1:0]         pd_ras_val,
   // commit stream
   input  logic [NCOMMIT-1:0]  upd_valid,
-  input  logic [31:0]         base_pc    [NCOMMIT],
+  input  logic [XLEN_BITS-1:0]         base_pc    [NCOMMIT],
   input  logic [NCOMMIT-1:0]  actual_dir,
   input  logic [2:0]          br_type    [NCOMMIT],
-  input  logic [31:0]         target     [NCOMMIT],
+  input  logic [XLEN_BITS-1:0]         target     [NCOMMIT],
   input  logic [NCOMMIT-1:0]  pred_dir,
   input  logic [NCOMMIT-1:0]  alt_pred,
   input  logic [PCPN_W-1:0]   pcpn       [NCOMMIT],
@@ -44,14 +44,14 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_btb_pkg::*; impo
   input  logic [T_IDX_W-1:0]  idxs       [NCOMMIT][TN],
   // S0: block address to the fetch-address queue
   output logic                icache_read_valid,
-  output logic [31:0]         fetch_address,
+  output logic [XLEN_BITS-1:0]         fetch_address,
   // S2: override of the younger block (the front end drops its fetch address)
   output logic                override_valid,
   output logic                override_squash,
   // S2: prediction written into the PTAB
   output logic                ptab_write_enable,
-  output logic [31:0]         ptab_base_pc,
-  output logic [31:0]         predict_next_fetch_address,
+  output logic [XLEN_BITS-1:0]         ptab_base_pc,
+  output logic [XLEN_BITS-1:0]         predict_next_fetch_address,
   output logic [NLANE-1:0]    out_pred_dir,
   output logic [NLANE-1:0]    out_alt_pred,
   output logic [PCPN_W-1:0]   out_pcpn     [NLANE],
@@ -66,7 +66,7 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_btb_pkg::*; impo
 );
 
   // ---- stage registers ----
-  logic [31:0]        pc_q, pc_d;
+  logic [XLEN_BITS-1:0]        pc_q, pc_d;
   blk_t               r0_q, r0_d, r1_q, r1_d;
   tix_all_t           r0_tix_q, r1_tix_q;
   raw_all_t           r1_raw_q;
@@ -75,12 +75,12 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_btb_pkg::*; impo
   // ---- S0 ----
   ck_t         spec_ck, spec1_ck, s0_ck;
   logic        spec_ras_nonempty, spec1_ras_nonempty, s0_ras_nonempty;
-  logic [31:0] spec_ras_top, spec1_ras_top, s0_ras_top;
+  logic [XLEN_BITS-1:0] spec_ras_top, spec1_ras_top, s0_ras_top;
   fh_t         spec_fh, spec1_fh, s0_fh;
   tix_all_t    s0_tix;
   pred_t       g0;
   pred_t       g1;
-  logic [31:0] s0_bnd, s0_base, pc1;
+  logic [XLEN_BITS-1:0] s0_bnd, s0_base, pc1;
 
   // FE_RFAST bit0 / FE_BFAST: S0 looks up the block at the pc the redirect of this cycle produces, with the history /
   // RAS that redirect leaves, instead of the pc register and the registered speculative state.
@@ -128,7 +128,7 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_btb_pkg::*; impo
     bank_busy = '0;
     if (r0_q.valid) begin
       bank_busy[r0_q.base[6:5]] = 1'b1;
-      bank_busy[(block_bnd(r0_q.base) - 32'd4) >> 5 & 32'(NBB - 1)] = 1'b1;
+      bank_busy[2'((block_bnd(r0_q.base) - XLEN_BITS'(4)) >> 5) & 2'(NBB - 1)] = 1'b1;
     end
   end
 
@@ -172,7 +172,7 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_btb_pkg::*; impo
   logic        h_push_en;
   logic [HSYM_W-1:0] h_push_bits;
   ras_ck_t     r_ck;
-  logic [31:0] r_val;
+  logic [XLEN_BITS-1:0] r_val;
 
   bpu_ctl u_ctl (
     .refetch, .refetch_pd, .rf_valid, .rf_epoch_ok(rf_epoch == epoch_q), .pd_valid, .pd_flush, .pdq_have,
@@ -184,14 +184,14 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_btb_pkg::*; impo
   logic        h2_en;
   logic [HSYM_W-1:0] h2_bits;
   logic [1:0]  r2_op;
-  logic [31:0] r2_val;
+  logic [XLEN_BITS-1:0] r2_val;
 
   logic [1:0]  hr_mode, rr_mode, rr_op;
   hist_ck_t    hr_ck;
   logic        hr_push_en;
   logic [HSYM_W-1:0] hr_push_bits;
   ras_ck_t     rr_ck;
-  logic [31:0] rr_val;
+  logic [XLEN_BITS-1:0] rr_val;
 
   bpu_cmd u_cmd (
     .refetch, .pd_restore, .rep_ok, .ovr, .l1_ov, .issue, .s0_go, .pc(pc_q), .refetch_address, .g0, .g1, .fin,

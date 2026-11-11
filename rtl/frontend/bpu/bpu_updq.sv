@@ -4,15 +4,15 @@
 // Update queue of the pipelined BPU: control instructions of the commit stream (UQ_DEPTH entries, a full queue drops
 // the new entry).  Entries that are scheduled (bpu_updq_sched) leave the queue and appear on the per-bank write ports
 // of the type predictor, the TAGE banks and the BTB / ITT banks in the SAME cycle; the others stay in order.
-module bpu_updq import bpu_pkg::*; import bpu_stage_pkg::*; (
+module bpu_updq import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; (
   input  logic                clk,
   input  logic                rst_n,
   // commit lanes
   input  logic [NCOMMIT-1:0]  upd_valid,
-  input  logic [31:0]         base_pc    [NCOMMIT],
+  input  logic [XLEN_BITS-1:0]         base_pc    [NCOMMIT],
   input  logic [NCOMMIT-1:0]  actual_dir,
   input  logic [2:0]          br_type    [NCOMMIT],
-  input  logic [31:0]         target     [NCOMMIT],
+  input  logic [XLEN_BITS-1:0]         target     [NCOMMIT],
   input  logic [NCOMMIT-1:0]  pred_dir,
   input  logic [NCOMMIT-1:0]  alt_pred,
   input  logic [PCPN_W-1:0]   pcpn       [NCOMMIT],
@@ -33,7 +33,7 @@ module bpu_updq import bpu_pkg::*; import bpu_stage_pkg::*; (
   logic [CNT_W-1:0]    n_d;
   logic [UQ_DEPTH-1:0] ent_valid;
   logic [UQ_DEPTH-1:0] apply;
-  logic [31:0]         ent_pc  [UQ_DEPTH];
+  logic [XLEN_BITS-1:0]         ent_pc  [UQ_DEPTH];
   logic [TN-1:0][T_IDX_W-1:0] ent_idx [UQ_DEPTH];
   upd_ent_t            lane_ent [NCOMMIT];
   logic [NCOMMIT-1:0]  lane_ctl;

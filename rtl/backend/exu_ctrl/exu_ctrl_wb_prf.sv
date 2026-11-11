@@ -12,18 +12,18 @@ module exu_ctrl_wb_prf
   input  xc_done_t                  win [ISSUE_WIDTH],
   input  logic [ALU_NUM-1:0]        win_is_csr,
   input  logic                      csr_re,          // exe2csr.re: a CSR read is in flight in the CSR slot
-  input  logic [31:0]               csr_rdata,
+  input  logic [XLEN_BITS-1:0]               csr_rdata,
   input  xc_lsu_wb_t                ld_wb  [LSU_LOAD_WB_WIDTH],
   input  xc_lsu_wb_t                sta_wb [LSU_STA_COUNT],
   output logic [ISSUE_WIDTH-1:0] entry_valid,
   output logic [PRF_IDX_WIDTH-1:0]  entry_dest_preg [ISSUE_WIDTH],
-  output logic [31:0]               entry_result    [ISSUE_WIDTH],
+  output logic [XLEN_BITS-1:0]               entry_result    [ISSUE_WIDTH],
   output logic [BR_MASK_WIDTH-1:0]  entry_br_mask   [ISSUE_WIDTH],
   output logic [ISSUE_WIDTH-1:0] entry_dest_en,
   output logic [XC_OP_W-1:0]        entry_op        [ISSUE_WIDTH],
   output logic [N_FU-1:0] bypass_valid,
   output logic [PRF_IDX_WIDTH-1:0]  bypass_dest_preg [N_FU],
-  output logic [31:0]               bypass_result    [N_FU],
+  output logic [XLEN_BITS-1:0]               bypass_result    [N_FU],
   output logic [N_FU-1:0] bypass_dest_en
 );
 

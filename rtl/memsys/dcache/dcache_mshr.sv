@@ -28,8 +28,8 @@ module dcache_mshr
   input  logic [LINE_W-1:0]    req_line   [NSLOT],
   // store requests (ports NLD..) merge their word; load requests only allocate
   input  logic [WORD_W-1:0]    req_word   [NST],
-  input  logic [31:0]          req_data   [NST],
-  input  logic [3:0]           req_strb   [NST],
+  input  logic [DW-1:0]          req_data   [NST],
+  input  logic [SBW-1:0]           req_strb   [NST],
   input  st2_t                 req_l2     [NST],
   input  logic                 fill_done,
   input  logic [MSHR_IDW-1:0]  fill_id,
@@ -128,8 +128,8 @@ module dcache_mshr
   logic [LINE_BITS/8-1:0] mstrb_d [MSHR_N];
   logic [MSHR_N-1:0]    mupd;
   logic [NST-1:0][WORD_W-1:0] qw1, qw2;
-  logic [NST-1:0][31:0]       qd1, qd2;
-  logic [NST-1:0][3:0]        qs1, qs2;
+  logic [NST-1:0][DW-1:0]       qd1, qd2;
+  logic [NST-1:0][SBW-1:0]        qs1, qs2;
   logic [NST-1:0]             en_e;
   always_comb begin
     for (int p = 0; p < NST; p++) begin

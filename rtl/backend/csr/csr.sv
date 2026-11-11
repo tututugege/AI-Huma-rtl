@@ -4,13 +4,14 @@
 // CSR file, privilege, interrupt pending and trap handling. Top level only adapts ports.
 module csr
   import csr_pkg::*;
+  import ttg_cfg_pkg::*;
 (
   input  logic        clk,
   input  logic        rst_n,
   input  logic        exe2csr_we,
   input  logic        exe2csr_re,
   input  logic [11:0] exe2csr_idx,
-  input  logic [31:0] exe2csr_wdata,
+  input  logic [XLEN_BITS-1:0] exe2csr_wdata,
   input  logic [1:0]  exe2csr_wcmd,
   input  logic        rob_bcast_mret,
   input  logic        rob_bcast_sret,
@@ -20,8 +21,8 @@ module csr
   input  logic        rob_bcast_page_fault_load,
   input  logic        rob_bcast_page_fault_store,
   input  logic        rob_bcast_illegal_inst,
-  input  logic [31:0] rob_bcast_trap_val,
-  input  logic [31:0] rob_bcast_pc,
+  input  logic [XLEN_BITS-1:0] rob_bcast_trap_val,
+  input  logic [XLEN_BITS-1:0] rob_bcast_pc,
   input  logic        rob2csr_interrupt_resp,
   input  logic        rob2csr_commit,
   input  logic        interrupt_inject_external_irq_pending_valid,
@@ -31,19 +32,19 @@ module csr
   input  logic        interrupt_inject_timer_irq_pending_valid,
   input  logic        interrupt_inject_timer_irq_pending,
   output logic        csr2exe_rdata_vld,
-  output logic [31:0] csr2exe_rdata,
+  output logic [XLEN_BITS-1:0] csr2exe_rdata,
   output logic        csr2rob_interrupt_req,
   output logic        csr2front_epc_vld,
-  output logic [31:0] csr2front_epc,
+  output logic [XLEN_BITS-1:0] csr2front_epc,
   output logic        csr2front_trap_pc_vld,
-  output logic [31:0] csr2front_trap_pc,
-  output logic [31:0] csr_status_sstatus,
-  output logic [31:0] csr_status_mstatus,
-  output logic [31:0] csr_status_satp,
+  output logic [XLEN_BITS-1:0] csr2front_trap_pc,
+  output logic [XLEN_BITS-1:0] csr_status_sstatus,
+  output logic [XLEN_BITS-1:0] csr_status_mstatus,
+  output logic [XLEN_BITS-1:0] csr_status_satp,
   output logic [1:0]  csr_status_privilege
 );
 
-  logic [31:0] regs [NREG];
+  logic [XLEN_BITS-1:0] regs [NREG];
   logic [1:0]  privilege;
 
   // ---- interrupts ----
@@ -54,7 +55,7 @@ module csr
 
   // ---- trap / xRET ----
   logic        trap_wr_en  [NREG];
-  logic [31:0] trap_wr_val [NREG];
+  logic [XLEN_BITS-1:0] trap_wr_val [NREG];
   csr_trap u_trap (
     .clk(clk), .rst_n(rst_n), .regs(regs), .m_pending(m_pending), .s_pending(s_pending),
     .interrupt_resp(rob2csr_interrupt_resp), .mret(rob_bcast_mret), .sret(rob_bcast_sret),
@@ -67,7 +68,7 @@ module csr
 
   // ---- CSR instruction: read at execute, staged write, commit ----
   logic [11:0] pending_idx;
-  logic [31:0] pending_old, commit_wdata;
+  logic [XLEN_BITS-1:0] pending_old, commit_wdata;
   logic        commit_fire;
   csr_read u_read_exe (.idx(exe2csr_idx), .regs(regs), .rdata(csr2exe_rdata));
   csr_read u_read_pending (.idx(pending_idx), .regs(regs), .rdata(pending_old));

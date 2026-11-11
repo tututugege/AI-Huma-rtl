@@ -35,22 +35,22 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
   input  logic dtlb_walk_flush,
   input  logic [21:0] dtlb_walk_req_root_ppn,
   input  logic dtlb_walk_req_valid,
-  input  logic [19:0] dtlb_walk_req_vpn,
+  input  logic [VPN_W-1:0] dtlb_walk_req_vpn,
   input  logic dtlb_walk_resp_consumed,
   input  logic [31:0] lsu2dcache_load_ports_addr [LSU_LDU_COUNT],
   input  logic [30:0] lsu2dcache_load_ports_req_id [LSU_LDU_COUNT],
   input  logic lsu2dcache_load_ports_replay [LSU_LDU_COUNT],
   input  logic lsu2dcache_load_ports_valid [LSU_LDU_COUNT],
   input  logic [31:0] lsu2dcache_store_ports_addr [LSU_STA_COUNT],
-  input  logic [31:0] lsu2dcache_store_ports_data [LSU_STA_COUNT],
+  input  logic [XLEN_BITS-1:0] lsu2dcache_store_ports_data [LSU_STA_COUNT],
   input  logic [5:0] lsu2dcache_store_ports_req_id [LSU_STA_COUNT],
-  input  logic [4:0] lsu2dcache_store_ports_strb [LSU_STA_COUNT],
-  input  logic [39:0] lsu2dcache_store_ports_l2 [LSU_STA_COUNT],
+  input  logic [DST_STRB_W-1:0] lsu2dcache_store_ports_strb [LSU_STA_COUNT],
+  input  logic [DST_L2_W-1:0] lsu2dcache_store_ports_l2 [LSU_STA_COUNT],
   input  logic lsu2dcache_store_ports_valid [LSU_STA_COUNT],
   input  logic peripheral_req_is_mmio,
   input  logic [31:0] peripheral_req_mmio_addr,
   input  logic [2:0] peripheral_req_mmio_fun3,
-  input  logic [31:0] peripheral_req_mmio_wdata,
+  input  logic [XLEN_BITS-1:0] peripheral_req_mmio_wdata,
   input  logic peripheral_req_wen,
   // ---- memory -> core ----
   output logic mem_req_ready,
@@ -69,15 +69,15 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
   output logic [VPN_W-1:0] itlb_walk_resp_vpn,
   output logic [PPN_W-1:0] itlb_walk_resp_leaf_ppn,
   output logic [PERM_W-1:0] itlb_walk_resp_leaf_perm,
-  output logic itlb_walk_resp_leaf_level,
+  output logic [LVL_W-1:0] itlb_walk_resp_leaf_level,
   output logic dtlb_walk_req_ready,
   output logic dtlb_walk_resp_valid,
   output logic dtlb_walk_resp_fault,
   output logic [VPN_W-1:0] dtlb_walk_resp_vpn,
   output logic [PPN_W-1:0] dtlb_walk_resp_leaf_ppn,
   output logic [PERM_W-1:0] dtlb_walk_resp_leaf_perm,
-  output logic dtlb_walk_resp_leaf_level,
-  output logic [31:0] dcache2lsu_load_resps_data [LSU_LDU_COUNT],
+  output logic [LVL_W-1:0] dtlb_walk_resp_leaf_level,
+  output logic [XLEN_BITS-1:0] dcache2lsu_load_resps_data [LSU_LDU_COUNT],
   output logic [1:0] dcache2lsu_load_resps_replay [LSU_LDU_COUNT],
   output logic [31:0] dcache2lsu_load_resps_req_id [LSU_LDU_COUNT],
   output logic dcache2lsu_load_resps_valid [LSU_LDU_COUNT],
@@ -88,11 +88,11 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
   output logic [31:0] dcache2lsu_store_resps_req_id [LSU_STA_COUNT],
   output logic dcache2lsu_store_resps_valid [LSU_STA_COUNT],
   output logic peripheral_resp_is_mmio,
-  output logic [31:0] peripheral_resp_mmio_rdata,
+  output logic [XLEN_BITS-1:0] peripheral_resp_mmio_rdata,
   output logic peripheral_resp_ready,
   // ---- peripheral environment (testbench side: PeripheralModel) ----
   input  logic env_modeled,
-  input  logic [31:0] env_rdata,
+  input  logic [XLEN_BITS-1:0] env_rdata,
   output logic env_rd_en,
   output logic [31:0] env_rd_addr,
   output logic [2:0] env_rd_func3,
@@ -121,10 +121,8 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
   output logic [31:0] d_wstrb,
   output logic d_wlast
 );
-
   localparam int NLD_ = LSU_LDU_COUNT;
   localparam int NST_ = LSU_STA_COUNT;
-
   // ---- tick phase: 0 = the CPU tick, TICKS-1 = the last one of the cycle ----
   // TICKS = AXI_SUBSYSTEM_FREQ_DIV (trace-model config.h): 1 = the memory domain runs at the CPU clock (phase0 and
   // phase_last are both always true), 16 = the original divided arrangement.
@@ -150,20 +148,22 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
   logic        rt_icache_resp_valid, rt_icache_resp_retry, rt_icache_resp_miss;
   logic [31:0] rt_icache_resp_data;
   logic        rt_ptw_event_valid, rt_ptw_wakeup_walk, rt_ptw_grant_valid;
-  logic [31:0] rt_ptw_event_data;
+  logic [XLEN_BITS-1:0] rt_ptw_event_data;
   logic [PT_ID_W-1:0] rt_ptw_event_req_id, rt_ptw_grant_req_id;
   logic        rt_dc_ld_valid [NLD_];
   logic [31:0] rt_dc_ld_addr [NLD_], rt_dc_ld_id [NLD_];
   logic        rt_dc_ld_replay [NLD_];
   logic        rt_dc_st_valid [NST_];
-  logic [31:0] rt_dc_st_addr [NST_], rt_dc_st_data [NST_];
+  logic [31:0] rt_dc_st_addr [NST_];
+  logic [XLEN_BITS-1:0] rt_dc_st_data [NST_];
   logic [ST_STRB_W-1:0] rt_dc_st_strb [NST_];
-  logic [39:0] rt_dc_st_l2 [NST_];  logic [ST_ID_W-1:0] rt_dc_st_id [NST_];
+  logic [DST_L2_W-1:0] rt_dc_st_l2 [NST_];  logic [ST_ID_W-1:0] rt_dc_st_id [NST_];
   logic        rt_dc_icache_probe;
 
   // dcache -> route
   logic        dc_ld_resp_valid [NLD_], dc_ld_resp_retry [NLD_];
-  logic [31:0] dc_ld_resp_data [NLD_], dc_ld_resp_id [NLD_];
+  logic [XLEN_BITS-1:0] dc_ld_resp_data [NLD_];
+  logic [31:0] dc_ld_resp_id [NLD_];
   logic [1:0]  dc_ld_resp_replay [NLD_];
   logic        dc_st_resp_valid [NST_];
   logic [1:0]  dc_st_resp_replay [NST_];
@@ -236,7 +236,7 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
   logic [PT_VPN_W-1:0]  pw_c_resp_vpn [PT_NCLIENT];
   logic [PT_PPN_W-1:0]  pw_c_resp_ppn [PT_NCLIENT];
   logic [PT_PERM_W-1:0] pw_c_resp_perm [PT_NCLIENT];
-  logic [PT_NCLIENT-1:0] pw_c_resp_level;
+  logic [PT_LVL_W-1:0]  pw_c_resp_level [PT_NCLIENT];
 
   assign pw_c_req_valid[0] = dtlb_walk_req_valid;
   assign pw_c_req_vpn[0]   = dtlb_walk_req_vpn;
@@ -297,10 +297,10 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
   logic [2:0] dc_icache_req;
   assign dc_icache_req = (phase0 && rt_dc_icache_probe) ? 3'(NLD_ - 1) : 3'(NLD_);
 
-  logic [3:0] rt_dc_st_strb4 [NST_];  dcache_pkg::st2_t rt_dc_st_l2c [NST_];
+  logic [dcache_pkg::SBW-1:0] rt_dc_st_strb4 [NST_];  dcache_pkg::st2_t rt_dc_st_l2c [NST_];
   logic [31:0] rt_dc_st_id32 [NST_];
   for (genvar s = 0; s < NST_; s++) begin : g_stconv
-    assign rt_dc_st_strb4[s] = rt_dc_st_strb[s][3:0];
+    assign rt_dc_st_strb4[s] = rt_dc_st_strb[s][dcache_pkg::SBW-1:0];
     assign rt_dc_st_l2c[s]   = dcache_pkg::st2_t'(rt_dc_st_l2[s]);
     assign rt_dc_st_id32[s]  = 32'(rt_dc_st_id[s]);
   end
@@ -334,7 +334,7 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
 
   // ======================= peripheral_axi + hold register =======================
   logic        pa_resp_ready, pa_resp_is_mmio;
-  logic [31:0] pa_resp_rdata;
+  logic [XLEN_BITS-1:0] pa_resp_rdata;
   logic        pa_rd_valid, pa_rd_resp_ready, pa_wr_valid, pa_wr_resp_ready;
   logic [31:0] pa_rd_addr, pa_wr_addr, pa_wr_wdata;
   logic [PA_SIZE_W-1:0] pa_rd_size, pa_wr_size;
@@ -359,10 +359,10 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
 
   // SimCpu::peripheral_resp_hold: this cycle's peripheral response is what the core sees in the next cycle
   logic        hold_ready_q, hold_is_mmio_q;
-  logic [31:0] hold_rdata_q;
+  logic [XLEN_BITS-1:0] hold_rdata_q;
   always_ff @(posedge clk) begin
     if (!rst_n) begin
-      hold_ready_q <= 1'b0; hold_is_mmio_q <= 1'b0; hold_rdata_q <= 32'd0;
+      hold_ready_q <= 1'b0; hold_is_mmio_q <= 1'b0; hold_rdata_q <= '0;
     end else if (phase0) begin
       hold_ready_q <= pa_resp_ready; hold_is_mmio_q <= pa_resp_is_mmio; hold_rdata_q <= pa_resp_rdata;
     end
@@ -370,7 +370,6 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
   assign peripheral_resp_ready   = hold_ready_q;
   assign peripheral_resp_is_mmio = hold_is_mmio_q;
   assign peripheral_resp_mmio_rdata = hold_rdata_q;
-
   // ======================= AXI side =======================
   mem_axi u_axi (
     .clk, .rst_n, .phase0, .phase_last,
@@ -389,7 +388,6 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
     .d_rready, .d_bready, .d_arvalid, .d_arid, .d_araddr, .d_arlen, .d_awvalid, .d_awid, .d_awaddr, .d_awlen,
     .d_wvalid, .d_wdata, .d_wstrb, .d_wlast
   );
-
   wire unused_fill = &{1'b0, dc_mshr_fill_addr[5:0]};
 endmodule
 `default_nettype wire

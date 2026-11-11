@@ -8,11 +8,11 @@
 // single word in lane 0.
 module icache_resp import icache_pkg::*; import ttg_cfg_pkg::*; (
   input  logic                 resp_valid,
-  input  logic [31:0]          resp_pc,
+  input  logic [XLEN_BITS-1:0]          resp_pc,
   input  logic                 resp_page_fault,
   input  logic                 resp_single_word,
   input  logic [IC_LINE_W-1:0] resp_line,
-  output logic [31:0]          fetch_pc,
+  output logic [XLEN_BITS-1:0]          fetch_pc,
   output logic [31:0]          fetch_group [FETCH_WIDTH],
   output logic [FETCH_WIDTH-1:0] page_fault_inst,
   output logic [FETCH_WIDTH-1:0] inst_valid
@@ -21,7 +21,7 @@ module icache_resp import icache_pkg::*; import ttg_cfg_pkg::*; (
   localparam logic [31:0] INST_NOP = 32'h0000_0013;
   logic [IC_WORD_IDX_W-1:0] base;
   assign base     = resp_pc[IC_OFF_W-1:2];
-  assign fetch_pc = resp_valid ? resp_pc : 32'd0;
+  assign fetch_pc = resp_valid ? resp_pc : '0;
 
   for (genvar i = 0; i < FETCH_WIDTH; i++) begin : g_lane
     logic [IC_WORD_IDX_W:0] widx;

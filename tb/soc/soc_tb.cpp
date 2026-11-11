@@ -35,7 +35,13 @@
 #include "fm_check.h"
 #endif
 
-long long sim_time = 0;   // the reference's global cycle counter (PeripheralModel's timer reads it)
+#ifndef XLEN
+#define XLEN 32   // register width of the RTL under test (build.sh passes -DXLEN=64 with a 64-bit ttg_cfg_pkg)
+#endif
+typedef uint64_t tb_xlen_t;   // wide enough for either width
+constexpr int kXlen = XLEN;
+long long sim_time = 0;
+tb_xlen_t last_commit_pc = 0;   // the reference's global cycle counter (PeripheralModel's timer reads it)
 
 namespace {
 constexpr int kTicks = CONFIG_AXI_SUBSYSTEM_FREQ_DIV;   // fast ticks per CPU cycle (platform config.h = trace-model config.h = rtl ttg_cfg_pkg)
@@ -53,10 +59,19 @@ void load_image(const char *path) {
   f.seekg(0, std::ios::beg);
   if (!f.read(reinterpret_cast<char *>(pmem_ram_ptr()), size)) { std::fprintf(stderr, "read failed\n"); std::exit(2); }
   // BackTop::load_image boot stub
-  pmem_write(0x0, 0xf1402573);
-  pmem_write(0x4, 0x83e005b7);
-  pmem_write(0x8, 0x800002b7);
-  pmem_write(0xc, 0x00028067);
+  if (kXlen == 64) {   // BackTop::write_boot_stub: lui would sign-extend, so a1 = 0x83e00000 and t0 = 0x80000000 are built with addi + slli
+    pmem_write(0x00, 0xf1402573);   // csrrs a0, mhartid, zero
+    pmem_write(0x04, (0x41fu << 20) | (11 << 7) | 0x13);                          // addi a1, zero, 0x41f
+    pmem_write(0x08, (21u << 20) | (11 << 15) | (1u << 12) | (11 << 7) | 0x13);   // slli a1, a1, 21   -> 0x83e00000
+    pmem_write(0x0c, 0x00100293);   // li t0, 1        (the same words as the function model's boot ROM: the per-commit check sees them)
+    pmem_write(0x10, 0x01f29293);   // slli t0, t0, 31  -> 0x80000000
+    pmem_write(0x14, 0x00028067);   // jalr zero, 0(t0)
+  } else {
+    pmem_write(0x0, 0xf1402573);
+    pmem_write(0x4, 0x83e005b7);
+    pmem_write(0x8, 0x800002b7);
+    pmem_write(0xc, 0x00028067);
+  }
   // BackTop::seed_uart_io_words: UART status registers as seen by MMIO reads
   constexpr uint32_t kLsr = 0x20u | 0x40u, kMsr = 0x10u | 0x20u | 0x80u;
   pmem_write(UART_ADDR_BASE + 0x00u, (0x01u | 0xc0u) << 16);
@@ -140,6 +155,26 @@ int compare_boundary(const uint8_t *got_in, const uint8_t *got_out, const uint8_
   return bad;
 }
 
+// value of a load of `func3` from the little-endian bytes `raw`, extended to the register width (rv32: the low 32 bits)
+uint64_t extend_load(uint64_t raw, uint8_t func3) {
+  uint64_t v;
+  switch (func3) {
+    case 0: v = uint64_t(int64_t(int8_t(raw))); break;
+    case 1: v = uint64_t(int64_t(int16_t(raw))); break;
+    case 2: v = uint64_t(int64_t(int32_t(raw))); break;
+    case 4: v = raw & 0xFFu; break;
+    case 5: v = raw & 0xFFFFu; break;
+    case 6: v = raw & 0xFFFFFFFFu; break;
+    default: v = raw; break;   // ld (rv64)
+  }
+  return kXlen == 64 ? v : (v & 0xFFFFFFFFu);
+}
+// a load from the modeled MMIO (the platform's PeripheralModel is word based): ld = two word reads, as the trace-model does
+uint64_t read_mmio(PeripheralModel &periph, uint32_t addr, uint8_t func3) {
+  if (func3 == 3 && kXlen == 64) return uint64_t(uint32_t(periph.read_load(addr, 2))) | (uint64_t(uint32_t(periph.read_load(addr + 4, 2))) << 32);
+  if (func3 == 6) return uint64_t(uint32_t(periph.read_load(addr, 2)));
+  return extend_load(uint64_t(uint32_t(periph.read_load(addr, uint8_t(func3)))), func3 == 3 ? 2 : func3);   // the model already extended lb/lh/lw to 32 bits
+}
 }  // namespace
 
 int main(int argc, char **argv) {
@@ -191,7 +226,7 @@ int main(int argc, char **argv) {
 #ifdef SOC_TB_FM
   FmCheck fm;   // SOC_TB_FM=1: every committed instruction is also executed by the function model and compared
   const bool fm_on = std::getenv("SOC_TB_FM") != nullptr;
-  struct FmPend { uint32_t pc; unsigned rd; unsigned preg; bool irq; };
+  struct FmPend { tb_xlen_t pc; unsigned rd; unsigned preg; bool irq; };
   std::vector<FmPend> fm_pend;
   auto fm_flush = [&](uint64_t cyc) {
     for (const auto &c : fm_pend) {
@@ -199,11 +234,12 @@ int main(int argc, char **argv) {
         auto &R = *top->rootp;
         const uint8_t priv = R.soc_top__DOT__u_core__DOT__u_back__DOT__u_csr__DOT__privilege;
         const auto &regs = R.soc_top__DOT__u_core__DOT__u_back__DOT__u_csr__DOT__regs;
-        const uint32_t cause = (priv == 3 ? regs[2] : regs[12]) & 0x7fffffffu;   // R_MCAUSE / R_SCAUSE
-        if (!fm.interrupt(cyc, cause | 0x80000000u, priv, regs[4] | (1u << cause))) { compare_fail = 1; done = true; break; }   // R_MIP
+        const tb_xlen_t msb = tb_xlen_t(1) << (kXlen - 1);
+        const uint32_t cause = uint32_t((priv == 3 ? regs[2] : regs[12]) & ~msb);   // R_MCAUSE / R_SCAUSE
+        if (!fm.interrupt(cyc, tb_xlen_t(cause) | msb, priv, uint32_t(regs[4]) | (1u << cause))) { compare_fail = 1; done = true; break; }   // R_MIP
         continue;
       }
-      const uint32_t val = c.rd ? top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__u_prf__DOT__u_regfile__DOT__reg_file_q[c.preg] : 0u;
+      const tb_xlen_t val = c.rd ? top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__u_prf__DOT__u_regfile__DOT__reg_file_q[c.preg] : 0u;
       if (!fm.commit(cyc, c.pc, c.rd, val)) { compare_fail = 1; done = true; break; }
     }
     fm_pend.clear();
@@ -218,7 +254,7 @@ int main(int argc, char **argv) {
   auto ddr_idle = [&]() { return ddr.idle_quiescent(); };
 long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
 #define EVAL() do { auto e0 = std::chrono::steady_clock::now(); top->eval(); eval_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - e0).count(); ev_ns[ev_k++ & 3] += std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - e0).count(); ++eval_n; } while (0)
-  uint32_t env_modeled_prev = 0, env_rdata_prev = 0;
+  uint32_t env_modeled_prev = 0; uint64_t env_rdata_prev = 0;
   bool skip_request = false;
   auto tick = [&](int phase) {
     // DDR slave outputs -> RTL
@@ -238,7 +274,7 @@ long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
       const uint32_t pa = Rt->soc_top__DOT__peripheral_req_mmio_addr;
       const uint8_t pf3 = Rt->soc_top__DOT__peripheral_req_mmio_fun3;
       top->env_modeled = PeripheralModel::is_modeled_mmio(pa) ? 1 : 0;
-      top->env_rdata = top->env_rd_en ? periph.read_load(top->env_rd_addr, top->env_rd_func3) : 0;
+      top->env_rdata = top->env_rd_en ? read_mmio(periph, top->env_rd_addr, top->env_rd_func3) : 0;
       (void)pf3;
       if (top->env_modeled != env_modeled_prev || top->env_rdata != env_rdata_prev) EVAL();   // an eval with unchanged inputs is a no-op
       env_modeled_prev = top->env_modeled; env_rdata_prev = top->env_rdata;
@@ -366,19 +402,20 @@ long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
 #ifdef SOC_TB_FM
           if (fm_on && !done && top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__rob_bcast_interrupt) fm_pend.push_back({0, 0, 0, true});
           else if (fm_on && !done && (top->rob_commit_commit_entry_uop_type[i] != kUopEbreak ||
-                                      (semihost && pmem_read(top->ftq_commit_info_resp_pc[i] - 4) == 0x01f01013u && pmem_read(top->ftq_commit_info_resp_pc[i] + 4) == 0x40705013u))) {   // the semihosting marker ebreak is a breakpoint exception: the function model executes it too
+                                      (semihost && pmem_read(uint32_t(top->ftq_commit_info_resp_pc[i]) - 4) == 0x01f01013u && pmem_read(uint32_t(top->ftq_commit_info_resp_pc[i]) + 4) == 0x40705013u))) {   // the semihosting marker ebreak is a breakpoint exception: the function model executes it too
             const bool de = ttg_getbit(top->rob_commit_commit_entry_uop_dest_en, i);
             fm_pend.push_back({top->ftq_commit_info_resp_pc[i], (de && top->rob_commit_commit_entry_uop_dest_areg[i] < 32) ? top->rob_commit_commit_entry_uop_dest_areg[i] : 0u,   // areg 32 = AMO with rd == x0 (pseudo destination)
                                
                                top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__u_rob__DOT__rob_commit_commit_entry_uop_dest_preg[i], false});
           }
 #endif
-          if (std::getenv("SOC_TB_COMMIT")) std::fprintf(stderr, "[cyc %llu] commit[%d] type=%d pc=%08x\n", (unsigned long long)cycles + 1, i,
-                                                         top->rob_commit_commit_entry_uop_type[i], top->ftq_commit_info_resp_pc[i]);
+          last_commit_pc = tb_xlen_t(top->ftq_commit_info_resp_pc[i]);
+          if (std::getenv("SOC_TB_COMMIT")) std::fprintf(stderr, "[cyc %llu] commit[%d] type=%d pc=%llx\n", (unsigned long long)cycles + 1, i,
+                                                         top->rob_commit_commit_entry_uop_type[i], (unsigned long long)top->ftq_commit_info_resp_pc[i]);
           if (top->rob_commit_commit_entry_uop_type[i] == kUopEbreak) {
             // SOC_TB_SEMIHOST: the ebreak of the semihosting marker sequence (slli x0,x0,0x1f; ebreak; srai x0,x0,7) is a breakpoint
             // exception for the core (RTL built with TTG_EBREAK_TRAP), not the end of the program; same rule as the function model.
-            const uint32_t epc = top->ftq_commit_info_resp_pc[i];
+            const uint32_t epc = uint32_t(top->ftq_commit_info_resp_pc[i]);
             const bool marker = semihost && pmem_read(epc - 4) == 0x01f01013u && pmem_read(epc + 4) == 0x40705013u;
             if (!marker) done = true;
           }
@@ -388,12 +425,20 @@ long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
             // lp_pkg::lp_stq_t (packed, first field = MSB): va_v pa_v data_v pf mmio lrsc sc_pass suppress trp wbp wbd cmt iss mmw done
             // vaddr paddr data func3 dest_preg rob_idx rob_flag br_mask rtype[2] rwait[3]
             const auto &fld = top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__u_lsu__DOT__g_pipe__DOT__u_pipe__DOT__u_core__DOT__sq[top->rob_commit_commit_entry_uop_stq_idx[i]];
-            auto bits = [&](int lo, int w) { uint64_t v = 0; for (int b = 0; b < w; ++b) { int k = lo + b; v |= uint64_t((fld[k / 32] >> (k % 32)) & 1u) << b; } return uint32_t(v); };
+            auto bits = [&](int lo, int w) { uint64_t v = 0; for (int b = 0; b < w; ++b) { int k = lo + b; v |= uint64_t((fld[k / 32] >> (k % 32)) & 1u) << b; } return v; };
             constexpr int kRtype = 3, kBr = kRtype + 2, kRobFlag = kBr + kCfg_BR_MASK_WIDTH, kRobIdx = kRobFlag + 1, kDest = kRobIdx + kCfg_ROB_IDX_WIDTH,
-                          kFunc3 = kDest + kCfg_PRF_IDX_WIDTH, kData = kFunc3 + 3, kPaddr = kData + 32, kVaddr = kPaddr + 32, kDone = kVaddr + 32;
+                          kFunc3 = kDest + kCfg_PRF_IDX_WIDTH, kData = kFunc3 + 3, kPaddr = kData + kXlen, kVaddr = kPaddr + 32, kDone = kVaddr + kXlen;
             // flags above done (LSB first): done mmw iss cmt wbd wbp trp suppress sc_pass lrsc mmio pf data_v pa_v va_v
             constexpr int kSuppress = kDone + 7, kDataV = kDone + 12, kPaV = kDone + 13;
-            if (!bits(kSuppress, 1) && bits(kPaV, 1) && bits(kDataV, 1)) periph.on_commit_store(bits(kPaddr, 32), bits(kData, 32), uint8_t(bits(kFunc3, 3)));
+            if (const char *stlog = std::getenv("SOC_TB_STLOG")) {   // debug: every committed store into the 8-byte word of this physical address
+              static const uint32_t want = uint32_t(std::strtoul(stlog, nullptr, 16)) & ~7u;
+              const uint32_t pa_ = uint32_t(bits(kPaddr, 32));
+              if ((pa_ & ~7u) == want && !bits(kSuppress, 1))
+                std::fprintf(stderr, "[STLOG] cyc %llu pc=%llx pa=%08x f3=%u data=%llx\n", (unsigned long long)cycles + 1, (unsigned long long)top->ftq_commit_info_resp_pc[i], pa_, unsigned(bits(kFunc3, 3)), (unsigned long long)bits(kData, kXlen));
+            }
+            if (!bits(kSuppress, 1) && bits(kPaV, 1) && bits(kDataV, 1)) { const uint32_t pa_ = uint32_t(bits(kPaddr, 32)); const uint64_t d_ = bits(kData, kXlen); const uint8_t f3_ = uint8_t(bits(kFunc3, 3));
+              if (kXlen == 64 && (f3_ & 3) == 3) { periph.on_commit_store(pa_, uint32_t(d_), 2); periph.on_commit_store(pa_ + 4, uint32_t(d_ >> 32), 2); }   // sd = two word stores (as the model)
+              else periph.on_commit_store(pa_, uint32_t(d_), f3_); }
 #else
             const auto &fld = top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__u_lsu__DOT__g_legacy__DOT__u_core__DOT__st_fld_q[top->rob_commit_commit_entry_uop_stq_idx[i]];
             auto bits = [&](int lo, int w) { uint64_t v = 0; for (int b = 0; b < w; ++b) { int k = lo + b; v |= uint64_t((fld[k / 32] >> (k % 32)) & 1u) << b; } return uint32_t(v); };
@@ -471,6 +516,10 @@ long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
     for (int p = 0; p < kTicks; ++p) tick(p);
   top->rst_n = 1;
   const bool trace_cyc = std::getenv("SOC_TB_CYC") != nullptr;
+  // SOC_TB_LOG=<n>: every n cycles print the cycle, the committed instructions, the last committed pc, the speed and (with a cycle cap) the time left
+  const uint64_t log_every = std::getenv("SOC_TB_LOG") ? std::strtoull(std::getenv("SOC_TB_LOG"), nullptr, 0) : 0;
+  const auto t_start = std::chrono::steady_clock::now();
+  auto t_last = t_start; uint64_t cyc_last = 0;
   while (!done && cycles < max_cycles) {
     sim_time = static_cast<long long>(cycles);
     if (trace_cyc) std::fprintf(stderr, "cyc %llu\n", (unsigned long long)cycles + 1);
@@ -484,6 +533,16 @@ long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
       }
     }
     ++cycles;
+    if (log_every && cycles % log_every == 0) {
+      const auto now = std::chrono::steady_clock::now();
+      const double el = std::chrono::duration<double>(now - t_start).count(), dt = std::chrono::duration<double>(now - t_last).count();
+      const double rate = double(cycles - cyc_last) / (dt > 0 ? dt : 1), avg = double(cycles) / (el > 0 ? el : 1);
+      std::fprintf(stderr, "[LOG] cyc=%llu commit=%llu pc=%llx elapsed=%.0fs speed=%.0f cyc/s (avg %.0f)", (unsigned long long)cycles, (unsigned long long)committed,
+                   (unsigned long long)last_commit_pc, el, rate, avg);
+      if (max_cycles > cycles) std::fprintf(stderr, " eta=%.0fs (to cap %llu)", double(max_cycles - cycles) / avg, (unsigned long long)max_cycles);
+      std::fprintf(stderr, "\n");
+      t_last = now; cyc_last = cycles;
+    }
   }
   if (compare_fail) std::printf("FIRST MISMATCH at cycle %llu (see above)\n", (unsigned long long)cycles + 1);
   if (std::getenv("SOC_TB_PMU")) for (int e = 0; e < kPmuEv; ++e) std::printf("PMU_EV %d %llu\n", e, (unsigned long long)pmu_total[e]);

@@ -7,15 +7,15 @@ module exu_ctrl_fu_in
   import ttg_cfg_pkg::*;
   import exu_ctrl_pkg::*;
 (
-  input  logic [31:0]               fu_alu_result [ALU_NUM],
-  input  logic [31:0]               fu_agu_result [LSU_AGU_COUNT],
-  input  logic [31:0]               fu_sdu_result [LSU_SDU_COUNT],
-  input  logic [31:0]               fu_bru_diag_val [BRU_NUM],
+  input  logic [XLEN_BITS-1:0]               fu_alu_result [ALU_NUM],
+  input  logic [XLEN_BITS-1:0]               fu_agu_result [LSU_AGU_COUNT],
+  input  logic [XLEN_BITS-1:0]               fu_sdu_result [LSU_SDU_COUNT],
+  input  logic [XLEN_BITS-1:0]               fu_bru_diag_val [BRU_NUM],
   input  logic                      fu_bru_mispred [BRU_NUM],
   input  logic                      fu_bru_br_taken [BRU_NUM],
   input  logic [N_MC-1:0] fu_mc_ready,
   input  logic [N_MC-1:0] fu_mc_complete,
-  input  logic [31:0]               fu_mc_result [N_MC],
+  input  logic [XLEN_BITS-1:0]               fu_mc_result [N_MC],
   input  logic [PRF_IDX_WIDTH-1:0]  fu_mc_dest_preg [N_MC],
   input  logic [N_MC-1:0] fu_mc_dest_en,
   input  logic [BR_MASK_WIDTH-1:0]  fu_mc_br_mask [N_MC],

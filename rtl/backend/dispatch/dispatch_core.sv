@@ -164,6 +164,7 @@ module dispatch_core
                    dest_en: alloc_inst[i].dest_en, src1_en: alloc_inst[i].src1_en,
                    src2_en: alloc_inst[i].src2_en, src1_busy: busy1[i], src2_busy: busy2[i],
                    src1_is_pc: alloc_inst[i].src1_is_pc, src2_is_imm: alloc_inst[i].src2_is_imm,
+                   is_word: alloc_inst[i].is_word,
                    func3: alloc_inst[i].func3, func7: alloc_inst[i].func7, imm: alloc_inst[i].imm,
                    br_id: alloc_inst[i].br_id, br_mask: alloc_inst[i].br_mask,
                    csr_idx: alloc_inst[i].csr_idx, rob_idx: res[i].rob_idx, stq_idx: res[i].stq_idx,

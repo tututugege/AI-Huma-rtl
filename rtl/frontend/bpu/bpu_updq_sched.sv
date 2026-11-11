@@ -8,9 +8,9 @@
 //              not taken by an earlier member (the first entry of each bank wins);
 //   leader 2   the oldest valid entry outside group 1 whose block bank is free, different from leader 1's, and whose
 //              slot bank is not used by group 1;  group 2 as group 1, also avoiding the slot banks of group 1.
-module bpu_updq_sched import bpu_pkg::*; import bpu_stage_pkg::*; (
+module bpu_updq_sched import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; (
   input  logic [UQ_DEPTH-1:0]  ent_valid,
-  input  logic [31:0]          ent_pc  [UQ_DEPTH],
+  input  logic [XLEN_BITS-1:0]          ent_pc  [UQ_DEPTH],
   input  logic [TN-1:0][T_IDX_W-1:0] ent_idx [UQ_DEPTH],
   input  logic [NBB-1:0]       bank_busy,          // block banks read by the block in S1
   output logic [UQ_DEPTH-1:0]  apply

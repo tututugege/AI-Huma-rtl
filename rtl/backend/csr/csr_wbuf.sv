@@ -4,23 +4,24 @@
 // A CSR instruction latches its write request at execute; the register file is only written when ROB commits it.
 module csr_wbuf
   import csr_pkg::*;
+  import ttg_cfg_pkg::*;
 (
   input  logic        clk,
   input  logic        rst_n,
   input  logic        exe_we,
   input  logic [11:0] exe_idx,
-  input  logic [31:0] exe_wdata,
+  input  logic [XLEN_BITS-1:0] exe_wdata,
   input  logic [1:0]  exe_wcmd,
   input  logic        commit,
-  input  logic [31:0] old_value,       // current value of CSR pending_idx (read port 2)
+  input  logic [XLEN_BITS-1:0] old_value,       // current value of CSR pending_idx (read port 2)
   output logic [11:0] pending_idx,
   output logic        commit_fire,     // commit of a staged write this cycle
-  output logic [31:0] commit_wdata     // value after csrrs/csrrc read-modify-write
+  output logic [XLEN_BITS-1:0] commit_wdata     // value after csrrs/csrrc read-modify-write
 );
 
   logic        we_q, we_d;
   logic [11:0] idx_q, idx_d;
-  logic [31:0] wdata_q, wdata_d;
+  logic [XLEN_BITS-1:0] wdata_q, wdata_d;
   logic [1:0]  wcmd_q, wcmd_d;
 
   assign pending_idx = idx_q;
@@ -47,7 +48,7 @@ module csr_wbuf
     if (!rst_n) begin
       we_q    <= 1'b0;
       idx_q   <= 12'd0;
-      wdata_q <= 32'd0;
+      wdata_q <= '0;
       wcmd_q  <= 2'd0;
     end else begin
       we_q    <= we_d;

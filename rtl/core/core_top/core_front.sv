@@ -14,11 +14,11 @@ module core_front import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*;
   input  logic [HCK_W-1:0] out_rf_ck,
   input  logic [EPOCH_W-1:0] out_rf_epoch,
   input  logic [2:0]  out_rf_type,
-  input  logic [31:0] out_rf_pc,
+  input  logic [XLEN_BITS-1:0] out_rf_pc,
   output logic [BCK_W-1:0] front2pre_bpu_ck,
   output logic [FETCH_WIDTH-1:0][KIND_W-1:0] front2pre_slot_kind,
   input  logic        out_stall,
-  input  logic [31:0] out_redirect_pc,
+  input  logic [XLEN_BITS-1:0] out_redirect_pc,
   input  logic        rob_bcast_fence,
   input  logic        rob_bcast_fence_i,
   input  logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_valid,
@@ -26,19 +26,19 @@ module core_front import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*;
   input  logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_br_taken,
   input  logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_dest_en,
   input  logic [5:0]  rob_commit_commit_entry_uop_dest_areg [COMMIT_WIDTH],
-  input  logic [31:0] out_commit_entry_uop_diag_val [COMMIT_WIDTH],
+  input  logic [XLEN_BITS-1:0] out_commit_entry_uop_diag_val [COMMIT_WIDTH],
   input  logic [31:0] commit_extra_imm [COMMIT_WIDTH],
   input  logic [5:0]  commit_extra_src1_areg [COMMIT_WIDTH],
-  input  logic [31:0] ftq_commit_info_resp_pc [COMMIT_WIDTH],
+  input  logic [XLEN_BITS-1:0] ftq_commit_info_resp_pc [COMMIT_WIDTH],
   input  logic        ftq_commit_info_resp_pred_taken [COMMIT_WIDTH],
   input  logic [COMMIT_WIDTH-1:0] ftq_commit_info_resp_alt_pred,
   input  logic [2:0]  ftq_commit_info_resp_pcpn [COMMIT_WIDTH],
   input  logic [9:0]  ftq_commit_info_resp_tage_idx [COMMIT_WIDTH][TN],
   input  logic [7:0]  ftq_commit_info_resp_tage_tag [COMMIT_WIDTH][TN],
-  input  logic [31:0] csr_status_satp,
+  input  logic [XLEN_BITS-1:0] csr_status_satp,
   input  logic [1:0]  csr_status_privilege,
   /* verilator lint_off UNUSEDSIGNAL */   // only the mxr / sum / mprv / mpp bits go to the ITLB
-  input  logic [31:0] csr_status_mstatus,
+  input  logic [XLEN_BITS-1:0] csr_status_mstatus,
   /* verilator lint_on UNUSEDSIGNAL */
   // ---- memory side of the front end ----
   input  logic        mem_req_ready,
@@ -57,7 +57,7 @@ module core_front import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*;
   input  logic [VPN_W-1:0]  itlb_walk_resp_vpn,
   input  logic [PPN_W-1:0]  itlb_walk_resp_leaf_ppn,
   input  logic [PERM_W-1:0] itlb_walk_resp_leaf_perm,
-  input  logic        itlb_walk_resp_leaf_level,
+  input  logic [LVL_W-1:0]        itlb_walk_resp_leaf_level,
   output logic        mem_req_valid,
   output logic [31:0] mem_req_addr,
   output logic [7:0]  mem_req_total_size,
@@ -75,30 +75,30 @@ module core_front import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*;
   output logic [BACKEND_FETCH_WIDTH-1:0] front2pre_valid,
   output logic [31:0] front2pre_inst [BACKEND_FETCH_WIDTH],
   output logic [BACKEND_FETCH_WIDTH-1:0] front2pre_page_fault_inst,
-  output logic [31:0] front2pre_pc [BACKEND_FETCH_WIDTH],
+  output logic [XLEN_BITS-1:0] front2pre_pc [BACKEND_FETCH_WIDTH],
   output logic [BACKEND_FETCH_WIDTH-1:0] front2pre_predict_dir,
   output logic [BACKEND_FETCH_WIDTH-1:0] front2pre_alt_pred,
   output logic [front_pkg::PCPN_W-1:0]     front2pre_pcpn [BACKEND_FETCH_WIDTH],
   output logic [TAGE_IDX_W-1:0] front2pre_tage_idx [BACKEND_FETCH_WIDTH][TN_MAX],
   output logic [TAGE_TAG_W-1:0] front2pre_tage_tag [BACKEND_FETCH_WIDTH][TN_MAX],
-  output logic [31:0] front2pre_predict_next_fetch_address,
+  output logic [XLEN_BITS-1:0] front2pre_predict_next_fetch_address,
   output logic [3:0]  commit_upd_free,   // compact ROB commit credits (EXP-028)
   output logic [3:0]  commit_tq_free
 );
 
   // ---- back end -> front end: registered back2front ----
   logic        b2f_refetch, b2f_itlb_flush, b2f_fence_i, b2f_stall;
-  logic [31:0] b2f_refetch_address;
+  logic [XLEN_BITS-1:0] b2f_refetch_address;
   logic        b2f_rf_valid;
   logic [HCK_W-1:0] b2f_rf_ck;
   logic [EPOCH_W-1:0] b2f_rf_epoch;
   logic [2:0]  b2f_rf_type;
-  logic [31:0] b2f_rf_pc;
+  logic [XLEN_BITS-1:0] b2f_rf_pc;
   logic [COMMIT_WIDTH-1:0] upd_valid;
-  logic [31:0] upd_base_pc  [COMMIT_WIDTH];
+  logic [XLEN_BITS-1:0] upd_base_pc  [COMMIT_WIDTH];
   logic [COMMIT_WIDTH-1:0] upd_actual_dir;
   logic [2:0]  upd_br_type  [COMMIT_WIDTH];
-  logic [31:0] upd_target   [COMMIT_WIDTH];
+  logic [XLEN_BITS-1:0] upd_target   [COMMIT_WIDTH];
   logic [COMMIT_WIDTH-1:0] upd_pred_dir;
   logic [COMMIT_WIDTH-1:0] upd_alt_pred;
   logic [2:0]  upd_pcpn     [COMMIT_WIDTH];
@@ -159,12 +159,12 @@ module core_front import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*;
   logic [31:0] fe_instructions    [FETCH_WIDTH];
   logic [FETCH_WIDTH-1:0] fe_page_fault_inst;
   logic [FETCH_WIDTH-1:0] fe_predict_dir;
-  logic [31:0] fe_pc              [FETCH_WIDTH];
+  logic [XLEN_BITS-1:0] fe_pc              [FETCH_WIDTH];
   logic [FETCH_WIDTH-1:0] fe_alt_pred;
   logic [front_pkg::PCPN_W-1:0]     fe_pcpn    [FETCH_WIDTH];
   logic [TAGE_IDX_W-1:0] fe_tage_idx [FETCH_WIDTH][TN_MAX];
   logic [TAGE_TAG_W-1:0] fe_tage_tag [FETCH_WIDTH][TN_MAX];
-  logic [31:0] fe_predict_next_fetch_address;
+  logic [XLEN_BITS-1:0] fe_predict_next_fetch_address;
   logic [BCK_W-1:0] fe_bpu_ck;
   logic [FETCH_WIDTH-1:0][KIND_W-1:0] fe_slot_kind;
 

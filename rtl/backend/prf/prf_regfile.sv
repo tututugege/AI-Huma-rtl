@@ -9,12 +9,12 @@ module prf_regfile import ttg_cfg_pkg::*; #(
   input  logic                     clk,
   input  logic                     rst_n,
   input  logic [NREG-1:0]          reg_wr_en,
-  input  logic [31:0]              reg_wr_data [NREG],
+  input  logic [XLEN_BITS-1:0]              reg_wr_data [NREG],
   input  logic [PRF_IDX_WIDTH-1:0] rd_addr [2][LANES],
-  output logic [31:0]              rd_data [2][LANES]
+  output logic [XLEN_BITS-1:0]              rd_data [2][LANES]
 );
 
-  logic [31:0] reg_file_q [NREG];
+  logic [XLEN_BITS-1:0] reg_file_q [NREG];
 
   // Ref: Prf::comb_read (register file part)
   always_comb begin

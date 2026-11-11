@@ -22,13 +22,13 @@ module dcache_s2_ld
   input  logic [2:0]           icache_req_s2,
   input  logic [WAYS-1:0]      rd_valid    [NLD],
   input  logic [TAG_W-1:0]     rd_tag      [NLD][WAYS],
-  input  logic [31:0]          rd_data     [NLD][WAYS],
+  input  logic [DW-1:0]          rd_data     [NLD][WAYS],
   input  logic [NLD-1:0]       byp_valid,
-  input  logic [31:0]          byp_data    [NLD],
+  input  logic [DW-1:0]          byp_data    [NLD],
   input  logic [NLD-1:0]       find_hit,
   input  logic [CNT_W-1:0]     free_in,
   output logic [NLD-1:0]       resp_valid,
-  output logic [31:0]          resp_data   [NLD],
+  output logic [DW-1:0]          resp_data   [NLD],
   output logic [NLD-1:0]       resp_retry,
   output logic [1:0]           resp_replay [NLD],
   output logic [NLD-1:0]       mreq_en,                 // allocate / request an MSHR entry
@@ -52,7 +52,7 @@ module dcache_s2_ld
   for (genvar i = 0; i < NLD; i++) begin : g_ld
     logic [WAYS-1:0] hit_in, hit_oh;
     logic            hit_any;
-    logic [31:0]     hit_data;
+    logic [DW-1:0]     hit_data;
     logic            probe, normal;
     logic [TAG_W-1:0] tag;
     assign tag = slot_addr[i][31 -: TAG_W];

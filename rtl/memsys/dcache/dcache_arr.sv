@@ -16,7 +16,7 @@ module dcache_arr
   output logic [WAYS-1:0]      rd_valid  [NSLOT],
   output logic [WAYS-1:0]      rd_pf     [NSLOT],
   output logic [TAG_W-1:0]     rd_tag    [NSLOT][WAYS],
-  output logic [31:0]          rd_data   [NSLOT][WAYS],
+  output logic [DW-1:0]          rd_data   [NSLOT][WAYS],
   // fill snapshot: whole set (4 ways) of the line being filled
   input  logic                 fs_en,
   input  logic [SET_W-1:0]     fs_set,
@@ -32,8 +32,8 @@ module dcache_arr
   input  logic [SET_W-1:0]     sw_set    [NST],
   input  logic [1:0]           sw_way    [NST],
   input  logic [WORD_W-1:0]    sw_word   [NST],
-  input  logic [31:0]          sw_data   [NST],
-  input  logic [3:0]           sw_strb   [NST],
+  input  logic [DW-1:0]          sw_data   [NST],
+  input  logic [SBW-1:0]           sw_strb   [NST],
   input  st2_t                 sw_l2     [NST],
   input  logic [NSLOT-1:0]     lu_en,                 // PLRU touch of a slot's set (hit way)
   input  logic [1:0]           lu_way    [NSLOT],
@@ -122,7 +122,7 @@ module dcache_arr
     assign rd_pf[k]    = b_pf[bk];
     for (genvar w = 0; w < WAYS; w++) begin : g_way
       assign rd_tag[k][w]  = b_tag[bk][w];
-      assign rd_data[k][w] = line_word(b_line[bk][w], rd_addr[k][2 +: WORD_W]);
+      assign rd_data[k][w] = line_word(b_line[bk][w], rd_addr[k][SB_OFF +: WORD_W]);
     end
   end
 

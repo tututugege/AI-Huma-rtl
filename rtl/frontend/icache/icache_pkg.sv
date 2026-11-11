@@ -30,7 +30,7 @@ package icache_pkg;
   // all registers of the control FSM except the two 512-bit data registers (resp_line_q, probe_line_q)
   typedef struct packed {
     logic                   req_valid;      // req_valid_r
-    logic [31:0]            req_pc;         // req_pc_r (req_index_r = req_pc[11:6])
+    logic [XLEN_BITS-1:0]            req_pc;         // req_pc_r (req_index_r = req_pc[11:6])
     logic                   ifu_ready;      // ifu_req_ready_r
     ic_state_e              state;
     logic                   miss_txv;       // miss_txid_valid_r
@@ -47,7 +47,7 @@ package icache_pkg;
   } ic_regs_t;
 
   localparam ic_regs_t IC_REGS_RESET = '{
-    req_valid: 1'b0, req_pc: 32'd0,
+    req_valid: 1'b0, req_pc: '0,
     // see docs/modules/icache.md 4.1 item 5 (C++ holds 1 but the first peek also sees a false module output)
     ifu_ready: 1'b0,
     state: IC_IDLE, miss_txv: 1'b0, miss_txid: '0, ready_seen: 1'b0, inflight: '0, canceled: '0,

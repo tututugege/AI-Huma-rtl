@@ -6,7 +6,7 @@
 // register (not the requesting port's), it becomes a refill of this cycle. The caller decides whether a faulting /
 // permission-failing
 // response is consumed too (cancel) or left for a requesting port to turn into a FAULT (translate).
-module tlb_mmu_early import tlb_mmu_pkg::*; (
+module tlb_mmu_early import tlb_mmu_pkg::*; import ttg_cfg_pkg::*; (
   input  tlb_mmu_walk_t       walk,
   input  logic                resp_valid,
   input  tlb_mmu_ptw_resp_t   resp,
@@ -22,10 +22,9 @@ module tlb_mmu_early import tlb_mmu_pkg::*; (
     perm_pass = perm_ok(resp.perm, walk.access_type, walk.eff_priv, walk.sum, walk.mxr);
     refill_ok = done && !resp.fault && perm_pass;
     refill.tag.global_page = resp.perm[PERM_G];
-    refill.tag.asid = walk.satp[30:22];
+    refill.tag.asid = satp_asid(walk.satp);
     refill.tag.level = resp.level;
-    refill.tag.vpn1 = walk.vpn[VPN_W-1:VPN_PART_W];
-    refill.tag.vpn0 = walk.vpn[VPN_PART_W-1:0];
+    refill.tag.vpn = walk.vpn;
     refill.xlat = '{level: resp.level, ppn: resp.ppn, perm: resp.perm};
   end
 

@@ -16,16 +16,17 @@ module sdu_bank
   input  logic             consume    [N],
   input  logic             is_atomic  [N],
   input  logic [AMO_W-1:0] amo_op     [N],
-  input  logic [31:0]      src1_rdata [N],
-  input  logic [31:0]      src2_rdata [N],
+  input  logic             amo_w      [N],
+  input  logic [XLEN_BITS-1:0]      src1_rdata [N],
+  input  logic [XLEN_BITS-1:0]      src2_rdata [N],
   output logic             complete   [N],
   output logic             ready      [N],
-  output logic [31:0]      result     [N]
+  output logic [XLEN_BITS-1:0]      result     [N]
 );
 
   for (genvar i = 0; i < N; i++) begin : g_sdu
     sdu u_sdu (
-      .en(en[i]), .consume(consume[i]), .is_atomic(is_atomic[i]), .amo_op(amo_op[i]),
+      .en(en[i]), .consume(consume[i]), .is_atomic(is_atomic[i]), .amo_op(amo_op[i]), .amo_w(amo_w[i]),
       .src1_rdata(src1_rdata[i]), .src2_rdata(src2_rdata[i]),
       .complete(complete[i]), .ready(ready[i]), .result(result[i])
     );

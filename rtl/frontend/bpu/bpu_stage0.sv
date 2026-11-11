@@ -4,17 +4,17 @@
 // Index record of every bank for the block that issues in S0: the slot of bank b is the block pc with pc[4:2] == b, its
 // TAGE index / tag come from the speculative folded histories and the bank pc.  The records are registered with the
 // block and address the arrays in S1.
-module bpu_stage0 import bpu_pkg::*; import bpu_stage_pkg::*; (
-  input  logic [31:0]  base,
+module bpu_stage0 import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; (
+  input  logic [XLEN_BITS-1:0]  base,
   input  fh_t          spec_fh,
   output tix_all_t     tix
 );
 
-  logic [31:0] slot_pc [NBANK];
+  logic [XLEN_BITS-1:0] slot_pc [NBANK];
 
   always_comb begin
     for (int b = 0; b < NBANK; b++) begin
-      slot_pc[b] = base + 32'(4 * ((b - int'(base[BANK_W + 1:2])) & (NBANK - 1)));
+      slot_pc[b] = base + XLEN_BITS'(32'(4 * ((b - int'(base[BANK_W + 1:2])) & (NBANK - 1))));
       tix[b]     = tage_index(slot_pc[b][T_BASE_W + BANK_W + 2 - 1:BANK_W + 2], spec_fh);
     end
   end

@@ -20,7 +20,7 @@ module ptw_walk_client import memcpu_pkg::*; (
   output logic [PT_VPN_W-1:0]     resp_vpn,
   output logic [PT_PPN_W-1:0]     resp_leaf_ppn,
   output logic [PT_PERM_W-1:0]    resp_leaf_perm,
-  output logic                    resp_leaf_level,
+  output logic [PT_LVL_W-1:0]     resp_leaf_level,
   // walker side
   output logic                    pending_a,        // pending after this cycle's latch (selection candidate)
   output logic [PT_VPN_W-1:0]     vpn_a,            // request after this cycle's latch
@@ -30,14 +30,15 @@ module ptw_walk_client import memcpu_pkg::*; (
   input  logic                    pub_fault,
   input  logic [PT_PPN_W-1:0]     pub_ppn,
   input  logic [PT_PERM_W-1:0]    pub_perm,
-  input  logic                    pub_level1
+  input  logic [PT_LVL_W-1:0]     pub_level
 );
 
   /* verilator lint_off UNUSEDSIGNAL */  // root ppn bits [21:20] are shifted out of the 32-bit address
   wire [PT_PPN_IN_W-1:0] req_root_ppn_w = req_root_ppn;
   /* verilator lint_on UNUSEDSIGNAL */
 
-  logic                 pending_q, inflight_q, resp_valid_q, fault_q, level_q;
+  logic                 pending_q, inflight_q, resp_valid_q, fault_q;
+  logic [PT_LVL_W-1:0]  level_q;
   logic [PT_VPN_W-1:0]  vpn_q;
   logic [PT_PPN_W-1:0]  root_q, leaf_ppn_q;
   logic [PT_PERM_W-1:0] perm_q;
@@ -79,7 +80,7 @@ module ptw_walk_client import memcpu_pkg::*; (
       fault_q    <= 1'b0;
       leaf_ppn_q <= '0;
       perm_q     <= '0;
-      level_q    <= 1'b0;
+      level_q    <= '0;
     end else if (cpu_en) begin
       if (latch) begin
         vpn_q  <= req_vpn;
@@ -89,7 +90,7 @@ module ptw_walk_client import memcpu_pkg::*; (
         fault_q    <= pub_fault;
         leaf_ppn_q <= pub_fault ? '0 : pub_ppn;
         perm_q     <= pub_fault ? '0 : pub_perm;
-        level_q    <= !pub_fault && pub_level1;
+        level_q    <= pub_fault ? '0 : pub_level;
       end
     end
   end

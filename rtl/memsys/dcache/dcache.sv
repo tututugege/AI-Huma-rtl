@@ -19,8 +19,8 @@ module dcache
   input  logic                 ld_req_replay [NLD],
   input  logic                 st_req_valid  [NST],
   input  logic [31:0]          st_req_addr   [NST],
-  input  logic [31:0]          st_req_data   [NST],
-  input  logic [3:0]           st_req_strb   [NST],
+  input  logic [DW-1:0]          st_req_data   [NST],
+  input  logic [SBW-1:0]           st_req_strb   [NST],
   input  st2_t                 st_req_l2     [NST],
   input  logic [31:0]          st_req_id     [NST],
   input  logic [2:0]           icache_req,
@@ -34,7 +34,7 @@ module dcache
   input  logic                 wb_resp_valid,
   // published response
   output logic                 ld_resp_valid  [NLD],
-  output logic [31:0]          ld_resp_data   [NLD],
+  output logic [DW-1:0]          ld_resp_data   [NLD],
   output logic [31:0]          ld_resp_id     [NLD],
   output logic                 ld_resp_retry  [NLD],
   output logic [1:0]           ld_resp_replay [NLD],
@@ -74,8 +74,9 @@ module dcache
 
   // ------------------------------------------------------------ stage-1 registers
   logic [NSLOT-1:0]     slot_valid, slot_replayed, slot_granted, retry_issue, pend_valid, retry_busy;
-  logic [31:0]          slot_addr [NSLOT], slot_id [NSLOT], slot_data [NST];
-  logic [3:0]           slot_strb [NST];
+  logic [31:0]          slot_addr [NSLOT], slot_id [NSLOT];
+  logic [DW-1:0]        slot_data [NST];
+  logic [SBW-1:0]           slot_strb [NST];
   st2_t                 slot_l2   [NST];
   logic [2:0]           icache_req_s2;
   logic                 s2f_valid, s2f_dirty, s2f_pf, same_fill;
@@ -98,14 +99,14 @@ module dcache
   for (genvar i = 0; i < NLD; i++) begin : g_ldv
     assign slot_line[i] = slot_addr[i][31:OFF_W];
     assign ld_line[i]   = slot_addr[i][31:OFF_W];
-    assign ld_word[i]   = slot_addr[i][2 +: WORD_W];
+    assign ld_word[i]   = slot_addr[i][SB_OFF +: WORD_W];
     assign ld_addr[i]   = slot_addr[i];
   end
   for (genvar i = 0; i < NST; i++) begin : g_stv
     assign slot_line[NLD+i] = slot_addr[NLD+i][31:OFF_W];
     assign st_line[i]       = slot_addr[NLD+i][31:OFF_W];
     assign st_set[i]        = slot_addr[NLD+i][OFF_W +: SET_W];
-    assign st_word[i]       = slot_addr[NLD+i][2 +: WORD_W];
+    assign st_word[i]       = slot_addr[NLD+i][SB_OFF +: WORD_W];
     assign st_addr[i]       = slot_addr[NLD+i];
   end
 
@@ -117,7 +118,7 @@ module dcache
   logic [LINE_W-1:0]    fr_line;
   logic [LINE_BITS-1:0] fr_data, frf_data;
   logic [NLD-1:0]       byp_hit;
-  logic [31:0]          byp_data [NLD];
+  logic [DW-1:0]          byp_data [NLD];
   logic [NST-1:0]       wb_mrg_ok, wb_mrg_busy;
 
   // ------------------------------------------------------------ arrays
@@ -125,14 +126,14 @@ module dcache
   logic [WAYS-1:0]      rd_pf    [NSLOT];
   logic [WAYS-1:0]      ld_rd_pf [NLD];
   logic [TAG_W-1:0]     rd_tag   [NSLOT][WAYS];
-  logic [31:0]          rd_data  [NSLOT][WAYS];
+  logic [DW-1:0]          rd_data  [NSLOT][WAYS];
   logic [WAYS-1:0]      fs_valid, fs_dirty;
   logic [2:0]           fs_plru;
   logic [TAG_W-1:0]     fs_tag   [WAYS];
   logic [LINE_BITS-1:0] fs_line  [WAYS];
   logic [WAYS-1:0]      ld_rd_valid [NLD], st_rd_valid [NST];
   logic [TAG_W-1:0]     ld_rd_tag   [NLD][WAYS], st_rd_tag [NST][WAYS];
-  logic [31:0]          ld_rd_data  [NLD][WAYS];
+  logic [DW-1:0]          ld_rd_data  [NLD][WAYS];
   for (genvar i = 0; i < NLD; i++) begin : g_rdl
     assign ld_rd_valid[i] = rd_valid[i];
     assign ld_rd_pf[i]    = rd_pf[i];
@@ -147,7 +148,7 @@ module dcache
 
   // ------------------------------------------------------------ stage 2
   logic [NLD-1:0]       ld_mreq, ld_lu, s2ld_valid, s2ld_retry;
-  logic [31:0]          s2ld_data [NLD];
+  logic [DW-1:0]          s2ld_data [NLD];
   logic [1:0]           s2ld_replay [NLD], ld_lu_way [NLD];
   logic [CNT_W-1:0]     ld_alloc_cnt, st_alloc_cnt, pf_free;
   // verilator lint_off UNUSEDSIGNAL

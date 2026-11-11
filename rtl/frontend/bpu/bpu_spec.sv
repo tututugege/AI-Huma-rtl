@@ -12,10 +12,10 @@ module bpu_spec import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
   input  logic                rst_n,
   // commit stream (architectural copies)
   input  logic [NCOMMIT-1:0]  upd_valid,
-  input  logic [31:0]         base_pc  [NCOMMIT],
+  input  logic [XLEN_BITS-1:0]         base_pc  [NCOMMIT],
   input  logic [2:0]          br_type  [NCOMMIT],
   input  logic [NCOMMIT-1:0]  actual_dir,
-  input  logic [31:0]         target   [NCOMMIT],
+  input  logic [XLEN_BITS-1:0]         target   [NCOMMIT],
   // speculative update command
   input  logic [1:0]          h_mode,
   input  hist_ck_t            h_ck,
@@ -24,21 +24,21 @@ module bpu_spec import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
   input  logic [1:0]          r_mode,
   input  ras_ck_t             r_ck,
   input  logic [1:0]          r_op,
-  input  logic [31:0]         r_val,
+  input  logic [XLEN_BITS-1:0]         r_val,
   // second step on the state the command leaves: the S0 push of FE_RFAST bit0 / FE_BFAST (en = 0 / op = 0 otherwise)
   input  logic                h2_en,
   input  logic [HSYM_W-1:0]   h2_bits,
   input  logic [1:0]          r2_op,
-  input  logic [31:0]         r2_val,
+  input  logic [XLEN_BITS-1:0]         r2_val,
   // state before this cycle's update
   output ck_t                 spec_ck,
   output logic                spec_ras_nonempty,
-  output logic [31:0]         spec_ras_top,
+  output logic [XLEN_BITS-1:0]         spec_ras_top,
   output fh_t                 spec_fh,
   // state after the command, before the second step (the state S0 looks up with in the FAST configuration)
   output ck_t                 spec1_ck,
   output logic                spec1_ras_nonempty,
-  output logic [31:0]         spec1_ras_top,
+  output logic [XLEN_BITS-1:0]         spec1_ras_top,
   output fh_t                 spec1_fh,
   // REFONLY: refetch flag and the refetch-only command (see bpu_cmd); spec1_* then is the state after that command
   input  logic                refetch,
@@ -49,7 +49,7 @@ module bpu_spec import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
   input  logic [1:0]          rr_mode,
   input  ras_ck_t             rr_ck,
   input  logic [1:0]          rr_op,
-  input  logic [31:0]         rr_val
+  input  logic [XLEN_BITS-1:0]         rr_val
 );
 
   localparam bit FAST    = (FE_RFAST & 1) != 0 || FE_BFAST != 0;
@@ -88,7 +88,7 @@ module bpu_spec import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
     aras_d = aras_q;
     for (int i = 0; i < NCOMMIT; i++) begin
       if (upd_valid[i]) begin
-        if (br_type[i] == BR_CALL || br_type[i] == BR_ICALL) aras_d = ras_push(aras_d, base_pc[i] + 32'd4);
+        if (br_type[i] == BR_CALL || br_type[i] == BR_ICALL) aras_d = ras_push(aras_d, base_pc[i] + XLEN_BITS'(4));
         else if (br_type[i] == BR_RET)                       aras_d = ras_pop(aras_d);
       end
     end

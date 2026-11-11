@@ -4,6 +4,7 @@
 // Pure functions of the BTB: all arithmetic is 32-bit unsigned like the C++ (the hash input is the BANK pc = pc>>3).
 // The target cache / BHT of the zero-bubble design are replaced by the history-indexed ITT.
 package bpu_btb_pkg;
+  import ttg_cfg_pkg::*;
   import bpu_pkg::*;
 
   localparam logic [31:0] SALT_BTB_IDX = 32'h9e3779b9;
@@ -12,14 +13,14 @@ package bpu_btb_pkg;
     logic [2:0]         useful;
     logic               valid;
     logic [B_TAG_W-1:0] tag;
-    logic [31:0]        bta;
+    logic [XLEN_BITS-1:0]        bta;
   } btb_ent_t;
 
-  function automatic logic [B_IDX_W-1:0] btb_idx_of(input logic [31:0] bank_pc);
-    return B_IDX_W'(hash_fold(bank_pc >> 2, B_IDX_W, SALT_BTB_IDX));
+  function automatic logic [B_IDX_W-1:0] btb_idx_of(input logic [XLEN_BITS-1:0] bank_pc);
+    return B_IDX_W'(hash_fold(32'(bank_pc >> 2), B_IDX_W, SALT_BTB_IDX));   // low 32 bits of the word address
   endfunction
 
-  function automatic logic [B_TAG_W-1:0] btb_tag_of(input logic [31:0] bank_pc);
+  function automatic logic [B_TAG_W-1:0] btb_tag_of(input logic [XLEN_BITS-1:0] bank_pc);
     return B_TAG_W'((bank_pc >> 2) >> B_IDX_W);
   endfunction
 

@@ -5,24 +5,28 @@
 // funct7[6:2].  Unlisted AMO encodings (LR/SC/reserved) pass src2, as in the C++ `default:` arm.
 module sdu
   import exu_fu_pkg::*;
+  import ttg_cfg_pkg::*;
 (
   input  logic             en,
   input  logic             consume,
   input  logic             is_atomic,
   input  logic [AMO_W-1:0] amo_op,
-  input  logic [31:0]      src1_rdata,
-  input  logic [31:0]      src2_rdata,
+  input  logic             amo_w,      // amo*.w: min/max compare the low word (rv64)
+  input  logic [XLEN_BITS-1:0]      src1_rdata,
+  input  logic [XLEN_BITS-1:0]      src2_rdata,
   output logic             complete,
   output logic             ready,
-  output logic [31:0]      result
+  output logic [XLEN_BITS-1:0]      result
 );
 
   exu_fu_sc_ctl u_ctl (.en(en), .consume(consume), .complete(complete), .ready(ready));
 
   logic lt_s, lt_u;
   always_comb begin
-    lt_s = $signed(src1_rdata) < $signed(src2_rdata);  // amomin/amomax compare signed
-    lt_u = src1_rdata < src2_rdata;
+    lt_s = (XLEN_BITS == 64 && amo_w) ? ($signed(src1_rdata[XLEN_BITS/2-1:0]) < $signed(src2_rdata[XLEN_BITS/2-1:0]))
+                                       : ($signed(src1_rdata) < $signed(src2_rdata));  // amomin/amomax compare signed
+    lt_u = (XLEN_BITS == 64 && amo_w) ? (src1_rdata[XLEN_BITS/2-1:0] < src2_rdata[XLEN_BITS/2-1:0])
+                                       : (src1_rdata < src2_rdata);
   end
 
   // Ref: SduUnit::impl_compute

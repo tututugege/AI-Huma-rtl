@@ -17,17 +17,17 @@ module bru_bank
   input  logic [OP_W-1:0] op             [N],
   input  logic [2:0]      func3          [N],
   input  logic            src1_en        [N],
-  input  logic [31:0]     src1_rdata     [N],
-  input  logic [31:0]     src2_rdata     [N],
-  input  logic [31:0]     pc             [N],
+  input  logic [XLEN_BITS-1:0]     src1_rdata     [N],
+  input  logic [XLEN_BITS-1:0]     src2_rdata     [N],
+  input  logic [XLEN_BITS-1:0]     pc             [N],
   input  logic [31:0]     imm            [N],
   input  logic            ftq_pred_taken [N],
-  input  logic [31:0]     ftq_next_pc    [N],
+  input  logic [XLEN_BITS-1:0]     ftq_next_pc    [N],
   output logic            complete       [N],
   output logic            ready          [N],
   output logic            br_taken       [N],
   output logic            mispred        [N],
-  output logic [31:0]     diag_val       [N]
+  output logic [XLEN_BITS-1:0]     diag_val       [N]
 );
 
   for (genvar i = 0; i < N; i++) begin : g_bru

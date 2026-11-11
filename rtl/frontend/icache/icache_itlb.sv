@@ -8,7 +8,7 @@
 // Modes per cycle (fence > cancel > translate): SFENCE.VMA flush, refetch cancels the walk.  Assumption
 // (docs/modules/icache.md):
 // itlb_flush always comes together with refetch, as in BackTop (SFENCE.VMA also flushes the pipe).
-module icache_itlb import icache_pkg::*; import tlb_mmu_pkg::*; #(
+module icache_itlb import ttg_cfg_pkg::*; import icache_pkg::*; import tlb_mmu_pkg::*; #(
   parameter int ENTRIES = 64
 ) (
   input  logic        clk,
@@ -16,8 +16,8 @@ module icache_itlb import icache_pkg::*; import tlb_mmu_pkg::*; #(
   input  logic        itlb_flush,
   input  logic        refetch,
   input  logic        mmu_req_valid,
-  input  logic [VPN_W-1:0] mmu_req_vtag,
-  input  logic [31:0] csr_satp,
+  input  logic [XLEN_BITS-13:0] mmu_req_vtag,
+  input  logic [XLEN_BITS-1:0] csr_satp,
   input  logic [1:0]  csr_privilege,
   input  logic        csr_mxr,
   input  logic        csr_sum,
@@ -27,7 +27,7 @@ module icache_itlb import icache_pkg::*; import tlb_mmu_pkg::*; #(
   input  logic        ptw_resp_valid,
   input  logic        ptw_resp_fault,
   input  logic [VPN_W-1:0] ptw_resp_vpn,
-  input  logic        ptw_resp_leaf_level,
+  input  logic [LVL_W-1:0]        ptw_resp_leaf_level,
   input  logic [PPN_W-1:0] ptw_resp_leaf_ppn,
   input  logic [PERM_W-1:0] ptw_resp_leaf_perm,
   output logic        ppn_valid,
@@ -45,7 +45,7 @@ module icache_itlb import icache_pkg::*; import tlb_mmu_pkg::*; #(
                       ppn: ptw_resp_leaf_ppn, perm: ptw_resp_leaf_perm};
 
   logic        lane_req_valid [1];
-  logic [31:0] lane_req_vaddr [1];
+  logic [XLEN_BITS-1:0] lane_req_vaddr [1];
   logic        lane_resp_valid [1];
   logic [1:0]  lane_resp_result [1];
   logic [31:0] lane_resp_paddr [1];

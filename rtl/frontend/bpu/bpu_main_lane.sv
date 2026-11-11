@@ -3,7 +3,7 @@
 
 // Compare-stage result of one slot of the block in S2: branch type (type predictor tag compare), direction, target.
 // The slot's bank data are chosen by the caller (slot i of a block that starts at bank b0 lives in bank b0 + i).
-module bpu_main_lane import bpu_pkg::*; import bpu_btb_pkg::*; import bpu_stage_pkg::*; (
+module bpu_main_lane import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_btb_pkg::*; import bpu_stage_pkg::*; (
   input  logic [31:BANK_W]    pc,           // slot pc without the byte / bank bits that are not needed
   input  logic                valid,           // pc < block end
   input  tp_entry_t           ty_way [TP_WAYS],
@@ -13,12 +13,12 @@ module bpu_main_lane import bpu_pkg::*; import bpu_btb_pkg::*; import bpu_stage_
   input  logic [NITT-1:0][T_TAG_W-1:0] itt_tag,
   output logic [2:0]          ty,
   output logic                taken,
-  output logic [31:0]         target
+  output logic [XLEN_BITS-1:0]         target
 );
 
   logic [TP_WAYS-1:0] ty_hit;
   logic [TP_TAG_W-1:0] tag;
-  logic [31:0]         bank_pc;
+  logic [XLEN_BITS-1:0]         bank_pc;
 
   // Ref: TypePred::select
   always_comb begin
@@ -28,7 +28,7 @@ module bpu_main_lane import bpu_pkg::*; import bpu_btb_pkg::*; import bpu_stage_
     // Ref: main_select: taken
     taken = valid && ty != BR_NONCTL &&
             (ty == BR_RET || ty == BR_CALL || ty == BR_ICALL || ty == BR_IDIRECT || ty == BR_JAL || tg_pred);
-    bank_pc = {{BANK_W{1'b0}}, pc};
+    bank_pc = XLEN_BITS'(pc);
   end
 
   bpu_btb_sel u_sel (

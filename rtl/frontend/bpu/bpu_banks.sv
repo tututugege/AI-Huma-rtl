@@ -6,11 +6,11 @@
 //       array data leave the module to be registered into S2.
 //   S2  the TAGE banks do their compare / select (provider, alternate, use-alt counter of the bank).
 //   update  the write ports of the update queue: at most one entry per bank and cycle.
-module bpu_banks import bpu_pkg::*; import bpu_btb_pkg::*; import bpu_stage_pkg::*; (
+module bpu_banks import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_btb_pkg::*; import bpu_stage_pkg::*; (
   input  logic                clk,
   input  logic                rst_n,
   // S1 read
-  input  logic [31:0]         s1_base,
+  input  logic [XLEN_BITS-1:0]         s1_base,
   input  tix_all_t            s1_tix,
   output raw_all_t            s1_raw,
   // S2 TAGE select
@@ -24,14 +24,14 @@ module bpu_banks import bpu_pkg::*; import bpu_btb_pkg::*; import bpu_stage_pkg:
   input  upd_ent_t            wr_ent     [NBANK]
 );
 
-  logic [31:0]  slot_pc  [NBANK];     // pc of the block's slot that lives in bank b
-  logic [31:0]  wr_pc    [NBANK];
+  logic [XLEN_BITS-1:0]  slot_pc  [NBANK];     // pc of the block's slot that lives in bank b
+  logic [XLEN_BITS-1:0]  wr_pc    [NBANK];
   tp_entry_t    ty_rd    [NBANK][TP_WAYS];
   logic [2:0]   wr_ty    [NBANK];
 
   always_comb begin
     for (int b = 0; b < NBANK; b++) begin
-      slot_pc[b] = s1_base + 32'(4 * ((b - int'(s1_base[BANK_W + 1:2])) & (NBANK - 1)));
+      slot_pc[b] = s1_base + XLEN_BITS'(32'(4 * ((b - int'(s1_base[BANK_W + 1:2])) & (NBANK - 1))));
       wr_pc[b]   = wr_ent[b].pc;
       wr_ty[b]   = wr_ent[b].ty;
     end
@@ -75,8 +75,8 @@ module bpu_banks import bpu_pkg::*; import bpu_btb_pkg::*; import bpu_stage_pkg:
     );
 
     bpu_btb_bank u_btb (
-      .clk, .rst_n, .rd_pc(slot_pc[b][31:BANK_W]), .rd_itt_idx,
-      .rd_btb(btb_rd), .rd_itt(itt_rd), .upd_valid(wr_valid[b]), .upd_pc(wr_pc[b][31:BANK_W]),
+      .clk, .rst_n, .rd_pc(slot_pc[b][XLEN_BITS-1:BANK_W]), .rd_itt_idx,
+      .rd_btb(btb_rd), .rd_itt(itt_rd), .upd_valid(wr_valid[b]), .upd_pc(wr_pc[b][XLEN_BITS-1:BANK_W]),
       .upd_actual_addr(wr_ent[b].tgt), .upd_br_type_in(wr_ent[b].ty), .upd_actual_dir(wr_ent[b].dir),
       .upd_itt_idx, .upd_itt_tag
     );

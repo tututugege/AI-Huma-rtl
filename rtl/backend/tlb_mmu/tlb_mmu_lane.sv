@@ -7,13 +7,13 @@
 //   bare mode            -> HIT, paddr = vaddr
 //   refill / table hit   -> permission check -> HIT or FAULT
 //   miss                 -> walk state machine: start / wait / request / consume the response
-module tlb_mmu_lane import tlb_mmu_pkg::*; #(
+module tlb_mmu_lane import tlb_mmu_pkg::*; import ttg_cfg_pkg::*; #(
   parameter logic [1:0] ACCESS_TYPE = ACC_LOAD
 ) (
   input  logic                valid,
-  input  logic [31:0]         vaddr,
+  input  logic [XLEN_BITS-1:0]         vaddr,
   // translation context (shared by all ports of the cycle)
-  input  logic [31:0]         satp,
+  input  logic [XLEN_BITS-1:0]         satp,
   input  logic [1:0]          privilege,
   input  logic                mxr,
   input  logic                sum,
@@ -34,7 +34,7 @@ module tlb_mmu_lane import tlb_mmu_pkg::*; #(
 );
 
   logic [1:0]       eff_priv;
-  logic             bare;
+  logic             bare, noncanon;
   logic [VPN_W-1:0] vpn;
   logic [ASID_W-1:0] asid;
   // hit path
@@ -51,9 +51,10 @@ module tlb_mmu_lane import tlb_mmu_pkg::*; #(
 
   always_comb begin
     eff_priv = effective_priv(ACCESS_TYPE, privilege, mprv, mpp);
-    bare = eff_priv == 2'd3 || !satp[31];
-    vpn = vaddr[31:12];
-    asid = satp[30:22];
+    bare = eff_priv == 2'd3 || !satp_on(satp);
+    vpn = vaddr[12 +: VPN_W];
+    asid = satp_asid(satp);
+    noncanon = !va_canonical(vaddr);
     refill_match = chain_in.refill_valid && tag_match(chain_in.refill.tag, vpn, asid);
     hit = refill_match || table_hit;
     hit_xlat = refill_match ? chain_in.refill.xlat : table_xlat;
@@ -71,8 +72,7 @@ module tlb_mmu_lane import tlb_mmu_pkg::*; #(
     resp_for_walk = ptw_resp.vpn == vpn;
     resp_perm_ok = perm_ok(ptw_resp.perm, ACCESS_TYPE, eff_priv, sum, mxr);
     new_xlat = '{level: ptw_resp.level, ppn: ptw_resp.ppn, perm: ptw_resp.perm};
-    new_refill.tag = '{global_page: ptw_resp.perm[PERM_G], asid: asid, level: ptw_resp.level,
-                       vpn1: vpn[VPN_W-1:VPN_PART_W], vpn0: vpn[VPN_PART_W-1:0]};
+    new_refill.tag = '{global_page: ptw_resp.perm[PERM_G], asid: asid, level: ptw_resp.level, vpn: vpn};
     new_refill.xlat = new_xlat;
   end
 
@@ -105,7 +105,7 @@ module tlb_mmu_lane import tlb_mmu_pkg::*; #(
             walk_result = RES_FAULT;
           end else begin
             walk_result = RES_HIT;
-            walk_paddr = compose_paddr(vaddr[21:0], new_xlat.level, new_xlat.ppn);
+            walk_paddr = compose_paddr(vaddr[VLOW_W-1:0], new_xlat.level, new_xlat.ppn);
             walk_chain.refill_valid = 1'b1;
             walk_chain.refill = new_refill;
           end
@@ -123,10 +123,13 @@ module tlb_mmu_lane import tlb_mmu_pkg::*; #(
     paddr = '0;
     if (valid && bare) begin
       result = RES_HIT;
-      paddr = vaddr;
+      // untranslated: above the 32-bit physical space an address maps to one outside RAM (as in the model)
+      paddr = (RV64 && (64'(vaddr) >> 32) != 64'd0) ? 32'h7fffffff : vaddr[31:0];
+    end else if (valid && noncanon) begin
+      result = RES_FAULT;   // Sv39: a non-canonical address is a page fault
     end else if (valid && hit) begin
       result = hit_perm_ok ? RES_HIT : RES_FAULT;
-      paddr = compose_paddr(vaddr[21:0], hit_xlat.level, hit_xlat.ppn);
+      paddr = compose_paddr(vaddr[VLOW_W-1:0], hit_xlat.level, hit_xlat.ppn);
     end else if (valid) begin
       chain_out = walk_chain;
       req_issued = walk_req_issued;

@@ -205,18 +205,19 @@ package exu_ctrl_pkg;
 
   // ---- an instruction held in a FU input slot (ExuInst fields that have a reader) -----------------------
   typedef struct packed {
-    logic [31:0]              pc;
+    logic [XLEN_BITS-1:0]              pc;
     logic                     ftq_pred_taken;
-    logic [31:0]              ftq_next_pc;
+    logic [XLEN_BITS-1:0]              ftq_next_pc;
     logic [PRF_IDX_WIDTH-1:0] dest_preg;
-    logic [31:0]              src1_rdata;
-    logic [31:0]              src2_rdata;
+    logic [XLEN_BITS-1:0]              src1_rdata;
+    logic [XLEN_BITS-1:0]              src2_rdata;
     logic [FTQ_IDX_WIDTH-1:0] ftq_idx;
     logic                     is_atomic;
     logic                     dest_en;
     logic                     src1_en;
     logic                     src1_is_pc;
     logic                     src2_is_imm;
+    logic                     is_word;
     logic [2:0]               func3;
     logic [6:0]               func7;
     logic [31:0]              imm;
@@ -234,12 +235,12 @@ package exu_ctrl_pkg;
   typedef struct packed {
     logic                     mc_ready;
     logic                     mc_complete;
-    logic [31:0]              result;
+    logic [XLEN_BITS-1:0]              result;
     logic [PRF_IDX_WIDTH-1:0] dest_preg;
     logic                     dest_en;
     logic [BR_MASK_WIDTH-1:0] br_mask;
     logic [ROB_IDX_WIDTH-1:0] rob_idx;
-    logic [31:0]              diag_val;
+    logic [XLEN_BITS-1:0]              diag_val;
     logic                     mispred;
     logic                     br_taken;
   } xc_fu_res_t;
@@ -247,19 +248,19 @@ package exu_ctrl_pkg;
   // a finished FU result as seen by arbitration / write-back / bypass (one per FU, uniform)
   typedef struct packed {
     logic                     complete;
-    logic [31:0]              result;
+    logic [XLEN_BITS-1:0]              result;
     logic [PRF_IDX_WIDTH-1:0] dest_preg;
     logic                     dest_en;
     logic [BR_MASK_WIDTH-1:0] br_mask;
     xc_op_t                   op;
     logic [ROB_IDX_WIDTH-1:0] rob_idx;
     logic                     rob_flag;
-    logic [31:0]              diag_val;
+    logic [XLEN_BITS-1:0]              diag_val;
     logic                     mispred;
     logic                     br_taken;
     logic [BR_TAG_WIDTH-1:0]  br_id;
     logic [FTQ_IDX_WIDTH-1:0] ftq_idx;
-    logic [31:0]              pc;          // pc of the instruction (the mispredicted branch: BPU history repair)
+    logic [XLEN_BITS-1:0]      pc; // pc of the instruction (the mispredicted branch: BPU history repair)
     logic [2:0]               func3;
     logic [4:0]               amo_op;      // func7[6:2]
     logic                     is_atomic;
@@ -271,8 +272,8 @@ package exu_ctrl_pkg;
   // a Lsu write-back request (loads, SC, store-address)
   typedef struct packed {
     logic                     valid;
-    logic [31:0]              diag_val;
-    logic [31:0]              result;
+    logic [XLEN_BITS-1:0]              diag_val;
+    logic [XLEN_BITS-1:0]              result;
     logic [PRF_IDX_WIDTH-1:0] dest_preg;
     logic [BR_MASK_WIDTH-1:0] br_mask;
     logic [ROB_IDX_WIDTH-1:0] rob_idx;

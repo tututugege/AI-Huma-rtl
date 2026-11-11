@@ -28,11 +28,11 @@ module lp_core
   input  lp_agu_st_t          ags [NST],
   // peripheral response
   input  logic                periph_is_mmio,
-  input  logic [31:0]         periph_rdata,
+  input  logic [XLEN_BITS-1:0]         periph_rdata,
   // DCache
   input  logic [NLD-1:0]      dcl_valid,
   input  logic [31:0]         dcl_req_id [NLD],
-  input  logic [31:0]         dcl_data [NLD],
+  input  logic [XLEN_BITS-1:0]         dcl_data [NLD],
   input  logic [1:0]          dcl_replay [NLD],
   input  logic [NST-1:0]      dcs_valid,
   input  logic [31:0]         dcs_req_id [NST],
@@ -64,8 +64,8 @@ module lp_core
   output logic [NLD-1:0]      o_cn_valid,
   output logic [PRFW-1:0]     o_cn_preg [NLD],
   output logic [NLD-1:0]      wb_valid,
-  output logic [31:0]         wb_diag [NLD],
-  output logic [31:0]         wb_result [NLD],
+  output logic [XLEN_BITS-1:0]         wb_diag [NLD],
+  output logic [XLEN_BITS-1:0]         wb_result [NLD],
   output logic [PRFW-1:0]     wb_dest [NLD],
   output logic [BRW-1:0]      wb_br [NLD],
   output logic [ROBW-1:0]     wb_rob [NLD],
@@ -75,14 +75,14 @@ module lp_core
   output logic [NLD-1:0]      wb_defer,
   output logic [NLD-1:0]      wb_flushp,
   output logic [NST-1:0]      sta_valid,
-  output logic [31:0]         sta_vaddr [NST],
+  output logic [XLEN_BITS-1:0]         sta_vaddr [NST],
   output logic [BRW-1:0]      sta_br [NST],
   output logic [ROBW-1:0]     sta_rob [NST],
   output logic [NST-1:0]      sta_pf,
   output logic                per_is_mmio,
   output logic                per_wen,
   output logic [31:0]         per_addr,
-  output logic [31:0]         per_wdata,
+  output logic [XLEN_BITS-1:0]         per_wdata,
   output logic [2:0]          per_func3,
   input  logic                periph_ready,
   output logic [NLD-1:0]      dcl_req_valid,
@@ -91,15 +91,15 @@ module lp_core
   output logic [30:0]         dcl_req_id_o [NLD],
   output logic [NST-1:0]      dcs_req_valid,
   output logic [31:0]         dcs_req_addr [NST],
-  output logic [31:0]         dcs_req_data [NST],
-  output logic [4:0]          dcs_req_strb [NST],
-  output logic [39:0]         dcs_req_l2 [NST],  // merged store {strb2, word2, data2}; strb2 == 0: none
+  output logic [XLEN_BITS-1:0]         dcs_req_data [NST],
+  output logic [DST_STRB_W-1:0] dcs_req_strb [NST],
+  output logic [DST_L2_W-1:0]  dcs_req_l2 [NST],  // merged store {strb2, word2, data2}; strb2 == 0: none
   output logic [SQW-1:0]      dcs_req_id_o [NST],
   output logic [NLD-1:0]      mmu_l_req_valid,
-  output logic [31:0]         mmu_l_req_vaddr [NLD],
+  output logic [XLEN_BITS-1:0]         mmu_l_req_vaddr [NLD],
   output logic [LQW-1:0]      mmu_l_req_idx [NLD],
   output logic [NST-1:0]      mmu_s_req_valid,
-  output logic [31:0]         mmu_s_req_vaddr [NST],
+  output logic [XLEN_BITS-1:0]         mmu_s_req_vaddr [NST],
   output logic [SQW-1:0]      mmu_s_req_idx [NST]
 );
   // ------------------------------------------------------------------ registers outside the queues
@@ -113,7 +113,7 @@ module lp_core
   lp_ldq_t         ldq_q [LQ];
   lp_stq_t         sq [SQ];
   logic [LQ-1:0]   empty_w, l2_ok, rs_ok, wbp3, wbp_m, pipe_r, wb3_r, wbp_r, pipe5, pipe8, empty8, dead_r, rdy9;
-  logic [31:0]     res_v [LQ];
+  logic [XLEN_BITS-1:0]     res_v [LQ];
   logic [EPW-1:0]  epoch_nx [LQ];
   logic [NLD-1:0]  ag_acc;
   logic            mi_v;
@@ -134,7 +134,7 @@ module lp_core
   // ------------------------------------------------------------------ uncached unit, reservation
   logic            unc_valid_q, unc_is_load_q, unc_valid_post_resp, unc_valid_pre_st, unc_valid_o, unc_is_load_o;
   logic [SQW-1:0]  unc_idx_q;
-  logic [31:0]     unc_addr_o, unc_wdata_o;
+  logic [31:0] unc_addr_o;  logic [XLEN_BITS-1:0] unc_wdata_o;
   logic [2:0]      unc_func3_o;
   logic            rsv_valid_q;
   logic [31:0]     rsv_addr_q;
@@ -143,10 +143,10 @@ module lp_core
 
   // ------------------------------------------------------------------ L2 and DCache responses (P3)
   lp_l2dec_t       l2_dec [NLD];
-  logic [31:0]     fwd_data [NLD];
+  logic [XLEN_BITS-1:0]     fwd_data [NLD];
   logic [NLD-1:0]  wbd_l2, rs_dir, wbd_v, wbd_hasdata;
   logic [LQW-1:0]  rs_idx [NLD], wbd_idx [NLD];
-  logic [31:0]     wbd_data [NLD];
+  logic [XLEN_BITS-1:0]     wbd_data [NLD];
   lp_l2 u_l2 (.pl12(pl12_q), .sq(sq), .alive_w(alive_w), .dec(l2_dec), .fwd_data(fwd_data));
 
   always_comb begin
@@ -158,14 +158,15 @@ module lp_core
       wbd_idx[p] = wbd_l2[p] ? pl12_q[p].ldq : rs_idx[p];
       wbd_hasdata[p] = wbd_l2[p] ? (pl12_q[p].tlb != TLB_PF) : 1'b1;
       wbd_data[p] = wbd_l2[p] ? fwd_data[p]
-                              : lsu_pkg::extract_data(dcl_data[p], ldq_q[rs_idx[p]].paddr[1:0], ldq_q[rs_idx[p]].func3);
+                              : lsu_pkg::extract_data(dcl_data[p], ldq_q[rs_idx[p]].paddr[lsu_pkg::OW-1:0],
+                                                    ldq_q[rs_idx[p]].func3);
     end
   end
 
   // ------------------------------------------------------------------ L3 register (LP_L2[0])
   logic [NLD-1:0]  wbw_v, wbw_hd;
   logic [LQW-1:0]  wbw_idx [NLD];
-  logic [31:0]     wbw_data [NLD];
+  logic [XLEN_BITS-1:0]     wbw_data [NLD];
   lp_l3 u_l3 (.clk(clk), .rst_n(rst_n), .wbd_v(wbd_v), .wbd_idx(wbd_idx), .wbd_hasdata(wbd_hasdata),
               .wbd_data(wbd_data), .wb3_r(wb3_r), .wbw_v(wbw_v), .wbw_idx(wbw_idx), .wbw_hd(wbw_hd),
               .wbw_data(wbw_data));
@@ -207,7 +208,6 @@ module lp_core
   logic [NST-1:0]  s1_v, s1_replay, tl_s_miss;
   logic [SQW-1:0]  s1_stq [NST];
   logic            srp_cons, srp_ok, pf_any;
-
   always_comb begin
     for (int r = 0; r < NRP; r++) begin
       rp_f[r] = ldq_q[rp_ldq_q[r]];
@@ -339,7 +339,7 @@ module lp_core
   // ------------------------------------------------------------------ store drain (P13), uncached unit, reservation
   logic [NST-1:0] dcs_busy_in;
   logic           st_set;
-  logic [31:0]    st_addr, st_wdata;
+  logic [31:0] st_addr;  logic [XLEN_BITS-1:0] st_wdata;
   logic [2:0]     st_func3;
   logic [SQW-1:0] st_idx;
   logic [SQ-1:0]  st_mmw;

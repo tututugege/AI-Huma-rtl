@@ -15,20 +15,21 @@ module exu
   input  logic dec_bcast_mispred,
   input  logic [BR_MASK_WIDTH-1:0] dec_bcast_br_mask,
   input  logic [BR_MASK_WIDTH-1:0] dec_bcast_clear_mask,
-  input  logic [31:0] csr2exe_rdata,
+  input  logic [XLEN_BITS-1:0] csr2exe_rdata,
   input  logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_valid,
-  input  logic [31:0] prf2exe_iss_entry_uop_pc [ISSUE_WIDTH],
+  input  logic [XLEN_BITS-1:0] prf2exe_iss_entry_uop_pc [ISSUE_WIDTH],
   input  logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_ftq_pred_taken,
-  input  logic [31:0] prf2exe_iss_entry_uop_ftq_next_pc [ISSUE_WIDTH],
+  input  logic [XLEN_BITS-1:0] prf2exe_iss_entry_uop_ftq_next_pc [ISSUE_WIDTH],
   input  logic [6:0] prf2exe_iss_entry_uop_dest_preg [ISSUE_WIDTH],
-  input  logic [31:0] prf2exe_iss_entry_uop_src1_rdata [ISSUE_WIDTH],
-  input  logic [31:0] prf2exe_iss_entry_uop_src2_rdata [ISSUE_WIDTH],
+  input  logic [XLEN_BITS-1:0] prf2exe_iss_entry_uop_src1_rdata [ISSUE_WIDTH],
+  input  logic [XLEN_BITS-1:0] prf2exe_iss_entry_uop_src2_rdata [ISSUE_WIDTH],
   input  logic [5:0] prf2exe_iss_entry_uop_ftq_idx [ISSUE_WIDTH],
   input  logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_is_atomic,
   input  logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_dest_en,
   input  logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_src1_en,
   input  logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_src1_is_pc,
   input  logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_src2_is_imm,
+  input  logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_is_word,
   input  logic [2:0] prf2exe_iss_entry_uop_func3 [ISSUE_WIDTH],
   input  logic [6:0] prf2exe_iss_entry_uop_func7 [ISSUE_WIDTH],
   input  logic [31:0] prf2exe_iss_entry_uop_imm [ISSUE_WIDTH],
@@ -41,8 +42,8 @@ module exu
   input  logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_rob_flag,
   input  logic [4:0] prf2exe_iss_entry_uop_op [ISSUE_WIDTH],
   input  logic [11:0] prf2exe_iss_entry_uop_csr_idx,
-  input  logic [31:0] lsu2exe_wb_req_uop_diag_val [LSU_LOAD_WB_WIDTH],
-  input  logic [31:0] lsu2exe_wb_req_uop_result [LSU_LOAD_WB_WIDTH],
+  input  logic [XLEN_BITS-1:0] lsu2exe_wb_req_uop_diag_val [LSU_LOAD_WB_WIDTH],
+  input  logic [XLEN_BITS-1:0] lsu2exe_wb_req_uop_result [LSU_LOAD_WB_WIDTH],
   input  logic [6:0] lsu2exe_wb_req_uop_dest_preg [LSU_LOAD_WB_WIDTH],
   input  logic [BR_MASK_WIDTH-1:0] lsu2exe_wb_req_uop_br_mask [LSU_LOAD_WB_WIDTH],
   input  logic [6:0] lsu2exe_wb_req_uop_rob_idx [LSU_LOAD_WB_WIDTH],
@@ -53,32 +54,32 @@ module exu
   input  logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_page_fault_store,
   input  logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_valid,
   input  logic [LSU_STA_COUNT-1:0] lsu2exe_sta_wb_req_valid,
-  input  logic [31:0] lsu2exe_sta_wb_req_uop_diag_val [LSU_STA_COUNT],
-  input  logic [31:0] lsu2exe_sta_wb_req_uop_result [LSU_STA_COUNT],
+  input  logic [XLEN_BITS-1:0] lsu2exe_sta_wb_req_uop_diag_val [LSU_STA_COUNT],
+  input  logic [XLEN_BITS-1:0] lsu2exe_sta_wb_req_uop_result [LSU_STA_COUNT],
   input  logic [BR_MASK_WIDTH-1:0] lsu2exe_sta_wb_req_uop_br_mask [LSU_STA_COUNT],
   input  logic [6:0] lsu2exe_sta_wb_req_uop_rob_idx [LSU_STA_COUNT],
   input  logic [LSU_STA_COUNT-1:0] lsu2exe_sta_wb_req_uop_page_fault_store,
   output logic exe2csr_we,
   output logic exe2csr_re,
   output logic [11:0] exe2csr_idx,
-  output logic [31:0] exe2csr_wdata,
+  output logic [XLEN_BITS-1:0] exe2csr_wdata,
   output logic [1:0] exe2csr_wcmd,
   output logic [17:0] exe2iss_fu_ready_mask [ISSUE_WIDTH],
   output logic [ISSUE_WIDTH-1:0] exe2prf_entry_valid,
   output logic [6:0] exe2prf_entry_uop_dest_preg [ISSUE_WIDTH],
-  output logic [31:0] exe2prf_entry_uop_result [ISSUE_WIDTH],
+  output logic [XLEN_BITS-1:0] exe2prf_entry_uop_result [ISSUE_WIDTH],
   output logic [BR_MASK_WIDTH-1:0] exe2prf_entry_uop_br_mask [ISSUE_WIDTH],
   output logic [ISSUE_WIDTH-1:0] exe2prf_entry_uop_dest_en,
   output logic [4:0] exe2prf_entry_uop_op [ISSUE_WIDTH],
   output logic [TOTAL_FU_COUNT-1:0] exe2prf_bypass_valid,
   output logic [6:0] exe2prf_bypass_uop_dest_preg [TOTAL_FU_COUNT],
-  output logic [31:0] exe2prf_bypass_uop_result [TOTAL_FU_COUNT],
+  output logic [XLEN_BITS-1:0] exe2prf_bypass_uop_result [TOTAL_FU_COUNT],
   output logic [TOTAL_FU_COUNT-1:0] exe2prf_bypass_uop_dest_en,
   output logic [ISSUE_WIDTH-1:0] exu2rob_entry_valid,
   output logic [6:0] exu2rob_entry_uop_rob_idx [ISSUE_WIDTH],
   output logic [4:0] exu2rob_entry_uop_op [ISSUE_WIDTH],
-  output logic [31:0] exu2rob_entry_uop_diag_val [ISSUE_WIDTH],
-  output logic [31:0] exu2rob_entry_uop_result [ISSUE_WIDTH],
+  output logic [XLEN_BITS-1:0] exu2rob_entry_uop_diag_val [ISSUE_WIDTH],
+  output logic [XLEN_BITS-1:0] exu2rob_entry_uop_result [ISSUE_WIDTH],
   output logic [ISSUE_WIDTH-1:0] exu2rob_entry_uop_mispred,
   output logic exu2rob_entry_uop_br_taken [ISSUE_WIDTH],
   output logic [ISSUE_WIDTH-1:0] exu2rob_entry_uop_page_fault_load,
@@ -86,7 +87,7 @@ module exu
   output logic [ISSUE_WIDTH-1:0] exu2rob_entry_uop_rob_defer,
   output logic [ISSUE_WIDTH-1:0] exu2rob_entry_uop_flush_pipe,
   output logic [LSU_LDU_COUNT-1:0] exe2lsu_ldu_req_valid,
-  output logic [31:0] exe2lsu_ldu_req_uop_result [LSU_LDU_COUNT],
+  output logic [XLEN_BITS-1:0] exe2lsu_ldu_req_uop_result [LSU_LDU_COUNT],
   output logic [6:0] exe2lsu_ldu_req_uop_dest_preg [LSU_LDU_COUNT],
   output logic [2:0] exe2lsu_ldu_req_uop_func3 [LSU_LDU_COUNT],
   output logic [LSU_LDU_COUNT-1:0] exe2lsu_ldu_req_uop_is_atomic,
@@ -97,7 +98,7 @@ module exu
   output logic exe2lsu_ldu_req_uop_stq_flag [LSU_LDU_COUNT],
   output logic [5:0] exe2lsu_ldu_req_uop_ldq_idx [LSU_LDU_COUNT],
   output logic [LSU_STA_COUNT-1:0] exe2lsu_sta_req_valid,
-  output logic [31:0] exe2lsu_sta_req_uop_result [LSU_STA_COUNT],
+  output logic [XLEN_BITS-1:0] exe2lsu_sta_req_uop_result [LSU_STA_COUNT],
   output logic [6:0] exe2lsu_sta_req_uop_dest_preg [LSU_STA_COUNT],
   output logic [2:0] exe2lsu_sta_req_uop_func3 [LSU_STA_COUNT],
   output logic [LSU_STA_COUNT-1:0] exe2lsu_sta_req_uop_is_atomic,
@@ -106,31 +107,31 @@ module exu
   output logic exe2lsu_sta_req_uop_rob_flag [LSU_STA_COUNT],
   output logic [5:0] exe2lsu_sta_req_uop_stq_idx [LSU_STA_COUNT],
   output logic [LSU_SDU_COUNT-1:0] exe2lsu_sdu_req_valid,
-  output logic [31:0] exe2lsu_sdu_req_uop_result [LSU_SDU_COUNT],
+  output logic [XLEN_BITS-1:0] exe2lsu_sdu_req_uop_result [LSU_SDU_COUNT],
   output logic [6:0] exe2lsu_sdu_req_uop_rob_idx [LSU_SDU_COUNT],
   output logic [LSU_SDU_COUNT-1:0] exe2lsu_sdu_req_uop_rob_flag,
   output logic [5:0] exe2lsu_sdu_req_uop_stq_idx [LSU_SDU_COUNT],
   output logic exu2id_mispred,
   output logic [BR_MASK_WIDTH-1:0] exu2id_clear_mask,
-  output logic [31:0] exu2id_redirect_pc,
+  output logic [XLEN_BITS-1:0] exu2id_redirect_pc,
   output logic [6:0] exu2id_redirect_rob_idx,
   output logic [BR_TAG_WIDTH-1:0] exu2id_br_id,
   output logic [5:0] exu2id_ftq_idx,
-  output logic [31:0] exu2id_br_pc
+  output logic [XLEN_BITS-1:0] exu2id_br_pc
 );
 
   // Unread FU-side signals below are intentional (single-cycle FUs' complete/ready, exu2fu fields no FU reads).
   /* verilator lint_off UNUSEDSIGNAL */
   // ---- functional-unit side of exu_ctrl (names as in spec/exu_ctrl.io)
-  logic [31:0] fu_alu_result [ALU_NUM];
-  logic [31:0] fu_agu_result [LSU_AGU_COUNT];
-  logic [31:0] fu_sdu_result [LSU_SDU_COUNT];
-  logic [31:0] fu_bru_diag_val [BRU_NUM];
+  logic [XLEN_BITS-1:0] fu_alu_result [ALU_NUM];
+  logic [XLEN_BITS-1:0] fu_agu_result [LSU_AGU_COUNT];
+  logic [XLEN_BITS-1:0] fu_sdu_result [LSU_SDU_COUNT];
+  logic [XLEN_BITS-1:0] fu_bru_diag_val [BRU_NUM];
   logic fu_bru_mispred [BRU_NUM];
   logic fu_bru_br_taken [BRU_NUM];
   logic [N_MC-1:0] fu_mc_ready;
   logic [N_MC-1:0] fu_mc_complete;
-  logic [31:0] fu_mc_result [N_MC];
+  logic [XLEN_BITS-1:0] fu_mc_result [N_MC];
   logic [PRF_IDX_WIDTH-1:0] fu_mc_dest_preg [N_MC];
   logic [N_MC-1:0] fu_mc_dest_en;
   logic [BR_MASK_WIDTH-1:0] fu_mc_br_mask [N_MC];
@@ -145,36 +146,39 @@ module exu
   logic [6:0] exu2fu_alu_func7 [ALU_NUM];
   logic exu2fu_alu_src1_is_pc [ALU_NUM];
   logic exu2fu_alu_src2_is_imm [ALU_NUM];
-  logic [31:0] exu2fu_alu_pc [ALU_NUM];
+  logic exu2fu_alu_is_word [ALU_NUM];
+  logic [XLEN_BITS-1:0] exu2fu_alu_pc [ALU_NUM];
   logic [31:0] exu2fu_alu_imm [ALU_NUM];
-  logic [31:0] exu2fu_alu_src1_rdata [ALU_NUM];
-  logic [31:0] exu2fu_alu_src2_rdata [ALU_NUM];
+  logic [XLEN_BITS-1:0] exu2fu_alu_src1_rdata [ALU_NUM];
+  logic [XLEN_BITS-1:0] exu2fu_alu_src2_rdata [ALU_NUM];
   logic exu2fu_bru_en [BRU_NUM];
   logic [XC_OP_W-1:0] exu2fu_bru_op [BRU_NUM];
   logic [2:0] exu2fu_bru_func3 [BRU_NUM];
   logic exu2fu_bru_src1_en [BRU_NUM];
-  logic [31:0] exu2fu_bru_src1_rdata [BRU_NUM];
-  logic [31:0] exu2fu_bru_src2_rdata [BRU_NUM];
-  logic [31:0] exu2fu_bru_pc [BRU_NUM];
+  logic [XLEN_BITS-1:0] exu2fu_bru_src1_rdata [BRU_NUM];
+  logic [XLEN_BITS-1:0] exu2fu_bru_src2_rdata [BRU_NUM];
+  logic [XLEN_BITS-1:0] exu2fu_bru_pc [BRU_NUM];
   logic [31:0] exu2fu_bru_imm [BRU_NUM];
   logic exu2fu_bru_ftq_pred_taken [BRU_NUM];
-  logic [31:0] exu2fu_bru_ftq_next_pc [BRU_NUM];
+  logic [XLEN_BITS-1:0] exu2fu_bru_ftq_next_pc [BRU_NUM];
   logic exu2fu_agu_en [LSU_AGU_COUNT];
-  logic [31:0] exu2fu_agu_src1_rdata [LSU_AGU_COUNT];
+  logic [XLEN_BITS-1:0] exu2fu_agu_src1_rdata [LSU_AGU_COUNT];
   logic [31:0] exu2fu_agu_imm [LSU_AGU_COUNT];
   logic exu2fu_sdu_en [LSU_SDU_COUNT];
   logic exu2fu_sdu_is_atomic [LSU_SDU_COUNT];
   logic [6:0] exu2fu_sdu_func7 [LSU_SDU_COUNT];
-  logic [31:0] exu2fu_sdu_src1_rdata [LSU_SDU_COUNT];
-  logic [31:0] exu2fu_sdu_src2_rdata [LSU_SDU_COUNT];
+  logic exu2fu_sdu_amo_w [LSU_SDU_COUNT];
+  logic [XLEN_BITS-1:0] exu2fu_sdu_src1_rdata [LSU_SDU_COUNT];
+  logic [XLEN_BITS-1:0] exu2fu_sdu_src2_rdata [LSU_SDU_COUNT];
   logic [N_MC-1:0] exu2fu_mc_en;
   logic [N_MC-1:0] exu2fu_mc_consume;
   logic [2:0] exu2fu_mc_func3 [N_MC];
+  logic exu2fu_mc_is_word [N_MC];
   logic [6:0] exu2fu_mc_func7 [N_MC];
   logic [XC_OP_W-1:0] exu2fu_mc_op [N_MC];
   logic [31:0] exu2fu_mc_imm [N_MC];
-  logic [31:0] exu2fu_mc_src1_rdata [N_MC];
-  logic [31:0] exu2fu_mc_src2_rdata [N_MC];
+  logic [XLEN_BITS-1:0] exu2fu_mc_src1_rdata [N_MC];
+  logic [XLEN_BITS-1:0] exu2fu_mc_src2_rdata [N_MC];
   logic [PRF_IDX_WIDTH-1:0] exu2fu_mc_dest_preg [N_MC];
   logic [N_MC-1:0] exu2fu_mc_dest_en;
   logic [BR_MASK_WIDTH-1:0] exu2fu_mc_br_mask [N_MC];
@@ -201,6 +205,7 @@ module exu
     .prf2exe_iss_entry_uop_src1_en(prf2exe_iss_entry_uop_src1_en),
     .prf2exe_iss_entry_uop_src1_is_pc(prf2exe_iss_entry_uop_src1_is_pc),
     .prf2exe_iss_entry_uop_src2_is_imm(prf2exe_iss_entry_uop_src2_is_imm),
+    .prf2exe_iss_entry_uop_is_word(prf2exe_iss_entry_uop_is_word),
     .prf2exe_iss_entry_uop_func3(prf2exe_iss_entry_uop_func3),
     .prf2exe_iss_entry_uop_func7(prf2exe_iss_entry_uop_func7),
     .prf2exe_iss_entry_uop_imm(prf2exe_iss_entry_uop_imm),
@@ -311,6 +316,7 @@ module exu
     .exu2fu_alu_func7(exu2fu_alu_func7),
     .exu2fu_alu_src1_is_pc(exu2fu_alu_src1_is_pc),
     .exu2fu_alu_src2_is_imm(exu2fu_alu_src2_is_imm),
+    .exu2fu_alu_is_word(exu2fu_alu_is_word),
     .exu2fu_alu_pc(exu2fu_alu_pc),
     .exu2fu_alu_imm(exu2fu_alu_imm),
     .exu2fu_alu_src1_rdata(exu2fu_alu_src1_rdata),
@@ -331,11 +337,13 @@ module exu
     .exu2fu_sdu_en(exu2fu_sdu_en),
     .exu2fu_sdu_is_atomic(exu2fu_sdu_is_atomic),
     .exu2fu_sdu_func7(exu2fu_sdu_func7),
+    .exu2fu_sdu_amo_w(exu2fu_sdu_amo_w),
     .exu2fu_sdu_src1_rdata(exu2fu_sdu_src1_rdata),
     .exu2fu_sdu_src2_rdata(exu2fu_sdu_src2_rdata),
     .exu2fu_mc_en(exu2fu_mc_en),
     .exu2fu_mc_consume(exu2fu_mc_consume),
     .exu2fu_mc_func3(exu2fu_mc_func3),
+    .exu2fu_mc_is_word(exu2fu_mc_is_word),
     .exu2fu_mc_func7(exu2fu_mc_func7),
     .exu2fu_mc_op(exu2fu_mc_op),
     .exu2fu_mc_imm(exu2fu_mc_imm),
@@ -356,6 +364,7 @@ module exu
   alu_bank u_alu (
     .clk(clk), .rst_n(rst_n), .en(exu2fu_alu_en), .consume(alu_consume), .op(exu2fu_alu_op), .func3(exu2fu_alu_func3),
     .func7(exu2fu_alu_func7), .src1_is_pc(exu2fu_alu_src1_is_pc), .src2_is_imm(exu2fu_alu_src2_is_imm),
+    .is_word(exu2fu_alu_is_word),
     .pc(exu2fu_alu_pc), .imm(exu2fu_alu_imm), .src1_rdata(exu2fu_alu_src1_rdata), .src2_rdata(exu2fu_alu_src2_rdata),
     .complete(alu_complete), .ready(alu_ready), .result(fu_alu_result)
   );
@@ -392,7 +401,7 @@ module exu
   end
   sdu_bank u_sdu (
     .clk(clk), .rst_n(rst_n), .en(exu2fu_sdu_en), .consume(sdu_consume), .is_atomic(exu2fu_sdu_is_atomic),
-    .amo_op(sdu_amo_op),
+    .amo_op(sdu_amo_op), .amo_w(exu2fu_sdu_amo_w),
     .src1_rdata(exu2fu_sdu_src1_rdata), .src2_rdata(exu2fu_sdu_src2_rdata), .complete(sdu_complete),
     .ready(sdu_ready), .result(fu_sdu_result)
   );
@@ -411,17 +420,18 @@ module exu
   logic [BR_MASK_WIDTH-1:0] mul_flush_mask [MUL_NUM];
   logic [BR_MASK_WIDTH-1:0] mul_clear_mask [MUL_NUM];
   logic [1:0] mul_func3 [MUL_NUM];
+  logic mul_is_word [MUL_NUM];
   logic mul_complete [MUL_NUM];
   logic mul_ready [MUL_NUM];
-  logic [31:0] mul_result [MUL_NUM];
+  logic [XLEN_BITS-1:0] mul_result [MUL_NUM];
   logic [ROB_IDX_WIDTH-1:0] mul_done_rob_idx [MUL_NUM];
   logic [PRF_IDX_WIDTH-1:0] mul_done_dest_preg [MUL_NUM];
   logic mul_done_dest_en [MUL_NUM];
   logic [BR_MASK_WIDTH-1:0] mul_done_br_mask [MUL_NUM];
   logic mul_en [MUL_NUM];
   logic mul_consume [MUL_NUM];
-  logic [31:0] mul_src1_rdata [MUL_NUM];
-  logic [31:0] mul_src2_rdata [MUL_NUM];
+  logic [XLEN_BITS-1:0] mul_src1_rdata [MUL_NUM];
+  logic [XLEN_BITS-1:0] mul_src2_rdata [MUL_NUM];
   logic [ROB_IDX_WIDTH-1:0] mul_rob_idx [MUL_NUM];
   logic [PRF_IDX_WIDTH-1:0] mul_dest_preg [MUL_NUM];
   logic mul_dest_en [MUL_NUM];
@@ -433,6 +443,7 @@ module exu
     assign mul_flush_mask[i] = exu2fu_flush_mask;
     assign mul_clear_mask[i] = exu2fu_clear_mask;
     assign mul_func3[i] = exu2fu_mc_func3[MC_MUL[i]][1:0];
+    assign mul_is_word[i] = exu2fu_mc_is_word[MC_MUL[i]];
     assign mul_src1_rdata[i] = exu2fu_mc_src1_rdata[MC_MUL[i]];
     assign mul_src2_rdata[i] = exu2fu_mc_src2_rdata[MC_MUL[i]];
     assign mul_rob_idx[i] = exu2fu_mc_rob_idx[MC_MUL[i]];
@@ -449,7 +460,8 @@ module exu
   end
   mul_bank u_mul (
     .clk(clk), .rst_n(rst_n), .en(mul_en), .consume(mul_consume), .flush(mul_flush), .flush_mask(mul_flush_mask),
-    .clear_mask(mul_clear_mask), .func3(mul_func3), .src1_rdata(mul_src1_rdata), .src2_rdata(mul_src2_rdata),
+    .clear_mask(mul_clear_mask), .func3(mul_func3), .is_word(mul_is_word),
+    .src1_rdata(mul_src1_rdata), .src2_rdata(mul_src2_rdata),
     .rob_idx(mul_rob_idx), .dest_preg(mul_dest_preg), .dest_en(mul_dest_en), .br_mask(mul_br_mask),
     .complete(mul_complete), .ready(mul_ready), .result(mul_result), .done_rob_idx(mul_done_rob_idx),
     .done_dest_preg(mul_done_dest_preg), .done_dest_en(mul_done_dest_en), .done_br_mask(mul_done_br_mask)
@@ -459,17 +471,18 @@ module exu
   logic [BR_MASK_WIDTH-1:0] div_flush_mask [DIV_NUM];
   logic [BR_MASK_WIDTH-1:0] div_clear_mask [DIV_NUM];
   logic [1:0] div_func3 [DIV_NUM];
+  logic div_is_word [DIV_NUM];
   logic div_complete [DIV_NUM];
   logic div_ready [DIV_NUM];
-  logic [31:0] div_result [DIV_NUM];
+  logic [XLEN_BITS-1:0] div_result [DIV_NUM];
   logic [ROB_IDX_WIDTH-1:0] div_done_rob_idx [DIV_NUM];
   logic [PRF_IDX_WIDTH-1:0] div_done_dest_preg [DIV_NUM];
   logic div_done_dest_en [DIV_NUM];
   logic [BR_MASK_WIDTH-1:0] div_done_br_mask [DIV_NUM];
   logic div_en [DIV_NUM];
   logic div_consume [DIV_NUM];
-  logic [31:0] div_src1_rdata [DIV_NUM];
-  logic [31:0] div_src2_rdata [DIV_NUM];
+  logic [XLEN_BITS-1:0] div_src1_rdata [DIV_NUM];
+  logic [XLEN_BITS-1:0] div_src2_rdata [DIV_NUM];
   logic [ROB_IDX_WIDTH-1:0] div_rob_idx [DIV_NUM];
   logic [PRF_IDX_WIDTH-1:0] div_dest_preg [DIV_NUM];
   logic div_dest_en [DIV_NUM];
@@ -481,6 +494,7 @@ module exu
     assign div_flush_mask[i] = exu2fu_flush_mask;
     assign div_clear_mask[i] = exu2fu_clear_mask;
     assign div_func3[i] = exu2fu_mc_func3[MC_DIV[i]][1:0];
+    assign div_is_word[i] = exu2fu_mc_is_word[MC_DIV[i]];
     assign div_src1_rdata[i] = exu2fu_mc_src1_rdata[MC_DIV[i]];
     assign div_src2_rdata[i] = exu2fu_mc_src2_rdata[MC_DIV[i]];
     assign div_rob_idx[i] = exu2fu_mc_rob_idx[MC_DIV[i]];
@@ -497,22 +511,26 @@ module exu
   end
   div_bank u_div (
     .clk(clk), .rst_n(rst_n), .en(div_en), .consume(div_consume), .flush(div_flush), .flush_mask(div_flush_mask),
-    .clear_mask(div_clear_mask), .func3(div_func3), .src1_rdata(div_src1_rdata), .src2_rdata(div_src2_rdata),
+    .clear_mask(div_clear_mask), .func3(div_func3), .is_word(div_is_word),
+    .src1_rdata(div_src1_rdata), .src2_rdata(div_src2_rdata),
     .rob_idx(div_rob_idx), .dest_preg(div_dest_preg), .dest_en(div_dest_en), .br_mask(div_br_mask),
     .complete(div_complete), .ready(div_ready), .result(div_result), .done_rob_idx(div_done_rob_idx),
     .done_dest_preg(div_done_dest_preg), .done_dest_en(div_done_dest_en), .done_br_mask(div_done_br_mask)
   );
 
-  // FPU: one instance. imm[0] is the rs2 selector (fcvt signed/unsigned), the only imm bit it reads.
+  // FPU: one instance (Zfinx, 32 bits: rv64 decodes no FP instruction, its operands and result are the low word).
+  // imm[0] is the rs2 selector (fcvt signed/unsigned), the only imm bit it reads.
+  logic [31:0] fpu_result;
+  assign fu_mc_result[MC_FPU] = XLEN_BITS'(fpu_result);
   fpu u_fpu (
     .clk(clk), .rst_n(rst_n), .in_en(exu2fu_mc_en[MC_FPU]), .in_consume(exu2fu_mc_consume[MC_FPU]),
     .in_flush(exu2fu_flush), .in_flush_mask(exu2fu_flush_mask), .in_clear_mask(exu2fu_clear_mask),
     .in_inst_func3(exu2fu_mc_func3[MC_FPU]), .in_inst_func7(exu2fu_mc_func7[MC_FPU]),
-    .in_inst_imm_rs2_bit0(exu2fu_mc_imm[MC_FPU][0]), .in_inst_src1_rdata(exu2fu_mc_src1_rdata[MC_FPU]),
-    .in_inst_src2_rdata(exu2fu_mc_src2_rdata[MC_FPU]), .in_inst_br_mask(exu2fu_mc_br_mask[MC_FPU]),
+    .in_inst_imm_rs2_bit0(exu2fu_mc_imm[MC_FPU][0]), .in_inst_src1_rdata(exu2fu_mc_src1_rdata[MC_FPU][31:0]),
+    .in_inst_src2_rdata(exu2fu_mc_src2_rdata[MC_FPU][31:0]), .in_inst_br_mask(exu2fu_mc_br_mask[MC_FPU]),
     .in_inst_dest_preg(exu2fu_mc_dest_preg[MC_FPU]), .in_inst_dest_en(exu2fu_mc_dest_en[MC_FPU]),
     .in_inst_rob_idx(exu2fu_mc_rob_idx[MC_FPU]), .out_ready(fu_mc_ready[MC_FPU]),
-    .out_complete(fu_mc_complete[MC_FPU]), .out_inst_result(fu_mc_result[MC_FPU]),
+    .out_complete(fu_mc_complete[MC_FPU]), .out_inst_result(fpu_result),
     .out_inst_br_mask(fu_mc_br_mask[MC_FPU]), .out_inst_dest_preg(fu_mc_dest_preg[MC_FPU]),
     .out_inst_dest_en(fu_mc_dest_en[MC_FPU]), .out_inst_rob_idx(fu_mc_rob_idx[MC_FPU])
   );

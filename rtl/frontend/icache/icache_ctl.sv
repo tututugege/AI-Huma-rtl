@@ -12,7 +12,7 @@
 // request) are those
 // of the last step of the cycle, i.e. of K(R1) in a flush cycle; the front-end outputs and the table write are
 // the fetch step's.
-module icache_ctl import icache_pkg::*; (
+module icache_ctl import ttg_cfg_pkg::*; import icache_pkg::*; (
   input  logic                    clk,
   input  logic                    rst_n,
   // front-end side
@@ -21,7 +21,7 @@ module icache_ctl import icache_pkg::*; (
   input  logic                    fence_i,
   input  logic                    invalidate,
   input  logic                    req_valid_in,
-  input  logic [31:0]             pc,
+  input  logic [XLEN_BITS-1:0]             pc,
   // ITLB answer
   input  logic                    ppn_valid,
   input  logic                    page_fault,
@@ -53,10 +53,10 @@ module icache_ctl import icache_pkg::*; (
   output logic                    inv_all,
   // ITLB request
   output logic                    mmu_req_valid,
-  output logic [19:0]             mmu_req_vtag,
+  output logic [XLEN_BITS-13:0]   mmu_req_vtag,
   // fetch response
   output logic                    resp_valid,
-  output logic [31:0]             resp_pc,
+  output logic [XLEN_BITS-1:0]             resp_pc,
   output logic                    resp_page_fault,
   output logic                    resp_single_word,
   output logic [IC_LINE_W-1:0]    resp_line,
@@ -108,7 +108,7 @@ module icache_ctl import icache_pkg::*; (
   // ---- IDLE step ----
   ic_regs_t idle_r_n;
   logic idle_resp_valid, idle_resp_pf, idle_req_ready, idle_fast_fire;
-  logic [31:0] idle_resp_pc;
+  logic [XLEN_BITS-1:0] idle_resp_pc;
   logic [IC_LINE_W-1:0] idle_resp_line;
   icache_idle u_idle (
     .r(r_q), .req_valid_in, .pc, .ppn_valid, .page_fault, .ppn, .hit, .hit_line,
@@ -134,7 +134,7 @@ module icache_ctl import icache_pkg::*; (
 
   // ---- request slot / ITLB request ----
   logic is_idle, req_ready_n, fast_fire_n, slot_rv_d, slot_ifu_d;
-  logic [31:0] slot_pc_d;
+  logic [XLEN_BITS-1:0] slot_pc_d;
   assign is_idle     = r_q.state == IC_IDLE;
   assign req_ready_n = is_idle ? idle_req_ready : swap_req_ready;
   assign fast_fire_n = is_idle && idle_fast_fire;

@@ -5,7 +5,7 @@
 // (accesses of 1, 2 or 4 bytes).  Split into the byte-in-8 part (3 bits) and the upper part: |d| < 5 needs the upper
 // parts to be equal or to differ by exactly one, which is an equality / "a == b + 1" test (prefix-AND, no carry chain).
 // Tested exhaustively-random against rel12 / rel32 (lp_pkg).
-module lp_ovl #(
+module lp_ovl import ttg_cfg_pkg::*; #(
   parameter int W = 12
 ) (
   input  logic [W-1:0] lo,
@@ -39,8 +39,8 @@ module lp_ovl #(
     eq0 = (x == '0);
     s_is_l1 = (x == pl) && !(&ul);   // us == ul + 1 (no wrap of the upper part)
     l_is_s1 = (x == ps) && !(&us);   // ul == us + 1
-    lw = $signed({3'b000, ld_w(lf[1:0])});
-    sw = $signed({3'b000, ld_w(sf[1:0])});
+    lw = $signed({2'b00, ld_w(lf[1:0])});
+    sw = $signed({2'b00, ld_w(sf[1:0])});
     dl = $signed({3'b000, so[2:0]}) - $signed({3'b000, lo[2:0]});
     c0 = (dl > -sw) && (dl < lw);        // same 8-byte block
     c1 = (dl + 6'sd8 < lw);              // store block one higher: d = 8 + dl > 0
@@ -48,11 +48,12 @@ module lp_ovl #(
     ovl = (eq0 && c0) || (s_is_l1 && !eq0 && c1) || (l_is_s1 && !eq0 && cm);
   end
 
-  function automatic logic [2:0] ld_w(input logic [1:0] f);   // func3[1:0]: 1, 2, 4 bytes
+  function automatic logic [3:0] ld_w(input logic [1:0] f);   // func3[1:0]: 1, 2, 4 (8 on rv64) bytes
     case (f)
-      2'b00:   return 3'd1;
-      2'b01:   return 3'd2;
-      default: return 3'd4;
+      2'b00:   return 4'd1;
+      2'b01:   return 4'd2;
+      2'b10:   return 4'd4;
+      default: return (XLEN_BITS == 64) ? 4'd8 : 4'd4;
     endcase
   endfunction
 

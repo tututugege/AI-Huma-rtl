@@ -14,18 +14,18 @@ module lp_l3
   input  logic [NLD-1:0]      wbd_v,
   input  logic [LQW-1:0]      wbd_idx [NLD],
   input  logic [NLD-1:0]      wbd_hasdata,
-  input  logic [31:0]         wbd_data [NLD],
+  input  logic [XLEN_BITS-1:0]         wbd_data [NLD],
   input  logic [LQ-1:0]       wb3_r,
   output logic [NLD-1:0]      wbw_v,
   output logic [LQW-1:0]      wbw_idx [NLD],
   output logic [NLD-1:0]      wbw_hd,
-  output logic [31:0]         wbw_data [NLD]
+  output logic [XLEN_BITS-1:0]         wbw_data [NLD]
 );
 
   logic [NLD-1:0]  l3_v_q;
   logic [LQW-1:0]  l3_idx_q [NLD];
   logic [NLD-1:0]  l3_hd_q;
-  logic [31:0]     l3_data_q [NLD];
+  logic [XLEN_BITS-1:0]     l3_data_q [NLD];
 
   always_ff @(posedge clk) begin
     if (!rst_n) l3_v_q <= '0;

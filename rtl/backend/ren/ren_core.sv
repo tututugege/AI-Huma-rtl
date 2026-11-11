@@ -85,7 +85,8 @@ module ren_core
     assign dest_normal[i]   = rd_preg[i];
     assign src1_normal[i]   = rd_preg[N+i];
     assign src2_normal[i]   = rd_preg[2*N+i];
-    assign move_shape[i]    = ren_is_move_shape(inst[i].inst_type, inst[i].src2_is_imm, inst[i].func3, inst[i].imm,
+    assign move_shape[i]    = ren_is_move_shape(inst[i].inst_type, inst[i].src2_is_imm, inst[i].is_word, inst[i].func3,
+                                                inst[i].imm,
                                                 inst[i].src1_en, inst[i].src1_is_pc, inst[i].src1_areg,
                                                 inst[i].dest_en, inst[i].dest_areg);
     assign alloc_req[i]     = inst_valid[i] & inst[i].dest_en & ~elim[i];
@@ -145,6 +146,7 @@ module ren_core
                               inst_type: inst[i].inst_type, dest_en: inst[i].dest_en, src1_en: inst[i].src1_en,
                               src2_en: inst[i].src2_en, is_atomic: inst[i].is_atomic,
                               src1_is_pc: inst[i].src1_is_pc, src2_is_imm: inst[i].src2_is_imm,
+                              is_word: inst[i].is_word,
                               func3: inst[i].func3, func7: inst[i].func7, imm: inst[i].imm, br_id: inst[i].br_id,
                               br_mask: inst[i].br_mask, csr_idx: inst[i].csr_idx,
                               page_fault_inst: inst[i].page_fault_inst, illegal_inst: inst[i].illegal_inst,

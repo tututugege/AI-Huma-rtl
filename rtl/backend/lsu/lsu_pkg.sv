@@ -191,44 +191,55 @@ package lsu_pkg;
   endfunction
 
   // ---- MemUtils.h ----
-  function automatic logic [31:0] extract_data(input logic [31:0] raw, input logic [1:0] off, input logic [2:0] f3);
-    logic [31:0] sh, r;
+  // data word of the LSU: XLEN bits.  Offsets inside it are OW bits, a store strobe has SW + 1 bits (the last one:
+  // the first byte of the next data word, for a half-word at the last offset: conflict checks only).
+  localparam int XW = XLEN_BITS;
+  localparam int HW = XLEN_BITS / 2;
+  localparam int SW = XLEN_BITS / 8;
+  localparam int OW = $clog2(SW);
+
+  function automatic logic [XW-1:0] extract_data(input logic [XW-1:0] raw, input logic [OW-1:0] off,
+                                                 input logic [2:0] f3);
+    logic [XW-1:0] sh, r;
     sh = raw >> {off, 3'b000};
     case (f3[1:0])
-      2'b00:   r = f3[2] ? {24'b0, sh[7:0]} : {{24{sh[7]}}, sh[7:0]};
-      2'b01:   r = f3[2] ? {16'b0, sh[15:0]} : {{16{sh[15]}}, sh[15:0]};
-      default: r = sh;
+      2'b00:   r = f3[2] ? XW'(sh[7:0]) : XW'($signed(sh[7:0]));
+      2'b01:   r = f3[2] ? XW'(sh[15:0]) : XW'($signed(sh[15:0]));
+      2'b10:   r = (XW == 32) ? sh : f3[2] ? XW'(sh[HW-1:0]) : XW'($signed(sh[HW-1:0]));   // rv64: lw sign / lwu zero
+      default: r = sh;                                                    // ld (rv64)
     endcase
     return r;
   endfunction
 
-  function automatic logic [4:0] store_strb(input logic [1:0] off, input logic [1:0] f3);
+  function automatic logic [SW:0] store_strb(input logic [OW-1:0] off, input logic [1:0] f3);
     case (f3)
-      2'b00:   return 5'b00001 << off;
-      2'b01:   return 5'b00011 << off;
-      2'b10:   return 5'b01111;
-      default: return 5'b00000;
+      2'b00:   return (SW + 1)'(1) << off;
+      2'b01:   return (SW + 1)'(3) << off;
+      2'b10:   return (SW + 1)'(15) << (XW == 64 ? off : OW'(0));
+      default: return (XW == 64) ? (SW + 1)'(8'hFF) : (SW + 1)'(0);   // sd (rv64)
     endcase
   endfunction
 
-  function automatic logic [31:0] align_store_data(input logic [31:0] data, input logic [1:0] off,
-                                                   input logic [1:0] f3);
-    logic [31:0] b, h;
-    b = {24'b0, data[7:0]} << {off, 3'b000};
-    h = {16'b0, data[15:0]} << {off, 3'b000};
+  function automatic logic [XW-1:0] align_store_data(input logic [XW-1:0] data, input logic [OW-1:0] off,
+                                                     input logic [1:0] f3);
+    logic [XW-1:0] b, h, w;
+    b = XW'(data[7:0]) << {off, 3'b000};
+    h = XW'(data[15:0]) << {off, 3'b000};
+    w = XW'(data[HW-1:0]) << {off, 3'b000};
     case (f3)
       2'b00:   return b;
       2'b01:   return h;
-      2'b10:   return data;
-      default: return 32'b0;
+      2'b10:   return (XW == 64) ? w : data;
+      default: return (XW == 64) ? data : '0;
     endcase
   endfunction
 
-  function automatic logic [2:0] mem_width(input logic [1:0] f3);   // bytes: 1, 2 or 4
+  function automatic logic [3:0] mem_width(input logic [1:0] f3);   // bytes: 1, 2, 4 (or 8: sd / ld on rv64)
     case (f3)
-      2'b00:   return 3'd1;
-      2'b01:   return 3'd2;
-      default: return 3'd4;
+      2'b00:   return 4'd1;
+      2'b01:   return 4'd2;
+      2'b10:   return 4'd4;
+      default: return (XW == 64) ? 4'd8 : 4'd4;
     endcase
   endfunction
 
@@ -251,18 +262,19 @@ package lsu_pkg;
     else return 2'd2;
   endfunction
 
-  // CheckAddr(): do the byte strobes of two word-aligned accesses overlap (bases at most one word apart)
-  function automatic logic check_addr(input logic [29:0] a1w, input logic [4:0] s1,   // a*w = address[31:2]
-                                      input logic [29:0] a2w, input logic [4:0] s2);
-    logic [30:0] w1, w2;
-    logic [8:0]  m1, m2;
+  // CheckAddr(): do the byte strobes of two data-word-aligned accesses overlap (bases at most one data word apart);
+  // a*w = address[31:OW]
+  function automatic logic check_addr(input logic [31-OW:0] a1w, input logic [SW:0] s1,
+                                      input logic [31-OW:0] a2w, input logic [SW:0] s2);
+    logic [32-OW:0]  w1, w2;
+    logic [2*SW:0]   m1, m2;
     w1 = {1'b0, a1w};
     w2 = {1'b0, a2w};
-    m1 = 9'(s1);
-    m2 = 9'(s2);
-    if (w1 == w2)           return (s1 & s2) != 5'b0;
-    else if (w1 + 31'd1 == w2) return (m1 & (m2 << 4)) != 9'b0;
-    else if (w2 + 31'd1 == w1) return ((m1 << 4) & m2) != 9'b0;
+    m1 = (2 * SW + 1)'(s1);
+    m2 = (2 * SW + 1)'(s2);
+    if (w1 == w2)                   return (s1 & s2) != '0;
+    else if (w1 + 1'b1 == w2)       return (m1 & (m2 << SW)) != '0;
+    else if (w2 + 1'b1 == w1)       return ((m1 << SW) & m2) != '0;
     else return 1'b0;
   endfunction
 

@@ -21,7 +21,7 @@ module lp_l1
   input  logic                srp_v,
   input  logic [SQW-1:0]      srp_stq,
   input  logic                srp_ok,           // the srp store is alive, has an address, no translation and no fault
-  input  logic [31:0]         srp_vaddr,
+  input  logic [XLEN_BITS-1:0]         srp_vaddr,
   // MMU
   input  logic [NLD-1:0]      mmu_l_valid,
   input  logic [31:0]         mmu_l_paddr [NLD],
@@ -32,10 +32,10 @@ module lp_l1
   input  logic [1:0]          mmu_s_result [NST],
   input  logic [SQW-1:0]      mmu_s_entry [NST],
   output logic [NLD-1:0]      mmu_l_req_valid,
-  output logic [31:0]         mmu_l_req_vaddr [NLD],
+  output logic [XLEN_BITS-1:0]         mmu_l_req_vaddr [NLD],
   output logic [LQW-1:0]      mmu_l_req_idx [NLD],
   output logic [NST-1:0]      mmu_s_req_valid,
-  output logic [31:0]         mmu_s_req_vaddr [NST],
+  output logic [XLEN_BITS-1:0]         mmu_s_req_vaddr [NST],
   output logic [SQW-1:0]      mmu_s_req_idx [NST],
   // load slots
   output lp_l1in_t            l1 [NLD],

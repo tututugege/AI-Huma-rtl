@@ -17,12 +17,12 @@ module prf_wb_pipe import ttg_cfg_pkg::*; #(
   input  logic [LANES-1:0]         exe_dest_en,
   input  logic [LANES-1:0]         exe_is_load,
   input  logic [PRF_IDX_WIDTH-1:0] exe_dest_preg [LANES],
-  input  logic [31:0]              exe_result    [LANES],
+  input  logic [XLEN_BITS-1:0]              exe_result    [LANES],
   input  logic [BR_MASK_WIDTH-1:0] exe_br_mask   [LANES],
   output logic [LANES-1:0]         wb_wen_q,        // result of this lane writes a register this cycle
   output logic [LANES-1:0]         wb_is_load_q,
   output logic [PRF_IDX_WIDTH-1:0] wb_dest_preg_q [LANES],
-  output logic [31:0]              wb_result_q    [LANES],
+  output logic [XLEN_BITS-1:0]              wb_result_q    [LANES],
   output logic [BR_MASK_WIDTH-1:0] wb_br_mask_q   [LANES]
 );
 

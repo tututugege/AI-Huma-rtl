@@ -10,8 +10,13 @@ package dcache_pkg;
   localparam int NSLOT     = NLD + NST;
   localparam int WAYS      = DCACHE_WAYS_NUM;
   localparam int WORDS     = DCACHE_WORD_NUM;
-  localparam int WORD_W    = $clog2(WORDS);
+  // data word of the core side (LSU <-> dcache): XLEN bits; the line (and the AXI side) stays a vector of 32-bit words
+  localparam int DW        = XLEN_BITS;
+  localparam int SBW       = DW / 8;                       // byte-strobe width of one data word
+  localparam int SB_OFF    = $clog2(SBW);                  // address bits inside a data word
   localparam int LINE_BITS = WORDS * 32;
+  localparam int DWORDS    = LINE_BITS / DW;               // data words per line
+  localparam int WORD_W    = $clog2(DWORDS);               // index of a data word inside a line
   localparam int SET_W     = DCACHE_SET_BITS;
   localparam int TAG_W     = DCACHE_TAG_BITS;
   localparam int LINE_W    = SET_W + TAG_W;                // line address = addr[31:6]
@@ -29,9 +34,9 @@ package dcache_pkg;
   // second store word of a merged store request (EXP-024, model LSU_PIPE_MERGE): same line as the first word of
   // its port; strb == 0 means no second word, so every consumer can apply it unconditionally after the first
   typedef struct packed {
-    logic [3:0]        strb;
+    logic [SBW-1:0]    strb;
     logic [WORD_W-1:0] word;
-    logic [31:0]       data;
+    logic [DW-1:0]     data;
   } st2_t;
 
   // ReplayType
@@ -43,23 +48,24 @@ package dcache_pkg;
   // address fields (C++ decode()): line = addr[31:6], set = addr[13:6], bank = addr[9:6], word = addr[5:2]
 
   // apply_strobe(): byte lanes of `nw` selected by strb replace `old`
-  function automatic logic [31:0] apply_strobe(input logic [31:0] old, input logic [31:0] nw, input logic [3:0] strb);
-    logic [31:0] r;
+  function automatic logic [DW-1:0] apply_strobe(input logic [DW-1:0] old, input logic [DW-1:0] nw,
+                                                  input logic [SBW-1:0] strb);
+    logic [DW-1:0] r;
     r = old;
-    for (int b = 0; b < 4; b++) if (strb[b]) r[8*b +: 8] = nw[8*b +: 8];
+    for (int b = 0; b < SBW; b++) if (strb[b]) r[8*b +: 8] = nw[8*b +: 8];
     return r;
   endfunction
 
-  function automatic logic [31:0] line_word(input logic [LINE_BITS-1:0] l, input logic [WORD_W-1:0] w);
-    return l[(32'(w) << 5) +: 32];
+  function automatic logic [DW-1:0] line_word(input logic [LINE_BITS-1:0] l, input logic [WORD_W-1:0] w);
+    return l[(32'(w) * DW) +: DW];
   endfunction
 
   // one word of a 512-bit line is replaced under a byte strobe
   function automatic logic [LINE_BITS-1:0] line_merge(input logic [LINE_BITS-1:0] l, input logic [WORD_W-1:0] w,
-                                                      input logic [31:0] d, input logic [3:0] s);
+                                                      input logic [DW-1:0] d, input logic [SBW-1:0] s);
     logic [LINE_BITS-1:0] r;
     r = l;
-    r[(32'(w) << 5) +: 32] = apply_strobe(line_word(l, w), d, s);
+    r[(32'(w) * DW) +: DW] = apply_strobe(line_word(l, w), d, s);
     return r;
   endfunction
 
@@ -68,14 +74,14 @@ package dcache_pkg;
   function automatic logic [LINE_BITS-1:0] line_merge_n(
     input logic [LINE_BITS-1:0]       l,
     input logic [NST-1:0]             en,
-    input logic [NST-1:0][WORD_W-1:0] w1, input logic [NST-1:0][31:0] d1, input logic [NST-1:0][3:0] s1,
-    input logic [NST-1:0][WORD_W-1:0] w2, input logic [NST-1:0][31:0] d2, input logic [NST-1:0][3:0] s2);
+    input logic [NST-1:0][WORD_W-1:0] w1, input logic [NST-1:0][DW-1:0] d1, input logic [NST-1:0][SBW-1:0] s1,
+    input logic [NST-1:0][WORD_W-1:0] w2, input logic [NST-1:0][DW-1:0] d2, input logic [NST-1:0][SBW-1:0] s2);
     logic [LINE_BITS-1:0] r;
     r = l;
     for (int bi = 0; bi < LINE_BITS / 8; bi++) begin
       for (int k = 0; k < NST; k++) begin
-        if (en[k] && w1[k] == WORD_W'(bi / 4) && s1[k][bi % 4]) r[8*bi +: 8] = d1[k][8*(bi % 4) +: 8];
-        if (en[k] && w2[k] == WORD_W'(bi / 4) && s2[k][bi % 4]) r[8*bi +: 8] = d2[k][8*(bi % 4) +: 8];
+        if (en[k] && w1[k] == WORD_W'(bi / SBW) && s1[k][bi % SBW]) r[8*bi +: 8] = d1[k][8*(bi % SBW) +: 8];
+        if (en[k] && w2[k] == WORD_W'(bi / SBW) && s2[k][bi % SBW]) r[8*bi +: 8] = d2[k][8*(bi % SBW) +: 8];
       end
     end
     return r;
@@ -84,14 +90,14 @@ package dcache_pkg;
   // byte mask of the bytes written by the same set of store words
   function automatic logic [LINE_BITS/8-1:0] line_strb_n(
     input logic [NST-1:0]             en,
-    input logic [NST-1:0][WORD_W-1:0] w1, input logic [NST-1:0][3:0] s1,
-    input logic [NST-1:0][WORD_W-1:0] w2, input logic [NST-1:0][3:0] s2);
+    input logic [NST-1:0][WORD_W-1:0] w1, input logic [NST-1:0][SBW-1:0] s1,
+    input logic [NST-1:0][WORD_W-1:0] w2, input logic [NST-1:0][SBW-1:0] s2);
     logic [LINE_BITS/8-1:0] m;
     m = '0;
     for (int bi = 0; bi < LINE_BITS / 8; bi++) begin
       for (int k = 0; k < NST; k++) begin
-        if (en[k] && w1[k] == WORD_W'(bi / 4) && s1[k][bi % 4]) m[bi] = 1'b1;
-        if (en[k] && w2[k] == WORD_W'(bi / 4) && s2[k][bi % 4]) m[bi] = 1'b1;
+        if (en[k] && w1[k] == WORD_W'(bi / SBW) && s1[k][bi % SBW]) m[bi] = 1'b1;
+        if (en[k] && w2[k] == WORD_W'(bi / SBW) && s2[k][bi % SBW]) m[bi] = 1'b1;
       end
     end
     return m;

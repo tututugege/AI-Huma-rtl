@@ -12,17 +12,18 @@ module lp_l2
   input  lp_stq_t             sq [SQ],
   input  logic [SQ-1:0]       alive_w,
   output lp_l2dec_t           dec [NLD],
-  output logic [31:0]         fwd_data [NLD]
+  output logic [XLEN_BITS-1:0]         fwd_data [NLD]
 );
 
   for (genvar p = 0; p < NLD; p++) begin : g_port
     logic        s_supp, s_va, s_pa, s_dv, s_hold;
     logic [11:0] s_voff;
-    logic [31:0] s_paddr, s_data;
+    logic [31:0] s_paddr;
+    logic [XLEN_BITS-1:0] s_data;
     logic [2:0]  s_f3;
     lp_conf_t    conf;
-    logic [1:0]  off;
-    logic [31:0] raw;
+    logic [lsu_pkg::OW-1:0] off;
+    logic [XLEN_BITS-1:0] raw;
     assign s_supp = sq[pl12[p].cand].suppress;
     assign s_va = sq[pl12[p].cand].va_v;
     assign s_voff = sq[pl12[p].cand].vaddr[11:0];
@@ -34,7 +35,7 @@ module lp_l2
     assign s_data = sq[pl12[p].cand].data;
     assign conf = stlf_confirm(pl12[p].voff, pl12[p].paddr, pl12[p].func3, alive_w[pl12[p].cand], s_supp, s_va,
                                s_voff, s_pa, s_paddr, s_f3, s_dv, s_hold);
-    assign off = pl12[p].paddr[1:0] - s_paddr[1:0];
+    assign off = pl12[p].paddr[lsu_pkg::OW-1:0] - s_paddr[lsu_pkg::OW-1:0];
     assign raw = s_data;
     assign fwd_data[p] = lsu_pkg::extract_data(raw, off, pl12[p].func3);
 

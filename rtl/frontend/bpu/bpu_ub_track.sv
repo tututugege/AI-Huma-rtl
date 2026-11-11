@@ -10,15 +10,15 @@
 // pc), or the next pc of a lane that ended a block.  The boundary compare of every lane is made against all of these
 // candidates in parallel and "which candidate is current" is resolved with one single-bit step per lane.
 // Lanes that are not valid are skipped, like in the sequential loop.
-module bpu_ub_track import bpu_pkg::*; import bpu_stage_pkg::*; (
+module bpu_ub_track import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; (
   input  logic                clk,
   input  logic                rst_n,
   input  logic [NCOMMIT-1:0]  upd_valid,
-  input  logic [31:0]         base_pc  [NCOMMIT],
+  input  logic [XLEN_BITS-1:0]         base_pc  [NCOMMIT],
   input  logic [2:0]          br_type  [NCOMMIT],
   input  logic [NCOMMIT-1:0]  actual_dir,
   input  logic [NCOMMIT-1:0]  pred_dir,
-  input  logic [31:0]         target   [NCOMMIT],
+  input  logic [XLEN_BITS-1:0]         target   [NCOMMIT],
   output logic [NCOMMIT-1:0]  ev_valid,
   output ub_ev_t              ev       [NCOMMIT]
 );
@@ -31,20 +31,20 @@ module bpu_ub_track import bpu_pkg::*; import bpu_stage_pkg::*; (
   localparam int PB = NCOMMIT;            // index of the first jump candidate
 
   logic        tr_v_q;
-  logic [31:0] tr_start_q, tr_expect_q;
+  logic [XLEN_BITS-1:0] tr_start_q, tr_expect_q;
   logic        tr_cond_q;
   logic        tr_v_d;
-  logic [31:0] tr_start_d, tr_expect_d;
+  logic [XLEN_BITS-1:0] tr_start_d, tr_expect_d;
   logic        tr_cond_d;
 
   // ---- lane-local facts ----
   logic [NCOMMIT-1:0] is_dir, taken, ntslot, nt_plain, jump;
-  logic [31:0]        nxt     [NCOMMIT];
-  logic [31:0]        next_pc [NCOMMIT];   // actual next pc of the lane
-  logic [31:0]        exp_pc;
+  logic [XLEN_BITS-1:0]        nxt     [NCOMMIT];
+  logic [XLEN_BITS-1:0]        next_pc [NCOMMIT];   // actual next pc of the lane
+  logic [XLEN_BITS-1:0]        exp_pc;
   logic               has_prev;
-  logic [31:0]        cand    [NS];        // candidate block starts
-  logic [31:0]        cand_bnd [NS];
+  logic [XLEN_BITS-1:0]        cand    [NS];        // candidate block starts
+  logic [XLEN_BITS-1:0]        cand_bnd [NS];
   logic [NCOMMIT-1:0] bnd_hit [NS];        // lane i: nxt >= block end of candidate s
 
   // Ref: ub_track, per-lane decisions that do not depend on the block start
@@ -54,7 +54,7 @@ module bpu_ub_track import bpu_pkg::*; import bpu_stage_pkg::*; (
       taken[i]    = upd_valid[i] && (br_type[i] != BR_NONCTL) && actual_dir[i];
       ntslot[i]   = upd_valid[i] && !taken[i] && (br_type[i] == BR_DIRECT) && pred_dir[i];
       nt_plain[i] = upd_valid[i] && !taken[i] && !ntslot[i];
-      nxt[i]      = base_pc[i] + 32'd4;
+      nxt[i]      = base_pc[i] + XLEN_BITS'(4);
       next_pc[i]  = taken[i] ? target[i] : nxt[i];
     end
     // discontinuity of every valid lane against the next pc of the previous valid lane (or the state of last cycle)
@@ -80,7 +80,7 @@ module bpu_ub_track import bpu_pkg::*; import bpu_stage_pkg::*; (
   // ---- resolve the block start of every lane ----
   logic [NS-1:0]      src      [NCOMMIT];   // one-hot: which candidate is the block start of lane i
   logic [NCOMMIT-1:0] boundary, change;
-  logic [31:0]        lane_start [NCOMMIT];
+  logic [XLEN_BITS-1:0]        lane_start [NCOMMIT];
   logic [NCOMMIT-1:0] cond_in;              // a conditional branch was seen in the block before this lane
   logic [NCOMMIT-1:0] cond_now;             // ... including this lane
   logic [NS-1:0]      hit_col  [NCOMMIT];   // hit_col[i][s] = bnd_hit[s][i]
@@ -133,7 +133,7 @@ module bpu_ub_track import bpu_pkg::*; import bpu_stage_pkg::*; (
       ev[i].slot  = 3'((base_pc[i] - lane_start[i]) >> 2);
       ev[i].ty    = br_type[i];
       if (taken[i]) begin
-        ev_valid[i] = 1'b1; ev[i].kind = EV_TAKEN; ev[i].tgt = target[i][31:2];
+        ev_valid[i] = 1'b1; ev[i].kind = EV_TAKEN; ev[i].tgt = target[i][XLEN_BITS-1:2];
       end else if (ntslot[i]) begin
         ev_valid[i] = 1'b1; ev[i].kind = EV_NTSLOT;
       end else if (boundary[i]) begin

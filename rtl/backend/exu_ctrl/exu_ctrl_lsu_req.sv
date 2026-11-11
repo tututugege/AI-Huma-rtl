@@ -9,7 +9,7 @@ module exu_ctrl_lsu_req
 (
   input  xc_done_t                  fu_done [N_FU],
   output logic [N_AGU-1:0] agu_valid,
-  output logic [31:0]               agu_result    [N_AGU],
+  output logic [XLEN_BITS-1:0]               agu_result    [N_AGU],
   output logic [PRF_IDX_WIDTH-1:0]  agu_dest_preg [N_AGU],
   output logic [2:0]                agu_func3     [N_AGU],
   output logic [N_AGU-1:0] agu_is_atomic,
@@ -20,7 +20,7 @@ module exu_ctrl_lsu_req
   output logic [N_AGU-1:0] agu_stq_flag,
   output logic [LDQ_IDX_WIDTH-1:0]  agu_ldq_idx   [N_AGU],
   output logic [N_SDU-1:0] sdu_valid,
-  output logic [31:0]               sdu_result    [N_SDU],
+  output logic [XLEN_BITS-1:0]               sdu_result    [N_SDU],
   output logic [ROB_IDX_WIDTH-1:0]  sdu_rob_idx   [N_SDU],
   output logic [N_SDU-1:0] sdu_rob_flag,
   output logic [STQ_IDX_WIDTH-1:0]  sdu_stq_idx   [N_SDU]

@@ -2,11 +2,18 @@
 `default_nettype none
 /* verilator lint_off UNUSEDPARAM */  // constants package: not every constant is used by every module
 package tlb_mmu_pkg;
+  import ttg_cfg_pkg::*;
 
-  localparam int ASID_W = 9;           // Sv32 satp[30:22]
-  localparam int VPN_W = 20;           // vaddr[31:12]
-  localparam int VPN_PART_W = 10;      // vpn1 / vpn0
-  localparam int PPN_W = 20;           // ppn[19:0]: ppn[21:20] never reach the 32-bit physical address
+  // Sv32 (XLEN 32): 2 levels of 10-bit VPNs, 9-bit ASID satp[30:22]; Sv39 (XLEN 64): 3 levels of 9-bit VPNs, 16-bit
+  // ASID satp[59:44].  The physical address is 32 bits in both: only ppn[19:0] of a PTE reaches it.
+  localparam bit RV64 = (XLEN_BITS == 64);
+  localparam int ASID_W = RV64 ? 16 : 9;
+  localparam int LEVELS = RV64 ? 3 : 2;
+  localparam int VPN_PART_W = RV64 ? 9 : 10;   // one VPN field
+  localparam int VPN_W = LEVELS * VPN_PART_W;  // vaddr[12 +: VPN_W]
+  localparam int LVL_W = RV64 ? 2 : 1;         // leaf level: 0 = 4 KiB, 1 = 2/4 MiB, 2 = 1 GiB (Sv39)
+  localparam int VLOW_W = 12 + VPN_PART_W * (LEVELS - 1);   // vaddr bits a leaf of the top level keeps (22 / 30)
+  localparam int PPN_W = 20;
   localparam int PERM_W = 8;           // PTE[7:0] = D A G U X W R V
   localparam int PERM_R = 1;
   localparam int PERM_W_BIT = 2;
@@ -29,14 +36,13 @@ package tlb_mmu_pkg;
   typedef struct packed {
     logic                  global_page;
     logic [ASID_W-1:0]     asid;
-    logic                  level;      // 1: megapage (L1 leaf), 0: 4 KiB page
-    logic [VPN_PART_W-1:0] vpn1;
-    logic [VPN_PART_W-1:0] vpn0;       // don't care when level == 1
+    logic [LVL_W-1:0]      level;      // leaf level of the page
+    logic [VPN_W-1:0]      vpn;        // the VPN fields below `level` are don't care
   } tlb_mmu_tag_t;
 
   // what a matched entry translates to
   typedef struct packed {
-    logic              level;
+    logic [LVL_W-1:0]  level;
     logic [PPN_W-1:0]  ppn;
     logic [PERM_W-1:0] perm;
   } tlb_mmu_xlat_t;
@@ -53,7 +59,7 @@ package tlb_mmu_pkg;
     logic             req_sent;
     logic [VPN_W-1:0] vpn;
     logic [1:0]       access_type;
-    logic [31:0]      satp;
+    logic [XLEN_BITS-1:0]      satp;
     logic [1:0]       eff_priv;
     logic             mxr;
     logic             sum;
@@ -63,7 +69,7 @@ package tlb_mmu_pkg;
   typedef struct packed {
     logic             fault;
     logic [VPN_W-1:0] vpn;
-    logic             level;
+    logic [LVL_W-1:0] level;
     logic [PPN_W-1:0] ppn;
     logic [PERM_W-1:0] perm;
   } tlb_mmu_ptw_resp_t;
@@ -99,18 +105,48 @@ package tlb_mmu_pkg;
   endfunction
 
   // Ref: TlbMmu::entry_matches (without the valid bit)
-  function automatic logic tag_match(input tlb_mmu_tag_t t, input logic [VPN_W-1:0] vpn, input logic [ASID_W-1:0] asid);
-    return (t.global_page || t.asid == asid) && t.vpn1 == vpn[VPN_W-1:VPN_PART_W]
-        && (t.level || t.vpn0 == vpn[VPN_PART_W-1:0]);
+  // every VPN field at or above the leaf's level must match (a superpage ignores the lower ones)
+  function automatic logic tag_match(input tlb_mmu_tag_t t, input logic [VPN_W-1:0] vpn,
+                                     input logic [ASID_W-1:0] asid);
+    logic m;
+    m = t.global_page || t.asid == asid;
+    for (int k = 0; k < LEVELS; k++)
+      if (k >= int'(t.level) && t.vpn[k*VPN_PART_W +: VPN_PART_W] != vpn[k*VPN_PART_W +: VPN_PART_W]) m = 1'b0;
+    return m;
   endfunction
 
-  // Ref: TlbMmu::compose_paddr (32-bit physical address; a megapage keeps vaddr[21:0])
-  function automatic logic [31:0] compose_paddr(input logic [21:0] vaddr_low, input logic level,
+  // 32-bit physical address: the offset below a leaf of level L is 12 + VPN_PART_W * L bits, from the virtual address
+  function automatic logic [31:0] compose_paddr(input logic [VLOW_W-1:0] vaddr_low, input logic [LVL_W-1:0] level,
                                                 input logic [PPN_W-1:0] ppn);
-    return level ? {ppn[PPN_W-1:VPN_PART_W], vaddr_low} : {ppn, vaddr_low[11:0]};
+    logic [31:0] r, pbase;
+    pbase = {ppn, 12'b0};
+    for (int i = 0; i < 32; i++) begin
+      if (i < VLOW_W && i < 12 + VPN_PART_W * int'(level)) r[i] = vaddr_low[i];
+      else                                                 r[i] = pbase[i];
+    end
+    return r;
   endfunction
 
-  // Ref: TlbMmu::build_translate_context (eff_priv): loads/stores honour MSTATUS.MPRV, fetches do not
+  // satp: translation enabled (Sv32: MODE bit 31; Sv39: MODE = 8) and ASID
+  function automatic logic satp_on(input logic [XLEN_BITS-1:0] satp);
+    return RV64 ? (satp[XLEN_BITS-1 -: 4] == 4'd8) : satp[XLEN_BITS-1];
+  endfunction
+
+  function automatic logic [ASID_W-1:0] satp_asid(input logic [XLEN_BITS-1:0] satp);
+    /* verilator lint_off UNUSEDSIGNAL */
+    logic [63:0] s;
+    /* verilator lint_on UNUSEDSIGNAL */
+    s = 64'(satp);
+    return RV64 ? s[44 +: ASID_W] : s[22 +: ASID_W];
+  endfunction
+
+  // Sv39: a virtual address must be sign-extended from bit 38 (always true on Sv32)
+  function automatic logic va_canonical(input logic [XLEN_BITS-1:0] v);
+    logic signed [XLEN_BITS-1:0] top;
+    top = $signed(v) >>> 38;
+    return top == '0 || top == '1;
+  endfunction
+
   function automatic logic [1:0] effective_priv(input logic [1:0] access_type, input logic [1:0] privilege,
                                                 input logic mprv, input logic [1:0] mpp);
     return (access_type != ACC_FETCH && mprv) ? mpp : privilege;

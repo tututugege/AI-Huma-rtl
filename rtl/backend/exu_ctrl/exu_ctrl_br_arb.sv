@@ -9,16 +9,16 @@ module exu_ctrl_br_arb
   input  xc_done_t                     fu_done [N_FU],
   output logic [BR_MASK_WIDTH-1:0]     clear_mask,
   output logic                         mispred,
-  output logic [31:0]                  redirect_pc,
+  output logic [XLEN_BITS-1:0]                  redirect_pc,
   output logic [ROB_IDX_WIDTH-1:0]     redirect_rob_idx,
   output logic [BR_TAG_WIDTH-1:0]      br_id,
   output logic [FTQ_IDX_WIDTH-1:0]     ftq_idx,
-  output logic [31:0]                  br_pc
+  output logic [XLEN_BITS-1:0]                  br_pc
 );
 
   localparam int NBR = BRU_NUM;
   // {diag_val, rob_idx, br_id, ftq_idx, pc}
-  localparam int DW  = 32 + ROB_IDX_WIDTH + BR_TAG_WIDTH + FTQ_IDX_WIDTH + 32;
+  localparam int DW  = XLEN_BITS + ROB_IDX_WIDTH + BR_TAG_WIDTH + FTQ_IDX_WIDTH + XLEN_BITS;
 
   logic [NBR-1:0] resolved;          // BRU produced a result (it is never flushed: see notes 4.2-1)
   logic [NBR-1:0] wrong;             // resolved and mispredicted

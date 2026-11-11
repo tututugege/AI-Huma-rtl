@@ -10,7 +10,7 @@ package bpu_pkg;
   localparam int BANK_W  = 3;
   localparam int NLANE   = FETCH_WIDTH;       // lanes of one fetch group (8)
   localparam int NCOMMIT = COMMIT_WIDTH;      // commit lanes (8)
-  localparam int PC_W    = 32;
+  localparam int PC_W    = XLEN_BITS;
   localparam int BPC_W   = PC_W - BANK_W;     // bank pc = pc >> 3 (BankPcComb)
 
   // branch types (BPU_configs.h)
@@ -81,7 +81,7 @@ package bpu_pkg;
     logic [BPC_W-1:0]        bank_pc;
     logic                    actual_dir;
     logic [2:0]              br_type;
-    logic [31:0]             target;
+    logic [XLEN_BITS-1:0]             target;
     logic                    pred_dir;
     logic                    alt_pred;
     logic [PCPN_W-1:0]       pcpn;

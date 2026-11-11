@@ -21,25 +21,25 @@ module core_front2back import ttg_cfg_pkg::*; import front_pkg::*; (
   input  logic [31:0] instructions     [FETCH_WIDTH],
   input  logic [FETCH_WIDTH-1:0] page_fault_inst,
   input  logic [FETCH_WIDTH-1:0] predict_dir,
-  input  logic [31:0] pc               [FETCH_WIDTH],
+  input  logic [XLEN_BITS-1:0] pc               [FETCH_WIDTH],
   input  logic [FETCH_WIDTH-1:0] alt_pred,
   input  logic [PCPN_W-1:0]       pcpn    [FETCH_WIDTH],
   input  logic [TAGE_IDX_W-1:0]   tage_idx [FETCH_WIDTH][TN_MAX],
   input  logic [TAGE_TAG_W-1:0]   tage_tag [FETCH_WIDTH][TN_MAX],
-  input  logic [31:0] predict_next_fetch_address,
+  input  logic [XLEN_BITS-1:0] predict_next_fetch_address,
   input  logic [BCK_W-1:0] bpu_ck,
   input  logic [FETCH_WIDTH-1:0][KIND_W-1:0] slot_kind,
   // back.in (front part)
   output logic [BACKEND_FETCH_WIDTH-1:0] back_valid,
   output logic [31:0] back_inst        [BACKEND_FETCH_WIDTH],
   output logic [BACKEND_FETCH_WIDTH-1:0] back_page_fault,
-  output logic [31:0] back_pc          [BACKEND_FETCH_WIDTH],
+  output logic [XLEN_BITS-1:0] back_pc          [BACKEND_FETCH_WIDTH],
   output logic [BACKEND_FETCH_WIDTH-1:0] back_predict_dir,
   output logic [BACKEND_FETCH_WIDTH-1:0] back_alt_pred,
   output logic [PCPN_W-1:0]       back_pcpn    [BACKEND_FETCH_WIDTH],
   output logic [TAGE_IDX_W-1:0]   back_tage_idx [BACKEND_FETCH_WIDTH][TN_MAX],
   output logic [TAGE_TAG_W-1:0]   back_tage_tag [BACKEND_FETCH_WIDTH][TN_MAX],
-  output logic [31:0] back_predict_next_fetch_address,
+  output logic [XLEN_BITS-1:0] back_predict_next_fetch_address,
   output logic [BCK_W-1:0] back_bpu_ck,
   output logic [FETCH_WIDTH-1:0][KIND_W-1:0] back_slot_kind
 );
@@ -65,7 +65,7 @@ module core_front2back import ttg_cfg_pkg::*; import front_pkg::*; (
   logic [BACKEND_FETCH_WIDTH-1:0] fe_valid;
   logic [31:0] fe_inst        [BACKEND_FETCH_WIDTH];
   logic [BACKEND_FETCH_WIDTH-1:0] fe_page_fault;
-  logic [31:0] fe_pc          [BACKEND_FETCH_WIDTH];
+  logic [XLEN_BITS-1:0] fe_pc          [BACKEND_FETCH_WIDTH];
   logic [BACKEND_FETCH_WIDTH-1:0] fe_predict_dir;
   logic [BACKEND_FETCH_WIDTH-1:0] fe_alt_pred;
   logic [PCPN_W-1:0]     fe_pcpn    [BACKEND_FETCH_WIDTH];
@@ -77,7 +77,7 @@ module core_front2back import ttg_cfg_pkg::*; import front_pkg::*; (
       fe_valid[j]       = 1'b0;
       fe_inst[j]        = INST_NOP_WORD;
       fe_page_fault[j]  = 1'b0;
-      fe_pc[j]          = 32'd0;
+      fe_pc[j]          = '0;
       fe_predict_dir[j] = 1'b0;
       fe_alt_pred[j]    = 1'b0;
       fe_pcpn[j]        = '0;
@@ -101,13 +101,13 @@ module core_front2back import ttg_cfg_pkg::*; import front_pkg::*; (
   logic [BACKEND_FETCH_WIDTH-1:0] hold_valid_q;
   logic [31:0] hold_inst_q        [BACKEND_FETCH_WIDTH];
   logic [BACKEND_FETCH_WIDTH-1:0] hold_page_fault_q;
-  logic [31:0] hold_pc_q          [BACKEND_FETCH_WIDTH];
+  logic [XLEN_BITS-1:0] hold_pc_q          [BACKEND_FETCH_WIDTH];
   logic [BACKEND_FETCH_WIDTH-1:0] hold_predict_dir_q;
   logic [BACKEND_FETCH_WIDTH-1:0] hold_alt_pred_q;
   logic [PCPN_W-1:0]     hold_pcpn_q    [BACKEND_FETCH_WIDTH];
   logic [TAGE_IDX_W-1:0] hold_tage_idx_q [BACKEND_FETCH_WIDTH][TN_MAX];
   logic [TAGE_TAG_W-1:0] hold_tage_tag_q [BACKEND_FETCH_WIDTH][TN_MAX];
-  logic [31:0]           hold_next_q;
+  logic [XLEN_BITS-1:0]  hold_next_q;
   logic [BCK_W-1:0]      hold_bpu_ck_q;
   logic [FETCH_WIDTH-1:0][KIND_W-1:0] hold_slot_kind_q;
 
@@ -134,14 +134,14 @@ module core_front2back import ttg_cfg_pkg::*; import front_pkg::*; (
         hold_valid_q[j]       <= 1'b0;
         hold_inst_q[j]        <= INST_NOP_WORD;
         hold_page_fault_q[j]  <= 1'b0;
-        hold_pc_q[j]          <= 32'd0;
+        hold_pc_q[j]          <= '0;
         hold_predict_dir_q[j] <= 1'b0;
         hold_alt_pred_q[j]    <= 1'b0;
         hold_pcpn_q[j]        <= '0;
         hold_tage_idx_q[j]    <= '{default: '0};
         hold_tage_tag_q[j]    <= '{default: '0};
       end
-      hold_next_q <= 32'd0;
+      hold_next_q <= '0;
       hold_bpu_ck_q <= '0;
       hold_slot_kind_q <= '0;
     end else begin

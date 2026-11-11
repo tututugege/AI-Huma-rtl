@@ -10,7 +10,7 @@ package memcpu_pkg;
   localparam int P3         = NLD - 1;               // shared load port
   localparam int LD_ID_W    = 31;                    // LSU load request id (bit 31 = route flag, route block's)
   localparam int ST_ID_W    = 6;                     // LSU store request id (STQ index)
-  localparam int ST_STRB_W  = 5;                     // store strobe bits the DCache consumes
+  localparam int ST_STRB_W  = DST_STRB_W;            // store strobe bits (XLEN/8 + 1); the DCache uses XLEN/8
   localparam int FILL_LINE_W = 26;                   // mshr_fill_addr >> 6
 
   // ---- route request ids {1, 0.., counter}; only the low RT_ID_W bits are kept: one route request is in flight
@@ -29,8 +29,12 @@ package memcpu_pkg;
   localparam logic [1:0] REPLAY_MSHR_HIT = 2'd2;
   localparam logic [1:0] REPLAY_MSHR_FULL = 2'd3;
 
-  // ---- PTW (Sv32) ----
-  localparam int PT_VPN_W   = 20;
+  // ---- PTW (Sv32: 2 levels, 4-byte PTEs; Sv39: 3 levels, 8-byte PTEs) ----
+  localparam int PT_LEVELS    = (XLEN_BITS == 64) ? 3 : 2;
+  localparam int PT_VPN_PART_W = (XLEN_BITS == 64) ? 9 : 10;   // one VPN field
+  localparam int PT_PTE_SHIFT = (XLEN_BITS == 64) ? 3 : 2;     // log2 of the PTE size
+  localparam int PT_LVL_W     = (XLEN_BITS == 64) ? 2 : 1;     // leaf level 0 .. PT_LEVELS-1
+  localparam int PT_VPN_W   = PT_LEVELS * PT_VPN_PART_W;
   localparam int PT_PPN_IN_W = 22;                   // satp.ppn as sent by the TLBs
   localparam int PT_PPN_W   = 20;                    // ppn bits that reach a 32-bit address ((ppn << 12) wraps)
   localparam int PT_PERM_W  = 8;

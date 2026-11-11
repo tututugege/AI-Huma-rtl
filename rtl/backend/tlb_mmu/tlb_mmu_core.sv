@@ -6,7 +6,7 @@
 // Per cycle exactly one of three modes: fence (SFENCE.VMA: flush the TLB and the walk), cancel (pipeline flush /
 // mispredict: drop the
 // walk, tell the PTW), translate (serve the ports).
-module tlb_mmu_core import tlb_mmu_pkg::*; #(
+module tlb_mmu_core import tlb_mmu_pkg::*; import ttg_cfg_pkg::*; #(
   parameter int LANES = 8,
   parameter int LD_LANES = 4,       // lanes [0, LD_LANES) are loads, the rest stores (ignored when FETCH)
   parameter bit FETCH = 1'b0,
@@ -16,14 +16,14 @@ module tlb_mmu_core import tlb_mmu_pkg::*; #(
   input  logic rst_n,
   input  logic fence,
   input  logic cancel,
-  input  logic [31:0] satp,
+  input  logic [XLEN_BITS-1:0] satp,
   input  logic [1:0]  privilege,
   input  logic        mxr,
   input  logic        sum,
   input  logic        mprv,
   input  logic [1:0]  mpp,
   input  logic        req_valid [LANES],
-  input  logic [31:0] req_vaddr [LANES],
+  input  logic [XLEN_BITS-1:0] req_vaddr [LANES],
   input  logic        ptw_req_ready,
   input  logic        ptw_resp_valid,
   input  tlb_mmu_ptw_resp_t ptw_resp,
@@ -91,7 +91,7 @@ module tlb_mmu_core import tlb_mmu_pkg::*; #(
     logic            table_hit;
     tlb_mmu_xlat_t   table_xlat;
     tlb_mmu_lookup #(.ENTRIES(ENTRIES)) u_lookup (
-      .entry_valid, .entry, .vpn(req_vaddr[l][31:12]), .asid(satp[30:22]), .hit(table_hit), .xlat(table_xlat)
+      .entry_valid, .entry, .vpn(req_vaddr[l][12 +: VPN_W]), .asid(satp_asid(satp)), .hit(table_hit), .xlat(table_xlat)
     );
     tlb_mmu_chain_t  lane_chain_in, lane_chain_out;
     assign lane_chain_in = chain[l];

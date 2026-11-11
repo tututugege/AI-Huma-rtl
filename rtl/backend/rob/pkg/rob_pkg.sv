@@ -23,7 +23,7 @@ package rob_pkg;
   localparam int UOP_TYPE_COUNT = 18;  // enum UopType (base_types.h): UOP_JUMP .. UOP_FP
   localparam int UOP_TYPE_W = $clog2(UOP_TYPE_COUNT);
   localparam int CPLT_W = 3;  // ROB_CPLT_MASK_WIDTH: one completion bit per uop group G0/G1/G2
-  localparam int XLEN = 32;
+  localparam int XLEN = XLEN_BITS;
   localparam int FUNC7_W = 7;
 
   // ---- InstType encodings (types.h) ----
@@ -64,7 +64,7 @@ package rob_pkg;
     logic                      mispred;
     logic                      br_taken;
     logic [FUNC7_W-1:0]        func7;
-    logic [XLEN-1:0]           imm;
+    logic [31:0]               imm;
     logic [ROB_IDX_WIDTH-1:0]  rob_idx;
     logic                      rob_flag;
     logic [STQ_IDX_WIDTH-1:0]  stq_idx;

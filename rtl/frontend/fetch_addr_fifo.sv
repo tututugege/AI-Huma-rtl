@@ -9,15 +9,15 @@ module fetch_addr_fifo import ttg_cfg_pkg::*; import front_pkg::*; (
   input  logic        rd_en,
   input  logic        wr_en,
   input  logic        drop_tail,
-  input  logic [31:0] wr_fetch_address,
+  input  logic [XLEN_BITS-1:0] wr_fetch_address,
   output logic        rd_valid,
-  output logic [31:0] rd_fetch_address,
+  output logic [XLEN_BITS-1:0] rd_fetch_address,
   output logic        full,
   output logic        empty,
   output logic [$clog2(FETCH_ADDR_FIFO_DEPTH + 1)-1:0] size
 );
 
-  front_fifo #(.DEPTH(FETCH_ADDR_FIFO_DEPTH), .W(32), .FULL_AT(FETCH_ADDR_FIFO_FULL_AT),
+  front_fifo #(.DEPTH(FETCH_ADDR_FIFO_DEPTH), .W(XLEN_BITS), .FULL_AT(FETCH_ADDR_FIFO_FULL_AT),
                   .WR_AFTER_DROP((FE_BFAST & 3) != 0)) u_fifo (
     .clk, .rst_n,
     .clear   (refetch),

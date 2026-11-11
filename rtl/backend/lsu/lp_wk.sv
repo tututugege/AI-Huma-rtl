@@ -11,7 +11,7 @@ module lp_wk
 (
   input  logic [2:0]          cause,
   input  logic [SQW-1:0]      blk,
-  input  logic [1:0]          wt,            // RC_DATA: byte offset of the load inside the store data
+  input  logic [lsu_pkg::OW-1:0] wt,         // RC_DATA: byte offset of the load inside the store data
   input  logic [11:0]         l_voff,
   input  logic [31:0]         l_paddr,
   input  logic [2:0]          l_func3,
@@ -30,8 +30,8 @@ module lp_wk
   lp_sta_info_t  inf;
   /* verilator lint_on UNUSEDSIGNAL */
   lp_conf_t      conf;
-  logic [1:0]    off_a;
-  logic [31:0]   std_d;
+  logic [lsu_pkg::OW-1:0] off_a;
+  logic [XLEN_BITS-1:0]   std_d;
   always_comb begin
     b_sta = ev_sta[blk];
     b_ret = ev_ret[blk];
@@ -44,7 +44,7 @@ module lp_wk
     for (int k = 0; k < NSD; k++) if (sdw[k].v && sdw[k].stq == blk) std_d = sdw[k].data;
     conf = stlf_confirm(l_voff, l_paddr, l_func3, alive_b, inf.suppress, inf.va_v, inf.voff, inf.pa_v, inf.paddr,
                         inf.func3, inf.data_v, inf.hold_sc);
-    off_a = l_paddr[1:0] - inf.paddr[1:0];
+    off_a = l_paddr[lsu_pkg::OW-1:0] - inf.paddr[lsu_pkg::OW-1:0];
   end
 
   always_comb begin

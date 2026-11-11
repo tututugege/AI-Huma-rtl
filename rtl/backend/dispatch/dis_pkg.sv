@@ -51,7 +51,7 @@ package dis_pkg;
   // One renamed instruction as held in the dispatch register stage (RenDisIO::RenDisInst minus
   // perf/debug sidebands and the dead expect/cplt masks and src2_areg).
   typedef struct packed {
-    logic [31:0]               diag_val;
+    logic [XLEN_BITS-1:0]               diag_val;
     logic [AREG_IDX_WIDTH-1:0] dest_areg;
     logic [AREG_IDX_WIDTH-1:0] src1_areg;
     logic [PRF_IDX_WIDTH-1:0]  dest_preg;
@@ -71,6 +71,7 @@ package dis_pkg;
     logic                      src2_busy;
     logic                      src1_is_pc;
     logic                      src2_is_imm;
+    logic                      is_word;
     logic [2:0]                func3;
     logic [6:0]                func7;
     logic [31:0]               imm;
@@ -106,6 +107,7 @@ package dis_pkg;
     logic                      src2_busy;
     logic                      src1_is_pc;
     logic                      src2_is_imm;
+    logic                      is_word;
     logic [2:0]                func3;
     logic [6:0]                func7;
     logic [31:0]               imm;

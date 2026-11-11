@@ -112,6 +112,7 @@ package isu_pkg;
     logic                        src2_en;
     logic                        src1_is_pc;
     logic                        src2_is_imm;
+    logic                        is_word;
     logic [2:0]                  func3;
     logic [6:0]                  func7;
     logic [31:0]                 imm;

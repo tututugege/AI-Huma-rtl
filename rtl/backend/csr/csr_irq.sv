@@ -7,11 +7,12 @@
 //                 taken in U, or in S with sstatus.SIE
 module csr_irq
   import csr_pkg::*;
+  import ttg_cfg_pkg::*;
 (
-  input  logic [31:0]      mstatus,
-  input  logic [31:0]      mie,
-  input  logic [31:0]      mip,
-  input  logic [31:0]      mideleg,
+  input  logic [XLEN_BITS-1:0]      mstatus,
+  input  logic [XLEN_BITS-1:0]      mie,
+  input  logic [XLEN_BITS-1:0]      mip,
+  input  logic [XLEN_BITS-1:0]      mideleg,
   input  logic [1:0]       privilege,
   output logic [NIRQ-1:0]  m_pending,       // software, timer, external
   output logic [NIRQ-1:0]  s_pending,

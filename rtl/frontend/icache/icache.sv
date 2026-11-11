@@ -11,8 +11,8 @@ module icache import ttg_cfg_pkg::*; import icache_pkg::*; import tlb_mmu_pkg::*
   input  logic fence_i,
   input  logic invalidate,
   input  logic req_valid,
-  input  logic [31:0] fetch_address,
-  input  logic [31:0] csr_status_satp,
+  input  logic [XLEN_BITS-1:0] fetch_address,
+  input  logic [XLEN_BITS-1:0] csr_status_satp,
   input  logic [1:0]  csr_status_privilege,
   input  logic csr_status_mstatus_mxr,
   input  logic csr_status_mstatus_sum,
@@ -34,10 +34,10 @@ module icache import ttg_cfg_pkg::*; import icache_pkg::*; import tlb_mmu_pkg::*
   input  logic [VPN_W-1:0] ptw_walk_resp_vpn,
   input  logic [PPN_W-1:0] ptw_walk_resp_leaf_ppn,
   input  logic [PERM_W-1:0] ptw_walk_resp_leaf_perm,
-  input  logic ptw_walk_resp_leaf_level,
+  input  logic [LVL_W-1:0] ptw_walk_resp_leaf_level,
   output logic icache_ready,
   output logic read_complete,
-  output logic [31:0] fetch_pc,
+  output logic [XLEN_BITS-1:0] fetch_pc,
   output logic [FETCH_WIDTH-1:0] inst_valid,
   output logic [FETCH_WIDTH-1:0] page_fault_inst,
   output logic [31:0] fetch_group [FETCH_WIDTH],
@@ -68,11 +68,11 @@ module icache import ttg_cfg_pkg::*; import icache_pkg::*; import tlb_mmu_pkg::*
   logic [IC_WAY_W-1:0] arr_first_invalid, tw_way;
   logic [IC_TAG_W-1:0] tw_tag;
   logic [IC_LINE_W-1:0] arr_hit_line, tw_line, resp_line;
-  logic [19:0] mmu_req_vtag;
+  logic [XLEN_BITS-13:0] mmu_req_vtag;
   logic ppn_valid, page_fault;
   logic [IC_TAG_W-1:0] ppn;
   logic resp_valid, resp_page_fault, resp_single_word;
-  logic [31:0] resp_pc;
+  logic [XLEN_BITS-1:0] resp_pc;
 
   icache_ctl u_ctl (
     .clk, .rst_n, .refetch, .itlb_flush, .fence_i, .invalidate, .req_valid_in(req_valid), .pc(fetch_address),

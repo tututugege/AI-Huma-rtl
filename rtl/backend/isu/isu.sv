@@ -24,6 +24,7 @@ module isu
   input  logic dis2iss_req_uop_src2_busy [IQ_NUM][IQ_DISPATCH_WIDTH],
   input  logic dis2iss_req_uop_src1_is_pc [IQ_NUM][IQ_DISPATCH_WIDTH],
   input  logic dis2iss_req_uop_src2_is_imm [IQ_NUM][IQ_DISPATCH_WIDTH],
+  input  logic dis2iss_req_uop_is_word [IQ_NUM][IQ_DISPATCH_WIDTH],
   input  logic [2:0] dis2iss_req_uop_func3 [IQ_NUM][IQ_DISPATCH_WIDTH],
   input  logic [6:0] dis2iss_req_uop_func7 [IQ_NUM][IQ_DISPATCH_WIDTH],
   input  logic [31:0] dis2iss_req_uop_imm [IQ_NUM][IQ_DISPATCH_WIDTH],
@@ -63,6 +64,7 @@ module isu
   output logic [ISSUE_WIDTH-1:0] iss2prf_iss_entry_uop_src2_en,
   output logic [ISSUE_WIDTH-1:0] iss2prf_iss_entry_uop_src1_is_pc,
   output logic [ISSUE_WIDTH-1:0] iss2prf_iss_entry_uop_src2_is_imm,
+  output logic [ISSUE_WIDTH-1:0] iss2prf_iss_entry_uop_is_word,
   output logic [2:0] iss2prf_iss_entry_uop_func3 [ISSUE_WIDTH],
   output logic [6:0] iss2prf_iss_entry_uop_func7 [ISSUE_WIDTH],
   output logic [31:0] iss2prf_iss_entry_uop_imm [ISSUE_WIDTH],
@@ -173,6 +175,7 @@ module isu
           src2_en: dis2iss_req_uop_src2_en[q][w],
           src1_is_pc: dis2iss_req_uop_src1_is_pc[q][w],
           src2_is_imm: dis2iss_req_uop_src2_is_imm[q][w],
+          is_word: dis2iss_req_uop_is_word[q][w],
           func3: dis2iss_req_uop_func3[q][w],
           func7: dis2iss_req_uop_func7[q][w],
           imm: dis2iss_req_uop_imm[q][w],
@@ -221,6 +224,7 @@ module isu
     assign iss2prf_iss_entry_uop_src2_en[p] = grant_uop[p].src2_en;
     assign iss2prf_iss_entry_uop_src1_is_pc[p] = grant_uop[p].src1_is_pc;
     assign iss2prf_iss_entry_uop_src2_is_imm[p] = grant_uop[p].src2_is_imm;
+    assign iss2prf_iss_entry_uop_is_word[p] = grant_uop[p].is_word;
     assign iss2prf_iss_entry_uop_func3[p] = grant_uop[p].func3;
     assign iss2prf_iss_entry_uop_func7[p] = grant_uop[p].func7;
     assign iss2prf_iss_entry_uop_imm[p] = grant_uop[p].imm;

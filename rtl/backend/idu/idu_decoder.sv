@@ -11,7 +11,7 @@ module idu_decoder import ttg_cfg_pkg::*; (
   input  logic [FTQ_IDX_WIDTH-1:0]    entry_ftq_idx,
   input  logic [FTQ_OFFSET_WIDTH-1:0] entry_ftq_offset,
   input  logic                        entry_ftq_is_last,
-  output logic [31:0]                 uop_diag_val,
+  output logic [XLEN_BITS-1:0]                 uop_diag_val,
   output logic [AREG_IDX_WIDTH-1:0]   uop_dest_areg,
   output logic [AREG_IDX_WIDTH-1:0]   uop_src1_areg,
   output logic [AREG_IDX_WIDTH-1:0]   uop_src2_areg,
@@ -25,6 +25,7 @@ module idu_decoder import ttg_cfg_pkg::*; (
   output logic                        uop_is_atomic,
   output logic                        uop_src1_is_pc,
   output logic                        uop_src2_is_imm,
+  output logic                        uop_is_word,
   output logic [2:0]                  uop_func3,
   output logic [6:0]                  uop_func7,
   output logic [31:0]                 uop_imm,
@@ -36,7 +37,7 @@ module idu_decoder import ttg_cfg_pkg::*; (
 
   // raw decode of the instruction word, as if the entry were a normal valid instruction
   logic [4:0]  raw_type;
-  logic        raw_dest_en, raw_src1_en, raw_src2_en, raw_src1_is_pc, raw_src2_is_imm, raw_is_atomic;
+  logic        raw_dest_en, raw_src1_en, raw_src2_en, raw_src1_is_pc, raw_src2_is_imm, raw_is_word, raw_is_atomic;
   logic [2:0]  raw_func3;
   logic [5:0]  raw_dest_areg, raw_src1_areg, raw_src2_areg;
   logic        raw_illegal_inst, raw_is_branch;
@@ -46,7 +47,8 @@ module idu_decoder import ttg_cfg_pkg::*; (
 
   idu_ctrl_decode u_ctrl (
     .inst(entry_inst), .uop_type(raw_type), .dest_en(raw_dest_en), .src1_en(raw_src1_en), .src2_en(raw_src2_en),
-    .src1_is_pc(raw_src1_is_pc), .src2_is_imm(raw_src2_is_imm), .is_atomic(raw_is_atomic), .func3(raw_func3),
+    .src1_is_pc(raw_src1_is_pc), .src2_is_imm(raw_src2_is_imm), .is_word(raw_is_word), .is_atomic(raw_is_atomic),
+    .func3(raw_func3),
     .dest_areg(raw_dest_areg), .src1_areg(raw_src1_areg), .src2_areg(raw_src2_areg),
     .illegal_inst(raw_illegal_inst), .is_branch(raw_is_branch), .imm_sel(raw_imm_sel)
   );
@@ -56,7 +58,7 @@ module idu_decoder import ttg_cfg_pkg::*; (
   // Ref: Idu::comb_decode (page_fault -> NOP with diag_val = inst ; else decode())
   always_comb begin
     decoded_en                  = ~entry_page_fault_inst;
-    uop_diag_val                = entry_inst;
+    uop_diag_val                = XLEN_BITS'(entry_inst);
     uop_page_fault_inst         = entry_page_fault_inst;
     uop_ftq_idx                 = entry_ftq_idx;
     uop_ftq_offset              = entry_ftq_offset;
@@ -68,6 +70,7 @@ module idu_decoder import ttg_cfg_pkg::*; (
     uop_is_atomic               = raw_is_atomic & decoded_en;
     uop_src1_is_pc              = raw_src1_is_pc & decoded_en;
     uop_src2_is_imm             = raw_src2_is_imm & decoded_en;
+    uop_is_word                 = raw_is_word & decoded_en;
     uop_func3                   = raw_func3 & {3{decoded_en}};
     uop_func7                   = entry_inst[31:25] & {7{decoded_en}};
     uop_imm                     = raw_imm & {32{decoded_en}};

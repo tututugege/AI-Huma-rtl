@@ -17,7 +17,7 @@ package bpu_stage_pkg;
   localparam int L1_SET_W  = 8;
   localparam int L1_SETS   = 1 << L1_SET_W;
   localparam int UB_TAG_W  = 10;
-  localparam int UB_TGT_W  = 30;               // target word address
+  localparam int UB_TGT_W  = XLEN_BITS - 2;    // target word address
   localparam int HSYM_W    = 3;                // history bits pushed by a taken branch (BPO_HSYM)
   localparam int HR_BITS   = 256;              // circular history buffer
   localparam int HR_PTR_W  = 8;
@@ -40,13 +40,13 @@ package bpu_stage_pkg;
     fh_t                 fh;
   } hist_t;
   typedef struct packed {
-    logic [RAS_DEPTH-1:0][31:0] st;
+    logic [RAS_DEPTH-1:0][XLEN_BITS-1:0] st;
     logic [RAS_PTR_W-1:0]       ptr;
     logic [RAS_CNT_W-1:0]       cnt;
   } ras_t;
   // checkpoints (state before a block)
   typedef struct packed { logic [HR_PTR_W-1:0] head; fh_t fh; } hist_ck_t;
-  typedef struct packed { logic [RAS_PTR_W-1:0] ptr; logic [RAS_CNT_W-1:0] cnt; logic [31:0] top; } ras_ck_t;
+  typedef struct packed { logic [RAS_PTR_W-1:0] ptr; logic [RAS_CNT_W-1:0] cnt; logic [XLEN_BITS-1:0] top; } ras_ck_t;
   typedef struct packed { hist_ck_t h; ras_ck_t r; } ck_t;
 
   // ---- uBTB / L1 entry (taken-path history: the nd fields of the C++ entry are dead and not stored) ----
@@ -65,20 +65,20 @@ package bpu_stage_pkg;
     logic                 taken;
     logic [2:0]           slot;
     logic [2:0]           ty;
-    logic [31:0]          next;
+    logic [XLEN_BITS-1:0]          next;
     logic [HSYM_W-1:0]    hbits;    // taken: HSYM history bits pushed
     logic [1:0]           ras_op;   // 0 none, 1 push, 2 pop
-    logic [31:0]          ras_val;
+    logic [XLEN_BITS-1:0]          ras_val;
   } pred_t;
 
   // ---- update queue entry (BPU_pipe.h UpdEnt) ----
   typedef struct packed {
-    logic [31:0]                 pc;
+    logic [XLEN_BITS-1:0]                 pc;
     logic                        dir;
     logic                        pred;
     logic                        alt;
     logic [2:0]                  ty;
-    logic [31:0]                 tgt;
+    logic [XLEN_BITS-1:0]                 tgt;
     logic [PCPN_W-1:0]           pcpn;
     logic [TN-1:0][T_TAG_W-1:0]  tag;
     logic [TN-1:0][T_IDX_W-1:0]  idx;
@@ -87,7 +87,7 @@ package bpu_stage_pkg;
   // ---- train event of the uBTB / L1 (kind 0 taken, 1 fall-through end, 2 predicted-taken-not-taken) ----
   typedef struct packed {
     logic [1:0]          kind;
-    logic [31:2]         start;
+    logic [31:2]         start;   // block start word address (set / tag hash: low bits only)
     logic [2:0]          slot;
     logic [2:0]          ty;
     logic [UB_TGT_W-1:0] tgt;
@@ -113,7 +113,7 @@ package bpu_stage_pkg;
     logic [T_TAG_W-1:0] tag;
     logic [1:0]  conf;
     logic        useful;
-    logic [31:0] target;
+    logic [XLEN_BITS-1:0] target;
   } itt_ent_t;
 
   // Ref: Tage::index.  idx = (fh0 ^ w) & mask, tag = (fh1 ^ fh2 ^ w) & mask, w = bank pc >> 2
@@ -133,7 +133,7 @@ package bpu_stage_pkg;
   // ---- block registers of the S1 / S2 stages ----
   typedef struct packed {
     logic        valid;
-    logic [31:0] base;
+    logic [XLEN_BITS-1:0] base;
     pred_t       g;       // S0 guess (replaced by the L1 guess on an S1 override)
     ck_t         ck;      // history / RAS state before the block
   } blk_t;
@@ -148,18 +148,19 @@ package bpu_stage_pkg;
   typedef bank_raw_t [NBANK-1:0] raw_all_t;
 
   // ---- helpers ----
-  function automatic logic [31:0] block_bnd(input logic [31:0] base);
-    logic [31:0] plus;
-    plus = base + 32'(FETCH_WIDTH * 4);
-    return ((base & ~32'(ICACHE_LINE_SIZE - 1)) != (plus & ~32'(ICACHE_LINE_SIZE - 1))) ?
-           (plus & ~32'(ICACHE_LINE_SIZE - 1)) : plus;
+  function automatic logic [XLEN_BITS-1:0] block_bnd(input logic [XLEN_BITS-1:0] base);
+    logic [XLEN_BITS-1:0] plus;
+    plus = base + XLEN_BITS'(FETCH_WIDTH * 4);
+    return ((base & ~XLEN_BITS'(ICACHE_LINE_SIZE - 1)) != (plus & ~XLEN_BITS'(ICACHE_LINE_SIZE - 1))) ?
+           (plus & ~XLEN_BITS'(ICACHE_LINE_SIZE - 1)) : plus;
   endfunction
 
   // taken-path history symbol: XOR-fold of (pc>>2 ^ tgt>>2 ^ pc>>9) into HSYM_W bits (model hist_sym)
-  function automatic logic [HSYM_W-1:0] hsym_of(input logic [31:0] pc, input logic [31:0] tgt);
-    logic [31:0] v;
+  function automatic logic [HSYM_W-1:0] hsym_of(input logic [XLEN_BITS-1:0] pc, input logic [XLEN_BITS-1:0] tgt);
+    logic [31:0] v, w;
     logic [HSYM_W-1:0] r;
-    v = (pc >> 2) ^ (tgt >> 2) ^ ((pc >> 2) >> 7);
+    w = 32'(pc >> 2);   // the model hashes the low 32 bits of the word address
+    v = w ^ 32'(tgt >> 2) ^ (w >> 7);
     r = '0;
     for (int i = 0; i < 32; i += HSYM_W) r = r ^ HSYM_W'(v >> i);
     return r;
@@ -231,7 +232,7 @@ package bpu_stage_pkg;
   endfunction
 
   // ---- RAS ----
-  function automatic ras_t ras_push(input ras_t r, input logic [31:0] v);
+  function automatic ras_t ras_push(input ras_t r, input logic [XLEN_BITS-1:0] v);
     ras_t n;
     n = r;
     n.ptr = r.ptr + RAS_PTR_W'(1);
@@ -250,7 +251,7 @@ package bpu_stage_pkg;
     return n;
   endfunction
 
-  function automatic ras_t ras_op(input ras_t r, input logic [1:0] op, input logic [31:0] v);
+  function automatic ras_t ras_op(input ras_t r, input logic [1:0] op, input logic [XLEN_BITS-1:0] v);
     if (op == 2'd1) return ras_push(r, v);
     if (op == 2'd2) return ras_pop(r);
     return r;

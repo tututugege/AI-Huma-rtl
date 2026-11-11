@@ -11,9 +11,9 @@ module lp_wb
   input  logic [NLD-1:0]      wbd_v,
   input  logic [LQW-1:0]      wbd_idx [NLD],
   input  logic [NLD-1:0]      wbd_hasdata,
-  input  logic [31:0]         wbd_data [NLD],
+  input  logic [XLEN_BITS-1:0]         wbd_data [NLD],
   input  lp_ldq_t             ldq_q [LQ],
-  input  logic [31:0]         ldq_res [LQ],
+  input  logic [XLEN_BITS-1:0]         ldq_res [LQ],
   input  logic [LQ-1:0]       wbp_vec,
   input  lp_stq_t             sq [SQ],
   input  logic [SQ-1:0]       alive_w,
@@ -26,8 +26,8 @@ module lp_wb
   output logic [SQ-1:0]       sc_go,
   // load write-back ports
   output logic [NLD-1:0]      wb_valid,
-  output logic [31:0]         wb_diag [NLD],
-  output logic [31:0]         wb_result [NLD],
+  output logic [XLEN_BITS-1:0]         wb_diag [NLD],
+  output logic [XLEN_BITS-1:0]         wb_result [NLD],
   output logic [PRFW-1:0]     wb_dest [NLD],
   output logic [BRW-1:0]      wb_br [NLD],
   output logic [ROBW-1:0]     wb_rob [NLD],
@@ -38,7 +38,7 @@ module lp_wb
   output logic [NLD-1:0]      wb_flushp,           // memory speculation: final write-back of a violator
   // STA write-back ports
   output logic [NST-1:0]      sta_valid,
-  output logic [31:0]         sta_vaddr [NST],
+  output logic [XLEN_BITS-1:0]         sta_vaddr [NST],
   output logic [BRW-1:0]      sta_br [NST],
   output logic [ROBW-1:0]     sta_rob [NST],
   output logic [NST-1:0]      sta_pf,
@@ -134,7 +134,7 @@ module lp_wb
     end
   end
 
-  logic [31:0] ld_res [NLD];
+  logic [XLEN_BITS-1:0] ld_res [NLD];
   always_comb begin
     for (int p = 0; p < NLD; p++) begin
       ld_res[p] = (wbd_v[p] && wbd_hasdata[p]) ? wbd_data[p] : ldq_res[ld_i[p]];
@@ -168,7 +168,8 @@ module lp_wb
       end else if (kind_sc[p]) begin
         wb_diag[p] = sq[sc_idx_p[p]].vaddr;
         wb_result[p] = sq[sc_idx_p[p]].pf ? sq[sc_idx_p[p]].vaddr
-                                          : ((rsv_valid && rsv_addr == sq[sc_idx_p[p]].paddr) ? 32'd0 : 32'd1);
+                                          : ((rsv_valid && rsv_addr == sq[sc_idx_p[p]].paddr)
+                                             ? XLEN_BITS'(0) : XLEN_BITS'(1));
         wb_dest[p] = sq[sc_idx_p[p]].pf ? PRFW'(0) : sq[sc_idx_p[p]].dest_preg;
         wb_br[p] = sq[sc_idx_p[p]].br_mask;
         wb_rob[p] = sq[sc_idx_p[p]].rob_idx;
