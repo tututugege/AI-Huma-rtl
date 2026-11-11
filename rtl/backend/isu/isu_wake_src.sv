@@ -56,7 +56,9 @@ module isu_wake_src
       assign div_req_valid[R] = grant_valid[p] && grant_uop[p].dest_en && (grant_uop[p].op == op_t'(UOP_DIV));
       assign div_req_preg[R]  = grant_uop[p].dest_preg;
       assign div_req_mask[R]  = grant_uop[p].br_mask;
-      assign div_req_count[R] = COUNT_W'(DIV_MAX_LATENCY - 1);
+      // rv64 divw / divuw / remw / remuw take half the iterations (Isu::get_latency: div_latency(is_word))
+      assign div_req_count[R] = (XLEN_BITS == 64 && grant_uop[p].is_word) ? COUNT_W'(DIV_MAX_LATENCY / 2 - 1)
+                                                                          : COUNT_W'(DIV_MAX_LATENCY - 1);
     end
     if (port_has(MASK_FP, p)) begin : g_fp
       localparam int R = port_rank(MASK_FP, p);

@@ -130,11 +130,11 @@ module dcache_wb
   // entry storage (no reset: entries are only read inside [head, head+count))
   always_ff @(posedge clk) begin
     for (int p = 0; p < NST; p++)
-      for (int b = 0; b < 4; b++) begin
+      for (int b = 0; b < SBW; b++) begin
         if (mrg_ok[p] && mrg_strb[p][b])
-          data_q[mrg_idx[p]][(32'(mrg_word[p]) << 5) + 32'(8 * b) +: 8] <= mrg_data[p][8*b +: 8];
+          data_q[mrg_idx[p]][(32'(mrg_word[p]) * DW) + 32'(8 * b) +: 8] <= mrg_data[p][8*b +: 8];
         if (mrg_ok[p] && mrg_l2[p].strb[b])
-          data_q[mrg_idx[p]][(32'(mrg_l2[p].word) << 5) + 32'(8 * b) +: 8] <= mrg_l2[p].data[8*b +: 8];
+          data_q[mrg_idx[p]][(32'(mrg_l2[p].word) * DW) + 32'(8 * b) +: 8] <= mrg_l2[p].data[8*b +: 8];
       end
     if (push_ok) begin
       line_q[tail] <= push_line;

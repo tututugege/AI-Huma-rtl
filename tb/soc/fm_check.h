@@ -25,9 +25,9 @@ struct FmCheck {
   }
 
   // The core has taken an asynchronous interrupt between two instructions.
-  bool interrupt(uint64_t cycle, uint32_t cause, uint8_t target_priv, uint32_t pending) {
+  bool interrupt(uint64_t cycle, refcpu_xlen_t cause, uint8_t target_priv, uint32_t pending) {
     if (!refcpu_take_forced_interrupt(ctx, cause, target_priv, pending)) {
-      std::fprintf(stderr, "[FM] cycle %llu: function model rejects interrupt cause=%u priv=%u\n", (unsigned long long)cycle, cause, target_priv);
+      std::fprintf(stderr, "[FM] cycle %llu: function model rejects interrupt cause=%llx priv=%u\n", (unsigned long long)cycle, (unsigned long long)cause, target_priv);
       return failed = true, false;
     }
     ++irqs;
@@ -36,11 +36,11 @@ struct FmCheck {
 
   // One committed instruction.  dut_pc: commit pc; rd/rd_val: destination architectural register and the value the core wrote
   // (rd == 0: none).  Returns false on the first disagreement (message already printed).
-  bool commit(uint64_t cycle, uint32_t dut_pc, unsigned rd, uint32_t rd_val) {
+  bool commit(uint64_t cycle, refcpu_xlen_t dut_pc, unsigned rd, refcpu_xlen_t rd_val) {
     RefCpuState before{}, after{};
     refcpu_get_state(ctx, &before);
     if (before.pc != dut_pc) {
-      std::fprintf(stderr, "[FM] cycle %llu commit #%llu: pc rtl=%08x fm=%08x\n", (unsigned long long)cycle, (unsigned long long)steps, dut_pc, before.pc);
+      std::fprintf(stderr, "[FM] cycle %llu commit #%llu: pc rtl=%llx fm=%llx\n", (unsigned long long)cycle, (unsigned long long)steps, (unsigned long long)dut_pc, (unsigned long long)before.pc);
       return failed = true, false;
     }
     refcpu_step(ctx, 1);
@@ -55,13 +55,16 @@ struct FmCheck {
         refcpu_set_state(ctx, &after);
         ++synced_io;
       } else {
-        std::fprintf(stderr, "[FM] cycle %llu commit #%llu pc=%08x inst=%08x: x%u rtl=%08x fm=%08x\n", (unsigned long long)cycle,
-                     (unsigned long long)steps, dut_pc, info.instruction, rd, rd_val, after.gpr[rd]);
+        std::fprintf(stderr, "[FM] cycle %llu commit #%llu pc=%llx inst=%08x: x%u rtl=%llx fm=%llx\n", (unsigned long long)cycle,
+                     (unsigned long long)steps, (unsigned long long)dut_pc, info.instruction, rd, (unsigned long long)rd_val, (unsigned long long)after.gpr[rd]);
         if ((info.instruction & 0x7f) == 0x03) {   // load: show the address and both memories
-          const uint32_t va = before.gpr[(info.instruction >> 15) & 31] + uint32_t(int32_t(info.instruction) >> 20);
+          const refcpu_xlen_t va = before.gpr[(info.instruction >> 15) & 31] + refcpu_xlen_t(int64_t(int32_t(info.instruction) >> 20));
           uint32_t pa = 0; const bool ok = refcpu_translate_data(ctx, va, 1, &pa);
-          std::fprintf(stderr, "[FM]   load va=%08x pa=%08x(xlate %d) priv=%u satp=%08x fm_mem=%08x rtl_mem=%08x\n", va, pa, int(ok), before.privilege, before.csr[18],
+          std::fprintf(stderr, "[FM]   load va=%llx pa=%08x(xlate %d) priv=%u satp=%llx fm_mem=%08x rtl_mem=%08x\n", (unsigned long long)va, pa, int(ok), before.privilege, (unsigned long long)before.csr[18],
                        refcpu_load_word(ctx, pa & ~3u), dut_mem ? dut_mem(pa & ~3u) : 0u);
+          std::fprintf(stderr, "[FM]   fm words around pa:");   // which neighbour does the RTL value come from?
+          for (int d = -4; d <= 4; ++d) std::fprintf(stderr, " %08x", refcpu_load_word(ctx, (pa & ~3u) + 4 * d));
+          std::fprintf(stderr, "\n");
         }
         return failed = true, false;
       }

@@ -28,6 +28,16 @@ INC=""
 for d in include libs/include back-end back-end/include axi-interconnect-kit/include axi-interconnect-kit/sim_ddr/include \
          axi-interconnect-kit/axi_interconnect/include axi-interconnect-kit/mmio/include MemSubSystem/include diff/include front-end back-end/Exu/include back-end/Lsu/include back-end/tools/include function-model/include/api legacy/mmu/include; do INC="$INC -I$REF/$d"; done
 FILES=(); while IFS= read -r f; do FILES+=("$ROOT/$f"); done < <(bash "$ROOT/scripts/rtl_files.sh" "$ROOT")
+# SOC_XLEN=64: build the rv64 core from a copy of rtl/ whose config package has XLEN_BITS = 64 and the 64-bit mul/div latencies
+# (what gen_cfg_pkg.py emits from the trace-model config.h with -DXLEN=64); the function-model library must be the XLEN=64 build (FMLIB)
+XLENFLAG=""
+if [ "${SOC_XLEN:-32}" = 64 ]; then
+  XLENFLAG="-DXLEN=64"
+  rm -rf "$OUT/rtl64"; mkdir -p "$OUT/rtl64"; cp -R "$ROOT/rtl" "$OUT/rtl64/rtl"
+  sed -i.bak -e 's/XLEN_BITS = 32;/XLEN_BITS = 64;/' -e 's/MUL_MAX_LATENCY = 2;/MUL_MAX_LATENCY = 3;/' -e 's/DIV_MAX_LATENCY = 16;/DIV_MAX_LATENCY = 32;/' "$OUT/rtl64/rtl/common/ttg_cfg_pkg.sv"
+  NF=(); for f in "${FILES[@]}"; do NF+=("${f/#$ROOT\/rtl\//$OUT/rtl64/rtl/}"); done; FILES=("${NF[@]}")
+fi
+[ -n "${FMLIB:-}" ] && FMLD="$FMLIB $AI_HUMA_ROOT/function-model/lib/softfloat/softfloat.a -lz"
 python3 "$ROOT/tools/gen_soc_probe.py" >/dev/null
 cd "$OUT"
 # reference platform models (not RTL)
@@ -36,7 +46,7 @@ for s in axi-interconnect-kit/sim_ddr/SimDDR.cpp back-end/PhysMemory.cpp; do
 done
 wait
 verilator --cc --exe --build -j "${JOBS:-6}" -Wno-fatal -Wno-lint -Wno-style -Wno-UNOPTFLAT ${DEBUG:+--public-flat-rw} $VOPT --x-assign 0 --x-initial 0 \
-  --top-module soc_top -Mdir obj -CFLAGS "$COPT $DS3FLAGS $LSUPFLAG ${FMOPT[*]:-} ${DEBUG:+-DSOC_TB_DEBUG} -std=c++2a -w $INC -I$ROOT/harness/include -I$ROOT/tb/soc" \
+  --top-module soc_top -Mdir obj -CFLAGS "$COPT $DS3FLAGS $LSUPFLAG $XLENFLAG ${FMOPT[*]:-} ${DEBUG:+-DSOC_TB_DEBUG} -std=c++2a -w $INC -I$ROOT/harness/include -I$ROOT/tb/soc" \
   -LDFLAGS "$OUT/SimDDR.o $OUT/PhysMemory.o $FMLD $DS3LD" \
   "$ROOT/tb/soc/soc_public.vlt" "$ROOT/tb/soc/pmu_public.vlt" "$ROOT/tb/soc/soc_tb.cpp" "${FILES[@]}" -o soc_tb > build.log 2>&1 || { grep -E "error:|%Error" build.log | grep -v "Command Failed" | head -12 | cut -c1-200; echo "BUILD FAILED, see $OUT/build.log"; exit 1; }
 # idle-tick skip: byte ranges of Verilator scratch temporaries (ignored by the fixed-point compare)

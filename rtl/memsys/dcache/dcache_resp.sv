@@ -136,14 +136,14 @@ module dcache_resp
       ldrp_f[i]   = ldrp_a[i];
       if (ldv_a[i] && fr_valid && ldrp_a[i][1] && ldaddr_a[i][29:OFF_W-2] == fr_line) begin
         // loads see the fill before this tick's store merges
-        lddata_f[i] = line_word(fr_data, ldaddr_a[i][WORD_W-1:0]);
+        lddata_f[i] = line_word(fr_data, ldaddr_a[i][SB_OFF-2 +: WORD_W]);
         ldrp_f[i]   = RP_HIT;
       end
     end
     for (int i = 0; i < NST; i++) begin
       strp_f[i] = strp_a[i];
       fen[i] = stv_a[i] && fr_valid && strp_a[i][1] && staddr_a[i][29:OFF_W-2] == fr_line;
-      fw1[i] = staddr_a[i][WORD_W-1:0];  fd1[i] = stdata_a[i];  fs1[i] = ststrb_a[i];
+      fw1[i] = staddr_a[i][SB_OFF-2 +: WORD_W];  fd1[i] = stdata_a[i];  fs1[i] = ststrb_a[i];
       fw2[i] = stl2_a[i].word;  fd2[i] = stl2_a[i].data;  fs2[i] = stl2_a[i].strb;
       if (fen[i]) strp_f[i] = RP_HIT;
     end

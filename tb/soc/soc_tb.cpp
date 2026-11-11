@@ -35,6 +35,11 @@
 #include "fm_check.h"
 #endif
 
+#ifndef XLEN
+#define XLEN 32   // register width of the RTL under test (build.sh passes -DXLEN=64 with a 64-bit ttg_cfg_pkg)
+#endif
+typedef uint64_t tb_xlen_t;   // wide enough for either width
+constexpr int kXlen = XLEN;
 long long sim_time = 0;   // the reference's global cycle counter (PeripheralModel's timer reads it)
 
 namespace {
@@ -53,10 +58,19 @@ void load_image(const char *path) {
   f.seekg(0, std::ios::beg);
   if (!f.read(reinterpret_cast<char *>(pmem_ram_ptr()), size)) { std::fprintf(stderr, "read failed\n"); std::exit(2); }
   // BackTop::load_image boot stub
-  pmem_write(0x0, 0xf1402573);
-  pmem_write(0x4, 0x83e005b7);
-  pmem_write(0x8, 0x800002b7);
-  pmem_write(0xc, 0x00028067);
+  if (kXlen == 64) {   // BackTop::write_boot_stub: lui would sign-extend, so a1 = 0x83e00000 and t0 = 0x80000000 are built with addi + slli
+    pmem_write(0x00, 0xf1402573);   // csrrs a0, mhartid, zero
+    pmem_write(0x04, (0x41fu << 20) | (11 << 7) | 0x13);                          // addi a1, zero, 0x41f
+    pmem_write(0x08, (21u << 20) | (11 << 15) | (1u << 12) | (11 << 7) | 0x13);   // slli a1, a1, 21   -> 0x83e00000
+    pmem_write(0x0c, 0x00100293);   // li t0, 1        (the same words as the function model's boot ROM: the per-commit check sees them)
+    pmem_write(0x10, 0x01f29293);   // slli t0, t0, 31  -> 0x80000000
+    pmem_write(0x14, 0x00028067);   // jalr zero, 0(t0)
+  } else {
+    pmem_write(0x0, 0xf1402573);
+    pmem_write(0x4, 0x83e005b7);
+    pmem_write(0x8, 0x800002b7);
+    pmem_write(0xc, 0x00028067);
+  }
   // BackTop::seed_uart_io_words: UART status registers as seen by MMIO reads
   constexpr uint32_t kLsr = 0x20u | 0x40u, kMsr = 0x10u | 0x20u | 0x80u;
   pmem_write(UART_ADDR_BASE + 0x00u, (0x01u | 0xc0u) << 16);
@@ -216,7 +230,7 @@ int main(int argc, char **argv) {
 #ifdef SOC_TB_FM
   FmCheck fm;   // SOC_TB_FM=1: every committed instruction is also executed by the function model and compared
   const bool fm_on = std::getenv("SOC_TB_FM") != nullptr;
-  struct FmPend { uint32_t pc; unsigned rd; unsigned preg; bool irq; };
+  struct FmPend { tb_xlen_t pc; unsigned rd; unsigned preg; bool irq; };
   std::vector<FmPend> fm_pend;
   auto fm_flush = [&](uint64_t cyc) {
     for (const auto &c : fm_pend) {
@@ -224,11 +238,12 @@ int main(int argc, char **argv) {
         auto &R = *top->rootp;
         const uint8_t priv = R.soc_top__DOT__u_core__DOT__u_back__DOT__u_csr__DOT__privilege;
         const auto &regs = R.soc_top__DOT__u_core__DOT__u_back__DOT__u_csr__DOT__regs;
-        const uint32_t cause = (priv == 3 ? regs[2] : regs[12]) & 0x7fffffffu;   // R_MCAUSE / R_SCAUSE
-        if (!fm.interrupt(cyc, cause | 0x80000000u, priv, regs[4] | (1u << cause))) { compare_fail = 1; done = true; break; }   // R_MIP
+        const tb_xlen_t msb = tb_xlen_t(1) << (kXlen - 1);
+        const uint32_t cause = uint32_t((priv == 3 ? regs[2] : regs[12]) & ~msb);   // R_MCAUSE / R_SCAUSE
+        if (!fm.interrupt(cyc, tb_xlen_t(cause) | msb, priv, uint32_t(regs[4]) | (1u << cause))) { compare_fail = 1; done = true; break; }   // R_MIP
         continue;
       }
-      const uint32_t val = c.rd ? top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__u_prf__DOT__u_regfile__DOT__reg_file_q[c.preg] : 0u;
+      const tb_xlen_t val = c.rd ? top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__u_prf__DOT__u_regfile__DOT__reg_file_q[c.preg] : 0u;
       if (!fm.commit(cyc, c.pc, c.rd, val)) { compare_fail = 1; done = true; break; }
     }
     fm_pend.clear();
@@ -392,19 +407,19 @@ long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
 #ifdef SOC_TB_FM
           if (fm_on && !done && top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__rob_bcast_interrupt) fm_pend.push_back({0, 0, 0, true});
           else if (fm_on && !done && (top->rob_commit_commit_entry_uop_type[i] != kUopEbreak ||
-                                      (semihost && pmem_read(top->ftq_commit_info_resp_pc[i] - 4) == 0x01f01013u && pmem_read(top->ftq_commit_info_resp_pc[i] + 4) == 0x40705013u))) {   // the semihosting marker ebreak is a breakpoint exception: the function model executes it too
+                                      (semihost && pmem_read(uint32_t(top->ftq_commit_info_resp_pc[i]) - 4) == 0x01f01013u && pmem_read(uint32_t(top->ftq_commit_info_resp_pc[i]) + 4) == 0x40705013u))) {   // the semihosting marker ebreak is a breakpoint exception: the function model executes it too
             const bool de = ttg_getbit(top->rob_commit_commit_entry_uop_dest_en, i);
             fm_pend.push_back({top->ftq_commit_info_resp_pc[i], (de && top->rob_commit_commit_entry_uop_dest_areg[i] < 32) ? top->rob_commit_commit_entry_uop_dest_areg[i] : 0u,   // areg 32 = AMO with rd == x0 (pseudo destination)
                                
                                top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__u_rob__DOT__rob_commit_commit_entry_uop_dest_preg[i], false});
           }
 #endif
-          if (std::getenv("SOC_TB_COMMIT")) std::fprintf(stderr, "[cyc %llu] commit[%d] type=%d pc=%08x\n", (unsigned long long)cycles + 1, i,
-                                                         top->rob_commit_commit_entry_uop_type[i], top->ftq_commit_info_resp_pc[i]);
+          if (std::getenv("SOC_TB_COMMIT")) std::fprintf(stderr, "[cyc %llu] commit[%d] type=%d pc=%llx\n", (unsigned long long)cycles + 1, i,
+                                                         top->rob_commit_commit_entry_uop_type[i], (unsigned long long)top->ftq_commit_info_resp_pc[i]);
           if (top->rob_commit_commit_entry_uop_type[i] == kUopEbreak) {
             // SOC_TB_SEMIHOST: the ebreak of the semihosting marker sequence (slli x0,x0,0x1f; ebreak; srai x0,x0,7) is a breakpoint
             // exception for the core (RTL built with TTG_EBREAK_TRAP), not the end of the program; same rule as the function model.
-            const uint32_t epc = top->ftq_commit_info_resp_pc[i];
+            const uint32_t epc = uint32_t(top->ftq_commit_info_resp_pc[i]);
             const bool marker = semihost && pmem_read(epc - 4) == 0x01f01013u && pmem_read(epc + 4) == 0x40705013u;
             if (!marker) done = true;
           }
@@ -414,12 +429,18 @@ long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
             // lp_pkg::lp_stq_t (packed, first field = MSB): va_v pa_v data_v pf mmio lrsc sc_pass suppress trp wbp wbd cmt iss mmw done
             // vaddr paddr data func3 dest_preg rob_idx rob_flag br_mask rtype[2] rwait[3]
             const auto &fld = top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__u_lsu__DOT__g_pipe__DOT__u_pipe__DOT__u_core__DOT__sq[top->rob_commit_commit_entry_uop_stq_idx[i]];
-            auto bits = [&](int lo, int w) { uint64_t v = 0; for (int b = 0; b < w; ++b) { int k = lo + b; v |= uint64_t((fld[k / 32] >> (k % 32)) & 1u) << b; } return uint32_t(v); };
+            auto bits = [&](int lo, int w) { uint64_t v = 0; for (int b = 0; b < w; ++b) { int k = lo + b; v |= uint64_t((fld[k / 32] >> (k % 32)) & 1u) << b; } return v; };
             constexpr int kRtype = 3, kBr = kRtype + 2, kRobFlag = kBr + kCfg_BR_MASK_WIDTH, kRobIdx = kRobFlag + 1, kDest = kRobIdx + kCfg_ROB_IDX_WIDTH,
-                          kFunc3 = kDest + kCfg_PRF_IDX_WIDTH, kData = kFunc3 + 3, kPaddr = kData + 32, kVaddr = kPaddr + 32, kDone = kVaddr + 32;
+                          kFunc3 = kDest + kCfg_PRF_IDX_WIDTH, kData = kFunc3 + 3, kPaddr = kData + kXlen, kVaddr = kPaddr + 32, kDone = kVaddr + kXlen;
             // flags above done (LSB first): done mmw iss cmt wbd wbp trp suppress sc_pass lrsc mmio pf data_v pa_v va_v
             constexpr int kSuppress = kDone + 7, kDataV = kDone + 12, kPaV = kDone + 13;
-            if (!bits(kSuppress, 1) && bits(kPaV, 1) && bits(kDataV, 1)) periph.on_commit_store(bits(kPaddr, 32), bits(kData, 32), uint8_t(bits(kFunc3, 3)));
+            if (const char *stlog = std::getenv("SOC_TB_STLOG")) {   // debug: every committed store into the 8-byte word of this physical address
+              static const uint32_t want = uint32_t(std::strtoul(stlog, nullptr, 16)) & ~7u;
+              const uint32_t pa_ = uint32_t(bits(kPaddr, 32));
+              if ((pa_ & ~7u) == want && !bits(kSuppress, 1))
+                std::fprintf(stderr, "[STLOG] cyc %llu pc=%llx pa=%08x f3=%u data=%llx\n", (unsigned long long)cycles + 1, (unsigned long long)top->ftq_commit_info_resp_pc[i], pa_, unsigned(bits(kFunc3, 3)), (unsigned long long)bits(kData, kXlen));
+            }
+            if (!bits(kSuppress, 1) && bits(kPaV, 1) && bits(kDataV, 1)) periph.on_commit_store(uint32_t(bits(kPaddr, 32)), uint32_t(bits(kData, 32)), uint8_t(bits(kFunc3, 3)));   // rv64: an sd to MMIO loses its high word (peripheral step)
 #else
             const auto &fld = top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__u_lsu__DOT__g_legacy__DOT__u_core__DOT__st_fld_q[top->rob_commit_commit_entry_uop_stq_idx[i]];
             auto bits = [&](int lo, int w) { uint64_t v = 0; for (int b = 0; b < w; ++b) { int k = lo + b; v |= uint64_t((fld[k / 32] >> (k % 32)) & 1u) << b; } return uint32_t(v); };
