@@ -15,5 +15,5 @@ one() {
   c=$(cd "$(dirname "$(dirname "$SIMB")")" && perl -e 'alarm 900; exec @ARGV' "$SIMB" "$p" 2>&1 | grep -a -o 'sim-time(cycle)= *[0-9]*' | tail -1 | grep -o '[0-9]*$')
   echo "${c:-FAIL} $rel"
 }
-export -f one; export SIMB TTG_PROGS TTG_BIG
+export -f one; export SIMB TTG_PROGS TTG_BIG ROOT  # ROOT: directed/* programs (was missing: they ran with an empty path and hung)
 grep -v '^#' "$ROOT/scripts/ref_cycles.txt" | awk 'NF{print $2}' | xargs -P "${JOBS:-8}" -I{} bash -c 'one {}' | sort -k2 > "$OUTF"
