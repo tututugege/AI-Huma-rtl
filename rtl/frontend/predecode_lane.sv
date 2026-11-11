@@ -4,12 +4,12 @@
 // Predecode of one fetch-group lane: classify the instruction as jal / conditional branch / jalr / other and, for jal
 // and branches, compute the direct target pc + imm.  An invalid lane (past the end of the fetch group) gives
 // NON_BRANCH / 0 (front_top.cpp:1631-1634).
-module predecode_lane import front_pkg::*; (
-  input  logic [31:0] pc,
+module predecode_lane import ttg_cfg_pkg::*; import front_pkg::*; (
+  input  logic [XLEN_BITS-1:0] pc,
   input  logic [31:0] inst,
   input  logic        inst_valid,
   output logic [1:0]  predecode_type,
-  output logic [31:0] predecode_target_address
+  output logic [XLEN_BITS-1:0] predecode_target_address
 );
 
   logic [6:0]  opcode;
@@ -37,7 +37,7 @@ module predecode_lane import front_pkg::*; (
     if (is_branch) predecode_type = PREDECODE_DIRECT_JUMP_NO_JAL;
     if (is_jalr)   predecode_type = PREDECODE_JALR;
     // jalr has no direct target (0); non-branch lanes have 0
-    predecode_target_address = (is_jal || is_branch) ? (pc + imm_sel) : 32'd0;
+    predecode_target_address = (is_jal || is_branch) ? (pc + XLEN_BITS'($signed(imm_sel))) : '0;
   end
 
 endmodule

@@ -12,7 +12,7 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
   input  logic                rst_n,
   // control (front_ctrl)
   input  logic                global_refetch,
-  input  logic [31:0]         refetch_address,
+  input  logic [XLEN_BITS-1:0]         refetch_address,
   input  logic                be_refetch,
   input  logic                be_fifo_read_enable,
   input  logic                bpu_icache_read_ready,
@@ -26,13 +26,13 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
   input  logic [HCK_W-1:0]    rf_ck,
   input  logic [EPOCH_W-1:0]  rf_epoch,
   input  logic [2:0]          rf_type,
-  input  logic [31:0]         rf_pc,
+  input  logic [XLEN_BITS-1:0]         rf_pc,
   // commit-time update of the BPU (registered back2front)
   input  logic [NCOMMIT-1:0] upd_valid,
-  input  logic [31:0]         base_pc    [NCOMMIT],
+  input  logic [XLEN_BITS-1:0]         base_pc    [NCOMMIT],
   input  logic [NCOMMIT-1:0] actual_dir,
   input  logic [2:0]          br_type    [NCOMMIT],
-  input  logic [31:0]         target     [NCOMMIT],
+  input  logic [XLEN_BITS-1:0]         target     [NCOMMIT],
   input  logic [NCOMMIT-1:0] pred_dir,
   input  logic [NCOMMIT-1:0] alt_pred,
   input  logic [front_pkg::PCPN_W-1:0]   pcpn       [NCOMMIT],
@@ -43,11 +43,11 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
   input  logic [FETCH_WIDTH-1:0] inst_rd_page_fault_inst,
   input  logic [FETCH_WIDTH-1:0] inst_rd_inst_valid,
   input  logic [1:0]          inst_rd_predecode_type           [FETCH_WIDTH],
-  input  logic [31:0]         inst_rd_predecode_target_address [FETCH_WIDTH],
-  input  logic [31:0]         inst_rd_seq_next_pc,
+  input  logic [XLEN_BITS-1:0]         inst_rd_predecode_target_address [FETCH_WIDTH],
+  input  logic [XLEN_BITS-1:0]         inst_rd_seq_next_pc,
   // to control / fetch side
   output logic                bpu_icache_read_valid,
-  output logic [31:0]         bpu_fetch_address,
+  output logic [XLEN_BITS-1:0]         bpu_fetch_address,
   output logic                bpu_ptab_write_enable,
   output logic                bpu_override_valid,
   output logic                bpu_override_squash,
@@ -55,25 +55,25 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
   output logic                f2b_full,
   output logic                f2b_empty,
   output logic                checker_flush_enable,
-  output logic [31:0]         checker_flush_address,
+  output logic [XLEN_BITS-1:0]         checker_flush_address,
   // front.out (valid / per-lane valid are made by the top: out_valid & out_inst_valid)
   output logic [FETCH_WIDTH-1:0] out_inst_valid,
   output logic [31:0]         out_instructions    [FETCH_WIDTH],
   output logic [FETCH_WIDTH-1:0] out_page_fault_inst,
   output logic [FETCH_WIDTH-1:0] out_predict_dir,
-  output logic [31:0]         out_pc              [FETCH_WIDTH],
+  output logic [XLEN_BITS-1:0]         out_pc              [FETCH_WIDTH],
   output logic [FETCH_WIDTH-1:0] out_alt_pred,
   output logic [front_pkg::PCPN_W-1:0]   out_altpcpn         [FETCH_WIDTH],
   output logic [front_pkg::PCPN_W-1:0]   out_pcpn            [FETCH_WIDTH],
   output logic [TAGE_IDX_W-1:0] out_tage_idx      [FETCH_WIDTH][TN_MAX],
   output logic [TAGE_TAG_W-1:0] out_tage_tag      [FETCH_WIDTH][TN_MAX],
-  output logic [31:0]         out_predict_next_fetch_address,
+  output logic [XLEN_BITS-1:0]         out_predict_next_fetch_address,
   output logic [BCK_W-1:0]    out_bpu_ck,
   output logic [FETCH_WIDTH-1:0][KIND_W-1:0] out_slot_kind
 );
 
   // ---- BPU ----
-  logic [31:0]         bpu_predict_next_fetch_address;
+  logic [XLEN_BITS-1:0]         bpu_predict_next_fetch_address;
   logic [FETCH_WIDTH-1:0] bpu_pred_dir;
   logic [FETCH_WIDTH-1:0] bpu_alt_pred;
   logic [front_pkg::PCPN_W-1:0]   bpu_pcpn     [FETCH_WIDTH];
@@ -81,14 +81,14 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
   logic [T_TAG_W-1:0]  bpu_tage_tags [FETCH_WIDTH][TN];
   logic [T_IDX_W-1:0]  bpu_tage_idxs [FETCH_WIDTH][TN];
 
-  logic [31:0]        bpu_ptab_base_pc;
+  logic [XLEN_BITS-1:0]        bpu_ptab_base_pc;
   logic [BCK_W-1:0]   bpu_bck;
   logic [7:0]         ptab_size8;
   logic [$clog2(PTAB_DEPTH + 1)-1:0] ptab_size;
   logic               pd_valid, pd_flush, pd_hv;
   logic [HSYM_W-1:0]  pd_hbits;
   logic [1:0]         pd_ras_op;
-  logic [31:0]        pd_ras_val;
+  logic [XLEN_BITS-1:0]        pd_ras_val;
   logic [HCK_W-1:0]   bpu_out_ck;
   logic [EPOCH_W-1:0] bpu_out_epoch;
 
@@ -123,9 +123,9 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
   );
 
   // ---- PTAB (written with the BPU prediction, read together with the instruction queue) ----
-  logic [31:0]         ptab_rd_predict_next_fetch_address;
+  logic [XLEN_BITS-1:0]         ptab_rd_predict_next_fetch_address;
   logic [FETCH_WIDTH-1:0] ptab_rd_predict_dir;
-  logic [31:0]         ptab_rd_predict_base_pc;
+  logic [XLEN_BITS-1:0]         ptab_rd_predict_base_pc;
   logic [FETCH_WIDTH-1:0] ptab_rd_alt_pred;
   logic [front_pkg::PCPN_W-1:0]   ptab_rd_altpcpn  [FETCH_WIDTH];
   logic [front_pkg::PCPN_W-1:0]   ptab_rd_pcpn     [FETCH_WIDTH];
@@ -171,7 +171,7 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
   // ---- predecode checker: PTAB head vs predecoded instruction-queue head ----
   logic [FETCH_WIDTH-1:0][KIND_W-1:0] slot_kind;
   logic [FETCH_WIDTH-1:0] checker_dir_corrected;
-  logic [31:0] checker_next_corrected;
+  logic [XLEN_BITS-1:0] checker_next_corrected;
 
   predecode_checker u_checker (
     .clk, .rst_n,
@@ -203,13 +203,13 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
   logic [FETCH_WIDTH-1:0] f2b_rd_page_fault_inst;
   logic [FETCH_WIDTH-1:0] f2b_rd_inst_valid;
   logic [FETCH_WIDTH-1:0] f2b_rd_predict_dir_corrected;
-  logic [31:0] f2b_rd_predict_base_pc;
+  logic [XLEN_BITS-1:0] f2b_rd_predict_base_pc;
   logic [FETCH_WIDTH-1:0] f2b_rd_alt_pred;
   logic [front_pkg::PCPN_W-1:0] f2b_rd_altpcpn [FETCH_WIDTH];
   logic [front_pkg::PCPN_W-1:0] f2b_rd_pcpn [FETCH_WIDTH];
   logic [TAGE_IDX_W-1:0] f2b_rd_tage_idx [FETCH_WIDTH][TN_MAX];
   logic [TAGE_TAG_W-1:0] f2b_rd_tage_tag [FETCH_WIDTH][TN_MAX];
-  logic [31:0] f2b_rd_predict_next_fetch_address_corrected;
+  logic [XLEN_BITS-1:0] f2b_rd_predict_next_fetch_address_corrected;
   logic [BCK_W-1:0] f2b_rd_bck;
   logic [FETCH_WIDTH-1:0][KIND_W-1:0] f2b_rd_kind;
 
@@ -254,7 +254,7 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
   );
 
   // ---- front.out: queue head, or the entry being written when the bypass is taken (queue empty => no head) ----
-  logic [31:0] out_base_pc;
+  logic [XLEN_BITS-1:0] out_base_pc;
   always_comb begin
     out_base_pc = f2b_use_bypass ? ptab_rd_predict_base_pc : f2b_rd_predict_base_pc;
     for (int i = 0; i < FETCH_WIDTH; i++) begin
@@ -269,7 +269,7 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
         out_tage_idx[i][j] = f2b_use_bypass ? ptab_rd_tage_idx[i][j] : f2b_rd_tage_idx[i][j];
         out_tage_tag[i][j] = f2b_use_bypass ? ptab_rd_tage_tag[i][j] : f2b_rd_tage_tag[i][j];
       end
-      out_pc[i] = out_base_pc + 32'(4 * i);
+      out_pc[i] = out_base_pc + XLEN_BITS'(4 * i);
     end
     out_predict_next_fetch_address = f2b_use_bypass ? checker_next_corrected
                                                     : f2b_rd_predict_next_fetch_address_corrected;

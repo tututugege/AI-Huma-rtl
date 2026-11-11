@@ -4,10 +4,10 @@
 // Compare / select stage of the main predictor for the block in S2: every slot's type, direction and target, the first
 // taken slot, and what the block pushes into the history / RAS.  Pure function of the registered S1 read data.
 //   Per-slot results are made in bank order of the arrays and picked by slot (slot i -> bank base_bank + i).
-module bpu_main_sel import bpu_pkg::*; import bpu_btb_pkg::*; import bpu_stage_pkg::*; (
-  input  logic [31:0]         base,
+module bpu_main_sel import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_btb_pkg::*; import bpu_stage_pkg::*; (
+  input  logic [XLEN_BITS-1:0]         base,
   input  logic                ck_ras_nonempty,
-  input  logic [31:0]         ck_ras_top,
+  input  logic [XLEN_BITS-1:0]         ck_ras_top,
   input  tp_entry_t           ty_way   [NBANK][TP_WAYS],
   input  logic [NBANK-1:0]    tg_pred,
   input  logic [NBANK-1:0]    tg_alt,
@@ -25,25 +25,25 @@ module bpu_main_sel import bpu_pkg::*; import bpu_btb_pkg::*; import bpu_stage_p
   output logic [T_IDX_W-1:0]  lane_idx     [NLANE][TN]
 );
 
-  logic [31:0]        bnd;
-  logic [31:0]        lane_pc     [NLANE];
+  logic [XLEN_BITS-1:0]        bnd;
+  logic [XLEN_BITS-1:0]        lane_pc     [NLANE];
   logic [NLANE-1:0]   lane_valid;
   logic [BANK_W-1:0]  lane_bank   [NLANE];
   logic [2:0]         lane_ty     [NLANE];
   logic [NLANE-1:0]   lane_taken;
   logic [NITT-1:0][T_TAG_W-1:0] lane_itt_tag [NLANE];
-  logic [31:0]        lane_target [NLANE];
+  logic [XLEN_BITS-1:0]        lane_target [NLANE];
   logic [NLANE-1:0]   first_taken;
   logic               any_taken;
-  logic [31:0]        first_pc;
-  logic [31:0]        first_target;
+  logic [XLEN_BITS-1:0]        first_pc;
+  logic [XLEN_BITS-1:0]        first_target;
   logic [2:0]         first_ty;
   logic [2:0]         first_slot;
 
   always_comb begin
     bnd = block_bnd(base);
     for (int i = 0; i < NLANE; i++) begin
-      lane_pc[i]    = base + 32'(4 * i);
+      lane_pc[i]    = base + XLEN_BITS'(4 * i);
       lane_valid[i] = lane_pc[i] < bnd;
       lane_bank[i]  = base[BANK_W + 1:2] + BANK_W'(i);
     end
@@ -71,8 +71,8 @@ module bpu_main_sel import bpu_pkg::*; import bpu_btb_pkg::*; import bpu_stage_p
   end
 
   ttg_first_set #(.N(NLANE)) u_first (.req(lane_taken), .onehot(first_taken), .any(any_taken));
-  ttg_onehot_mux #(.N(NLANE), .W(32)) u_pc (.sel(first_taken), .data(lane_pc), .out(first_pc));
-  ttg_onehot_mux #(.N(NLANE), .W(32)) u_tgt (.sel(first_taken), .data(lane_target), .out(first_target));
+  ttg_onehot_mux #(.N(NLANE), .W(XLEN_BITS)) u_pc (.sel(first_taken), .data(lane_pc), .out(first_pc));
+  ttg_onehot_mux #(.N(NLANE), .W(XLEN_BITS)) u_tgt (.sel(first_taken), .data(lane_target), .out(first_target));
   ttg_onehot_mux #(.N(NLANE), .W(3)) u_ty (.sel(first_taken), .data(lane_ty), .out(first_ty));
 
   // Ref: main_select: first taken slot -> next pc (RET with a non-empty RAS: top of the block's checkpoint),
@@ -90,7 +90,7 @@ module bpu_main_sel import bpu_pkg::*; import bpu_btb_pkg::*; import bpu_stage_p
       pred.hbits = hsym_of(first_pc, pred.next);
       if (first_ty == BR_CALL || first_ty == BR_ICALL) begin
         pred.ras_op  = 2'd1;
-        pred.ras_val = first_pc + 32'd4;
+        pred.ras_val = first_pc + XLEN_BITS'(4);
       end else if (first_ty == BR_RET) begin
         pred.ras_op = 2'd2;
       end

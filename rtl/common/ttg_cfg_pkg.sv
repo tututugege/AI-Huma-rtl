@@ -172,8 +172,8 @@ package ttg_cfg_pkg;
   localparam int LSU_MDP_BITS = 6;
   localparam int LSU_MDP_CLR = 2000;
   localparam int FE_RFAST = 15;
-  // core <-> dcache data word: XLEN bits; a store request carries a strobe of XLEN/8 + 1 bits (the extra one: the word after
-  // the aligned data word, conflict checks only) and a second data word {strb, word index, data}
+  // core <-> dcache data word: XLEN bits; a store request carries a strobe of XLEN/8 + 1 bits (the extra one: the
+  // next data word, conflict checks only) and a second data word {strb, word index, data}
   localparam int DST_STRB_W = XLEN_BITS / 8 + 1;
   localparam int DST_L2_W = XLEN_BITS / 8 + $clog2(DCACHE_LINE_SIZE * 8 / XLEN_BITS) + XLEN_BITS;
 endpackage

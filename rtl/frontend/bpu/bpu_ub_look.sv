@@ -4,15 +4,15 @@
 // Guess of one block from the ways of its set: the lowest-slot way that matches the block start and is predicted taken
 // wins (conditional branches need ctr >= 2).  RET with a non-empty RAS takes the RAS top as target.  The taken-path
 // history pushes HSYM_W bits folded from the branch pc and the final target; a miss pushes nothing.
-module bpu_ub_look import bpu_pkg::*; import bpu_stage_pkg::*; #(
+module bpu_ub_look import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; #(
   parameter int WAYS = 4
 ) (
   input  ub_ent_t        ent [WAYS],
   input  logic [UB_TAG_W-1:0] tag,
-  input  logic [31:0]    base,
-  input  logic [31:0]    bnd,
+  input  logic [XLEN_BITS-1:0]    base,
+  input  logic [XLEN_BITS-1:0]    bnd,
   input  logic           ras_nonempty,
-  input  logic [31:0]    ras_top,
+  input  logic [XLEN_BITS-1:0]    ras_top,
   output pred_t          g
 );
 
@@ -24,13 +24,13 @@ module bpu_ub_look import bpu_pkg::*; import bpu_stage_pkg::*; #(
   logic [2:0]      e_slot;
   logic [2:0]      e_ty;
   logic [UB_TGT_W-1:0] e_tgt;
-  logic [31:0]     bpc;
+  logic [XLEN_BITS-1:0]     bpc;
 
   // Ref: s0_lookup, candidate selection
   always_comb begin
     for (int w = 0; w < WAYS; w++) begin
       match[w] = ent[w].v && (ent[w].tag == tag);
-      cand[w]  = match[w] && ((base + 32'(ent[w].slot) * 32'd4) < bnd) &&
+      cand[w]  = match[w] && ((base + XLEN_BITS'(ent[w].slot) * XLEN_BITS'(4)) < bnd) &&
                  (ent[w].ty != BR_DIRECT || ent[w].ctr >= 2'd2);
     end
     any_cand  = |cand;
@@ -47,7 +47,7 @@ module bpu_ub_look import bpu_pkg::*; import bpu_stage_pkg::*; #(
         e_slot = ent[w].slot; e_ty = ent[w].ty; e_tgt = ent[w].tgt;
       end
     end
-    bpc = base + 32'(e_slot) * 32'd4;
+    bpc = base + XLEN_BITS'(e_slot) * XLEN_BITS'(4);
     g = '0;
     g.hit = |match;
     if (any_cand) begin
@@ -58,7 +58,7 @@ module bpu_ub_look import bpu_pkg::*; import bpu_stage_pkg::*; #(
       g.hbits = hsym_of(bpc, g.next);
       if (e_ty == BR_CALL || e_ty == BR_ICALL) begin
         g.ras_op  = 2'd1;
-        g.ras_val = bpc + 32'd4;
+        g.ras_val = bpc + XLEN_BITS'(4);
       end else if (e_ty == BR_RET) begin
         g.ras_op = 2'd2;
       end

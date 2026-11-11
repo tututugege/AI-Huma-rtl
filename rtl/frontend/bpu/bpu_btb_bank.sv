@@ -5,7 +5,7 @@
 // with the indices of the block (BTB: hash of the bank pc, ITT table k: low bits of the TAGE index of table
 // ITT_TBL[k]) and have a second read port for the update.  Prediction and update may share a cycle; both read the
 // START-of-cycle arrays, writes land at the clock edge.
-module bpu_btb_bank import bpu_pkg::*; import bpu_btb_pkg::*; import bpu_stage_pkg::*; (
+module bpu_btb_bank import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_btb_pkg::*; import bpu_stage_pkg::*; (
   input  logic                clk,
   input  logic                rst_n,
   // S1 read
@@ -16,7 +16,7 @@ module bpu_btb_bank import bpu_pkg::*; import bpu_btb_pkg::*; import bpu_stage_p
   // update
   input  logic                upd_valid,
   input  logic [BPC_W-1:0]    upd_pc,
-  input  logic [31:0]         upd_actual_addr,
+  input  logic [XLEN_BITS-1:0]         upd_actual_addr,
   input  logic [2:0]          upd_br_type_in,
   input  logic                upd_actual_dir,
   input  logic [NITT-1:0][ITT_IDX_W-1:0] upd_itt_idx,
@@ -26,8 +26,8 @@ module bpu_btb_bank import bpu_pkg::*; import bpu_btb_pkg::*; import bpu_stage_p
   localparam int BTB_DEPTH = 1 << B_IDX_W;
   localparam int ITT_DEPTH = 1 << ITT_IDX_W;
 
-  logic [31:0]        rd_pc32;
-  logic [31:0]        upd_pc32;
+  logic [XLEN_BITS-1:0]        rd_pc32;
+  logic [XLEN_BITS-1:0]        upd_pc32;
   logic [B_IDX_W-1:0] rd_btb_idx;
   logic [B_IDX_W-1:0] upd_btb_idx;
   logic               btb_we;
@@ -39,8 +39,8 @@ module bpu_btb_bank import bpu_pkg::*; import bpu_btb_pkg::*; import bpu_stage_p
   itt_ent_t [NITT-1:0] upd_itt_ent;
 
   always_comb begin
-    rd_pc32    = {{(32 - BPC_W){1'b0}}, rd_pc};
-    upd_pc32   = {{(32 - BPC_W){1'b0}}, upd_pc};
+    rd_pc32    = XLEN_BITS'(rd_pc);
+    upd_pc32   = XLEN_BITS'(upd_pc);
     rd_btb_idx = btb_idx_of(rd_pc32);
   end
 

@@ -9,10 +9,10 @@
 //        confidence 0; unless the provider was right, the first longer table (all tables when there was no hit) whose
 //        entry is invalid or not useful gets a new entry, and the useful bit of every longer entry passed on the way is
 //        cleared.  With NITT = 1 this is the single-table rule.
-module bpu_btb_upd import bpu_pkg::*; import bpu_btb_pkg::*; import bpu_stage_pkg::*; (
+module bpu_btb_upd import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_btb_pkg::*; import bpu_stage_pkg::*; (
   input  logic                upd_valid,
-  input  logic [31:0]         upd_pc,           // bank pc
-  input  logic [31:0]         upd_actual_addr,
+  input  logic [XLEN_BITS-1:0]         upd_pc,           // bank pc
+  input  logic [XLEN_BITS-1:0]         upd_actual_addr,
   input  logic [2:0]          upd_br_type,
   input  logic                upd_actual_dir,
   input  logic [NITT-1:0][T_TAG_W-1:0] upd_itt_tag,

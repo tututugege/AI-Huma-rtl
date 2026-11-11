@@ -9,20 +9,20 @@ module sequential_next_pc import ttg_cfg_pkg::*; import front_pkg::*; (
   input  logic        clk,
   input  logic        rst_n,
   /* verilator lint_on UNUSEDSIGNAL */
-  input  logic [31:0] fetch_pc,
+  input  logic [XLEN_BITS-1:0] fetch_pc,
   input  logic [FETCH_WIDTH-1:0] inst_valid,
-  output logic [31:0] seq_next_pc
+  output logic [XLEN_BITS-1:0] seq_next_pc
 );
 
   localparam int PREFIX_W = $clog2(FETCH_WIDTH + 1);
-  localparam logic [31:0] LINE_MASK = ~(32'(ICACHE_LINE_SIZE) - 32'd1);
+  localparam logic [XLEN_BITS-1:0] LINE_MASK = ~(XLEN_BITS'(ICACHE_LINE_SIZE) - XLEN_BITS'(1));
 
   logic [FETCH_WIDTH-1:0]       lane_invalid;
   logic [FETCH_WIDTH-1:0]       first_invalid_onehot;
   logic                         any_invalid;
   logic [$clog2(FETCH_WIDTH)-1:0] first_invalid_idx;
   logic [PREFIX_W-1:0]          valid_prefix;   // number of leading valid lanes
-  logic [31:0]                  group_end_pc;
+  logic [XLEN_BITS-1:0]         group_end_pc;
 
   always_comb begin
     for (int i = 0; i < FETCH_WIDTH; i++) lane_invalid[i] = !inst_valid[i];
@@ -35,7 +35,7 @@ module sequential_next_pc import ttg_cfg_pkg::*; import front_pkg::*; (
 
   always_comb begin
     valid_prefix = any_invalid ? PREFIX_W'(first_invalid_idx) : PREFIX_W'(FETCH_WIDTH);
-    group_end_pc = fetch_pc + 32'(valid_prefix) * 32'(INST_BYTES);
+    group_end_pc = fetch_pc + XLEN_BITS'(valid_prefix) * XLEN_BITS'(INST_BYTES);
     // a group that runs past its cache line is cut at the line boundary
     seq_next_pc  = ((group_end_pc & LINE_MASK) != (fetch_pc & LINE_MASK)) ? (group_end_pc & LINE_MASK) : group_end_pc;
   end

@@ -205,7 +205,7 @@ package lsu_pkg;
     case (f3[1:0])
       2'b00:   r = f3[2] ? XW'(sh[7:0]) : XW'($signed(sh[7:0]));
       2'b01:   r = f3[2] ? XW'(sh[15:0]) : XW'($signed(sh[15:0]));
-      2'b10:   r = (XW == 32) ? sh : f3[2] ? XW'(sh[HW-1:0]) : XW'($signed(sh[HW-1:0]));   // rv64: lw sign-, lwu zero-extends
+      2'b10:   r = (XW == 32) ? sh : f3[2] ? XW'(sh[HW-1:0]) : XW'($signed(sh[HW-1:0]));   // rv64: lw sign / lwu zero
       default: r = sh;                                                    // ld (rv64)
     endcase
     return r;

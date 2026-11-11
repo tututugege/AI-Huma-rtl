@@ -8,16 +8,16 @@ module predecode import ttg_cfg_pkg::*; import front_pkg::*; (
   input  logic        clk,
   input  logic        rst_n,
   /* verilator lint_on UNUSEDSIGNAL */
-  input  logic [31:0] fetch_pc,
+  input  logic [XLEN_BITS-1:0] fetch_pc,
   input  logic [31:0] inst                     [FETCH_WIDTH],
   input  logic [FETCH_WIDTH-1:0] inst_valid,
   output logic [1:0]  predecode_type           [FETCH_WIDTH],
-  output logic [31:0] predecode_target_address [FETCH_WIDTH]
+  output logic [XLEN_BITS-1:0] predecode_target_address [FETCH_WIDTH]
 );
 
   for (genvar i = 0; i < FETCH_WIDTH; i++) begin : g_lane
     predecode_lane u_lane (
-      .pc                       (fetch_pc + 32'(i * INST_BYTES)),
+      .pc                       (fetch_pc + XLEN_BITS'(i * INST_BYTES)),
       .inst                     (inst[i]),
       .inst_valid               (inst_valid[i]),
       .predecode_type           (predecode_type[i]),

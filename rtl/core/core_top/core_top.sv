@@ -78,10 +78,10 @@ module core_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; i
   output logic dtlb_walk_req_valid,
   output logic [VPN_W-1:0] dtlb_walk_req_vpn,
   output logic dtlb_walk_resp_consumed,
-  output logic [31:0] ftq_commit_info_resp_pc [COMMIT_WIDTH],
-  output logic [31:0] out_commit_entry_uop_diag_val [COMMIT_WIDTH],
+  output logic [XLEN_BITS-1:0] ftq_commit_info_resp_pc [COMMIT_WIDTH],
+  output logic [XLEN_BITS-1:0] out_commit_entry_uop_diag_val [COMMIT_WIDTH],
   output logic out_mispred,
-  output logic [31:0] out_redirect_pc,
+  output logic [XLEN_BITS-1:0] out_redirect_pc,
   output logic [31:0] lsu2dcache_load_ports_addr [LSU_LDU_COUNT],
   output logic [30:0] lsu2dcache_load_ports_req_id [LSU_LDU_COUNT],
   output logic lsu2dcache_load_ports_replay [LSU_LDU_COUNT],
@@ -102,7 +102,7 @@ module core_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; i
   output logic rob_bcast_fence_i,
   output logic rob_bcast_flush,
   output logic rob_bcast_mret,
-  output logic [31:0] rob_bcast_pc,
+  output logic [XLEN_BITS-1:0] rob_bcast_pc,
   output logic rob_bcast_sret,
   output logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_br_taken,
   output logic [5:0] rob_commit_commit_entry_uop_dest_areg [COMMIT_WIDTH],
@@ -136,23 +136,23 @@ module core_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; i
   logic [HCK_W-1:0] out_rf_ck;
   logic [EPOCH_W-1:0] out_rf_epoch;
   logic [2:0]  out_rf_type;
-  logic [31:0] out_rf_pc;
+  logic [XLEN_BITS-1:0] out_rf_pc;
   logic [BACKEND_FETCH_WIDTH-1:0] front2pre_alt_pred;
   logic [2:0] front2pre_altpcpn [BACKEND_FETCH_WIDTH];
   logic [31:0] front2pre_inst [BACKEND_FETCH_WIDTH];
   logic [BACKEND_FETCH_WIDTH-1:0] front2pre_page_fault_inst;
-  logic [31:0] front2pre_pc [BACKEND_FETCH_WIDTH];
+  logic [XLEN_BITS-1:0] front2pre_pc [BACKEND_FETCH_WIDTH];
   logic [2:0] front2pre_pcpn [BACKEND_FETCH_WIDTH];
   logic [BACKEND_FETCH_WIDTH-1:0] front2pre_predict_dir;
-  logic [31:0] front2pre_predict_next_fetch_address;
+  logic [XLEN_BITS-1:0] front2pre_predict_next_fetch_address;
   logic [9:0] front2pre_tage_idx [BACKEND_FETCH_WIDTH][4];
   logic [7:0] front2pre_tage_tag [BACKEND_FETCH_WIDTH][4];
   logic [BACKEND_FETCH_WIDTH-1:0] front2pre_valid;
   logic [31:0] commit_extra_imm [COMMIT_WIDTH];
   logic [5:0] commit_extra_src1_areg [COMMIT_WIDTH];
-  logic [31:0] csr_status_mstatus;
+  logic [XLEN_BITS-1:0] csr_status_mstatus;
   logic [1:0] csr_status_privilege;
-  logic [31:0] csr_status_satp;
+  logic [XLEN_BITS-1:0] csr_status_satp;
   logic [COMMIT_WIDTH-1:0] ftq_commit_info_resp_alt_pred;
   logic [2:0] ftq_commit_info_resp_altpcpn [COMMIT_WIDTH];
   logic [2:0] ftq_commit_info_resp_pcpn [COMMIT_WIDTH];

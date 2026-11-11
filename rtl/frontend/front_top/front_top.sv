@@ -15,26 +15,26 @@ module front_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; 
   input  logic        rst_n,
   // ---- back end -> front end (registered back2front) ----
   input  logic        be_refetch,
-  input  logic [31:0] be_refetch_address,
+  input  logic [XLEN_BITS-1:0] be_refetch_address,
   input  logic        be_rf_valid,
   input  logic [HCK_W-1:0] be_rf_ck,
   input  logic [EPOCH_W-1:0] be_rf_epoch,
   input  logic [2:0]  be_rf_type,
-  input  logic [31:0] be_rf_pc,
+  input  logic [XLEN_BITS-1:0] be_rf_pc,
   input  logic        itlb_flush,
   input  logic        fence_i,
   input  logic        fifo_read_enable,
-  input  logic [31:0] csr_status_satp,
+  input  logic [XLEN_BITS-1:0] csr_status_satp,
   input  logic [1:0]  csr_status_privilege,
   input  logic        csr_status_mstatus_mxr,
   input  logic        csr_status_mstatus_sum,
   input  logic        csr_status_mstatus_mprv,
   input  logic [1:0]  csr_status_mstatus_mpp,
   input  logic [NCOMMIT-1:0] upd_valid,
-  input  logic [31:0]         base_pc    [NCOMMIT],
+  input  logic [XLEN_BITS-1:0]         base_pc    [NCOMMIT],
   input  logic [NCOMMIT-1:0] actual_dir,
   input  logic [2:0]          br_type    [NCOMMIT],
-  input  logic [31:0]         target     [NCOMMIT],
+  input  logic [XLEN_BITS-1:0]         target     [NCOMMIT],
   input  logic [NCOMMIT-1:0] pred_dir,
   input  logic [NCOMMIT-1:0] alt_pred,
   input  logic [front_pkg::PCPN_W-1:0]   pcpn       [NCOMMIT],
@@ -64,13 +64,13 @@ module front_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; 
   output logic [31:0] out_instructions    [FETCH_WIDTH],
   output logic [FETCH_WIDTH-1:0] out_page_fault_inst,
   output logic [FETCH_WIDTH-1:0] out_predict_dir,
-  output logic [31:0] out_pc              [FETCH_WIDTH],
+  output logic [XLEN_BITS-1:0] out_pc              [FETCH_WIDTH],
   output logic [FETCH_WIDTH-1:0] out_alt_pred,
   output logic [front_pkg::PCPN_W-1:0]     out_altpcpn [FETCH_WIDTH],
   output logic [front_pkg::PCPN_W-1:0]     out_pcpn    [FETCH_WIDTH],
   output logic [TAGE_IDX_W-1:0] out_tage_idx [FETCH_WIDTH][TN_MAX],
   output logic [TAGE_TAG_W-1:0] out_tage_tag [FETCH_WIDTH][TN_MAX],
-  output logic [31:0] out_predict_next_fetch_address,
+  output logic [XLEN_BITS-1:0] out_predict_next_fetch_address,
   output logic [BCK_W-1:0] out_bpu_ck,
   output logic [FETCH_WIDTH-1:0][KIND_W-1:0] out_slot_kind,
   // ---- memory side outputs ----
@@ -91,7 +91,7 @@ module front_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; 
 
   // ---- control ----
   logic        global_refetch;
-  logic [31:0] refetch_address;
+  logic [XLEN_BITS-1:0] refetch_address;
   logic        fa_rd_en, predecode_can_run, bpu_can_run, bpu_icache_read_ready;
   logic        fa_wr_en, ptab_wr_en, f2b_wr_en, f2b_use_bypass, front_out_valid, do_predecode_flush;
   logic        fa_full, fa_empty, inst_empty, ptab_empty, f2b_full, f2b_empty;
@@ -99,7 +99,7 @@ module front_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; 
   logic [$clog2(FETCH_ADDR_FIFO_DEPTH + 1)-1:0] fa_size;
   logic        bpu_icache_read_valid, bpu_ptab_write_enable;
   logic        checker_flush_enable;
-  logic [31:0] checker_flush_address;
+  logic [XLEN_BITS-1:0] checker_flush_address;
   logic        icache_ready;
 
   front_ctrl u_ctrl (
@@ -116,12 +116,12 @@ module front_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; 
   );
 
   // ---- fetch side ----
-  logic [31:0] bpu_fetch_address;
+  logic [XLEN_BITS-1:0] bpu_fetch_address;
   logic        fa_rd_valid;
-  logic [31:0] fa_rd_address;
+  logic [XLEN_BITS-1:0] fa_rd_address;
 
   logic        ic_read_complete;
-  logic [31:0] ic_fetch_pc;
+  logic [XLEN_BITS-1:0] ic_fetch_pc;
   logic [FETCH_WIDTH-1:0] ic_inst_valid;
   logic [FETCH_WIDTH-1:0] ic_page_fault_inst;
   logic [31:0] ic_fetch_group     [FETCH_WIDTH];
@@ -130,8 +130,8 @@ module front_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; 
   logic [FETCH_WIDTH-1:0] inst_rd_page_fault_inst;
   logic [FETCH_WIDTH-1:0] inst_rd_inst_valid;
   logic [1:0]  inst_rd_predecode_type           [FETCH_WIDTH];
-  logic [31:0] inst_rd_predecode_target_address [FETCH_WIDTH];
-  logic [31:0] inst_rd_seq_next_pc;
+  logic [XLEN_BITS-1:0] inst_rd_predecode_target_address [FETCH_WIDTH];
+  logic [XLEN_BITS-1:0] inst_rd_seq_next_pc;
 
   icache u_icache (
     .clk, .rst_n,

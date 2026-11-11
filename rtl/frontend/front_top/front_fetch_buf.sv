@@ -14,15 +14,15 @@ module front_fetch_buf import ttg_cfg_pkg::*; import front_pkg::*; (
   input  logic        fa_rd_en,
   input  logic        fa_wr_en,
   input  logic        fa_drop_tail,
-  input  logic [31:0] fa_wr_address,
+  input  logic [XLEN_BITS-1:0] fa_wr_address,
   output logic        fa_rd_valid,
-  output logic [31:0] fa_rd_address,
+  output logic [XLEN_BITS-1:0] fa_rd_address,
   output logic        fa_full,
   output logic        fa_empty,
   output logic [$clog2(FETCH_ADDR_FIFO_DEPTH + 1)-1:0] fa_size,
   // icache response
   input  logic        ic_read_complete,
-  input  logic [31:0] ic_fetch_pc,
+  input  logic [XLEN_BITS-1:0] ic_fetch_pc,
   input  logic [FETCH_WIDTH-1:0] ic_inst_valid,
   input  logic [FETCH_WIDTH-1:0] ic_page_fault_inst,
   input  logic [31:0] ic_fetch_group     [FETCH_WIDTH],
@@ -33,13 +33,13 @@ module front_fetch_buf import ttg_cfg_pkg::*; import front_pkg::*; (
   output logic [FETCH_WIDTH-1:0] inst_rd_page_fault_inst,
   output logic [FETCH_WIDTH-1:0] inst_rd_inst_valid,
   output logic [1:0]  inst_rd_predecode_type          [FETCH_WIDTH],
-  output logic [31:0] inst_rd_predecode_target_address [FETCH_WIDTH],
-  output logic [31:0] inst_rd_seq_next_pc
+  output logic [XLEN_BITS-1:0] inst_rd_predecode_target_address [FETCH_WIDTH],
+  output logic [XLEN_BITS-1:0] inst_rd_seq_next_pc
 );
 
   logic [1:0]  predecode_type           [FETCH_WIDTH];
-  logic [31:0] predecode_target_address [FETCH_WIDTH];
-  logic [31:0] seq_next_pc;
+  logic [XLEN_BITS-1:0] predecode_target_address [FETCH_WIDTH];
+  logic [XLEN_BITS-1:0] seq_next_pc;
   logic        inst_wr_en;
 
   fetch_addr_fifo u_fa_fifo (

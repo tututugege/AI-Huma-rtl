@@ -42,8 +42,8 @@ package front_pkg;
   // ---- FIFO entries (debug-only fields of the C++ entries are not stored) ----
   // instruction_FIFO entry: one predecoded fetch group
   typedef struct packed {
-    logic [31:0]                               seq_next_pc;
-    logic [FETCH_WIDTH-1:0][31:0]              predecode_target_address;
+    logic [XLEN_BITS-1:0]                               seq_next_pc;
+    logic [FETCH_WIDTH-1:0][XLEN_BITS-1:0]     predecode_target_address;
     logic [FETCH_WIDTH-1:0][1:0]               predecode_type;
     logic [FETCH_WIDTH-1:0]                    inst_valid;
     logic [FETCH_WIDTH-1:0]                    page_fault_inst;
@@ -58,7 +58,7 @@ package front_pkg;
     logic [FETCH_WIDTH-1:0][PCPN_W-1:0]                      pcpn;
     logic [FETCH_WIDTH-1:0][PCPN_W-1:0]                      altpcpn;
     logic [FETCH_WIDTH-1:0]                                  alt_pred;
-    logic [31:0]                                             predict_base_pc;
+    logic [XLEN_BITS-1:0]                                             predict_base_pc;
   } pred_meta_t;
 
   // PTAB entry: BPU prediction of one fetch group
@@ -66,12 +66,12 @@ package front_pkg;
     pred_meta_t                    meta;
     logic [BCK_W-1:0]              bpu_ck;
     logic [FETCH_WIDTH-1:0]        predict_dir;
-    logic [31:0]                   predict_next_fetch_address;
+    logic [XLEN_BITS-1:0]                   predict_next_fetch_address;
   } ptab_entry_t;
 
   // front2back_FIFO entry: instructions + prediction metadata + checker-corrected direction / next address
   typedef struct packed {
-    logic [31:0]                   predict_next_fetch_address_corrected;
+    logic [XLEN_BITS-1:0]                   predict_next_fetch_address_corrected;
     pred_meta_t                    meta;
     logic [BCK_W-1:0]              bpu_ck;
     logic [FETCH_WIDTH-1:0][KIND_W-1:0] slot_kind;

@@ -4,27 +4,27 @@
 // S0 uBTB (128 x 4 way, read in the S0 cycle) and S1 L1 table (512 x 2 way, read in the S1 cycle) with their common
 // training path: commit stream -> block tracker -> train queue -> one read-modify-write of both tables per cycle.
 // The lookups are pure functions of the registered block start (and the RAS top for returns).
-module bpu_ubtb import bpu_pkg::*; import bpu_stage_pkg::*; (
+module bpu_ubtb import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; (
   input  logic                clk,
   input  logic                rst_n,
   // commit stream
   input  logic [NCOMMIT-1:0]  upd_valid,
-  input  logic [31:0]         base_pc  [NCOMMIT],
+  input  logic [XLEN_BITS-1:0]         base_pc  [NCOMMIT],
   input  logic [2:0]          br_type  [NCOMMIT],
   input  logic [NCOMMIT-1:0]  actual_dir,
   input  logic [NCOMMIT-1:0]  pred_dir,
-  input  logic [31:0]         target   [NCOMMIT],
+  input  logic [XLEN_BITS-1:0]         target   [NCOMMIT],
   // S0 lookup
-  input  logic [31:0]         s0_base,
-  input  logic [31:0]         s0_bnd,
+  input  logic [XLEN_BITS-1:0]         s0_base,
+  input  logic [XLEN_BITS-1:0]         s0_bnd,
   input  logic                s0_ras_nonempty,
-  input  logic [31:0]         s0_ras_top,
+  input  logic [XLEN_BITS-1:0]         s0_ras_top,
   output pred_t               s0_guess,
   // S1 lookup
-  input  logic [31:0]         s1_base,
-  input  logic [31:0]         s1_bnd,
+  input  logic [XLEN_BITS-1:0]         s1_base,
+  input  logic [XLEN_BITS-1:0]         s1_bnd,
   input  logic                s1_ras_nonempty,
-  input  logic [31:0]         s1_ras_top,
+  input  logic [XLEN_BITS-1:0]         s1_ras_top,
   output pred_t               s1_guess
 );
 
