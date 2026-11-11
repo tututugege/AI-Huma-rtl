@@ -3,7 +3,7 @@
 
 // Page-table walker shared by the DTLB and the ITLB walk ports (spec/ptw_walk.io).
 // Top level only adapts the flat spec ports.
-module ptw_walk import memcpu_pkg::*; (
+module ptw_walk import memcpu_pkg::*; import ttg_cfg_pkg::*; (
   input  logic clk,
   input  logic rst_n,
   input  logic cpu_en,
@@ -15,7 +15,7 @@ module ptw_walk import memcpu_pkg::*; (
   input  logic                    grant_valid,
   input  logic [PT_ID_W-1:0]      grant_req_id,
   input  logic                    event_valid,
-  input  logic [31:0]             event_data,
+  input  logic [XLEN_BITS-1:0]    event_data,
   input  logic [PT_ID_W-1:0]      event_req_id,
   input  logic                    wakeup_walk,
   output logic                    client_req_ready       [PT_NCLIENT],
@@ -24,7 +24,7 @@ module ptw_walk import memcpu_pkg::*; (
   output logic [PT_VPN_W-1:0]     client_resp_vpn        [PT_NCLIENT],
   output logic [PT_PPN_W-1:0]     client_resp_leaf_ppn   [PT_NCLIENT],
   output logic [PT_PERM_W-1:0]    client_resp_leaf_perm  [PT_NCLIENT],
-  output logic [PT_NCLIENT-1:0] client_resp_leaf_level,
+  output logic [PT_LVL_W-1:0]     client_resp_leaf_level [PT_NCLIENT],
   output logic                    issue_walk_read,
   output logic [31:0]             walk_read_addr
 );
@@ -32,7 +32,8 @@ module ptw_walk import memcpu_pkg::*; (
   logic [PT_NCLIENT-1:0] pending_a, flush_v, sel, publish;
   logic [PT_VPN_W-1:0]   vpn_a  [PT_NCLIENT];
   logic [PT_PPN_W-1:0]   root_a [PT_NCLIENT];
-  logic                  pub_fault, pub_level1;
+  logic                  pub_fault;
+  logic [PT_LVL_W-1:0]   pub_level;
   logic [PT_PPN_W-1:0]   pub_ppn;
   logic [PT_PERM_W-1:0]  pub_perm;
 
@@ -57,7 +58,7 @@ module ptw_walk import memcpu_pkg::*; (
       .root_ppn_a      (root_a[c]),
       .sel             (sel[c]),
       .publish         (publish[c]),
-      .pub_fault, .pub_ppn, .pub_perm, .pub_level1
+      .pub_fault, .pub_ppn, .pub_perm, .pub_level
     );
   end
 
@@ -69,7 +70,7 @@ module ptw_walk import memcpu_pkg::*; (
     .client_flush      (flush_v),
     .client_sel        (sel),
     .client_publish    (publish),
-    .pub_fault, .pub_ppn, .pub_perm, .pub_level1,
+    .pub_fault, .pub_ppn, .pub_perm, .pub_level,
     .grant_valid, .grant_req_id, .event_valid, .event_data, .event_req_id, .wakeup_walk,
     .issue_walk_read, .walk_read_addr
   );

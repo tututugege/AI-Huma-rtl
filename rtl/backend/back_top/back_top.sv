@@ -2,7 +2,7 @@
 // Instances: pre, idu, ren, dis, isu, prf, exu, csr, rob, dtlb, lsu, glue.
 `default_nettype none
 
-module back_top import ttg_cfg_pkg::*; (
+module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; (
   input  logic clk,
   input  logic rst_n,
   // ---- in: front end -> back end (SimCpu: BackTop::in, FrontPreIO; held registers front2back_hold live in SimCpu)
@@ -46,11 +46,11 @@ module back_top import ttg_cfg_pkg::*; (
   // ---- in: MemSubsystem PTW walk port -> DTLB
   input  logic ptw_walk_req_ready,
   input  logic ptw_walk_resp_fault,
-  input  logic ptw_walk_resp_leaf_level,
+  input  logic [LVL_W-1:0] ptw_walk_resp_leaf_level,
   input  logic [7:0] ptw_walk_resp_leaf_perm,
   input  logic [19:0] ptw_walk_resp_leaf_ppn,
   input  logic ptw_walk_resp_valid,
-  input  logic [19:0] ptw_walk_resp_vpn,
+  input  logic [VPN_W-1:0] ptw_walk_resp_vpn,
   // ---- out: to SimCpu / front end (Back_out, back2front training data)
   output logic [31:0] commit_extra_imm [COMMIT_WIDTH],
   output logic [5:0] commit_extra_src1_areg [COMMIT_WIDTH],
@@ -103,7 +103,7 @@ module back_top import ttg_cfg_pkg::*; (
   output logic ptw_walk_flush,
   output logic [21:0] ptw_walk_req_root_ppn,
   output logic ptw_walk_req_valid,
-  output logic [19:0] ptw_walk_req_vpn,
+  output logic [VPN_W-1:0] ptw_walk_req_vpn,
   output logic ptw_walk_resp_consumed,
   // ---- out: ROB / Idu broadcasts: SimCpu (flush, fence, difftest) and LSU
   output logic rob_bcast_exception,

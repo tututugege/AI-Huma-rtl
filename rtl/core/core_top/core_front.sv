@@ -58,7 +58,7 @@ module core_front import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*;
   input  logic [VPN_W-1:0]  itlb_walk_resp_vpn,
   input  logic [PPN_W-1:0]  itlb_walk_resp_leaf_ppn,
   input  logic [PERM_W-1:0] itlb_walk_resp_leaf_perm,
-  input  logic        itlb_walk_resp_leaf_level,
+  input  logic [LVL_W-1:0]        itlb_walk_resp_leaf_level,
   output logic        mem_req_valid,
   output logic [31:0] mem_req_addr,
   output logic [7:0]  mem_req_total_size,

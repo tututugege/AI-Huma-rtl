@@ -6,7 +6,7 @@
 // (issue / addr, combinational from the post-select state) -> grant from the route block (REQ -> WAIT, id kept)
 // -> PTE event (id must match the granted request, otherwise it is a stale answer of a flushed walk and is ignored)
 // -> wakeup (the read has to be re-issued: WAIT -> REQ) -> flush of the owner client (-> IDLE).
-module ptw_walk_engine import memcpu_pkg::*; (
+module ptw_walk_engine import memcpu_pkg::*; import ttg_cfg_pkg::*; (
   input  logic clk,
   input  logic rst_n,
   input  logic cpu_en,
@@ -20,12 +20,12 @@ module ptw_walk_engine import memcpu_pkg::*; (
   output logic                    pub_fault,
   output logic [PT_PPN_W-1:0]     pub_ppn,
   output logic [PT_PERM_W-1:0]    pub_perm,
-  output logic                    pub_level1,
+  output logic [PT_LVL_W-1:0]     pub_level,
   // route block feedback
   input  logic                    grant_valid,
   input  logic [PT_ID_W-1:0]      grant_req_id,
   input  logic                    event_valid,
-  input  logic [31:0]             event_data,
+  input  logic [XLEN_BITS-1:0]    event_data,
   input  logic [PT_ID_W-1:0]      event_req_id,
   input  logic                    wakeup_walk,
   // read request towards the route block
@@ -38,6 +38,7 @@ module ptw_walk_engine import memcpu_pkg::*; (
   logic                    rr_q;        // client preferred by the next selection
   logic [PT_PPN_W-1:0]     l1_ppn_q;    // level-1 PTE ppn: base of the level-0 table
   logic [PT_ID_W-1:0]      req_id_q;    // id of the granted read (meaningful in *_WAIT)
+  logic [PT_LVL_W-1:0]     level_q;     // level of the PTE read in flight (Sv32: 1, 0; Sv39: 2, 1, 0)
 
   // ---- select (IDLE only; round robin, rr_q first) ----
   wire idle = state_q == PW_IDLE;
@@ -67,12 +68,13 @@ module ptw_walk_engine import memcpu_pkg::*; (
   always_comb begin
     issue_walk_read = 1'b0;
     walk_read_addr  = 32'd0;
+    // PTE address = table base + VPN[level] * PTE size
     if (state_b == PW_L1_REQ) begin
       issue_walk_read = 1'b1;
-      walk_read_addr  = {own_root, own_vpn[19:10], 2'b00};
+      walk_read_addr  = {own_root, own_vpn[PT_VPN_PART_W * (PT_LEVELS - 1) +: PT_VPN_PART_W], PT_PTE_SHIFT'(0)};
     end else if (state_b == PW_L2_REQ) begin
       issue_walk_read = 1'b1;
-      walk_read_addr  = {l1_ppn_q, own_vpn[9:0], 2'b00};
+      walk_read_addr  = {l1_ppn_q, own_vpn[PT_VPN_PART_W * int'(level_q) +: PT_VPN_PART_W], PT_PTE_SHIFT'(0)};
     end
   end
 
@@ -93,12 +95,15 @@ module ptw_walk_engine import memcpu_pkg::*; (
   wire in_wait    = (state_c == PW_L1_WAIT) || (state_c == PW_L2_WAIT);
   wire event_hit  = event_valid && in_wait && (event_req_id == req_id_c);
   logic pte_fault, pte_pointer, pte_leaf;
+  logic [PT_LVL_W-1:0] pte_level;
+  // the first read of a walk is at the top level, the following ones at level_q (one below the previous)
+  assign pte_level = (state_c == PW_L1_WAIT) ? PT_LVL_W'(PT_LEVELS - 1) : level_q;
   ptw_walk_pte u_pte (
-    .pte(event_data), .level1(state_c == PW_L1_WAIT),
+    .pte(event_data), .level(pte_level),
     .fault(pte_fault), .pointer(pte_pointer), .leaf(pte_leaf), .ppn(pub_ppn), .perm(pub_perm)
   );
   assign pub_fault  = pte_fault;
-  assign pub_level1 = (state_c == PW_L1_WAIT);
+  assign pub_level  = pte_level;
 
   wire publish_any = event_hit && (pte_fault || pte_leaf);
   wire go_level0   = event_hit && pte_pointer;
@@ -136,12 +141,16 @@ module ptw_walk_engine import memcpu_pkg::*; (
       rr_q     <= 1'b0;
       l1_ppn_q <= '0;
       req_id_q <= '0;
+      level_q  <= '0;
     end else if (cpu_en) begin
       state_q  <= state_d;
       owner_q  <= owner_b;
       req_id_q <= req_id_c;
       if (select_any) rr_q <= !sel_client;
-      if (go_level0)  l1_ppn_q <= pub_ppn;
+      if (go_level0)  begin
+        l1_ppn_q <= pub_ppn;
+        level_q  <= pte_level - PT_LVL_W'(1);
+      end
     end
   end
 

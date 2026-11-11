@@ -44,7 +44,7 @@ module back_top_glue
   always_comb begin
     if (rob_bcast_mret || rob_bcast_sret) flush_redirect_pc = csr2front_epc;
     else if (rob_bcast_exception)         flush_redirect_pc = csr2front_trap_pc;
-    else                                  flush_redirect_pc = rob_bcast_pc + 32'd4;
+    else                                  flush_redirect_pc = rob_bcast_pc + XLEN_BITS'(4);
   end
 
   assign out_mispred     = rob_bcast_flush | dec_bcast_mispred;
@@ -82,7 +82,7 @@ module back_top_glue
   /* verilator lint_off UNUSEDSIGNAL */
   logic [XLEN_BITS-1:0] mstatus_other_bits;
   /* verilator lint_on UNUSEDSIGNAL */
-  assign mstatus_other_bits = csr_status_mstatus & ~32'h000E_1800;
+  assign mstatus_other_bits = csr_status_mstatus & ~XLEN_BITS'(32'h000E_1800);
 
 endmodule
 

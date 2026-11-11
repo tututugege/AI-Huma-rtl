@@ -33,7 +33,7 @@ module tlb_mmu import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; #(
   input  logic [VPN_W-1:0] ptw_walk_resp_vpn,
   input  logic [PPN_W-1:0] ptw_walk_resp_leaf_ppn,
   input  logic [PERM_W-1:0] ptw_walk_resp_leaf_perm,
-  input  logic ptw_walk_resp_leaf_level,
+  input  logic [LVL_W-1:0] ptw_walk_resp_leaf_level,
   output logic [LSU_LDU_COUNT-1:0] ldq_resp_valid,
   output logic [1:0] ldq_resp_result [LSU_LDU_COUNT],
   output logic [LSU_LDU_COUNT-1:0] ldq_resp_hit,

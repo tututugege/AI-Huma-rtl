@@ -518,16 +518,19 @@ module exu
     .done_dest_preg(div_done_dest_preg), .done_dest_en(div_done_dest_en), .done_br_mask(div_done_br_mask)
   );
 
-  // FPU: one instance. imm[0] is the rs2 selector (fcvt signed/unsigned), the only imm bit it reads.
+  // FPU: one instance (Zfinx, 32 bits: rv64 decodes no FP instruction, its operands and result are the low word).
+  // imm[0] is the rs2 selector (fcvt signed/unsigned), the only imm bit it reads.
+  logic [31:0] fpu_result;
+  assign fu_mc_result[MC_FPU] = XLEN_BITS'(fpu_result);
   fpu u_fpu (
     .clk(clk), .rst_n(rst_n), .in_en(exu2fu_mc_en[MC_FPU]), .in_consume(exu2fu_mc_consume[MC_FPU]),
     .in_flush(exu2fu_flush), .in_flush_mask(exu2fu_flush_mask), .in_clear_mask(exu2fu_clear_mask),
     .in_inst_func3(exu2fu_mc_func3[MC_FPU]), .in_inst_func7(exu2fu_mc_func7[MC_FPU]),
-    .in_inst_imm_rs2_bit0(exu2fu_mc_imm[MC_FPU][0]), .in_inst_src1_rdata(exu2fu_mc_src1_rdata[MC_FPU]),
-    .in_inst_src2_rdata(exu2fu_mc_src2_rdata[MC_FPU]), .in_inst_br_mask(exu2fu_mc_br_mask[MC_FPU]),
+    .in_inst_imm_rs2_bit0(exu2fu_mc_imm[MC_FPU][0]), .in_inst_src1_rdata(exu2fu_mc_src1_rdata[MC_FPU][31:0]),
+    .in_inst_src2_rdata(exu2fu_mc_src2_rdata[MC_FPU][31:0]), .in_inst_br_mask(exu2fu_mc_br_mask[MC_FPU]),
     .in_inst_dest_preg(exu2fu_mc_dest_preg[MC_FPU]), .in_inst_dest_en(exu2fu_mc_dest_en[MC_FPU]),
     .in_inst_rob_idx(exu2fu_mc_rob_idx[MC_FPU]), .out_ready(fu_mc_ready[MC_FPU]),
-    .out_complete(fu_mc_complete[MC_FPU]), .out_inst_result(fu_mc_result[MC_FPU]),
+    .out_complete(fu_mc_complete[MC_FPU]), .out_inst_result(fpu_result),
     .out_inst_br_mask(fu_mc_br_mask[MC_FPU]), .out_inst_dest_preg(fu_mc_dest_preg[MC_FPU]),
     .out_inst_dest_en(fu_mc_dest_en[MC_FPU]), .out_inst_rob_idx(fu_mc_rob_idx[MC_FPU])
   );

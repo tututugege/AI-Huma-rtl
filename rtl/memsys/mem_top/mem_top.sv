@@ -35,7 +35,7 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
   input  logic dtlb_walk_flush,
   input  logic [21:0] dtlb_walk_req_root_ppn,
   input  logic dtlb_walk_req_valid,
-  input  logic [19:0] dtlb_walk_req_vpn,
+  input  logic [VPN_W-1:0] dtlb_walk_req_vpn,
   input  logic dtlb_walk_resp_consumed,
   input  logic [31:0] lsu2dcache_load_ports_addr [LSU_LDU_COUNT],
   input  logic [30:0] lsu2dcache_load_ports_req_id [LSU_LDU_COUNT],
@@ -71,14 +71,14 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
   output logic [VPN_W-1:0] itlb_walk_resp_vpn,
   output logic [PPN_W-1:0] itlb_walk_resp_leaf_ppn,
   output logic [PERM_W-1:0] itlb_walk_resp_leaf_perm,
-  output logic itlb_walk_resp_leaf_level,
+  output logic [LVL_W-1:0] itlb_walk_resp_leaf_level,
   output logic dtlb_walk_req_ready,
   output logic dtlb_walk_resp_valid,
   output logic dtlb_walk_resp_fault,
   output logic [VPN_W-1:0] dtlb_walk_resp_vpn,
   output logic [PPN_W-1:0] dtlb_walk_resp_leaf_ppn,
   output logic [PERM_W-1:0] dtlb_walk_resp_leaf_perm,
-  output logic dtlb_walk_resp_leaf_level,
+  output logic [LVL_W-1:0] dtlb_walk_resp_leaf_level,
   output logic [XLEN_BITS-1:0] dcache2lsu_load_resps_data [LSU_LDU_COUNT],
   output logic [1:0] dcache2lsu_load_resps_replay [LSU_LDU_COUNT],
   output logic [31:0] dcache2lsu_load_resps_req_id [LSU_LDU_COUNT],
@@ -154,7 +154,7 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
   logic        rt_icache_resp_valid, rt_icache_resp_retry, rt_icache_resp_miss;
   logic [31:0] rt_icache_resp_data;
   logic        rt_ptw_event_valid, rt_ptw_wakeup_walk, rt_ptw_grant_valid;
-  /* verilator lint_off UNUSEDSIGNAL */ logic [XLEN_BITS-1:0] rt_ptw_event_data; /* verilator lint_on UNUSEDSIGNAL */
+  logic [XLEN_BITS-1:0] rt_ptw_event_data;
   logic [PT_ID_W-1:0] rt_ptw_event_req_id, rt_ptw_grant_req_id;
   logic        rt_dc_ld_valid [NLD_];
   logic [31:0] rt_dc_ld_addr [NLD_], rt_dc_ld_id [NLD_];
@@ -242,7 +242,7 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
   logic [PT_VPN_W-1:0]  pw_c_resp_vpn [PT_NCLIENT];
   logic [PT_PPN_W-1:0]  pw_c_resp_ppn [PT_NCLIENT];
   logic [PT_PERM_W-1:0] pw_c_resp_perm [PT_NCLIENT];
-  logic [PT_NCLIENT-1:0] pw_c_resp_level;
+  logic [PT_LVL_W-1:0]  pw_c_resp_level [PT_NCLIENT];
 
   assign pw_c_req_valid[0] = dtlb_walk_req_valid;
   assign pw_c_req_vpn[0]   = dtlb_walk_req_vpn;
@@ -260,7 +260,7 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
     .client_req_valid(pw_c_req_valid), .client_req_vpn(pw_c_req_vpn), .client_req_root_ppn(pw_c_req_root),
     .client_resp_consumed(pw_c_consumed), .client_flush(pw_c_flush),
     .grant_valid(rt_ptw_grant_valid), .grant_req_id(rt_ptw_grant_req_id),
-    .event_valid(rt_ptw_event_valid), .event_data(rt_ptw_event_data[31:0]), .event_req_id(rt_ptw_event_req_id),
+    .event_valid(rt_ptw_event_valid), .event_data(rt_ptw_event_data), .event_req_id(rt_ptw_event_req_id),
     .wakeup_walk(rt_ptw_wakeup_walk),
     .client_req_ready(pw_c_req_ready), .client_resp_valid(pw_c_resp_valid), .client_resp_fault(pw_c_resp_fault),
     .client_resp_vpn(pw_c_resp_vpn), .client_resp_leaf_ppn(pw_c_resp_ppn), .client_resp_leaf_perm(pw_c_resp_perm),

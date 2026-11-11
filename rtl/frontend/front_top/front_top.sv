@@ -57,7 +57,7 @@ module front_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; 
   input  logic [VPN_W-1:0]  ptw_walk_resp_vpn,
   input  logic [PPN_W-1:0]  ptw_walk_resp_leaf_ppn,
   input  logic [PERM_W-1:0] ptw_walk_resp_leaf_perm,
-  input  logic        ptw_walk_resp_leaf_level,
+  input  logic [LVL_W-1:0]        ptw_walk_resp_leaf_level,
   // ---- front end -> back end (front.out, before the back end's no-taken truncation) ----
   output logic        out_valid,
   output logic [FETCH_WIDTH-1:0] out_lane_valid,

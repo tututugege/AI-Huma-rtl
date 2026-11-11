@@ -27,7 +27,7 @@ module icache_itlb import icache_pkg::*; import tlb_mmu_pkg::*; #(
   input  logic        ptw_resp_valid,
   input  logic        ptw_resp_fault,
   input  logic [VPN_W-1:0] ptw_resp_vpn,
-  input  logic        ptw_resp_leaf_level,
+  input  logic [LVL_W-1:0]        ptw_resp_leaf_level,
   input  logic [PPN_W-1:0] ptw_resp_leaf_ppn,
   input  logic [PERM_W-1:0] ptw_resp_leaf_perm,
   output logic        ppn_valid,

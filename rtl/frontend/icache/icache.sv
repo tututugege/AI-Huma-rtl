@@ -34,7 +34,7 @@ module icache import ttg_cfg_pkg::*; import icache_pkg::*; import tlb_mmu_pkg::*
   input  logic [VPN_W-1:0] ptw_walk_resp_vpn,
   input  logic [PPN_W-1:0] ptw_walk_resp_leaf_ppn,
   input  logic [PERM_W-1:0] ptw_walk_resp_leaf_perm,
-  input  logic ptw_walk_resp_leaf_level,
+  input  logic [LVL_W-1:0] ptw_walk_resp_leaf_level,
   output logic icache_ready,
   output logic read_complete,
   output logic [31:0] fetch_pc,

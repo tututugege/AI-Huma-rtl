@@ -29,8 +29,12 @@ package memcpu_pkg;
   localparam logic [1:0] REPLAY_MSHR_HIT = 2'd2;
   localparam logic [1:0] REPLAY_MSHR_FULL = 2'd3;
 
-  // ---- PTW (Sv32) ----
-  localparam int PT_VPN_W   = 20;
+  // ---- PTW (Sv32: 2 levels, 4-byte PTEs; Sv39: 3 levels, 8-byte PTEs) ----
+  localparam int PT_LEVELS    = (XLEN_BITS == 64) ? 3 : 2;
+  localparam int PT_VPN_PART_W = (XLEN_BITS == 64) ? 9 : 10;   // one VPN field
+  localparam int PT_PTE_SHIFT = (XLEN_BITS == 64) ? 3 : 2;     // log2 of the PTE size
+  localparam int PT_LVL_W     = (XLEN_BITS == 64) ? 2 : 1;     // leaf level 0 .. PT_LEVELS-1
+  localparam int PT_VPN_W   = PT_LEVELS * PT_VPN_PART_W;
   localparam int PT_PPN_IN_W = 22;                   // satp.ppn as sent by the TLBs
   localparam int PT_PPN_W   = 20;                    // ppn bits that reach a 32-bit address ((ppn << 12) wraps)
   localparam int PT_PERM_W  = 8;
