@@ -115,7 +115,6 @@ struct FrontPreIO {
   wire<1> predict_dir[BACKEND_FETCH_WIDTH];
 
   wire<1> alt_pred[BACKEND_FETCH_WIDTH];
-  pcpn_t altpcpn[BACKEND_FETCH_WIDTH];
   pcpn_t pcpn[BACKEND_FETCH_WIDTH];
   wire<32> predict_next_fetch_address[BACKEND_FETCH_WIDTH];
   tage_idx_t tage_idx[BACKEND_FETCH_WIDTH][4]; // TN_MAX = 4
@@ -142,8 +141,6 @@ struct FrontPreIO {
     for (auto &v : predict_dir)
       v = {};
     for (auto &v : alt_pred)
-      v = {};
-    for (auto &v : altpcpn)
       v = {};
     for (auto &v : pcpn)
       v = {};
@@ -267,7 +264,6 @@ struct FtqCommitInfoResp {
   wire<32> pc;
   wire<1> pred_taken;
   wire<1> alt_pred;
-  pcpn_t altpcpn;
   pcpn_t pcpn;
   tage_idx_t tage_idx[4];
   tage_tag_t tage_tag[4];

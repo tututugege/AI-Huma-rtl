@@ -23,7 +23,6 @@ module core_front2back import ttg_cfg_pkg::*; import front_pkg::*; (
   input  logic [FETCH_WIDTH-1:0] predict_dir,
   input  logic [31:0] pc               [FETCH_WIDTH],
   input  logic [FETCH_WIDTH-1:0] alt_pred,
-  input  logic [PCPN_W-1:0]       altpcpn [FETCH_WIDTH],
   input  logic [PCPN_W-1:0]       pcpn    [FETCH_WIDTH],
   input  logic [TAGE_IDX_W-1:0]   tage_idx [FETCH_WIDTH][TN_MAX],
   input  logic [TAGE_TAG_W-1:0]   tage_tag [FETCH_WIDTH][TN_MAX],
@@ -37,7 +36,6 @@ module core_front2back import ttg_cfg_pkg::*; import front_pkg::*; (
   output logic [31:0] back_pc          [BACKEND_FETCH_WIDTH],
   output logic [BACKEND_FETCH_WIDTH-1:0] back_predict_dir,
   output logic [BACKEND_FETCH_WIDTH-1:0] back_alt_pred,
-  output logic [PCPN_W-1:0]       back_altpcpn [BACKEND_FETCH_WIDTH],
   output logic [PCPN_W-1:0]       back_pcpn    [BACKEND_FETCH_WIDTH],
   output logic [TAGE_IDX_W-1:0]   back_tage_idx [BACKEND_FETCH_WIDTH][TN_MAX],
   output logic [TAGE_TAG_W-1:0]   back_tage_tag [BACKEND_FETCH_WIDTH][TN_MAX],
@@ -70,7 +68,6 @@ module core_front2back import ttg_cfg_pkg::*; import front_pkg::*; (
   logic [31:0] fe_pc          [BACKEND_FETCH_WIDTH];
   logic [BACKEND_FETCH_WIDTH-1:0] fe_predict_dir;
   logic [BACKEND_FETCH_WIDTH-1:0] fe_alt_pred;
-  logic [PCPN_W-1:0]     fe_altpcpn [BACKEND_FETCH_WIDTH];
   logic [PCPN_W-1:0]     fe_pcpn    [BACKEND_FETCH_WIDTH];
   logic [TAGE_IDX_W-1:0] fe_tage_idx [BACKEND_FETCH_WIDTH][TN_MAX];
   logic [TAGE_TAG_W-1:0] fe_tage_tag [BACKEND_FETCH_WIDTH][TN_MAX];
@@ -83,7 +80,6 @@ module core_front2back import ttg_cfg_pkg::*; import front_pkg::*; (
       fe_pc[j]          = 32'd0;
       fe_predict_dir[j] = 1'b0;
       fe_alt_pred[j]    = 1'b0;
-      fe_altpcpn[j]     = '0;
       fe_pcpn[j]        = '0;
       fe_tage_idx[j]    = '{default: '0};
       fe_tage_tag[j]    = '{default: '0};
@@ -95,7 +91,6 @@ module core_front2back import ttg_cfg_pkg::*; import front_pkg::*; (
       fe_pc[j]          = pc[j];
       fe_predict_dir[j] = predict_dir[j];
       fe_alt_pred[j]    = alt_pred[j];
-      fe_altpcpn[j]     = altpcpn[j];
       fe_pcpn[j]        = pcpn[j];
       fe_tage_idx[j]    = tage_idx[j];
       fe_tage_tag[j]    = tage_tag[j];
@@ -109,7 +104,6 @@ module core_front2back import ttg_cfg_pkg::*; import front_pkg::*; (
   logic [31:0] hold_pc_q          [BACKEND_FETCH_WIDTH];
   logic [BACKEND_FETCH_WIDTH-1:0] hold_predict_dir_q;
   logic [BACKEND_FETCH_WIDTH-1:0] hold_alt_pred_q;
-  logic [PCPN_W-1:0]     hold_altpcpn_q [BACKEND_FETCH_WIDTH];
   logic [PCPN_W-1:0]     hold_pcpn_q    [BACKEND_FETCH_WIDTH];
   logic [TAGE_IDX_W-1:0] hold_tage_idx_q [BACKEND_FETCH_WIDTH][TN_MAX];
   logic [TAGE_TAG_W-1:0] hold_tage_tag_q [BACKEND_FETCH_WIDTH][TN_MAX];
@@ -125,7 +119,6 @@ module core_front2back import ttg_cfg_pkg::*; import front_pkg::*; (
       back_pc[j]          = can_read ? fe_pc[j]          : hold_pc_q[j];
       back_predict_dir[j] = can_read ? fe_predict_dir[j] : hold_predict_dir_q[j];
       back_alt_pred[j]    = can_read ? fe_alt_pred[j]    : hold_alt_pred_q[j];
-      back_altpcpn[j]     = can_read ? fe_altpcpn[j]     : hold_altpcpn_q[j];
       back_pcpn[j]        = can_read ? fe_pcpn[j]        : hold_pcpn_q[j];
       back_tage_idx[j]    = can_read ? fe_tage_idx[j]    : hold_tage_idx_q[j];
       back_tage_tag[j]    = can_read ? fe_tage_tag[j]    : hold_tage_tag_q[j];
@@ -144,7 +137,6 @@ module core_front2back import ttg_cfg_pkg::*; import front_pkg::*; (
         hold_pc_q[j]          <= 32'd0;
         hold_predict_dir_q[j] <= 1'b0;
         hold_alt_pred_q[j]    <= 1'b0;
-        hold_altpcpn_q[j]     <= '0;
         hold_pcpn_q[j]        <= '0;
         hold_tage_idx_q[j]    <= '{default: '0};
         hold_tage_tag_q[j]    <= '{default: '0};
@@ -160,7 +152,6 @@ module core_front2back import ttg_cfg_pkg::*; import front_pkg::*; (
         hold_pc_q[j]          <= back_pc[j];
         hold_predict_dir_q[j] <= back_predict_dir[j];
         hold_alt_pred_q[j]    <= back_alt_pred[j];
-        hold_altpcpn_q[j]     <= back_altpcpn[j];
         hold_pcpn_q[j]        <= back_pcpn[j];
         hold_tage_idx_q[j]    <= back_tage_idx[j];
         hold_tage_tag_q[j]    <= back_tage_tag[j];

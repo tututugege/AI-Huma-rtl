@@ -28,7 +28,6 @@ package pre_idu_pkg;
   // Training metadata of one fetch slot; written when the fetch group enters the FTQ, read back at commit.
   typedef struct packed {
     logic                                       alt_pred;
-    logic [PCPN_W-1:0]                          altpcpn;
     logic [PCPN_W-1:0]                          pcpn;
     logic [TAGE_N-1:0][TAGE_IDX_W-1:0]          tage_idx;
     logic [TAGE_N-1:0][TAGE_TAG_W-1:0]          tage_tag;

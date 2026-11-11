@@ -56,7 +56,6 @@ package front_pkg;
     logic [FETCH_WIDTH-1:0][TN_MAX-1:0][TAGE_TAG_W-1:0]      tage_tag;
     logic [FETCH_WIDTH-1:0][TN_MAX-1:0][TAGE_IDX_W-1:0]      tage_idx;
     logic [FETCH_WIDTH-1:0][PCPN_W-1:0]                      pcpn;
-    logic [FETCH_WIDTH-1:0][PCPN_W-1:0]                      altpcpn;
     logic [FETCH_WIDTH-1:0]                                  alt_pred;
     logic [31:0]                                             predict_base_pc;
   } pred_meta_t;

@@ -14,7 +14,6 @@ module ptab import ttg_cfg_pkg::*; import front_pkg::*; (
   input  logic [FETCH_WIDTH-1:0] wr_predict_dir,
   input  logic [31:0]             wr_predict_base_pc,
   input  logic [FETCH_WIDTH-1:0] wr_alt_pred,
-  input  logic [PCPN_W-1:0]       wr_altpcpn     [FETCH_WIDTH],
   input  logic [PCPN_W-1:0]       wr_pcpn        [FETCH_WIDTH],
   input  logic [TAGE_IDX_W-1:0]   wr_tage_idx    [FETCH_WIDTH][TN_MAX],
   input  logic [TAGE_TAG_W-1:0]   wr_tage_tag    [FETCH_WIDTH][TN_MAX],
@@ -24,7 +23,6 @@ module ptab import ttg_cfg_pkg::*; import front_pkg::*; (
   output logic [FETCH_WIDTH-1:0] rd_predict_dir,
   output logic [31:0]             rd_predict_base_pc,
   output logic [FETCH_WIDTH-1:0] rd_alt_pred,
-  output logic [PCPN_W-1:0]       rd_altpcpn     [FETCH_WIDTH],
   output logic [PCPN_W-1:0]       rd_pcpn        [FETCH_WIDTH],
   output logic [TAGE_IDX_W-1:0]   rd_tage_idx    [FETCH_WIDTH][TN_MAX],
   output logic [TAGE_TAG_W-1:0]   rd_tage_tag    [FETCH_WIDTH][TN_MAX],
@@ -41,7 +39,6 @@ module ptab import ttg_cfg_pkg::*; import front_pkg::*; (
     for (int i = 0; i < FETCH_WIDTH; i++) begin
       wr_entry.predict_dir[i]       = wr_predict_dir[i];
       wr_entry.meta.alt_pred[i]     = wr_alt_pred[i];
-      wr_entry.meta.altpcpn[i]      = wr_altpcpn[i];
       wr_entry.meta.pcpn[i]         = wr_pcpn[i];
       for (int j = 0; j < TN_MAX; j++) begin
         wr_entry.meta.tage_idx[i][j] = wr_tage_idx[i][j];
@@ -49,7 +46,6 @@ module ptab import ttg_cfg_pkg::*; import front_pkg::*; (
       end
       rd_predict_dir[i]       = rd_entry.predict_dir[i];
       rd_alt_pred[i]          = rd_entry.meta.alt_pred[i];
-      rd_altpcpn[i]           = rd_entry.meta.altpcpn[i];
       rd_pcpn[i]              = rd_entry.meta.pcpn[i];
       for (int j = 0; j < TN_MAX; j++) begin
         rd_tage_idx[i][j] = rd_entry.meta.tage_idx[i][j];

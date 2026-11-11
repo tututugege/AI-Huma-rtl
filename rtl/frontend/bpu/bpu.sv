@@ -55,11 +55,14 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_btb_pkg::*; impo
   output logic [NLANE-1:0]    out_pred_dir,
   output logic [NLANE-1:0]    out_alt_pred,
   output logic [PCPN_W-1:0]   out_pcpn     [NLANE],
-  output logic [PCPN_W-1:0]   out_altpcpn  [NLANE],
   output logic [T_TAG_W-1:0]  out_tage_tags [NLANE][TN],
   output logic [T_IDX_W-1:0]  out_tage_idxs [NLANE][TN],
   output logic [HCK_W-1:0]    out_ck,
-  output logic [EPOCH_W-1:0]  out_epoch
+  output logic [EPOCH_W-1:0]  out_epoch,
+  // Ref: BpuPipe::comb out.upd_free_reg / tq_free_reg: free entries of the update / uBTB train queue at the start
+  // of the cycle (registered), commit credits of the compact ROB (EXP-028)
+  output logic [3:0]          commit_upd_free,
+  output logic [3:0]          commit_tq_free
 );
 
   // ---- stage registers ----
@@ -100,25 +103,25 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_btb_pkg::*; impo
   assign s0_bnd = block_bnd(s0_base);
   bpu_stage0 u_stage0 (.base(s0_base), .spec_fh(s0_fh), .tix(s0_tix));
 
+  logic [3:0] upd_occ, tq_occ;
   bpu_ubtb u_ubtb (
     .clk, .rst_n, .upd_valid, .base_pc, .br_type, .actual_dir, .pred_dir, .target,
     .s0_base, .s0_bnd, .s0_ras_nonempty, .s0_ras_top, .s0_guess(g0),
     .s1_base(r0_q.base), .s1_bnd(block_bnd(r0_q.base)), .s1_ras_nonempty(r0_q.ck.r.cnt != '0),
-    .s1_ras_top(r0_q.ck.r.top), .s1_guess(g1)
+    .s1_ras_top(r0_q.ck.r.top), .s1_guess(g1), .tq_occ(tq_occ)
   );
 
   // ---- S1 / S2 arrays ----
   raw_all_t         s1_raw;
   logic [NBANK-1:0] s2_tg_pred, s2_tg_alt;
   logic [PCPN_W-1:0] s2_tg_pcpn [NBANK];
-  logic [PCPN_W-1:0] s2_tg_altpcpn [NBANK];
   logic [NBANK-1:0] wr_valid;
   upd_ent_t         wr_ent [NBANK];
   logic [NBB-1:0]   bank_busy;
 
   bpu_banks u_banks (
     .clk, .rst_n, .s1_base(r0_q.base), .s1_tix(r0_tix_q), .s1_raw, .s2_raw(r1_raw_q), .s2_tix(r1_tix_q),
-    .s2_pred(s2_tg_pred), .s2_alt(s2_tg_alt), .s2_pcpn(s2_tg_pcpn), .s2_altpcpn(s2_tg_altpcpn), .wr_valid, .wr_ent
+    .s2_pred(s2_tg_pred), .s2_alt(s2_tg_alt), .s2_pcpn(s2_tg_pcpn), .wr_valid, .wr_ent
   );
 
   always_comb begin
@@ -131,8 +134,10 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_btb_pkg::*; impo
 
   bpu_updq u_updq (
     .clk, .rst_n, .upd_valid, .base_pc, .actual_dir, .br_type, .target, .pred_dir, .alt_pred, .pcpn, .tags, .idxs,
-    .bank_busy, .wr_valid, .wr_ent
+    .bank_busy, .wr_valid, .wr_ent, .occ(upd_occ)
   );
+  assign commit_upd_free = 4'(UQ_DEPTH) - upd_occ;
+  assign commit_tq_free  = 4'(TQ_DEPTH) - tq_occ;
 
   // ---- S2 compare ----
   pred_t             fin;
@@ -153,9 +158,9 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_btb_pkg::*; impo
 
   bpu_main_sel u_sel (
     .base(r1_q.base), .ck_ras_nonempty(r1_q.ck.r.cnt != '0), .ck_ras_top(r1_q.ck.r.top), .ty_way(s2_ty),
-    .tg_pred(s2_tg_pred), .tg_alt(s2_tg_alt), .tg_pcpn(s2_tg_pcpn), .tg_altpcpn(s2_tg_altpcpn), .ix(s2_ix),
+    .tg_pred(s2_tg_pred), .tg_alt(s2_tg_alt), .tg_pcpn(s2_tg_pcpn), .ix(s2_ix),
     .btb_set(s2_btb), .itt(s2_itt), .pred(fin), .lane_dir(out_pred_dir), .lane_alt(out_alt_pred),
-    .lane_pcpn(out_pcpn), .lane_altpcpn(out_altpcpn), .lane_tag(out_tage_tags), .lane_idx(out_tage_idxs)
+    .lane_pcpn(out_pcpn), .lane_tag(out_tage_tags), .lane_idx(out_tage_idxs)
   );
 
   // ---- decisions, speculative state, PDCKPT ----

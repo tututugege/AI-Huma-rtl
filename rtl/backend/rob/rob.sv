@@ -12,6 +12,8 @@ module rob
   input  logic csr2rob_interrupt_req,
   input  logic lsu2rob_committed_store_pending,
   input  logic front_stall,
+  input  logic [3:0] bpu_upd_free,   // compact ROB commit credits (EXP-028): BPU update queue free entries (registered)
+  input  logic [3:0] bpu_tq_free,    // uBTB train queue free entries (registered)
   input  logic [31:0] ftq_rob_pc_resp_resp_pc [1],
 
   input  logic [DECODE_WIDTH-1:0] dis2rob_dis_fire,
@@ -50,6 +52,7 @@ module rob
   output logic rob2dis_empty,
   output logic rob2dis_ready,
   output logic [6:0] rob2dis_enq_idx,
+  output logic [7:0] rob2dis_free,    // compact ROB: free entries (line ROB: unused, ROB_NUM)
   output logic rob2dis_rob_flag,
   output logic rob2csr_commit,
   output logic rob2csr_interrupt_resp,
@@ -161,32 +164,66 @@ module rob
   logic [ROB_BANK_NUM-1:0]   commit_valid;
   rob_entry_t                commit_uop [ROB_BANK_NUM];
 
-  rob_core u_core (
-    .clk(clk), .rst_n(rst_n),
-    .dec_mispred(dec_bcast_mispred), .dec_redirect_rob_idx(dec_bcast_redirect_rob_idx),
-    .interrupt_req(csr2rob_interrupt_req), .committed_store_pending(lsu2rob_committed_store_pending),
-    .front_stall(front_stall), .ftq_resp_pc(ftq_rob_pc_resp_resp_pc[0]),
-    .dis_fire(dis_fire), .dis_uop(dis_uop), .wb(wb),
-    .rob2dis_stall(rob2dis_stall), .rob2dis_empty(rob2dis_empty), .rob2dis_ready(rob2dis_ready),
-    .rob2dis_enq_line(enq_line), .rob2dis_rob_flag(rob2dis_rob_flag),
-    .rob2csr_commit(rob2csr_commit), .rob2csr_interrupt_resp(rob2csr_interrupt_resp),
-    .commit_valid(commit_valid), .commit_uop(commit_uop),
-    .bcast_flush(rob_bcast_flush), .bcast_mret(rob_bcast_mret), .bcast_sret(rob_bcast_sret),
-    .bcast_ecall(rob_bcast_ecall), .bcast_breakpoint(rob_bcast_breakpoint),
-    .bcast_exception(rob_bcast_exception), .bcast_fence(rob_bcast_fence),
-    .bcast_fence_i(rob_bcast_fence_i), .bcast_page_fault_inst(rob_bcast_page_fault_inst),
-    .bcast_page_fault_load(rob_bcast_page_fault_load), .bcast_page_fault_store(rob_bcast_page_fault_store),
-    .bcast_illegal_inst(rob_bcast_illegal_inst), .bcast_interrupt(rob_bcast_interrupt),
-    .bcast_trap_val_valid(rob_bcast_trap_val_valid), .bcast_trap_val(rob_bcast_trap_val), .bcast_pc(rob_bcast_pc),
-    .bcast_head_rob_idx(rob_bcast_head_rob_idx), .bcast_head_valid(rob_bcast_head_valid),
-    .bcast_head_incomplete_rob_idx(rob_bcast_head_incomplete_rob_idx),
-    .bcast_head_incomplete_valid(rob_bcast_head_incomplete_valid),
-    .ftq_req_valid(ftq_rob_pc_req_req_valid[0]), .ftq_req_ftq_idx(ftq_rob_pc_req_req_ftq_idx[0]),
-    .ftq_req_ftq_offset(ftq_rob_pc_req_req_ftq_offset[0])
-  );
+  logic [ROB_IDX_WIDTH-1:0] enq_idx_cpt;
+  if (ROB_COMPACT != 0) begin : g_cpt   // compact ROB (EXP-028)
+    assign enq_line = '0;
+    rob_core_cpt u_core (
+      .clk(clk), .rst_n(rst_n),
+      .dec_mispred(dec_bcast_mispred), .dec_redirect_rob_idx(dec_bcast_redirect_rob_idx),
+      .interrupt_req(csr2rob_interrupt_req), .committed_store_pending(lsu2rob_committed_store_pending),
+      .front_stall(front_stall), .bpu_upd_free(bpu_upd_free), .bpu_tq_free(bpu_tq_free),
+      .ftq_resp_pc(ftq_rob_pc_resp_resp_pc[0]),
+      .dis_fire(dis_fire), .dis_uop(dis_uop), .wb(wb),
+      .rob2dis_stall(rob2dis_stall), .rob2dis_empty(rob2dis_empty), .rob2dis_ready(rob2dis_ready),
+      .rob2dis_enq_idx(enq_idx_cpt), .rob2dis_rob_flag(rob2dis_rob_flag), .rob2dis_free(rob2dis_free),
+      .rob2csr_commit(rob2csr_commit), .rob2csr_interrupt_resp(rob2csr_interrupt_resp),
+      .commit_valid(commit_valid), .commit_uop(commit_uop),
+      .bcast_flush(rob_bcast_flush), .bcast_mret(rob_bcast_mret), .bcast_sret(rob_bcast_sret),
+      .bcast_ecall(rob_bcast_ecall), .bcast_breakpoint(rob_bcast_breakpoint),
+      .bcast_exception(rob_bcast_exception), .bcast_fence(rob_bcast_fence),
+      .bcast_fence_i(rob_bcast_fence_i), .bcast_page_fault_inst(rob_bcast_page_fault_inst),
+      .bcast_page_fault_load(rob_bcast_page_fault_load), .bcast_page_fault_store(rob_bcast_page_fault_store),
+      .bcast_illegal_inst(rob_bcast_illegal_inst), .bcast_interrupt(rob_bcast_interrupt),
+      .bcast_trap_val_valid(rob_bcast_trap_val_valid), .bcast_trap_val(rob_bcast_trap_val), .bcast_pc(rob_bcast_pc),
+      .bcast_head_rob_idx(rob_bcast_head_rob_idx), .bcast_head_valid(rob_bcast_head_valid),
+      .bcast_head_incomplete_rob_idx(rob_bcast_head_incomplete_rob_idx),
+      .bcast_head_incomplete_valid(rob_bcast_head_incomplete_valid),
+      .ftq_req_valid(ftq_rob_pc_req_req_valid[0]), .ftq_req_ftq_idx(ftq_rob_pc_req_req_ftq_idx[0]),
+      .ftq_req_ftq_offset(ftq_rob_pc_req_req_ftq_offset[0])
+    );
+  end else begin : g_line               // line ROB: one dispatch group per line
+    rob_core u_core (
+      .clk(clk), .rst_n(rst_n),
+      .dec_mispred(dec_bcast_mispred), .dec_redirect_rob_idx(dec_bcast_redirect_rob_idx),
+      .interrupt_req(csr2rob_interrupt_req), .committed_store_pending(lsu2rob_committed_store_pending),
+      .front_stall(front_stall), .ftq_resp_pc(ftq_rob_pc_resp_resp_pc[0]),
+      .dis_fire(dis_fire), .dis_uop(dis_uop), .wb(wb),
+      .rob2dis_stall(rob2dis_stall), .rob2dis_empty(rob2dis_empty), .rob2dis_ready(rob2dis_ready),
+      .rob2dis_enq_line(enq_line), .rob2dis_rob_flag(rob2dis_rob_flag),
+      .rob2csr_commit(rob2csr_commit), .rob2csr_interrupt_resp(rob2csr_interrupt_resp),
+      .commit_valid(commit_valid), .commit_uop(commit_uop),
+      .bcast_flush(rob_bcast_flush), .bcast_mret(rob_bcast_mret), .bcast_sret(rob_bcast_sret),
+      .bcast_ecall(rob_bcast_ecall), .bcast_breakpoint(rob_bcast_breakpoint),
+      .bcast_exception(rob_bcast_exception), .bcast_fence(rob_bcast_fence),
+      .bcast_fence_i(rob_bcast_fence_i), .bcast_page_fault_inst(rob_bcast_page_fault_inst),
+      .bcast_page_fault_load(rob_bcast_page_fault_load), .bcast_page_fault_store(rob_bcast_page_fault_store),
+      .bcast_illegal_inst(rob_bcast_illegal_inst), .bcast_interrupt(rob_bcast_interrupt),
+      .bcast_trap_val_valid(rob_bcast_trap_val_valid), .bcast_trap_val(rob_bcast_trap_val), .bcast_pc(rob_bcast_pc),
+      .bcast_head_rob_idx(rob_bcast_head_rob_idx), .bcast_head_valid(rob_bcast_head_valid),
+      .bcast_head_incomplete_rob_idx(rob_bcast_head_incomplete_rob_idx),
+      .bcast_head_incomplete_valid(rob_bcast_head_incomplete_valid),
+      .ftq_req_valid(ftq_rob_pc_req_req_valid[0]), .ftq_req_ftq_idx(ftq_rob_pc_req_req_ftq_idx[0]),
+      .ftq_req_ftq_offset(ftq_rob_pc_req_req_ftq_offset[0])
+    );
+    assign rob2dis_free = 8'(ROB_NUM);
+    assign enq_idx_cpt = '0;
+    logic [7:0] unused_credit;
+    assign unused_credit = {bpu_upd_free, bpu_tq_free};
+  end
 
   // ---- internal structs -> spec ports ----
-  assign rob2dis_enq_idx = ROB_IDX_WIDTH'(enq_line);  // RobDisIO::enq_idx carries the line number (zero extended)
+  // RobDisIO::enq_idx: the line number (zero extended), or the tail entry of the compact ROB
+  assign rob2dis_enq_idx = (ROB_COMPACT != 0) ? enq_idx_cpt : ROB_IDX_WIDTH'(enq_line);
 
   for (genvar b = 0; b < ROB_BANK_NUM; b++) begin : g_commit
     assign rob_commit_commit_entry_valid[b]                 = commit_valid[b];

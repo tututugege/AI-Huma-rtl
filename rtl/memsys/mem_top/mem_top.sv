@@ -90,16 +90,12 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
   output logic peripheral_resp_is_mmio,
   output logic [31:0] peripheral_resp_mmio_rdata,
   output logic peripheral_resp_ready,
-  // ---- peripheral environment (testbench side: PeripheralModel / uncached RAM) ----
-  input  logic [1:0] env_region,
+  // ---- peripheral environment (testbench side: PeripheralModel) ----
+  input  logic env_modeled,
   input  logic [31:0] env_rdata,
   output logic env_rd_en,
   output logic [31:0] env_rd_addr,
   output logic [2:0] env_rd_func3,
-  output logic env_wr_en,
-  output logic [31:0] env_wr_addr,
-  output logic [31:0] env_wr_data,
-  output logic [2:0] env_wr_func3,
   // ---- DDR slave port (testbench side: SimDDR) ----
   input  logic d_arready,
   input  logic d_rvalid,
@@ -350,7 +346,7 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
     .clk, .rst_n, .cpu_en(phase0),
     .req_is_mmio(peripheral_req_is_mmio), .req_wen(peripheral_req_wen), .req_addr(peripheral_req_mmio_addr),
     .req_wdata(peripheral_req_mmio_wdata), .req_func3(peripheral_req_mmio_fun3),
-    .env_region(env_region), .env_rdata(env_rdata),
+    .env_modeled(env_modeled), .env_rdata(env_rdata),
     .axi_rd_req_accepted(ax_pa_rd_acc), .axi_rd_resp_valid(ax_pa_rd_rv), .axi_rd_resp_data(ax_pa_rd_data),
     .axi_wr_req_accepted(ax_pa_wr_acc), .axi_wr_resp_valid(ax_pa_wr_rv),
     .resp_ready(pa_resp_ready), .resp_is_mmio(pa_resp_is_mmio), .resp_rdata(pa_resp_rdata),
@@ -358,7 +354,7 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
     .axi_rd_resp_ready(pa_rd_resp_ready),
     .axi_wr_req_valid(pa_wr_valid), .axi_wr_req_addr(pa_wr_addr), .axi_wr_req_size(pa_wr_size),
     .axi_wr_req_wstrb(pa_wr_wstrb), .axi_wr_req_wdata(pa_wr_wdata), .axi_wr_resp_ready(pa_wr_resp_ready),
-    .env_rd_en, .env_rd_addr, .env_rd_func3, .env_wr_en, .env_wr_addr, .env_wr_data, .env_wr_func3
+    .env_rd_en, .env_rd_addr, .env_rd_func3
   );
 
   // SimCpu::peripheral_resp_hold: this cycle's peripheral response is what the core sees in the next cycle

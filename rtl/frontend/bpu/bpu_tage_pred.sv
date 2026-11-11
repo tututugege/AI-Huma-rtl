@@ -9,8 +9,7 @@ module bpu_tage_pred import bpu_pkg::*; import bpu_stage_pkg::*; (
   input  logic [3:0]          use_alt_ctr,
   output logic                pred,
   output logic                alt_pred,
-  output logic [PCPN_W-1:0]   pcpn,
-  output logic [PCPN_W-1:0]   altpcpn
+  output logic [PCPN_W-1:0]   pcpn
 );
 
   logic [TN-1:0] match;
@@ -35,7 +34,6 @@ module bpu_tage_pred import bpu_pkg::*; import bpu_stage_pkg::*; (
   // Ref: tage_pred_select_comb: prediction
   always_comb begin
     pcpn          = pcpn_sel;
-    altpcpn       = altpcpn_sel;
     alt_pred      = (altpcpn_sel >= PCPN_W'(TN)) ? base_pred : (raw.cnt[altpcpn_sel[1:0]] >= 3'd4);
     provider_pred = raw.cnt[pcpn_sel[1:0]] >= 3'd4;
     provider_weak = (raw.cnt[pcpn_sel[1:0]] == 3'd3);              // TAGE_PROVIDER_WEAK_LOW == HIGH == 3

@@ -7,7 +7,6 @@ module back_top import ttg_cfg_pkg::*; (
   input  logic rst_n,
   // ---- in: front end -> back end (SimCpu: BackTop::in, FrontPreIO; held registers front2back_hold live in SimCpu)
   input  logic [BACKEND_FETCH_WIDTH-1:0] front2pre_alt_pred,
-  input  logic [2:0] front2pre_altpcpn [BACKEND_FETCH_WIDTH],
   input  logic [147:0] front2pre_bpu_ck,
   input  logic [31:0] front2pre_inst [BACKEND_FETCH_WIDTH],
   input  logic [BACKEND_FETCH_WIDTH-1:0] front2pre_page_fault_inst,
@@ -20,6 +19,8 @@ module back_top import ttg_cfg_pkg::*; (
   input  logic [7:0] front2pre_tage_tag [BACKEND_FETCH_WIDTH][4],
   input  logic [BACKEND_FETCH_WIDTH-1:0] front2pre_valid,
   input  logic front_stall,
+  input  logic [3:0] bpu_upd_free,   // compact ROB commit credits (EXP-028)
+  input  logic [3:0] bpu_tq_free,
   // ---- in: MemSubsystem -> LSU (BackTop::in.peripheral_resp / dcache2lsu)
   input  logic [31:0] dcache2lsu_load_resps_data [LSU_LDU_COUNT],
   input  logic [1:0] dcache2lsu_load_resps_replay [LSU_LDU_COUNT],
@@ -59,7 +60,6 @@ module back_top import ttg_cfg_pkg::*; (
   output logic [31:0] csr_status_satp,
   output logic [31:0] csr_status_sstatus,
   output logic [COMMIT_WIDTH-1:0] ftq_commit_info_resp_alt_pred,
-  output logic [2:0] ftq_commit_info_resp_altpcpn [COMMIT_WIDTH],
   output logic [31:0] ftq_commit_info_resp_pc [COMMIT_WIDTH],
   output logic [2:0] ftq_commit_info_resp_pcpn [COMMIT_WIDTH],
   output logic ftq_commit_info_resp_pred_taken [COMMIT_WIDTH],
@@ -404,6 +404,7 @@ module back_top import ttg_cfg_pkg::*; (
   logic rob2csr_interrupt_resp;
   logic rob2dis_empty;
   logic [6:0] rob2dis_enq_idx;
+  logic [7:0] rob2dis_free;
   logic rob2dis_ready;
   logic rob2dis_rob_flag;
   logic rob2dis_stall;
@@ -535,7 +536,6 @@ module back_top import ttg_cfg_pkg::*; (
     .rob_commit_commit_entry_valid(rob_commit_commit_entry_valid),
     // inputs from top input
     .front2pre_alt_pred(front2pre_alt_pred),
-    .front2pre_altpcpn(front2pre_altpcpn),
     .front2pre_bpu_ck(front2pre_bpu_ck),
     .front2pre_inst(front2pre_inst),
     .front2pre_page_fault_inst(front2pre_page_fault_inst),
@@ -570,7 +570,6 @@ module back_top import ttg_cfg_pkg::*; (
     .ftq_commit_info_resp_pc(ftq_commit_info_resp_pc),
     .ftq_commit_info_resp_pred_taken(ftq_commit_info_resp_pred_taken),
     .ftq_commit_info_resp_alt_pred(ftq_commit_info_resp_alt_pred),
-    .ftq_commit_info_resp_altpcpn(ftq_commit_info_resp_altpcpn),
     .ftq_commit_info_resp_pcpn(ftq_commit_info_resp_pcpn),
     .ftq_commit_info_resp_tage_idx(ftq_commit_info_resp_tage_idx),
     .ftq_commit_info_resp_tage_tag(ftq_commit_info_resp_tage_tag)
@@ -770,6 +769,7 @@ module back_top import ttg_cfg_pkg::*; (
     // inputs from rob
     .rob2dis_empty(rob2dis_empty),
     .rob2dis_enq_idx(rob2dis_enq_idx),
+    .rob2dis_free(rob2dis_free),
     .rob2dis_ready(rob2dis_ready),
     .rob2dis_rob_flag(rob2dis_rob_flag),
     .rob2dis_stall(rob2dis_stall),
@@ -1215,11 +1215,14 @@ module back_top import ttg_cfg_pkg::*; (
     .ftq_rob_pc_resp_resp_pc(ftq_rob_pc_resp_resp_pc),
     // inputs from top input
     .front_stall(front_stall),
+    .bpu_upd_free(bpu_upd_free),
+    .bpu_tq_free(bpu_tq_free),
     // outputs
     .rob2dis_stall(rob2dis_stall),
     .rob2dis_empty(rob2dis_empty),
     .rob2dis_ready(rob2dis_ready),
     .rob2dis_enq_idx(rob2dis_enq_idx),
+    .rob2dis_free(rob2dis_free),
     .rob2dis_rob_flag(rob2dis_rob_flag),
     .rob2csr_commit(rob2csr_commit),
     .rob2csr_interrupt_resp(rob2csr_interrupt_resp),

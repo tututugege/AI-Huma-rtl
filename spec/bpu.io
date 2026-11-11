@@ -27,6 +27,5 @@ out predict_next_fetch_address 32 when ptab_write_enable @ TTG_FT.bpu_out.predic
 out out_pred_dir  1  [8]    when ptab_write_enable @ TTG_FT.bpu_out.pred_dir[i0]
 out out_alt_pred  1  [8]    when ptab_write_enable @ TTG_FT.bpu_out.alt_pred[i0]
 out out_pcpn      3  [8]    when ptab_write_enable @ TTG_FT.bpu_out.pcpn[i0]
-out out_altpcpn   3  [8]    when ptab_write_enable @ TTG_FT.bpu_out.altpcpn[i0]
 out out_tage_tags 8  [8][4] when ptab_write_enable @ TTG_FT.bpu_out.tage_tags[i0][i1]
 out out_tage_idxs 10 [8][4] when ptab_write_enable @ TTG_FT.bpu_out.tage_idxs[i0][i1]

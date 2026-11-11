@@ -28,7 +28,7 @@ note: 真实程序几乎不走该路径
  idle ──(is_mmio, region≠AXI)──► resp_valid (下一拍答复；env 读/写在接受拍发出)
       └─(is_mmio, region=AXI)──► busy: 发请求(直到 accepted) ─► 等响应 ─► resp_valid
 ```
-**环境接口**（切在 testbench 一侧，不是 C++ 端口）：`env_region`（0=AXI，1=uncached RAM，2=modeled MMIO；uncached 优先于 modeled，= `simulator_is_uncached_memory_addr` / `PeripheralModel::is_modeled_mmio` 的译码）、`env_rd_en/addr/func3` → `env_rdata`（同拍组合返回最终读数据：`read_uncached_ram` / `PeripheralModel::read_load`）、`env_wr_en/addr/data/func3`（`write_uncached_ram`，uncached 写在接受拍发出，**在时钟沿由 testbench 生效**，不是组合副作用）。modeled 写**不**触发环境动作（真正的设备写在提交路径 `on_commit_store`，不属于本模块）。
+**环境接口**（切在 testbench 一侧，不是 C++ 端口）：`env_modeled`（1 = 由环境模拟的设备，0 = 走 AXI；= `PeripheralModel::is_modeled_mmio` 的译码）、`env_rd_en/addr/func3` → `env_rdata`（同拍组合返回最终读数据：`PeripheralModel::read_load`）。modeled 写**不**触发环境动作（真正的设备写在提交路径 `on_commit_store`，不属于本模块）。2026-11-11 删除了非缓存内存窗口（0x4ff00000、0x87f00000、0xfff00000 各 1 MB，早先 SoC DMA / cache 一致性问题的遗留，按 MMIO 访问）及其读写通路：原来的 `env_region`（0 AXI / 1 uncached RAM / 2 modeled）改为 `env_modeled`，只服务 uncached RAM 的 `env_wr_*` 端口删除。
 
 ## 3. 一拍内的数据流
 1. 输出只来自寄存器：`resp_ready = !busy && !resp_valid`；`resp_is_mmio = resp_valid`，`resp_rdata = rdata`；busy 且未 accepted → AXI 请求（读/写 + addr + size + wstrb/wdata）；busy 且 accepted → `resp_ready`。

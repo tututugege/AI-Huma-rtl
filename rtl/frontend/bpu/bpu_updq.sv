@@ -21,7 +21,8 @@ module bpu_updq import bpu_pkg::*; import bpu_stage_pkg::*; (
   input  logic [NBB-1:0]      bank_busy,
   // table writes of this cycle, indexed by slot bank
   output logic [NBANK-1:0]    wr_valid,
-  output upd_ent_t            wr_ent     [NBANK]
+  output upd_ent_t            wr_ent     [NBANK],
+  output logic [3:0]          occ               // entries held at the start of the cycle (compact ROB credits)
 );
 
   localparam int CNT_W = $clog2(UQ_DEPTH + 1);
@@ -96,6 +97,9 @@ module bpu_updq import bpu_pkg::*; import bpu_stage_pkg::*; (
   always_ff @(posedge clk) begin
     if (!rst_n) n_q <= '0;
     else        n_q <= n_d;
+  end
+  always_comb begin
+    occ = 4'(n_q);
   end
 
   for (genvar i = 0; i < UQ_DEPTH; i++) begin : g_entry

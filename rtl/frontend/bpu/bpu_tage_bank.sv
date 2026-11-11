@@ -16,7 +16,6 @@ module bpu_tage_bank import bpu_pkg::*; import bpu_stage_pkg::*; (
   output logic                sel_pred,
   output logic                sel_alt_pred,
   output logic [PCPN_W-1:0]   sel_pcpn,
-  output logic [PCPN_W-1:0]   sel_altpcpn,
   // update (one write set per cycle, from the update queue)
   input  logic                update_en,
   input  logic [T_BASE_W-1:0] upd_pc_idx,
@@ -67,7 +66,7 @@ module bpu_tage_bank import bpu_pkg::*; import bpu_stage_pkg::*; (
   end
   bpu_tage_pred u_pred (
     .raw(sel_raw), .tag(sel_tag), .use_alt_ctr(use_alt_q), .pred(sel_pred), .alt_pred(sel_alt_pred),
-    .pcpn(sel_pcpn), .altpcpn(sel_altpcpn)
+    .pcpn(sel_pcpn)
   );
 
   bpu_tage_upd u_upd (

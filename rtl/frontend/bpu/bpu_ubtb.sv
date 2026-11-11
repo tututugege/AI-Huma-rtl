@@ -25,7 +25,8 @@ module bpu_ubtb import bpu_pkg::*; import bpu_stage_pkg::*; (
   input  logic [31:0]         s1_bnd,
   input  logic                s1_ras_nonempty,
   input  logic [31:0]         s1_ras_top,
-  output pred_t               s1_guess
+  output pred_t               s1_guess,
+  output logic [3:0]          tq_occ
 );
 
   logic [NCOMMIT-1:0] ev_valid;
@@ -36,7 +37,7 @@ module bpu_ubtb import bpu_pkg::*; import bpu_stage_pkg::*; (
   bpu_ub_track u_track (
     .clk, .rst_n, .upd_valid, .base_pc, .br_type, .actual_dir, .pred_dir, .target, .ev_valid, .ev
   );
-  bpu_ub_tq u_tq (.clk, .rst_n, .ev_valid, .ev, .head_valid, .head);
+  bpu_ub_tq u_tq (.clk, .rst_n, .ev_valid, .ev, .head_valid, .head, .occ(tq_occ));
 
   // ---- S0 table ----
   ub_ent_t               ub_rd_ent [UB_WAYS];

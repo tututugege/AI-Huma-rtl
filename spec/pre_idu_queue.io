@@ -11,7 +11,6 @@ in  front2pre_pc 32 [16] @ bt.in.pc[i0]
 in  front2pre_page_fault_inst 1 [16] @ bt.in.page_fault_inst[i0]
 in  front2pre_predict_dir 1 [16] @ bt.in.predict_dir[i0]
 in  front2pre_alt_pred 1 [16] @ bt.in.alt_pred[i0]
-in  front2pre_altpcpn 3 [16] @ bt.in.altpcpn[i0]
 in  front2pre_pcpn 3 [16] @ bt.in.pcpn[i0]
 in  front2pre_predict_next_fetch_address 32 @ bt.in.predict_next_fetch_address[0]
 in  front2pre_tage_idx 10 [16][4] @ bt.in.tage_idx[i0][i1]
@@ -65,7 +64,6 @@ out ftq_commit_info_resp_valid 1 [8] @ bt.rob_commit.commit_entry[i0].valid
 out ftq_commit_info_resp_pc 32 [8] when ftq_commit_info_resp_valid @ bt.ftq_commit_info.resp[i0].pc
 out ftq_commit_info_resp_pred_taken 1 [8] when ftq_commit_info_resp_valid @ bt.ftq_commit_info.resp[i0].pred_taken
 out ftq_commit_info_resp_alt_pred 1 [8] when ftq_commit_info_resp_valid @ bt.ftq_commit_info.resp[i0].alt_pred
-out ftq_commit_info_resp_altpcpn 3 [8] when ftq_commit_info_resp_valid @ bt.ftq_commit_info.resp[i0].altpcpn
 out ftq_commit_info_resp_pcpn 3 [8] when ftq_commit_info_resp_valid @ bt.ftq_commit_info.resp[i0].pcpn
 out ftq_commit_info_resp_tage_idx 10 [8][4] when ftq_commit_info_resp_valid_t @ bt.ftq_commit_info.resp[i0].tage_idx[i1]
 out ftq_commit_info_resp_tage_tag 8 [8][4] when ftq_commit_info_resp_valid_t @ bt.ftq_commit_info.resp[i0].tage_tag[i1]

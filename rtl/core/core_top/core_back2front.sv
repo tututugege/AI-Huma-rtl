@@ -33,7 +33,6 @@ module core_back2front import ttg_cfg_pkg::*; import dis_pkg::*; import bpu_pkg:
   input  logic [31:0] ftq_pc             [COMMIT_WIDTH],
   input  logic        ftq_pred_taken     [COMMIT_WIDTH],
   input  logic [COMMIT_WIDTH-1:0] ftq_alt_pred,
-  input  logic [2:0]  ftq_altpcpn        [COMMIT_WIDTH],
   input  logic [2:0]  ftq_pcpn           [COMMIT_WIDTH],
   input  logic [9:0]  ftq_tage_idx       [COMMIT_WIDTH][TN],
   input  logic [7:0]  ftq_tage_tag       [COMMIT_WIDTH][TN],
@@ -176,11 +175,6 @@ module core_back2front import ttg_cfg_pkg::*; import dis_pkg::*; import bpu_pkg:
     end
   end
 
-  // ftq_altpcpn is stored in the C++ update bundle but never read by the BPU (spec/bpu.io: in_altpcpn not in the spec)
-  /* verilator lint_off UNUSEDSIGNAL */
-  logic unused_ok;
-  assign unused_ok = ftq_altpcpn[0][0];
-  /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule
 

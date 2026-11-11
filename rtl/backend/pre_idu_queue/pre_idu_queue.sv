@@ -17,7 +17,6 @@ module pre_idu_queue import ttg_cfg_pkg::*; import pre_idu_pkg::*; import front_
   input  logic [BACKEND_FETCH_WIDTH-1:0] front2pre_page_fault_inst,
   input  logic [BACKEND_FETCH_WIDTH-1:0] front2pre_predict_dir,
   input  logic [BACKEND_FETCH_WIDTH-1:0] front2pre_alt_pred,
-  input  logic [PCPN_W-1:0] front2pre_altpcpn [BACKEND_FETCH_WIDTH],
   input  logic [PCPN_W-1:0] front2pre_pcpn [BACKEND_FETCH_WIDTH],
   input  logic [31:0] front2pre_predict_next_fetch_address,
   input  logic [TAGE_IDX_W-1:0] front2pre_tage_idx [BACKEND_FETCH_WIDTH] [TAGE_N],
@@ -67,7 +66,6 @@ module pre_idu_queue import ttg_cfg_pkg::*; import pre_idu_pkg::*; import front_
   output logic [31:0] ftq_commit_info_resp_pc [COMMIT_WIDTH],
   output logic ftq_commit_info_resp_pred_taken [COMMIT_WIDTH],
   output logic [COMMIT_WIDTH-1:0] ftq_commit_info_resp_alt_pred,
-  output logic [PCPN_W-1:0] ftq_commit_info_resp_altpcpn [COMMIT_WIDTH],
   output logic [PCPN_W-1:0] ftq_commit_info_resp_pcpn [COMMIT_WIDTH],
   output logic [TAGE_IDX_W-1:0] ftq_commit_info_resp_tage_idx [COMMIT_WIDTH] [TAGE_N],
   output logic [TAGE_TAG_W-1:0] ftq_commit_info_resp_tage_tag [COMMIT_WIDTH] [TAGE_N]
@@ -116,7 +114,6 @@ module pre_idu_queue import ttg_cfg_pkg::*; import pre_idu_pkg::*; import front_
       front_pred_taken[i] = front2pre_predict_dir[i];
       front_slot_pc[i]   = front2pre_pc[i];
       wr_meta[i].alt_pred  = front2pre_alt_pred[i];
-      wr_meta[i].altpcpn   = front2pre_altpcpn[i];
       wr_meta[i].pcpn      = front2pre_pcpn[i];
       for (int k = 0; k < TAGE_N; k++) begin
         wr_meta[i].tage_idx[k] = front2pre_tage_idx[i][k];
@@ -228,7 +225,6 @@ module pre_idu_queue import ttg_cfg_pkg::*; import pre_idu_pkg::*; import front_
       ftq_commit_info_resp_pc[i]         = pc_rd_pc[PORT_COMMIT+i];
       ftq_commit_info_resp_pred_taken[i] = pc_rd_pred_taken[PORT_COMMIT+i];
       ftq_commit_info_resp_alt_pred[i]   = rd_meta[i].alt_pred;
-      ftq_commit_info_resp_altpcpn[i]    = rd_meta[i].altpcpn;
       ftq_commit_info_resp_pcpn[i]       = rd_meta[i].pcpn;
       for (int k = 0; k < TAGE_N; k++) begin
         ftq_commit_info_resp_valid_t[i][k]  = commit_valid[i];

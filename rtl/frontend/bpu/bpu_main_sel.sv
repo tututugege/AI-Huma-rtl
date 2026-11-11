@@ -12,7 +12,6 @@ module bpu_main_sel import bpu_pkg::*; import bpu_btb_pkg::*; import bpu_stage_p
   input  logic [NBANK-1:0]    tg_pred,
   input  logic [NBANK-1:0]    tg_alt,
   input  logic [PCPN_W-1:0]   tg_pcpn    [NBANK],
-  input  logic [PCPN_W-1:0]   tg_altpcpn [NBANK],
   input  tg_ix_t              ix       [NBANK],
   input  btb_ent_t            btb_set  [NBANK][B_WAYS],
   input  itt_ent_t [NITT-1:0] itt      [NBANK],
@@ -20,7 +19,6 @@ module bpu_main_sel import bpu_pkg::*; import bpu_btb_pkg::*; import bpu_stage_p
   output logic [NLANE-1:0]    lane_dir,
   output logic [NLANE-1:0]    lane_alt,
   output logic [PCPN_W-1:0]   lane_pcpn    [NLANE],
-  output logic [PCPN_W-1:0]   lane_altpcpn [NLANE],
   output logic [T_TAG_W-1:0]  lane_tag     [NLANE][TN],
   output logic [T_IDX_W-1:0]  lane_idx     [NLANE][TN]
 );
@@ -63,7 +61,6 @@ module bpu_main_sel import bpu_pkg::*; import bpu_btb_pkg::*; import bpu_stage_p
     assign lane_dir[i]    = lane_taken[i];
     assign lane_alt[i]    = lane_valid[i] && tg_alt[lane_bank[i]];
     assign lane_pcpn[i]   = lane_valid[i] ? tg_pcpn[lane_bank[i]] : '0;
-    assign lane_altpcpn[i] = lane_valid[i] ? tg_altpcpn[lane_bank[i]] : '0;
     for (genvar k = 0; k < TN; k++) begin : g_tn
       assign lane_tag[i][k] = lane_valid[i] ? ix[lane_bank[i]].tag[k] : '0;
       assign lane_idx[i][k] = lane_valid[i] ? ix[lane_bank[i]].idx[k] : '0;

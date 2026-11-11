@@ -669,15 +669,8 @@ constexpr uint32_t OPENSBI_TIMERCMP_LOW_ADDR = TIMER_CMP_LOW_ADDR;
 constexpr uint32_t OPENSBI_TIMERCMP_HIGH_ADDR = TIMER_CMP_HIGH_ADDR;
 constexpr uint32_t OCSDC_ADDR_BASE = 0x1fe10000;
 constexpr uint32_t OCSDC_MMIO_SIZE = 0x00000100;
-constexpr uint32_t SIM_UNCACHE_SDRAM_BASE = 0x4ff00000;
-constexpr uint32_t SIM_UNCACHE_SDRAM_SIZE = 0x00100000;
-constexpr uint32_t SIM_UNCACHE_HIGH_BASE = 0xfff00000;
-constexpr uint32_t SIM_UNCACHE_HIGH_SIZE = 0x00100000;
-
-
+// Cacheable memory: the whole SDRAM window and the whole DDR window (as trace-model); the uncached-RAM windows are gone.
 constexpr uint32_t SIM_CACHE_ADDR_1_MIN = 0x40000000;
-constexpr uint32_t SIM_CACHE_ADDR_1_MAX = 0x4ff00000;
-
-constexpr uint32_t SIM_CACHE_ADDR_2_MIN = 0x80000000;
-constexpr uint32_t SIM_CACHE_ADDR_2_MAX = 0xfff00000;  // the 0x87f00000 uncached window is gone (as trace-model)
+constexpr uint32_t SIM_CACHE_ADDR_1_MAX = 0x50000000;
+constexpr uint32_t SIM_CACHE_ADDR_2_MIN = 0x80000000;  // up to the end of the 32-bit space
 #include "types.h"

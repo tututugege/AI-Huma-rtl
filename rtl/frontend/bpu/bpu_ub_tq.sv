@@ -10,7 +10,8 @@ module bpu_ub_tq import bpu_pkg::*; import bpu_stage_pkg::*; (
   input  logic [NCOMMIT-1:0]  ev_valid,
   input  ub_ev_t              ev       [NCOMMIT],
   output logic                head_valid,
-  output ub_ev_t              head
+  output ub_ev_t              head,
+  output logic [3:0]          occ               // entries held at the start of the cycle (compact ROB credits)
 );
 
   localparam int CNT_W = $clog2(TQ_DEPTH + 1);
@@ -22,6 +23,7 @@ module bpu_ub_tq import bpu_pkg::*; import bpu_stage_pkg::*; (
 
   assign head_valid = (cnt_q != '0);
   assign head       = tq_q[0];
+  assign occ        = 4'(cnt_q);
 
   // Ref: ub_event: pop, then append behind the remaining entries
   always_comb begin

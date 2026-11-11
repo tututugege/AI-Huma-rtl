@@ -42,7 +42,7 @@
 4977 shuixianhua/shuixianhua.bin
 10315 smc-addi/smc-addi.bin
 10875 smc-div/smc-div.bin
-2254 software-interrupt-vectored/software-interrupt-vectored.bin
+2356 software-interrupt-vectored/software-interrupt-vectored.bin
 1040 stlf-overlap-boundary/stlf-overlap-boundary.bin
 1872 sub-longlong/sub-longlong.bin
 1164 sum/sum.bin

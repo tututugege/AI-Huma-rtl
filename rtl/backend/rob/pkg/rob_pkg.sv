@@ -27,6 +27,9 @@ package rob_pkg;
   localparam int FUNC7_W = 7;
 
   // ---- InstType encodings (types.h) ----
+  localparam logic [INST_TYPE_W-1:0] ITYPE_JAL = INST_TYPE_W'(1);
+  localparam logic [INST_TYPE_W-1:0] ITYPE_JALR = INST_TYPE_W'(2);
+  localparam logic [INST_TYPE_W-1:0] ITYPE_BR = INST_TYPE_W'(4);
   localparam logic [INST_TYPE_W-1:0] ITYPE_CSR = INST_TYPE_W'(7);
   localparam logic [INST_TYPE_W-1:0] ITYPE_FENCE = INST_TYPE_W'(8);
   localparam logic [INST_TYPE_W-1:0] ITYPE_ECALL = INST_TYPE_W'(9);

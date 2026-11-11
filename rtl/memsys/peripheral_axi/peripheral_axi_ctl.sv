@@ -2,7 +2,7 @@
 `default_nettype none
 
 // Peripheral access FSM.  One request at a time:
-//   idle     : accept a request; addresses of the environment (uncached RAM, modeled devices) are served locally and
+//   idle     : accept a request; addresses of devices modeled by the environment are served locally and
 //              answered the next cycle, everything else is issued on the AXI master (busy)
 //   busy     : request channel until accepted, then wait for the response, then answer
 //   resp_valid cycle : the answer is visible (resp_is_mmio / resp_rdata), no request is taken
@@ -18,7 +18,7 @@ module peripheral_axi_ctl import memcpu_pkg::*; (
   input  logic [31:0] req_wdata,
   input  logic [2:0]  req_func3,
   // environment
-  input  logic [1:0]  env_region,        // 0 AXI, 1 uncached RAM, 2 modeled MMIO
+  input  logic        env_modeled,       // the address is a device modeled by the environment (else AXI)
   input  logic [31:0] env_rdata,
   // AXI
   input  logic        axi_rd_req_accepted,
@@ -48,11 +48,7 @@ module peripheral_axi_ctl import memcpu_pkg::*; (
   output logic        axi_wr_resp_ready,
   output logic        env_rd_en,
   output logic [31:0] env_rd_addr,
-  output logic [2:0]  env_rd_func3,
-  output logic        env_wr_en,
-  output logic [31:0] env_wr_addr,
-  output logic [31:0] env_wr_data,
-  output logic [2:0]  env_wr_func3
+  output logic [2:0]  env_rd_func3
 );
 
   logic        busy_q, write_q, accepted_q, resp_valid_q;
@@ -83,15 +79,11 @@ module peripheral_axi_ctl import memcpu_pkg::*; (
 
   // ---- request acceptance (idle only) ----
   wire accept      = idle && req_is_mmio;
-  wire local_serve = accept && (env_region != 2'd0);
-  wire axi_issue   = accept && (env_region == 2'd0);
+  wire local_serve = accept && env_modeled;
+  wire axi_issue   = accept && !env_modeled;
   assign env_rd_en    = local_serve && !req_wen;
   assign env_rd_addr  = req_addr;
   assign env_rd_func3 = req_func3;
-  assign env_wr_en    = accept && req_wen && (env_region == 2'd1);
-  assign env_wr_addr  = req_addr;
-  assign env_wr_data  = req_wdata;
-  assign env_wr_func3 = req_func3;
 
   // ---- AXI progress ----
   wire req_taken = send_req && (write_q ? axi_wr_req_accepted : axi_rd_req_accepted);

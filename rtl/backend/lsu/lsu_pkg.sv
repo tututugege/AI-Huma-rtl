@@ -236,7 +236,7 @@ package lsu_pkg;
   function automatic logic is_mmio_addr(input logic [31:0] a);
     logic cacheable;
     cacheable = (a >= 32'(SIM_CACHE_ADDR_1_MIN) && a < 32'(SIM_CACHE_ADDR_1_MAX)) ||
-                (a >= 32'(SIM_CACHE_ADDR_2_MIN) && a < 32'(SIM_CACHE_ADDR_2_MAX));
+                (a >= 32'(SIM_CACHE_ADDR_2_MIN));   // DDR up to the end of the 32-bit space
     return !cacheable;
   endfunction
 

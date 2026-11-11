@@ -43,6 +43,7 @@ module dispatch
   // ROB enq_idx is a 4-bit line pointer carried in a 7-bit IO field; bits 6:4 are always 0 and ignored
   /* verilator lint_off UNUSEDSIGNAL */
   input  logic [6:0] rob2dis_enq_idx,
+  input  logic [7:0] rob2dis_free,
   /* verilator lint_on UNUSEDSIGNAL */
   input  logic rob2dis_rob_flag,
   input  logic [IQ_READY_NUM_WIDTH-1:0] iss2dis_ready_num [5],
@@ -231,7 +232,7 @@ module dispatch
     .clk(clk), .rst_n(rst_n), .cancel_v(cancel_v),
     .ren_valid(ren_valid), .ren_inst(ren_inst), .dis2ren_ready(core_ready),
     .rob_ready(rob2dis_ready), .rob_empty(rob2dis_empty), .rob_stall(rob2dis_stall),
-    .rob_enq_line(rob2dis_enq_idx[ROB_LINE_W-1:0]), .rob_enq_flag(rob2dis_rob_flag),
+    .rob_enq_idx(rob2dis_enq_idx), .rob_free(rob2dis_free), .rob_enq_flag(rob2dis_rob_flag),
     .dis_fire(dis_fire), .slot_valid(slot_valid_vec), .rob_inst(rob_inst), .rob_res(rob_res),
     .rob_expect_mask(rob_expect_mask), .ready_num(ready_num), .req_valid(req_valid), .req_uop(req_uop),
     .stq_tail(lsu2dis_stq_tail), .stq_tail_flag(lsu2dis_stq_tail_flag), .stq_free(lsu2dis_stq_free),

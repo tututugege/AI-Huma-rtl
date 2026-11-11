@@ -66,7 +66,6 @@ module front_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; 
   output logic [FETCH_WIDTH-1:0] out_predict_dir,
   output logic [31:0] out_pc              [FETCH_WIDTH],
   output logic [FETCH_WIDTH-1:0] out_alt_pred,
-  output logic [front_pkg::PCPN_W-1:0]     out_altpcpn [FETCH_WIDTH],
   output logic [front_pkg::PCPN_W-1:0]     out_pcpn    [FETCH_WIDTH],
   output logic [TAGE_IDX_W-1:0] out_tage_idx [FETCH_WIDTH][TN_MAX],
   output logic [TAGE_TAG_W-1:0] out_tage_tag [FETCH_WIDTH][TN_MAX],
@@ -86,7 +85,9 @@ module front_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; 
   output logic [VPN_W-1:0] ptw_walk_req_vpn,
   output logic [21:0] ptw_walk_req_root_ppn,
   output logic        ptw_walk_resp_consumed,
-  output logic        ptw_walk_flush
+  output logic        ptw_walk_flush,
+  output logic [3:0]  commit_upd_free,   // BPU queue free entries: compact ROB commit credits (EXP-028)
+  output logic [3:0]  commit_tq_free
 );
 
   // ---- control ----
@@ -186,8 +187,8 @@ module front_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; 
     .bpu_override_valid, .bpu_override_squash, .ptab_empty, .f2b_full, .f2b_empty,
     .checker_flush_enable, .checker_flush_address,
     .out_inst_valid, .out_instructions, .out_page_fault_inst, .out_predict_dir, .out_pc, .out_alt_pred,
-    .out_altpcpn, .out_pcpn, .out_tage_idx, .out_tage_tag, .out_predict_next_fetch_address,
-    .out_bpu_ck, .out_slot_kind
+    .out_pcpn, .out_tage_idx, .out_tage_tag, .out_predict_next_fetch_address,
+    .out_bpu_ck, .out_slot_kind, .commit_upd_free, .commit_tq_free
   );
 
   // the delayed predecode refetch is the part of the global refetch that does not come from the back end

@@ -140,31 +140,6 @@ int compare_boundary(const uint8_t *got_in, const uint8_t *got_out, const uint8_
   return bad;
 }
 
-// ---- peripheral environment (the reference's PeripheralModel + uncached RAM), see docs/modules/peripheral_axi.md ----
-uint8_t uncached_size(uint8_t func3) { switch (func3 & 3u) { case 0: return 1; case 1: return 2; default: return 4; } }
-uint32_t extract_uncached(uint32_t raw, uint8_t func3) {
-  switch (func3) {
-    case 0: { uint32_t v = raw & 0xFFu; return (v & 0x80u) ? (v | 0xFFFFFF00u) : v; }
-    case 1: { uint32_t v = raw & 0xFFFFu; return (v & 0x8000u) ? (v | 0xFFFF0000u) : v; }
-    case 4: return raw & 0xFFu;
-    case 5: return raw & 0xFFFFu;
-    default: return raw;
-  }
-}
-uint32_t read_uncached_ram(uint32_t addr, uint8_t func3) {
-  uint32_t raw = 0;
-  for (uint8_t i = 0; i < uncached_size(func3); i++) {
-    uint32_t a = addr + i;
-    raw |= ((pmem_read(a & ~0x3u) >> ((a & 3u) * 8u)) & 0xFFu) << (i * 8u);
-  }
-  return extract_uncached(raw, func3);
-}
-void write_uncached_ram(uint32_t addr, uint32_t data, uint8_t func3) {
-  for (uint8_t i = 0; i < uncached_size(func3); i++) {
-    uint32_t a = addr + i, w = a & ~0x3u, sh = (a & 3u) * 8u;
-    pmem_write(w, (pmem_read(w) & ~(0xFFu << sh)) | (((data >> (i * 8u)) & 0xFFu) << sh));
-  }
-}
 }  // namespace
 
 int main(int argc, char **argv) {
@@ -243,7 +218,7 @@ int main(int argc, char **argv) {
   auto ddr_idle = [&]() { return ddr.idle_quiescent(); };
 long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
 #define EVAL() do { auto e0 = std::chrono::steady_clock::now(); top->eval(); eval_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - e0).count(); ev_ns[ev_k++ & 3] += std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - e0).count(); ++eval_n; } while (0)
-  uint32_t env_region_prev = 0, env_rdata_prev = 0;
+  uint32_t env_modeled_prev = 0, env_rdata_prev = 0;
   bool skip_request = false;
   auto tick = [&](int phase) {
     // DDR slave outputs -> RTL
@@ -262,12 +237,11 @@ long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
       auto *Rt = top->rootp;
       const uint32_t pa = Rt->soc_top__DOT__peripheral_req_mmio_addr;
       const uint8_t pf3 = Rt->soc_top__DOT__peripheral_req_mmio_fun3;
-      top->env_region = simulator_is_uncached_memory_addr(pa) ? 1 : (PeripheralModel::is_modeled_mmio(pa) ? 2 : 0);
-      top->env_rdata = top->env_rd_en ? (top->env_region == 1 ? read_uncached_ram(top->env_rd_addr, top->env_rd_func3)
-                                                              : periph.read_load(top->env_rd_addr, top->env_rd_func3)) : 0;
+      top->env_modeled = PeripheralModel::is_modeled_mmio(pa) ? 1 : 0;
+      top->env_rdata = top->env_rd_en ? periph.read_load(top->env_rd_addr, top->env_rd_func3) : 0;
       (void)pf3;
-      if (top->env_region != env_region_prev || top->env_rdata != env_rdata_prev) EVAL();   // an eval with unchanged inputs is a no-op
-      env_region_prev = top->env_region; env_rdata_prev = top->env_rdata;
+      if (top->env_modeled != env_modeled_prev || top->env_rdata != env_rdata_prev) EVAL();   // an eval with unchanged inputs is a no-op
+      env_modeled_prev = top->env_modeled; env_rdata_prev = top->env_rdata;
     }
     // RTL master outputs -> DDR
     ddr.io.ar.arvalid = top->d_arvalid;
@@ -438,10 +412,6 @@ long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
         R->soc_top__DOT__u_mem__DOT__dc_ld_resp_valid[3], R->soc_top__DOT__u_mem__DOT__dc_ld_resp_retry[3],
         R->soc_top__DOT__dc_resp_valid, R->soc_top__DOT__dc_resp_miss);
     }
-    if (phase == 0 && top->rst_n) {
-      auto *Rt = top->rootp;
-      if (top->env_wr_en && top->env_region == 1) write_uncached_ram(top->env_wr_addr, top->env_wr_data, top->env_wr_func3);
-    }
 #endif
     if (fast_skip && (phase == 2 || phase == 3) && top->rst_n) {
       // pre-edge state (inputs applied, comb settled) of tick 2 vs tick 3: equal and DDR idle => the whole cycle is a fixed point
@@ -493,7 +463,7 @@ long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
   top->interrupt_inject_external_irq_pending = 0; top->interrupt_inject_external_irq_pending_valid = 1;
   top->interrupt_inject_supervisor_external_irq_pending = 0; top->interrupt_inject_supervisor_external_irq_pending_valid = 1;
   top->interrupt_inject_timer_irq_pending = 0; top->interrupt_inject_timer_irq_pending_valid = 1;
-  top->env_region = 0; top->env_rdata = 0;
+  top->env_modeled = 0; top->env_rdata = 0;
   top->interrupt_inject_external_irq_pending = irq.external_irq_pending; top->interrupt_inject_external_irq_pending_valid = irq.external_irq_pending_valid;
   top->interrupt_inject_supervisor_external_irq_pending = irq.supervisor_external_irq_pending; top->interrupt_inject_supervisor_external_irq_pending_valid = irq.supervisor_external_irq_pending_valid;
   top->interrupt_inject_timer_irq_pending = irq.timer_irq_pending; top->interrupt_inject_timer_irq_pending_valid = irq.timer_irq_pending_valid;

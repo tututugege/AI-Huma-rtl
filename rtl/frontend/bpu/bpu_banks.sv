@@ -19,7 +19,6 @@ module bpu_banks import bpu_pkg::*; import bpu_btb_pkg::*; import bpu_stage_pkg:
   output logic [NBANK-1:0]    s2_pred,
   output logic [NBANK-1:0]    s2_alt,
   output logic [PCPN_W-1:0]   s2_pcpn    [NBANK],
-  output logic [PCPN_W-1:0]   s2_altpcpn [NBANK],
   // update ports (slot bank)
   input  logic [NBANK-1:0]    wr_valid,
   input  upd_ent_t            wr_ent     [NBANK]
@@ -69,7 +68,7 @@ module bpu_banks import bpu_pkg::*; import bpu_btb_pkg::*; import bpu_stage_pkg:
     bpu_tage_bank u_tage (
       .clk, .rst_n, .rd_base(s1_tix[b].base), .rd_idx(s1_tix[b].idx), .rd_raw(tg_rd), .sel_raw(s2_raw[b].tg),
       .sel_tag_in(s2_tix[b].tag),
-      .sel_pred(s2_pred[b]), .sel_alt_pred(s2_alt[b]), .sel_pcpn(s2_pcpn[b]), .sel_altpcpn(s2_altpcpn[b]),
+      .sel_pred(s2_pred[b]), .sel_alt_pred(s2_alt[b]), .sel_pcpn(s2_pcpn[b]),
       .update_en(tg_en), .upd_pc_idx(wr_pc[b][T_BASE_W + BANK_W + 2 - 1:BANK_W + 2]), .real_dir(wr_ent[b].dir),
       .pred_in(tg_en && wr_ent[b].pred), .alt_pred_in(tg_en && wr_ent[b].alt), .pcpn_in(wr_ent[b].pcpn),
       .tag_in(upd_tag), .idx_in(upd_idx)

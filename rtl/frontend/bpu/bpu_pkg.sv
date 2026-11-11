@@ -76,7 +76,7 @@ package bpu_pkg;
     endcase
   endfunction
 
-  // update-queue entry (BPU.h QueueEntry without the dead sc/loop fields and altpcpn; base pc kept as bank pc)
+  // update-queue entry (BPU.h QueueEntry without the dead sc/loop fields, altpcpn; base pc kept as bank pc)
   typedef struct packed {
     logic [BPC_W-1:0]        bank_pc;
     logic                    actual_dir;

@@ -138,7 +138,6 @@ module core_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; i
   logic [2:0]  out_rf_type;
   logic [31:0] out_rf_pc;
   logic [BACKEND_FETCH_WIDTH-1:0] front2pre_alt_pred;
-  logic [2:0] front2pre_altpcpn [BACKEND_FETCH_WIDTH];
   logic [31:0] front2pre_inst [BACKEND_FETCH_WIDTH];
   logic [BACKEND_FETCH_WIDTH-1:0] front2pre_page_fault_inst;
   logic [31:0] front2pre_pc [BACKEND_FETCH_WIDTH];
@@ -148,13 +147,13 @@ module core_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; i
   logic [9:0] front2pre_tage_idx [BACKEND_FETCH_WIDTH][4];
   logic [7:0] front2pre_tage_tag [BACKEND_FETCH_WIDTH][4];
   logic [BACKEND_FETCH_WIDTH-1:0] front2pre_valid;
+  logic [3:0] commit_upd_free, commit_tq_free;   // BPU queue free entries -> ROB commit credits (EXP-028)
   logic [31:0] commit_extra_imm [COMMIT_WIDTH];
   logic [5:0] commit_extra_src1_areg [COMMIT_WIDTH];
   logic [31:0] csr_status_mstatus;
   logic [1:0] csr_status_privilege;
   logic [31:0] csr_status_satp;
   logic [COMMIT_WIDTH-1:0] ftq_commit_info_resp_alt_pred;
-  logic [2:0] ftq_commit_info_resp_altpcpn [COMMIT_WIDTH];
   logic [2:0] ftq_commit_info_resp_pcpn [COMMIT_WIDTH];
   logic ftq_commit_info_resp_pred_taken [COMMIT_WIDTH];
   logic [9:0] ftq_commit_info_resp_tage_idx [COMMIT_WIDTH][4];
@@ -183,7 +182,6 @@ module core_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; i
     .out_rf_type(out_rf_type),
     .out_rf_pc(out_rf_pc),
     .front2pre_alt_pred(front2pre_alt_pred),
-    .front2pre_altpcpn(front2pre_altpcpn),
     .front2pre_inst(front2pre_inst),
     .front2pre_page_fault_inst(front2pre_page_fault_inst),
     .front2pre_pc(front2pre_pc),
@@ -194,6 +192,8 @@ module core_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; i
     .front2pre_tage_tag(front2pre_tage_tag),
     .front2pre_valid(front2pre_valid),
     .front_stall(1'b0),
+    .bpu_upd_free(commit_upd_free),
+    .bpu_tq_free(commit_tq_free),
     .dcache2lsu_load_resps_data(dcache2lsu_load_resps_data),
     .dcache2lsu_load_resps_replay(dcache2lsu_load_resps_replay),
     .dcache2lsu_load_resps_req_id(dcache2lsu_load_resps_req_id),
@@ -227,7 +227,6 @@ module core_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; i
     .csr_status_privilege(csr_status_privilege),
     .csr_status_satp(csr_status_satp),
     .ftq_commit_info_resp_alt_pred(ftq_commit_info_resp_alt_pred),
-    .ftq_commit_info_resp_altpcpn(ftq_commit_info_resp_altpcpn),
     .ftq_commit_info_resp_pc(ftq_commit_info_resp_pc),
     .ftq_commit_info_resp_pcpn(ftq_commit_info_resp_pcpn),
     .ftq_commit_info_resp_pred_taken(ftq_commit_info_resp_pred_taken),
@@ -307,7 +306,6 @@ module core_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; i
     .ftq_commit_info_resp_pc,
     .ftq_commit_info_resp_pred_taken,
     .ftq_commit_info_resp_alt_pred,
-    .ftq_commit_info_resp_altpcpn,
     .ftq_commit_info_resp_pcpn,
     .ftq_commit_info_resp_tage_idx,
     .ftq_commit_info_resp_tage_tag,
@@ -350,11 +348,12 @@ module core_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; i
     .front2pre_pc,
     .front2pre_predict_dir,
     .front2pre_alt_pred,
-    .front2pre_altpcpn,
     .front2pre_pcpn,
     .front2pre_tage_idx,
     .front2pre_tage_tag,
-    .front2pre_predict_next_fetch_address
+    .front2pre_predict_next_fetch_address,
+    .commit_upd_free,
+    .commit_tq_free
   );
 
 endmodule

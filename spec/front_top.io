@@ -61,7 +61,6 @@ out out_page_fault_inst  1  [8] when out_valid @ cpu.front.out.page_fault_inst[i
 out out_predict_dir      1  [8] when out_valid @ cpu.front.out.predict_dir[i0]
 out out_pc               32 [8] when out_valid @ cpu.front.out.pc[i0]
 out out_alt_pred         1  [8] when out_valid @ cpu.front.out.alt_pred[i0]
-out out_altpcpn          3  [8] when out_valid @ cpu.front.out.altpcpn[i0]
 out out_pcpn             3  [8] when out_valid @ cpu.front.out.pcpn[i0]
 out out_tage_idx         10 [8][4] when out_valid @ cpu.front.out.tage_idx[i0][i1]
 out out_tage_tag         8  [8][4] when out_valid @ cpu.front.out.tage_tag[i0][i1]

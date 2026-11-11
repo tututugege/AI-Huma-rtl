@@ -11,7 +11,7 @@ module peripheral_axi import memcpu_pkg::*; (
   input  logic [31:0] req_addr,
   input  logic [31:0] req_wdata,
   input  logic [2:0]  req_func3,
-  input  logic [1:0]  env_region,
+  input  logic        env_modeled,
   input  logic [31:0] env_rdata,
   input  logic        axi_rd_req_accepted,
   input  logic        axi_rd_resp_valid,
@@ -33,11 +33,7 @@ module peripheral_axi import memcpu_pkg::*; (
   output logic        axi_wr_resp_ready,
   output logic        env_rd_en,
   output logic [31:0] env_rd_addr,
-  output logic [2:0]  env_rd_func3,
-  output logic        env_wr_en,
-  output logic [31:0] env_wr_addr,
-  output logic [31:0] env_wr_data,
-  output logic [2:0]  env_wr_func3
+  output logic [2:0]  env_rd_func3
 );
 
   logic [2:0]  fmt_func3;

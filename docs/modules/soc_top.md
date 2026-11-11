@@ -38,7 +38,7 @@ note: core_top + mem_top；测试平台 tb/soc（Verilator）+ 参考的 SimDDR/
 ## 5. 已知问题 / 待办
 - LLC 的 bypass 写与部分行写 miss 未实现（断言会触发）；本批程序和默认配置不出现。
 - `axi_subsys` 内互连↔LLC 经结构体有一个粒度上的 UNOPTFLAT，装配顶 lint 对其放宽。
-- 外设 AXI 路径（`env_region=0` 且 MMIO）仍只被随机验证；测试平台没有 SD 卡/DMA 模型。
+- 外设 AXI 路径（`env_modeled=0` 且 MMIO）仍只被随机验证；测试平台没有 SD 卡/DMA 模型。
 - 12 位以内的外设 `resp.ready` 在 tick 0 的"陈旧值"细节（适配器通道 1、2 的写回）没有在 `mem_axi` 复刻，外设 AXI 路径不被触发所以不可观察。
 
 ## Linux 启动（RTL 闭环）

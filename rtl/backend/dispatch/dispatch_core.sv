@@ -18,7 +18,9 @@ module dispatch_core
   input  logic                          rob_ready,
   input  logic                          rob_empty,
   input  logic                          rob_stall,
-  input  logic [ROB_LINE_W-1:0]         rob_enq_line,   // ROB line the group will occupy
+  input  logic [ROB_IDX_WIDTH-1:0]      rob_enq_idx,    // line ROB: the line the group will occupy (zero extended);
+                                                        // compact ROB: the tail entry
+  input  logic [ROB_IDX_WIDTH:0]        rob_free,       // compact ROB: free entries
   input  logic                          rob_enq_flag,
   output logic [NUM_SLOTS-1:0] dis_fire,
   output logic [NUM_SLOTS-1:0] slot_valid,  // PMU: the dispatch stage register holds an instruction in this slot
@@ -97,11 +99,22 @@ module dispatch_core
     .stq_idx(stq_idx), .stq_flag(stq_flag), .ldq_idx(ldq_idx),
     .st_port_sel(st_port_sel), .ld_port_sel(ld_port_sel));
 
-  // Ref: Dispatch::comb_alloc make_rob_idx(enq_idx, i): {ROB line, lane within line}
+  // Ref: Dispatch::comb_alloc make_rob_idx(enq_idx, i): {ROB line, lane within line}; compact ROB: tail + rank of
+  // the lane among the valid lanes (the lanes that fire are the first valid ones), the flag flips past the ring end
   always_comb begin
+    int unsigned rank;
+    logic [ROB_IDX_WIDTH:0] pos;
+    rank = 0;
     for (int i = 0; i < NUM_SLOTS; i++) begin
-      res[i].rob_idx  = {rob_enq_line, SLOT_IDX_W'(i)};
-      res[i].rob_flag = rob_enq_flag;
+      pos = {1'b0, rob_enq_idx} + (ROB_IDX_WIDTH+1)'(rank);
+      if (ROB_COMPACT != 0) begin
+        res[i].rob_idx  = pos[ROB_IDX_WIDTH-1:0];
+        res[i].rob_flag = rob_enq_flag ^ pos[ROB_IDX_WIDTH];
+      end else begin
+        res[i].rob_idx  = {rob_enq_idx[ROB_LINE_W-1:0], SLOT_IDX_W'(i)};
+        res[i].rob_flag = rob_enq_flag;
+      end
+      rank = rank + (inst_valid[i] ? 1 : 0);
       res[i].stq_idx  = stq_idx[i];
       res[i].stq_flag = stq_flag[i];
       res[i].ldq_idx  = ldq_idx[i];
@@ -172,7 +185,7 @@ module dispatch_core
   // ---- comb_fire ----
   dispatch_fire_ctl u_fire_ctl (
     .inst_valid(inst_valid), .lsu_ok(lsu_ok), .fit(fit), .is_csr_like(is_csr_like),
-    .is_amo(is_amo), .is_wfi(is_wfi), .rob_ready(rob_ready), .rob_empty(rob_empty),
+    .is_amo(is_amo), .is_wfi(is_wfi), .rob_ready(rob_ready), .rob_free(rob_free), .rob_empty(rob_empty),
     .rob_stall(rob_stall), .rob_flush(rob_flush), .dec_mispred(dec_mispred),
     .dis_fire(dis_fire), .dis2ren_ready(dis2ren_ready));
 
