@@ -15,7 +15,7 @@
 2161 div/div.bin
 638 dummy/dummy.bin
 1187 fact/fact.bin
-1405 fence-i-self-modify/fence-i-self-modify.bin
+1407 fence-i-self-modify/fence-i-self-modify.bin
 1054 fib/fib.bin
 3196 goldbach/goldbach.bin
 1272 if-else/if-else.bin
@@ -36,7 +36,7 @@
 630916 pf-stress/pf-stress.bin
 12160 prime/prime.bin
 4533 quick-sort/quick-sort.bin
-2876 recursion/recursion.bin
+2878 recursion/recursion.bin
 4853 select-sort/select-sort.bin
 1700 shift/shift.bin
 4977 shuixianhua/shuixianhua.bin
@@ -58,7 +58,7 @@
 1243 trap-precise-store/trap-precise-store.bin
 1228 unalign/unalign.bin
 40953 vm-asid-test/vm_asid_test.bin
-19060 vm-pagefault-test/vm_pagefault_test.bin
+19212 vm-pagefault-test/vm_pagefault_test.bin
 25226 vm-sfence-perm-test/vm_sfence_perm_test.bin
 4011 vm-sum-fetch-test/vm_sum_fetch_test.bin
 4558 wanshu/wanshu.bin
