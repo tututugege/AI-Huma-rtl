@@ -63,7 +63,7 @@ package ttg_cfg_pkg;
   localparam int ROB_BANK_NUM = 8;
   localparam int ROB_NUM = 128;
   localparam int ROB_LINE_NUM = 16;
-  localparam int ROB_COMPACT = 0;
+  localparam int ROB_COMPACT = 1;
   localparam int IDU_INST_BUFFER_SIZE = 64;
   localparam int FTQ_SIZE = 64;
   localparam int OP_MASK_ALU = 81794;
