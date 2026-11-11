@@ -17,8 +17,8 @@ module dcache_s1
   input  logic                 ld_req_replay [NLD],
   input  logic [NST-1:0]       st_req_valid,
   input  logic [31:0]          st_req_addr  [NST],
-  input  logic [31:0]          st_req_data  [NST],
-  input  logic [3:0]           st_req_strb  [NST],
+  input  logic [DW-1:0]          st_req_data  [NST],
+  input  logic [SBW-1:0]           st_req_strb  [NST],
   input  st2_t                 st_req_l2    [NST],
   input  logic [31:0]          st_req_id    [NST],
   input  logic [2:0]           icache_req,
@@ -40,8 +40,8 @@ module dcache_s1
   input  logic                 s2_fill_valid,             // out.fill_write.valid
   // stores merged into the incoming fill (applied to the snapshot)
   input  logic [NST-1:0]       mrg_en,
-  input  logic [31:0]          mrg_data     [NST],
-  input  logic [3:0]           mrg_strb     [NST],
+  input  logic [DW-1:0]          mrg_data     [NST],
+  input  logic [SBW-1:0]           mrg_strb     [NST],
   input  logic [WORD_W-1:0]    mrg_word     [NST],
   input  st2_t                 mrg_l2       [NST],
   // ---- stage-1 registers seen by stage 2 / the arrays / the WB+MSHR lookups ----
@@ -49,8 +49,8 @@ module dcache_s1
   output logic [NSLOT-1:0]     slot_replayed,             // bank not granted
   output logic [31:0]          slot_addr    [NSLOT],
   output logic [31:0]          slot_id      [NSLOT],
-  output logic [31:0]          slot_data    [NST],
-  output logic [3:0]           slot_strb    [NST],
+  output logic [DW-1:0]          slot_data    [NST],
+  output logic [SBW-1:0]           slot_strb    [NST],
   output st2_t                 slot_l2      [NST],
   output logic [2:0]           icache_req_s2,
   output logic [NLD-1:0]       slot_pf,                   // slot is a prefetch tag probe
@@ -73,8 +73,8 @@ module dcache_s1
   logic [NSLOT-1:0] slot_valid_q, slot_replayed_q;
   logic [31:0]      slot_addr_q [NSLOT];
   logic [31:0]      slot_id_q   [NSLOT];
-  logic [31:0]      slot_data_q [NST];
-  logic [3:0]       slot_strb_q [NST];
+  logic [DW-1:0]      slot_data_q [NST];
+  logic [SBW-1:0]       slot_strb_q [NST];
   st2_t             slot_l2_q   [NST];
   logic [2:0]       icache_req_r_q;
   logic             s2f_valid_q, s2f_dirty_q, s2f_pf_q;
@@ -86,8 +86,8 @@ module dcache_s1
   logic [NSLOT-1:0] rty_valid_q;
   logic [31:0]      rty_addr_q [NSLOT];
   logic [31:0]      rty_id_q   [NSLOT];
-  logic [31:0]      rty_data_q [NST];
-  logic [3:0]       rty_strb_q [NST];
+  logic [DW-1:0]      rty_data_q [NST];
+  logic [SBW-1:0]       rty_strb_q [NST];
   st2_t             rty_l2_q   [NST];
 
   assign retry_busy    = rty_valid_q;
@@ -114,8 +114,8 @@ module dcache_s1
   logic [NLD-1:0]   pf_sel, perf_rep_d;
   logic [31:0]      req_addr [NSLOT];
   logic [31:0]      req_id   [NSLOT];
-  logic [31:0]      req_data [NST];
-  logic [3:0]       req_strb [NST];
+  logic [DW-1:0]      req_data [NST];
+  logic [SBW-1:0]       req_strb [NST];
   st2_t             req_l2   [NST];
 
   always_comb begin
@@ -209,8 +209,8 @@ module dcache_s1
   assign rty_set = retry_issue & ~use_new;
 
   logic [NST-1:0][WORD_W-1:0] mw1, mw2;
-  logic [NST-1:0][31:0]       md1, md2;
-  logic [NST-1:0][3:0]        ms1, ms2;
+  logic [NST-1:0][DW-1:0]       md1, md2;
+  logic [NST-1:0][SBW-1:0]        ms1, ms2;
   always_comb begin
     for (int p = 0; p < NST; p++) begin
       mw1[p] = mrg_word[p];  md1[p] = mrg_data[p];  ms1[p] = mrg_strb[p];

@@ -96,7 +96,7 @@ package lp_pkg;
     logic            wt_set;       // wait field (store byte offset for RC_DATA) changes to wt
     logic [RWW-1:0]  wt;
     logic            res_set;
-    logic [31:0]     res;
+    logic [XLEN_BITS-1:0] res;
   } lp_wk_t;
 
   // L1/L2 pipeline register (one per load port)
@@ -120,7 +120,7 @@ package lp_pkg;
     logic            replay;
     logic            need_tlb;
     logic [LQW-1:0]  ldq;
-    logic [31:0]     vaddr;
+    logic [XLEN_BITS-1:0] vaddr;
     logic [2:0]      func3;
     logic [SQW-1:0]  snap_idx;
     logic            snap_flag;
@@ -143,7 +143,7 @@ package lp_pkg;
     logic [LQW-1:0]  ldq;
     logic [ROBW-1:0] rob_idx;
     logic            rob_flag;
-    logic [31:0]     vaddr;
+    logic [XLEN_BITS-1:0] vaddr;
     logic [PRFW-1:0] dest;
     logic [2:0]      func3;
     logic [SQW-1:0]  snap_idx;
@@ -156,7 +156,7 @@ package lp_pkg;
     logic [SQW-1:0]  stq;
     logic [ROBW-1:0] rob_idx;
     logic            rob_flag;
-    logic [31:0]     vaddr;
+    logic [XLEN_BITS-1:0] vaddr;
     logic [PRFW-1:0] dest;
     logic [2:0]      func3;
     logic            sc;
@@ -167,7 +167,7 @@ package lp_pkg;
     logic [SQW-1:0]  stq;
     logic [ROBW-1:0] rob_idx;
     logic            rob_flag;
-    logic [31:0]     data;
+    logic [XLEN_BITS-1:0] data;
   } lp_std_t;
 
   // dispatch allocation (one slot)
@@ -201,14 +201,16 @@ package lp_pkg;
     logic            data_v;
     logic            hold_sc;      // lrsc && !sc_pass
     logic            suppress;
-    logic [31:0]     data;
+    logic [XLEN_BITS-1:0] data;
   } lp_sta_info_t;
 
   // STQ entry registers (read ports: CAM, L2 confirm, write-back, drain)
   typedef struct packed {
     logic            va_v, pa_v, data_v, pf, mmio, lrsc, sc_pass, suppress;
     logic            trp, wbp, wbd, cmt, iss, mmw, done;
-    logic [31:0]     vaddr, paddr, data;
+    logic [XLEN_BITS-1:0] vaddr;
+    logic [31:0]     paddr;
+    logic [XLEN_BITS-1:0] data;
     logic [2:0]      func3;
     logic [PRFW-1:0] dest_preg;
     logic [ROBW-1:0] rob_idx;
@@ -224,14 +226,16 @@ package lp_pkg;
     logic            v, st, mg, two;     // valid, sent to the DCache, mergeable, holds two stores
     logic [25:0]     line;
     logic [SQW-1:0]  m0, m1;             // STQ indices of the stores (first = leader)
-    logic [31:0]     a0, a1, d0, d1;     // their physical address / data
+    logic [31:0]     a0, a1;             // their physical address
+    logic [XLEN_BITS-1:0] d0, d1;        // their data
     logic [1:0]      f0, f1;             // their size
   } wbe_t;
   typedef wbe_t [NWB-1:0]            wbs_t;   // all entries
   typedef logic [NWB-1:0][NWB-1:0]   ltm_t;   // age matrix
   typedef struct packed {
     logic            mmio, done, lrsc;
-    logic [31:0]     paddr, data;
+    logic [31:0]     paddr;
+    logic [XLEN_BITS-1:0] data;
     logic [1:0]      f3;
   } wbi_t;
   typedef struct packed {                // state of one insertion batch
@@ -248,11 +252,11 @@ package lp_pkg;
     logic [BRW-1:0]  br_mask;
     logic [PRFW-1:0] dest_preg;
     logic [2:0]      func3;
-    logic [31:0]     vaddr;
+    logic [XLEN_BITS-1:0] vaddr;
     logic            pa_v;
     logic [31:0]     paddr;
     logic            mmio, pf, lrsc;
-    logic [31:0]     result;
+    logic [XLEN_BITS-1:0] result;
     logic [SQW-1:0]  snap_idx;
     logic            snap_flag;
     logic [2:0]      rcause;
@@ -277,11 +281,12 @@ package lp_pkg;
     return (CNTW'(d) > count) ? count : CNTW'(d);
   endfunction
 
-  function automatic logic [12:0] ld_width13(input logic [2:0] func3);   // access size in bytes (1, 2, 4)
+  function automatic logic [12:0] ld_width13(input logic [2:0] func3);   // access size in bytes (1, 2, 4, 8)
     case (func3[1:0])
       2'b00:   return 13'd1;
       2'b01:   return 13'd2;
-      default: return 13'd4;
+      2'b10:   return 13'd4;
+      default: return (XLEN_BITS == 64) ? 13'd8 : 13'd4;
     endcase
   endfunction
 

@@ -20,6 +20,7 @@ module mem_route_req import ttg_cfg_pkg::*; import memcpu_pkg::*; (
   output logic [31:0]               dcache_load_req_id [NLD],  // {route flag, 0.., id}
   output logic                      dcache_load_replay [NLD],
   output logic                      dcache_icache_probe,
+  output logic                      route_hi_d,       // address bit 2 of the granted route request
   output logic                      grant_valid,               // walk grant (ICache learns from the response)
   output logic [RT_ID_W-1:0]        grant_req_id,
   output route_owner_e              owner_d,
@@ -39,6 +40,7 @@ module mem_route_req import ttg_cfg_pkg::*; import memcpu_pkg::*; (
 
   wire granted = owner_d != OWN_NONE;
   wire [31:0] route_addr = (owner_d == OWN_ICACHE) ? icache_req_addr : walk_req_addr;
+  assign route_hi_d = route_addr[2];
 
   // ---- DCache load ports: pass-through, port P3 replaced by the route request ----
   for (genvar p = 0; p < NLD; p++) begin : g_port

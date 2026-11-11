@@ -17,13 +17,13 @@ module lp_ldq
   // P2 MMIO response
   input  logic                mm_go,
   input  logic [LQW-1:0]      mm_idx,
-  input  logic [31:0]         mm_data,
+  input  logic [XLEN_BITS-1:0]         mm_data,
   // P3 L2 decisions of the L1/L2 registers, DCache load responses
   input  lp_pl12_t            pl12 [NLD],
   input  lp_l2dec_t           l2_dec [NLD],
   input  logic [NLD-1:0]      dcl_valid,
   input  logic [31:0]         dcl_req_id [NLD],
-  input  logic [31:0]         dcl_data [NLD],
+  input  logic [XLEN_BITS-1:0]         dcl_data [NLD],
   input  logic [1:0]          dcl_replay [NLD],
   input  logic [NLD-1:0]      rs_busy,
   // P5 write-back
@@ -31,7 +31,7 @@ module lp_ldq
   input  logic [LQ-1:0]       wb_go_d,
   input  logic [NLD-1:0]      wbd_v,
   input  logic [LQW-1:0]      wbd_idx [NLD],
-  input  logic [31:0]         wbd_data [NLD],
+  input  logic [XLEN_BITS-1:0]         wbd_data [NLD],
   // memory speculation
   input  logic [SQW:0]        head_tag,
   input  logic [CNTW-1:0]     count_q,
@@ -75,7 +75,7 @@ module lp_ldq
   output logic [LQ-1:0]       empty_w,
   output logic [LQ-1:0]       l2_ok,
   output logic [LQ-1:0]       rs_ok,
-  output logic [31:0]         res_v [LQ],
+  output logic [XLEN_BITS-1:0]         res_v [LQ],
   output logic [LQ-1:0]       wbp3,
   output logic [LQ-1:0]       pipe_r,
   output logic [LQ-1:0]       wb3_r,
@@ -124,7 +124,7 @@ module lp_ldq
   lp_wk_t l2w [NLD];
   for (genvar p = 0; p < NLD; p++) begin : g_l2w
     if ((LP_L2 & 256) != 0) begin : g_on
-      lp_wk u_wk (.cause(3'(l2_dec[p].cause)), .blk(pl12[p].cand), .wt(l2_dec[p].wait_c[1:0]),
+      lp_wk u_wk (.cause(3'(l2_dec[p].cause)), .blk(pl12[p].cand), .wt(l2_dec[p].wait_c[lsu_pkg::OW-1:0]),
                   .l_voff(pl12[p].voff), .l_paddr(pl12[p].paddr), .l_func3(pl12[p].func3), .ev_sta(ev_sta),
                   .ev_data(ev_data), .ev_ret(ev_ret), .ev_sc(ev_sc), .alive_post(alive_post),
                   .sta_info(sta_info), .sdw(sdw), .o(l2w[p]));
@@ -138,11 +138,11 @@ module lp_ldq
     logic [EPW-1:0]  l2_ep, rs_ep;
     lp_l2dec_t       l2_dec_e;
     logic [1:0]      rs_rep_e;
-    logic [31:0]     rs_raw_e;
+    logic [XLEN_BITS-1:0]     rs_raw_e;
     logic [NLD-1:0]  tl_tgt, l1_tgt;
     lp_wk_t          l2w_e;
     logic            sp_we, sp_val;
-    logic [31:0]     wb_d_data;
+    logic [XLEN_BITS-1:0]     wb_d_data;
 
     always_comb begin
       l2_v = 1'b0;

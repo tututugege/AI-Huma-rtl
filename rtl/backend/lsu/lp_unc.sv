@@ -27,18 +27,19 @@ module lp_unc
   input  logic [SQ-1:0]       alive_final,       // inside the window after the mispredict step
   input  logic                st_set,
   input  logic [31:0]         st_addr,
-  input  logic [31:0]         st_wdata,
+  input  logic [XLEN_BITS-1:0]         st_wdata,
   input  logic [2:0]          st_func3,
   input  logic [SQW-1:0]      st_idx,
   output logic                valid_pre_st,      // value seen by the MMIO store issue
   output logic                valid_o,
   output logic                is_load_o,
   output logic [31:0]         addr_o,
-  output logic [31:0]         wdata_o,
+  output logic [XLEN_BITS-1:0]         wdata_o,
   output logic [2:0]          func3_o
 );
 
-  logic [31:0] addr_q, wdata_q;
+  logic [31:0] addr_q;
+  logic [XLEN_BITS-1:0] wdata_q;
   logic [2:0]  func3_q;
 
   logic        v2, is_load2, v_flush, v_kill;

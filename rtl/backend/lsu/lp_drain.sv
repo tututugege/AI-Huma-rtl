@@ -27,13 +27,13 @@ module lp_drain
   output logic [SQ-1:0]       dr_mmio,
   output logic [NST-1:0]      req_valid,
   output logic [31:0]         req_addr [NST],
-  output logic [31:0]         req_data [NST],
-  output logic [4:0]          req_strb [NST],
-  output logic [39:0]         req_l2 [NST],
+  output logic [XLEN_BITS-1:0]         req_data [NST],
+  output logic [DST_STRB_W-1:0] req_strb [NST],
+  output logic [DST_L2_W-1:0]  req_l2 [NST],
   output logic [SQW-1:0]      req_id [NST],
   output logic                st_set,
   output logic [31:0]         st_addr,
-  output logic [31:0]         st_wdata,
+  output logic [XLEN_BITS-1:0]         st_wdata,
   output logic [2:0]          st_func3,
   output logic [SQW-1:0]      st_idx
 );

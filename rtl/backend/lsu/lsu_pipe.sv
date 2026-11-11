@@ -30,12 +30,12 @@ module lsu_pipe
   input  logic [DECODE_WIDTH-1:0] dis2lsu_ldq_rob_flag,
   input  logic [LSU_MDP_BITS-1:0] dis2lsu_ldq_mdp [DECODE_WIDTH],   // wait-table index of the load PC (LSU_MEMSPEC)
   input  logic [LSU_SDU_COUNT-1:0] exe2lsu_sdu_req_valid,
-  input  logic [31:0] exe2lsu_sdu_req_uop_result [LSU_SDU_COUNT],
+  input  logic [XLEN_BITS-1:0] exe2lsu_sdu_req_uop_result [LSU_SDU_COUNT],
   input  logic [6:0] exe2lsu_sdu_req_uop_rob_idx [LSU_SDU_COUNT],
   input  logic [LSU_SDU_COUNT-1:0] exe2lsu_sdu_req_uop_rob_flag,
   input  logic [5:0] exe2lsu_sdu_req_uop_stq_idx [LSU_SDU_COUNT],
   input  logic [LSU_LDU_COUNT-1:0] exe2lsu_ldu_req_valid,
-  input  logic [31:0] exe2lsu_ldu_req_uop_result [LSU_LDU_COUNT],
+  input  logic [XLEN_BITS-1:0] exe2lsu_ldu_req_uop_result [LSU_LDU_COUNT],
   input  logic [6:0] exe2lsu_ldu_req_uop_dest_preg [LSU_LDU_COUNT],
   input  logic [2:0] exe2lsu_ldu_req_uop_func3 [LSU_LDU_COUNT],
   input  logic [LSU_LDU_COUNT-1:0] exe2lsu_ldu_req_uop_is_atomic,
@@ -46,7 +46,7 @@ module lsu_pipe
   input  logic exe2lsu_ldu_req_uop_stq_flag [LSU_LDU_COUNT],
   input  logic [5:0] exe2lsu_ldu_req_uop_ldq_idx [LSU_LDU_COUNT],
   input  logic [LSU_STA_COUNT-1:0] exe2lsu_sta_req_valid,
-  input  logic [31:0] exe2lsu_sta_req_uop_result [LSU_STA_COUNT],
+  input  logic [XLEN_BITS-1:0] exe2lsu_sta_req_uop_result [LSU_STA_COUNT],
   input  logic [6:0] exe2lsu_sta_req_uop_dest_preg [LSU_STA_COUNT],
   input  logic [2:0] exe2lsu_sta_req_uop_func3 [LSU_STA_COUNT],
   input  logic [LSU_STA_COUNT-1:0] exe2lsu_sta_req_uop_is_atomic,
@@ -56,10 +56,10 @@ module lsu_pipe
   input  logic [5:0] exe2lsu_sta_req_uop_stq_idx [LSU_STA_COUNT],
   input  logic peripheral_resp_is_mmio,
   input  logic peripheral_resp_ready,
-  input  logic [31:0] peripheral_resp_mmio_rdata,
+  input  logic [XLEN_BITS-1:0] peripheral_resp_mmio_rdata,
   input  logic dcache2lsu_load_resps_valid [LSU_LDU_COUNT],
   input  logic [31:0] dcache2lsu_load_resps_req_id [LSU_LDU_COUNT],
-  input  logic [31:0] dcache2lsu_load_resps_data [LSU_LDU_COUNT],
+  input  logic [XLEN_BITS-1:0] dcache2lsu_load_resps_data [LSU_LDU_COUNT],
   input  logic [1:0] dcache2lsu_load_resps_replay [LSU_LDU_COUNT],
   input  logic dcache2lsu_store_resps_valid [LSU_STA_COUNT],
   input  logic [31:0] dcache2lsu_store_resps_req_id [LSU_STA_COUNT],
@@ -92,8 +92,8 @@ module lsu_pipe
   output logic [LSU_LDU_COUNT-1:0] lsu2iss_cancel_valid,
   output logic [6:0] lsu2iss_cancel_preg [LSU_LDU_COUNT],
   output logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_valid,
-  output logic [31:0] lsu2exe_wb_req_uop_diag_val [LSU_LOAD_WB_WIDTH],
-  output logic [31:0] lsu2exe_wb_req_uop_result [LSU_LOAD_WB_WIDTH],
+  output logic [XLEN_BITS-1:0] lsu2exe_wb_req_uop_diag_val [LSU_LOAD_WB_WIDTH],
+  output logic [XLEN_BITS-1:0] lsu2exe_wb_req_uop_result [LSU_LOAD_WB_WIDTH],
   output logic [6:0] lsu2exe_wb_req_uop_dest_preg [LSU_LOAD_WB_WIDTH],
   output logic [BR_MASK_WIDTH-1:0] lsu2exe_wb_req_uop_br_mask [LSU_LOAD_WB_WIDTH],
   output logic [6:0] lsu2exe_wb_req_uop_rob_idx [LSU_LOAD_WB_WIDTH],
@@ -103,15 +103,15 @@ module lsu_pipe
   output logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_rob_defer,    // LSU_MEMSPEC: ROB completion deferred
   output logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_flush_pipe,   // LSU_MEMSPEC: write-back of a violator
   output logic [LSU_STA_COUNT-1:0] lsu2exe_sta_wb_req_valid,
-  output logic [31:0] lsu2exe_sta_wb_req_uop_diag_val [LSU_STA_COUNT],
-  output logic [31:0] lsu2exe_sta_wb_req_uop_result [LSU_STA_COUNT],
+  output logic [XLEN_BITS-1:0] lsu2exe_sta_wb_req_uop_diag_val [LSU_STA_COUNT],
+  output logic [XLEN_BITS-1:0] lsu2exe_sta_wb_req_uop_result [LSU_STA_COUNT],
   output logic [BR_MASK_WIDTH-1:0] lsu2exe_sta_wb_req_uop_br_mask [LSU_STA_COUNT],
   output logic [6:0] lsu2exe_sta_wb_req_uop_rob_idx [LSU_STA_COUNT],
   output logic [LSU_STA_COUNT-1:0] lsu2exe_sta_wb_req_uop_page_fault_store,
   output logic peripheral_req_is_mmio,
   output logic peripheral_req_wen,
   output logic [31:0] peripheral_req_mmio_addr,
-  output logic [31:0] peripheral_req_mmio_wdata,
+  output logic [XLEN_BITS-1:0] peripheral_req_mmio_wdata,
   output logic [2:0] peripheral_req_mmio_fun3,
   output logic lsu2dcache_load_ports_valid [LSU_LDU_COUNT],
   output logic lsu2dcache_load_ports_replay [LSU_LDU_COUNT],
@@ -119,16 +119,16 @@ module lsu_pipe
   output logic [30:0] lsu2dcache_load_ports_req_id [LSU_LDU_COUNT],
   output logic lsu2dcache_store_ports_valid [LSU_STA_COUNT],
   output logic [31:0] lsu2dcache_store_ports_addr [LSU_STA_COUNT],
-  output logic [31:0] lsu2dcache_store_ports_data [LSU_STA_COUNT],
-  output logic [4:0] lsu2dcache_store_ports_strb [LSU_STA_COUNT],
-  output logic [39:0] lsu2dcache_store_ports_l2 [LSU_STA_COUNT],
+  output logic [XLEN_BITS-1:0] lsu2dcache_store_ports_data [LSU_STA_COUNT],
+  output logic [DST_STRB_W-1:0] lsu2dcache_store_ports_strb [LSU_STA_COUNT],
+  output logic [DST_L2_W-1:0] lsu2dcache_store_ports_l2 [LSU_STA_COUNT],
   output logic [5:0] lsu2dcache_store_ports_req_id [LSU_STA_COUNT],
   output logic [LSU_LDU_COUNT-1:0] lsu2mmu_ldq_req_valid,
-  output logic [31:0] lsu2mmu_ldq_req_vaddr [LSU_LDU_COUNT],
+  output logic [XLEN_BITS-1:0] lsu2mmu_ldq_req_vaddr [LSU_LDU_COUNT],
   output logic [5:0] lsu2mmu_ldq_req_entry_idx [LSU_LDU_COUNT],
   output logic [5:0] lsu2mmu_ldq_req_wait_idx [LSU_LDU_COUNT],
   output logic [LSU_STA_COUNT-1:0] lsu2mmu_stq_req_valid,
-  output logic [31:0] lsu2mmu_stq_req_vaddr [LSU_STA_COUNT],
+  output logic [XLEN_BITS-1:0] lsu2mmu_stq_req_vaddr [LSU_STA_COUNT],
   output logic [5:0] lsu2mmu_stq_req_entry_idx [LSU_STA_COUNT],
   output logic [5:0] lsu2mmu_stq_req_wait_idx [LSU_STA_COUNT]
 );
@@ -198,7 +198,7 @@ module lsu_pipe
     mmu_s_valid_w = mmu2lsu_stq_resp_valid;
   end
 
-  logic [31:0] sta_vaddr_w [NST];
+  logic [XLEN_BITS-1:0] sta_vaddr_w [NST];
   logic [NLD-1:0] dcl_req_valid_w, dcl_req_replay_w;
   logic [NST-1:0] dcs_req_valid_w;
 

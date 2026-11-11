@@ -108,7 +108,8 @@ module lp_stq_ent
   /* verilator lint_on UNUSEDSIGNAL */
   lp_tl_t tl_s;
   logic tl_any, tl_m, data_v6, wbp6, va6, pa6, pa8, trp8, wbp8, pf8, sa_any;
-  logic [31:0] vaddr6, paddr6, paddr8, data6;
+  logic [XLEN_BITS-1:0] vaddr6, data6;
+  logic [31:0] paddr6, paddr8;
   logic [2:0] f3_6;
   logic lrsc6, mmio8;
   always_comb begin

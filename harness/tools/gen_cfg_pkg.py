@@ -77,6 +77,9 @@ def main():
     lines.append('  localparam int LSU_PIPE = %d;' % (0 if '-DLSU_PIPE=0' in defs else 1))
     lines.append('  // fixed design constants (harness/tools/gen_cfg_pkg.py FIXED), not exported from the model')
     lines += ['  localparam int %s = %d;' % (k, v) for k, v in FIXED.items()]
+    lines.append('  // core <-> dcache data word: XLEN bits; a store request carries a strobe of XLEN/8 + 1 bits (the extra one: the word after\n  // the aligned data word, conflict checks only) and a second data word {strb, word index, data}')
+    lines.append('  localparam int DST_STRB_W = XLEN_BITS / 8 + 1;')
+    lines.append('  localparam int DST_L2_W = XLEN_BITS / 8 + $clog2(DCACHE_LINE_SIZE * 8 / XLEN_BITS) + XLEN_BITS;')
     lines += ['endpackage', '`default_nettype wire', '']
     os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
     open(out, 'w').write('\n'.join(lines))

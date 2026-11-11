@@ -29,9 +29,9 @@ module lp_wbuf
   output logic [SQW-1:0]      dr_ml [SQ],
   output logic [NST-1:0]      req_valid,
   output logic [31:0]         req_addr [NST],
-  output logic [31:0]         req_data [NST],
-  output logic [4:0]          req_strb [NST],
-  output logic [39:0]         req_l2 [NST],
+  output logic [XLEN_BITS-1:0]         req_data [NST],
+  output logic [DST_STRB_W-1:0] req_strb [NST],
+  output logic [DST_L2_W-1:0]  req_l2 [NST],
   output logic [SQW-1:0]      req_id [NST]
 );
 
@@ -60,27 +60,27 @@ module lp_wbuf
   lp_pickn #(.N(NDR), .K(NDR), .IW(2)) u_f (.vec(free_p), .onehot(f_oh), .idx(f_ix), .v(f_v));
 
   // ---- decision: ready, not blocked by an older entry, the oldest ones take the free ports ----
-  logic [4:0]     s0 [NWB], s1 [NWB];            // byte strobes of the two stores
+  logic [lsu_pkg::SW:0] s0 [NWB], s1 [NWB];            // byte strobes of the two stores
   logic [NWB-1:0] cand, issue, rdy_e;
   logic [NWB-1:0] blk_e;
   always_comb begin
     for (int e = 0; e < NWB; e++) begin
-      s0[e] = lsu_pkg::store_strb(ent_q[e].a0[1:0], ent_q[e].f0);
-      s1[e] = lsu_pkg::store_strb(ent_q[e].a1[1:0], ent_q[e].f1);
+      s0[e] = lsu_pkg::store_strb(ent_q[e].a0[lsu_pkg::OW-1:0], ent_q[e].f0);
+      s1[e] = lsu_pkg::store_strb(ent_q[e].a1[lsu_pkg::OW-1:0], ent_q[e].f1);
       rdy_e[e] = d_rdy[ent_q[e].m0] && (!ent_q[e].two || d_rdy[ent_q[e].m1]);
     end
     for (int e = 0; e < NWB; e++) begin
       blk_e[e] = 1'b0;
       for (int o = 0; o < NWB; o++) begin
         if (lt_q[o][e] && v_w[o]) begin
-          if (ent_q[e].a0[31:2] == ent_q[o].a0[31:2] &&
-              (s0[e] & lsu_pkg::store_strb(ent_q[o].a0[1:0], ent_q[o].f0)) != 5'b0) blk_e[e] = 1'b1;
-          if (ent_q[o].two && ent_q[e].a0[31:2] == ent_q[o].a1[31:2] &&
-              (s0[e] & lsu_pkg::store_strb(ent_q[o].a1[1:0], ent_q[o].f1)) != 5'b0) blk_e[e] = 1'b1;
-          if (ent_q[e].two && ent_q[e].a1[31:2] == ent_q[o].a0[31:2] &&
-              (s1[e] & lsu_pkg::store_strb(ent_q[o].a0[1:0], ent_q[o].f0)) != 5'b0) blk_e[e] = 1'b1;
-          if (ent_q[e].two && ent_q[o].two && ent_q[e].a1[31:2] == ent_q[o].a1[31:2] &&
-              (s1[e] & lsu_pkg::store_strb(ent_q[o].a1[1:0], ent_q[o].f1)) != 5'b0) blk_e[e] = 1'b1;
+          if (ent_q[e].a0[31:lsu_pkg::OW] == ent_q[o].a0[31:lsu_pkg::OW] &&
+              (s0[e] & lsu_pkg::store_strb(ent_q[o].a0[lsu_pkg::OW-1:0], ent_q[o].f0)) != '0) blk_e[e] = 1'b1;
+          if (ent_q[o].two && ent_q[e].a0[31:lsu_pkg::OW] == ent_q[o].a1[31:lsu_pkg::OW] &&
+              (s0[e] & lsu_pkg::store_strb(ent_q[o].a1[lsu_pkg::OW-1:0], ent_q[o].f1)) != '0) blk_e[e] = 1'b1;
+          if (ent_q[e].two && ent_q[e].a1[31:lsu_pkg::OW] == ent_q[o].a0[31:lsu_pkg::OW] &&
+              (s1[e] & lsu_pkg::store_strb(ent_q[o].a0[lsu_pkg::OW-1:0], ent_q[o].f0)) != '0) blk_e[e] = 1'b1;
+          if (ent_q[e].two && ent_q[o].two && ent_q[e].a1[31:lsu_pkg::OW] == ent_q[o].a1[31:lsu_pkg::OW] &&
+              (s1[e] & lsu_pkg::store_strb(ent_q[o].a1[lsu_pkg::OW-1:0], ent_q[o].f1)) != '0) blk_e[e] = 1'b1;
         end
       end
       cand[e] = v_w[e] && !st_w[e] && rdy_e[e] && !blk_e[e];
@@ -129,13 +129,12 @@ module lp_wbuf
         if (t < NDR && issue[e] && e_port[e][t]) begin
           req_valid[t] = 1'b1;
           req_addr[t] = ent_q[e].a0;
-          req_data[t] = lsu_pkg::align_store_data(ent_q[e].d0, ent_q[e].a0[1:0], ent_q[e].f0);
+          req_data[t] = lsu_pkg::align_store_data(ent_q[e].d0, ent_q[e].a0[lsu_pkg::OW-1:0], ent_q[e].f0);
           req_strb[t] = s0[e];
           req_id[t] = ent_q[e].m0;
           if (ent_q[e].two) begin
-            req_l2[t][31:0]  = lsu_pkg::align_store_data(ent_q[e].d1, ent_q[e].a1[1:0], ent_q[e].f1);
-            req_l2[t][35:32] = ent_q[e].a1[5:2];
-            req_l2[t][39:36] = s1[e][3:0];
+            req_l2[t] = {s1[e][lsu_pkg::SW-1:0], ent_q[e].a1[5:lsu_pkg::OW],
+                         lsu_pkg::align_store_data(ent_q[e].d1, ent_q[e].a1[lsu_pkg::OW-1:0], ent_q[e].f1)};
           end
         end
       end

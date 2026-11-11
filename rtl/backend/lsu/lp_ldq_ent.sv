@@ -18,7 +18,7 @@ module lp_ldq_ent
   input  logic [BRW-1:0]      clear_mask,
   // P2 MMIO response
   input  logic                mm_go,
-  input  logic [31:0]         mm_data,
+  input  logic [XLEN_BITS-1:0]         mm_data,
   // P3a L2 decision of the port that targets this entry
   input  logic                l2_v,
   input  logic [EPW-1:0]      l2_ep,
@@ -29,15 +29,15 @@ module lp_ldq_ent
   input  logic [EPW-1:0]      rs_ep,
   input  logic                rs_hit,
   input  logic [1:0]          rs_rep,
-  input  logic [31:0]         rs_raw,
+  input  logic [XLEN_BITS-1:0]         rs_raw,
   input  logic                rs_busy,             // the response port already carries an L2 write-back
   output logic                rs_ok,
   // P5 write-back
   input  logic                wb_go,
   input  logic                wb_go_d,             // the write-back comes from the direct / L3 path (not a WBP pick)
-  input  logic [31:0]         wb_d_data,           // ... and its data (kept when the completion is deferred)
+  input  logic [XLEN_BITS-1:0]         wb_d_data,           // ... and its data (kept when the completion is deferred)
   output logic                st3_wbp,
-  output logic [31:0]         res_v,               // result as seen by the write-back (after P2 / P3)
+  output logic [XLEN_BITS-1:0]         res_v,               // result as seen by the write-back (after P2 / P3)
   // memory speculation: store-queue view (registers) for the SPD release and the violation check
   input  logic [SQW:0]        head_tag,
   input  logic [CNTW-1:0]     count_q,
@@ -164,7 +164,7 @@ module lp_ldq_ent
   logic [SQW-1:0] blk3;
   logic [RWW-1:0] wt3;
   logic [1:0]     rt3;
-  logic [31:0]    res3;
+  logic [XLEN_BITS-1:0]    res3;
   always_comb begin
     rc3 = f_q.rcause;
     blk3 = f_q.blk;
@@ -178,7 +178,7 @@ module lp_ldq_ent
       wt3 = l2_dec.wait_c;
     end
     if (rs_ok) rt3 = rs_rep;
-    if (rs_ok && rs_hit && rs_busy) res3 = lsu_pkg::extract_data(rs_raw, f_q.paddr[1:0], f_q.func3);
+    if (rs_ok && rs_hit && rs_busy) res3 = lsu_pkg::extract_data(rs_raw, f_q.paddr[lsu_pkg::OW-1:0], f_q.func3);
     if (park_b) begin
       rc3 = 3'(RC_DC);
       blk3 = '0;
@@ -191,7 +191,8 @@ module lp_ldq_ent
   lp_ld_st_t st4, st4v, st5, st6;
   logic      dfr, sec4v, vio_n;
   logic      tl_hit, tl_pf;
-  logic [31:0] tl_pa, vaddr6;
+  logic [31:0] tl_pa;
+  logic [XLEN_BITS-1:0] vaddr6;
   lp_tl_t    tl_s;
   assign st4 = wb_go ? LS_EMPTY : st3;
   // memory speculation (LSU_MEMSPEC): P5 SPD handling, P6 violation check
@@ -240,7 +241,7 @@ module lp_ldq_ent
   lp_ld_st_t     st9;
   logic [2:0]    rc9;
   logic [RWW-1:0] wt9;
-  logic [31:0]   res9;
+  logic [XLEN_BITS-1:0]   res9;
   logic          fill_hit, wake_dc;
   lp_wk_t        wk_e, ew;
   // LP_L2[8]: the event causes of a load parked in this cycle come from the port-level unit (no L2 decision in front of
@@ -248,7 +249,8 @@ module lp_ldq_ent
   logic          w_port;
   assign w_port = ((LP_L2 & 256) != 0) && park_a;
   lp_wk u_wk (.cause(((LP_L2 & 256) != 0) ? f_q.rcause : rc3), .blk(((LP_L2 & 256) != 0) ? f_q.blk : blk3),
-              .wt(((LP_L2 & 256) != 0) ? f_q.rwait[1:0] : wt3[1:0]), .l_voff(f_q.vaddr[11:0]), .l_paddr(f_q.paddr),
+              .wt(((LP_L2 & 256) != 0) ? f_q.rwait[lsu_pkg::OW-1:0] : wt3[lsu_pkg::OW-1:0]),
+              .l_voff(f_q.vaddr[11:0]), .l_paddr(f_q.paddr),
               .l_func3(f_q.func3), .ev_sta(ev_sta), .ev_data(ev_data), .ev_ret(ev_ret), .ev_sc(ev_sc),
               .alive_post(alive_post), .sta_info(sta_info), .sdw(sdw), .o(wk_e));
   // LP_CUT[11]: the wake-up acts on entries that were parked before the flush step; st3 + the flush kill decide this

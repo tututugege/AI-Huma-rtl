@@ -42,15 +42,17 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
   input  logic lsu2dcache_load_ports_replay [LSU_LDU_COUNT],
   input  logic lsu2dcache_load_ports_valid [LSU_LDU_COUNT],
   input  logic [31:0] lsu2dcache_store_ports_addr [LSU_STA_COUNT],
-  input  logic [31:0] lsu2dcache_store_ports_data [LSU_STA_COUNT],
+  input  logic [XLEN_BITS-1:0] lsu2dcache_store_ports_data [LSU_STA_COUNT],
   input  logic [5:0] lsu2dcache_store_ports_req_id [LSU_STA_COUNT],
-  input  logic [4:0] lsu2dcache_store_ports_strb [LSU_STA_COUNT],
-  input  logic [39:0] lsu2dcache_store_ports_l2 [LSU_STA_COUNT],
+  input  logic [DST_STRB_W-1:0] lsu2dcache_store_ports_strb [LSU_STA_COUNT],
+  input  logic [DST_L2_W-1:0] lsu2dcache_store_ports_l2 [LSU_STA_COUNT],
   input  logic lsu2dcache_store_ports_valid [LSU_STA_COUNT],
   input  logic peripheral_req_is_mmio,
   input  logic [31:0] peripheral_req_mmio_addr,
   input  logic [2:0] peripheral_req_mmio_fun3,
-  input  logic [31:0] peripheral_req_mmio_wdata,
+  /* verilator lint_off UNUSEDSIGNAL */
+  input logic [XLEN_BITS-1:0] peripheral_req_mmio_wdata,
+  /* verilator lint_on UNUSEDSIGNAL */
   input  logic peripheral_req_wen,
   // ---- memory -> core ----
   output logic mem_req_ready,
@@ -77,7 +79,7 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
   output logic [PPN_W-1:0] dtlb_walk_resp_leaf_ppn,
   output logic [PERM_W-1:0] dtlb_walk_resp_leaf_perm,
   output logic dtlb_walk_resp_leaf_level,
-  output logic [31:0] dcache2lsu_load_resps_data [LSU_LDU_COUNT],
+  output logic [XLEN_BITS-1:0] dcache2lsu_load_resps_data [LSU_LDU_COUNT],
   output logic [1:0] dcache2lsu_load_resps_replay [LSU_LDU_COUNT],
   output logic [31:0] dcache2lsu_load_resps_req_id [LSU_LDU_COUNT],
   output logic dcache2lsu_load_resps_valid [LSU_LDU_COUNT],
@@ -88,7 +90,7 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
   output logic [31:0] dcache2lsu_store_resps_req_id [LSU_STA_COUNT],
   output logic dcache2lsu_store_resps_valid [LSU_STA_COUNT],
   output logic peripheral_resp_is_mmio,
-  output logic [31:0] peripheral_resp_mmio_rdata,
+  output logic [XLEN_BITS-1:0] peripheral_resp_mmio_rdata,
   output logic peripheral_resp_ready,
   // ---- peripheral environment (testbench side: PeripheralModel / uncached RAM) ----
   input  logic [1:0] env_region,
@@ -125,10 +127,8 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
   output logic [31:0] d_wstrb,
   output logic d_wlast
 );
-
   localparam int NLD_ = LSU_LDU_COUNT;
   localparam int NST_ = LSU_STA_COUNT;
-
   // ---- tick phase: 0 = the CPU tick, TICKS-1 = the last one of the cycle ----
   // TICKS = AXI_SUBSYSTEM_FREQ_DIV (trace-model config.h): 1 = the memory domain runs at the CPU clock (phase0 and
   // phase_last are both always true), 16 = the original divided arrangement.
@@ -154,20 +154,22 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
   logic        rt_icache_resp_valid, rt_icache_resp_retry, rt_icache_resp_miss;
   logic [31:0] rt_icache_resp_data;
   logic        rt_ptw_event_valid, rt_ptw_wakeup_walk, rt_ptw_grant_valid;
-  logic [31:0] rt_ptw_event_data;
+  /* verilator lint_off UNUSEDSIGNAL */ logic [XLEN_BITS-1:0] rt_ptw_event_data; /* verilator lint_on UNUSEDSIGNAL */
   logic [PT_ID_W-1:0] rt_ptw_event_req_id, rt_ptw_grant_req_id;
   logic        rt_dc_ld_valid [NLD_];
   logic [31:0] rt_dc_ld_addr [NLD_], rt_dc_ld_id [NLD_];
   logic        rt_dc_ld_replay [NLD_];
   logic        rt_dc_st_valid [NST_];
-  logic [31:0] rt_dc_st_addr [NST_], rt_dc_st_data [NST_];
+  logic [31:0] rt_dc_st_addr [NST_];
+  logic [XLEN_BITS-1:0] rt_dc_st_data [NST_];
   logic [ST_STRB_W-1:0] rt_dc_st_strb [NST_];
-  logic [39:0] rt_dc_st_l2 [NST_];  logic [ST_ID_W-1:0] rt_dc_st_id [NST_];
+  logic [DST_L2_W-1:0] rt_dc_st_l2 [NST_];  logic [ST_ID_W-1:0] rt_dc_st_id [NST_];
   logic        rt_dc_icache_probe;
 
   // dcache -> route
   logic        dc_ld_resp_valid [NLD_], dc_ld_resp_retry [NLD_];
-  logic [31:0] dc_ld_resp_data [NLD_], dc_ld_resp_id [NLD_];
+  logic [XLEN_BITS-1:0] dc_ld_resp_data [NLD_];
+  logic [31:0] dc_ld_resp_id [NLD_];
   logic [1:0]  dc_ld_resp_replay [NLD_];
   logic        dc_st_resp_valid [NST_];
   logic [1:0]  dc_st_resp_replay [NST_];
@@ -258,7 +260,7 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
     .client_req_valid(pw_c_req_valid), .client_req_vpn(pw_c_req_vpn), .client_req_root_ppn(pw_c_req_root),
     .client_resp_consumed(pw_c_consumed), .client_flush(pw_c_flush),
     .grant_valid(rt_ptw_grant_valid), .grant_req_id(rt_ptw_grant_req_id),
-    .event_valid(rt_ptw_event_valid), .event_data(rt_ptw_event_data), .event_req_id(rt_ptw_event_req_id),
+    .event_valid(rt_ptw_event_valid), .event_data(rt_ptw_event_data[31:0]), .event_req_id(rt_ptw_event_req_id),
     .wakeup_walk(rt_ptw_wakeup_walk),
     .client_req_ready(pw_c_req_ready), .client_resp_valid(pw_c_resp_valid), .client_resp_fault(pw_c_resp_fault),
     .client_resp_vpn(pw_c_resp_vpn), .client_resp_leaf_ppn(pw_c_resp_ppn), .client_resp_leaf_perm(pw_c_resp_perm),
@@ -301,10 +303,10 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
   logic [2:0] dc_icache_req;
   assign dc_icache_req = (phase0 && rt_dc_icache_probe) ? 3'(NLD_ - 1) : 3'(NLD_);
 
-  logic [3:0] rt_dc_st_strb4 [NST_];  dcache_pkg::st2_t rt_dc_st_l2c [NST_];
+  logic [dcache_pkg::SBW-1:0] rt_dc_st_strb4 [NST_];  dcache_pkg::st2_t rt_dc_st_l2c [NST_];
   logic [31:0] rt_dc_st_id32 [NST_];
   for (genvar s = 0; s < NST_; s++) begin : g_stconv
-    assign rt_dc_st_strb4[s] = rt_dc_st_strb[s][3:0];
+    assign rt_dc_st_strb4[s] = rt_dc_st_strb[s][dcache_pkg::SBW-1:0];
     assign rt_dc_st_l2c[s]   = dcache_pkg::st2_t'(rt_dc_st_l2[s]);
     assign rt_dc_st_id32[s]  = 32'(rt_dc_st_id[s]);
   end
@@ -349,7 +351,7 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
   peripheral_axi u_periph (
     .clk, .rst_n, .cpu_en(phase0),
     .req_is_mmio(peripheral_req_is_mmio), .req_wen(peripheral_req_wen), .req_addr(peripheral_req_mmio_addr),
-    .req_wdata(peripheral_req_mmio_wdata), .req_func3(peripheral_req_mmio_fun3),
+    .req_wdata(peripheral_req_mmio_wdata[31:0]), .req_func3(peripheral_req_mmio_fun3),
     .env_region(env_region), .env_rdata(env_rdata),
     .axi_rd_req_accepted(ax_pa_rd_acc), .axi_rd_resp_valid(ax_pa_rd_rv), .axi_rd_resp_data(ax_pa_rd_data),
     .axi_wr_req_accepted(ax_pa_wr_acc), .axi_wr_resp_valid(ax_pa_wr_rv),
@@ -373,8 +375,7 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
   end
   assign peripheral_resp_ready   = hold_ready_q;
   assign peripheral_resp_is_mmio = hold_is_mmio_q;
-  assign peripheral_resp_mmio_rdata = hold_rdata_q;
-
+  assign peripheral_resp_mmio_rdata = XLEN_BITS'($signed(hold_rdata_q));   // 64-bit MMIO: next step
   // ======================= AXI side =======================
   mem_axi u_axi (
     .clk, .rst_n, .phase0, .phase_last,
@@ -393,7 +394,6 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
     .d_rready, .d_bready, .d_arvalid, .d_arid, .d_araddr, .d_arlen, .d_awvalid, .d_awid, .d_awaddr, .d_awlen,
     .d_wvalid, .d_wdata, .d_wstrb, .d_wlast
   );
-
   wire unused_fill = &{1'b0, dc_mshr_fill_addr[5:0]};
 endmodule
 `default_nettype wire

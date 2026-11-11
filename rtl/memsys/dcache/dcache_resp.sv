@@ -15,7 +15,7 @@ module dcache_resp
   input  logic                 phase0,                  // tick 0 of the CPU cycle
   // raw stage-2 responses of this tick
   input  logic [NLD-1:0]       ld_valid,
-  input  logic [31:0]          ld_data    [NLD],
+  input  logic [DW-1:0]          ld_data    [NLD],
   input  logic [31:0]          ld_id      [NLD],
   input  logic [NLD-1:0]       ld_retry,
   input  logic [1:0]           ld_replay  [NLD],
@@ -27,8 +27,8 @@ module dcache_resp
   input  logic [LINE_W-1:0]    fill_line,
   // the request each port is answering (stage-1 slot registers)
   input  logic [31:0]          slot_addr  [NSLOT],
-  input  logic [31:0]          slot_data  [NST],
-  input  logic [3:0]           slot_strb  [NST],
+  input  logic [DW-1:0]          slot_data  [NST],
+  input  logic [SBW-1:0]           slot_strb  [NST],
   input  st2_t                 slot_l2    [NST],
   // fill request of this tick from the MSHR
   input  logic                 fr_valid,
@@ -42,7 +42,7 @@ module dcache_resp
   output logic [NSLOT-1:0]     pend_valid,
   // published response (valid only on tick 0)
   output logic [NLD-1:0]       pub_ld_valid,
-  output logic [31:0]          pub_ld_data   [NLD],
+  output logic [DW-1:0]          pub_ld_data   [NLD],
   output logic [31:0]          pub_ld_id     [NLD],
   output logic [NLD-1:0]       pub_ld_retry,
   output logic [1:0]           pub_ld_replay [NLD],
@@ -55,13 +55,15 @@ module dcache_resp
 
   // ---------------------------------------------------------------- state
   logic [NLD-1:0] ldv_q, ldretry_q;
-  logic [31:0]    lddata_q [NLD], ldid_q [NLD];
+  logic [DW-1:0]  lddata_q [NLD];
+  logic [31:0]    ldid_q [NLD];
   logic [1:0]     ldrp_q [NLD];
   logic [29:0]    ldaddr_q [NLD];
   logic [NST-1:0] stv_q;
   logic [1:0]     strp_q [NST];
-  logic [31:0]    stid_q [NST], stdata_q [NST];
-  logic [3:0]     ststrb_q [NST];
+  logic [31:0]    stid_q [NST];
+  logic [DW-1:0]  stdata_q [NST];
+  logic [SBW-1:0]     ststrb_q [NST];
   st2_t           stl2_q [NST];
   logic [29:0]    staddr_q [NST];
   logic           fill_q;
@@ -69,13 +71,15 @@ module dcache_resp
 
   // ---------------------------------------------------------------- capture (a raw response overwrites the slot)
   logic [NLD-1:0] ldv_a, ldretry_a;
-  logic [31:0]    lddata_a [NLD], ldid_a [NLD];
+  logic [DW-1:0]  lddata_a [NLD];
+  logic [31:0]    ldid_a [NLD];
   logic [1:0]     ldrp_a [NLD];
   logic [29:0]    ldaddr_a [NLD];
   logic [NST-1:0] stv_a;
   logic [1:0]     strp_a [NST];
-  logic [31:0]    stid_a [NST], stdata_a [NST];
-  logic [3:0]     ststrb_a [NST];
+  logic [31:0]    stid_a [NST];
+  logic [DW-1:0]  stdata_a [NST];
+  logic [SBW-1:0]     ststrb_a [NST];
   st2_t           stl2_a [NST];
   logic [29:0]    staddr_a [NST];
   logic              fill_a;
@@ -115,14 +119,14 @@ module dcache_resp
 `endif
 
   // ---------------------------------------------------------------- forward from the fill request
-  logic [31:0]    lddata_f [NLD];
+  logic [DW-1:0]    lddata_f [NLD];
   logic [1:0]     ldrp_f [NLD];
   logic [1:0]     strp_f [NST];
   logic [LINE_BITS-1:0] frd_f;
   logic [NST-1:0]       fen;
   logic [NST-1:0][WORD_W-1:0] fw1, fw2;
-  logic [NST-1:0][31:0]       fd1, fd2;
-  logic [NST-1:0][3:0]        fs1, fs2;
+  logic [NST-1:0][DW-1:0]       fd1, fd2;
+  logic [NST-1:0][SBW-1:0]        fs1, fs2;
   logic                 frdirty_f;
   always_comb begin
     frd_f     = fr_data;

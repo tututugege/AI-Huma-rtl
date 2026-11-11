@@ -10,7 +10,7 @@ module mem_route import ttg_cfg_pkg::*; import memcpu_pkg::*; (
   // DCache response (published at tick 0)
   input  logic        dcache_resp_load_valid    [NLD],
   input  logic [31:0] dcache_resp_load_req_id   [NLD],
-  input  logic [31:0] dcache_resp_load_data     [NLD],
+  input  logic [XLEN_BITS-1:0] dcache_resp_load_data     [NLD],
   input  logic [1:0]  dcache_resp_load_replay   [NLD],
   input  logic        dcache_resp_load3_retry,
   input  logic        dcache_resp_store_valid   [NST],
@@ -25,9 +25,9 @@ module mem_route import ttg_cfg_pkg::*; import memcpu_pkg::*; (
   input  logic               lsu_req_load_replay [NLD],
   input  logic        lsu_req_store_valid       [NST],
   input  logic [31:0] lsu_req_store_addr        [NST],
-  input  logic [31:0] lsu_req_store_data        [NST],
+  input  logic [XLEN_BITS-1:0] lsu_req_store_data        [NST],
   input  logic [ST_STRB_W-1:0] lsu_req_store_strb [NST],
-  input  logic [39:0]          lsu_req_store_l2   [NST],
+  input  logic [DST_L2_W-1:0]          lsu_req_store_l2   [NST],
   input  logic [ST_ID_W-1:0]   lsu_req_store_req_id [NST],
   // ICache and PTW walk requests
   input  logic        icache_req_valid,
@@ -37,7 +37,7 @@ module mem_route import ttg_cfg_pkg::*; import memcpu_pkg::*; (
   // outputs: response side
   output logic        lsu_resp_load_valid       [NLD],
   output logic [31:0] lsu_resp_load_req_id      [NLD],
-  output logic [31:0] lsu_resp_load_data        [NLD],
+  output logic [XLEN_BITS-1:0] lsu_resp_load_data        [NLD],
   output logic [1:0]  lsu_resp_load_replay      [NLD],
   output logic        lsu_resp_store_valid      [NST],
   output logic [31:0] lsu_resp_store_req_id     [NST],
@@ -49,7 +49,7 @@ module mem_route import ttg_cfg_pkg::*; import memcpu_pkg::*; (
   output logic        icache_resp_miss,
   output logic [31:0] icache_resp_data,
   output logic        ptw_event_valid,
-  output logic [31:0] ptw_event_data,
+  output logic [XLEN_BITS-1:0] ptw_event_data,
   output logic [PT_ID_W-1:0] ptw_event_req_id,
   output logic        ptw_wakeup_walk,
   // outputs: request side
@@ -59,9 +59,9 @@ module mem_route import ttg_cfg_pkg::*; import memcpu_pkg::*; (
   output logic        dcache_req_load_replay    [NLD],
   output logic        dcache_req_store_valid    [NST],
   output logic [31:0] dcache_req_store_addr     [NST],
-  output logic [31:0] dcache_req_store_data     [NST],
+  output logic [XLEN_BITS-1:0] dcache_req_store_data     [NST],
   output logic [ST_STRB_W-1:0] dcache_req_store_strb [NST],
-  output logic [39:0]          dcache_req_store_l2   [NST],
+  output logic [DST_L2_W-1:0]          dcache_req_store_l2   [NST],
   output logic [ST_ID_W-1:0]   dcache_req_store_req_id [NST],
   output logic        dcache_req_icache_probe,
   output logic        ptw_grant_valid,
@@ -70,6 +70,8 @@ module mem_route import ttg_cfg_pkg::*; import memcpu_pkg::*; (
 
   route_owner_e              issued_owner_q;
   logic [RT_ID_W-1:0]        issued_id_q;
+  logic                      issued_hi_q;
+  logic                      route_hi_d;
   logic [RT_ID_W-1:0]        next_id_q;
   logic                      ptw_wait_q;
   logic                      lsu_replay_valid_q;

@@ -10,7 +10,7 @@ package memcpu_pkg;
   localparam int P3         = NLD - 1;               // shared load port
   localparam int LD_ID_W    = 31;                    // LSU load request id (bit 31 = route flag, route block's)
   localparam int ST_ID_W    = 6;                     // LSU store request id (STQ index)
-  localparam int ST_STRB_W  = 5;                     // store strobe bits the DCache consumes
+  localparam int ST_STRB_W  = DST_STRB_W;            // store strobe bits (XLEN/8 + 1), the DCache consumes the low XLEN/8
   localparam int FILL_LINE_W = 26;                   // mshr_fill_addr >> 6
 
   // ---- route request ids {1, 0.., counter}; only the low RT_ID_W bits are kept: one route request is in flight
