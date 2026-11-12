@@ -123,7 +123,7 @@ IQ INT/BR/STD 128/64/64 → 64/32/16（LD、STA 不变）、发射端口 LD/STA/
 
 ## 10. rv64 对 rv32 的面积 / 深度代理（2026-11-12，EXP-029）
 
-**方法**：`scripts/synth_depth.sh`（本报告第 2 节设置加 `SYNTH_DEPTH=1`、`SYNTH_LTP=1` 的深度代理），同一棵树分别用 `XLEN_BITS=32`（`MUL_MAX_LATENCY=2`、`DIV_MAX_LATENCY=16`）和 `XLEN_BITS=64`（`MUL_MAX_LATENCY=3`、`DIV_MAX_LATENCY=32`）各综合一遍。24 个受 XLEN 影响的模块，按单元数增量排序。单元数是通用门，深度是展平后门级网表的最长拓扑路径（不含触发器），**无工艺库、无时序、无布局**，只是相对数字。
+**方法**：`scripts/synth_depth.sh`（本报告第 2 节设置加 `SYNTH_DEPTH=1`、`SYNTH_LTP=1` 的深度代理），同一棵树分别用 `XLEN_BITS=32`（`MUL_MAX_LATENCY=2`、`DIV_MAX_LATENCY=16`）和 `XLEN_BITS=64`（`MUL_MAX_LATENCY=3`、`DIV_MAX_LATENCY=32`）各综合一遍。24 个受 XLEN 影响的模块，按单元数增量排序。**有包含关系**：`front_top` 含 `bpu`、`icache`，`alu` 含 `alu_decode` / `alu_shift` / `alu_clmul` / `alu_bitcnt`，这些子模块的行是细分，求和时不能重复计。单元数是通用门，深度是展平后门级网表的最长拓扑路径（不含触发器），**无工艺库、无时序、无布局**，只是相对数字。
 
 | 模块 | rv32 单元 | rv64 单元 | 变化 | rv32 深度 | rv64 深度 | 变化 |
 |---|---|---|---|---|---|---|
@@ -154,7 +154,7 @@ IQ INT/BR/STD 128/64/64 → 64/32/16（LD、STA 不变）、发射端口 LD/STA/
 
 **读法和结论**
 
-- **面积**：这 24 个模块合计 265.9 万 → 330.1 万单元（+24%）；增量主要来自 **PRF（+25.7 万，数据位宽翻倍）**、**BPU（+13.1 万，PC / 目标地址变宽，`bta`、uBTB 目标、RAS）**、`lp_l2` / `lp_wbuf`（+2.5 万 / +2.2 万，LSU 的 8 字节数据和 store 掩码）、`tlb_mmu`（+2.0 万，Sv39 三级、16 位 ASID）、`mul_core`（+2.1 万，64×64 → 128 位乘积）。单个 FU 的相对涨幅很大（`mul_core` +276%、`alu_clmul` +306%、`div_core` +172%），但绝对量小。
+- **面积**：去掉被包含的子模块后，18 个互不重叠的模块合计 1610468 → 2111073 单元（+31%，其中 `front_top` 就占 104 万 → 118 万）；增量主要来自 **PRF（+25.7 万，数据位宽翻倍）**、**BPU（+13.1 万，PC / 目标地址变宽，`bta`、uBTB 目标、RAS）**、`lp_l2` / `lp_wbuf`（+2.5 万 / +2.2 万，LSU 的 8 字节数据和 store 掩码）、`tlb_mmu`（+2.0 万，Sv39 三级、16 位 ASID）、`mul_core`（+2.1 万，64×64 → 128 位乘积）。单个 FU 的相对涨幅很大（`mul_core` +276%、`alu_clmul` +306%、`div_core` +172%），但绝对量小。
 - **几乎不变**：`icache`（行和 AXI 侧仍是 32 位字）、`dcache_wb`、`dcache_resp`、`alu_decode`、`lp_ovl`、`mem_route`，与设计预期相符。
 - **深度**：加法 / 比较链随位宽线性变长，因为本流程的 ABC 脚本不做快速加法器（`agu` 62 → 97、`sdu` 66 → 130、`bru` 68 → 99、`front_top` 190 → 299、`bpu` 142 → 203），**这些增量是代理的偏差，高估了真实实现里的深度**（真实综合会用超前进位）。`mul_core` 120 → 213、`div_core` 96 → 215、`alu` 73 → 132 是实打实更深的结构（乘除用了更多级 / 更宽的步进），其中除法每周期的步数在 `DIV_MAX_LATENCY=32` 下保持 2 步，深度翻倍来自 64 位的比较 / 减法链。
 - **没有跑出来**：rv64 的 `dcache_bank` 超过 12 GB 内存看门狗被杀（rv32 是 162,674 单元）；`lsu_core`、`isu`、`rob`、`ren` 等大聚合模块没有做，它们的数据位宽依赖较小（rob 里只有 `diag_val` / `result` / PC 相关字段，ren / isu 基本不依赖 XLEN），预计不是主要来源，但没有实测。
