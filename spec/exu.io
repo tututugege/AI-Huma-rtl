@@ -78,7 +78,7 @@ out exe2csr_wdata 32 when exe2csr_we @ bt.exe2csr.wdata
 out exe2csr_wcmd 2 when exe2csr_we @ bt.exe2csr.wcmd
 
 # ---- exe2iss
-out exe2iss_fu_ready_mask 18 [22] @ bt.exe2iss.fu_ready_mask[i0]
+out exe2iss_fu_ready_mask 17 [22] @ bt.exe2iss.fu_ready_mask[i0]
 
 # ---- exe2prf (Prf reads uop only when valid: Prf.cpp:33,203; bypass reads dest_en/dest_preg/result only)
 out exe2prf_entry_valid 1 [22] @ bt.exe2prf.entry[i0].valid

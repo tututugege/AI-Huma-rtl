@@ -64,7 +64,7 @@ module exu
   output logic [11:0] exe2csr_idx,
   output logic [XLEN_BITS-1:0] exe2csr_wdata,
   output logic [1:0] exe2csr_wcmd,
-  output logic [17:0] exe2iss_fu_ready_mask [ISSUE_WIDTH],
+  output logic [16:0] exe2iss_fu_ready_mask [ISSUE_WIDTH],
   output logic [ISSUE_WIDTH-1:0] exe2prf_entry_valid,
   output logic [6:0] exe2prf_entry_uop_dest_preg [ISSUE_WIDTH],
   output logic [XLEN_BITS-1:0] exe2prf_entry_uop_result [ISSUE_WIDTH],
@@ -410,10 +410,9 @@ module exu
   // and only the single-cycle handshake, which exu_ctrl implements for the CSR slot itself: csr_fu is
   // therefore not instantiated.
 
-  // ---- multi-cycle FUs. exu_ctrl numbers them in Exu::units order {MUL(0), DIV(3), FPU(5), MUL(6), DIV(8)}.
-  localparam int MC_MUL [MUL_NUM] = '{0, 3};
-  localparam int MC_DIV [DIV_NUM] = '{1, 4};
-  localparam int MC_FPU = 2;
+  // ---- multi-cycle FUs. exu_ctrl numbers them in Exu::units order {MUL(0), DIV(3), MUL(5), DIV(7)}.
+  localparam int MC_MUL [MUL_NUM] = '{0, 2};
+  localparam int MC_DIV [DIV_NUM] = '{1, 3};
 
   // MUL: result/dest/rob/br_mask come back from the FU's own pipeline (it keeps the instruction in flight).
   logic mul_flush [MUL_NUM];
@@ -516,23 +515,6 @@ module exu
     .rob_idx(div_rob_idx), .dest_preg(div_dest_preg), .dest_en(div_dest_en), .br_mask(div_br_mask),
     .complete(div_complete), .ready(div_ready), .result(div_result), .done_rob_idx(div_done_rob_idx),
     .done_dest_preg(div_done_dest_preg), .done_dest_en(div_done_dest_en), .done_br_mask(div_done_br_mask)
-  );
-
-  // FPU: one instance (Zfinx, 32 bits: rv64 decodes no FP instruction, its operands and result are the low word).
-  // imm[0] is the rs2 selector (fcvt signed/unsigned), the only imm bit it reads.
-  logic [31:0] fpu_result;
-  assign fu_mc_result[MC_FPU] = XLEN_BITS'(fpu_result);
-  fpu u_fpu (
-    .clk(clk), .rst_n(rst_n), .in_en(exu2fu_mc_en[MC_FPU]), .in_consume(exu2fu_mc_consume[MC_FPU]),
-    .in_flush(exu2fu_flush), .in_flush_mask(exu2fu_flush_mask), .in_clear_mask(exu2fu_clear_mask),
-    .in_inst_func3(exu2fu_mc_func3[MC_FPU]), .in_inst_func7(exu2fu_mc_func7[MC_FPU]),
-    .in_inst_imm_rs2_bit0(exu2fu_mc_imm[MC_FPU][0]), .in_inst_src1_rdata(exu2fu_mc_src1_rdata[MC_FPU][31:0]),
-    .in_inst_src2_rdata(exu2fu_mc_src2_rdata[MC_FPU][31:0]), .in_inst_br_mask(exu2fu_mc_br_mask[MC_FPU]),
-    .in_inst_dest_preg(exu2fu_mc_dest_preg[MC_FPU]), .in_inst_dest_en(exu2fu_mc_dest_en[MC_FPU]),
-    .in_inst_rob_idx(exu2fu_mc_rob_idx[MC_FPU]), .out_ready(fu_mc_ready[MC_FPU]),
-    .out_complete(fu_mc_complete[MC_FPU]), .out_inst_result(fpu_result),
-    .out_inst_br_mask(fu_mc_br_mask[MC_FPU]), .out_inst_dest_preg(fu_mc_dest_preg[MC_FPU]),
-    .out_inst_dest_en(fu_mc_dest_en[MC_FPU]), .out_inst_rob_idx(fu_mc_rob_idx[MC_FPU])
   );
 
   /* verilator lint_on UNUSEDSIGNAL */

@@ -20,21 +20,21 @@ module idu_ctrl_decode import ttg_cfg_pkg::*; (
   output logic [5:0]  src2_areg,
   output logic        illegal_inst,
   output logic        is_branch,
-  output logic [6:0]  imm_sel            // one-hot (or none): U, J, I, B, S, CSR-rs1-field, FP-rs2-field
+  output logic [5:0]  imm_sel            // one-hot (or none): U, J, I, B, S, CSR-rs1-field
 );
 
   // ---- InstType encoding (Ref: back-end/include/types.h enum InstType) ----
   localparam logic [4:0] T_NOP = 5'd0, T_JAL = 5'd1, T_JALR = 5'd2, T_ADD = 5'd3, T_BR = 5'd4, T_LOAD = 5'd5,
                          T_STORE = 5'd6, T_CSR = 5'd7, T_FENCE = 5'd8, T_ECALL = 5'd9, T_EBREAK = 5'd10,
                          T_WFI = 5'd11, T_SFENCE_VMA = 5'd12, T_FENCE_I = 5'd13, T_MRET = 5'd14,
-                         T_SRET = 5'd15, T_MUL = 5'd16, T_DIV = 5'd17, T_AMO = 5'd18, T_FP = 5'd19;
+                         T_SRET = 5'd15, T_MUL = 5'd16, T_DIV = 5'd17, T_AMO = 5'd18;
 
   // ---- major opcodes (Ref: include/RISCV.h enum_number_opcode) ----
   localparam logic [6:0] OPC_LUI = 7'b0110111, OPC_AUIPC = 7'b0010111, OPC_JAL = 7'b1101111,
                          OPC_JALR = 7'b1100111, OPC_BRANCH = 7'b1100011, OPC_LOAD = 7'b0000011,
                          OPC_STORE = 7'b0100011, OPC_OPIMM = 7'b0010011, OPC_OP = 7'b0110011,
                          OPC_FENCE = 7'b0001111, OPC_SYSTEM = 7'b1110011, OPC_AMO = 7'b0101111,
-                         OPC_FP = 7'b1010011, OPC_OPIMM32 = 7'b0011011, OPC_OP32 = 7'b0111011;
+                         OPC_OPIMM32 = 7'b0011011, OPC_OP32 = 7'b0111011;
 
   // exact encodings (Ref: include/RISCV.h INST_*)
   localparam logic [31:0] INST_ECALL = 32'h00000073, INST_EBREAK = 32'h00100073, INST_MRET = 32'h30200073,
@@ -53,20 +53,20 @@ module idu_ctrl_decode import ttg_cfg_pkg::*; (
   localparam int CLS_LUI = 0, CLS_AUIPC = 1, CLS_JAL = 2, CLS_JALR = 3, CLS_BR = 4, CLS_LOAD = 5, CLS_STORE = 6,
                  CLS_OPIMM = 7, CLS_OP_ALU = 8, CLS_OP_MUL = 9, CLS_OP_DIV = 10, CLS_FENCE = 11, CLS_FENCE_I = 12,
                  CLS_CSR = 13, CLS_CSR_NOP = 14, CLS_ECALL = 15, CLS_EBREAK = 16, CLS_MRET = 17, CLS_WFI = 18,
-                 CLS_SRET = 19, CLS_SFENCE = 20, CLS_SYS_NOP = 21, CLS_AMO = 22, CLS_AMO_LR = 23, CLS_FP = 24,
-                 CLS_FP_UNARY = 25, CLS_OPIMM32 = 26, CLS_OP32_ALU = 27, CLS_OP32_MUL = 28, CLS_OP32_DIV = 29,
-                 CLS_ILLEGAL = 30, NCLS = 31;
+                 CLS_SRET = 19, CLS_SFENCE = 20, CLS_SYS_NOP = 21, CLS_AMO = 22, CLS_AMO_LR = 23,
+                 CLS_OPIMM32 = 24, CLS_OP32_ALU = 25, CLS_OP32_MUL = 26, CLS_OP32_DIV = 27,
+                 CLS_ILLEGAL = 28, NCLS = 29;
 
   // ---- ROM word: {type[4:0], dest_en, src1_en, src2_en, src1_is_pc, src2_is_imm, is_atomic, func3_zero,
-  //                  src1_areg_zero, illegal, is_branch, imm_sel[6:0]} ----
-  localparam int ROMW = 22;
-  localparam logic [6:0] IMM_NONE = 7'b0000000, IMM_U = 7'b0000001, IMM_J = 7'b0000010, IMM_I = 7'b0000100,
-                         IMM_B = 7'b0001000, IMM_S = 7'b0010000, IMM_CSR = 7'b0100000, IMM_RS2 = 7'b1000000;
+  //                  src1_areg_zero, illegal, is_branch, imm_sel[5:0]} ----
+  localparam int ROMW = 21;
+  localparam logic [5:0] IMM_NONE = 6'b000000, IMM_U = 6'b000001, IMM_J = 6'b000010, IMM_I = 6'b000100,
+                         IMM_B = 6'b001000, IMM_S = 6'b010000, IMM_CSR = 6'b100000;
 
   //                                   type  dst s1 s2 s1pc s2imm atom f3z s1z ill br   imm
   function automatic logic [ROMW-1:0] row(input logic [4:0] ty, input logic dst, input logic s1,
       input logic s2, input logic s1pc, input logic s2imm, input logic atom, input logic f3z,
-      input logic s1z, input logic ill, input logic br, input logic [6:0] imm);
+      input logic s1z, input logic ill, input logic br, input logic [5:0] imm);
     return {ty, dst, s1, s2, s1pc, s2imm, atom, f3z, s1z, ill, br, imm};
   endfunction
 
@@ -95,8 +95,6 @@ module idu_ctrl_decode import ttg_cfg_pkg::*; (
     CLS_SYS_NOP:  row(T_NOP,        0, 0, 0, 0, 1, 0, 0, 0, 0, 0, IMM_NONE),
     CLS_AMO:      row(T_AMO,        1, 1, 1, 0, 1, 1, 0, 0, 0, 0, IMM_NONE),
     CLS_AMO_LR:   row(T_AMO,        1, 1, 0, 0, 1, 1, 0, 0, 0, 0, IMM_NONE),
-    CLS_FP:       row(T_FP,         1, 1, 1, 0, 0, 0, 0, 0, 0, 0, IMM_RS2),
-    CLS_FP_UNARY: row(T_FP,         1, 1, 0, 0, 0, 0, 0, 0, 0, 0, IMM_RS2),
     CLS_OPIMM32:  row(T_ADD,        1, 1, 0, 0, 1, 0, 0, 0, 0, 0, IMM_I),
     CLS_OP32_ALU: row(T_ADD,        1, 1, 1, 0, 0, 0, 0, 0, 0, 0, IMM_NONE),
     CLS_OP32_MUL: row(T_MUL,        1, 1, 1, 0, 0, 0, 0, 0, 0, 0, IMM_NONE),
@@ -121,9 +119,8 @@ module idu_ctrl_decode import ttg_cfg_pkg::*; (
     amo_op  = inst[31:27];
   end
 
-  logic op_system, fp_unary_f7;
+  logic op_system;
   assign op_system   = (opcode == OPC_SYSTEM);
-  assign fp_unary_f7 = (funct7 == 7'h60) | (funct7 == 7'h68) | (funct7 == 7'h2C) | (funct7 == 7'h70);  // no rs2 operand
 
   // ---- SYSTEM opcode sub-decode ----
   logic [NUM_KNOWN_CSR-1:0] csr_hit;
@@ -176,8 +173,6 @@ module idu_ctrl_decode import ttg_cfg_pkg::*; (
   assign cls[CLS_AMO_LR]   = (opcode == OPC_AMO) & (amo_op == AMO_LR);
   // rv32: Zfinx FP in the OP-FP opcode; rv64: no F/D yet (OP-FP is illegal), 32-bit ops in OP-IMM-32 / OP-32
   localparam bit RV64 = (XLEN_BITS == 64);
-  assign cls[CLS_FP_UNARY] = !RV64 & (opcode == OPC_FP) & fp_unary_f7;
-  assign cls[CLS_FP]       = !RV64 & (opcode == OPC_FP) & ~fp_unary_f7;
   assign cls[CLS_OPIMM32]  = RV64 & (opcode == OPC_OPIMM32);
   assign cls[CLS_OP32_ALU] = RV64 & (opcode == OPC_OP32) & (funct7 != 7'd1);
   assign cls[CLS_OP32_MUL] = RV64 & (opcode == OPC_OP32) & (funct7 == 7'd1) & ~funct3[2];

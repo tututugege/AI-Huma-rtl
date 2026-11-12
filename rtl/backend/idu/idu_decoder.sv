@@ -41,7 +41,7 @@ module idu_decoder import ttg_cfg_pkg::*; (
   logic [2:0]  raw_func3;
   logic [5:0]  raw_dest_areg, raw_src1_areg, raw_src2_areg;
   logic        raw_illegal_inst, raw_is_branch;
-  logic [6:0]  raw_imm_sel;
+  logic [5:0]  raw_imm_sel;
   logic [31:0] raw_imm;
   logic        decoded_en;     // not a page fault: decoded fields reach the output (page fault -> NOP uop)
 

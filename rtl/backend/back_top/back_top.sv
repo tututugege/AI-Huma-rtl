@@ -342,7 +342,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; (
   logic [1:0] exe2csr_wcmd;
   logic [XLEN_BITS-1:0] exe2csr_wdata;
   logic exe2csr_we;
-  logic [17:0] exe2iss_fu_ready_mask [ISSUE_WIDTH];
+  logic [16:0] exe2iss_fu_ready_mask [ISSUE_WIDTH];
   logic [4:0] exe2lsu_ldu_req_uop_amo_op [LSU_LDU_COUNT];
   logic [6:0] exe2lsu_ldu_req_uop_dest_preg [LSU_LDU_COUNT];
   logic [2:0] exe2lsu_ldu_req_uop_func3 [LSU_LDU_COUNT];

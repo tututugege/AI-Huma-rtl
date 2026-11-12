@@ -37,7 +37,7 @@ RTL 与参考模型在任何一拍、任何一位上不同，都必须登记在�
 | S-14 | TlbMmu | walk 比较 | `walk.satp != satp` 整字比较含 ASID，同页但 ASID 变了被判 OTHER_WALK_ACTIVE | 保持 |
 | S-15 | TlbMmu | 查表 | 不 fence 改页表会出现重叠表项（4K 项在超级页内），按最低下标优先 | 保持 |
 | S-16 | TlbMmu | `core_comb` | 权限检查用请求口的类型/特权级，仅提前回填用 walk 里保存的，MPRV 变化时二者可不同 | 保持 |
-| S-17 | FPU | softfloat | 链接的 softfloat 把 rm=6 当 round-to-odd；RV32F 中 6 是保留编码 | RTL 把 6 当 RTZ，生成器不产生 rm=6 |
+| S-17（已作废：FPU 已删除） | FPU | softfloat | 链接的 softfloat 把 rm=6 当 round-to-odd；RV32F 中 6 是保留编码 | RTL 把 6 当 RTZ，生成器不产生 rm=6 |
 | S-18 | exu_int | `Fu.h` ALU | `rol`/`ror` 移位量 0 时 `x >> (32-s)` 为未定义行为；-O0 与 -O3 -march=native 实测一致 | RTL 按正确旋转实现 |
 | S-19 | exu_int | MulUnit | 接受新项后流水满且较老项被 flush 杀掉、槽里的指令没被杀，同一条 MUL 可被第二次接受 | 保持；exu_ctrl 集成时留意 |
 | S-20 | exu_int | DivUnit | 接受判忙在 consume 之前：完成并被 consume 的同一拍不接新活 | 保持；Exu 侧不要假设同拍可接 |

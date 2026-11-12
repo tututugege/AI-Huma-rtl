@@ -14,7 +14,7 @@ note: 后端整体，含 lsu
 > **更新（2026-11-12，rv64 / 现状）**：**`back_top.sv` 和 `exu.sv` 是生成文件**（`tools/gen_backtop.py` + `spec/*.io`），为 rv64 手改过位宽，spec 和生成器没有同步，**重新生成会丢 rv64 位宽**；`back_top_glue.sv` 是手写的。ROB 在 `ROB_COMPACT = 1` 下是紧凑 ROB（`rob.md`），多了 `bpu_upd_free` / `bpu_tq_free` 输入和 `rob2dis_free` 输出（接线见 `back_top.sv`）。
 
 ## 1. 范围与文件
-- `back_top`：PreIduQueue、Idu、Ren、Dispatch、Isu、Prf、Exu（`exu_ctrl` + FU + FPU）、Csr、Rob、TlbMmu（DTLB）、`lsu` + 胶水；（早期曾有不含 LSU 的 `back_top_nolsu` 用于分步集成，已删除；`gen_backtop.py --nolsu` 仍可再生成它用于二分。）边界 = 后端 ↔ 前端（SimCpu）+ 访存子系统（DCache、MMIO、PTW）。
+- `back_top`：PreIduQueue、Idu、Ren、Dispatch、Isu、Prf、Exu（`exu_ctrl` + FU；FPU 已随 Zfinx 删除）、Csr、Rob、TlbMmu（DTLB）、`lsu` + 胶水；（早期曾有不含 LSU 的 `back_top_nolsu` 用于分步集成，已删除；`gen_backtop.py --nolsu` 仍可再生成它用于二分。）边界 = 后端 ↔ 前端（SimCpu）+ 访存子系统（DCache、MMIO、PTW）。
 - 文件（`rtl/backend/back_top/`）：`back_top.sv`（生成）、`exu.sv`（生成：FU 适配文本 + 端口表）、`back_top_glue.sv`（手写）。
   规格：`spec/back_top.io`、`spec/exu.io`（均生成）。
 - 工具：`tools/gen_backtop.py`（`--report` 连线分析、`--write [--full]` 生成、`--asm NAME --inst a,b [--full]` 生成子装配用于二分）、
@@ -37,7 +37,7 @@ note: 后端整体，含 lsu
 | I-4 | `exu_ctrl.prf2exe_iss_entry_uop_csr_idx` 维度 [] vs [22] | exu_ctrl 只收 CSR 槽 | 连接表达式取口 0 |
 | I-5 | `lsu` 需要 `rob_commit_..._amo_op`，Rob 输出 `func7` | 字段形式不同 | 胶水 `amo_op = func7[6:2]` |
 | I-6 | 单周期 FU 的 `consume/complete/ready` | exu_ctrl 自己按基类契约推出 complete/ready，FU 只返计算结果 | `exu.sv`：consume 接 0，complete/ready 悬空到具名线；时钟采样断言 `complete == en`；`csr_fu` 不实例化（无数据通路，exu_ctrl 内化握手） |
-| I-7 | MC FU 编号 | exu_ctrl 的 mc 序是 {MUL0,DIV3,FPU5,MUL6,DIV8} | `exu.sv` 里 `MC_MUL={0,3}`、`MC_DIV={1,4}`、`MC_FPU=2`；`func3` 截到 2 位、`imm[0]` 给 FPU、`flush/flush_mask/clear_mask` 复制到每个实例 |
+| I-7 | MC FU 编号 | exu_ctrl 的 mc 序是 {MUL0,DIV3,MUL5,DIV7}（2026-11-12 FPU 删除后；此前是 {MUL0,DIV3,FPU5,MUL6,DIV8}） | `exu.sv` 里 `MC_MUL={0,2}`、`MC_DIV={1,3}`；`func3` 截到 2 位、`imm[0]` 给 FPU、`flush/flush_mask/clear_mask` 复制到每个实例 |
 其余整程序锁步结果和 RTL 修改见第 6 节。
 
 ## 4. 胶水清单（`back_top_glue.sv`）

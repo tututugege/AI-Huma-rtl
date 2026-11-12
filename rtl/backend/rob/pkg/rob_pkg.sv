@@ -20,7 +20,7 @@ package rob_pkg;
   localparam int ROB_BANK_IDX_W = $clog2(ROB_BANK_NUM);
   localparam int INST_TYPE_COUNT = 20;  // enum InstType (types.h): NOP .. FP
   localparam int INST_TYPE_W = $clog2(INST_TYPE_COUNT);
-  localparam int UOP_TYPE_COUNT = 18;  // enum UopType (base_types.h): UOP_JUMP .. UOP_FP
+  localparam int UOP_TYPE_COUNT = 17;  // enum UopType (base_types.h): UOP_JUMP .. UOP_WFI (F/D is not in the RTL yet)
   localparam int UOP_TYPE_W = $clog2(UOP_TYPE_COUNT);
   localparam int CPLT_W = 3;  // ROB_CPLT_MASK_WIDTH: one completion bit per uop group G0/G1/G2
   localparam int ROB_XLEN = XLEN_BITS;

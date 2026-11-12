@@ -18,7 +18,6 @@ tests/if-else/if-else.bin
 tests/illegal-instruction-trap/illegal-instruction-trap.bin
 tests/interrupt-vectored/interrupt-vectored.bin
 tests/leap-year/leap-year.bin
-tests/matmul_fpu/matmul_fpu.bin
 tests/matrix-mul/matrix-mul.bin
 tests/max/max.bin
 tests/memory-boundary/memory-boundary.bin
@@ -51,10 +50,6 @@ tests/trap-precise-store/trap-precise-store.bin
 tests/unalign/unalign.bin
 tests/wanshu/wanshu.bin
 tests/wfi-boundary/wfi-boundary.bin
-tests/zfinx-fcvt/zfinx-fcvt.bin
-tests/zfinx-fdiv/zfinx-fdiv.bin
-tests/zfinx-fsqrt/zfinx-fsqrt.bin
-tests/zfinx/zfinx.bin
 vm/vm-asid-test/vm_asid_test.bin
 vm/vm-pagefault-test/vm_pagefault_test.bin
 vm/vm-sfence-perm-test/vm_sfence_perm_test.bin

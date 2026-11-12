@@ -51,7 +51,7 @@ spec/        模块接口规格 <module>.io（tools/gen_backtop.py 由它生成 
 harness/     tools/（gen_cfg_pkg 配置包生成器、iogen、svlint）、include/trace_format.h（测试平台用）
 tb/soc/      整核测试平台（SimDDR、外设模型、function-model 逐条对比）
 tools/       生成器：gen_backtop、dimmap（字面尺寸 → 配置参数）、pack_bits、gen_soc_probe、gen_soc_top
-tests/       专项测试：fpu、common（原语）、dcache（定向程序）、pmu、rv64（`mmio64.c`，8 字节 MMIO）
+tests/       专项测试：common（原语）、dcache（定向程序）、pmu、rv64（`mmio64.c`，8 字节 MMIO）（`tests/fpu` 随 Zfinx 的 FPU 于 2026-11-12 删除）
 scripts/     索引见 scripts/README.md
 programs/    缩短版 dhrystone/coremark 及源码（programs/big）
 build/       构建产物（不入库）

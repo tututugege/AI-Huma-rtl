@@ -7,12 +7,11 @@ package exu_ctrl_pkg;
 
   // ---- micro-op classes (base_types.h UopType) -------------------------------------------------------------------
   localparam int XC_OP_W = 5;        // UOP_TYPE_WIDTH
-  localparam int XC_OP_NUM = 18;     // MAX_UOP_TYPE
+  localparam int XC_OP_NUM = 17;     // MAX_UOP_TYPE (no F/D in the RTL yet: model FP=0)
   localparam int XC_UOP_LOAD = 3;
   localparam int XC_UOP_STA = 4;
   localparam int XC_UOP_MUL = 14;
   localparam int XC_UOP_DIV = 15;
-  localparam int XC_UOP_FP = 17;
   typedef logic [XC_OP_NUM-1:0] xc_opset_t;   // one bit per UopType
   typedef logic [XC_OP_W-1:0]   xc_op_t;
 
@@ -25,8 +24,7 @@ package exu_ctrl_pkg;
   localparam int XC_K_BR  = 5;
   localparam int XC_K_ALU = 6;
   localparam int XC_K_CSR = 7;
-  localparam int XC_K_FP  = 8;
-  localparam int XC_KINDS = 9;
+  localparam int XC_KINDS = 8;
 
   function automatic xc_opset_t xc_kind_mask(int k);
     case (k)
@@ -37,8 +35,7 @@ package exu_ctrl_pkg;
       XC_K_STD: return xc_opset_t'(OP_MASK_STD);
       XC_K_BR:  return xc_opset_t'(OP_MASK_BR);
       XC_K_ALU: return xc_opset_t'(OP_MASK_ALU);
-      XC_K_CSR: return xc_opset_t'(OP_MASK_CSR);
-      default:  return xc_opset_t'(OP_MASK_FP);
+      default:  return xc_opset_t'(OP_MASK_CSR);
     endcase
   endfunction
 
@@ -46,7 +43,7 @@ package exu_ctrl_pkg;
   function automatic xc_opset_t xc_port_cap(int p);
     case (p)
       0: return xc_opset_t'(OP_MASK_ALU | OP_MASK_MUL | OP_MASK_CSR);
-      1: return xc_opset_t'(OP_MASK_ALU | OP_MASK_DIV | OP_MASK_FP);
+      1: return xc_opset_t'(OP_MASK_ALU | OP_MASK_DIV);
       2: return xc_opset_t'(OP_MASK_ALU | OP_MASK_MUL);
       3: return xc_opset_t'(OP_MASK_ALU | OP_MASK_DIV);
       4, 5: return xc_opset_t'(OP_MASK_ALU);
@@ -68,15 +65,14 @@ package exu_ctrl_pkg;
   // compare it with the structural derivation (xc_check_*) from the port capabilities.
   function automatic int xc_fu_kind(int f);
     case (f)
-      0, 6:        return XC_K_MUL;
-      3, 8:        return XC_K_DIV;
-      5:           return XC_K_FP;
+      0, 5:        return XC_K_MUL;
+      3, 7:        return XC_K_DIV;
       2:           return XC_K_CSR;
-      1, 4, 7, 9, 10, 11: return XC_K_ALU;
-      default: begin   // single-FU ports after the ALU cluster (port = f - 6): kind from the IQ port ranges
-        if (f - 6 >= IQ_BR_PORT_BASE) return XC_K_BR;
-        else if (f - 6 >= IQ_STD_PORT_BASE) return XC_K_STD;
-        else if (f - 6 >= IQ_STA_PORT_BASE) return XC_K_STA;
+      1, 4, 6, 8, 9, 10: return XC_K_ALU;
+      default: begin   // single-FU ports after the ALU cluster (port = f - 5): kind from the IQ port ranges
+        if (f - 5 >= IQ_BR_PORT_BASE) return XC_K_BR;
+        else if (f - 5 >= IQ_STD_PORT_BASE) return XC_K_STD;
+        else if (f - 5 >= IQ_STA_PORT_BASE) return XC_K_STA;
         else return XC_K_LD;
       end
     endcase
@@ -86,11 +82,11 @@ package exu_ctrl_pkg;
     case (p)
       0: return 0;
       1: return 3;
-      2: return 6;
-      3: return 8;
-      4: return 10;
-      5: return 11;
-      default: return 12 + (p - 6);
+      2: return 5;
+      3: return 7;
+      4: return 9;
+      5: return 10;
+      default: return 11 + (p - 6);
     endcase
   endfunction
 
@@ -103,7 +99,7 @@ package exu_ctrl_pkg;
   endfunction
 
   function automatic int xc_fu_port(int f);
-    return (f < 12) ? ((f < 3) ? 0 : ((f < 6) ? 1 : ((f < 8) ? 2 : ((f < 10) ? 3 : (f - 6))))) : (f - 6);
+    return (f < 9) ? ((f < 3) ? 0 : ((f < 5) ? 1 : ((f < 7) ? 2 : 3))) : (f - 5);
   endfunction
 
   // structural derivation of the same tables from the port capability masks (used only by the configuration check)
@@ -149,9 +145,9 @@ package exu_ctrl_pkg;
     return fu;
   endfunction
 
-  // multi-cycle FUs (MUL, DIV, FP: they hold instructions themselves): indexed in fu_idx order
+  // multi-cycle FUs (MUL, DIV: they hold instructions themselves): indexed in fu_idx order
   function automatic bit xc_is_mc_kind(int k);
-    return (k == XC_K_MUL) || (k == XC_K_DIV) || (k == XC_K_FP);
+    return (k == XC_K_MUL) || (k == XC_K_DIV);
   endfunction
 
   function automatic int xc_mc_count();
@@ -174,11 +170,11 @@ package exu_ctrl_pkg;
 
   // fixed micro-op of a multi-cycle FU kind (their op set has a single member)
   function automatic int xc_mc_op(int k);
-    return (k == XC_K_MUL) ? XC_UOP_MUL : ((k == XC_K_DIV) ? XC_UOP_DIV : XC_UOP_FP);
+    return (k == XC_K_MUL) ? XC_UOP_MUL : XC_UOP_DIV;
   endfunction
 
   localparam int N_FU  = TOTAL_FU_COUNT;
-  localparam int N_MC  = 5;                   // MUL x2, DIV x2, FP
+  localparam int N_MC  = 4;                   // MUL x2, DIV x2
   localparam int N_AGU = LSU_AGU_COUNT;       // load AGUs 0..3, store-address AGUs 4..7 (= LSU agu ports)
   localparam int N_SDU = LSU_SDU_COUNT;
 

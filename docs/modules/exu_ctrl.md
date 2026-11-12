@@ -20,7 +20,7 @@ note:
   （`comb_fu_ctrl → comb_exu2fu_dispatch → comb_fu_exec → comb_fu2exu_collect`）→ `rob->comb_complete` → `exu->comb_ready` → `isu->comb_issue`
   → … → `exu->comb_pipeline`；`BackTop::seq()` 里 `exu->seq()`。
 - 输入：`prf2exe.iss_entry[22]`、`dec_bcast{mispred,br_mask,clear_mask}`、`rob_bcast.flush`、`lsu2exe{wb_req[4],sta_wb_req[4]}`、`csr2exe.rdata`，
-  以及 FU 侧（`fu2exu`）：单周期 FU 的计算结果、多周期 FU（MUL/DIV/FPU）的 `ready/complete/inst`。
+  以及 FU 侧（`fu2exu`）：单周期 FU 的计算结果、多周期 FU（MUL/DIV；FPU 已删除）的 `ready/complete/inst`。
 - 输出：`exe2prf{entry[22],bypass[28]}`、`exe2iss.fu_ready_mask[22]`、`exe2csr`、`exe2lsu{agu_req[8],sdu_req[4]}`、`exu2id`、`exu2rob.entry[22]`，
   以及到 FU 的 `exu2fu`（`en/consume/flush/flush_mask/clear_mask/inst`）。
 - 边界方案：`docs/analysis/exu-boundary.md` 的两层划分（E6）。参考模型无需改：`BackTop::comb()` 之后 `bt.exu->in.fu2exu / out.exu2fu` 都是最终值。
@@ -31,9 +31,9 @@ note:
   FU 只收计算操作数（`exu2fu_alu_*/bru_*/agu_*/sdu_*`），只回计算结果（`fu_alu_result`、`fu_agu_result`、`fu_sdu_result`、`fu_bru_{diag_val,mispred,br_taken}`）；
   `dest_preg/rob_idx/br_mask/…` 等直通字段全部取自 exu_ctrl 自己的槽位。CSR FU 的 `impl_compute` 为空（result 恒为 0），无任何 FU 侧信号。
   BRU 的 `inst.result` 在 `BruUnit::impl_compute` 里从未被写（恒 0），所以也不回传。
-- **多周期 FU**（MUL×2、DIV×2、FPU×1，`FixedLatencyFU/IterativeFU`）：自己持有在飞指令（含 `br_mask` 的 clear/kill），
+- **多周期 FU**（MUL×2、DIV×2，`FixedLatencyFU/IterativeFU`；2026-11-12 删除了 FPU）：自己持有在飞指令（含 `br_mask` 的 clear/kill），
   收完整指令（`exu2fu_mc_*`）+ `en/consume`，回 `ready/complete/result/dest_preg/dest_en/br_mask/rob_idx`（`fu_mc_*`）。
-  `op` 取 FU 种类的常量（MUL/DIV/FP 各自只有一个 op）。`mc` 数组按 fu_idx 序：{MUL(0), DIV(3), FPU(5), MUL(6), DIV(8)}。
+  `op` 取 FU 种类的常量（MUL/DIV/FP 各自只有一个 op）。`mc` 数组按 fu_idx 序：{MUL(0), DIV(3), MUL(5), DIV(7)}（FPU 删除后；此前是 {MUL(0), DIV(3), FPU(5), MUL(6), DIV(8)}，FU 编号 5 以后整体前移一位）。
 - FU 下标映射（`Exu::units` 顺序，已由运行时打印验证，见分析文档 1.1）：alu={1,4,7,9,10,11}（端口 0..5），agu=12..19（LD 12..15，STA 16..19），
   sdu=20..23，bru=24..27，CSR=2。
 

@@ -22,7 +22,6 @@
 3677 interrupt-vectored/interrupt-vectored.bin
 1617 leap-year/leap-year.bin
 1943 load-store-aligned/load-store-aligned.bin
-43759 matmul_fpu/matmul_fpu.bin
 2547 matrix-mul/matrix-mul.bin
 1620 max/max.bin
 1409 memory-boundary/memory-boundary.bin
@@ -62,8 +61,4 @@
 3992 vm-sum-fetch-test/vm_sum_fetch_test.bin
 4558 wanshu/wanshu.bin
 947 wfi-boundary/wfi-boundary.bin
-1447 zfinx-fcvt/zfinx-fcvt.bin
-1315 zfinx-fdiv/zfinx-fdiv.bin
-1129 zfinx-fsqrt/zfinx-fsqrt.bin
-744 zfinx/zfinx.bin
 3608 directed/memspec_vio.bin

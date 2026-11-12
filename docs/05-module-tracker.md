@@ -15,7 +15,7 @@
 | [dispatch](modules/dispatch.md) | green | 13/1358 | 1/112 | trace 回放 + back_top 整程序 68/68 | 16/17（1 等价） |  |
 | [exu_ctrl](modules/exu_ctrl.md) | green | 13/1411 | 1/158 | trace 回放 + back_top 整程序 68/68 | 11/11（2 仅随机） |  |
 | [exu_int](modules/exu_int.md) | green | 24/1450 | 7/88 | trace 回放 + back_top 整程序 68/68 | 47/47（11 仅随机） | 整数 FU |
-| [fpu](modules/fpu.md) | green | 22/1179 | 1/21 | trace 回放 + back_top 整程序 68/68 + softfloat 差分 | 33/35（2 等价） | 手写，非网表 |
+| fpu | 已删除（2026-11-12） | — | — | rv32 Zfinx 的 FPU 随 Zfinx 一起删除（模型和 function-model 改用标准 F/D，EXP-030）；RTL 现在没有浮点，F/D 的 RTL 见总仓库 `docs/EXP-030-trace-model-plan.md` | — | — |
 | [idu](modules/idu.md) | green | 11/839 | 1/48 | 68/68 | 9/9 |  |
 | [isu](modules/isu.md) | green | 10/1011 | 1/64 | trace 回放 + back_top 整程序 68/68 | 16/17（1 等价） | trace 需重录 |
 | [lsu](modules/lsu.md) | partial | 63/7501 | 1/118 | lsu 68/68；随机 12/12；back_top 冒烟 8/8（整程序 68 未重跑） | 重构后新 127 个变异体已建好（tests/lsu/mut_lsu.py），仅跑了前 14 个（10 杀死、4 筛选集存活待判），其余未跑；原 10 个存活变异体仍未结案 | 已手写重构（表项模块 + 队列操作链，无生成文件）；变异检查被协调者叫停 |

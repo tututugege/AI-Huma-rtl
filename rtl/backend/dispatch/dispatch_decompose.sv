@@ -37,7 +37,6 @@ module dispatch_decompose
     case (itype)
       INST_MUL:        uop_iq[IQ_INT].op = UOP_MUL;
       INST_DIV:        uop_iq[IQ_INT].op = UOP_DIV;
-      INST_FP:         uop_iq[IQ_INT].op = UOP_FP;
       INST_CSR:        uop_iq[IQ_INT].op = UOP_CSR;
       INST_FENCE:      uop_iq[IQ_INT].op = UOP_FENCE;
       INST_ECALL:      uop_iq[IQ_INT].op = UOP_ECALL;

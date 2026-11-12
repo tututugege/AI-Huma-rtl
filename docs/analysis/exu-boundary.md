@@ -1,3 +1,5 @@
+> **2026-11-12：本文里的 FPU（Zfinx）部分已作废**：rv32 Zfinx 的 FPU（`rtl/backend/fpu`、`tests/fpu`）已删除，FU 编号 5 之后整体前移一位；标准 F/D 的 RTL 还没做（总仓库 `docs/EXP-030-trace-model-plan.md`）。以下为历史分析。
+
 # Exu / 功能单元（FU）RTL 模块边界与录制方案（分析报告）
 
 > 基线：参考模型 `baseline-sim/src`，文件 `back-end/Exu/Exu.cpp`、`Exu/include/{Exu,Fu,AbstractFU,FPU,ExuTypes}.h`、`include/config.h`。
