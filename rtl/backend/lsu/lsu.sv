@@ -104,6 +104,7 @@ module lsu
   output logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_page_fault_store,
   output logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_rob_defer,    // LSU_MEMSPEC: ROB completion deferred
   output logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_flush_pipe,   // LSU_MEMSPEC: write-back of a violator
+  output logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_is_w,         // word load: flw data is NaN-boxed
   output logic [LSU_STA_COUNT-1:0] lsu2exe_sta_wb_req_valid,
   output logic [XLEN_BITS-1:0] lsu2exe_sta_wb_req_uop_diag_val [LSU_STA_COUNT],
   output logic [XLEN_BITS-1:0] lsu2exe_sta_wb_req_uop_result [LSU_STA_COUNT],
@@ -145,6 +146,7 @@ module lsu
   end
   assign lsu2exe_wb_req_uop_rob_defer = '0;
   assign lsu2exe_wb_req_uop_flush_pipe = '0;
+  assign lsu2exe_wb_req_uop_is_w = '1;   // (legacy LSU: no F/D double loads on rv64)
   assign lsu2iss_wake_valid = '0;
   assign lsu2iss_cancel_valid = '0;
   for (genvar k = 0; k < 2 * LSU_LDU_COUNT; k++) begin : g_nowake

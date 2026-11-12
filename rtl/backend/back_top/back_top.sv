@@ -264,6 +264,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
   logic [LSU_MDP_BITS-1:0] ren2dis_uop_mdp [DECODE_WIDTH];
   logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_rob_defer;
   logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_flush_pipe;
+  logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_is_w;
   logic [ISSUE_WIDTH-1:0] exu2rob_entry_uop_rob_defer;
   logic [ISSUE_WIDTH-1:0] exu2rob_entry_uop_flush_pipe;
   logic [FFLAGS_W-1:0] exu2rob_entry_uop_fflags [ISSUE_WIDTH];
@@ -1018,6 +1019,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .lsu_byp_valid(lsu_byp_valid),
     .lsu_byp_dest_preg(lsu2exe_wb_req_uop_dest_preg),
     .lsu_byp_result(lsu2exe_wb_req_uop_result),
+    .lsu_byp_is_w(lsu2exe_wb_req_uop_is_w),
     // inputs from exu
     .exe2prf_bypass_uop_dest_en(exe2prf_bypass_uop_dest_en),
     .exe2prf_bypass_uop_dest_preg(exe2prf_bypass_uop_dest_preg),
@@ -1134,6 +1136,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .lsu2exe_wb_req_uop_page_fault_store(lsu2exe_wb_req_uop_page_fault_store),
     .lsu2exe_wb_req_uop_rob_defer(lsu2exe_wb_req_uop_rob_defer),
     .lsu2exe_wb_req_uop_flush_pipe(lsu2exe_wb_req_uop_flush_pipe),
+    .lsu2exe_wb_req_uop_is_w(lsu2exe_wb_req_uop_is_w),
     .lsu2exe_wb_req_uop_result(lsu2exe_wb_req_uop_result),
     .lsu2exe_wb_req_uop_rob_idx(lsu2exe_wb_req_uop_rob_idx),
     .lsu2exe_wb_req_valid(lsu2exe_wb_req_valid),
@@ -1559,6 +1562,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .lsu2exe_wb_req_uop_page_fault_store(lsu2exe_wb_req_uop_page_fault_store),
     .lsu2exe_wb_req_uop_rob_defer(lsu2exe_wb_req_uop_rob_defer),
     .lsu2exe_wb_req_uop_flush_pipe(lsu2exe_wb_req_uop_flush_pipe),
+    .lsu2exe_wb_req_uop_is_w(lsu2exe_wb_req_uop_is_w),
     .lsu2exe_sta_wb_req_valid(lsu2exe_sta_wb_req_valid),
     .lsu2exe_sta_wb_req_uop_diag_val(lsu2exe_sta_wb_req_uop_diag_val),
     .lsu2exe_sta_wb_req_uop_result(lsu2exe_sta_wb_req_uop_result),

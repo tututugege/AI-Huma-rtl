@@ -36,6 +36,7 @@ module lp_wb
   output logic [NLD-1:0]      wb_pf_store,
   output logic [NLD-1:0]      wb_defer,            // memory speculation: ROB completion deferred
   output logic [NLD-1:0]      wb_flushp,           // memory speculation: final write-back of a violator
+  output logic [NLD-1:0]      wb_isw,              // the load is a word load (lw / lwu / flw): flw data is NaN-boxed
   // STA write-back ports
   output logic [NST-1:0]      sta_valid,
   output logic [XLEN_BITS-1:0]         sta_vaddr [NST],
@@ -154,11 +155,13 @@ module lp_wb
       wb_pf_store[p] = 1'b0;
       wb_defer[p] = 1'b0;
       wb_flushp[p] = 1'b0;
+      wb_isw[p] = 1'b0;
       if (ld_v[p]) begin
         wb_defer[p] = MS && !ldq_q[ld_i[p]].second && ldq_q[ld_i[p]].spec && !ldq_q[ld_i[p]].pf &&
                       !ldq_q[ld_i[p]].mmio && !ldq_q[ld_i[p]].lrsc;
         wb_flushp[p] = MS && ldq_q[ld_i[p]].second && ldq_q[ld_i[p]].vio;
         wb_diag[p] = ldq_q[ld_i[p]].vaddr;
+        wb_isw[p] = (ldq_q[ld_i[p]].func3[1:0] == 2'd2);
         wb_result[p] = ldq_q[ld_i[p]].pf ? ldq_q[ld_i[p]].vaddr : ld_res[p];
         wb_dest[p] = ldq_q[ld_i[p]].dest_preg;
         wb_br[p] = ldq_q[ld_i[p]].br_mask;

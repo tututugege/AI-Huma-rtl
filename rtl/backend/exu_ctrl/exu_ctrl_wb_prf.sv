@@ -70,7 +70,9 @@ module exu_ctrl_wb_prf
       assign entry_valid[p]     = ld_wb[p-IQ_LD_PORT_BASE].valid;
       assign entry_dest_preg[p] = ld_wb[p-IQ_LD_PORT_BASE].dest_preg;
       assign entry_result[p]    = ld_wb[p-IQ_LD_PORT_BASE].result;
-      assign entry_fresult[p]   = fp_load_box(ld_wb[p-IQ_LD_PORT_BASE].result[31:0]);   // flw data, NaN-boxed
+      // flw: NaN-boxed (fld on rv64 returns the whole word)
+      assign entry_fresult[p]   = fp_load_data(ld_wb[p-IQ_LD_PORT_BASE].result,
+                                               ld_wb[p-IQ_LD_PORT_BASE].is_w);
       assign entry_br_mask[p]   = ld_wb[p-IQ_LD_PORT_BASE].br_mask;
       assign entry_dest_en[p]   = ld_wb[p-IQ_LD_PORT_BASE].dest_en;
       assign entry_op[p]        = XC_OP_W'(XC_UOP_LOAD);

@@ -77,6 +77,7 @@ module exu_ctrl
   input  logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_page_fault_load,
   input  logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_rob_defer,
   input  logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_flush_pipe,
+  input  logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_is_w,
   input  logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_page_fault_store,
   input  logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_valid,
   input  logic [LSU_STA_COUNT-1:0] lsu2exe_sta_wb_req_valid,
@@ -269,7 +270,8 @@ module exu_ctrl
       page_fault_load:  lsu2exe_wb_req_uop_page_fault_load[i],
       page_fault_store: lsu2exe_wb_req_uop_page_fault_store[i],
       rob_defer:        lsu2exe_wb_req_uop_rob_defer[i],
-      flush_pipe:       lsu2exe_wb_req_uop_flush_pipe[i]
+      flush_pipe:       lsu2exe_wb_req_uop_flush_pipe[i],
+      is_w:             lsu2exe_wb_req_uop_is_w[i]
     };
   end
   for (genvar i = 0; i < LSU_STA_COUNT; i++) begin : g_sta_wb
@@ -284,7 +286,8 @@ module exu_ctrl
       page_fault_load:  1'b0,
       page_fault_store: lsu2exe_sta_wb_req_uop_page_fault_store[i],
       rob_defer:        1'b0,
-      flush_pipe:       1'b0
+      flush_pipe:       1'b0,
+      is_w:             1'b0
     };
   end
   // ---- core ------------------------------------------------------------------------------------------------------
@@ -339,7 +342,6 @@ module exu_ctrl
     .bypass_result(exe2prf_bypass_uop_result), .bypass_fresult(exe2prf_bypass_uop_fresult),
     .bypass_dest_en(exe2prf_bypass_uop_dest_en)
   );
-
   exu_ctrl_wb_rob u_wb_rob (
     .flush(rob_bcast_flush), .mispred(dec_bcast_mispred), .kill_mask(dec_bcast_br_mask),
     .win_valid, .win, .ld_wb, .sta_wb,
@@ -350,13 +352,11 @@ module exu_ctrl
     .rob_defer(exu2rob_entry_uop_rob_defer), .flush_pipe(exu2rob_entry_uop_flush_pipe),
     .fflags(exu2rob_entry_uop_fflags), .illegal(exu2rob_entry_uop_illegal)
   );
-
   exu_ctrl_br_arb u_br (
     .fu_done, .clear_mask(exu2id_clear_mask), .mispred(exu2id_mispred), .redirect_pc(exu2id_redirect_pc),
     .redirect_rob_idx(exu2id_redirect_rob_idx), .br_id(exu2id_br_id), .ftq_idx(exu2id_ftq_idx),
     .br_pc(exu2id_br_pc)
   );
-
   // ---- Lsu requests ----
   exu_ctrl_lsu_out u_lsu_out (
     .fu_done,
@@ -370,7 +370,6 @@ module exu_ctrl
     .exe2lsu_sdu_req_valid, .exe2lsu_sdu_req_uop_result, .exe2lsu_sdu_req_uop_rob_idx,
     .exe2lsu_sdu_req_uop_rob_flag, .exe2lsu_sdu_req_uop_stq_idx
   );
-
   // ---- to the FUs --------------------------------------------------------------------------------------------------
   // Ref: Exu::comb_fu_ctrl (the same flush / flush_mask / clear_mask goes to every FU)
   assign exu2fu_flush      = rob_bcast_flush || dec_bcast_mispred;
@@ -394,6 +393,5 @@ module exu_ctrl
     .exu2fu_fp_fsrc1, .exu2fu_fp_fsrc2, .exu2fu_fp_fsrc3, .exu2fu_fp_dest_preg, .exu2fu_fp_dest_en,
     .exu2fu_fp_br_mask, .exu2fu_fp_rob_idx
   );
-
 endmodule
 `default_nettype wire

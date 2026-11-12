@@ -9,10 +9,10 @@ package fp_pkg;
   localparam int FW = FP_EN ? FLEN : 1;          // width of the FP data buses (a 1-bit stub, tied to 0, without F/D)
   localparam int FFLAGS_W = 5;                   // NV DZ OF UF NX
 
-  // 64 bits wide and fld returns all of it: boxing there needs the load width (not carried: rv64 F/D is not built).
-  // 64 bits wide and fld returns all of it: boxing there needs the load width (not carried yet: rv64 F/D is not built).
-  function automatic logic [FW-1:0] fp_load_box(input logic [31:0] w);
-    return FW'({32'hFFFF_FFFF, w});
+  // rv32: only flw exists (32-bit data). rv64: flw (word load) is boxed, fld returns the whole 64-bit data word.
+  function automatic logic [FW-1:0] fp_load_data(input logic [XLEN_BITS-1:0] d, input logic is_w);
+    if (XLEN_BITS == 64 && !is_w) return FW'(d);
+    else                          return FW'({32'hFFFF_FFFF, d[31:0]});
   endfunction
 
   // model latency (cycles) of fdiv / fsqrt (S or D) from funct7: [1:0] = fmt (1 = D), [6:2] = funct5 (0x0b = fsqrt)

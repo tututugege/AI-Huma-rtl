@@ -72,3 +72,12 @@
 - 手改过的生成文件 `back_top.sv`、`exu.sv` 与 `spec` 不同步，F/D 要改的口很多，建议这一轮同时把生成器恢复成可用状态，否则每个口要手工加三处。
 - `PRF_IDX_WIDTH` 从 7 变 8 会改变所有标签端口和 `busy_table`、唤醒矩阵的尺寸，整数路径的综合代理面积会变（先在 S1 验收时用综合代理量一下）。
 - 运算单元的 IEEE 边界（NaN 传播、次正规、舍入模式、标志）靠 function-model 的定向测试加 Spike 对拍的思路覆盖：先对 DPI 版逐条一致，再对可综合版做随机差分。
+
+## 8. RV64G（2026-11-12 补）
+
+rv64 配置（`XLEN_BITS = 64`，`gen_cfg.sh -DFP=1 -DXLEN=64`；仿真器 `SOC_XLEN=64 FMLIB=<XLEN=64 的 librefcpu.a> SOC_FM=1 bash tb/soc/build.sh`）上的 F/D 已验证，核是 RV64G（IMAFD + Zicsr + Zifencei；没有 C）。
+- 改动：load 通路加 `is_w`（LSU 写回的 word 宽度位，`lp_wb` → `lsu_pipe` → `exu_ctrl`）：rv64 的 `flw` 做 NaN-boxing、`fld` 整字不 box（`fp_pkg::fp_load_data`）；rv32 仍是 `flw` 一种，全 box。
+- 发现并修了一个模型和 RTL 共有的写回优先级问题：整数→FP（I2F，在整数口 2、3 上）原来排在 ALU 之后，口上每拍都有 ALU 结果时 I2F 的结果一直输掉仲裁，其流水线满后新进来的 I2F 在槽里等，但消费者是按发射时的固定延迟被唤醒的，读到旧值（rv64 的 `fcvt.s.wu` 紧跟 `fmul.s` 触发）。现在 I2F 的 FU 排在 ALU 前面（模型 `Exu::init` 的 kSpecs 顺序和 RTL `exu_ctrl_pkg` 的 FU 种类编号同步改）。FMA 和 FMISC 在 FP 口上有同样的结构（FMA 在前），目前没有观察到问题，但原理上持续的 FMA 流可以让 FMISC 一直输；彻底的办法是消费者的唤醒不依赖固定延迟（或结果保证不排队），要改模型。
+- 验收（rv64，FM 逐条对拍含 FP 寄存器，周期与 rv64 模型逐周期相同）：`rv64uf-*` 11 个、`rv64ud-*` 12 个（含 `structural`、`move`、`fclass`、`recoding`，double 的 `fld/fsd` 都在）、`rv64-fp`（348568 条指令）、`rv64-fp-trap`（16649 条）、`fp-kernels`、`fd-*` 5 个、6 个 FP 内核（double 的 dgemm / nbody / fir 也通过）。rv64 整数程序 54 个里 50 个周期与 rv64 模型相同，另 4 个（bitmanip-boundary、crc32、load-store、memory-stress）在 FP=0 的 rv64 构建上结果完全一样，不是 F/D 引入的（模型基线与 RTL 基线的既有差异，bitmanip-boundary 是既有的 FM 不一致）。
+- rv32 重跑：`rv32uf-*`、`fd-*`、`fp_chain`、float 内核与新的模型周期逐周期相同；FP=0 `soc_smoke` 55/55，FP=1 `soc_smoke` 55/55，三种配置（FP=0 rv32、FP=1 rv32、FP=1 rv64）整核 lint 0、FP=0 lint_chip 0。
+

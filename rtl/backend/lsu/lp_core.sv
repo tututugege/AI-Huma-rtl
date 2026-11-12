@@ -74,6 +74,7 @@ module lp_core
   output logic [NLD-1:0]      wb_pf_store,
   output logic [NLD-1:0]      wb_defer,
   output logic [NLD-1:0]      wb_flushp,
+  output logic [NLD-1:0]      wb_isw,
   output logic [NST-1:0]      sta_valid,
   output logic [XLEN_BITS-1:0]         sta_vaddr [NST],
   output logic [BRW-1:0]      sta_br [NST],
@@ -192,7 +193,7 @@ module lp_core
     .sc_go(sc_go),
     .wb_valid(wb_valid), .wb_diag(wb_diag), .wb_result(wb_result), .wb_dest(wb_dest), .wb_br(wb_br),
     .wb_rob(wb_rob), .wb_dest_en(wb_dest_en), .wb_pf_load(wb_pf_load), .wb_pf_store(wb_pf_store),
-    .wb_defer(wb_defer), .wb_flushp(wb_flushp),
+    .wb_defer(wb_defer), .wb_flushp(wb_flushp), .wb_isw(wb_isw),
     .sta_valid(sta_valid), .sta_vaddr(sta_vaddr), .sta_br(sta_br), .sta_rob(sta_rob), .sta_pf(sta_pf),
     .lr1_v(lr1_v), .lr1_addr(lr1_addr), .lr1_br(lr1_br), .sc_clr(sc_clr),
     .lr2_v(lr2_v), .lr2_addr(lr2_addr), .lr2_br(lr2_br));
@@ -395,5 +396,4 @@ module lp_core
                 .o_ldq_free(o_ldq_free), .o_ldq_alloc_valid(o_ldq_alloc_valid), .o_ldq_alloc_idx(o_ldq_alloc_idx),
                 .o_committed_store_pending(o_committed_store_pending));
 endmodule
-
 `default_nettype wire

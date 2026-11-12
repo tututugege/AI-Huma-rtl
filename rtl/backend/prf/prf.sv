@@ -63,6 +63,9 @@ module prf import ttg_cfg_pkg::*; import fp_pkg::*; #(
   input  logic [LSU_LOAD_WB_WIDTH-1:0] lsu_byp_valid,
   input  logic [PRF_IDX_WIDTH-1:0] lsu_byp_dest_preg [LSU_LOAD_WB_WIDTH],
   input  logic [XLEN_BITS-1:0] lsu_byp_result [LSU_LOAD_WB_WIDTH],
+  /* verilator lint_off UNUSEDSIGNAL */   // waiver: only the F/D load path reads it
+  input  logic [LSU_LOAD_WB_WIDTH-1:0] lsu_byp_is_w,
+  /* verilator lint_on UNUSEDSIGNAL */
   input  logic [XLEN_BITS-1:0] ftq_prf_pc_resp_resp_pc [FTQ_PRF_PC_PORT_NUM],
   input  logic [FTQ_PRF_PC_PORT_NUM-1:0] ftq_prf_pc_resp_resp_pred_taken,
   input  logic [XLEN_BITS-1:0] ftq_prf_pc_resp_resp_next_pc [FTQ_PRF_PC_PORT_NUM],
@@ -279,7 +282,7 @@ module prf import ttg_cfg_pkg::*; import fp_pkg::*; #(
     end
     for (genvar k = 0; k < LSU_LOAD_WB_WIDTH; k++) begin : g_lsu_fres
       assign fp_byp_wen[TOTAL_FU_COUNT + k]  = byp_wen_vec[TOTAL_FU_COUNT + k];
-      assign fp_byp_fres[TOTAL_FU_COUNT + k] = fp_load_box(lsu_byp_result[k][31:0]);   // flw data, NaN-boxed
+      assign fp_byp_fres[TOTAL_FU_COUNT + k] = fp_load_data(lsu_byp_result[k], lsu_byp_is_w[k]);   // flw: NaN-boxed
     end
     prf_fp #(.LANES(LANES), .BYP_NUM(BYP_NUM), .NRD(NRD)) u_fp (
       .clk, .rst_n, .wb_wen(wb_wen_q), .wb_dest_preg(wb_dest_preg_q), .exe_fresult(exe_fres),

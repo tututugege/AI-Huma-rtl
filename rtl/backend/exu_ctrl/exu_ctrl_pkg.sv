@@ -28,13 +28,13 @@ package exu_ctrl_pkg;
   localparam int XC_K_STA = 3;
   localparam int XC_K_STD = 4;
   localparam int XC_K_BR  = 5;
-  localparam int XC_K_ALU = 6;
-  localparam int XC_K_CSR = 7;
-  localparam int XC_K_FMA = 8;       // F/D units: pipelined FMA / MISC / I2F, iterative FDIV
-  localparam int XC_K_FDIV = 9;
-  localparam int XC_K_FMISC = 10;
-  localparam int XC_K_I2F = 11;
-  localparam int XC_KINDS = FP_EN ? 12 : 8;
+  localparam int XC_K_I2F = 6;       // integer -> FP: ahead of the ALU, which would otherwise starve it at the port
+  localparam int XC_K_ALU = 7;
+  localparam int XC_K_CSR = 8;
+  localparam int XC_K_FMA = 9;       // F/D units: pipelined FMA / MISC / I2F, iterative FDIV
+  localparam int XC_K_FDIV = 10;
+  localparam int XC_K_FMISC = 11;
+  localparam int XC_KINDS = 12;   // (the F/D kinds have no unit without F/D: their op masks do not fit xc_opset_t)
 
   function automatic xc_opset_t xc_kind_mask(int k);
     case (k)
@@ -202,7 +202,7 @@ package exu_ctrl_pkg;
 
   // F/D units: indexed in fu_idx order like the multi-cycle ones (they have their own flat port group)
   function automatic bit xc_is_fp_kind(int k);
-    return FP_EN && (k >= XC_K_FMA);
+    return FP_EN && (k == XC_K_FMA || k == XC_K_FDIV || k == XC_K_FMISC || k == XC_K_I2F);
   endfunction
 
   function automatic int xc_fp_count();
@@ -348,6 +348,7 @@ package exu_ctrl_pkg;
     logic                     page_fault_store;
     logic                     rob_defer;       // LSU_MEMSPEC: the ROB completion of the load is deferred
     logic                     flush_pipe;      // LSU_MEMSPEC: final write-back of a violating load
+    logic                     is_w;            // word load (flw data is NaN-boxed)
   } xc_lsu_wb_t;
 
 endpackage

@@ -102,6 +102,7 @@ module lsu_pipe
   output logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_page_fault_store,
   output logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_rob_defer,    // LSU_MEMSPEC: ROB completion deferred
   output logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_flush_pipe,   // LSU_MEMSPEC: write-back of a violator
+  output logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_is_w,         // word load: flw data is NaN-boxed
   output logic [LSU_STA_COUNT-1:0] lsu2exe_sta_wb_req_valid,
   output logic [XLEN_BITS-1:0] lsu2exe_sta_wb_req_uop_diag_val [LSU_STA_COUNT],
   output logic [XLEN_BITS-1:0] lsu2exe_sta_wb_req_uop_result [LSU_STA_COUNT],
@@ -229,6 +230,7 @@ module lsu_pipe
     .wb_dest_en(lsu2exe_wb_req_uop_dest_en), .wb_pf_load(lsu2exe_wb_req_uop_page_fault_load),
     .wb_pf_store(lsu2exe_wb_req_uop_page_fault_store),
     .wb_defer(lsu2exe_wb_req_uop_rob_defer), .wb_flushp(lsu2exe_wb_req_uop_flush_pipe),
+    .wb_isw(lsu2exe_wb_req_uop_is_w),
     .sta_valid(lsu2exe_sta_wb_req_valid), .sta_vaddr(sta_vaddr_w), .sta_br(lsu2exe_sta_wb_req_uop_br_mask),
     .sta_rob(lsu2exe_sta_wb_req_uop_rob_idx), .sta_pf(lsu2exe_sta_wb_req_uop_page_fault_store),
     .per_is_mmio(peripheral_req_is_mmio), .per_wen(peripheral_req_wen), .per_addr(peripheral_req_mmio_addr),
