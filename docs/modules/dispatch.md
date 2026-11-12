@@ -15,7 +15,7 @@ note:
 - `back-end/Dispatch.cpp`、`back-end/include/Dispatch.h`，类 `Dispatch`；BackTop 调用顺序：`comb_begin` → `comb_alloc` → `comb_wake` → `comb_dispatch` →（ROB/LSU/ISU 阶段）→ `comb_fire` → `comb_pipeline` → `seq`。
 - 输入：`ren2dis`（valid + 27 个 uop 字段）、`rob2dis`（ready/empty/stall/enq_idx/rob_flag）、`iss2dis.ready_num[5]`、`lsu2dis`（stq_tail/flag/free、ldq_free、ldq_alloc_idx/valid[8]）、`prf_awake`(4)、`iss_awake`(15)、`rob_bcast.flush`、`dec_bcast.{mispred,clear_mask}`。
 - 输出：`dis2ren.ready`、`dis2rob`（valid/dis_fire/uop）、`dis2iss.req[5][8]`、`dis2lsu`（STQ 8 口、LDQ 8 口）。
-- 不翻译：tma/dbg/perf（`CONFIG_PERF_COUNTER` 块只写统计）。ren2dis 的 `expect_mask/cplt_mask/src2_areg` 在 C++ 里被覆盖或从不读取，故不进 spec。
+- 不翻译：tma/dbg/perf（性能计数器代码只写统计）。ren2dis 的 `expect_mask/cplt_mask/src2_areg` 在 C++ 里被覆盖或从不读取，故不进 spec。
 
 ## 2. 硬件结构
 ```

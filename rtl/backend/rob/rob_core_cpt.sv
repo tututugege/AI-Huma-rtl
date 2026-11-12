@@ -26,7 +26,7 @@ module rob_core_cpt
   input  logic                       front_stall,
   input  logic [3:0]                 bpu_upd_free,     // BPU update queue: free entries at the start of the cycle
   input  logic [3:0]                 bpu_tq_free,      // uBTB train queue: free entries at the start of the cycle
-  input  logic [XLEN-1:0]            ftq_resp_pc,
+  input  logic [ROB_XLEN-1:0]            ftq_resp_pc,
   input  logic [ROB_BANK_NUM-1:0]    dis_fire,
   input  rob_entry_t                 dis_uop [ROB_BANK_NUM],
   input  rob_wb_t                    wb [ISSUE_WIDTH],
@@ -58,8 +58,8 @@ module rob_core_cpt
   output logic                       bcast_illegal_inst,
   output logic                       bcast_interrupt,
   output logic                       bcast_trap_val_valid,
-  output logic [XLEN-1:0]            bcast_trap_val,
-  output logic [XLEN-1:0]            bcast_pc,
+  output logic [ROB_XLEN-1:0]            bcast_trap_val,
+  output logic [ROB_XLEN-1:0]            bcast_pc,
   output logic [ROB_IDX_WIDTH-1:0]   bcast_head_rob_idx,
   output logic                       bcast_head_valid,
   output logic [ROB_IDX_WIDTH-1:0]   bcast_head_incomplete_rob_idx,

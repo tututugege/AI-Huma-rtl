@@ -23,7 +23,7 @@ package rob_pkg;
   localparam int UOP_TYPE_COUNT = 18;  // enum UopType (base_types.h): UOP_JUMP .. UOP_FP
   localparam int UOP_TYPE_W = $clog2(UOP_TYPE_COUNT);
   localparam int CPLT_W = 3;  // ROB_CPLT_MASK_WIDTH: one completion bit per uop group G0/G1/G2
-  localparam int XLEN = XLEN_BITS;
+  localparam int ROB_XLEN = XLEN_BITS;
   localparam int FUNC7_W = 7;
 
   // ---- InstType encodings (types.h) ----
@@ -51,7 +51,7 @@ package rob_pkg;
 
   // One ROB slot payload == RobStoredInst without dbg (valid is kept next to it, see rob_entry).
   typedef struct packed {
-    logic [XLEN-1:0]           diag_val;
+    logic [ROB_XLEN-1:0]           diag_val;
     logic [AREG_IDX_WIDTH-1:0] dest_areg;
     logic [AREG_IDX_WIDTH-1:0] src1_areg;
     logic [PRF_IDX_WIDTH-1:0]  dest_preg;
@@ -83,8 +83,8 @@ package rob_pkg;
   // One EXU write-back port (ExuRobIO::ExuRobEntry).
   typedef struct packed {
     logic                     valid;
-    logic [XLEN-1:0]          diag_val;
-    logic [XLEN-1:0]          result;
+    logic [ROB_XLEN-1:0]          diag_val;
+    logic [ROB_XLEN-1:0]          result;
     logic [ROB_IDX_WIDTH-1:0] rob_idx;
     logic                     mispred;
     logic                     br_taken;
@@ -102,7 +102,7 @@ package rob_pkg;
     logic [ROB_IDX_WIDTH-1:0] rob_idx;
     logic [CPLT_W-1:0]        cplt_bit;
     logic                     diag_we;
-    logic [XLEN-1:0]          diag_val;
+    logic [ROB_XLEN-1:0]          diag_val;
     logic                     pf_inst;
     logic                     pf_load;
     logic                     pf_store;

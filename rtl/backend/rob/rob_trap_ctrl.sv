@@ -8,7 +8,7 @@ module rob_trap_ctrl
   input  logic              single_commit,
   input  logic              interrupt_fire,
   input  rob_entry_t        single_uop,         // first valid slot of the head line
-  input  logic [XLEN-1:0]   ftq_resp_pc,        // ftq_rob_pc_resp.resp[0].pc, pc of the committing instruction
+  input  logic [ROB_XLEN-1:0]   ftq_resp_pc,        // ftq_rob_pc_resp.resp[0].pc, pc of the committing instruction
   output logic              flush,
   output logic              exception,
   output logic              mret,
@@ -23,8 +23,8 @@ module rob_trap_ctrl
   output logic              breakpoint,         // ebreak as a breakpoint exception (only with TTG_EBREAK_TRAP)
   output logic              rob2csr_commit,
   output logic              trap_val_valid,     // trap_val is meaningful (page fault / illegal instruction)
-  output logic [XLEN-1:0]   trap_val,
-  output logic [XLEN-1:0]   pc                  // meaningful only while flush
+  output logic [ROB_XLEN-1:0]   trap_val,
+  output logic [ROB_XLEN-1:0]   pc                  // meaningful only while flush
 );
 
   // priority order of the C++ if / else-if chain (index 0 wins)

@@ -2,8 +2,8 @@
 `default_nettype none
 
 // Branch unit: condition, target, taken/mispredict verdict against the FTQ prediction.  The unit's `result` is never
-// written by the C++ (stays 0), so there is no result port.  CONFIG_BPU is defined in the reference build, hence the
-// non-oracle mispredict rule.  The BRU port only sees UOP_BR / UOP_JUMP (OP_MASK_BR).
+// written by the C++ (stays 0), so there is no result port.  The mispredict rule is the
+// real (non-oracle) comparison against the FTQ prediction.  The BRU port only sees UOP_BR / UOP_JUMP (OP_MASK_BR).
 module bru
   import exu_fu_pkg::*;
   import ttg_cfg_pkg::*;

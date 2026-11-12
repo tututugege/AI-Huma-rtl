@@ -74,7 +74,7 @@ RTL 在 `rtl/backend/exu_fu/`，spec 在 `spec/{alu,bru,agu,sdu,mul,div}_bank.io
   （clz/ctz 各一个 `ttg_first_set`，cpop 用 `ttg_popcount`，sext.b/h、rev8、orc.b；`ttg_onehot_mux` 选一）。
   最终结果用 `ttg_onehot_mux`（9 路）选择。没有任何单元被选中时结果为 0（对应 C++ 里 `result` 保持输入的 0）。
 * **bru**：比较（==、有符号 <、无符号 <）→ 条件；目标 `pc+imm` 或 JALR 的 `(src1+imm)&~1`；`br_taken = JUMP | (BR & cond)`；
-  `diag_val = taken ? target : pc+4`；`mispred = taken ? !(pred_taken & next_pc==target) : pred_taken`（`CONFIG_BPU` 已定义，走真实比较分支）。
+  `diag_val = taken ? target : pc+4`；`mispred = taken ? !(pred_taken & next_pc==target) : pred_taken`（真实比较分支；原来的 `CONFIG_BPU` 开关已删除）。
 * **agu**：`src1 + imm`（C++ 先 64 位加再截 32 位，等于 32 位回绕加）。
 * **sdu**：非原子 `src2`；AMO 按 `amo_op` 选 add/xor/and/or/min/max/minu/maxu/swap，其余编码（LR/SC/保留）走 `default: src2`。
 * **csr_fu**：只有握手。CSR 读数据由 Exu 在写回阶段覆盖（`Exu.cpp:461`）。
@@ -142,7 +142,7 @@ RTL 在 `rtl/backend/exu_fu/`，spec 在 `spec/{alu,bru,agu,sdu,mul,div}_bank.io
   `from_prf_exe_uop` 构造，`result/diag_val/mispred/...` 默认 0，这些 FU 的 `impl_compute` 不写它们。
   **集成提示（E6/E7）**：Exu 顶层必须把 BRU/CSR 的 `result` 当 0、MUL/DIV 的 `op`（恒 `UOP_MUL`/`UOP_DIV`，由 `support_mask` 决定）、
   `diag_val/mispred/br_taken/page_fault_inst/flush_pipe`（恒 0）自己补上；CSR 的 `result` 在 `exe2csr.re` 时被 `csr2exe.rdata` 覆盖。
-* `ftq_resp_valid`（BRU 不读）、`BruUnit` 的 `CONFIG_ORACLE_STEADY_FETCH_WIDTH && !CONFIG_BPU` 分支（参考构建里 `CONFIG_BPU` 已定义，该分支不存在）。
+* `ftq_resp_valid`（BRU 不读）、`BruUnit` 里原来的 oracle 分支（`CONFIG_BPU` 等 5 个死宏已从 `config.h` 删除，分支早已不存在）。
 * `op` 只剩 ALU 与 BRU 的 `op`：MUL/DIV/AGU/SDU/CSR 的 `op` 由端口 `support_mask` 决定，FU 不读。
 * `flush` 输入保留（C++ 读 `in.flush`），虽然 Exu 保证 `flush=0 ⇒ flush_mask=0`；RTL 严格按 `flush && (全 1 || 相交)` 实现，随机生成器 1% 的拍故意违反该不变量以证明 RTL 忽略 `flush=0` 时的 mask。
 
