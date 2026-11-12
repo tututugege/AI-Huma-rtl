@@ -1,8 +1,8 @@
 // Ref: back-end/Exu/include/Fu.h  AguUnit
 `default_nettype none
 
-// Address generation (load and store-address): vaddr = src1 + imm, truncated to 32 bits (the C++ adds in 64 bits and
-// stores into a 32-bit result).
+// Address generation (load and store-address): vaddr = src1 + sign-extended imm, XLEN bits wide (Sv39 canonical
+// checking happens in the TLB / LSU).
 module agu import ttg_cfg_pkg::*; (
   input  logic        en,
   input  logic        consume,
