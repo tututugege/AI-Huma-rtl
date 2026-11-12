@@ -36,7 +36,8 @@ struct FmCheck {
 
   // One committed instruction.  dut_pc: commit pc; rd/rd_val: destination architectural register and the value the core wrote
   // (rd == 0: none).  Returns false on the first disagreement (message already printed).
-  bool commit(uint64_t cycle, refcpu_xlen_t dut_pc, unsigned rd, refcpu_xlen_t rd_val) {
+  bool commit(uint64_t cycle, refcpu_xlen_t dut_pc, unsigned rd, refcpu_xlen_t rd_val, bool fp_rd = false, unsigned frd = 0,
+              uint64_t frd_val = 0) {
     RefCpuState before{}, after{};
     refcpu_get_state(ctx, &before);
     if (before.pc != dut_pc) {
@@ -52,6 +53,16 @@ struct FmCheck {
     // F/D: an instruction whose destination is an FP register has no integer result to compare (FP registers: S6)
     const uint32_t opc = info.instruction & 0x7f, f5 = info.instruction >> 27;
     const bool fp_dest = opc == 0x07 || (opc & 0x73) == 0x43 || (opc == 0x53 && f5 != 0x14 && f5 != 0x18 && f5 != 0x1c);
+#if FP
+    if (fp_rd && !trapped) {   // F/D: the FP register the core wrote against the function model's (all 64 bits, NaN-boxing included)
+      if (!fp_dest || after.fpr[frd] != frd_val) {
+        std::fprintf(stderr, "[FM] cycle %llu commit #%llu pc=%llx inst=%08x: f%u rtl=%016llx fm=%016llx%s\n", (unsigned long long)cycle,
+                     (unsigned long long)steps, (unsigned long long)dut_pc, info.instruction, frd, (unsigned long long)frd_val,
+                     (unsigned long long)after.fpr[frd], fp_dest ? "" : " (the function model writes no FP register)");
+        return failed = true, false;
+      }
+    }
+#endif
     if (rd != 0 && !trapped && !fp_dest && after.gpr[rd] != rd_val) {   // a trapping instruction writes no register; the next commit pc checks the trap target
       const uint32_t csr_no = info.instruction >> 20;   // fflags / frm / fcsr, mstatus / sstatus, misa: architectural state, compared
       const bool arch_csr = (csr_no >= 1 && csr_no <= 3) || csr_no == 0x300 || csr_no == 0x100 || csr_no == 0x301;

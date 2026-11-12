@@ -226,7 +226,7 @@ int main(int argc, char **argv) {
 #ifdef SOC_TB_FM
   FmCheck fm;   // SOC_TB_FM=1: every committed instruction is also executed by the function model and compared
   const bool fm_on = std::getenv("SOC_TB_FM") != nullptr;
-  struct FmPend { tb_xlen_t pc; unsigned rd; unsigned preg; bool irq; };
+  struct FmPend { tb_xlen_t pc; unsigned rd; unsigned preg; bool irq; bool fp = false; unsigned frd = 0; unsigned fpreg = 0; };
   std::vector<FmPend> fm_pend;
   auto fm_flush = [&](uint64_t cyc) {
     for (const auto &c : fm_pend) {
@@ -240,7 +240,11 @@ int main(int argc, char **argv) {
         continue;
       }
       const tb_xlen_t val = c.rd ? top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__u_prf__DOT__u_regfile__DOT__reg_file_q[c.preg] : 0u;
-      if (!fm.commit(cyc, c.pc, c.rd, val)) { compare_fail = 1; done = true; break; }
+      uint64_t fval = 0;
+#ifdef SOC_FP
+      if (c.fp) fval = top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__u_prf__DOT__g_fp__DOT__u_fp__DOT__reg_file_q[c.fpreg - 128];   // FP_TAG_BASE
+#endif
+      if (!fm.commit(cyc, c.pc, c.rd, val, c.fp, c.frd, fval)) { compare_fail = 1; done = true; break; }
     }
     fm_pend.clear();
   };
@@ -407,6 +411,12 @@ long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
             fm_pend.push_back({top->ftq_commit_info_resp_pc[i], (de && top->rob_commit_commit_entry_uop_dest_areg[i] < 32) ? top->rob_commit_commit_entry_uop_dest_areg[i] : 0u,   // areg 32 = AMO with rd == x0 (pseudo destination)
                                
                                top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__u_rob__DOT__rob_commit_commit_entry_uop_dest_preg[i], false});
+#ifdef SOC_FP
+            if (de && ((top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__u_rob__DOT__rob_commit_commit_entry_uop_dest_fp >> i) & 1)) {
+              auto &p = fm_pend.back();
+              p.fp = true; p.rd = 0; p.frd = top->rob_commit_commit_entry_uop_dest_areg[i] & 31; p.fpreg = p.preg;
+            }
+#endif
           }
 #endif
           last_commit_pc = tb_xlen_t(top->ftq_commit_info_resp_pc[i]);

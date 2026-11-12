@@ -27,7 +27,7 @@ LSUPFLAG=""; grep -q "LSU_PIPE = 1;" "$ROOT/rtl/common/ttg_cfg_pkg.sv" && LSUPFL
 # F/D (FPRF_NUM > 0 in the config): the FP units compute through DPI-C (tb/fp_dpi/fp_dpi.cpp, Berkeley softfloat of the function model)
 FPDPI=(); FPINC=""; FPLD=""
 if ! grep -q "FPRF_NUM = 0;" "$ROOT/rtl/common/ttg_cfg_pkg.sv"; then
-  FPDPI=("$ROOT/tb/fp_dpi/fp_dpi.cpp"); FPINC="-I$AI_HUMA_ROOT/function-model/lib/softfloat/include"
+  FPDPI=("$ROOT/tb/fp_dpi/fp_dpi.cpp"); FPINC="-DSOC_FP -I$AI_HUMA_ROOT/function-model/lib/softfloat/include"
   FPLD="$AI_HUMA_ROOT/function-model/lib/softfloat/softfloat.a"
 fi
 INC=""

@@ -77,6 +77,8 @@ public_flat_rd -module "lp_core" -var "sq"
 // function-model check: the destination register of each committed instruction and the physical register file
 public_flat_rd -module "rob" -var "rob_commit_commit_entry_uop_dest_preg"
 public_flat_rd -module "prf_regfile" -var "reg_file_q"
+public_flat_rd -module "prf_fp" -var "reg_file_q"
+public_flat_rd -module "rob" -var "rob_commit_commit_entry_uop_dest_fp"
 // ... and the cause / privilege of an interrupt the core has just taken
 public_flat_rd -module "csr" -var "regs"
 public_flat_rd -module "csr" -var "privilege"

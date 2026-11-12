@@ -52,6 +52,10 @@
    - 验收：FP=0 整核 lint 0、lint_chip 0、`soc_smoke` 55/55；FP=1 整核 lint 0、`soc_smoke` 55/55、FP 内核与 `fp_chain` 周期不变；官方 `rv32uf-*` 11 个程序在 RTL 上带 function-model 逐条对拍（含 fflags 读出值）0 不一致，11 个周期全部与模型相同（`rv32uf-fcmp` 和 `rv32uf-fdiv` 原来各差 1 周期，查到是 RTL 的一个真 bug：CSR FU 的旁路结果恒为 0，只有 CSR 写回项才带 CSR 读出值，所以与 CSR 指令同一周期读操作数的消费者（这里是 `fsflags` 后面依赖 a1 的 `bne`）读到 0，算出一次假的分支误预测，多占一拍提交；已修：CSR FU 的旁路给 CSR 读数据）；`rv32-fp-trap` 前 690 条指令（FS 各值、SD、CSR 非法、保留舍入模式）对拍一致，之后进入 `fclass.d` 等 double 数据（rv32 的 fld/fsd 未做）。
    - `fm_check.h`：mstatus / sstatus / misa / fflags / frm / fcsr 的读出值严格比较，不再采纳 RTL 值。
 6. **S6 对拍和全量**：26 个 FP 程序（`scripts/fp_check.sh` 的集合）与模型逐周期一致、f 寄存器对拍通过；微基准的延迟一致。
+   **已完成（2026-11-12，`exp/fd-rtl`）。**
+   - `fm_check.h` / `soc_tb.cpp`：提交时除整数 rd 外，目的是 FP 寄存器的指令还读 `prf_fp` 的寄存器堆，和 function-model 的 `fpr[rd]` 比较全部 64 位（含 NaN-boxing）；FM 不写 FP 寄存器而 RTL 写了也报错。FP 配置的仿真器带 `-DSOC_FP`，`soc_public.vlt` 暴露 `prf_fp.reg_file_q` 和 ROB 提交的 `dest_fp`（`tools/gen_soc_top.py` 已不能运行，vlt 是手改的）。已确认比较有效：rv32 的 `fld` 会立即报 `f10 rtl=ffffffff00000000 fm=4009210000000000`。
+   - 通过（带 FP 寄存器对拍，FM 0 不一致，且周期与模型逐周期相同）：`rv32uf-*` 11 个；`fd-basic` / `fd-fcvt` / `fd-fdiv` / `fd-fsqrt` / `fd-matmul`（951 / 1700 / 1693 / 1390 / 26717 周期，`fd-matmul` 56767 条指令）；`tests/fp_chain` 的 chain 和 mem；FP 内核里的单精度三个（saxpy-dot 69748 条、jacobi 174136 条、mixed 165588 条）；FP=0 默认配置 `soc_smoke` 55/55 且 FM 构建的 crc32 对拍通过。
+   - 不能过（rv32 的 double 数据通路没做，用户决定不做）：`rv32ud-*`、`rv32-fp`、`rv32-fp-trap` 690 条之后、`fp-kernels`、FP 内核里用 double 的 dgemm / nbody / fir。
 7. **S7 可综合的运算数据通路**：替换 DPI。FMA、除法/开方、转换。
 
 ## 4. 开始前要定的两件事
