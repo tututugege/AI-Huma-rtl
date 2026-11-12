@@ -13,11 +13,17 @@ module dispatch
   input  logic [XLEN_BITS-1:0] ren2dis_uop_diag_val [DECODE_WIDTH],
   input  logic [5:0] ren2dis_uop_dest_areg [DECODE_WIDTH],
   input  logic [5:0] ren2dis_uop_src1_areg [DECODE_WIDTH],
-  input  logic [6:0] ren2dis_uop_dest_preg [DECODE_WIDTH],
-  input  logic [6:0] ren2dis_uop_src1_preg [DECODE_WIDTH],
-  input  logic [6:0] ren2dis_uop_src2_preg [DECODE_WIDTH],
-  input  logic [6:0] ren2dis_uop_old_dest_preg [DECODE_WIDTH],
+  input  logic [PRF_IDX_WIDTH-1:0] ren2dis_uop_dest_preg [DECODE_WIDTH],
+  input  logic [PRF_IDX_WIDTH-1:0] ren2dis_uop_src1_preg [DECODE_WIDTH],
+  input  logic [PRF_IDX_WIDTH-1:0] ren2dis_uop_src2_preg [DECODE_WIDTH],
+  input  logic [PRF_IDX_WIDTH-1:0] ren2dis_uop_old_dest_preg [DECODE_WIDTH],
   input  logic [DECODE_WIDTH-1:0] ren2dis_uop_me_elim,
+  input  logic [DECODE_WIDTH-1:0] ren2dis_uop_dest_fp,
+  input  logic [DECODE_WIDTH-1:0] ren2dis_uop_src1_fp,
+  input  logic [DECODE_WIDTH-1:0] ren2dis_uop_src2_fp,
+  input  logic [DECODE_WIDTH-1:0] ren2dis_uop_src3_en,
+  input  logic [PRF_IDX_WIDTH-1:0] ren2dis_uop_src3_preg [DECODE_WIDTH],
+  input  logic [2:0] ren2dis_uop_fp_cls [DECODE_WIDTH],
   input  logic [5:0] ren2dis_uop_ftq_idx [DECODE_WIDTH],
   input  logic [FTQ_OFFSET_WIDTH-1:0] ren2dis_uop_ftq_offset [DECODE_WIDTH],
   input  logic [DECODE_WIDTH-1:0] ren2dis_uop_ftq_is_last,
@@ -55,13 +61,13 @@ module dispatch
   input  logic [5:0] lsu2dis_ldq_alloc_idx [DECODE_WIDTH],
   input  logic [DECODE_WIDTH-1:0] lsu2dis_ldq_alloc_valid,
   input  logic [LSU_LOAD_WB_WIDTH-1:0] prf_awake_wake_valid,
-  input  logic [6:0] prf_awake_wake_preg [LSU_LOAD_WB_WIDTH],
+  input  logic [PRF_IDX_WIDTH-1:0] prf_awake_wake_preg [LSU_LOAD_WB_WIDTH],
   input  logic [MAX_WAKEUP_PORTS-1:0] iss_awake_wake_valid,
-  input  logic [6:0] iss_awake_wake_preg [MAX_WAKEUP_PORTS],
+  input  logic [PRF_IDX_WIDTH-1:0] iss_awake_wake_preg [MAX_WAKEUP_PORTS],
   input  logic [2*LSU_LDU_COUNT-1:0] lsu2iss_wake_valid,
-  input  logic [6:0] lsu2iss_wake_preg [2*LSU_LDU_COUNT],
+  input  logic [PRF_IDX_WIDTH-1:0] lsu2iss_wake_preg [2*LSU_LDU_COUNT],
   input  logic [LSU_LDU_COUNT-1:0] lsu2iss_cancel_valid,
-  input  logic [6:0] lsu2iss_cancel_preg [LSU_LDU_COUNT],
+  input  logic [PRF_IDX_WIDTH-1:0] lsu2iss_cancel_preg [LSU_LDU_COUNT],
   input  logic rob_bcast_flush,
   input  logic dec_bcast_mispred,
   input  logic [BR_MASK_WIDTH-1:0] dec_bcast_clear_mask,
@@ -71,9 +77,10 @@ module dispatch
   output logic [XLEN_BITS-1:0] dis2rob_uop_diag_val [DECODE_WIDTH],
   output logic [5:0] dis2rob_uop_dest_areg [DECODE_WIDTH],
   output logic [5:0] dis2rob_uop_src1_areg [DECODE_WIDTH],
-  output logic [6:0] dis2rob_uop_dest_preg [DECODE_WIDTH],
-  output logic [6:0] dis2rob_uop_old_dest_preg [DECODE_WIDTH],
+  output logic [PRF_IDX_WIDTH-1:0] dis2rob_uop_dest_preg [DECODE_WIDTH],
+  output logic [PRF_IDX_WIDTH-1:0] dis2rob_uop_old_dest_preg [DECODE_WIDTH],
   output logic [DECODE_WIDTH-1:0] dis2rob_uop_me_elim,
+  output logic [DECODE_WIDTH-1:0] dis2rob_uop_dest_fp,
   output logic [5:0] dis2rob_uop_ftq_idx [DECODE_WIDTH],
   output logic [FTQ_OFFSET_WIDTH-1:0] dis2rob_uop_ftq_offset [DECODE_WIDTH],
   output logic [DECODE_WIDTH-1:0] dis2rob_uop_ftq_is_last,
@@ -91,9 +98,9 @@ module dispatch
   output logic [DECODE_WIDTH-1:0] dis2rob_uop_page_fault_inst,
   output logic [DECODE_WIDTH-1:0] dis2rob_uop_illegal_inst,
   output logic dis2iss_req_valid [5] [DECODE_WIDTH],
-  output logic [6:0] dis2iss_req_uop_dest_preg [5] [DECODE_WIDTH],
-  output logic [6:0] dis2iss_req_uop_src1_preg [5] [DECODE_WIDTH],
-  output logic [6:0] dis2iss_req_uop_src2_preg [5] [DECODE_WIDTH],
+  output logic [PRF_IDX_WIDTH-1:0] dis2iss_req_uop_dest_preg [5] [DECODE_WIDTH],
+  output logic [PRF_IDX_WIDTH-1:0] dis2iss_req_uop_src1_preg [5] [DECODE_WIDTH],
+  output logic [PRF_IDX_WIDTH-1:0] dis2iss_req_uop_src2_preg [5] [DECODE_WIDTH],
   output logic [5:0] dis2iss_req_uop_ftq_idx [5] [DECODE_WIDTH],
   output logic [FTQ_OFFSET_WIDTH-1:0] dis2iss_req_uop_ftq_offset [5] [DECODE_WIDTH],
   output logic dis2iss_req_uop_is_atomic [5] [DECODE_WIDTH],
@@ -172,6 +179,13 @@ module dispatch
       ren_inst[i].src2_preg = ren2dis_uop_src2_preg[i];
       ren_inst[i].old_dest_preg = ren2dis_uop_old_dest_preg[i];
       ren_inst[i].me_elim = ren2dis_uop_me_elim[i];
+      ren_inst[i].dest_fp = ren2dis_uop_dest_fp[i];
+      ren_inst[i].src1_fp = ren2dis_uop_src1_fp[i];
+      ren_inst[i].src2_fp = ren2dis_uop_src2_fp[i];
+      ren_inst[i].src3_en = ren2dis_uop_src3_en[i];
+      ren_inst[i].src3_preg = ren2dis_uop_src3_preg[i];
+      ren_inst[i].src3_busy = 1'b0;
+      ren_inst[i].fp_cls = ren2dis_uop_fp_cls[i];
       ren_inst[i].ftq_idx = ren2dis_uop_ftq_idx[i];
       ren_inst[i].ftq_offset = ren2dis_uop_ftq_offset[i];
       ren_inst[i].ftq_is_last = ren2dis_uop_ftq_is_last[i];
@@ -215,7 +229,7 @@ module dispatch
   end
 
   // cancel of a wrong speculative load wake-up (LP_L2): the registers are busy again before this cycle's lookups
-  logic [PRF_NUM-1:0] cancel_v;
+  logic [TAG_NUM-1:0] cancel_v;
   if ((lp_pkg::LP_L2 & 8) != 0) begin : g_cancel
     always_comb begin
       cancel_v = '0;
@@ -262,6 +276,7 @@ module dispatch
       dis2rob_uop_dest_preg[i] = rob_inst[i].dest_preg;
       dis2rob_uop_old_dest_preg[i] = rob_inst[i].old_dest_preg;
       dis2rob_uop_me_elim[i] = rob_inst[i].me_elim;
+      dis2rob_uop_dest_fp[i] = rob_inst[i].dest_fp;
       dis2rob_uop_ftq_idx[i] = rob_inst[i].ftq_idx;
       dis2rob_uop_ftq_offset[i] = rob_inst[i].ftq_offset;
       dis2rob_uop_ftq_is_last[i] = rob_inst[i].ftq_is_last;

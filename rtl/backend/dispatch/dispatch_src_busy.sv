@@ -7,40 +7,47 @@ module dispatch_src_busy
   import ttg_cfg_pkg::*;
   import dis_pkg::*;
 (
-  input  logic [PRF_NUM-1:0] busy_table,
+  input  logic [TAG_NUM-1:0] busy_table,
   input  dis_inst_t          inst      [NUM_SLOTS],
   input  logic [NUM_SLOTS-1:0] inst_valid,
   input  logic [NUM_SLOTS-1:0] woken1,
   input  logic [NUM_SLOTS-1:0] woken2,
+  input  logic [NUM_SLOTS-1:0] woken3,
   output logic [NUM_SLOTS-1:0] busy1,
-  output logic [NUM_SLOTS-1:0] busy2
+  output logic [NUM_SLOTS-1:0] busy2,
+  output logic [NUM_SLOTS-1:0] busy3
 );
 
-  logic [NUM_SLOTS-1:0] dest_written;   // valid lane writes a real (non-x0) destination
+  logic [NUM_SLOTS-1:0] dest_written;   // valid lane writes a real destination (x0 is not one, f0 is)
 
   always_comb begin
     for (int i = 0; i < NUM_SLOTS; i++) begin
       // an eliminated move writes nothing (its register is its source's: no writer to wait for)
-      dest_written[i] = inst_valid[i] && inst[i].dest_en && (inst[i].dest_areg != '0) && !inst[i].me_elim;
+      dest_written[i] = inst_valid[i] && inst[i].dest_en && ((inst[i].dest_areg != '0) || inst[i].dest_fp) &&
+                         !inst[i].me_elim;
     end
   end
 
   for (genvar i = 0; i < NUM_SLOTS; i++) begin : g_lane
     logic older_writes_src1;
     logic older_writes_src2;
+    logic older_writes_src3;
     // Ref: Dispatch::comb_wake inner loop over j < i
     always_comb begin
       older_writes_src1 = 1'b0;
       older_writes_src2 = 1'b0;
+      older_writes_src3 = 1'b0;
       for (int j = 0; j < i; j++) begin
         older_writes_src1 = older_writes_src1 || (dest_written[j] && (inst[i].src1_preg == inst[j].dest_preg));
         older_writes_src2 = older_writes_src2 || (dest_written[j] && (inst[i].src2_preg == inst[j].dest_preg));
+        older_writes_src3 = older_writes_src3 || (dest_written[j] && (inst[i].src3_preg == inst[j].dest_preg));
       end
     end
     // a lane that fires is the only one whose busy bits reach an IQ; held lanes re-derive them next cycle
     always_comb begin
       busy1[i] = inst[i].src1_en && ((busy_table[inst[i].src1_preg] && !woken1[i]) || older_writes_src1);
       busy2[i] = inst[i].src2_en && ((busy_table[inst[i].src2_preg] && !woken2[i]) || older_writes_src2);
+      busy3[i] = inst[i].src3_en && ((busy_table[inst[i].src3_preg] && !woken3[i]) || older_writes_src3);
     end
   end
 

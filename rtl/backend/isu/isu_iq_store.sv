@@ -18,8 +18,8 @@ module isu_iq_store
   input  isu_uop_t                 enq_uop  [DW],
   input  logic [DW-1:0]            enq_wait1,
   input  logic [DW-1:0]            enq_wait2,
-  input  logic [PRF_NUM-1:0]       woken,
-  input  logic [PRF_NUM-1:0]       cancel_v,       // the wake-up of the previous cycle was wrong: entries wait again
+  input  logic [TAG_NUM-1:0]       woken,
+  input  logic [TAG_NUM-1:0]       cancel_v,       // the wake-up of the previous cycle was wrong: entries wait again
   input  logic [SIZE-1:0]          issue_clear,    // slots granted this cycle
   input  logic                     flush_all,
   input  logic                     flush_br,       // misprediction without a global flush

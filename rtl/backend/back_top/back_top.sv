@@ -158,6 +158,12 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; (
   logic [2:0] dec2ren_uop_func3 [DECODE_WIDTH];
   logic [6:0] dec2ren_uop_func7 [DECODE_WIDTH];
   logic [DECODE_WIDTH-1:0] dec2ren_uop_illegal_inst;
+  logic [DECODE_WIDTH-1:0] dec2ren_uop_dest_fp;
+  logic [DECODE_WIDTH-1:0] dec2ren_uop_src1_fp;
+  logic [DECODE_WIDTH-1:0] dec2ren_uop_src2_fp;
+  logic [DECODE_WIDTH-1:0] dec2ren_uop_src3_en;
+  logic [AREG_IDX_WIDTH-1:0] dec2ren_uop_src3_areg [DECODE_WIDTH];
+  logic [2:0] dec2ren_uop_fp_cls [DECODE_WIDTH];
   logic [31:0] dec2ren_uop_imm [DECODE_WIDTH];
   logic [DECODE_WIDTH-1:0] dec2ren_uop_is_atomic;
   logic [DECODE_WIDTH-1:0] dec2ren_uop_page_fault_inst;
@@ -184,7 +190,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; (
   logic [11:0] ren2dis_uop_csr_idx [DECODE_WIDTH];
   logic [5:0] ren2dis_uop_dest_areg [DECODE_WIDTH];
   logic [DECODE_WIDTH-1:0] ren2dis_uop_dest_en;
-  logic [6:0] ren2dis_uop_dest_preg [DECODE_WIDTH];
+  logic [PRF_IDX_WIDTH-1:0] ren2dis_uop_dest_preg [DECODE_WIDTH];
   logic [XLEN_BITS-1:0] ren2dis_uop_diag_val [DECODE_WIDTH];
   logic [5:0] ren2dis_uop_ftq_idx [DECODE_WIDTH];
   logic [DECODE_WIDTH-1:0] ren2dis_uop_ftq_is_last;
@@ -195,16 +201,22 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; (
   logic [31:0] ren2dis_uop_imm [DECODE_WIDTH];
   logic [DECODE_WIDTH-1:0] ren2dis_uop_is_atomic;
   logic [DECODE_WIDTH-1:0] ren2dis_uop_me_elim;
-  logic [6:0] ren2dis_uop_old_dest_preg [DECODE_WIDTH];
+  logic [DECODE_WIDTH-1:0] ren2dis_uop_dest_fp;
+  logic [DECODE_WIDTH-1:0] ren2dis_uop_src1_fp;
+  logic [DECODE_WIDTH-1:0] ren2dis_uop_src2_fp;
+  logic [DECODE_WIDTH-1:0] ren2dis_uop_src3_en;
+  logic [PRF_IDX_WIDTH-1:0] ren2dis_uop_src3_preg [DECODE_WIDTH];
+  logic [2:0] ren2dis_uop_fp_cls [DECODE_WIDTH];
+  logic [PRF_IDX_WIDTH-1:0] ren2dis_uop_old_dest_preg [DECODE_WIDTH];
   logic [DECODE_WIDTH-1:0] ren2dis_uop_page_fault_inst;
   logic [5:0] ren2dis_uop_src1_areg [DECODE_WIDTH];
   logic [DECODE_WIDTH-1:0] ren2dis_uop_src1_en;
   logic [DECODE_WIDTH-1:0] ren2dis_uop_src1_is_pc;
-  logic [6:0] ren2dis_uop_src1_preg [DECODE_WIDTH];
+  logic [PRF_IDX_WIDTH-1:0] ren2dis_uop_src1_preg [DECODE_WIDTH];
   logic [DECODE_WIDTH-1:0] ren2dis_uop_src2_en;
   logic [DECODE_WIDTH-1:0] ren2dis_uop_src2_is_imm;
   logic [DECODE_WIDTH-1:0] ren2dis_uop_is_word;
-  logic [6:0] ren2dis_uop_src2_preg [DECODE_WIDTH];
+  logic [PRF_IDX_WIDTH-1:0] ren2dis_uop_src2_preg [DECODE_WIDTH];
   logic [4:0] ren2dis_uop_type [DECODE_WIDTH];
   logic [DECODE_WIDTH-1:0] ren2dis_valid;
 
@@ -213,7 +225,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; (
   logic [BR_MASK_WIDTH-1:0] dis2iss_req_uop_br_mask [5][DECODE_WIDTH];
   logic [11:0] dis2iss_req_uop_csr_idx [5][DECODE_WIDTH];
   logic dis2iss_req_uop_dest_en [5][DECODE_WIDTH];
-  logic [6:0] dis2iss_req_uop_dest_preg [5][DECODE_WIDTH];
+  logic [PRF_IDX_WIDTH-1:0] dis2iss_req_uop_dest_preg [5][DECODE_WIDTH];
   logic [5:0] dis2iss_req_uop_ftq_idx [5][DECODE_WIDTH];
   logic [FTQ_OFFSET_WIDTH-1:0] dis2iss_req_uop_ftq_offset [5][DECODE_WIDTH];
   logic [2:0] dis2iss_req_uop_func3 [5][DECODE_WIDTH];
@@ -227,12 +239,12 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; (
   logic dis2iss_req_uop_src1_busy [5][DECODE_WIDTH];
   logic dis2iss_req_uop_src1_en [5][DECODE_WIDTH];
   logic dis2iss_req_uop_src1_is_pc [5][DECODE_WIDTH];
-  logic [6:0] dis2iss_req_uop_src1_preg [5][DECODE_WIDTH];
+  logic [PRF_IDX_WIDTH-1:0] dis2iss_req_uop_src1_preg [5][DECODE_WIDTH];
   logic dis2iss_req_uop_src2_busy [5][DECODE_WIDTH];
   logic dis2iss_req_uop_src2_en [5][DECODE_WIDTH];
   logic dis2iss_req_uop_src2_is_imm [5][DECODE_WIDTH];
   logic dis2iss_req_uop_is_word [5][DECODE_WIDTH];
-  logic [6:0] dis2iss_req_uop_src2_preg [5][DECODE_WIDTH];
+  logic [PRF_IDX_WIDTH-1:0] dis2iss_req_uop_src2_preg [5][DECODE_WIDTH];
   logic dis2iss_req_uop_stq_flag [5][DECODE_WIDTH];
   logic [5:0] dis2iss_req_uop_stq_idx [5][DECODE_WIDTH];
   logic dis2iss_req_valid [5][DECODE_WIDTH];
@@ -254,7 +266,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; (
   logic dis2ren_ready;
   logic [5:0] dis2rob_uop_dest_areg [DECODE_WIDTH];
   logic [DECODE_WIDTH-1:0] dis2rob_uop_dest_en;
-  logic [6:0] dis2rob_uop_dest_preg [DECODE_WIDTH];
+  logic [PRF_IDX_WIDTH-1:0] dis2rob_uop_dest_preg [DECODE_WIDTH];
   logic [XLEN_BITS-1:0] dis2rob_uop_diag_val [DECODE_WIDTH];
   logic [2:0] dis2rob_uop_expect_mask [DECODE_WIDTH];
   logic [5:0] dis2rob_uop_ftq_idx [DECODE_WIDTH];
@@ -264,7 +276,8 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; (
   logic [DECODE_WIDTH-1:0] dis2rob_uop_illegal_inst;
   logic [31:0] dis2rob_uop_imm [DECODE_WIDTH];
   logic [DECODE_WIDTH-1:0] dis2rob_uop_me_elim;
-  logic [6:0] dis2rob_uop_old_dest_preg [DECODE_WIDTH];
+  logic [DECODE_WIDTH-1:0] dis2rob_uop_dest_fp;
+  logic [PRF_IDX_WIDTH-1:0] dis2rob_uop_old_dest_preg [DECODE_WIDTH];
   logic [DECODE_WIDTH-1:0] dis2rob_uop_page_fault_inst;
   logic [DECODE_WIDTH-1:0] dis2rob_uop_rob_flag;
   logic [6:0] dis2rob_uop_rob_idx [DECODE_WIDTH];
@@ -279,7 +292,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; (
   logic [BR_MASK_WIDTH-1:0] iss2prf_iss_entry_uop_br_mask [ISSUE_WIDTH];
   logic [11:0] iss2prf_iss_entry_uop_csr_idx [ISSUE_WIDTH];
   logic [ISSUE_WIDTH-1:0] iss2prf_iss_entry_uop_dest_en;
-  logic [6:0] iss2prf_iss_entry_uop_dest_preg [ISSUE_WIDTH];
+  logic [PRF_IDX_WIDTH-1:0] iss2prf_iss_entry_uop_dest_preg [ISSUE_WIDTH];
   logic [5:0] iss2prf_iss_entry_uop_ftq_idx [ISSUE_WIDTH];
   logic [FTQ_OFFSET_WIDTH-1:0] iss2prf_iss_entry_uop_ftq_offset [ISSUE_WIDTH];
   logic [2:0] iss2prf_iss_entry_uop_func3 [ISSUE_WIDTH];
@@ -292,15 +305,15 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; (
   logic [6:0] iss2prf_iss_entry_uop_rob_idx [ISSUE_WIDTH];
   logic [ISSUE_WIDTH-1:0] iss2prf_iss_entry_uop_src1_en;
   logic [ISSUE_WIDTH-1:0] iss2prf_iss_entry_uop_src1_is_pc;
-  logic [6:0] iss2prf_iss_entry_uop_src1_preg [ISSUE_WIDTH];
+  logic [PRF_IDX_WIDTH-1:0] iss2prf_iss_entry_uop_src1_preg [ISSUE_WIDTH];
   logic [ISSUE_WIDTH-1:0] iss2prf_iss_entry_uop_src2_en;
   logic [ISSUE_WIDTH-1:0] iss2prf_iss_entry_uop_src2_is_imm;
   logic [ISSUE_WIDTH-1:0] iss2prf_iss_entry_uop_is_word;
-  logic [6:0] iss2prf_iss_entry_uop_src2_preg [ISSUE_WIDTH];
+  logic [PRF_IDX_WIDTH-1:0] iss2prf_iss_entry_uop_src2_preg [ISSUE_WIDTH];
   logic [ISSUE_WIDTH-1:0] iss2prf_iss_entry_uop_stq_flag;
   logic [5:0] iss2prf_iss_entry_uop_stq_idx [ISSUE_WIDTH];
   logic [ISSUE_WIDTH-1:0] iss2prf_iss_entry_valid;
-  logic [6:0] iss_awake_wake_preg [MAX_WAKEUP_PORTS];
+  logic [PRF_IDX_WIDTH-1:0] iss_awake_wake_preg [MAX_WAKEUP_PORTS];
   logic [MAX_WAKEUP_PORTS-1:0] iss_awake_wake_valid;
 
   // ---- nets driven by prf: Prf (back-end/Prf.cpp)
@@ -311,7 +324,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; (
   logic [BR_MASK_WIDTH-1:0] prf2exe_iss_entry_uop_br_mask [ISSUE_WIDTH];
   logic [11:0] prf2exe_iss_entry_uop_csr_idx [ISSUE_WIDTH];
   logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_dest_en;
-  logic [6:0] prf2exe_iss_entry_uop_dest_preg [ISSUE_WIDTH];
+  logic [PRF_IDX_WIDTH-1:0] prf2exe_iss_entry_uop_dest_preg [ISSUE_WIDTH];
   logic [5:0] prf2exe_iss_entry_uop_ftq_idx [ISSUE_WIDTH];
   logic [XLEN_BITS-1:0] prf2exe_iss_entry_uop_ftq_next_pc [ISSUE_WIDTH];
   logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_ftq_pred_taken;
@@ -333,7 +346,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; (
   logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_stq_flag;
   logic [5:0] prf2exe_iss_entry_uop_stq_idx [ISSUE_WIDTH];
   logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_valid;
-  logic [6:0] prf_awake_wake_preg [LSU_LOAD_WB_WIDTH];
+  logic [PRF_IDX_WIDTH-1:0] prf_awake_wake_preg [LSU_LOAD_WB_WIDTH];
   logic [LSU_LOAD_WB_WIDTH-1:0] prf_awake_wake_valid;
 
   // ---- nets driven by exu: Exu (back-end/Exu/Exu.cpp): exu_ctrl + functional units, see exu.sv
@@ -344,7 +357,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; (
   logic exe2csr_we;
   logic [16:0] exe2iss_fu_ready_mask [ISSUE_WIDTH];
   logic [4:0] exe2lsu_ldu_req_uop_amo_op [LSU_LDU_COUNT];
-  logic [6:0] exe2lsu_ldu_req_uop_dest_preg [LSU_LDU_COUNT];
+  logic [PRF_IDX_WIDTH-1:0] exe2lsu_ldu_req_uop_dest_preg [LSU_LDU_COUNT];
   logic [2:0] exe2lsu_ldu_req_uop_func3 [LSU_LDU_COUNT];
   logic [LSU_LDU_COUNT-1:0] exe2lsu_ldu_req_uop_is_atomic;
   logic [5:0] exe2lsu_ldu_req_uop_ldq_idx [LSU_LDU_COUNT];
@@ -360,7 +373,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; (
   logic [5:0] exe2lsu_sdu_req_uop_stq_idx [LSU_SDU_COUNT];
   logic [LSU_SDU_COUNT-1:0] exe2lsu_sdu_req_valid;
   logic [4:0] exe2lsu_sta_req_uop_amo_op [LSU_STA_COUNT];
-  logic [6:0] exe2lsu_sta_req_uop_dest_preg [LSU_STA_COUNT];
+  logic [PRF_IDX_WIDTH-1:0] exe2lsu_sta_req_uop_dest_preg [LSU_STA_COUNT];
   logic [2:0] exe2lsu_sta_req_uop_func3 [LSU_STA_COUNT];
   logic [LSU_STA_COUNT-1:0] exe2lsu_sta_req_uop_is_atomic;
   logic [XLEN_BITS-1:0] exe2lsu_sta_req_uop_result [LSU_STA_COUNT];
@@ -369,12 +382,12 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; (
   logic [5:0] exe2lsu_sta_req_uop_stq_idx [LSU_STA_COUNT];
   logic [LSU_STA_COUNT-1:0] exe2lsu_sta_req_valid;
   logic [TOTAL_FU_COUNT-1:0] exe2prf_bypass_uop_dest_en;
-  logic [6:0] exe2prf_bypass_uop_dest_preg [TOTAL_FU_COUNT];
+  logic [PRF_IDX_WIDTH-1:0] exe2prf_bypass_uop_dest_preg [TOTAL_FU_COUNT];
   logic [XLEN_BITS-1:0] exe2prf_bypass_uop_result [TOTAL_FU_COUNT];
   logic [TOTAL_FU_COUNT-1:0] exe2prf_bypass_valid;
   logic [BR_MASK_WIDTH-1:0] exe2prf_entry_uop_br_mask [ISSUE_WIDTH];
   logic [ISSUE_WIDTH-1:0] exe2prf_entry_uop_dest_en;
-  logic [6:0] exe2prf_entry_uop_dest_preg [ISSUE_WIDTH];
+  logic [PRF_IDX_WIDTH-1:0] exe2prf_entry_uop_dest_preg [ISSUE_WIDTH];
   logic [4:0] exe2prf_entry_uop_op [ISSUE_WIDTH];
   logic [XLEN_BITS-1:0] exe2prf_entry_uop_result [ISSUE_WIDTH];
   logic [ISSUE_WIDTH-1:0] exe2prf_entry_valid;
@@ -424,7 +437,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; (
   logic rob_bcast_page_fault_load;
   logic rob_bcast_page_fault_store;
   logic [XLEN_BITS-1:0] rob_bcast_trap_val;
-  logic [6:0] rob_commit_commit_entry_uop_dest_preg [COMMIT_WIDTH];
+  logic [PRF_IDX_WIDTH-1:0] rob_commit_commit_entry_uop_dest_preg [COMMIT_WIDTH];
   logic [XLEN_BITS-1:0] rob_commit_commit_entry_uop_diag_val [COMMIT_WIDTH];
   logic [5:0] rob_commit_commit_entry_uop_ftq_idx [COMMIT_WIDTH];
   logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_ftq_is_last;
@@ -432,7 +445,8 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; (
   logic [6:0] rob_commit_commit_entry_uop_func7 [COMMIT_WIDTH];
   logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_illegal_inst;
   logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_me_elim;
-  logic [6:0] rob_commit_commit_entry_uop_old_dest_preg [COMMIT_WIDTH];
+  logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_dest_fp;
+  logic [PRF_IDX_WIDTH-1:0] rob_commit_commit_entry_uop_old_dest_preg [COMMIT_WIDTH];
 
   // ---- nets driven by dtlb: TlbMmu, DTLB instance (back-end/Lsu/TlbMmu.cpp)
   logic [5:0] mmu2lsu_ldq_resp_entry_idx [LSU_LDU_COUNT];
@@ -461,7 +475,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; (
   logic [LSU_STA_COUNT-1:0] lsu2exe_sta_wb_req_valid;
   logic [BR_MASK_WIDTH-1:0] lsu2exe_wb_req_uop_br_mask [LSU_LOAD_WB_WIDTH];
   logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_dest_en;
-  logic [6:0] lsu2exe_wb_req_uop_dest_preg [LSU_LOAD_WB_WIDTH];
+  logic [PRF_IDX_WIDTH-1:0] lsu2exe_wb_req_uop_dest_preg [LSU_LOAD_WB_WIDTH];
   logic [XLEN_BITS-1:0] lsu2exe_wb_req_uop_diag_val [LSU_LOAD_WB_WIDTH];
   logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_page_fault_load;
   logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_page_fault_store;
@@ -485,9 +499,9 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; (
                          lsu2exe_wb_req_uop_dest_en[k];
   end
   logic [2*LSU_LDU_COUNT-1:0] lsu2iss_wake_valid;
-  logic [6:0] lsu2iss_wake_preg [2*LSU_LDU_COUNT];
+  logic [PRF_IDX_WIDTH-1:0] lsu2iss_wake_preg [2*LSU_LDU_COUNT];
   logic [LSU_LDU_COUNT-1:0] lsu2iss_cancel_valid;
-  logic [6:0] lsu2iss_cancel_preg [LSU_LDU_COUNT];
+  logic [PRF_IDX_WIDTH-1:0] lsu2iss_cancel_preg [LSU_LDU_COUNT];
 
   // ---- nets driven by glue: BackTop-level glue (back-end/BackTop.cpp), see back_top_glue.sv
   logic [1:0] csr_status_mstatus_mpp;
@@ -628,6 +642,12 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; (
     .dec2ren_uop_csr_idx(dec2ren_uop_csr_idx),
     .dec2ren_uop_page_fault_inst(dec2ren_uop_page_fault_inst),
     .dec2ren_uop_illegal_inst(dec2ren_uop_illegal_inst),
+    .dec2ren_uop_dest_fp(dec2ren_uop_dest_fp),
+    .dec2ren_uop_src1_fp(dec2ren_uop_src1_fp),
+    .dec2ren_uop_src2_fp(dec2ren_uop_src2_fp),
+    .dec2ren_uop_src3_en(dec2ren_uop_src3_en),
+    .dec2ren_uop_src3_areg(dec2ren_uop_src3_areg),
+    .dec2ren_uop_fp_cls(dec2ren_uop_fp_cls),
     .dec_bcast_mispred(dec_bcast_mispred),
     .dec_bcast_br_mask(dec_bcast_br_mask),
     .dec_bcast_br_id(dec_bcast_br_id),
@@ -659,6 +679,12 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; (
     .dec2ren_uop_func3(dec2ren_uop_func3),
     .dec2ren_uop_func7(dec2ren_uop_func7),
     .dec2ren_uop_illegal_inst(dec2ren_uop_illegal_inst),
+    .dec2ren_uop_dest_fp(dec2ren_uop_dest_fp),
+    .dec2ren_uop_src1_fp(dec2ren_uop_src1_fp),
+    .dec2ren_uop_src2_fp(dec2ren_uop_src2_fp),
+    .dec2ren_uop_src3_en(dec2ren_uop_src3_en),
+    .dec2ren_uop_src3_areg(dec2ren_uop_src3_areg),
+    .dec2ren_uop_fp_cls(dec2ren_uop_fp_cls),
     .dec2ren_uop_imm(dec2ren_uop_imm),
     .dec2ren_uop_is_atomic(dec2ren_uop_is_atomic),
     .dec2ren_uop_page_fault_inst(dec2ren_uop_page_fault_inst),
@@ -682,6 +708,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; (
     .rob_commit_commit_entry_uop_dest_preg(rob_commit_commit_entry_uop_dest_preg),
     .rob_commit_commit_entry_uop_illegal_inst(rob_commit_commit_entry_uop_illegal_inst),
     .rob_commit_commit_entry_uop_me_elim(rob_commit_commit_entry_uop_me_elim),
+    .rob_commit_commit_entry_uop_dest_fp(rob_commit_commit_entry_uop_dest_fp),
     .rob_commit_commit_entry_uop_old_dest_preg(rob_commit_commit_entry_uop_old_dest_preg),
     .rob_commit_commit_entry_uop_page_fault_inst(rob_commit_commit_entry_uop_page_fault_inst),
     .rob_commit_commit_entry_uop_page_fault_load(rob_commit_commit_entry_uop_page_fault_load),
@@ -717,7 +744,13 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; (
     .ren2dis_uop_src1_preg(ren2dis_uop_src1_preg),
     .ren2dis_uop_src2_preg(ren2dis_uop_src2_preg),
     .ren2dis_uop_old_dest_preg(ren2dis_uop_old_dest_preg),
-    .ren2dis_uop_me_elim(ren2dis_uop_me_elim)
+    .ren2dis_uop_me_elim(ren2dis_uop_me_elim),
+    .ren2dis_uop_dest_fp(ren2dis_uop_dest_fp),
+    .ren2dis_uop_src1_fp(ren2dis_uop_src1_fp),
+    .ren2dis_uop_src2_fp(ren2dis_uop_src2_fp),
+    .ren2dis_uop_src3_en(ren2dis_uop_src3_en),
+    .ren2dis_uop_src3_preg(ren2dis_uop_src3_preg),
+    .ren2dis_uop_fp_cls(ren2dis_uop_fp_cls)
   );
 
   // ================= dis: Dispatch (back-end/Dispatch.cpp)
@@ -763,6 +796,12 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; (
     .ren2dis_uop_imm(ren2dis_uop_imm),
     .ren2dis_uop_is_atomic(ren2dis_uop_is_atomic),
     .ren2dis_uop_me_elim(ren2dis_uop_me_elim),
+    .ren2dis_uop_dest_fp(ren2dis_uop_dest_fp),
+    .ren2dis_uop_src1_fp(ren2dis_uop_src1_fp),
+    .ren2dis_uop_src2_fp(ren2dis_uop_src2_fp),
+    .ren2dis_uop_src3_en(ren2dis_uop_src3_en),
+    .ren2dis_uop_src3_preg(ren2dis_uop_src3_preg),
+    .ren2dis_uop_fp_cls(ren2dis_uop_fp_cls),
     .ren2dis_uop_old_dest_preg(ren2dis_uop_old_dest_preg),
     .ren2dis_uop_page_fault_inst(ren2dis_uop_page_fault_inst),
     .ren2dis_uop_src1_areg(ren2dis_uop_src1_areg),
@@ -793,6 +832,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; (
     .dis2rob_uop_dest_preg(dis2rob_uop_dest_preg),
     .dis2rob_uop_old_dest_preg(dis2rob_uop_old_dest_preg),
     .dis2rob_uop_me_elim(dis2rob_uop_me_elim),
+    .dis2rob_uop_dest_fp(dis2rob_uop_dest_fp),
     .dis2rob_uop_ftq_idx(dis2rob_uop_ftq_idx),
     .dis2rob_uop_ftq_offset(dis2rob_uop_ftq_offset),
     .dis2rob_uop_ftq_is_last(dis2rob_uop_ftq_is_last),
@@ -1201,6 +1241,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; (
     .dis2rob_uop_illegal_inst(dis2rob_uop_illegal_inst),
     .dis2rob_uop_imm(dis2rob_uop_imm),
     .dis2rob_uop_me_elim(dis2rob_uop_me_elim),
+    .dis2rob_uop_dest_fp(dis2rob_uop_dest_fp),
     .dis2rob_uop_old_dest_preg(dis2rob_uop_old_dest_preg),
     .dis2rob_uop_page_fault_inst(dis2rob_uop_page_fault_inst),
     .dis2rob_uop_rob_flag(dis2rob_uop_rob_flag),
@@ -1247,6 +1288,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; (
     .rob_commit_commit_entry_uop_dest_preg(rob_commit_commit_entry_uop_dest_preg),
     .rob_commit_commit_entry_uop_old_dest_preg(rob_commit_commit_entry_uop_old_dest_preg),
     .rob_commit_commit_entry_uop_me_elim(rob_commit_commit_entry_uop_me_elim),
+    .rob_commit_commit_entry_uop_dest_fp(rob_commit_commit_entry_uop_dest_fp),
     .rob_commit_commit_entry_uop_ftq_idx(rob_commit_commit_entry_uop_ftq_idx),
     .rob_commit_commit_entry_uop_ftq_offset(rob_commit_commit_entry_uop_ftq_offset),
     .rob_commit_commit_entry_uop_ftq_is_last(rob_commit_commit_entry_uop_ftq_is_last),

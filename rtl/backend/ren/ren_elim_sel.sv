@@ -16,6 +16,7 @@ module ren_elim_sel
   input  logic [N-1:0] inst_valid,
   input  logic [N-1:0] move_shape,        // addi rd, rs, 0 with real rd and rs
   input  logic [N-2:0] dest_en,           // the youngest slot is nobody's older slot
+  input  logic [N-2:0] dest_fp,           // older slot's destination is an FP register (does not bypass an INT source)
   input  areg_t        dest_areg [N],
   input  areg_t        src1_areg [N],
   input  preg_t        src1_rat [N],      // speculative RAT lookup of src1 (no group bypass)
@@ -37,7 +38,7 @@ module ren_elim_sel
     for (genvar j = 0; j < N; j++) begin : g_older
       if (j < i) begin : g_yes
         assign older[j]      = producer[j];
-        assign bypass_hit[j] = producer[j] & (dest_areg[j] == src1_areg[i]);
+        assign bypass_hit[j] = producer[j] & ~dest_fp[j] & (dest_areg[j] == src1_areg[i]);
       end else begin : g_no
         assign older[j]      = 1'b0;
         assign bypass_hit[j] = 1'b0;

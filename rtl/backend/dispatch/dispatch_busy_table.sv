@@ -9,23 +9,23 @@ module dispatch_busy_table
 (
   input  logic                     clk,
   input  logic                     rst_n,
-  input  logic [PRF_NUM-1:0]       cancel_v,    // wake-up of the previous cycle was wrong (LP_L2): busy again
+  input  logic [TAG_NUM-1:0]       cancel_v,    // wake-up of the previous cycle was wrong (LP_L2): busy again
   input  logic [NUM_WAKE-1:0] wake_valid,
   input  logic [PRF_IDX_WIDTH-1:0] wake_preg  [NUM_WAKE],
   input  logic [NUM_SLOTS-1:0] set_valid,   // fired instruction with a destination
   input  logic [PRF_IDX_WIDTH-1:0] set_preg   [NUM_SLOTS],
-  output logic [PRF_NUM-1:0]       busy_q
+  output logic [TAG_NUM-1:0]       busy_q
 );
 
-  logic [PRF_NUM-1:0] busy_d;
-  logic [PRF_NUM-1:0] wake_clear;
-  logic [PRF_NUM-1:0] dest_set;
+  logic [TAG_NUM-1:0] busy_d;
+  logic [TAG_NUM-1:0] wake_clear;
+  logic [TAG_NUM-1:0] dest_set;
 
   // Ref: Dispatch::comb_fire (busy_table_1: clear on wakeup, then set on fire)
   always_comb begin
     wake_clear = '0;
     dest_set   = '0;
-    for (int p = 0; p < PRF_NUM; p++) begin
+    for (int p = 0; p < TAG_NUM; p++) begin
       for (int w = 0; w < NUM_WAKE; w++) begin
         wake_clear[p] = wake_clear[p] || (wake_valid[w] && (wake_preg[w] == PRF_IDX_WIDTH'(p)));
       end

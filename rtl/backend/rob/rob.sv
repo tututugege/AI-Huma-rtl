@@ -20,9 +20,10 @@ module rob
   input  logic [XLEN_BITS-1:0] dis2rob_uop_diag_val [DECODE_WIDTH],
   input  logic [5:0] dis2rob_uop_dest_areg [DECODE_WIDTH],
   input  logic [5:0] dis2rob_uop_src1_areg [DECODE_WIDTH],
-  input  logic [6:0] dis2rob_uop_dest_preg [DECODE_WIDTH],
-  input  logic [6:0] dis2rob_uop_old_dest_preg [DECODE_WIDTH],
+  input  logic [PRF_IDX_WIDTH-1:0] dis2rob_uop_dest_preg [DECODE_WIDTH],
+  input  logic [PRF_IDX_WIDTH-1:0] dis2rob_uop_old_dest_preg [DECODE_WIDTH],
   input  logic [DECODE_WIDTH-1:0] dis2rob_uop_me_elim,
+  input  logic [DECODE_WIDTH-1:0] dis2rob_uop_dest_fp,
   input  logic [5:0] dis2rob_uop_ftq_idx [DECODE_WIDTH],
   input  logic [FTQ_OFFSET_WIDTH-1:0] dis2rob_uop_ftq_offset [DECODE_WIDTH],
   input  logic [DECODE_WIDTH-1:0] dis2rob_uop_ftq_is_last,
@@ -59,9 +60,10 @@ module rob
   output logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_valid,
   output logic [XLEN_BITS-1:0] rob_commit_commit_entry_uop_diag_val [COMMIT_WIDTH],
   output logic [5:0] rob_commit_commit_entry_uop_dest_areg [COMMIT_WIDTH],
-  output logic [6:0] rob_commit_commit_entry_uop_dest_preg [COMMIT_WIDTH],
-  output logic [6:0] rob_commit_commit_entry_uop_old_dest_preg [COMMIT_WIDTH],
+  output logic [PRF_IDX_WIDTH-1:0] rob_commit_commit_entry_uop_dest_preg [COMMIT_WIDTH],
+  output logic [PRF_IDX_WIDTH-1:0] rob_commit_commit_entry_uop_old_dest_preg [COMMIT_WIDTH],
   output logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_me_elim,
+  output logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_dest_fp,
   output logic [5:0] rob_commit_commit_entry_uop_ftq_idx [COMMIT_WIDTH],
   output logic [FTQ_OFFSET_WIDTH-1:0] rob_commit_commit_entry_uop_ftq_offset [COMMIT_WIDTH],
   output logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_ftq_is_last,
@@ -120,6 +122,7 @@ module rob
       dest_preg:     dis2rob_uop_dest_preg[b],
       old_dest_preg: dis2rob_uop_old_dest_preg[b],
       me_elim:       dis2rob_uop_me_elim[b],
+      dest_fp:       dis2rob_uop_dest_fp[b],
       dest_en:       dis2rob_uop_dest_en[b],
       ftq_idx:       dis2rob_uop_ftq_idx[b],
       ftq_offset:    dis2rob_uop_ftq_offset[b],
@@ -232,6 +235,7 @@ module rob
     assign rob_commit_commit_entry_uop_dest_preg[b]         = commit_uop[b].dest_preg;
     assign rob_commit_commit_entry_uop_old_dest_preg[b]     = commit_uop[b].old_dest_preg;
     assign rob_commit_commit_entry_uop_me_elim[b]           = commit_uop[b].me_elim;
+    assign rob_commit_commit_entry_uop_dest_fp[b]           = commit_uop[b].dest_fp;
     assign rob_commit_commit_entry_uop_ftq_idx[b]           = commit_uop[b].ftq_idx;
     assign rob_commit_commit_entry_uop_ftq_offset[b]        = commit_uop[b].ftq_offset;
     assign rob_commit_commit_entry_uop_ftq_is_last[b]       = commit_uop[b].ftq_is_last;

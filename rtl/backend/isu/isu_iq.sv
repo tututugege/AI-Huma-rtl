@@ -15,8 +15,8 @@ module isu_iq
   input  logic                     rst_n,
   input  logic [DW-1:0]            enq_valid,
   input  isu_enq_t                 enq [DW],
-  input  logic [PRF_NUM-1:0]       woken,
-  input  logic [PRF_NUM-1:0]       cancel_v,        // wake-up of the previous cycle was wrong: waiting again (LP_L2)
+  input  logic [TAG_NUM-1:0]       woken,
+  input  logic [TAG_NUM-1:0]       cancel_v,        // wake-up of the previous cycle was wrong: waiting again (LP_L2)
   input  op_set_t                  fu_ready [NP],   // per port: op classes the functional unit accepts now
   input  logic                     issue_block,     // rob flush or misprediction this cycle
   input  logic                     flush_all,

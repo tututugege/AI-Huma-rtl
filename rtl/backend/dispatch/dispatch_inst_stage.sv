@@ -18,8 +18,10 @@ module dispatch_inst_stage
   input  logic [NUM_SLOTS-1:0] fire,
   input  logic [NUM_SLOTS-1:0] alloc_src1_busy,  // busy after comb_wake
   input  logic [NUM_SLOTS-1:0] alloc_src2_busy,
+  input  logic [NUM_SLOTS-1:0] alloc_src3_busy,
   input  logic [NUM_SLOTS-1:0] woken1,        // src preg woken by this cycle's wakeups
   input  logic [NUM_SLOTS-1:0] woken2,
+  input  logic [NUM_SLOTS-1:0] woken3,
   output logic [NUM_SLOTS-1:0] valid_q,
   output dis_inst_t                  inst_q    [NUM_SLOTS]
 );
@@ -38,6 +40,7 @@ module dispatch_inst_stage
       held_inst  = inst_q[i];
       held_inst.src1_busy = alloc_src1_busy[i] && !(inst_q[i].src1_en && woken1[i]);
       held_inst.src2_busy = alloc_src2_busy[i] && !(inst_q[i].src2_en && woken2[i]);
+      held_inst.src3_busy = alloc_src3_busy[i] && !(inst_q[i].src3_en && woken3[i]);
       held_inst.br_mask   = inst_q[i].br_mask & ~clear_mask;
       new_inst = ren_inst[i];
       new_inst.br_mask = ren_inst[i].br_mask & ~clear_mask;

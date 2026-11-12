@@ -8,20 +8,21 @@ module ren_ckpt
   import ren_pkg::*;
 #(
   parameter int N  = DECODE_WIDTH,
-  parameter int NB = MAX_BR_NUM
+  parameter int NB = MAX_BR_NUM,
+  parameter int RW = $bits(rat_t)          // bits of one RAT snapshot (the FP RAT is smaller)
 ) (
   input  logic     clk,
   input  logic     rst_n,
   input  logic [N-1:0] wr_valid,
   input  br_tag_t  wr_br_id [N],
-  input  rat_t     wr_rat   [N],
+  input  logic [RW-1:0] wr_rat [N],
   input  preg_t    wr_head  [N],
   input  br_tag_t  rd_br_id,
-  output rat_t     rd_rat,
+  output logic [RW-1:0] rd_rat,
   output preg_t    rd_head
 );
 
-  localparam int EW = $bits(rat_t) + PRF_IDX_WIDTH;
+  localparam int EW = RW + PRF_IDX_WIDTH;
 
   logic [EW-1:0] entry_q [NB];
   logic [EW-1:0] wr_entry [N];
@@ -50,7 +51,7 @@ module ren_ckpt
 
   ttg_onehot_mux #(.N(NB), .W(EW)) u_rd (.sel(rd_sel), .data(entry_q), .out(rd_entry));
 
-  assign rd_rat  = rat_t'(rd_entry[$bits(rat_t)-1:0]);
+  assign rd_rat  = rd_entry[RW-1:0];
   assign rd_head = rd_entry[EW-1 -: PRF_IDX_WIDTH];
 
 endmodule

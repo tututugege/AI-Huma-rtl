@@ -8,7 +8,9 @@ module ren_rat
 #(
   parameter int N  = DECODE_WIDTH,
   parameter int C  = COMMIT_WIDTH,
-  parameter int NR = 3 * DECODE_WIDTH     // read ports on spec_RAT
+  parameter int NR = 3 * DECODE_WIDTH,    // read ports on spec_RAT
+  parameter int ENTRIES = RAT_NUM,        // RAT entries (the FP RAT has FP_ARF_NUM, no pseudo entry)
+  parameter bit FP = 1'b0                 // FP domain: reset value is tag FP_TAG_BASE + i
 ) (
   input  logic              clk,
   input  logic              rst_n,
@@ -26,32 +28,40 @@ module ren_rat
   // recovery
   input  logic              flush,
   input  logic              mispred,
-  input  rat_t              ckpt_rat,           // RAT_checkpoint[dec_bcast.br_id] (old value)
+  input  logic [ENTRIES-1:0][PRF_IDX_WIDTH-1:0] ckpt_rat,           // RAT_checkpoint[dec_bcast.br_id] (old value)
   // snapshot[i]: spec RAT after slots 0..i have written (stored in the checkpoint of a branch in slot i)
-  output rat_t              snapshot [N],
-  output rat_t              spec_rat            // spec RAT as of the start of the cycle
+  output logic [ENTRIES-1:0][PRF_IDX_WIDTH-1:0] snapshot [N],
+  output logic [ENTRIES-1:0][PRF_IDX_WIDTH-1:0] spec_rat            // spec RAT as of the start of the cycle
 );
 
-  rat_t spec_q, spec_d, arch_q, arch_d;
-  preg_t spec_entry [RAT_NUM];
+  typedef logic [ENTRIES-1:0][PRF_IDX_WIDTH-1:0] ent_t;
+  ent_t spec_q, spec_d, arch_q, arch_d;
+
+  // reset value: integer register i -> preg i; FP register i -> tag FP_TAG_BASE + i (Ren::init)
+  function automatic ent_t reset_rat();
+    ent_t r;
+    for (int i = 0; i < ENTRIES; i++) r[i] = preg_t'(FP ? FP_TAG_BASE + i : i);
+    return r;
+  endfunction
+  preg_t spec_entry [ENTRIES];
   assign spec_rat = spec_q;
 
   // ---- reads: one-hot decode of the areg, AND-OR over the RAT entries (areg beyond the RAT reads 0) ----
-  for (genvar e = 0; e < RAT_NUM; e++) begin : g_entry_view
+  for (genvar e = 0; e < ENTRIES; e++) begin : g_entry_view
     assign spec_entry[e] = spec_q[e];
   end
 
   for (genvar r = 0; r < NR; r++) begin : g_read
-    logic [RAT_NUM-1:0] sel;
-    for (genvar e = 0; e < RAT_NUM; e++) begin : g_dec
+    logic [ENTRIES-1:0] sel;
+    for (genvar e = 0; e < ENTRIES; e++) begin : g_dec
       assign sel[e] = (rd_areg[r] == areg_t'(e));
     end
-    ttg_onehot_mux #(.N(RAT_NUM), .W(PRF_IDX_WIDTH)) u_rd (.sel(sel), .data(spec_entry), .out(rd_preg[r]));
+    ttg_onehot_mux #(.N(ENTRIES), .W(PRF_IDX_WIDTH)) u_rd (.sel(sel), .data(spec_entry), .out(rd_preg[r]));
   end
 
   // ---- spec RAT snapshots: per slot i and entry e, last writer among slots 0..i ----
   for (genvar i = 0; i < N; i++) begin : g_snap_slot
-    for (genvar e = 0; e < RAT_NUM; e++) begin : g_snap_entry
+    for (genvar e = 0; e < ENTRIES; e++) begin : g_snap_entry
       logic [N-1:0] hit;
       logic         hit_any;
       preg_t        hit_value;
@@ -69,7 +79,7 @@ module ren_rat
   end
 
   // ---- arch RAT: commit writes, later commit slot wins ----
-  for (genvar e = 0; e < RAT_NUM; e++) begin : g_arch
+  for (genvar e = 0; e < ENTRIES; e++) begin : g_arch
     logic [C-1:0] hit;
     logic         hit_any;
     preg_t        hit_value;
@@ -90,8 +100,8 @@ module ren_rat
 
   always_ff @(posedge clk) begin
     if (!rst_n) begin
-      spec_q <= rat_identity();
-      arch_q <= rat_identity();
+      spec_q <= reset_rat();
+      arch_q <= reset_rat();
     end else begin
       spec_q <= spec_d;
       arch_q <= arch_d;

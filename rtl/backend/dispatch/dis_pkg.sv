@@ -40,7 +40,7 @@ package dis_pkg;
   typedef enum logic [INST_TYPE_W-1:0] {
     INST_NOP = 5'd0, INST_JAL, INST_JALR, INST_ADD, INST_BR, INST_LOAD, INST_STORE, INST_CSR,
     INST_FENCE, INST_ECALL, INST_EBREAK, INST_WFI, INST_SFENCE_VMA, INST_FENCE_I, INST_MRET,
-    INST_SRET, INST_MUL, INST_DIV, INST_AMO
+    INST_SRET, INST_MUL, INST_DIV, INST_AMO, INST_FPOP
   } inst_type_e;
 
   typedef enum logic [UOP_TYPE_W-1:0] {
@@ -57,8 +57,15 @@ package dis_pkg;
     logic [PRF_IDX_WIDTH-1:0]  dest_preg;
     logic [PRF_IDX_WIDTH-1:0]  src1_preg;
     logic [PRF_IDX_WIDTH-1:0]  src2_preg;
+    logic [PRF_IDX_WIDTH-1:0]  src3_preg;     // F/D: third source of a fused multiply-add (valid while src3_en)
     logic [PRF_IDX_WIDTH-1:0]  old_dest_preg;
     logic                      me_elim;       // move elimination: dest_preg is src1_preg, no uop
+    logic                      dest_fp;       // F/D: the registers above are FP tags (FP_TAG_BASE+)
+    logic                      src1_fp;
+    logic                      src2_fp;
+    logic                      src3_en;
+    logic                      src3_busy;
+    logic [2:0]                fp_cls;
     logic [FTQ_IDX_WIDTH-1:0]  ftq_idx;
     logic [FTQ_OFFSET_WIDTH-1:0] ftq_offset;
     logic                      ftq_is_last;

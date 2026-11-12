@@ -28,7 +28,10 @@
 
 ## 3. 分阶段实施（每一阶段都要 lint 干净、纯整数程序周期不变）
 
-1. **S1 前端和重命名**：解码、`ren` 的 FP 域、`dispatch` 的域位和 `busy_table`。验收：用 `-DFP=1` 配置，整数程序 `soc_smoke` 56/56 不变（FP 字段全 0）。
+1. **S1 前端和重命名**：解码、`ren` 的 FP 域、`dispatch` 的域位和 `busy_table`。**已完成（2026-11-12，`exp/fd-rtl`）**。
+   - 验收改为两部分（`-DFP=1` 配置下整核 lint 在 S2/S3 之前做不到：`exu_ctrl_pkg`/`isu_pkg` 的手写端口表按 FP=0 排布，`isu` 有布局断言）：① 默认配置（FP=0）整核 lint 0、lint_chip 0、`soc_smoke` 55 PASS / 0 FAIL（另 1 个 SKIP：`directed/memspec_vio.bin` 不存在，与之前相同），dhrystone、coremark 周期与模型一致；② `-DFP=1` 配置下 `idu`、`ren`、`dispatch`、`rob` 各模块 lint 0，`idu_ctrl_decode` 的 F/D 译码单元测试通过（`tests/fp_decode/run.sh`，28256 条，对拍 `Idu.cpp` 的规则：flw/fld/fsw/fsd、融合乘加、OP-FP 的 funct5 分类、保留编码、`f0` 的 dest_en、`src3_areg`）。
+   - 做了什么：`idu_ctrl_decode` 新增 11 个类和一张 FP 副表（`dest_fp/src1_fp/src2_fp/src3_en/src3_areg/fp_cls`，`FPRF_NUM==0` 时全 0）；`ren_inst_t`/`ren_out_uop_t`/`ren_commit_t` 加域位；`ren_fp` 新模块（FP RAT/arch RAT/环形空闲表（96 槽，非 2 的幂，指针模加）/分支检查点，每个域各自按序停顿），`ren_rat`/`ren_ckpt` 参数化复用；`ren_elim_sel` 不让 FP 目的寄存器旁路整数源；`dispatch` 加 `src3`（唤醒 CAM、忙位、组内 RAW）、`dest_written` 对 `f0` 计入，忙表/唤醒矩阵由 `PRF_NUM` 改为 `TAG_NUM`；ROB 项加 `dest_fp` 并回到 `ren_commit_t`；所有带 preg 的端口位宽由字面 `[6:0]` 改为 `PRF_IDX_WIDTH`（FP=0 时仍 7 位，`ren_arch_cnt` 只管整数寄存器）。
+   - **没做 / 只做了 lint**：FP 重命名路径（`ren_fp`）还没有被任何程序跑到，真正的验证要等 S2/S3 之后跑 FP 程序（周期与模型逐周期比较）；`spec/*.io` 里 preg 宽度仍是字面 7（旧harness 的接口规格，现行流程不用）；`tools/gen_backtop.py` 还没有同步 S1 新增的口（`back_top.sv` 是手改的）；FP 指令此时在 dispatch 里被当成整数 uop（`to_int`），S2 要把 FMA/FDIV/MISC 引到 `IQ_FP`、I2F 留在 `IQ_INT` 并去掉 FP 目的寄存器的整数写回。
 2. **S2 发射**：`IQ_FP`、三源唤醒、FP 口和 I2F 能力、FP 唤醒通道。验收：同上。
 3. **S3 FP 寄存器堆和运算单元（行为模型）**：`fprf`、`exu_ctrl` 的 FP FU；运算先用 **DPI 调 softfloat**（沿用 `mul_pipe` 的"行为计算 + 延迟线"做法），保证流水线本身与模型逐周期一致。验收：单个 `fadd`/`fmadd` 微程序与模型周期一致。
 4. **S4 LSU**：FP load/store、STD 的 FP 数据。验收：`rv64uf/ud` 的 `ldst`。

@@ -23,6 +23,7 @@ module ren_arch_cnt
 );
 
   localparam int AW = CNT_W + CW + 1;
+  localparam int IW = $clog2(PRF_NUM);   // integer registers only: FP registers (tags >= FP_TAG_BASE) never get here
 
   cnt_t cnt_q [PRF_NUM];
   cnt_t cnt_d [PRF_NUM];
@@ -43,7 +44,7 @@ module ren_arch_cnt
     end
     ttg_popcount #(.N(C)) u_inc (.bits(inc_hit), .count(n_inc));
     ttg_popcount #(.N(C)) u_dec (.bits(dec_hit), .count(n_dec));
-    assign after = AW'(cnt_q[old_preg[k]]) + AW'(n_inc) - AW'(n_dec);
+    assign after = AW'(cnt_q[old_preg[k][IW-1:0]]) + AW'(n_inc) - AW'(n_dec);
     assign free[k] = reclaim[k] & (after == '0);
   end
 

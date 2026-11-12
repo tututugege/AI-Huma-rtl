@@ -32,6 +32,12 @@ module ren
   input  logic [CSR_IDX_WIDTH-1:0] dec2ren_uop_csr_idx [DECODE_WIDTH],
   input  logic [DECODE_WIDTH-1:0] dec2ren_uop_page_fault_inst,
   input  logic [DECODE_WIDTH-1:0] dec2ren_uop_illegal_inst,
+  input  logic [DECODE_WIDTH-1:0] dec2ren_uop_dest_fp,
+  input  logic [DECODE_WIDTH-1:0] dec2ren_uop_src1_fp,
+  input  logic [DECODE_WIDTH-1:0] dec2ren_uop_src2_fp,
+  input  logic [DECODE_WIDTH-1:0] dec2ren_uop_src3_en,
+  input  logic [AREG_IDX_WIDTH-1:0] dec2ren_uop_src3_areg [DECODE_WIDTH],
+  input  logic [2:0] dec2ren_uop_fp_cls [DECODE_WIDTH],
   input  logic dec_bcast_mispred,
   input  logic [BR_TAG_WIDTH-1:0] dec_bcast_br_id,
   input  logic [BR_MASK_WIDTH-1:0] dec_bcast_clear_mask,
@@ -49,6 +55,7 @@ module ren
   input  logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_page_fault_load,
   input  logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_page_fault_store,
   input  logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_illegal_inst,
+  input  logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_dest_fp,
   output logic ren2dec_ready,
   output logic [DECODE_WIDTH-1:0] ren2dis_valid,
   output logic [XLEN_BITS-1:0] ren2dis_uop_diag_val [DECODE_WIDTH],
@@ -77,7 +84,13 @@ module ren
   output logic [PRF_IDX_WIDTH-1:0] ren2dis_uop_src1_preg [DECODE_WIDTH],
   output logic [PRF_IDX_WIDTH-1:0] ren2dis_uop_src2_preg [DECODE_WIDTH],
   output logic [PRF_IDX_WIDTH-1:0] ren2dis_uop_old_dest_preg [DECODE_WIDTH],
-  output logic [DECODE_WIDTH-1:0] ren2dis_uop_me_elim
+  output logic [DECODE_WIDTH-1:0] ren2dis_uop_me_elim,
+  output logic [DECODE_WIDTH-1:0] ren2dis_uop_dest_fp,
+  output logic [DECODE_WIDTH-1:0] ren2dis_uop_src1_fp,
+  output logic [DECODE_WIDTH-1:0] ren2dis_uop_src2_fp,
+  output logic [DECODE_WIDTH-1:0] ren2dis_uop_src3_en,
+  output logic [PRF_IDX_WIDTH-1:0] ren2dis_uop_src3_preg [DECODE_WIDTH],
+  output logic [2:0] ren2dis_uop_fp_cls [DECODE_WIDTH]
 );
 
   logic [DECODE_WIDTH-1:0] dec_valid;
@@ -111,7 +124,13 @@ diag_val: dec2ren_uop_diag_val[i],
                           br_mask: dec2ren_uop_br_mask[i],
                           csr_idx: dec2ren_uop_csr_idx[i],
                           page_fault_inst: dec2ren_uop_page_fault_inst[i],
-                          illegal_inst: dec2ren_uop_illegal_inst[i]};
+                          illegal_inst: dec2ren_uop_illegal_inst[i],
+                          dest_fp: dec2ren_uop_dest_fp[i],
+                          src1_fp: dec2ren_uop_src1_fp[i],
+                          src2_fp: dec2ren_uop_src2_fp[i],
+                          src3_en: dec2ren_uop_src3_en[i],
+                          src3_areg: dec2ren_uop_src3_areg[i],
+                          fp_cls: dec2ren_uop_fp_cls[i]};
     assign ren2dis_valid[i] = out_valid[i];
     assign ren2dis_uop_diag_val[i] = out_uop[i].diag_val;
     assign ren2dis_uop_dest_areg[i] = out_uop[i].dest_areg;
@@ -140,6 +159,12 @@ diag_val: dec2ren_uop_diag_val[i],
     assign ren2dis_uop_src2_preg[i] = out_uop[i].src2_preg;
     assign ren2dis_uop_old_dest_preg[i] = out_uop[i].old_dest_preg;
     assign ren2dis_uop_me_elim[i] = out_uop[i].me_elim;
+    assign ren2dis_uop_dest_fp[i] = out_uop[i].dest_fp;
+    assign ren2dis_uop_src1_fp[i] = out_uop[i].src1_fp;
+    assign ren2dis_uop_src2_fp[i] = out_uop[i].src2_fp;
+    assign ren2dis_uop_src3_en[i] = out_uop[i].src3_en;
+    assign ren2dis_uop_src3_preg[i] = out_uop[i].src3_preg;
+    assign ren2dis_uop_fp_cls[i] = out_uop[i].fp_cls;
   end
 
   for (genvar k = 0; k < COMMIT_WIDTH; k++) begin : g_commit
@@ -153,7 +178,8 @@ dest_areg: rob_commit_commit_entry_uop_dest_areg[k],
                          page_fault_inst: rob_commit_commit_entry_uop_page_fault_inst[k],
                          page_fault_load: rob_commit_commit_entry_uop_page_fault_load[k],
                          page_fault_store: rob_commit_commit_entry_uop_page_fault_store[k],
-                         illegal_inst: rob_commit_commit_entry_uop_illegal_inst[k]};
+                         illegal_inst: rob_commit_commit_entry_uop_illegal_inst[k],
+                         dest_fp: rob_commit_commit_entry_uop_dest_fp[k]};
   end
 
   ren_core u_core (

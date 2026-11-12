@@ -51,7 +51,7 @@ module dispatch_core
   output logic [LDQ_PORTS-1:0] ld_rob_flag,
   output logic [LSU_MDP_BITS-1:0]       ld_mdp      [LDQ_PORTS],
   // wakeups (prf_awake ports first, then iss_awake ports) and branch / flush broadcasts
-  input  logic [PRF_NUM-1:0] cancel_v,
+  input  logic [TAG_NUM-1:0] cancel_v,
   input  logic [NUM_WAKE-1:0] wake_valid,
   input  logic [PRF_IDX_WIDTH-1:0]      wake_preg  [NUM_WAKE],
   input  logic                          rob_flush,
@@ -122,20 +122,24 @@ module dispatch_core
   end
 
   // ---- comb_wake: wakeup CAM and source busy bits ----
-  logic [PRF_NUM-1:0]      busy_table;
-  logic [PRF_IDX_WIDTH-1:0] src_preg [2 * NUM_SLOTS];   // {src2, src1} of lane i at 2i+1, 2i
-  logic                    woken_all [2 * NUM_SLOTS];
+  logic [TAG_NUM-1:0]      busy_table;
+  logic [PRF_IDX_WIDTH-1:0] src_preg [3 * NUM_SLOTS];   // {src1, src2, src3} of lane i at 3i, 3i+1, 3i+2
+  logic                    woken_all [3 * NUM_SLOTS];
   logic [NUM_SLOTS-1:0] woken1;
   logic [NUM_SLOTS-1:0] woken2;
+  logic [NUM_SLOTS-1:0] woken3;
   logic [NUM_SLOTS-1:0] busy1;
   logic [NUM_SLOTS-1:0] busy2;
+  logic [NUM_SLOTS-1:0] busy3;
 
   always_comb begin
     for (int i = 0; i < NUM_SLOTS; i++) begin
-      src_preg[2*i]   = inst_q[i].src1_preg;
-      src_preg[2*i+1] = inst_q[i].src2_preg;
-      woken1[i] = woken_all[2*i];
-      woken2[i] = woken_all[2*i+1];
+      src_preg[3*i]   = inst_q[i].src1_preg;
+      src_preg[3*i+1] = inst_q[i].src2_preg;
+      src_preg[3*i+2] = inst_q[i].src3_preg;
+      woken1[i] = woken_all[3*i];
+      woken2[i] = woken_all[3*i+1];
+      woken3[i] = woken_all[3*i+2];
     end
   end
 
@@ -144,7 +148,7 @@ module dispatch_core
 
   dispatch_src_busy u_src_busy (
     .busy_table(busy_table | cancel_v), .inst(alloc_inst), .inst_valid(inst_valid),
-    .woken1(woken1), .woken2(woken2), .busy1(busy1), .busy2(busy2));
+    .woken1(woken1), .woken2(woken2), .woken3(woken3), .busy1(busy1), .busy2(busy2), .busy3(busy3));
 
   // ---- comb_dispatch: uop split and IQ port allocation ----
   logic [IQ_NUM-1:0]       has_iq [NUM_SLOTS];
@@ -233,7 +237,8 @@ module dispatch_core
   dispatch_inst_stage u_inst_stage (
     .clk(clk), .rst_n(rst_n), .kill(rob_flush || dec_mispred), .ready(dis2ren_ready),
     .clear_mask(dec_clear_mask), .ren_valid(ren_valid), .ren_inst(ren_inst), .fire(dis_fire),
-    .alloc_src1_busy(busy1), .alloc_src2_busy(busy2), .woken1(woken1), .woken2(woken2),
+    .alloc_src1_busy(busy1), .alloc_src2_busy(busy2), .alloc_src3_busy(busy3),
+    .woken1(woken1), .woken2(woken2), .woken3(woken3),
     .valid_q(inst_valid), .inst_q(inst_q));
 
 endmodule

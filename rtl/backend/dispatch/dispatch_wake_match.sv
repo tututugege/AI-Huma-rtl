@@ -6,7 +6,7 @@ module dispatch_wake_match
   import ttg_cfg_pkg::*;
   import dis_pkg::*;
 #(
-  parameter int NSRC = 2 * NUM_SLOTS
+  parameter int NSRC = 3 * NUM_SLOTS
 ) (
   input  logic [NUM_WAKE-1:0] wake_valid,
   input  logic [PRF_IDX_WIDTH-1:0]  wake_preg  [NUM_WAKE],

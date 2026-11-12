@@ -32,6 +32,12 @@ module idu_decoder import ttg_cfg_pkg::*; (
   output logic [CSR_IDX_WIDTH-1:0]    uop_csr_idx,
   output logic                        uop_page_fault_inst,
   output logic                        uop_illegal_inst,
+  output logic                        uop_dest_fp,           // F/D domain bits (zero without an FP register file)
+  output logic                        uop_src1_fp,
+  output logic                        uop_src2_fp,
+  output logic                        uop_src3_en,           // = src3_fp: fused multiply-add third source
+  output logic [AREG_IDX_WIDTH-1:0]   uop_src3_areg,
+  output logic [2:0]                  uop_fp_cls,
   output logic                        is_branch              // valid decoded BR/JALR (needs a branch tag)
 );
 
@@ -42,6 +48,9 @@ module idu_decoder import ttg_cfg_pkg::*; (
   logic [5:0]  raw_dest_areg, raw_src1_areg, raw_src2_areg;
   logic        raw_illegal_inst, raw_is_branch;
   logic [5:0]  raw_imm_sel;
+  logic        raw_dest_fp, raw_src1_fp, raw_src2_fp, raw_src3_en;
+  logic [4:0]  raw_src3_areg;
+  logic [2:0]  raw_fp_cls;
   logic [31:0] raw_imm;
   logic        decoded_en;     // not a page fault: decoded fields reach the output (page fault -> NOP uop)
 
@@ -50,7 +59,9 @@ module idu_decoder import ttg_cfg_pkg::*; (
     .src1_is_pc(raw_src1_is_pc), .src2_is_imm(raw_src2_is_imm), .is_word(raw_is_word), .is_atomic(raw_is_atomic),
     .func3(raw_func3),
     .dest_areg(raw_dest_areg), .src1_areg(raw_src1_areg), .src2_areg(raw_src2_areg),
-    .illegal_inst(raw_illegal_inst), .is_branch(raw_is_branch), .imm_sel(raw_imm_sel)
+    .illegal_inst(raw_illegal_inst), .is_branch(raw_is_branch), .imm_sel(raw_imm_sel),
+    .dest_fp(raw_dest_fp), .src1_fp(raw_src1_fp), .src2_fp(raw_src2_fp), .src3_en(raw_src3_en),
+    .src3_areg(raw_src3_areg), .fp_cls(raw_fp_cls)
   );
 
   idu_imm_gen u_imm (.inst(entry_inst[31:7]), .imm_sel(raw_imm_sel), .imm(raw_imm));
@@ -79,6 +90,12 @@ module idu_decoder import ttg_cfg_pkg::*; (
     uop_src1_areg               = raw_src1_areg & {AREG_IDX_WIDTH{decoded_en}};
     uop_src2_areg               = raw_src2_areg & {AREG_IDX_WIDTH{decoded_en}};
     uop_illegal_inst            = raw_illegal_inst & decoded_en;
+    uop_dest_fp                 = raw_dest_fp & decoded_en;
+    uop_src1_fp                 = raw_src1_fp & decoded_en;
+    uop_src2_fp                 = raw_src2_fp & decoded_en;
+    uop_src3_en                 = raw_src3_en & decoded_en;
+    uop_src3_areg               = AREG_IDX_WIDTH'(raw_src3_areg) & {AREG_IDX_WIDTH{decoded_en & raw_src3_en}};
+    uop_fp_cls                  = raw_fp_cls & {3{decoded_en}};
     is_branch                   = raw_is_branch & decoded_en & entry_valid;   // needs a branch tag
   end
 

@@ -49,6 +49,12 @@ module idu import ttg_cfg_pkg::*; (
   output logic [CSR_IDX_WIDTH-1:0]    dec2ren_uop_csr_idx [DECODE_WIDTH],
   output logic [DECODE_WIDTH-1:0] dec2ren_uop_page_fault_inst,
   output logic [DECODE_WIDTH-1:0] dec2ren_uop_illegal_inst,
+  output logic [DECODE_WIDTH-1:0] dec2ren_uop_dest_fp,
+  output logic [DECODE_WIDTH-1:0] dec2ren_uop_src1_fp,
+  output logic [DECODE_WIDTH-1:0] dec2ren_uop_src2_fp,
+  output logic [DECODE_WIDTH-1:0] dec2ren_uop_src3_en,
+  output logic [AREG_IDX_WIDTH-1:0]   dec2ren_uop_src3_areg [DECODE_WIDTH],
+  output logic [2:0]                  dec2ren_uop_fp_cls [DECODE_WIDTH],
   // dec_bcast
   output logic                        dec_bcast_mispred,
   output logic [BR_MASK_WIDTH-1:0]    dec_bcast_br_mask,
@@ -105,6 +111,9 @@ module idu import ttg_cfg_pkg::*; (
       .uop_func3(dec2ren_uop_func3[i]), .uop_func7(dec2ren_uop_func7[i]), .uop_imm(dec2ren_uop_imm[i]),
       .uop_csr_idx(dec2ren_uop_csr_idx[i]), .uop_page_fault_inst(dec2ren_uop_page_fault_inst[i]),
       .uop_illegal_inst(dec2ren_uop_illegal_inst[i]),
+      .uop_dest_fp(dec2ren_uop_dest_fp[i]), .uop_src1_fp(dec2ren_uop_src1_fp[i]),
+      .uop_src2_fp(dec2ren_uop_src2_fp[i]), .uop_src3_en(dec2ren_uop_src3_en[i]),
+      .uop_src3_areg(dec2ren_uop_src3_areg[i]), .uop_fp_cls(dec2ren_uop_fp_cls[i]),
       .is_branch(lane_is_branch[i])
     );
   end

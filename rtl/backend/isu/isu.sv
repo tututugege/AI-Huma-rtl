@@ -95,7 +95,7 @@ module isu
   isu_uop_t [ISSUE_WIDTH-1:0] grant_uop;
   logic [WAKE_NUM-1:0]      wake_valid;
   logic [PRF_IDX_WIDTH-1:0] wake_preg [WAKE_NUM];
-  logic [PRF_NUM-1:0]       woken;
+  logic [TAG_NUM-1:0]       woken;
 
   logic [LSU_LOAD_WB_WIDTH-1:0] prf_wake_valid;
   for (genvar k = 0; k < LSU_LOAD_WB_WIDTH; k++) begin : g_prf_wake
@@ -113,7 +113,7 @@ module isu
     .flush_br_mask(dec_bcast_br_mask), .clear_mask(dec_bcast_clear_mask),
     .wake_valid(wake_valid), .wake_preg(wake_preg));
 
-  logic [PRF_NUM-1:0] woken_main, woken_lsu, cancel_v;
+  logic [TAG_NUM-1:0] woken_main, woken_lsu, cancel_v;
   isu_wake_bus u_wake_bus (.wake_valid(wake_valid), .wake_preg(wake_preg), .woken(woken_main));
   // LP_L2[3] (speculative load wake-up): the [p] wake-ups and the cancel exist only then. Without it the cancel is
   // compiled out; in a per-module synthesis the cancel inputs are free and its 128:1 selects per IQ entry would
