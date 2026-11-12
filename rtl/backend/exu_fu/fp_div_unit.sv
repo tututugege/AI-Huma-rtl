@@ -30,6 +30,7 @@ module fp_div_unit
   output logic                       ready,
   output logic [63:0]                fresult,
   output logic [4:0]                 fflags,
+  output logic                       illegal,
   output logic [ROB_IDX_WIDTH-1:0]   done_rob_idx,
   output logic [PRF_IDX_WIDTH-1:0]   done_dest_preg,
   output logic                       done_dest_en,
@@ -39,6 +40,7 @@ module fp_div_unit
   logic accept, unused_run;   // run: the datapath is combinational here
   logic [63:0] res;
   logic [4:0]  flags;
+  logic        bad;
 
   exu_iter_ctl #(.CW(FP_LAT_W)) u_ctl (
     .clk(clk), .rst_n(rst_n), .flush(flush), .flush_mask(flush_mask), .clear_mask(clear_mask),
@@ -49,18 +51,20 @@ module fp_div_unit
 
   fp_core u_core (
     .func3(func3), .imm(imm), .int_src(src1_rdata), .fsrc1(fsrc1), .fsrc2(fsrc2), .fsrc3(fsrc3), .frm(frm),
-    .result(res), .fflags(flags)
+    .result(res), .fflags(flags), .illegal(bad)
   );
 
   // payload of the uop in flight, captured when it is accepted
   logic [63:0]              res_q;
   logic [4:0]               flags_q;
+  logic                     bad_q;
   logic [ROB_IDX_WIDTH-1:0] rob_idx_q;
   logic [PRF_IDX_WIDTH-1:0] dest_preg_q;
   logic                     dest_en_q;
   always_comb begin
     fresult        = res_q;
     fflags         = flags_q;
+    illegal        = bad_q;
     done_rob_idx   = rob_idx_q;
     done_dest_preg = dest_preg_q;
     done_dest_en   = dest_en_q;
@@ -69,12 +73,14 @@ module fp_div_unit
     if (!rst_n) begin
       res_q       <= '0;
       flags_q     <= '0;
+      bad_q       <= 1'b0;
       rob_idx_q   <= '0;
       dest_preg_q <= '0;
       dest_en_q   <= 1'b0;
     end else if (accept) begin
       res_q       <= res;
       flags_q     <= flags;
+      bad_q       <= bad;
       rob_idx_q   <= rob_idx;
       dest_preg_q <= dest_preg;
       dest_en_q   <= dest_en;

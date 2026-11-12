@@ -18,7 +18,8 @@ module fp_core
   input  logic [63:0]           fsrc3,
   input  logic [2:0]            frm,          // fcsr.frm for the dynamic rounding mode (func3 == 7)
   output logic [63:0]           result,
-  output logic [4:0]            fflags
+  output logic [4:0]            fflags,
+  output logic                  illegal       // reserved encoding / rounding mode: an illegal-instruction exception
 );
 
 `ifndef SYNTHESIS
@@ -26,6 +27,10 @@ module fp_core
       input int unsigned f7rs2, input longint unsigned a, input longint unsigned b, input longint unsigned c,
       input longint unsigned xi, input int unsigned frm, input int unsigned xlen);
   import "DPI-C" pure function int unsigned fp_dpi_flags(input int unsigned op5, input int unsigned f3,
+      input int unsigned f7rs2, input longint unsigned a, input longint unsigned b, input longint unsigned c,
+      input longint unsigned xi, input int unsigned frm, input int unsigned xlen);
+
+  import "DPI-C" pure function int unsigned fp_dpi_bad(input int unsigned op5, input int unsigned f3,
       input int unsigned f7rs2, input longint unsigned a, input longint unsigned b, input longint unsigned c,
       input longint unsigned xi, input int unsigned frm, input int unsigned xlen);
 
@@ -39,11 +44,13 @@ module fp_core
     xi    = 64'(int_src);
     result = fp_dpi_res(op5, rm, f7rs2, fsrc1, fsrc2, fsrc3, xi, fr, 32'(XLEN_BITS));
     fflags = 5'(fp_dpi_flags(op5, rm, f7rs2, fsrc1, fsrc2, fsrc3, xi, fr, 32'(XLEN_BITS)));
+    illegal = (fp_dpi_bad(op5, rm, f7rs2, fsrc1, fsrc2, fsrc3, xi, fr, 32'(XLEN_BITS)) != 32'd0);
   end
 `else
   // synthesis placeholder until the datapath exists (S7)
   assign result = '0;
   assign fflags = '0;
+  assign illegal = 1'b0;
 `endif
 
 endmodule

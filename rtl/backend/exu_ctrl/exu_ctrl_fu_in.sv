@@ -26,6 +26,7 @@ module exu_ctrl_fu_in
   input  logic [XLEN_BITS-1:0]      fu_fp_result [N_FPU],
   input  logic [FW-1:0]             fu_fp_fresult [N_FPU],
   input  logic [FFLAGS_W-1:0]       fu_fp_fflags [N_FPU],
+  input  logic [N_FPU-1:0]          fu_fp_illegal,
   input  logic [PRF_IDX_WIDTH-1:0]  fu_fp_dest_preg [N_FPU],
   input  logic [N_FPU-1:0]          fu_fp_dest_en,
   input  logic [BR_MASK_WIDTH-1:0]  fu_fp_br_mask [N_FPU],
@@ -65,6 +66,7 @@ module exu_ctrl_fu_in
         res.result      = fu_fp_result[xc_fp_rank(f)];
         res.fresult     = fu_fp_fresult[xc_fp_rank(f)];
         res.fflags      = fu_fp_fflags[xc_fp_rank(f)];
+        res.illegal     = fu_fp_illegal[xc_fp_rank(f)];
         res.dest_preg   = fu_fp_dest_preg[xc_fp_rank(f)];
         res.dest_en     = fu_fp_dest_en[xc_fp_rank(f)];
         res.br_mask     = fu_fp_br_mask[xc_fp_rank(f)];

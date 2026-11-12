@@ -17,6 +17,9 @@ module exu
   input  logic [BR_MASK_WIDTH-1:0] dec_bcast_br_mask,
   input  logic [BR_MASK_WIDTH-1:0] dec_bcast_clear_mask,
   input  logic [XLEN_BITS-1:0] csr2exe_rdata,
+  /* verilator lint_off UNUSEDSIGNAL */   // waiver: read only by the F/D units
+  input  logic [2:0] csr2exe_frm,
+  /* verilator lint_on UNUSEDSIGNAL */
   input  logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_valid,
   input  logic [XLEN_BITS-1:0] prf2exe_iss_entry_uop_pc [ISSUE_WIDTH],
   input  logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_ftq_pred_taken,
@@ -93,6 +96,7 @@ module exu
   output logic [ISSUE_WIDTH-1:0] exu2rob_entry_uop_rob_defer,
   output logic [ISSUE_WIDTH-1:0] exu2rob_entry_uop_flush_pipe,
   output logic [FFLAGS_W-1:0] exu2rob_entry_uop_fflags [ISSUE_WIDTH],
+  output logic [ISSUE_WIDTH-1:0] exu2rob_entry_uop_illegal,
   output logic [LSU_LDU_COUNT-1:0] exe2lsu_ldu_req_valid,
   output logic [XLEN_BITS-1:0] exe2lsu_ldu_req_uop_result [LSU_LDU_COUNT],
   output logic [PRF_IDX_WIDTH-1:0] exe2lsu_ldu_req_uop_dest_preg [LSU_LDU_COUNT],
@@ -148,6 +152,7 @@ module exu
   logic [XLEN_BITS-1:0] fu_fp_result [N_FPU];
   logic [FW-1:0] fu_fp_fresult [N_FPU];
   logic [FFLAGS_W-1:0] fu_fp_fflags [N_FPU];
+  logic [N_FPU-1:0] fu_fp_illegal;
   logic [PRF_IDX_WIDTH-1:0] fu_fp_dest_preg [N_FPU];
   logic [N_FPU-1:0] fu_fp_dest_en;
   logic [BR_MASK_WIDTH-1:0] fu_fp_br_mask [N_FPU];
@@ -297,6 +302,7 @@ module exu
     .exu2rob_entry_uop_rob_defer(exu2rob_entry_uop_rob_defer),
     .exu2rob_entry_uop_flush_pipe(exu2rob_entry_uop_flush_pipe),
     .exu2rob_entry_uop_fflags(exu2rob_entry_uop_fflags),
+    .exu2rob_entry_uop_illegal(exu2rob_entry_uop_illegal),
     .exe2lsu_ldu_req_valid(exe2lsu_ldu_req_valid),
     .exe2lsu_ldu_req_uop_result(exe2lsu_ldu_req_uop_result),
     .exe2lsu_ldu_req_uop_dest_preg(exe2lsu_ldu_req_uop_dest_preg),
@@ -347,6 +353,7 @@ module exu
     .fu_fp_result(fu_fp_result),
     .fu_fp_fresult(fu_fp_fresult),
     .fu_fp_fflags(fu_fp_fflags),
+    .fu_fp_illegal(fu_fp_illegal),
     .fu_fp_dest_preg(fu_fp_dest_preg),
     .fu_fp_dest_en(fu_fp_dest_en),
     .fu_fp_br_mask(fu_fp_br_mask),
@@ -575,7 +582,7 @@ module exu
   );
 
   // ---- F/D units (fp_unit: pipelined FMA / FMISC / I2F, iterative FDIV): their own flat port group in fu_idx order.
-  // The dynamic rounding mode (fcsr.frm) is wired in S5; until then it reads as round-to-nearest-even.
+  // The dynamic rounding mode comes from fcsr.frm (csr2exe_frm: the committed value).
   if (FP_EN) begin : g_fpu
     for (genvar r = 0; r < N_FPU; r++) begin : g_unit
       localparam int KIND = xc_fu_kind(xc_fp_fu(r));
@@ -587,10 +594,11 @@ module exu
           .clk(clk), .rst_n(rst_n), .en(exu2fu_fp_en[r]), .consume(exu2fu_fp_consume[r]), .flush(exu2fu_flush),
           .flush_mask(exu2fu_flush_mask), .clear_mask(exu2fu_clear_mask), .func3(exu2fu_fp_func3[r]),
           .func7(exu2fu_fp_func7[r]), .imm(exu2fu_fp_imm[r]), .src1_rdata(exu2fu_fp_src1_rdata[r]),
-          .fsrc1(exu2fu_fp_fsrc1[r]), .fsrc2(exu2fu_fp_fsrc2[r]), .fsrc3(exu2fu_fp_fsrc3[r]), .frm(3'd0),
+          .fsrc1(exu2fu_fp_fsrc1[r]), .fsrc2(exu2fu_fp_fsrc2[r]), .fsrc3(exu2fu_fp_fsrc3[r]), .frm(csr2exe_frm),
           .rob_idx(exu2fu_fp_rob_idx[r]), .dest_preg(exu2fu_fp_dest_preg[r]), .dest_en(exu2fu_fp_dest_en[r]),
           .br_mask(exu2fu_fp_br_mask[r]), .complete(fu_fp_complete[r]), .ready(fu_fp_ready[r]), .fresult(fresult),
-          .fflags(fu_fp_fflags[r]), .done_rob_idx(fu_fp_rob_idx[r]), .done_dest_preg(fu_fp_dest_preg[r]),
+          .fflags(fu_fp_fflags[r]), .illegal(fu_fp_illegal[r]), .done_rob_idx(fu_fp_rob_idx[r]),
+          .done_dest_preg(fu_fp_dest_preg[r]),
           .done_dest_en(fu_fp_dest_en[r]), .done_br_mask(fu_fp_br_mask[r])
         );
       end else begin : g_pipe
@@ -598,10 +606,11 @@ module exu
           .clk(clk), .rst_n(rst_n), .en(exu2fu_fp_en[r]), .consume(exu2fu_fp_consume[r]), .flush(exu2fu_flush),
           .flush_mask(exu2fu_flush_mask), .clear_mask(exu2fu_clear_mask), .func3(exu2fu_fp_func3[r]),
           .imm(exu2fu_fp_imm[r]), .src1_rdata(exu2fu_fp_src1_rdata[r]),
-          .fsrc1(exu2fu_fp_fsrc1[r]), .fsrc2(exu2fu_fp_fsrc2[r]), .fsrc3(exu2fu_fp_fsrc3[r]), .frm(3'd0),
+          .fsrc1(exu2fu_fp_fsrc1[r]), .fsrc2(exu2fu_fp_fsrc2[r]), .fsrc3(exu2fu_fp_fsrc3[r]), .frm(csr2exe_frm),
           .rob_idx(exu2fu_fp_rob_idx[r]), .dest_preg(exu2fu_fp_dest_preg[r]), .dest_en(exu2fu_fp_dest_en[r]),
           .br_mask(exu2fu_fp_br_mask[r]), .complete(fu_fp_complete[r]), .ready(fu_fp_ready[r]), .fresult(fresult),
-          .fflags(fu_fp_fflags[r]), .done_rob_idx(fu_fp_rob_idx[r]), .done_dest_preg(fu_fp_dest_preg[r]),
+          .fflags(fu_fp_fflags[r]), .illegal(fu_fp_illegal[r]), .done_rob_idx(fu_fp_rob_idx[r]),
+          .done_dest_preg(fu_fp_dest_preg[r]),
           .done_dest_en(fu_fp_dest_en[r]), .done_br_mask(fu_fp_br_mask[r])
         );
       end
@@ -612,6 +621,7 @@ module exu
     assign fu_fp_result = '{default: '0};
     assign fu_fp_fresult = '{default: '0};
     assign fu_fp_fflags = '{default: '0};
+    assign fu_fp_illegal = '0;
     assign fu_fp_dest_preg = '{default: '0};
     assign fu_fp_dest_en = '0;
     assign fu_fp_br_mask = '{default: '0};

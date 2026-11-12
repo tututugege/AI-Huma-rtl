@@ -298,6 +298,7 @@ package exu_ctrl_pkg;
     logic [XLEN_BITS-1:0]              result;
     logic [FW-1:0]            fresult;     // F/D: 64-bit result (the FP register write data)
     logic [FFLAGS_W-1:0]      fflags;
+    logic                     illegal;
     logic [PRF_IDX_WIDTH-1:0] dest_preg;
     logic                     dest_en;
     logic [BR_MASK_WIDTH-1:0] br_mask;
@@ -313,6 +314,7 @@ package exu_ctrl_pkg;
     logic [XLEN_BITS-1:0]              result;
     logic [FW-1:0]            fresult;
     logic [FFLAGS_W-1:0]      fflags;
+    logic                     illegal;
     logic [PRF_IDX_WIDTH-1:0] dest_preg;
     logic                     dest_en;
     logic [BR_MASK_WIDTH-1:0] br_mask;

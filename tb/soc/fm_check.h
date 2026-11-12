@@ -53,7 +53,9 @@ struct FmCheck {
     const uint32_t opc = info.instruction & 0x7f, f5 = info.instruction >> 27;
     const bool fp_dest = opc == 0x07 || (opc & 0x73) == 0x43 || (opc == 0x53 && f5 != 0x14 && f5 != 0x18 && f5 != 0x1c);
     if (rd != 0 && !trapped && !fp_dest && after.gpr[rd] != rd_val) {   // a trapping instruction writes no register; the next commit pc checks the trap target
-      if (info.is_io || info.is_csr) {   // device / counter values are the platform's, not the function model's: adopt the DUT's
+      const uint32_t csr_no = info.instruction >> 20;   // fflags / frm / fcsr, mstatus / sstatus, misa: architectural state, compared
+      const bool arch_csr = (csr_no >= 1 && csr_no <= 3) || csr_no == 0x300 || csr_no == 0x100 || csr_no == 0x301;
+      if (info.is_io || (info.is_csr && !arch_csr)) {   // device / counter values are the platform's, not the function model's: adopt the DUT's
         after.gpr[rd] = rd_val;
         refcpu_set_state(ctx, &after);
         ++synced_io;

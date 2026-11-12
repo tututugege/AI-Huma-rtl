@@ -25,6 +25,8 @@ module csr
   input  logic [XLEN_BITS-1:0] rob_bcast_pc,
   input  logic        rob2csr_interrupt_resp,
   input  logic        rob2csr_commit,
+  input  logic [4:0]  rob2csr_fflags,       // F/D: exception flags of the instructions committing this cycle
+  input  logic        rob2csr_fs_dirty,     // F/D: one of them makes mstatus.FS Dirty
   input  logic        interrupt_inject_external_irq_pending_valid,
   input  logic        interrupt_inject_external_irq_pending,
   input  logic        interrupt_inject_supervisor_external_irq_pending_valid,
@@ -34,6 +36,8 @@ module csr
   output logic        csr2exe_rdata_vld,
   output logic [XLEN_BITS-1:0] csr2exe_rdata,
   output logic        csr2rob_interrupt_req,
+  output logic        csr2rob_fs_off,       // F/D: mstatus.FS == Off (FP instructions are illegal)
+  output logic [2:0]  csr2exe_frm,          // F/D: dynamic rounding mode
   output logic        csr2front_epc_vld,
   output logic [XLEN_BITS-1:0] csr2front_epc,
   output logic        csr2front_trap_pc_vld,
@@ -74,12 +78,14 @@ module csr
   csr_read u_read_pending (.idx(pending_idx), .regs(regs), .rdata(pending_old));
   csr_wbuf u_wbuf (
     .clk(clk), .rst_n(rst_n), .exe_we(exe2csr_we), .exe_idx(exe2csr_idx), .exe_wdata(exe2csr_wdata),
-    .exe_wcmd(exe2csr_wcmd), .commit(rob2csr_commit), .old_value(pending_old), .pending_idx(pending_idx),
+    .exe_wcmd(exe2csr_wcmd), .commit(rob2csr_commit), .drop(rob_bcast_illegal_inst), .old_value(pending_old),
+    .pending_idx(pending_idx),
     .commit_fire(commit_fire), .commit_wdata(commit_wdata));
 
   csr_regfile u_regfile (
     .clk(clk), .rst_n(rst_n), .trap_wr_en(trap_wr_en), .trap_wr_val(trap_wr_val),
     .commit_fire(commit_fire), .commit_idx(pending_idx), .commit_wdata(commit_wdata),
+    .fflags_acc(rob2csr_fflags), .fs_dirty(rob2csr_fs_dirty),
     .inj_external_valid(interrupt_inject_external_irq_pending_valid),
     .inj_external(interrupt_inject_external_irq_pending),
     .inj_supervisor_external_valid(interrupt_inject_supervisor_external_irq_pending_valid),
@@ -89,6 +95,8 @@ module csr
 
   // ---- status for MMU / LSU / front end ----
   assign csr2exe_rdata_vld    = exe2csr_re;
+  assign csr2rob_fs_off       = FP_EN && (regs[R_MSTATUS][MSTATUS_FS +: 2] == 2'b00);
+  assign csr2exe_frm          = regs[R_FCSR][7:5];
   assign csr_status_mstatus   = regs[R_MSTATUS];
   assign csr_status_sstatus   = regs[R_MSTATUS] & SSTATUS_MASK;
   assign csr_status_satp      = regs[R_SATP];

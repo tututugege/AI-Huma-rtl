@@ -2,7 +2,7 @@
 // function model (the per-commit reference).  The instruction fields come from the uop: op5 = inst[6:2], f3 = rm / funct3,
 // f7rs2 = inst[31:20] (funct7 | rs2), operands a / b / c = FP registers rs1 / rs2 / rs3, xi = integer rs1.
 // Replaced by a synthesizable datapath in S7.  Reserved encodings and reserved rounding modes (the illegal-instruction
-// traps, S5) return 0 with no flags.
+// traps) return 0 with no flags and fp_dpi_bad = 1.
 #include <cstdint>
 #include <cstdlib>
 
@@ -81,14 +81,14 @@ uint64_t f64_max_riscv(uint64_t a, uint64_t b) {
   return a & b;
 }
 
-struct Out { uint64_t res = 0; uint32_t flags = 0; };
+struct Out { uint64_t res = 0; uint32_t flags = 0; bool bad = false; };
 
 Out compute(uint32_t op5, uint32_t funct3, uint32_t f7rs2, uint64_t a64, uint64_t b64, uint64_t c64, uint64_t xi,
             uint32_t frm, uint32_t xlen) {
   Out o;
   const uint32_t opcode = (op5 << 2) | 3u;
   const uint32_t funct7 = (f7rs2 >> 5) & 0x7Fu, rs2 = f7rs2 & 0x1Fu, fmt = funct7 & 3u, funct5 = funct7 >> 2;
-  if (fmt > 1) return o;
+  if (fmt > 1) { o.bad = true; return o; }
   const bool D = fmt == 1;
   auto set_rm = [&]() -> bool {
     const uint32_t rm = funct3 == 7 ? (frm & 7u) : funct3;
@@ -104,7 +104,7 @@ Out compute(uint32_t op5, uint32_t funct3, uint32_t f7rs2, uint64_t a64, uint64_
   softfloat_exceptionFlags = 0;
   const uint32_t a32 = unbox32(a64), b32 = unbox32(b64), c32 = unbox32(c64);
   auto done = [&]() { o.flags = softfloat_exceptionFlags & 0x1Fu; return o; };
-  auto bad = [&]() { Out z; return z; };
+  auto bad = [&]() { Out z; z.bad = true; return z; };
   auto wrfS = [&](uint32_t v) { o.res = nanbox32(v); };
   auto wrfD = [&](uint64_t v) { o.res = v; };
   auto wrx = [&](uint64_t v) { o.res = xlen == 64 ? v : (v & 0xFFFFFFFFull); };
@@ -220,6 +220,10 @@ Out compute(uint32_t op5, uint32_t funct3, uint32_t f7rs2, uint64_t a64, uint64_
 }  // namespace
 
 extern "C" {
+uint32_t fp_dpi_bad(uint32_t op5, uint32_t f3, uint32_t f7rs2, uint64_t a, uint64_t b, uint64_t c, uint64_t xi, uint32_t frm,
+                    uint32_t xlen) {
+  return compute(op5, f3, f7rs2, a, b, c, xi, frm, xlen).bad;
+}
 uint64_t fp_dpi_res(uint32_t op5, uint32_t f3, uint32_t f7rs2, uint64_t a, uint64_t b, uint64_t c, uint64_t xi, uint32_t frm,
                     uint32_t xlen) {
   return compute(op5, f3, f7rs2, a, b, c, xi, frm, xlen).res;

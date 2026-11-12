@@ -81,6 +81,7 @@ module dispatch
   output logic [PRF_IDX_WIDTH-1:0] dis2rob_uop_old_dest_preg [DECODE_WIDTH],
   output logic [DECODE_WIDTH-1:0] dis2rob_uop_me_elim,
   output logic [DECODE_WIDTH-1:0] dis2rob_uop_dest_fp,
+  output logic [DECODE_WIDTH-1:0] dis2rob_uop_fs_need,
   output logic [5:0] dis2rob_uop_ftq_idx [DECODE_WIDTH],
   output logic [FTQ_OFFSET_WIDTH-1:0] dis2rob_uop_ftq_offset [DECODE_WIDTH],
   output logic [DECODE_WIDTH-1:0] dis2rob_uop_ftq_is_last,
@@ -283,6 +284,12 @@ module dispatch
       dis2rob_uop_old_dest_preg[i] = rob_inst[i].old_dest_preg;
       dis2rob_uop_me_elim[i] = rob_inst[i].me_elim;
       dis2rob_uop_dest_fp[i] = rob_inst[i].dest_fp;
+      // F/D: illegal while mstatus.FS is Off: FP arithmetic, FP load / store, fflags / frm / fcsr access
+      dis2rob_uop_fs_need[i] = FP_EN && ((rob_inst[i].itype == INST_FPOP) ||
+                                         (rob_inst[i].itype == INST_LOAD && rob_inst[i].dest_fp) ||
+                                         (rob_inst[i].itype == INST_STORE && rob_inst[i].src2_fp) ||
+                                         (rob_inst[i].itype == INST_CSR && rob_inst[i].csr_idx >= CSR_IDX_WIDTH'(1) &&
+                                          rob_inst[i].csr_idx <= CSR_IDX_WIDTH'(3)));
       dis2rob_uop_ftq_idx[i] = rob_inst[i].ftq_idx;
       dis2rob_uop_ftq_offset[i] = rob_inst[i].ftq_offset;
       dis2rob_uop_ftq_is_last[i] = rob_inst[i].ftq_is_last;

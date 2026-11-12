@@ -43,8 +43,14 @@
    - **没做 / 注意**：FP load / store 的数据通路（S4：`flw/fld` 写 FP 寄存器堆时目前拿的是 XLEN 位数据，不做 NaN-boxing，`fsd` 数据在 rv32 上只有低 32 位）；`fcsr.frm` 动态舍入模式在 RTL 里固定当 RNE（S5）；`fflags` 算出来了但没有进 ROB 累积（S5）；非法指令（FS = Off、保留舍入模式）没有陷入（S5）；`fp_core` 在 `ifndef SYNTHESIS` 下用 DPI，综合时是占位（S7）；FP 寄存器的值没有被逐条对拍，只通过整数目的的指令间接验证（S6）。
 4. **S4 LSU**：FP load/store、STD 的 FP 数据。验收：`rv64uf/ud` 的 `ldst`。
    **S4a 已完成（2026-11-12）：`flw` / `fsw`**。`flw` 的 load 结果写 FP 寄存器时做 NaN-boxing（`fp_pkg::fp_load_box`，写回和 LSU 旁路两处），`fsw` 的数据由 PRF 在 STD 口读 FP 寄存器堆（S3 已做）、低 32 位存入，LSU 本身不用改。验收：`tests/fp_chain` 的 `SRC=mem`（60 轮：flw → 算术 → fsw → 整数 lw / fmv.x.w，含 store-to-load 转发、NaN-boxed 单精度转 double、未正确 box 的操作数得到 canonical NaN）带 function-model 对拍 6453 条 0 不一致，周期 2620 与模型相同；FP=0 lint 0、FP=1 `soc_smoke` 55/55、FP 内核周期不变。
-   **S4b 未做：rv32 的 `fld` / `fsd`（8 字节访问）**。模型把它当一次 8 字节访问（`get_mem_width` 返回 8、写掩码 0xFF），RTL 的核↔dcache 数据字是 XLEN 位（rv32 为 32 位），要一次 8 字节必须把 LSU 的 load 返回、STQ 数据、store-to-load 转发、dcache 核侧 load/store 口（以及写缓冲）加宽到 64 位，改动范围在 LSU（约 7500 行）和访存子系统；rv64 的 `fld/fsd` 是一个数据字，不需要加宽，只缺 load 宽度位（flw 要 box，fld 不要）。
+   **S4b 决定不做（2026-11-12，用户：rv32 上一般不会用 double）**。以下是当时的分析：
+   **rv32 的 `fld` / `fsd`（8 字节访问）**。模型把它当一次 8 字节访问（`get_mem_width` 返回 8、写掩码 0xFF），RTL 的核↔dcache 数据字是 XLEN 位（rv32 为 32 位），要一次 8 字节必须把 LSU 的 load 返回、STQ 数据、store-to-load 转发、dcache 核侧 load/store 口（以及写缓冲）加宽到 64 位，改动范围在 LSU（约 7500 行）和访存子系统；rv64 的 `fld/fsd` 是一个数据字，不需要加宽，只缺 load 宽度位（flw 要 box，fld 不要）。
 5. **S5 CSR / ROB**：fflags 累积、FS/SD、fcsr、非法指令。验收：`rv32-fp-trap`、`rv32-fp`。
+   **已完成（2026-11-12，`exp/fd-rtl`；模型侧是 trace-model `exp/fcsr` 分支，EXP-033）。**
+   - 模型改动（RTL 周期要与之对齐，必须先改）：`fflags / frm / fcsr` 在模型里原来是无时序的 NOP，现在是正经的 CSR 指令（串行化，FS=Off 时非法；`CSR_NUM` 22）；ROB 从写回取 `illegal_inst`（原来执行期发现的非法 FP 指令根本不会触发异常，`rv32-fp-trap` 87154 → 95438 周期）；timing 模型的 CSR 值不再回写函数模型（否则 fflags 读出值被覆盖成 0，测试在模型里就失败）。
+   - RTL：`fflags / frm / fcsr` 是真 CSR（`R_FCSR` 存 {frm, fflags}，表驱动加移位字段；译码为已知 CSR）；mstatus.FS 可写、SD 由 FS==3 推出（只读）；misa 加 F、D；FP 指令 / `flw` `fsw` / FP CSR 访问带 `fs_need`，在**完成**时对已提交的 mstatus 判 FS==Off（CSR 写和陷入提交时会冲刷更年轻的指令，所以只会有被丢弃的指令看到旧 FS），非法则 ROB 项置 `illegal_inst`，提交时取异常、不写 CSR（`csr_wbuf` 丢弃暂存的写）；FP 单元对保留编码 / 保留舍入模式经 DPI 给出 `illegal` 并走 `exu2rob` 写回；`fflags` 随写回进 ROB 项，提交时按位或累加进 fcsr（异常指令和中断不累加）；FP 目的 / 有 flags / 写 fcsr 的指令提交时置 FS=Dirty；动态舍入模式读已提交的 `frm`。
+   - 验收：FP=0 整核 lint 0、lint_chip 0、`soc_smoke` 55/55；FP=1 整核 lint 0、`soc_smoke` 55/55、FP 内核与 `fp_chain` 周期不变；官方 `rv32uf-*` 11 个程序在 RTL 上带 function-model 逐条对拍（含 fflags 读出值）0 不一致，其中 9 个周期与模型相同，**`rv32uf-fcmp`（2028 对 2027）和 `rv32uf-fdiv`（1370 对 1369）各差 1 周期，原因未查清**（差异出现在 `fsflags` 的 CSR 提交附近；单独构造的 fadd / fsqrt / fdiv / feq / fmul 后接 csrr 的小程序周期完全相同）；`rv32-fp-trap` 前 690 条指令（FS 各值、SD、CSR 非法、保留舍入模式）对拍一致，之后进入 `fclass.d` 等 double 数据（rv32 的 fld/fsd 未做）。
+   - `fm_check.h`：mstatus / sstatus / misa / fflags / frm / fcsr 的读出值严格比较，不再采纳 RTL 值。
 6. **S6 对拍和全量**：26 个 FP 程序（`scripts/fp_check.sh` 的集合）与模型逐周期一致、f 寄存器对拍通过；微基准的延迟一致。
 7. **S7 可综合的运算数据通路**：替换 DPI。FMA、除法/开方、转换。
 

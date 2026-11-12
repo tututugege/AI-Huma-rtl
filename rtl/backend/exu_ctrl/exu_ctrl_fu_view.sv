@@ -29,6 +29,7 @@ module exu_ctrl_fu_view
         done.result    = fu_res[f].result;
         done.fresult   = fu_res[f].fresult;
         done.fflags    = fu_res[f].fflags;
+        done.illegal   = fu_res[f].illegal;
         done.dest_preg = fu_res[f].dest_preg;
         done.dest_en   = fu_res[f].dest_en;
         done.br_mask   = fu_res[f].br_mask;

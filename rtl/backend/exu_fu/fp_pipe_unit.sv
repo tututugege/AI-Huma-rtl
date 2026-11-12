@@ -31,6 +31,7 @@ module fp_pipe_unit
   output logic                       ready,
   output logic [63:0]                fresult,
   output logic [4:0]                 fflags,
+  output logic                       illegal,
   output logic [ROB_IDX_WIDTH-1:0]   done_rob_idx,
   output logic [PRF_IDX_WIDTH-1:0]   done_dest_preg,
   output logic                       done_dest_en,
@@ -39,17 +40,20 @@ module fp_pipe_unit
 
   logic [63:0] res;
   logic [4:0]  flags;
+  logic        bad;
   fp_uop_t     en_uop, done_uop;
 
   fp_core u_core (
     .func3(func3), .imm(imm), .int_src(src1_rdata), .fsrc1(fsrc1), .fsrc2(fsrc2), .fsrc3(fsrc3), .frm(frm),
-    .result(res), .fflags(flags)
+    .result(res), .fflags(flags), .illegal(bad)
   );
 
   always_comb begin
-    en_uop = '{fresult: res, fflags: flags, rob_idx: rob_idx, dest_preg: dest_preg, dest_en: dest_en, br_mask: br_mask};
+    en_uop = '{fresult: res, fflags: flags, illegal: bad, rob_idx: rob_idx, dest_preg: dest_preg, dest_en: dest_en,
+               br_mask: br_mask};
     fresult        = done_uop.fresult;
     fflags         = done_uop.fflags;
+    illegal        = done_uop.illegal;
     done_rob_idx   = done_uop.rob_idx;
     done_dest_preg = done_uop.dest_preg;
     done_dest_en   = done_uop.dest_en;

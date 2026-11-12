@@ -13,6 +13,7 @@ module csr_wbuf
   input  logic [XLEN_BITS-1:0] exe_wdata,
   input  logic [1:0]  exe_wcmd,
   input  logic        commit,
+  input  logic        drop,            // the CSR instruction trapped (FS = Off): its staged write is discarded
   input  logic [XLEN_BITS-1:0] old_value,       // current value of CSR pending_idx (read port 2)
   output logic [11:0] pending_idx,
   output logic        commit_fire,     // commit of a staged write this cycle
@@ -33,7 +34,7 @@ module csr_wbuf
     wcmd_d  = exe_we ? exe_wcmd  : wcmd_q;
     // reference: the commit clears csr_we after the execute stage set it, so a staged write
     // arriving in the same cycle as the commit of the previous one is dropped
-    we_d    = commit_fire ? 1'b0 : (exe_we | we_q);
+    we_d    = (commit_fire | drop) ? 1'b0 : (exe_we | we_q);
   end
 
   always_comb begin

@@ -24,6 +24,7 @@ module rob
   input  logic [PRF_IDX_WIDTH-1:0] dis2rob_uop_old_dest_preg [DECODE_WIDTH],
   input  logic [DECODE_WIDTH-1:0] dis2rob_uop_me_elim,
   input  logic [DECODE_WIDTH-1:0] dis2rob_uop_dest_fp,
+  input  logic [DECODE_WIDTH-1:0] dis2rob_uop_fs_need,
   input  logic [5:0] dis2rob_uop_ftq_idx [DECODE_WIDTH],
   input  logic [FTQ_OFFSET_WIDTH-1:0] dis2rob_uop_ftq_offset [DECODE_WIDTH],
   input  logic [DECODE_WIDTH-1:0] dis2rob_uop_ftq_is_last,
@@ -48,6 +49,9 @@ module rob
   input  logic [ISSUE_WIDTH-1:0] exu2rob_entry_uop_page_fault_store,
   input  logic [ISSUE_WIDTH-1:0] exu2rob_entry_uop_rob_defer,    // LSU_MEMSPEC: write-back does not complete
   input  logic [ISSUE_WIDTH-1:0] exu2rob_entry_uop_flush_pipe,   // LSU_MEMSPEC: flush the pipe at commit
+  input  logic [ISSUE_WIDTH-1:0] exu2rob_entry_uop_illegal,      // F/D: illegal found at execute
+  input  logic [4:0] exu2rob_entry_uop_fflags [ISSUE_WIDTH],
+  input  logic csr2rob_fs_off,
   input  logic [4:0] exu2rob_entry_uop_op [ISSUE_WIDTH],
   output logic rob2dis_stall,
   output logic rob2dis_empty,
@@ -56,6 +60,8 @@ module rob
   output logic [7:0] rob2dis_free,    // compact ROB: free entries (line ROB: unused, ROB_NUM)
   output logic rob2dis_rob_flag,
   output logic rob2csr_commit,
+  output logic [4:0] rob2csr_fflags,
+  output logic rob2csr_fs_dirty,
   output logic rob2csr_interrupt_resp,
   output logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_valid,
   output logic [XLEN_BITS-1:0] rob_commit_commit_entry_uop_diag_val [COMMIT_WIDTH],
@@ -140,6 +146,8 @@ module rob
       pf_load:       1'b0,
       pf_store:      1'b0,
       illegal_inst:  dis2rob_uop_illegal_inst[b],
+      fs_need:       dis2rob_uop_fs_need[b],
+      fflags:        '0,
       flush_pipe:    1'b0,
       itype:         dis2rob_uop_type[b]
     };
@@ -158,6 +166,9 @@ module rob
       pf_store:   exu2rob_entry_uop_page_fault_store[p],
       defer:      exu2rob_entry_uop_rob_defer[p],
       flush_pipe: exu2rob_entry_uop_flush_pipe[p],
+      illegal:    exu2rob_entry_uop_illegal[p],
+      fflags:     exu2rob_entry_uop_fflags[p],
+      fs_off:     csr2rob_fs_off,
       op:         exu2rob_entry_uop_op[p]
     };
   end
@@ -227,6 +238,19 @@ module rob
   // ---- internal structs -> spec ports ----
   // RobDisIO::enq_idx: the line number (zero extended), or the tail entry of the compact ROB
   assign rob2dis_enq_idx = (ROB_COMPACT != 0) ? enq_idx_cpt : ROB_IDX_WIDTH'(enq_line);
+
+  // F/D: exception flags of the instructions that retire normally this cycle, and whether one of them makes FS Dirty
+  // (it writes an FP register or raised a flag); a trapping instruction or an interrupt retires nothing
+  always_comb begin
+    rob2csr_fflags   = '0;
+    rob2csr_fs_dirty = 1'b0;
+    for (int b = 0; b < ROB_BANK_NUM; b++) begin
+      if (commit_valid[b] && !rob_is_exception(commit_uop[b]) && !rob_bcast_interrupt) begin
+        rob2csr_fflags   = rob2csr_fflags | commit_uop[b].fflags;
+        rob2csr_fs_dirty = rob2csr_fs_dirty | commit_uop[b].dest_fp | (|commit_uop[b].fflags);
+      end
+    end
+  end
 
   for (genvar b = 0; b < ROB_BANK_NUM; b++) begin : g_commit
     assign rob_commit_commit_entry_valid[b]                 = commit_valid[b];

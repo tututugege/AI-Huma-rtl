@@ -31,7 +31,8 @@ module exu_ctrl_wb_rob
   output logic [ISSUE_WIDTH-1:0] page_fault_store,
   output logic [ISSUE_WIDTH-1:0] rob_defer,
   output logic [ISSUE_WIDTH-1:0] flush_pipe,
-  output logic [FFLAGS_W-1:0]       fflags    [ISSUE_WIDTH]    // F/D: accrued exception flags of the instruction
+  output logic [FFLAGS_W-1:0]       fflags    [ISSUE_WIDTH],   // F/D: accrued exception flags of the instruction
+  output logic [ISSUE_WIDTH-1:0]    illegal                    // F/D: found illegal at execute
 );
 
   for (genvar p = 0; p < ISSUE_WIDTH; p++) begin : g_port
@@ -55,6 +56,7 @@ module exu_ctrl_wb_rob
       assign rob_defer[p]        = IS_LD && ld_wb[I].rob_defer;
       assign flush_pipe[p]       = IS_LD && ld_wb[I].flush_pipe;
       assign fflags[p]           = '0;
+      assign illegal[p]          = 1'b0;
     end else begin : g_fu
       // functional-unit completion (never flushed, see notes 4.2-1)
       assign valid[p]            = win_valid[p];
@@ -69,6 +71,7 @@ module exu_ctrl_wb_rob
       assign rob_defer[p]        = 1'b0;
       assign flush_pipe[p]       = 1'b0;
       assign fflags[p]           = win[p].fflags;
+      assign illegal[p]          = win[p].illegal;
     end
   end
 

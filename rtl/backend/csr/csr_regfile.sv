@@ -16,6 +16,9 @@ module csr_regfile
   input  logic        commit_fire,
   input  logic [11:0] commit_idx,
   input  logic [XLEN_BITS-1:0] commit_wdata,
+  // F/D: exception flags accrued by the committing instructions, and "an instruction made FS Dirty"
+  input  logic [4:0]  fflags_acc,
+  input  logic        fs_dirty,
   // interrupt inject (peripheral model)
   input  logic        inj_external_valid,
   input  logic        inj_external,
@@ -36,6 +39,12 @@ module csr_regfile
     assign hit[e] = commit_fire & (commit_idx == ENT_ADDR[e]);
   end
 
+  // a committed write of fflags / frm / fcsr
+  logic fcsr_wr;
+  always_comb begin
+    fcsr_wr = 1'b0;
+    for (int e = 21; e < NENT_MAX; e++) fcsr_wr = fcsr_wr | (FP_EN & hit[e]);
+  end
   logic [XLEN_BITS-1:0] regs_q [NREG];
   logic [XLEN_BITS-1:0] regs_d [NREG];
   assign regs = regs_q;
@@ -44,15 +53,19 @@ module csr_regfile
     // committed write: the matching table entries that target this register supply the write mask
     logic        commit_hit;
     logic [XLEN_BITS-1:0] commit_mask;
+    logic [XLEN_BITS-1:0] commit_bits;   // the written value positioned inside the register (frm: shifted)
     always_comb begin
       commit_hit  = 1'b0;
       commit_mask = '0;
+      commit_bits = '0;
       for (int e = 0; e < NENT; e++) begin
         if (ENT_REG[e] == r) begin
           commit_hit  = commit_hit | (hit[e] & ((r != R_SATP) | satp_wr_ok));
           // sie / sip: only the delegated bits are writable
           commit_mask = commit_mask
-                      | (ENT_WMASK[e] & (ENT_DELEG[e] ? regs_q[R_MIDELEG] : ALL_ONES) & {XLEN_BITS{hit[e]}});
+                      | (((ENT_WMASK[e] & (ENT_DELEG[e] ? regs_q[R_MIDELEG] : ALL_ONES)) << ENT_SHIFT[e])
+                         & {XLEN_BITS{hit[e]}});
+          commit_bits = commit_bits | ((commit_wdata << ENT_SHIFT[e]) & {XLEN_BITS{hit[e]}});
         end
       end
     end
@@ -62,7 +75,11 @@ module csr_regfile
     always_comb begin
       merged = regs_q[r];
       if (trap_wr_en[r]) merged = trap_wr_val[r];
-      if (commit_hit)    merged = (regs_q[r] & ~commit_mask) | (commit_wdata & commit_mask);
+      if (commit_hit)    merged = (regs_q[r] & ~commit_mask) | (commit_bits & commit_mask);
+      // F/D: flags accrue into fcsr (never in the cycle of a CSR write: a CSR instruction commits alone);
+      // an FP instruction, or a write of fflags / frm / fcsr, leaves FS Dirty
+      if (FP_EN && r == R_FCSR)    merged[4:0] = merged[4:0] | fflags_acc;
+      if (FP_EN && r == R_MSTATUS && (fs_dirty || fcsr_wr)) merged[MSTATUS_FS +: 2] = 2'b11;
     end
 
     if (r == R_MIP) begin : g_mip
@@ -75,7 +92,8 @@ module csr_regfile
         if (inj_timer_valid)               regs_d[r][MIP_MTIP] = inj_timer;
       end
     end else begin : g_other
-      assign regs_we   = trap_wr_en[r] | commit_hit;
+      assign regs_we   = trap_wr_en[r] | commit_hit | (FP_EN && r == R_FCSR && (|fflags_acc))
+                       | (FP_EN && r == R_MSTATUS && (fs_dirty || fcsr_wr));
       assign regs_d[r] = merged;
     end
 

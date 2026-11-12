@@ -54,12 +54,12 @@ module idu_ctrl_decode import ttg_cfg_pkg::*; (
   localparam logic [4:0] AMO_LR = 5'b00010, AMO_SC = 5'b00011;   // funct7[6:2]
 
   // CSR addresses implemented by the reference CSR file (Ref: Exu/include/Csr.h enum_number_csr_code, 21 entries)
-  localparam int NUM_KNOWN_CSR = 21;
-  localparam logic [11:0] KNOWN_CSR [NUM_KNOWN_CSR] = '{
+  localparam bit HAS_FP = (FPRF_NUM != 0);
+  localparam int NUM_KNOWN_CSR = HAS_FP ? 24 : 21;   // F/D adds fflags / frm / fcsr (real CSR instructions)
+  localparam logic [11:0] KNOWN_CSR [24] = '{
     12'h305, 12'h341, 12'h342, 12'h304, 12'h344, 12'h343, 12'h340, 12'h300, 12'h303, 12'h302, 12'h141,
-    12'h105, 12'h142, 12'h140, 12'h143, 12'h100, 12'h104, 12'h144, 12'h180, 12'hf14, 12'h301};
-  // fflags / frm / fcsr: executed by the function model, no timing effect here; every other CSR outside KNOWN_CSR traps
-  localparam logic [11:0] CSR_FFLAGS = 12'h001, CSR_FCSR = 12'h003;
+    12'h105, 12'h142, 12'h140, 12'h143, 12'h100, 12'h104, 12'h144, 12'h180, 12'hf14, 12'h301,
+    12'h001, 12'h002, 12'h003};
 
   // ---- classes (index into the one-hot `cls` and into ROM) ----
   localparam int CLS_LUI = 0, CLS_AUIPC = 1, CLS_JAL = 2, CLS_JALR = 3, CLS_BR = 4, CLS_LOAD = 5, CLS_STORE = 6,
@@ -180,7 +180,7 @@ module idu_ctrl_decode import ttg_cfg_pkg::*; (
   assign csr_known    = |csr_hit;
   assign csr_form     = funct3[0] | funct3[1];                 // csrrw/s/c(i); funct3 = 000/100 is non-CSR
   assign csr_imm_form = funct3[2] & csr_form;                  // csrrwi/si/ci
-  assign csr_illegal  = (csr_idx < CSR_FFLAGS) | (csr_idx > CSR_FCSR);   // the CSR_NOP class holds only unknown CSRs
+  assign csr_illegal  = 1'b1;   // the CSR_NOP class holds only unknown CSRs: illegal-instruction exception
   assign sys_csr      = op_system & csr_form;
   assign sys_plain    = op_system & ~csr_form;
   assign is_ecall     = (inst == INST_ECALL);
@@ -224,7 +224,6 @@ module idu_ctrl_decode import ttg_cfg_pkg::*; (
   assign cls[CLS_OP32_MUL] = RV64 & (opcode == OPC_OP32) & (funct7 == 7'd1) & ~funct3[2];
   assign cls[CLS_OP32_DIV] = RV64 & (opcode == OPC_OP32) & (funct7 == 7'd1) & funct3[2];
   // F/D (Ref: Idu::decode): fmt = funct7[1:0] (0 = S, 1 = D, rest reserved); the class comes from funct5 = funct7[6:2]
-  localparam bit HAS_FP = (FPRF_NUM != 0);
   logic fmt_ok, fp_width_ok, op_fp;
   logic [4:0] f5;
   assign f5          = funct7[6:2];

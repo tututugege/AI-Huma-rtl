@@ -75,6 +75,8 @@ package rob_pkg;
     logic                      pf_load;
     logic                      pf_store;
     logic                      illegal_inst;
+    logic                      fs_need;     // F/D: needs mstatus.FS != Off (FP instruction, FP load / store, FP CSR)
+    logic [4:0]                fflags;      // F/D: exception flags, accrued into fcsr at commit
     logic                      flush_pipe;  // LSU_MEMSPEC: memory-order violator, flushes the younger ones at commit
     logic [INST_TYPE_W-1:0]    itype;
   } rob_entry_t;
@@ -94,6 +96,9 @@ package rob_pkg;
     logic                     pf_store;
     logic                     defer;       // LSU_MEMSPEC: speculative load write-back, completes later
     logic                     flush_pipe;
+    logic                     illegal;     // F/D: found illegal at execute (reserved encoding / rounding mode)
+    logic [4:0]               fflags;
+    logic                     fs_off;      // mstatus.FS == Off now (committed state)
     logic [UOP_TYPE_W-1:0]    op;
   } rob_wb_t;
 
@@ -112,6 +117,9 @@ package rob_pkg;
     logic                     br_mispred;
     logic                     br_taken;
     logic                     flush_pipe;
+    logic                     illegal;
+    logic [4:0]               fflags;
+    logic                     fs_off;
   } rob_event_t;
 
   // ---- classification of a stored instruction (Rob.cpp anonymous namespace) ----
@@ -177,6 +185,9 @@ package rob_pkg;
     ev.br_mispred = wb.mispred;
     ev.br_taken = wb.br_taken;
     ev.flush_pipe = wb.flush_pipe;
+    ev.illegal = wb.illegal;
+    ev.fflags = wb.fflags;
+    ev.fs_off = wb.fs_off;
     return ev;
   endfunction
 
@@ -189,6 +200,10 @@ package rob_pkg;
     nxt.pf_load = cur.pf_load | ev.pf_load;
     nxt.pf_store = cur.pf_store | ev.pf_store;
     nxt.flush_pipe = cur.flush_pipe | ev.flush_pipe;
+    // F/D: the FS = Off check is made when the instruction completes, against the committed mstatus (CSR writes and
+    // traps flush the younger instructions, so a stale FS can only be seen by instructions that are discarded)
+    nxt.illegal_inst = cur.illegal_inst | ev.illegal | (cur.fs_need & ev.fs_off);
+    nxt.fflags = cur.fflags | ev.fflags;
     if (ev.sta_clr_load && nxt.pf_store) nxt.pf_load = 1'b0;
     if (ev.br_we) begin
       nxt.mispred = ev.br_mispred;

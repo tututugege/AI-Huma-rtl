@@ -63,6 +63,7 @@ module exu_ctrl
   input  logic [XLEN_BITS-1:0] fu_fp_result [N_FPU],
   input  logic [FW-1:0] fu_fp_fresult [N_FPU],
   input  logic [FFLAGS_W-1:0] fu_fp_fflags [N_FPU],
+  input  logic [N_FPU-1:0] fu_fp_illegal,
   input  logic [PRF_IDX_WIDTH-1:0] fu_fp_dest_preg [N_FPU],
   input  logic [N_FPU-1:0] fu_fp_dest_en,
   input  logic [BR_MASK_WIDTH-1:0] fu_fp_br_mask [N_FPU],
@@ -113,6 +114,7 @@ module exu_ctrl
   output logic [ISSUE_WIDTH-1:0] exu2rob_entry_uop_rob_defer,
   output logic [ISSUE_WIDTH-1:0] exu2rob_entry_uop_flush_pipe,
   output logic [FFLAGS_W-1:0] exu2rob_entry_uop_fflags [ISSUE_WIDTH],
+  output logic [ISSUE_WIDTH-1:0] exu2rob_entry_uop_illegal,
   output logic [ISSUE_WIDTH-1:0] exu2rob_entry_uop_page_fault_store,
   output logic [LSU_LDU_COUNT-1:0] exe2lsu_ldu_req_valid,
   output logic [XLEN_BITS-1:0] exe2lsu_ldu_req_uop_result [LSU_LDU_COUNT],
@@ -305,7 +307,8 @@ module exu_ctrl
   exu_ctrl_fu_in u_fu_in (
     .fu_alu_result, .fu_agu_result, .fu_sdu_result, .fu_bru_diag_val, .fu_bru_mispred, .fu_bru_br_taken,
     .fu_mc_ready, .fu_mc_complete, .fu_mc_result, .fu_mc_dest_preg, .fu_mc_dest_en, .fu_mc_br_mask, .fu_mc_rob_idx,
-    .fu_fp_ready, .fu_fp_complete, .fu_fp_result, .fu_fp_fresult, .fu_fp_fflags, .fu_fp_dest_preg, .fu_fp_dest_en,
+    .fu_fp_ready, .fu_fp_complete, .fu_fp_result, .fu_fp_fresult, .fu_fp_fflags, .fu_fp_illegal, .fu_fp_dest_preg,
+    .fu_fp_dest_en,
     .fu_fp_br_mask, .fu_fp_rob_idx,
     .fu_res
   );
@@ -345,7 +348,7 @@ module exu_ctrl
     .br_mispred(exu2rob_entry_uop_mispred), .br_taken(exu2rob_entry_uop_br_taken),
     .page_fault_load(exu2rob_entry_uop_page_fault_load), .page_fault_store(exu2rob_entry_uop_page_fault_store),
     .rob_defer(exu2rob_entry_uop_rob_defer), .flush_pipe(exu2rob_entry_uop_flush_pipe),
-    .fflags(exu2rob_entry_uop_fflags)
+    .fflags(exu2rob_entry_uop_fflags), .illegal(exu2rob_entry_uop_illegal)
   );
 
   exu_ctrl_br_arb u_br (
@@ -393,5 +396,4 @@ module exu_ctrl
   );
 
 endmodule
-
 `default_nettype wire

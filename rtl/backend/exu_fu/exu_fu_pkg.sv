@@ -83,6 +83,7 @@ package exu_fu_pkg;
   typedef struct packed {
     logic [63:0]                fresult;
     logic [4:0]                 fflags;
+    logic                       illegal;
     logic [ROB_IDX_WIDTH-1:0]   rob_idx;
     logic [PRF_IDX_WIDTH-1:0]   dest_preg;
     logic                       dest_en;

@@ -267,6 +267,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
   logic [ISSUE_WIDTH-1:0] exu2rob_entry_uop_rob_defer;
   logic [ISSUE_WIDTH-1:0] exu2rob_entry_uop_flush_pipe;
   logic [FFLAGS_W-1:0] exu2rob_entry_uop_fflags [ISSUE_WIDTH];
+  logic [ISSUE_WIDTH-1:0] exu2rob_entry_uop_illegal;
   logic [6:0] dis2lsu_ldq_rob_idx [DECODE_WIDTH];
   logic [DECODE_WIDTH-1:0] dis2lsu_rob_flag;
   logic [6:0] dis2lsu_rob_idx [DECODE_WIDTH];
@@ -284,6 +285,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
   logic [31:0] dis2rob_uop_imm [DECODE_WIDTH];
   logic [DECODE_WIDTH-1:0] dis2rob_uop_me_elim;
   logic [DECODE_WIDTH-1:0] dis2rob_uop_dest_fp;
+  logic [DECODE_WIDTH-1:0] dis2rob_uop_fs_need;
   logic [PRF_IDX_WIDTH-1:0] dis2rob_uop_old_dest_preg [DECODE_WIDTH];
   logic [DECODE_WIDTH-1:0] dis2rob_uop_page_fault_inst;
   logic [DECODE_WIDTH-1:0] dis2rob_uop_rob_flag;
@@ -430,12 +432,16 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
   logic [XLEN_BITS-1:0] csr2front_epc;
   logic [XLEN_BITS-1:0] csr2front_trap_pc;
   logic csr2rob_interrupt_req;
+  logic csr2rob_fs_off;
+  logic [2:0] csr2exe_frm;
 
   // ---- nets driven by rob: Rob (back-end/Rob.cpp)
   logic [5:0] ftq_rob_pc_req_req_ftq_idx [1];
   logic [FTQ_OFFSET_WIDTH-1:0] ftq_rob_pc_req_req_ftq_offset [1];
   logic [0:0] ftq_rob_pc_req_req_valid;
   logic rob2csr_commit;
+  logic [4:0] rob2csr_fflags;
+  logic rob2csr_fs_dirty;
   logic rob2csr_interrupt_resp;
   logic rob2dis_empty;
   logic [6:0] rob2dis_enq_idx;
@@ -850,6 +856,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .dis2rob_uop_old_dest_preg(dis2rob_uop_old_dest_preg),
     .dis2rob_uop_me_elim(dis2rob_uop_me_elim),
     .dis2rob_uop_dest_fp(dis2rob_uop_dest_fp),
+    .dis2rob_uop_fs_need(dis2rob_uop_fs_need),
     .dis2rob_uop_ftq_idx(dis2rob_uop_ftq_idx),
     .dis2rob_uop_ftq_offset(dis2rob_uop_ftq_offset),
     .dis2rob_uop_ftq_is_last(dis2rob_uop_ftq_is_last),
@@ -1107,6 +1114,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .rst_n(rst_n),
     // inputs from csr
     .csr2exe_rdata(csr2exe_rdata),
+    .csr2exe_frm(csr2exe_frm),
     // inputs from idu
     .dec_bcast_br_mask(dec_bcast_br_mask),
     .dec_bcast_clear_mask(dec_bcast_clear_mask),
@@ -1192,6 +1200,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .exu2rob_entry_uop_rob_defer(exu2rob_entry_uop_rob_defer),
     .exu2rob_entry_uop_flush_pipe(exu2rob_entry_uop_flush_pipe),
     .exu2rob_entry_uop_fflags(exu2rob_entry_uop_fflags),
+    .exu2rob_entry_uop_illegal(exu2rob_entry_uop_illegal),
     .exe2lsu_ldu_req_valid(exe2lsu_ldu_req_valid),
     .exe2lsu_ldu_req_uop_result(exe2lsu_ldu_req_uop_result),
     .exe2lsu_ldu_req_uop_dest_preg(exe2lsu_ldu_req_uop_dest_preg),
@@ -1238,6 +1247,8 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .exe2csr_we(exe2csr_we),
     // inputs from rob
     .rob2csr_commit(rob2csr_commit),
+    .rob2csr_fflags(rob2csr_fflags),
+    .rob2csr_fs_dirty(rob2csr_fs_dirty),
     .rob2csr_interrupt_resp(rob2csr_interrupt_resp),
     .rob_bcast_breakpoint(rob_bcast_breakpoint),
     .rob_bcast_ecall(rob_bcast_ecall),
@@ -1259,7 +1270,9 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     // outputs
     .csr2exe_rdata_vld(nc_csr2exe_rdata_vld),
     .csr2exe_rdata(csr2exe_rdata),
+    .csr2exe_frm(csr2exe_frm),
     .csr2rob_interrupt_req(csr2rob_interrupt_req),
+    .csr2rob_fs_off(csr2rob_fs_off),
     .csr2front_epc_vld(nc_csr2front_epc_vld),
     .csr2front_epc(csr2front_epc),
     .csr2front_trap_pc_vld(nc_csr2front_trap_pc_vld),
@@ -1276,6 +1289,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .rst_n(rst_n),
     // inputs from csr
     .csr2rob_interrupt_req(csr2rob_interrupt_req),
+    .csr2rob_fs_off(csr2rob_fs_off),
     // inputs from dis
     .dis2rob_dis_fire(dis2rob_dis_fire),
     .dis2rob_uop_dest_areg(dis2rob_uop_dest_areg),
@@ -1291,6 +1305,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .dis2rob_uop_imm(dis2rob_uop_imm),
     .dis2rob_uop_me_elim(dis2rob_uop_me_elim),
     .dis2rob_uop_dest_fp(dis2rob_uop_dest_fp),
+    .dis2rob_uop_fs_need(dis2rob_uop_fs_need),
     .dis2rob_uop_old_dest_preg(dis2rob_uop_old_dest_preg),
     .dis2rob_uop_page_fault_inst(dis2rob_uop_page_fault_inst),
     .dis2rob_uop_rob_flag(dis2rob_uop_rob_flag),
@@ -1308,6 +1323,8 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .exu2rob_entry_uop_page_fault_store(exu2rob_entry_uop_page_fault_store),
     .exu2rob_entry_uop_rob_defer(exu2rob_entry_uop_rob_defer),
     .exu2rob_entry_uop_flush_pipe(exu2rob_entry_uop_flush_pipe),
+    .exu2rob_entry_uop_illegal(exu2rob_entry_uop_illegal),
+    .exu2rob_entry_uop_fflags(exu2rob_entry_uop_fflags),
     .exu2rob_entry_uop_result(exu2rob_entry_uop_result),
     .exu2rob_entry_uop_rob_idx(exu2rob_entry_uop_rob_idx),
     .exu2rob_entry_valid(exu2rob_entry_valid),
@@ -1330,6 +1347,8 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .rob2dis_free(rob2dis_free),
     .rob2dis_rob_flag(rob2dis_rob_flag),
     .rob2csr_commit(rob2csr_commit),
+    .rob2csr_fflags(rob2csr_fflags),
+    .rob2csr_fs_dirty(rob2csr_fs_dirty),
     .rob2csr_interrupt_resp(rob2csr_interrupt_resp),
     .rob_commit_commit_entry_valid(rob_commit_commit_entry_valid),
     .rob_commit_commit_entry_uop_diag_val(rob_commit_commit_entry_uop_diag_val),
@@ -1607,13 +1626,10 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .rob_commit_commit_entry_uop_amo_op(rob_commit_commit_entry_uop_amo_op)
   );
 
-  // F/D: the PRF takes the third source and the source domain bits; the destination domain bit and the accrued
-  // exception flags have no consumer yet (the destination tag says which file; the ROB takes fflags from S5)
+  // F/D: the PRF takes the third source and the source domain bits; the destination domain bit has no consumer
+  // (the destination tag says which register file)
   logic unused_fp_issue;
-  always_comb begin
-    unused_fp_issue = ^iss2prf_iss_entry_uop_dest_fp;
-    for (int p = 0; p < ISSUE_WIDTH; p++) unused_fp_issue ^= ^exu2rob_entry_uop_fflags[p];
-  end
+  assign unused_fp_issue = ^iss2prf_iss_entry_uop_dest_fp;
 
 endmodule
 
