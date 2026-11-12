@@ -74,7 +74,7 @@ module dispatch_core
     for (int i = 0; i < NUM_SLOTS; i++) begin
       alloc_inst[i] = inst_q[i];
       alloc_inst[i].br_mask = inst_q[i].br_mask & ~dec_clear_mask;
-      cls[i]         = dis_classify(inst_q[i].itype, inst_q[i].func7[6:2]);
+      cls[i]         = dis_classify(inst_q[i].itype, inst_q[i].func7[6:2], inst_q[i].fp_cls);
       is_load[i]     = cls[i].is_load;
       is_store[i]    = cls[i].is_store;
       is_csr_like[i] = dis_is_csr_like(inst_q[i].itype);
@@ -163,10 +163,13 @@ module dispatch_core
     // Ref: Dispatch::make_dis_iss_uop
     always_comb begin
       base_uop = '{dest_preg: alloc_inst[i].dest_preg, src1_preg: alloc_inst[i].src1_preg,
-                   src2_preg: alloc_inst[i].src2_preg, ftq_idx: alloc_inst[i].ftq_idx,
+                   src2_preg: alloc_inst[i].src2_preg, src3_preg: alloc_inst[i].src3_preg,
+                   ftq_idx: alloc_inst[i].ftq_idx,
                    ftq_offset: alloc_inst[i].ftq_offset, is_atomic: alloc_inst[i].is_atomic,
                    dest_en: alloc_inst[i].dest_en, src1_en: alloc_inst[i].src1_en,
-                   src2_en: alloc_inst[i].src2_en, src1_busy: busy1[i], src2_busy: busy2[i],
+                   src2_en: alloc_inst[i].src2_en, src3_en: alloc_inst[i].src3_en,
+                   src1_busy: busy1[i], src2_busy: busy2[i], src3_busy: busy3[i],
+                   dest_fp: alloc_inst[i].dest_fp, src1_fp: alloc_inst[i].src1_fp, src2_fp: alloc_inst[i].src2_fp,
                    src1_is_pc: alloc_inst[i].src1_is_pc, src2_is_imm: alloc_inst[i].src2_is_imm,
                    is_word: alloc_inst[i].is_word,
                    func3: alloc_inst[i].func3, func7: alloc_inst[i].func7, imm: alloc_inst[i].imm,
@@ -176,7 +179,8 @@ module dispatch_core
                    op: UOP_ADD};
     end
     dispatch_decompose u_decompose (
-      .base(base_uop), .itype(alloc_inst[i].itype), .cls(cls[i]), .me_elim(alloc_inst[i].me_elim),
+      .base(base_uop), .itype(alloc_inst[i].itype), .cls(cls[i]), .fp_cls(alloc_inst[i].fp_cls),
+      .me_elim(alloc_inst[i].me_elim),
       .has_iq(has_iq[i]), .uop_iq(lane_uop), .expect_mask(expect_mask[i]));
     always_comb begin
       for (int q = 0; q < IQ_NUM; q++) uop_iq[i][q] = lane_uop[q];

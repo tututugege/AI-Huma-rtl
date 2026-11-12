@@ -18,12 +18,14 @@ module isu_iq
   input  logic [TAG_NUM-1:0]       woken,
   input  logic [TAG_NUM-1:0]       cancel_v,        // wake-up of the previous cycle was wrong: waiting again (LP_L2)
   input  op_set_t                  fu_ready [NP],   // per port: op classes the functional unit accepts now
+  input  logic [NP-1:0]            gate_ok,         // FP write-port gate (isu_fp_gate); 1 for ports without one
   input  logic                     issue_block,     // rob flush or misprediction this cycle
   input  logic                     flush_all,
   input  logic                     flush_br,
   input  logic [BR_MASK_WIDTH-1:0] flush_br_mask,
   input  logic [BR_MASK_WIDTH-1:0] clear_mask,
   output logic [READY_NUM_W-1:0]   free_slots,      // registered occupancy, as seen by dispatch
+  output logic [NP-1:0]            cand_valid,      // port's pick passes FU readiness and issue block (before the gate)
   output logic [NP-1:0]            grant_valid,
   output isu_uop_t                 grant_uop [NP]
 );
@@ -39,7 +41,7 @@ module isu_iq
   logic [SIZE-1:0] granted_slot;
   logic [SIZE-1:0] enq_slot [DW];
   isu_uop_t        enq_uop  [DW];
-  logic [DW-1:0]   enq_wait1, enq_wait2;
+  logic [DW-1:0]   enq_wait1, enq_wait2, enq_wait3;
 
   // ---- select and grant (reads registered state only) ----
   isu_iq_select #(.SIZE(SIZE), .NP(NP), .PORT_BASE(PORT_BASE)) u_select (
@@ -57,7 +59,8 @@ module isu_iq
     ttg_onehot_mux #(.N(SIZE), .W(UW)) u_read (.sel(sel_onehot[p]), .data(slot_bits), .out(sel_bits));
     assign sel_uop        = isu_uop_t'(sel_bits);
     assign grant_uop[p]   = sel_uop;
-    assign grant_valid[p] = sel_valid[p] && !issue_block && ((fu_ready[p] & op_onehot(sel_uop.op)) != '0);
+    assign cand_valid[p]  = sel_valid[p] && !issue_block && ((fu_ready[p] & op_onehot(sel_uop.op)) != '0);
+    assign grant_valid[p] = cand_valid[p] && gate_ok[p];
     assign granted_by_port[p] = sel_onehot[p] & {SIZE{grant_valid[p]}};
   end
 
@@ -72,6 +75,7 @@ module isu_iq
     assign enq_uop[w]   = enq[w].uop;
     assign enq_wait1[w] = enq[w].uop.src1_en && enq[w].src1_busy && !woken[enq[w].uop.src1_preg];
     assign enq_wait2[w] = enq[w].uop.src2_en && enq[w].src2_busy && !woken[enq[w].uop.src2_preg];
+    assign enq_wait3[w] = enq[w].uop.src3_en && enq[w].src3_busy && !woken[enq[w].uop.src3_preg];
   end
 
   // a slot freed by an issue this cycle can be reused by an enqueue in the same cycle
@@ -80,7 +84,8 @@ module isu_iq
 
   isu_iq_store #(.SIZE(SIZE), .DW(DW)) u_store (
     .clk(clk), .rst_n(rst_n),
-    .enq_slot(enq_slot), .enq_uop(enq_uop), .enq_wait1(enq_wait1), .enq_wait2(enq_wait2), .woken(woken),
+    .enq_slot(enq_slot), .enq_uop(enq_uop), .enq_wait1(enq_wait1), .enq_wait2(enq_wait2), .enq_wait3(enq_wait3),
+    .woken(woken),
     .cancel_v(cancel_v),
     .issue_clear(granted_slot), .flush_all(flush_all), .flush_br(flush_br), .flush_br_mask(flush_br_mask),
     .clear_mask(clear_mask),

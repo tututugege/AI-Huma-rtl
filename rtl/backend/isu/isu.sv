@@ -22,6 +22,12 @@ module isu
   input  logic dis2iss_req_uop_src2_en [IQ_NUM][IQ_DISPATCH_WIDTH],
   input  logic dis2iss_req_uop_src1_busy [IQ_NUM][IQ_DISPATCH_WIDTH],
   input  logic dis2iss_req_uop_src2_busy [IQ_NUM][IQ_DISPATCH_WIDTH],
+  input  logic [PRF_IDX_WIDTH-1:0] dis2iss_req_uop_src3_preg [IQ_NUM][IQ_DISPATCH_WIDTH],
+  input  logic dis2iss_req_uop_src3_en [IQ_NUM][IQ_DISPATCH_WIDTH],
+  input  logic dis2iss_req_uop_src3_busy [IQ_NUM][IQ_DISPATCH_WIDTH],
+  input  logic dis2iss_req_uop_dest_fp [IQ_NUM][IQ_DISPATCH_WIDTH],
+  input  logic dis2iss_req_uop_src1_fp [IQ_NUM][IQ_DISPATCH_WIDTH],
+  input  logic dis2iss_req_uop_src2_fp [IQ_NUM][IQ_DISPATCH_WIDTH],
   input  logic dis2iss_req_uop_src1_is_pc [IQ_NUM][IQ_DISPATCH_WIDTH],
   input  logic dis2iss_req_uop_src2_is_imm [IQ_NUM][IQ_DISPATCH_WIDTH],
   input  logic dis2iss_req_uop_is_word [IQ_NUM][IQ_DISPATCH_WIDTH],
@@ -56,6 +62,11 @@ module isu
   output logic [PRF_IDX_WIDTH-1:0] iss2prf_iss_entry_uop_dest_preg [ISSUE_WIDTH],
   output logic [PRF_IDX_WIDTH-1:0] iss2prf_iss_entry_uop_src1_preg [ISSUE_WIDTH],
   output logic [PRF_IDX_WIDTH-1:0] iss2prf_iss_entry_uop_src2_preg [ISSUE_WIDTH],
+  output logic [PRF_IDX_WIDTH-1:0] iss2prf_iss_entry_uop_src3_preg [ISSUE_WIDTH],
+  output logic [ISSUE_WIDTH-1:0] iss2prf_iss_entry_uop_src3_en,
+  output logic [ISSUE_WIDTH-1:0] iss2prf_iss_entry_uop_dest_fp,
+  output logic [ISSUE_WIDTH-1:0] iss2prf_iss_entry_uop_src1_fp,
+  output logic [ISSUE_WIDTH-1:0] iss2prf_iss_entry_uop_src2_fp,
   output logic [FTQ_IDX_WIDTH-1:0] iss2prf_iss_entry_uop_ftq_idx [ISSUE_WIDTH],
   output logic [FTQ_OFFSET_WIDTH-1:0] iss2prf_iss_entry_uop_ftq_offset [ISSUE_WIDTH],
   output logic [ISSUE_WIDTH-1:0] iss2prf_iss_entry_uop_is_atomic,
@@ -82,8 +93,9 @@ module isu
 );
 
 `ifndef SYNTHESIS
-  // static layout per config.h: 5 queues, the 6-port ALU cluster first (ports 0..5), then LD/STA/STD/BR
-  if (IQ_LD_PORT_BASE != 6 || WAKE_PORTS != ALU_NUM || FAST_WAKE_BASE + FAST_UNITS != WAKE_NUM ||
+  // static layout per config.h: 5 queues (6 with F/D: the FP ports come last), the 6-port ALU cluster first
+  // (ports 0..5), then LD/STA/STD/BR
+  if (IQ_LD_PORT_BASE != 6 || WAKE_PORTS != ALU_NUM || FAST_WAKE_BASE + FAST_UNITS + FPW_CH != WAKE_NUM ||
       IQ_DISPATCH_WIDTH != 8) begin : g_cfg_check
     $error("isu: config.h layout changed, isu_pkg port tables need updating");
   end
@@ -108,7 +120,7 @@ module isu
   isu_wake_src u_wake_src (
     .clk(clk), .rst_n(rst_n),
     .prf_wake_valid(prf_wake_valid), .prf_wake_preg(prf_awake_wake_preg),
-    .grant_valid(grant_valid[WAKE_PORTS-1:0]), .grant_uop(grant_uop[WAKE_PORTS-1:0]),
+    .grant_valid(grant_valid), .grant_uop(grant_uop),
     .flush_all(rob_bcast_flush), .flush_br(flush_br),
     .flush_br_mask(dec_bcast_br_mask), .clear_mask(dec_bcast_clear_mask),
     .wake_valid(wake_valid), .wake_preg(wake_preg));
@@ -146,6 +158,34 @@ module isu
     assign iss_awake_wake_preg[k]  = wake_preg[k];
   end
 
+  // ---- F/D: FP register-file write-port gate over the candidates that write the FP file ----
+  /* verilator lint_off UNUSEDSIGNAL */   // waiver: only the FP-write candidate ports are read, and only with F/D
+  logic [ISSUE_WIDTH-1:0] cand_valid_all;
+  /* verilator lint_on UNUSEDSIGNAL */
+  logic [ISSUE_WIDTH-1:0] gate_ok_all;
+  if (FP_EN) begin : g_gate
+    logic [FP_REQ_UNITS-1:0]   c_valid, c_fpw, c_ok;
+    logic [FP_COUNT_W:0]       c_lat [FP_REQ_UNITS];
+    for (genvar p = 0; p < ISSUE_WIDTH; p++) begin : g_port
+      if (port_has(MASK_FPD, p)) begin : g_cand
+        localparam int R = port_rank(MASK_FPD, p);
+        assign c_valid[R] = cand_valid_all[p];
+        assign c_fpw[R]   = grant_uop[p].dest_en && grant_uop[p].dest_fp &&
+                            ((grant_uop[p].op == op_t'(UOP_FMA)) || (grant_uop[p].op == op_t'(UOP_FMISC)) ||
+                             (grant_uop[p].op == op_t'(UOP_FDIV)) || (grant_uop[p].op == op_t'(UOP_I2F)));
+        assign c_lat[R]   = fp_latency(grant_uop[p].op, grant_uop[p].func7);
+        assign gate_ok_all[p] = c_ok[R];
+      end else begin : g_free
+        assign gate_ok_all[p] = 1'b1;
+      end
+    end
+    isu_fp_gate #(.NC(FP_REQ_UNITS)) u_gate (
+      .clk(clk), .rst_n(rst_n), .flush_all(rob_bcast_flush), .cand_valid(c_valid), .cand_fpw(c_fpw),
+      .cand_lat(c_lat), .gate_ok(c_ok));
+  end else begin : g_no_gate
+    assign gate_ok_all = '1;
+  end
+
   // ---- one instance per issue queue ----
   for (genvar q = 0; q < IQ_NUM; q++) begin : g_iq
     localparam int SIZE = iq_size(q);
@@ -157,7 +197,7 @@ module isu
     isu_enq_t                     enq [EW];
     logic [READY_NUM_W-1:0]       free_slots;
     op_set_t                      fu_ready [NP];
-    logic [NP-1:0]                g_valid;
+    logic [NP-1:0]                g_valid, g_cand;
     isu_uop_t                     g_uop [NP];
 
     for (genvar w = 0; w < EW; w++) begin : g_enq
@@ -167,12 +207,17 @@ module isu
           dest_preg: dis2iss_req_uop_dest_preg[q][w],
           src1_preg: dis2iss_req_uop_src1_preg[q][w],
           src2_preg: dis2iss_req_uop_src2_preg[q][w],
+          src3_preg: dis2iss_req_uop_src3_preg[q][w],
           ftq_idx: dis2iss_req_uop_ftq_idx[q][w],
           ftq_offset: dis2iss_req_uop_ftq_offset[q][w],
           is_atomic: dis2iss_req_uop_is_atomic[q][w],
           dest_en: dis2iss_req_uop_dest_en[q][w],
           src1_en: dis2iss_req_uop_src1_en[q][w],
           src2_en: dis2iss_req_uop_src2_en[q][w],
+          src3_en: dis2iss_req_uop_src3_en[q][w],
+          dest_fp: dis2iss_req_uop_dest_fp[q][w],
+          src1_fp: dis2iss_req_uop_src1_fp[q][w],
+          src2_fp: dis2iss_req_uop_src2_fp[q][w],
           src1_is_pc: dis2iss_req_uop_src1_is_pc[q][w],
           src2_is_imm: dis2iss_req_uop_src2_is_imm[q][w],
           is_word: dis2iss_req_uop_is_word[q][w],
@@ -190,13 +235,15 @@ module isu
           op: dis2iss_req_uop_op[q][w]
         },
         src1_busy: dis2iss_req_uop_src1_busy[q][w],
-        src2_busy: dis2iss_req_uop_src2_busy[q][w]
+        src2_busy: dis2iss_req_uop_src2_busy[q][w],
+        src3_busy: dis2iss_req_uop_src3_busy[q][w]
       };
     end
 
     for (genvar p = 0; p < NP; p++) begin : g_port
       assign fu_ready[p]          = exe2iss_fu_ready_mask[PB + p];
       assign grant_valid[PB + p]  = g_valid[p];
+      assign cand_valid_all[PB + p] = g_cand[p];
       assign grant_uop[PB + p]    = g_uop[p];
     end
 
@@ -205,9 +252,11 @@ module isu
 
     isu_iq #(.SIZE(SIZE), .DW(EW), .NP(NP), .PORT_BASE(PB)) u_iq (
       .clk(clk), .rst_n(rst_n), .enq_valid(enq_valid), .enq(enq), .woken(woken), .fu_ready(fu_ready),
+      .gate_ok(gate_ok_all[PB +: NP]),
       .issue_block(issue_block), .flush_all(rob_bcast_flush), .flush_br(flush_br),
       .flush_br_mask(dec_bcast_br_mask), .clear_mask(dec_bcast_clear_mask),
-      .cancel_v(cancel_v), .free_slots(free_slots), .grant_valid(g_valid), .grant_uop(g_uop));
+      .cancel_v(cancel_v), .free_slots(free_slots), .cand_valid(g_cand), .grant_valid(g_valid),
+      .grant_uop(g_uop));
   end
 
   // ---- issue ports to the PRF ----
@@ -216,6 +265,11 @@ module isu
     assign iss2prf_iss_entry_uop_dest_preg[p] = grant_uop[p].dest_preg;
     assign iss2prf_iss_entry_uop_src1_preg[p] = grant_uop[p].src1_preg;
     assign iss2prf_iss_entry_uop_src2_preg[p] = grant_uop[p].src2_preg;
+    assign iss2prf_iss_entry_uop_src3_preg[p] = grant_uop[p].src3_preg;
+    assign iss2prf_iss_entry_uop_src3_en[p] = grant_uop[p].src3_en;
+    assign iss2prf_iss_entry_uop_dest_fp[p] = grant_uop[p].dest_fp;
+    assign iss2prf_iss_entry_uop_src1_fp[p] = grant_uop[p].src1_fp;
+    assign iss2prf_iss_entry_uop_src2_fp[p] = grant_uop[p].src2_fp;
     assign iss2prf_iss_entry_uop_ftq_idx[p] = grant_uop[p].ftq_idx;
     assign iss2prf_iss_entry_uop_ftq_offset[p] = grant_uop[p].ftq_offset;
     assign iss2prf_iss_entry_uop_is_atomic[p] = grant_uop[p].is_atomic;

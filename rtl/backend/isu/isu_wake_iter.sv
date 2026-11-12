@@ -9,7 +9,8 @@ module isu_wake_iter
   import isu_pkg::*;
 #(
   parameter int SLOTS = 2,
-  parameter int NREQ  = 2
+  parameter int NREQ  = 2,
+  parameter int CW    = COUNT_W        // countdown width (the FP slots count up to FP_COUNT_MAX - 1)
 ) (
   input  logic                     clk,
   input  logic                     rst_n,
@@ -17,7 +18,7 @@ module isu_wake_iter
   input  logic [NREQ-1:0]          req_valid,
   input  logic [PRF_IDX_WIDTH-1:0] req_preg [NREQ],
   input  logic [BR_MASK_WIDTH-1:0] req_br_mask [NREQ],
-  input  logic [COUNT_W-1:0]       req_countdown [NREQ],
+  input  logic [CW-1:0]            req_countdown [NREQ],
   input  logic                     flush_all,
   input  logic                     flush_br,
   input  logic [BR_MASK_WIDTH-1:0] flush_br_mask,
@@ -26,7 +27,7 @@ module isu_wake_iter
   output logic [PRF_IDX_WIDTH-1:0] wake_preg [SLOTS]
 );
 
-  localparam int DW = PRF_IDX_WIDTH + BR_MASK_WIDTH + COUNT_W;
+  localparam int DW = PRF_IDX_WIDTH + BR_MASK_WIDTH + CW;
 
   logic [SLOTS-1:0] slot_free;
   logic [SLOTS-1:0] alloc_slot [NREQ];
@@ -41,7 +42,7 @@ module isu_wake_iter
 
   for (genvar j = 0; j < SLOTS; j++) begin : g_slot
     logic                     valid_q, valid_d;
-    logic [COUNT_W-1:0]       count_q, count_d;
+    logic [CW-1:0]            count_q, count_d;
     logic [PRF_IDX_WIDTH-1:0] preg_q, preg_d;
     logic [BR_MASK_WIDTH-1:0] mask_q, mask_d;
     logic [NREQ-1:0]          hit;
@@ -60,9 +61,9 @@ module isu_wake_iter
     // Ref: Isu::comb_calc_latency_next, Isu::comb_flush
     always_comb begin
       valid_d = (|hit) || counting;
-      count_d = (|hit) ? new_bits[COUNT_W-1:0] : (count_q - COUNT_W'(1));
+      count_d = (|hit) ? new_bits[CW-1:0] : (count_q - CW'(1));
       preg_d  = (|hit) ? new_bits[DW-1 -: PRF_IDX_WIDTH] : preg_q;
-      mask_d  = (|hit) ? new_bits[COUNT_W +: BR_MASK_WIDTH] : mask_q;
+      mask_d  = (|hit) ? new_bits[CW +: BR_MASK_WIDTH] : mask_q;
       killed  = flush_br && ((mask_d & flush_br_mask) != '0);    // mask before the clear below
       valid_d = valid_d && !flush_all && !killed;
       mask_d  = mask_d & ~clear_mask;

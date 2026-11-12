@@ -64,7 +64,7 @@ module exu
   output logic [11:0] exe2csr_idx,
   output logic [XLEN_BITS-1:0] exe2csr_wdata,
   output logic [1:0] exe2csr_wcmd,
-  output logic [16:0] exe2iss_fu_ready_mask [ISSUE_WIDTH],
+  output logic [isu_pkg::OP_NUM-1:0] exe2iss_fu_ready_mask [ISSUE_WIDTH],
   output logic [ISSUE_WIDTH-1:0] exe2prf_entry_valid,
   output logic [PRF_IDX_WIDTH-1:0] exe2prf_entry_uop_dest_preg [ISSUE_WIDTH],
   output logic [XLEN_BITS-1:0] exe2prf_entry_uop_result [ISSUE_WIDTH],

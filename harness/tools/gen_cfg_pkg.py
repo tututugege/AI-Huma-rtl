@@ -46,9 +46,14 @@ def main():
     fe = os.path.join(src, 'front-end', 'config', 'frontend_feature_config.h')
     fe_names = re.findall(r'^#define\s+((?:PTAB|INSTRUCTION_FIFO|FETCH_ADDR_FIFO|FRONT2BACK_FIFO)_SIZE)\s', open(fe).read(), re.M)
     names += [n for n in fe_names if n not in names]
+    # constants the declaration scan cannot see: members of a comma-separated constexpr list, and CFG_ macros (emitted under another name)
+    names += [n for n in ('FP_MISC_LAT', 'FP_I2F_LAT', 'FP_FDIV_D_LAT', 'FP_FSQRT_D_LAT') if n not in names]
+    exprs = {'FP_IQ_SIZE': 'CFG_FP_IQ_SIZE', 'FP_IQ_ENQ_WIDTH': 'CFG_FP_IQ_ENQ_WIDTH'}
     prog = ['#include "config.h"', '#include "frontend_feature_config.h"', '#include <cstdio>', 'int main(){']
     for n in names:
         prog.append(f'  std::printf("%s %llu\\n", "{n}", (unsigned long long)({n}));')
+    for n, e in exprs.items():
+        prog.append(f'  std::printf("%s %llu\\n", "{n}", (unsigned long long)({e}));')
     prog.append('  return 0; }')
     with tempfile.TemporaryDirectory() as td:
         cpp = os.path.join(td, 'dump.cpp')

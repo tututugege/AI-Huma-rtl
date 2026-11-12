@@ -7,12 +7,14 @@ package dis_pkg;
   // ---- geometry (all derived from ttg_cfg_pkg / reference config.h) -----------------------------
   localparam int NUM_SLOTS = DECODE_WIDTH;                  // dispatch lanes == decode lanes
   localparam int SLOT_IDX_W = $clog2(NUM_SLOTS);
-  localparam int IQ_NUM = 5;                                // IQ_INT, IQ_LD, IQ_STA, IQ_STD, IQ_BR
+  localparam bit FP_EN = (FPRF_NUM != 0);                   // F/D: the core has an FP register file and an FP queue
+  localparam int IQ_NUM = FP_EN ? 6 : 5;                    // IQ_INT, IQ_LD, IQ_STA, IQ_STD, IQ_BR (, IQ_FP)
   localparam int IQ_INT = 0;
   localparam int IQ_LD = 1;
   localparam int IQ_STA = 2;
   localparam int IQ_STD = 3;
   localparam int IQ_BR = 4;
+  localparam int IQ_FP = 5;                                 // only exists when FP_EN
   localparam int IQ_PORTS = MAX_IQ_DISPATCH_WIDTH;          // request ports per IQ
   localparam int IQ_PORT_W = $clog2(IQ_PORTS);
   localparam int STQ_PORTS = MAX_STQ_DISPATCH_WIDTH;
@@ -45,8 +47,12 @@ package dis_pkg;
 
   typedef enum logic [UOP_TYPE_W-1:0] {
     UOP_JUMP = 5'd0, UOP_ADD, UOP_BR, UOP_LOAD, UOP_STA, UOP_STD, UOP_CSR, UOP_FENCE, UOP_ECALL,
-    UOP_EBREAK, UOP_SFENCE_VMA, UOP_FENCE_I, UOP_MRET, UOP_SRET, UOP_MUL, UOP_DIV, UOP_WFI
+    UOP_EBREAK, UOP_SFENCE_VMA, UOP_FENCE_I, UOP_MRET, UOP_SRET, UOP_MUL, UOP_DIV, UOP_WFI,
+    UOP_FMA, UOP_FMISC, UOP_FDIV, UOP_I2F
   } uop_op_e;
+
+  // FpCls (Ref: base_types.h): which unit class an OP-FP / fused instruction needs
+  localparam logic [2:0] FPC_FMA = 3'd1, FPC_FDIV = 3'd2, FPC_MISC = 3'd3, FPC_I2F = 3'd4;
 
   // One renamed instruction as held in the dispatch register stage (RenDisIO::RenDisInst minus
   // perf/debug sidebands and the dead expect/cplt masks and src2_areg).
@@ -104,14 +110,20 @@ package dis_pkg;
     logic [PRF_IDX_WIDTH-1:0]  dest_preg;
     logic [PRF_IDX_WIDTH-1:0]  src1_preg;
     logic [PRF_IDX_WIDTH-1:0]  src2_preg;
+    logic [PRF_IDX_WIDTH-1:0]  src3_preg;
     logic [FTQ_IDX_WIDTH-1:0]  ftq_idx;
     logic [FTQ_OFFSET_WIDTH-1:0] ftq_offset;
     logic                      is_atomic;
     logic                      dest_en;
     logic                      src1_en;
     logic                      src2_en;
+    logic                      src3_en;
     logic                      src1_busy;
     logic                      src2_busy;
+    logic                      src3_busy;
+    logic                      dest_fp;       // F/D domain bits: the register is in the FP file
+    logic                      src1_fp;
+    logic                      src2_fp;
     logic                      src1_is_pc;
     logic                      src2_is_imm;
     logic                      is_word;
@@ -136,17 +148,23 @@ package dis_pkg;
     logic is_amo;
     logic is_amo_sc;
     logic to_int;      // has a uop for IQ_INT
+    logic to_fp;       // has a uop for IQ_FP (FMA / FDIV / MISC)
     logic to_br;       // has a uop for IQ_BR
   } dis_class_t;
 
-  function automatic dis_class_t dis_classify(input inst_type_e t, input logic [4:0] amo_op);
+  function automatic dis_class_t dis_classify(input inst_type_e t, input logic [4:0] amo_op,
+                                              input logic [2:0] fp_cls);
     dis_class_t c;
+    logic fpop;
     c.is_amo    = (t == INST_AMO);
     c.is_amo_sc = c.is_amo && (amo_op == AMO_SC);
     c.is_load   = (t == INST_LOAD) || (c.is_amo && (amo_op != AMO_SC));
     c.is_store  = (t == INST_STORE) || (c.is_amo && (amo_op != AMO_LR));
     c.to_br     = (t == INST_BR) || (t == INST_JAL) || (t == INST_JALR);
-    c.to_int    = (t != INST_BR) && (t != INST_LOAD) && (t != INST_STORE) && !c.is_amo;
+    fpop        = (t == INST_FPOP);
+    c.to_fp     = fpop && (fp_cls != FPC_I2F);
+    // integer -> FP moves / conversions are integer-queue uops (UOP_I2F); every other FP instruction goes to IQ_FP
+    c.to_int    = (t != INST_BR) && (t != INST_LOAD) && (t != INST_STORE) && !c.is_amo && !c.to_fp;
     return c;
   endfunction
 
