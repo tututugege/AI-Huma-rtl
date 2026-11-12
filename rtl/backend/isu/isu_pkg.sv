@@ -133,6 +133,22 @@ package isu_pkg;
   endfunction
   /* verilator lint_on UNUSEDSIGNAL */
 
+  // Completion offset of a uop (Isu::comb_issue gate): cycles from the issue cycle to its completion in the unit.
+  // The wake-up latency, except for the iterative units (DIV, FDIV), which finish one cycle later.
+  localparam int WB_OFF_MAX = (DIV_MAX_LATENCY + 1 > FP_FSQRT_D_LAT + 1) ? DIV_MAX_LATENCY + 1 : FP_FSQRT_D_LAT + 1;
+  localparam int WB_OFF_W = $clog2(WB_OFF_MAX + 1);
+  /* verilator lint_off UNUSEDSIGNAL */   // waiver: only func7[6:2] / func7[0] and is_word of the class are read
+  function automatic logic [WB_OFF_W-1:0] wb_offset(input op_t op, input logic [6:0] func7, input logic is_word);
+    if (op == op_t'(UOP_MUL)) return WB_OFF_W'((MUL_MAX_LATENCY <= 0) ? 1 : MUL_MAX_LATENCY);
+    else if (op == op_t'(UOP_DIV))
+      return WB_OFF_W'(((XLEN_BITS == 64 && is_word) ? DIV_MAX_LATENCY / 2 : DIV_MAX_LATENCY) + 1);
+    else if (FP_EN && op == op_t'(UOP_FDIV)) return WB_OFF_W'(fp_latency(op, func7)) + WB_OFF_W'(1);
+    else if (FP_EN && (op == op_t'(UOP_FMA) || op == op_t'(UOP_FMISC) || op == op_t'(UOP_I2F)))
+      return WB_OFF_W'(fp_latency(op, func7));
+    else return WB_OFF_W'(1);
+  endfunction
+  /* verilator lint_on UNUSEDSIGNAL */
+
   // ---- uop as stored in an issue queue and as sent to the PRF (IqStoredUop minus dbg, minus src busy) ----
   typedef struct packed {
     logic [PRF_IDX_WIDTH-1:0]    dest_preg;

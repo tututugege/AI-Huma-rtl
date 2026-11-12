@@ -81,3 +81,14 @@ rv64 配置（`XLEN_BITS = 64`，`gen_cfg.sh -DFP=1 -DXLEN=64`；仿真器 `SOC_
 - 验收（rv64，FM 逐条对拍含 FP 寄存器，周期与 rv64 模型逐周期相同）：`rv64uf-*` 11 个、`rv64ud-*` 12 个（含 `structural`、`move`、`fclass`、`recoding`，double 的 `fld/fsd` 都在）、`rv64-fp`（348568 条指令）、`rv64-fp-trap`（16649 条）、`fp-kernels`、`fd-*` 5 个、6 个 FP 内核（double 的 dgemm / nbody / fir 也通过）。rv64 整数程序 54 个里 50 个周期与 rv64 模型相同，另 4 个（bitmanip-boundary、crc32、load-store、memory-stress）在 FP=0 的 rv64 构建上结果完全一样，不是 F/D 引入的（模型基线与 RTL 基线的既有差异，bitmanip-boundary 是既有的 FM 不一致）。
 - rv32 重跑：`rv32uf-*`、`fd-*`、`fp_chain`、float 内核与新的模型周期逐周期相同；FP=0 `soc_smoke` 55/55，FP=1 `soc_smoke` 55/55，三种配置（FP=0 rv32、FP=1 rv32、FP=1 rv64）整核 lint 0、FP=0 lint_chip 0。
 
+
+## 9. 端口完成周期预约（EXP-035，2026-11-13 补）
+
+模型（trace-model `exp/fcsr`，提交 4a1d9df）在发射阶段给每个发射端口加了完成周期预约表：一个端口一拍只能完成一个 uop（一个 ROB / 写回条目），发射时按"发射周期 + 完成偏移"预约 (端口, 周期)，这一拍已被占用的 uop 不发射、留在 IQ 里。旧模型里同端口两个 uop 同拍完成时输家在单元里等待，但它的消费者已按固定延迟唤醒；这在 coremark 里发生 12247 次，不是罕见情况。预约之后冲突为 0。
+
+RTL：新模块 `isu_wb_gate`（`rtl/backend/isu/isu_wb_gate.sv`）。每个端口一个 2^WB_OFF_W 位的忙位环（环大小由最长偏移决定：`max(DIV_MAX_LATENCY, FP_FSQRT_D_LAT) + 1`），当前拍的槽在拍末清零，全局冲刷清空。偏移函数 `wb_offset`（`isu_pkg`）：MUL = `MUL_MAX_LATENCY`；DIV = 迭代数（rv64 的 word 形式减半）+ 1；FDIV = FP 延迟 + 1；FMA/FMISC/I2F = FP 延迟；其余 1。迭代单元比唤醒延迟晚一拍完成，所以 +1。
+- 一个端口一拍最多一个 pick，不同端口不会预约同一槽，所以每个端口的检查只依赖忙位环（没有端口之间的优先级链）。
+- 和 `isu_fp_gate` 的关系：被端口门拒绝的 pick 不占 FP 写口（FP 门的 `cand_valid` 要与 `wb_ok` 相与）；预约用最终的 `grant_valid`；每个 IQ 的 `gate_ok` = FP 门 & 端口门。
+
+验收：整核 lint 0（FP=0 和 FP=1），`lint_chip` 0（FP=0）；FP=1 的 SoC 仿真器与模型（`WB_RESERVE` 默认开）逐周期相同：smoke 58 个程序中 57 个相同（crc32 是之前就有的差异：模型 1983、RTL 2001，与本改动无关，关掉 `WB_RESERVE` 也一样）、dhrystone 116401、coremark 282616、memory-stress-small 325458、pf-stress 619531、fd-basic/fcvt/fdiv/fsqrt/matmul（951 / 1700 / 1693 / 1390 / 26827）、6 个 FP 内核（29198 / 20455 / 49181 / 57295 / 54647 / 38283）；rv64（FP=1）：div、mul-longlong、add-longlong、matrix-mul、fact、bubble-sort、goldbach、mersenne、fp-kernels、rv64-fp 周期相同（crc32 与之前一样不同）。`scripts/ref_cycles.txt` 已按新模型更新（11 个程序）。
+还没做的：`isu_wb_gate` 的单元测试（像 `tests/fp_gate` 那样对拍模型的 `WbBusy`）；忙位环按最长偏移取整，FP=0 配置下比较大（2^5 位 × 端口数），综合时可以再收。
