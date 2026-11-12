@@ -91,4 +91,4 @@ RTL：新模块 `isu_wb_gate`（`rtl/backend/isu/isu_wb_gate.sv`）。每个端�
 - 和 `isu_fp_gate` 的关系：被端口门拒绝的 pick 不占 FP 写口（FP 门的 `cand_valid` 要与 `wb_ok` 相与）；预约用最终的 `grant_valid`；每个 IQ 的 `gate_ok` = FP 门 & 端口门。
 
 验收：整核 lint 0（FP=0 和 FP=1），`lint_chip` 0（FP=0）；FP=1 的 SoC 仿真器与模型（`WB_RESERVE` 默认开）逐周期相同：smoke 58 个程序中 57 个相同（crc32 是之前就有的差异：模型 1983、RTL 2001，与本改动无关，关掉 `WB_RESERVE` 也一样）、dhrystone 116401、coremark 282616、memory-stress-small 325458、pf-stress 619531、fd-basic/fcvt/fdiv/fsqrt/matmul（951 / 1700 / 1693 / 1390 / 26827）、6 个 FP 内核（29198 / 20455 / 49181 / 57295 / 54647 / 38283）；rv64（FP=1）：div、mul-longlong、add-longlong、matrix-mul、fact、bubble-sort、goldbach、mersenne、fp-kernels、rv64-fp 周期相同（crc32 与之前一样不同）。`scripts/ref_cycles.txt` 已按新模型更新（11 个程序）。
-还没做的：`isu_wb_gate` 的单元测试（像 `tests/fp_gate` 那样对拍模型的 `WbBusy`）；忙位环按最长偏移取整，FP=0 配置下比较大（2^5 位 × 端口数），综合时可以再收。
+单元测试 `tests/wb_gate/run.sh <work-dir>`（FP=1 配置，3 万拍随机，每个端口独立随机偏移 1..最大偏移、含冲刷，对拍模型 `WbBusy` 的忙位环语义，7.1 万次拒绝：0 不一致）。还没做的：忙位环按最长偏移取整，FP=0 配置下比较大（2^5 位 × 端口数），综合时可以再收。
