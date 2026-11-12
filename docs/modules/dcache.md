@@ -11,6 +11,8 @@ note: DCache+MSHR+WB+响应锁存
 
 # dcache 设计笔记（DCache 域：RealDcache + MSHR + WriteBuffer + 响应锁存/转发）
 
+> **更新（2026-11-12，rv64 / 现状）**：1) **数据字宽度**：核侧（LSU ↔ dcache）的数据字是 `DW = XLEN_BITS`（`dcache_pkg`），store 选通 `SBW = DW/8` 位，请求带的选通是 `DST_STRB_W = XLEN/8 + 1` 位；**行和 AXI 一侧仍是 32 位字**（`DWORDS = LINE_BITS / DW` 个数据字一行，rv64 一个数据字跨两个 32 位字）。2) **写缓冲（EXP-024）**：每个 store 口多带第二个 store 字 `st2_t`（`strb == 0` 表示没有，宽度 `DST_L2_W`），同一拍的多个 store 在 `line_merge_n` 里按字节并行合并进行（`dcache_s1`、`dcache_arr`/`dcache_bank`、`dcache_mshr`、`dcache_wb`、`dcache_resp`）；LSU 侧的写缓冲在 `lp_wbuf`（见 `RTL_WBUF_NOTES.md`）。本文里的 `dcache_wb` 是**逐出脏行**的缓冲，不是 store 写缓冲。3) 默认是不分频（`FREQ_DIV=1`）+ DRAMsim3 + L1D 预取（`dcache_pf`，见 `dcache_pf.md`）；下文 16 tick 的描述是原分频配置，已不再支持。
+
 边界与分析见 `docs/analysis/memsys-boundary.md` §2.1、录制点见 `docs/analysis/memsys-record-hook.md`。本文是 RTL 设计笔记（先于 RTL）。
 
 ## 1. 对应的 C++

@@ -11,6 +11,8 @@ note:
 
 # csr 设计笔记
 
+> **更新（2026-11-12，rv64 / 现状）**：CSR 寄存器是 `XLEN_BITS` 位（`regs[NREG]`，`NREG = 18`），下文“32 位”均指 rv32。rv64 差异集中在 `csr_pkg`：`MISA_RESET`（MXL=2）、`MSTATUS_RESET`（SXL/UXL = 2）、`MSTATUS_WMASK` / `SSTATUS_MASK` / `SSTATUS_WMASK`（rv64 上 UXL 只读）；`satp` 的 Sv39 解码在 `tlb_mmu_pkg`（`satp_on` / `satp_asid`）。`rob_bcast_pc`、`trap_val`、`csr2front_epc/trap_pc` 都是 `XLEN` 位。`csr.sv` 的 `TTG_EBREAK_TRAP`（ROB 侧）打开后 ebreak 走断点异常，Linux 需要。PMU 计数器块（`rtl/pmu`）**没有**接到 CSR。
+
 ## 1. 对应的 C++
 - `back-end/Exu/Csr.cpp`、`back-end/Exu/include/Csr.h`，类 `Csr`；调用点 `BackTop::comb()`：
   `comb_begin → comb_interrupt → (exu comb_to_csr) → comb_csr_read → comb_exception → comb_csr_write → … → comb_interrupt_inject`，`seq`；

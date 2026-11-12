@@ -49,6 +49,7 @@ def main():
     out = ['# 05 模块清单与进度', '',
            '> **本文件由 `scripts/gen_tracker.py`（`make tracker`）生成，不要手改。** 改对应的 `docs/modules/<模块>.md` 的头部（front-matter），再重新生成。',
            '> RTL 行数、文件数、spec 数/字段数是脚本实测值；状态、锁步、变异是模块笔记里人工填写并经协调者复核的值。',
+           '> **“整程序锁步”“变异”两列是 2026-11-04 之前旧体系的历史值，现行验证见 06 和总仓库 LOG；`-` 表示该模块笔记没填。行数、文件数是实测值。**',
            '> 状态：`green` = lint 干净 + 整程序锁步全部通过 + 变异被抓到（存活者已判定）+ 独立复核；`partial` = 有已知缺口，见备注。',
            '> 待办见总仓库 [docs/TODO.md](../../docs/TODO.md)。参考模型提交：`2f31e8d`。', '']
     tot_f = tot_l = 0
@@ -58,10 +59,10 @@ def main():
         out += [f'## {title}', '', '| 模块 | 状态 | RTL（文件/行） | spec（个/字段） | 整程序锁步 | 变异 | 备注 |', '| --- | --- | --- | --- | --- | --- | --- |']
         for name, fm in rows[key]:
             nf, nl = rtl_stats(fm['rtl'])
-            ns, nfld = spec_stats(fm['spec'])
+            ns, nfld = spec_stats(fm.get('spec', ''))
             tot_f += nf
             tot_l += nl
-            out.append(f"| [{name}](modules/{name}.md) | {fm['status']} | {nf}/{nl} | {ns}/{nfld} | {fm['lockstep']} | {fm['mutants']} | {fm['note']} |")
+            out.append(f"| [{name}](modules/{name}.md) | {fm.get('status', '-')} | {nf}/{nl} | {ns}/{nfld} | {fm.get('lockstep', '-')} | {fm.get('mutants', '-')} | {fm.get('note', '')} |")
         out.append('')
     out += [f'合计：{tot_f} 个 RTL 文件，{tot_l} 行（不含 `rtl/common` 与 `ttg_cfg_pkg`）。', '']
     open(os.path.join(ROOT, 'docs/05-module-tracker.md'), 'w').write('\n'.join(out))

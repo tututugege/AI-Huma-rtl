@@ -11,6 +11,8 @@ note:
 
 # exu_ctrl 设计笔记
 
+> **更新（2026-11-12，rv64 / 现状）**：数据通路宽度随 `XLEN_BITS`（`pc`、`ftq_next_pc`、`src1/2_rdata`、各 FU 结果都是 `XLEN_BITS` 位）；uop 新增 `is_word` 位并送到 ALU/MUL/DIV。包含 `exu_ctrl` 与各 FU 的 `back_top/exu.sv` 是生成文件，位宽是为 rv64 手改的（见根 README “生成文件与 rv64 的已知债务”）。写回口数是 `ISSUE_WIDTH`。
+
 ## 1. 对应的 C++
 - 文件/类：`back-end/Exu/Exu.cpp` `class Exu`（去掉 28 个 FU 实例本身）；FU 基类契约 `Exu/include/AbstractFU.h`
   （`SingleCycleFU / FixedLatencyFU / IterativeFU`）；FU 清单与端口映射 `Exu::init`（Exu.cpp:37-147）、`config.h:371-398`。

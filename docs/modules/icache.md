@@ -11,6 +11,8 @@ note: 含 ITLB
 
 # icache 设计笔记（指令缓存 + ITLB + 访存侧接口）
 
+> **更新（2026-11-12，rv64 / 现状）**：取指 PC 是 `XLEN_BITS` 位（`fetch_address`、`fetch_pc`、`resp_pc`），ITLB 请求的虚拟页号 `mmu_req_vtag` 是 `XLEN-12` 位，ITLB 翻译用 Sv39（rv64）/ Sv32（rv32）（`icache_itlb`，规则见 `tlb_mmu.md`）。物理地址仍是 32 位，行内容、行大小和 AXI 一侧与 XLEN 无关。
+
 分析与边界见 `docs/analysis/icache-boundary.md`（功能分解、状态清单、一拍数据流、**冲刷拍双步合并规则（评审点）**、录制点、死代码、覆盖盲区）。
 录制点见 `docs/analysis/icache-record-hook.md`。本文是 RTL 设计笔记。
 

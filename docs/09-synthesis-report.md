@@ -5,6 +5,8 @@
 
 完整逐模块表：[synth/modules.csv](synth/modules.csv)。**注意**：本报告和 modules.csv 是改配置之前（`IQ_INT` 128 等）的数字；2026-11-05 起默认配置是第 3 批，受影响模块的新数字见第 9 节。脚本：[../scripts/synth_module.sh](../scripts/synth_module.sh)。
 
+> **适用范围（2026-11-12 补充）**：第 1–8 节的数字是 2026-11-05 对**当时的 rv32 配置、旧 LSU 之前的树**实测的（283 个模块，`LSU_PIPE=0` 的 `lsu_core`/`lsu_stlf`/`lsu_ring` 等；第 9 节是第 3 批配置的受影响模块）。此后默认配置已改为分级 LSU（`lp_*`，`LSU_PIPE=1`）、紧凑 ROB（`rob_core_cpt`）、store 写缓冲（`lp_wbuf`）、IQ 入队宽度 7/6/4/4/5（EXP-017）、移动消除、L1D 预取、PMU，并新增 rv64（`XLEN_BITS=64`，数据通路约翻倍）；**这些没有整机重做面积推算，rv64 完全没有综合过**。受这些改动影响的模块的 yosys 面积/深度数字记录在对应记录里：`RTL_WBUF_NOTES.md`、`RTL_INTEG_NOTES.md`（均为通用门、无工艺库、无时序约束，`synth_depth.sh` 的深度是逻辑级数代理，不是 WNS）。`docs/synth/modules.csv` 仍是 2026-11-05 的快照。
+
 ## 1. 结论
 
 | 项 | 数值 | 说明 |

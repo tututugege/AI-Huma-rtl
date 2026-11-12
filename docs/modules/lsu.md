@@ -11,6 +11,8 @@ note: 已手写重构（表项模块 + 队列操作链，无生成文件）；�
 
 # lsu 设计笔记
 
+> **更新（2026-11-12，rv64 / 现状）**：1) 默认是分级 LSU（`LSU_PIPE = 1`），本文描述旧 LSU，规格见 `analysis/lsu-pipe.md`；`LSU_PIPE = 1` 时才有 STQ 写缓冲（EXP-024，`lp_wbuf`）和访存推测（`lp_ms`、`lp_mdp`，`LSU_MEMSPEC = 1`）。2) **数据字**：`XW = XLEN_BITS`、`SW = XW/8` 是 `lsu_pkg` 里的数据字宽和 store 选通宽；分级 LSU 的虚拟地址 `vaddr`、数据 `data` 在 `lp_pkg` 里都是 `XLEN` 位（`lp_pkg` 里按访问大小的函数，默认值 rv64 为 8、rv32 为 4）。3) 周期参考（`scripts/ref_cycles.txt`）是 trace-model 设 `LSU_PIPE_NOWD=1` 的结果：RTL 没有 LDQ/STQ 看门狗，模型的 63 周期看门狗不能打开。
+
 > **分级流水 LSU（`ttg_cfg_pkg::LSU_PIPE = 1`）**：`rtl/backend/lsu/lp_*.sv` + `lsu_pipe.sv`，规格和 RTL 行为清单见 [analysis/lsu-pipe.md](../analysis/lsu-pipe.md)
 > （对应 trace-model-lsupipe 的 `LSU_PIPE=1`）。下面的内容是**旧 LSU**（`LSU_PIPE = 0`，`lsu_core`）的设计笔记，该路径原样保留用于对比。
 > `lsu.sv` 顶层按 `LSU_PIPE` 选择 `lsu_pipe`（新）或 `lsu_core`（旧）；两者端口相同，新增的两个输入 `dcache2lsu_load_retry_busy / store_retry_busy` 旧路径不用。

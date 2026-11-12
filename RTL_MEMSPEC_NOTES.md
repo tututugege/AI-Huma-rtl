@@ -1,5 +1,7 @@
 # EXP-019 RTL: memory-dependence speculation in the staged LSU (branch exp/memspec-rtl)
 
+> **Status (2026-11-12)**: this note was written on the branch `exp/memspec-rtl`; it is merged into main (see `RTL_INTEG_NOTES.md`). Current defaults: `LSU_MEMSPEC = 1`, `LSU_MDP_BITS = 6` (a fixed constant in `harness/tools/gen_cfg_pkg.py`, not a `config.h` export; the 12-bit index and 4096-entry table below are the branch's original values), `LSU_MDP_CLR = 2000`. The switch text below describes the branch; the kill switch is `bash scripts/gen_cfg.sh -DCFG_LSU_MEMSPEC=0`. The wait-table PC hash is computed from a PC that is `XLEN` wide since the rv64 merge (the hash bits `pc[25:2]` are unchanged). Cycle tables mentioned (`ref_cycles*.txt`) were superseded by `scripts/ref_cycles.txt`.
+
 Model reference: trace-model `exp/memspec-refs` (EXP-018 `exp/mem-spec` 2196889 + main EXP-016/017 + the changes of section 5).
 Switch: `LSU_MEMSPEC` (ttg_cfg_pkg, from trace-model `CFG_LSU_MEMSPEC`, default 0). `LSU_MDP_BITS` (12) and `LSU_MDP_CLR` (2000) are exported too.
 With the switch off the RTL is the old design (67/67 programs equal to `scripts/ref_cycles.txt`, lint and lint_chip 0 warnings, the new logic folds away).

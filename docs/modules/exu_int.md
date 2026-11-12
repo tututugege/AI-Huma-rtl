@@ -11,6 +11,8 @@ note: 整数 FU
 
 # exu_int 设计笔记（Exu 整数类叶子功能单元：ALU / BRU / AGU / SDU / CSR FU / MUL / DIV）
 
+> **更新（2026-11-12，rv64 / 现状）**：本笔记写于 rv32、32 位 PC 时期；下文凡写“32 位”的宽度现在是 `XLEN_BITS`（32 或 64）。rv64 相关：IDU 给 uop 一个 `is_word` 位（OP-IMM-32 / OP-32 译码，`idu_ctrl_decode`），`alu`/`mul_core`/`div_core` 用它做 *W 运算（运算在低 `XLEN/2` 位上做，结果符号扩展）；`alu_shift` 移位量 `$clog2(XLEN)` 位；`alu_clmul` 产生 `2*XLEN` 位乘积；`mul_core` 是 `XLEN×XLEN`，`MUL_MAX_LATENCY` rv32 为 2、rv64 为 3；`div_core` 每周期 2 步，`DIV_MAX_LATENCY` rv32 为 16、rv64 为 32（`LAT` 必须整除 `XLEN`），*W 除法只做 `XLEN/2` 步（`isu_wake_src` 的倒计时按 `is_word` 减半）；`bru` 的目标 `pc + imm`、`agu` 的 `src1 + imm` 都是 `XLEN` 位（`agu.sv` 头注释里“截断到 32 位”是 rv32 的写法，代码已是 `XLEN` 位加法，不再截断）；`sdu` 的 AMO 在 rv64 上按 `.w` 取低 32 位比较。rv64 上 FPU（`fpu`）不可用：OP-FP 译码为非法指令。
+
 覆盖分析文档 `docs/analysis/exu-boundary.md` §6 的 E1–E4。FPU（fu 5）与 `exu_ctrl`/`exu` 不在本任务内。
 RTL 在 `rtl/backend/exu_fu/`，spec 在 `spec/{alu,bru,agu,sdu,mul,div}_bank.io`、`spec/csr_fu.io`。
 

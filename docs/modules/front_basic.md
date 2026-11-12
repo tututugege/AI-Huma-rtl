@@ -11,6 +11,8 @@ note: 预译码、4 个 FIFO、front_ctrl
 
 # front_basic 设计笔记（前端基础模块）
 
+> **更新（2026-11-12，rv64 / 现状）**：FIFO、PTAB、预译码里的 PC 和目标地址（`front_ctrl` 的 `predecode_refetch_address`、`ptab` 的 `predict_base_pc` 等）都是 `XLEN_BITS` 位，下文“32 位”为 rv32。仍不支持 C 扩展。
+
 覆盖 8 个可回放模块（RTL 放 `rtl/frontend/`，spec 放 `spec/<模块>.io`，同名顶层）：
 
 | 模块（spec 名） | 作用 | 参考 C++ |

@@ -11,6 +11,8 @@ note:
 
 # mem_route 设计笔记（MemRouteBlock：LSU / ICache / PTW → DCache 第 3 号读口的路由）
 
+> **更新（2026-11-12，rv64）**：数据口宽度是 `XLEN_BITS`（`lsu_req_store_data`、`dcache_resp_load_data`、`ptw_event_data`）。ICache 经口 3 读 32 位字：rv64 上 dcache 返回 64 位字，`mem_route_resp` 按 `issued_hi_q` 取高或低 32 位（`resp_data[P3] >> 32`）。默认不分频（`AXI_SUBSYSTEM_FREQ_DIV = 1`），下文 16 tick 描述是原配置。
+
 分析与边界见 `docs/analysis/memsys-boundary.md` §2.2、§4；录制点见 `docs/analysis/memcpu-record-hook.md`。本文是 RTL 设计笔记（先于 RTL 完成接口与规则，最终以实现为准）。
 
 ## 1. 对应的 C++

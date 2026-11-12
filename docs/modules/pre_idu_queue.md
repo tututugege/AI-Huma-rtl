@@ -11,6 +11,8 @@ note: 含 FTQ 与指令缓冲；3 个冗余限定输出待删
 
 # pre_idu_queue 设计笔记
 
+> **更新（2026-11-12，rv64 / 现状）**：FTQ 里存的 PC 是 `XLEN_BITS` 位（`pre_idu_ftq_pc`、`pre_idu_queue`），写缓冲/访存推测用的 PC 哈希由 FTQ 的 8 个额外读口给出（`RTL_MEMSPEC_NOTES.md`）。
+
 ## 1. 对应的 C++
 - 文件/类：`back-end/PreIduQueue.cpp` `class PreIduQueue`（349 行）+ `back-end/InstructionBuffer.cpp`（39 行）+ `include/FTQ.h`（FTQEntry / FTQTrainMetaEntry）。baseline commit 2f31e8d。
 - BackTop 调用点（顺序）：`comb_begin` → `comb_accept_front`（在 `idu->comb_branch` 之后、`rob->comb_commit` 之前）→ `comb_ftq_lookup_rob`（紧跟 `rob->comb_ftq_pc_req`）→ `comb_commit_info`（紧跟 `rob->comb_commit`）→ `comb_ftq_lookup_prf`（紧跟 `prf->comb_req_ftq`）→ `comb_fire`（`idu->comb_fire` 之后）→ `seq`。

@@ -11,6 +11,8 @@ note: 后端整体，含 lsu
 
 # back_top 设计笔记（后端集成：back_top）
 
+> **更新（2026-11-12，rv64 / 现状）**：**`back_top.sv` 和 `exu.sv` 是生成文件**（`tools/gen_backtop.py` + `spec/*.io`），为 rv64 手改过位宽，spec 和生成器没有同步，**重新生成会丢 rv64 位宽**；`back_top_glue.sv` 是手写的。ROB 在 `ROB_COMPACT = 1` 下是紧凑 ROB（`rob.md`），多了 `bpu_upd_free` / `bpu_tq_free` 输入和 `rob2dis_free` 输出（接线见 `back_top.sv`）。
+
 ## 1. 范围与文件
 - `back_top`：PreIduQueue、Idu、Ren、Dispatch、Isu、Prf、Exu（`exu_ctrl` + FU + FPU）、Csr、Rob、TlbMmu（DTLB）、`lsu` + 胶水；（早期曾有不含 LSU 的 `back_top_nolsu` 用于分步集成，已删除；`gen_backtop.py --nolsu` 仍可再生成它用于二分。）边界 = 后端 ↔ 前端（SimCpu）+ 访存子系统（DCache、MMIO、PTW）。
 - 文件（`rtl/backend/back_top/`）：`back_top.sv`（生成）、`exu.sv`（生成：FU 适配文本 + 端口表）、`back_top_glue.sv`（手写）。

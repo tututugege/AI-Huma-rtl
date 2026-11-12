@@ -1,5 +1,7 @@
 # EXP-024 write buffer in RTL (2026-11-09)
 
+> **Status (2026-11-12)**: point-in-time record (gate counts are from 2026-11-09, 68 programs; now `fm_gate.sh` 69/69). Merged to main (e8789fb). The second store word `st2_t` is `DST_L2_W` bits wide, which is `XLEN`-dependent since rv64 (`DST_L2_W = XLEN/8 + log2(line bits/XLEN) + XLEN`, the `req_l2` width of 40 below is the rv32 value). The legacy-LSU `LSU_PIPE=0` tie-off still holds.
+
 Model: trace-model `docs/LSU_PIPE.md` section 12. The RTL equals the model cycle for cycle (`fm_gate.sh`, 68 programs, `LSU_PIPE_NOWD=1` table in `scripts/ref_cycles.txt`).
 
 ## What changed

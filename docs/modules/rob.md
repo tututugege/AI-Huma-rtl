@@ -6,10 +6,12 @@ spec: rob*
 status: green
 lockstep: trace 回放 + back_top 整程序 68/68
 mutants: 10/11（1 等价）
-note: 
+note: 默认是紧凑 ROB（ROB_COMPACT=1，rob_core_cpt）；行式 ROB（rob_core）保留为 ROB_COMPACT=0
 ---
 
 # rob 设计笔记
+
+> **更新（2026-11-12）**：默认配置是**紧凑 ROB**（EXP-028，`ROB_COMPACT = 1`，`rob_core_cpt.sv`，见下面的 2.1 节），下文第 2、3、4 节描述的结构（按行分配、`rob_ptr` / `rob_commit_ctrl` / `rob_head_info` / `rob_store` / `rob_branch_recovery`）是 `ROB_COMPACT = 0` 的行式 ROB（`rob_core.sv`）。第 5 节验证数据是旧体系（trace 回放、变异）的历史结果。rv64：`rob_pkg` 的 `ROB_XLEN = XLEN_BITS`（原名 `XLEN`，与 `-DXLEN` 宏重名而改），`bcast_pc` / `bcast_trap_val` / `diag_val` / `imm` 随 XLEN 加宽；写回口数是 `ISSUE_WIDTH`（18，不是下文旧文写的 22）。`TTG_EBREAK_TRAP`（Linux 需要）把 ebreak 变成断点异常（`rob_pkg::EBREAK_TRAP`）。
 
 ## 1. 对应的 C++
 - 文件/类：`back-end/Rob.cpp`、`back-end/include/Rob.h`，`class Rob`（`comb_begin/ready/ftq_pc_req/commit/complete/branch/fire/flush` + `seq`）。
@@ -19,7 +21,7 @@ note:
   - `dec_bcast.{mispred,redirect_rob_idx}`；`csr2rob.interrupt_req`；`lsu2rob.committed_store_pending`；`in.front_stall`；
   - `ftq_rob_pc_resp.resp[0].{valid,pc}`；
   - `dis2rob.dis_fire[8]` 与 `dis2rob.uop[8].*`（23 个字段，见 spec）；
-  - `exu2rob.entry[22].{valid,uop.{diag_val,result,rob_idx,mispred,br_taken,page_fault_*,op,flush_pipe}}`。
+  - `exu2rob.entry[ISSUE_WIDTH].{valid,uop.{diag_val,result,rob_idx,mispred,br_taken,page_fault_*,op,flush_pipe}}`。
 - 输出（spec `out`）：`rob2dis.{stall,empty,ready,enq_idx,rob_flag}`、`rob2csr.{commit,interrupt_resp}`、
   `rob_commit.commit_entry[8].{valid,uop.*}`、`commit_extra[8].{src1_areg,imm}`（前端 BPU 训练用，`rv_simu_mmu_v2.cpp:1407`）、
   `rob_bcast.*`、`ftq_rob_pc_req.req[0].*`。
@@ -30,7 +32,7 @@ note:
 
 ```
  dis2rob ─┐                                   ┌────────────── rob_store ───────────────┐
- exu2rob ─┼─ rob_wb_decode ─ wb_ev[22] ──────▶│ 8 bank x 16 line  rob_entry (valid+uop) │── head line (8 bank)
+ exu2rob ─┼─ rob_wb_decode ─ wb_ev[ISSUE_WIDTH] ──────▶│ 8 bank x 16 line  rob_entry (valid+uop) │── head line (8 bank)
  dec_bcast┼─ rob_branch_recovery ─ clr/mark ─▶│  每个 entry: 事件按端口升序折叠          │      │
  flush ───┘                                   └────────────────────────────────────────┘      ▼
         ▲                                                      rob_head_info ── stall / ftq_pc_req / head_*
@@ -43,17 +45,28 @@ note:
 | --- | --- |
 | `pkg/rob_pkg.sv` | 类型（`rob_entry_t`、`rob_wb_t`、`rob_event_t`）、InstType/UopType 编码、分类函数 |
 | `rob.sv` | 顶层，仅端口适配（平铺端口 ↔ 内部 struct 数组） |
-| `rob_core.sv` | 连接各子模块 |
-| `rob_ptr.sv` | 头尾指针 + 回绕 flag，空/满；flush/误预测回退/入队/出队的次态 |
+| `rob_core.sv` | 行式 ROB（`ROB_COMPACT=0`）：连接各子模块 |
+| `rob_core_cpt.sv` | **紧凑 ROB（默认）**：单文件实现指针、提交窗口、额度、分支回退，复用 `rob_entry`/`rob_wb_decode`/`rob_trap_ctrl` |
+| `rob_ptr.sv`（仅行式） | 头尾指针 + 回绕 flag，空/满；flush/误预测回退/入队/出队的次态 |
 | `rob_wb_decode.sv` | 每个 EXU 写回口 → 事件（完成位、diag_val 来源、page fault 置位、flush_pipe、分支结果） |
 | `rob_entry.sv` | 单个 ROB 槽：valid + uop；次态优先级 flush > 入队 > 分支回退清除 > 提交清除；uop 为 入队覆盖 > ftq_is_last > 写回事件 |
-| `rob_store.sv` | 8x16 槽阵列（generate）+ 队头行读出（one-hot mux） |
-| `rob_branch_recovery.sv` | 由 `redirect_rob_idx` 与旧 enq_ptr 得到"重定向点之后到旧尾"的清除掩码 |
-| `rob_head_info.sv` | 队头行的 stall、FTQ PC 请求、head_valid/incomplete 广播 |
-| `rob_commit_ctrl.sv` | 提交仲裁：组提交 / 单提交 / 进度单提交 / 中断触发，出队推进 |
+| `rob_store.sv`（仅行式） | 8x16 槽阵列（generate）+ 队头行读出（one-hot mux） |
+| `rob_branch_recovery.sv`（仅行式） | 由 `redirect_rob_idx` 与旧 enq_ptr 得到"重定向点之后到旧尾"的清除掩码 |
+| `rob_head_info.sv`（仅行式） | 队头行的 stall、FTQ PC 请求、head_valid/incomplete 广播 |
+| `rob_commit_ctrl.sv`（仅行式） | 提交仲裁：组提交 / 单提交 / 进度单提交 / 中断触发，出队推进 |
 | `rob_trap_ctrl.sv` | 单提交指令的 flush/异常/ecall/mret/… 译码（优先级为 one-hot），无寄存器 |
 
-状态：
+### 2.1 紧凑 ROB（`rob_core_cpt`，默认）
+
+`rob.sv` 里按 `ROB_COMPACT` generate 选 `rob_core_cpt`（`g_cpt`）或 `rob_core`（`g_line`）。紧凑 ROB 的存储不变（`ROB_BANK_NUM = 8` 个 bank × `ROB_LINE_NUM = 16` 行，共 `ROB_NUM = 128` 项，`rob_entry`、`rob_wb_decode`、`rob_trap_ctrl` 复用），区别在分配和提交：
+
+- **按项分配**：`rob_idx` 是环形位置（`ROB_IDX_WIDTH = 7`），项 `e` 在 bank `e % 8`、行 `e / 8`；一个分发组不再占一整行，一个分发组的各条指令占连续的项。状态只有 `head_q`、`hflag_q`（队头回绕标志）、`count_q`（有效项数）。`rob2dis_enq_idx` 是队尾**项号**（行式是行号），`rob2dis_free`（新增输出）是空闲项数，`rob2dis_ready = count != ROB_NUM`。
+- **提交窗口**：最老的 8 项（bank 经 `hb_oh_q` 旋转成窗口槽序，窗口可跨 head 行和下一行）。队头是 flush 类 / fence / WFI 指令或有中断时，队头**单独**提交（`single_commit`，`rob_trap_ctrl` 译码 flush/异常）；否则提交窗口里"已完成、不含上述指令"的**最长前缀**（`prefix`），并受 BPU 提交额度限制：窗口里的控制流指令数不能超过 BPU 更新队列的空闲项（`bpu_upd_free` 减去上一拍已提交的），取指块结尾数不能超过 uBTB 训练队列的空闲项（`bpu_tq_free`）；队头那一条不受额度限制。`front_stall` 只拦队头以外的槽。
+- **分支回退**：`keep = (redirect_rob_idx - head) + 1`，保留到分支为止的项，队尾移到分支之后一项（`mark_last` 标记分支项）。
+- `rob` 新增输入 `bpu_upd_free[3:0]`、`bpu_tq_free[3:0]`（行式下接入但不用）和输出 `rob2dis_free`（行式下为 `ROB_NUM`）。关闭紧凑模式：`bash scripts/gen_cfg.sh -DCFG_ROB_COMPACT=0`（RTL 周期随之要换成行式的参考表）。
+- 已知问题（总仓库 `docs/TODO.md`）：分支密集短循环被额度卡住；PMU 把 ROB 空闲项数挡住记成 `SLOT_BE_SERIAL`；`rob` 最长路径比行式深约 5 级（53 对 46）。
+
+下面的"状态"是行式 ROB 的：
 - `valid_q[8][16]`、`uop_q[8][16]`（`rob_entry_t`；完成状态存成 `pend_mask = expect & ~cplt`，为 0 即完成）：每个槽 1 个写端口（次态逻辑见 rob_entry），读：队头行 8 槽 16:1 mux。
 - `enq_ptr_q/deq_ptr_q[4]`、`enq_flag_q/deq_flag_q`。
 

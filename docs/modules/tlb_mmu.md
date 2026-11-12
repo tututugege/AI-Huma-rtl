@@ -11,6 +11,8 @@ note: ITLB 经 icache 验证
 
 # tlb_mmu 设计笔记（后端 DTLB 实例）
 
+> **更新（2026-11-12，rv64 / 现状）**：**rv64 为 Sv39**（`tlb_mmu_pkg.RV64 = (XLEN_BITS == 64)`）：3 级、每级 9 位 VPN、16 位 ASID（`satp[59:44]`）、叶子 `level` 2 位（0 = 4 KiB、1 = 2 MiB、2 = 1 GiB）；rv32 为 Sv32（2 级、10 位 VPN、9 位 ASID）。`satp_on`、`satp_asid`、`va_canonical`（Sv39 虚拟地址必须从第 38 位符号扩展，否则缺页）、`tag_match`（按叶子级别忽略低位 VPN）都在 `tlb_mmu_pkg`。**物理地址在两种位宽下都是 32 位**，PTE 只有 `ppn[19:0]` 能到达物理地址（下文 `ppn[21:20]` 被丢弃的论述对 rv64 同样成立，rv64 还丢掉更高位）。下文按 rv32 / 2 级描述。
+
 ## 1. 对应的 C++
 - `back-end/Lsu/TlbMmu.cpp`、`include/TlbMmu.h`、`include/TlbMmuKernel.h`；类 `TlbMmu`（`Kind::DTLB`）。调用点 `BackTop::comb_lsu_mmu()`：
   `rob_bcast.fence → flush()`（return）；`rob_bcast.flush || dec_bcast.mispred → cancel_pending_walk()`（return）；否则 `translate_lsu_ports(lsu2mmu_io, mmu2lsu_io)`；`seq()` 在 `BackTop::seq`。

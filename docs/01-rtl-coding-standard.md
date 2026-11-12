@@ -4,9 +4,9 @@
 
 ## 0 设计原则（强制，评审第一项）
 
-> **总原则**（详见 [06-equivalence-policy.md](06-equivalence-policy.md) 第 0 节）：只要求边界上每个周期的可观察行为功能等价；参考模型的调用结构、阶段顺序、comb/seq 是否熔合、中间变量、容器与指针都不复刻。
+> **总原则**（现行规则见 [06-equivalence-policy.md](06-equivalence-policy.md)，2026-11-04 起正确性是整核逐条提交与 function-model 一致，周期与 trace-model 比较）：RTL 不复刻参考模型的调用结构、阶段顺序、comb/seq 是否熔合、中间变量、容器与指针。
 
-**RTL 不是 C++ 的逐行翻译。** 行为必须与参考模型逐拍一致（由 trace 保证），但**结构必须是硬件结构**。
+**RTL 不是 C++ 的逐行翻译。** 架构行为必须与 function-model 一致，周期与 trace-model 在同一配置下一致，但**结构必须是硬件结构**。（本规范写于翻译阶段：下文提到的 `trace`、`replay.sh`、`deviations.md` 登记、“Ref: 参考模型”头注释，是旧体系的要求；现行有效的是 lint 规则、三层结构、设计笔记和评审清单。）
 
 1. **先写设计笔记再写 RTL**：`docs/modules/<mod>.md`（模板见 `docs/modules/TEMPLATE.md`）。写清：框图、每个状态数组的含义和大小、读写端口数、关键组合路径、C++ 数据结构到硬件结构的对应、一拍内的数据流。没有设计笔记不评审。
 2. **三层结构**：
@@ -35,7 +35,7 @@
 - 无 tab、无行尾空白、行宽 ≤ 120。
 - 参数/常量：`UPPER_SNAKE_CASE`；信号/变量：`lower_snake_case`；类型：`lower_snake_case_t`；枚举值：`UPPER_SNAKE_CASE`。
 - 模块名与 C++ 中对应的类/模块名一致（`Rob` → `rob`，`IssueQueue` → `issue_queue`）。
-- 目录：`rtl/common`（package、通用单元）、`rtl/backend`、`rtl/frontend`、`rtl/mem`、`rtl/uncore`。
+- 目录：`rtl/common`（package、通用单元）、`rtl/backend`、`rtl/frontend`、`rtl/memsys`（访存子系统与 AXI/LLC）、`rtl/core`（`core_top`、`soc_top`）、`rtl/pmu`。
 
 ## 3. 时钟、复位、寄存器
 
@@ -104,14 +104,14 @@ end
 
 - 每个模块文件头 20 行内必须有一行 `// Ref: back-end/Rob.cpp  class Rob`（S12 检查），可附参考模型提交号。
 - 每个 `always_comb` 段落前注明对应的 C++ 函数名（`// Ref: Rob::comb_commit`）。
-- 与 C++ 行为的任何差异（哪怕是"明显的 bug"）都要在 `deviations.md` 登记，并在代码处写 `// DEVIATION D-<n>`。**默认不允许有偏差**。
+- 与 C++ 行为的差异：翻译阶段要在 `deviations.md` 登记（已停止新增）；现在行为差异由 function-model / trace-model 的对比体现，改动记在总仓库 `docs/` 的 EXP 记录里。
 
 ## 8. 每个模块必须附带
 
 1. `spec/<module>.io`：接口规格（格式见 [03-harness.md](history/03-harness.md) 第 2 节）。
-2. 参考模型里的录制点（见 02 流程）。
-3. `make lint` 干净、`scripts/replay.sh <module>` 对所有指定 trace 通过。
-4. 至少 3 个变异体检查（见 02 流程第 6 步）。
+2. （旧体系）参考模型里的录制点——已退役。
+3. `make lint`、`scripts/lint_chip.sh` 干净（0 警告），`scripts/fm_gate.sh` 通过（旧体系的 `replay.sh` 已退役）。
+4. （旧体系）至少 3 个变异体检查——已不再要求。
 
 ## 8.5 lint 豁免（仅限以下三种，其余一律不允许）
 

@@ -1,5 +1,7 @@
 # LSU_PIPE（分级流水 LSU）RTL 行为清单
 
+> **更新（2026-11-12）**：分级 LSU 已合入 main 并且是默认（`LSU_PIPE = 1`）；本文是它的行为清单和验证记录，写于合入前后，之后又加了访存推测（`LSU_MEMSPEC`，`lp_ms`/`lp_mdp`，`RTL_MEMSPEC_NOTES.md`）、store 写缓冲（`lp_wbuf`，`RTL_WBUF_NOTES.md`）和 rv64（表里“`vaddr`(32)、`result`(32)、`data`(32)”等 32 位字段在 rv64 为 `XLEN_BITS`，`lp_pkg`）。文中提到的 `scripts/ref_cycles_lsupipe*.txt` 等周期表已被 `scripts/ref_cycles.txt` 取代；各节的周期、门禁数字是写作当时的值。
+
 规格来源：trace-model-lsupipe 的 `docs/LSU_PIPE.md`（第 2 节）和 `back-end/Lsu/RealLsuPipe.cpp`、`include/RealLsuPipe.h`（开关 `LSU_PIPE=1`）。
 本文把模型里的每个阶段整理成 RTL 的寄存器、端口、同拍依赖，并列出模型里“不是硬件”的写法和 RTL 的写法，
 以及为了让 RTL 能写而对模型做的小改（第 6 节）。RTL 在 `rtl/backend/lsu/lp_*.sv`，开关是 `ttg_cfg_pkg::LSU_PIPE`（0 = 旧 LSU，保留）。

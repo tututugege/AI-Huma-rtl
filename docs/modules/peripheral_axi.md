@@ -11,6 +11,8 @@ note: 真实程序几乎不走该路径
 
 # peripheral_axi 设计笔记（PeripheralAxi：LSU MMIO / uncached 访问单元）
 
+> **更新（2026-11-12，rv64 / 现状）**：1) MMIO 数据是 `XLEN_BITS` 位（`req_wdata`、`env_rdata`、`resp_rdata`）：rv64 的 8 字节 `ld`/`sd` 走本地设备（`env_*`）路径；`peripheral_axi_fmt` 在 rv64 上多处理 `lwu`（func3=110）并把 `lw` 符号扩展到 64 位。AXI 路径的数据仍是 32 位（真实程序不走）。2) **`0x87f00000` 的 uncached RAM 窗口已删除（EXP-027）**：下文 “uncached RAM” 一类地址不再存在，本模块只服务 MMIO（`is_mmio`）访问；SPEC/gate 的统计数字（uncached 读写次数）是窗口时期的。
+
 分析与边界见 `docs/analysis/memsys-boundary.md` §2.4；录制点 `docs/analysis/memcpu-record-hook.md`。`PeripheralModel`（UART/CLINT/INTC/SD/boot/DMA/随机中断，805 行）、`PhysMemory` 留在 testbench，不翻。
 
 ## 1. 对应的 C++

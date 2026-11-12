@@ -11,6 +11,8 @@ note:
 
 # idu 设计笔记
 
+> **更新（2026-11-12，rv64 / 现状）**：rv64：uop 多一个 `is_word` 位（`idu_ctrl_decode` 把 OP-IMM-32（`addiw`/`slliw`/`srliw`/`sraiw`）和 OP-32（`addw`、`subw`、`sllw`、`srlw`、`sraw`、`mulw`、`divw`、`divuw`、`remw`、`remuw`）译码出来，`CLS_OPIMM32` / `CLS_OP32_*`）；rv64 上 **OP-FP 为非法指令**（F/D 未做），rv32 的 Zfinx 浮点译码保留；`diag_val`、`exu2id_redirect_pc`、`exu2id_br_pc` 是 `XLEN` 位。C 扩展未做。`addiw rd, rs, 0`（sext.w）不当作 move 消除（`ren_is_move_shape` 看 `is_word`）。
+
 ## 1. 对应的 C++
 - `back-end/Idu.cpp`、`include/Idu.h`（参考模型 2f31e8d）。BackTop 调用序：comb_begin → comb_branch → comb_decode → comb_fire → seq。
 - 输入：PreIduQueue 发射组(valid/inst/page_fault_inst/ftq_*)、`ren2dec.ready`、`rob_bcast.flush`、`exu2id.*`。pc 只进 dbg，不翻译。

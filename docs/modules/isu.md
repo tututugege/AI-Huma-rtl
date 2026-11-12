@@ -11,6 +11,8 @@ note: trace 需重录
 
 # isu 设计笔记
 
+> **更新（2026-11-12，rv64 / 现状）**：发射队列项里的 uop 带 `is_word`；除法唤醒倒计时 `isu_wake_src` 对 rv64 的 *W 除法取 `DIV_MAX_LATENCY / 2 - 1`（rv32 与 rv64 的 `MUL_MAX_LATENCY` 分别是 2 和 3，`isu_pkg.MUL_DEPTH` 随之变）。IQ 入队宽度等参数以 `ttg_cfg_pkg`（EXP-017：7/6/4/4/5）为准，下文的数字是旧配置。
+
 ## 1. 对应的 C++
 - `back-end/Isu.cpp`（`Isu`：comb_begin/ready/awake/calc_latency_next/enq/issue/flush/seq）、`include/Isu.h`、`include/IssueQueue.h`（`IssueQueue`，5 个实例 IQ_INT/LD/STA/STD/BR，配置见 `config.h` 的 `GLOBAL_IQ_CONFIG`、`GLOBAL_ISSUE_PORT_CONFIG`）。
 - BackTop 调用顺序（`BackTop::comb`）：`isu.comb_begin` → `comb_ready` → … → `comb_issue` → … → `comb_awake` → `comb_calc_latency_next` → … → `comb_enq` → … → `comb_flush`；`seq` 在时钟沿。

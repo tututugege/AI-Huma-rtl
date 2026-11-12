@@ -11,6 +11,8 @@ note: 需重录 trace（src1_areg 输出）
 
 # ren 设计笔记
 
+> **更新（2026-11-12，rv64 / 现状）**：移动消除（EXP-012，`ren_elim_sel`）默认开。rv64：`ren_is_move_shape` 带 `is_word` 参数：`addiw rd, rs, 0`（`sext.w`）不是 move，不参与消除；`ren` 本身与 XLEN 无关（只处理寄存器号）。
+
 ## 1. 对应的 C++
 - 文件/类：`back-end/Ren.cpp`、`back-end/include/Ren.h`，`class Ren`（参考模型 commit 2f31e8d）。BackTop 调用顺序：
   `comb_begin`（状态镜像）→ `comb_alloc`（idu/csr 之后）→ `comb_rename`（dis->comb_wake 之后）→ `comb_fire`（dis->comb_fire 之后）→ `comb_pipeline` → `seq`。

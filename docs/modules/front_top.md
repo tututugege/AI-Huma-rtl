@@ -11,6 +11,8 @@ note: 前端顶层 + 前后端联调 core_top
 
 # front_top 设计笔记（前端顶层）与 core_top（前后端联调）
 
+> **更新（2026-11-12，rv64 / 现状）**：前端所有 PC（`fetch_address`、`seq_next_pc`、`predict_base_pc`、`predict_next_fetch_address`、`predecode_target_address`……，见 `front_pkg`）都是 `XLEN_BITS` 位；下文凡写 32 位 PC 处，rv64 为 64 位。RFAST/BFAST 快速路径见 `RTL_FE_NOTES.md`（默认 `FE_RFAST = 15`、`FE_BFAST = 0`）。
+
 覆盖两个装配体：`front_top`（前端整体，spec/front_top.io）和 `core_top`（front_top + back_top + SimCpu 胶合，spec/core_top.io）。
 子模块（predecode / predecode_checker / 4 个 FIFO / front_ctrl / BPU / ICache+ITLB）的设计见 `front_basic.md`、`bpu.md`、`icache.md`，
 这里只写装配层。总原则见 06 第 0 节：只要求边界上每拍可观察行为功能等价，`front_comb_calc` 的调用结构不复刻。

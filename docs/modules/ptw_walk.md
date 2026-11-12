@@ -11,6 +11,8 @@ note: 只翻默认配置下活着的部分
 
 # ptw_walk 设计笔记（MemPtwBlock 活着的部分：两个 walk 客户端共享一个页表遍历器）
 
+> **更新（2026-11-12，rv64 / 现状）**：页表遍历深度和 PTE 大小由 `memcpu_pkg` 给出：rv32 为 `PT_LEVELS = 2`、PTE 4 字节（`PT_PTE_SHIFT = 2`）、VPN 10 位；rv64 Sv39 为 `PT_LEVELS = 3`、PTE 8 字节（`PT_PTE_SHIFT = 3`）、VPN 9 位，`PT_LVL_W = 2`。PTE 经 dcache 读（`ptw_event_data` 是 `XLEN` 位）。物理地址仍是 32 位。下文的 `L1_REQ/L2_REQ` 两步序列和地址拼接是 rv32 的；rv64 多一级。
+
 分析与边界见 `docs/analysis/memsys-boundary.md` §2.3；录制点 `docs/analysis/memcpu-record-hook.md`。
 
 ## 1. 对应的 C++

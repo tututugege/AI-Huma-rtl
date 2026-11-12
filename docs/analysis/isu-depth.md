@@ -1,5 +1,7 @@
 # isu 综合深度 / 面积回退分析（lsu-pipe-rtl-main vs main 5829f07）
 
+> **更新（2026-11-12）**：这是 2026-11-09 前后对 `lsu-pipe-rtl-main` 分支的一次性综合深度分析，数字是当时的值，没有随后续改动更新。
+
 范围：只看 `isu` 单模块综合（`scripts/synth_depth.sh`，yosys-slang + ABC 通用门，`ltp -noff` 打印最长路径）。所有实验在临时拷贝里做（`git archive` 解出），分支和工作区没有改动。
 基线复现：main 1,166,243 / 182；分支 1,346,857 / 199（与 lsu-pipe.md 第 13 节完全一致，综合是确定性的）。
 

@@ -1,5 +1,7 @@
 # 流水化 BPU（S + R）的 RTL 实现与验证（分支 exp/bpu-pipe-rtl）
 
+> **更新（2026-11-12）**：流水化 BPU 已合入 main，现行 `rtl/frontend/bpu/` 就是此设计（标题和下面“未合入 main”是分支时期的状态）；之后 ITT 改为每 bank 3 张表 × 64 项（EXP-025），PC/目标宽度随 `XLEN_BITS`（rv64 为 64 位）。
+
 对应模型：`trace-model-bpuopt` 分支 `exp/bpu-opt`（默认配置即本设计，见该仓库 `docs/BPU_RTL.md`）。**未合入 main**：按 WORKFLOW 第 6 节，合入要等 LSU 合并和负责人确认，且合入时 `ref_cycles.txt`、`PROJECT.md` 标准周期一并更新。
 
 ## 1. 设计

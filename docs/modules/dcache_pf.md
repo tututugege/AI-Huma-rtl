@@ -8,6 +8,8 @@ note: L1D prefetcher h1 (EXP-009), cycle contract taken from trace-model branch 
 
 # L1D 数据预取器 h1：RTL 实现规格
 
+> **更新（2026-11-12，rv64 / 现状）**：数据字宽度同 `dcache.md`（`DW = XLEN_BITS`，预取只发整行请求，不受 XLEN 影响）。rv64 的预取一致性没有单独验证，只靠逐条对比的 rv64 程序和 Linux 覆盖。
+
 C++ 规格：trace-model `exp/prefetch-h1`（`MemSubSystem/include/DataPrefetcher.h` + `RealDcache.cpp` / `MSHR.cpp` / `DcacheConfig.cpp` 里的预取改动，`git diff main exp/prefetch-h1 -- MemSubSystem`）。
 预取**默认开**（2026-11-06 起；trace-model `PF_ENABLE=0`、RTL `-GPF_EN=0` 关闭）。开时 RTL 与 trace-model 逐程序周期相同（`scripts/ref_cycles.txt`，门禁 66/66）；关时与旧基线（`scripts/ref_cycles_nopf.txt`）相同。
 设计与结果见 `docs/EXPLORATION.md` EXP-009。本文列出 RTL 要做的事和 C++ 里必须逐拍复刻的行为。

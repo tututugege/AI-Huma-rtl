@@ -1,5 +1,7 @@
 # Integrated RTL: LSU memory speculation + front-end fast paths (branch exp/integ)
 
+> **Status (2026-11-12)**: a point-in-time record of the 2026-11-09 integration (gate counts 68/68 are from then). Since then: store write buffer (EXP-024, `RTL_WBUF_NOTES.md`), compact ROB (EXP-028, `ROB_COMPACT = 1`), removal of the 0x87f00000 window (EXP-027), and rv64 (EXP-029); `fm_gate.sh` is now 69/69 and `scripts/ref_cycles.txt` has 71 lines (69 programs).
+
 Merged: `exp/memspec-rtl` (598f4f9, EXP-019/020, notes RTL_MEMSPEC_NOTES.md) and `exp/fe-rtl` (dbc1fa7, notes RTL_FE_NOTES.md) on rtl main edf9d3b.
 The only conflict was the generated `ttg_cfg_pkg.sv` (regenerated, not hand-merged). Model: trace-model `exp/integ` (`/trace-model-integ`).
 

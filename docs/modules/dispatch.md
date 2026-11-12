@@ -11,6 +11,8 @@ note:
 
 # dispatch 设计笔记
 
+> **更新（2026-11-12，rv64 / 现状）**：`dispatch` 把 uop 的 `is_word` 位原样带到发射队列；PC 哈希（`pc[13:2] ^ pc[25:14]`，LSU 访存推测用）取 PC 低位，不受 XLEN 影响。ROB 项号在紧凑 ROB 下是连续项号（见 `rob.md`）；分发被 `rob2dis_free`（空闲项数）限制。
+
 ## 1. 对应的 C++
 - `back-end/Dispatch.cpp`、`back-end/include/Dispatch.h`，类 `Dispatch`；BackTop 调用顺序：`comb_begin` → `comb_alloc` → `comb_wake` → `comb_dispatch` →（ROB/LSU/ISU 阶段）→ `comb_fire` → `comb_pipeline` → `seq`。
 - 输入：`ren2dis`（valid + 27 个 uop 字段）、`rob2dis`（ready/empty/stall/enq_idx/rob_flag）、`iss2dis.ready_num[5]`、`lsu2dis`（stq_tail/flag/free、ldq_free、ldq_alloc_idx/valid[8]）、`prf_awake`(4)、`iss_awake`(15)、`rob_bcast.flush`、`dec_bcast.{mispred,clear_mask}`。

@@ -9,6 +9,8 @@ note: S0 uBTB / S1 L1 + 阵列读 / S2 比较，taken 历史，PDCKPT，FTQ 检�
 
 # bpu 设计笔记（流水化分支预测单元）
 
+> **更新（2026-11-12，rv64 / 现状）**：目标地址和 PC 是 `XLEN_BITS` 位：uBTB 目标字地址 `UB_TGT_W = XLEN - 2`、RAS 栈项、`bpu_cmd` 的重定向地址等随 XLEN 加宽；表项索引和 tag 哈希是否只用 PC 低位，以 `bpu_stage_pkg`/`bpu_*` 的源码为准（本次没有逐项核对）。本文参数以 `ttg_cfg_pkg` 为准（`FE_RFAST = 15`、`FE_BFAST = 0` 见 `RTL_FE_NOTES.md`）。
+
 完整设计、与模型的差别、验证和综合数字见 [../analysis/bpu-pipe-rtl.md](../analysis/bpu-pipe-rtl.md)；模型侧见 trace-model `docs/BPU_PIPE.md`、`BPU_OPT.md`、`BPU_ACC.md`、`BPU_RTL.md`。本文只列模块和接口。
 
 ## 模块（rtl/frontend/bpu）

@@ -11,6 +11,8 @@ note: 手写，非网表
 
 # fpu 设计笔记（Exu 的浮点单元，分析文档 E5a–E5d）
 
+> **更新（2026-11-12，rv64 / 现状）**：**rv64 不支持 F/D**：rv64 的 OP-FP 译码为非法指令（`idu_ctrl_decode`：`!RV64 & opcode == OPC_FP`），`fpu` 模块在 rv64 构建里不会被用到（仍参与编译）。rv32 是 Zfinx（浮点值在整数寄存器里）。
+
 ## 1. 对应的 C++
 - `back-end/Exu/include/FPU.h` 类 `FPUSoftfloat`（继承 `AbstractFU.h` 的 `IterativeFU`），在 `Exu.cpp:119` 创建，**只有 1 个实例**：
   `Exu::units[5]`（发射口 1：DIV(3)、ALU(4)、FPU(5)，`config.h` 的 `GLOBAL_ISSUE_PORT_CONFIG`）。

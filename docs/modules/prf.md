@@ -11,6 +11,8 @@ note: Prf 寄存器堆+旁路+唤醒
 
 # prf 设计笔记
 
+> **更新（2026-11-12，rv64 / 现状）**：寄存器值、`pc`、`ftq_next_pc`、各 bypass 结果都是 `XLEN_BITS` 位（`prf.sv`）；rv64 的 PRF 位数翻倍，面积 / 综合数字（docs/09）是 rv32 的。
+
 ## 1. 对应的 C++
 - 文件/类：`back-end/Prf.cpp`、`back-end/include/Prf.h`，`class Prf`（参考模型 commit 2f31e8d）。
 - BackTop 调用顺序：`comb_begin`(277) → `comb_complete`(空) → `comb_awake`(289) → `comb_write`(290) →

@@ -11,6 +11,10 @@ note: core_top + mem_top；测试平台 tb/soc（Verilator）+ 参考的 SimDDR/
 
 # soc_top / mem_top 设计笔记（整核闭环）
 
+> **更新（2026-11-12，rv64 / 现状）**：1) `soc_top.sv` 是**生成文件**（`tools/gen_soc_top.py`），为 rv64 手改过位宽，重新生成会丢（见根 README）。2) 测试平台：`SOC_XLEN=64` 用 `XLEN_BITS=64` 的 `rtl/` 副本构建，`-DXLEN=64` 传给 C++；`tb/soc/fm_check.h` 每提交一条指令让 function-model 执行并比较 PC 和目的寄存器（`tb_xlen_t` 宽度随 XLEN），`FMLIB` 必须指向同位宽的 `librefcpu.a`；rv32 用 `SOC_FM=1`。3) 测试平台环境变量：`SOC_TB_FM=1`（逐条对比）、`SOC_TB_SEMIHOST=1`（OpenSBI/Linux 的 semihosting）、`SOC_TB_LOG=<n>`（每 n 周期一行进度）、`SOC_TB_STLOG=<物理地址>`（打印提交到该 8 字节字的 store）、`SOC_TB_PMU=1`（打印 PMU 事件总数）。Linux 需要构建时加 `SOC_VOPT="--threads 4 -DTTG_EBREAK_TRAP"`。4) 8 字节 MMIO（`ld`/`sd`）经 `peripheral_axi` 本地设备路径，测试平台的 `PeripheralModel` 按 8 字节读写。
+
+> 默认配置是**不分频**（`AXI_SUBSYSTEM_FREQ_DIV = 1`，每 CPU 周期 1 个 tick，DRAMsim3 作 DDR 后端）。下面第 2 节的 16 tick 规则、第 3 节的“每周期 16 个 tick”、“空闲 tick 跳过”一节描述原分频配置，**该配置不再支持**（空闲跳过只在 16 tick 时启用）；第 4 节和 Linux 表是 2026-11-04 的历史结果，最新结果见下面“当前验证状态”。
+
 ## 1. 结构
 - `mem_top`：访存子系统顶层，端口名与 `core_top` 的存储侧端口同名、方向相反。内部：`mem_route`、`ptw_walk`（客户端 0=DTLB、1=ITLB）、`dcache`、`peripheral_axi`、`mem_axi`（四个 AXI 主口胶水 + `axi_subsys` + `axi_cpu_port_adapter`）。
 - `soc_top`：由 `tools/gen_soc_top.py` 生成，`core_top`（时钟 `clk_cpu`）加 `mem_top`（快时钟 `clk`）按端口名连接。
@@ -28,10 +32,16 @@ note: core_top + mem_top；测试平台 tb/soc（Verilator）+ 参考的 SimDDR/
 - `soc_tb.cpp`：每个 CPU 周期 16 个 tick：DDR 从口输出 → RTL → RTL 主口输出 → DDR 输入 → DDR seq → 时钟沿。程序结束 = 提交 `type == 10`（`ITYPE_EBREAK`）。
 - 平台模型直接用参考的源码：`SimDDR`（时序由 config.h 决定）、`PhysMemory`、`PeripheralModel`（UART/中断控制器/定时器；`tick()` 每周期一次，驱动中断注入输入）。
 - 设备写（modeled MMIO）在 store **提交**时生效（参考的 `commit_sync` → `on_commit_store`）：测试平台在提交周期从 LSU 的 `st_fld_q[stq_idx]` 读 paddr/data/func3（依赖 `lsu_pkg::stq_fld_t` 的布局；字段位宽取自 `soc_probe.inc` 里的 `kCfg_*`，由 `tools/gen_soc_probe.py` 从配置包生成，配置变化时自动跟上，字段顺序变化要手工改 `soc_tb.cpp`）。
-- `SOC_TB_TRACE=<core_top trace>`：逐周期与参考录制的 `core_top` 边界比较，首个不一致的周期与字段立即报出（`scripts/record.sh core_top <prog>` 录制；对核不消费的输入字段按"配对 valid"放宽）。
+- `SOC_TB_TRACE=<core_top trace>`：旧体系的逐周期边界比较（录制脚本 `scripts/record.sh` 已退役），现不使用。
 - 构建：`bash tb/soc/build.sh`（`DEBUG=1` 打开内部信号调试打印）；运行：`bash scripts/soc_smoke.sh [最大参考周期]`，参考周期表 `scripts/ref_cycles.txt`。速度约 350 周期/秒。
 
-## 4. 验证结果
+## 当前验证状态（2026-11-12）
+- rv32：`fm_gate.sh` 69/69 逐条对比通过、周期与 `ref_cycles.txt` 0 处不同；`memory-stress`（230.8 万周期）逐条对比 0 不一致。
+- rv64（`SOC_XLEN=64`）：53 个 cpu-tests 逐条对比通过，周期与 trace-model（`LSU_PIPE_NOWD=1`）53/53 相同；`rv64-sv39`、`mmio64` 通过。
+- Linux 从复位到登录，逐条对比 0 不一致：rv32 约 1.6 亿周期、rv64 约 1.3 亿周期（仿真约 3.5 万周期/秒，数小时）。需要 `SOC_VOPT="--threads 4 -DTTG_EBREAK_TRAP"` 构建、`SOC_TB_SEMIHOST=1 SOC_TB_FM=1` 运行。
+- 没做：RTL 上的 SPEC；store 数据 / CSR 写值 / 内存内容的对比。
+
+## 4. 验证结果（2026-11-04 历史）
 - 65 个程序（gate 61 个、vm 4 个、dhrystone（64 次迭代）、coremark（2 次迭代）、memory-stress-small）周期数与参考逐一相等；提交条数与 trace 逐周期比较一致。
 - 未覆盖：`memory-stress`（约 154 万周期，仿真约 70 分钟）、`float_test`、`load-store`（参考周期数我这边 200 秒内没测出来）。
 
@@ -57,7 +67,7 @@ SOC_TB_SEMIHOST=1 build/soc_linux/obj/soc_tb /tmp/linux.bin <周期数>
 | 400,002（打开断点异常后继续） | 107,585 | 400,002 |
 | 1,000,007 | 247,399 | 1,000,007 |
 
-限制：RTL 约每秒 4–5 千周期，完整启动（约 1.2 亿条指令）要 7 小时以上，所以只对照了前 100 万条；更远的部分要走检查点恢复（见 08-risk-register）。
+限制（2026-11-04 当时）：RTL 约每秒 4–5 千周期，只对照了前 100 万条；**现在已整段跑完**（见“当前验证状态”）。
 
 ## 空闲 tick 跳过（测试平台加速）
 

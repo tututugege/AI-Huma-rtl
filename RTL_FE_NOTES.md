@@ -1,5 +1,7 @@
 # RTL front-end fast paths (FE_RFAST / FE_BFAST), notes
 
+> **Status (2026-11-12)**: written on the branch `exp/fe-rtl`; merged into main (see `RTL_INTEG_NOTES.md`). Current defaults: `FE_RFAST = 15` (a fixed constant emitted by `harness/tools/gen_cfg_pkg.py`, no longer a `config.h` export), `FE_BFAST = 0` (still exported). `scripts/ref_cycles_fe_on.txt` and the per-setting `scripts/fe_refs/*` mentioned below were removed except `ref_r15_b0.txt` / `ref_r15_b3.txt`; with the rv64 merge the front-end PCs are `XLEN` wide (the fast-path logic is unchanged).
+
 Branch `exp/fe-rtl` (rtl), model references from trace-model `exp/fe-refs` (= `exp/combo` merged with main `7f8456e`, so the model
 configuration equals RTL main; only the CFG_FE_* macros were added to the model). Nothing is merged, nothing is pushed.
 
