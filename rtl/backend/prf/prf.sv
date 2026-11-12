@@ -279,7 +279,7 @@ module prf import ttg_cfg_pkg::*; import fp_pkg::*; #(
     end
     for (genvar k = 0; k < LSU_LOAD_WB_WIDTH; k++) begin : g_lsu_fres
       assign fp_byp_wen[TOTAL_FU_COUNT + k]  = byp_wen_vec[TOTAL_FU_COUNT + k];
-      assign fp_byp_fres[TOTAL_FU_COUNT + k] = FW'(lsu_byp_result[k]);   // flw / fld data (S4)
+      assign fp_byp_fres[TOTAL_FU_COUNT + k] = fp_load_box(lsu_byp_result[k][31:0]);   // flw data, NaN-boxed
     end
     prf_fp #(.LANES(LANES), .BYP_NUM(BYP_NUM), .NRD(NRD)) u_fp (
       .clk, .rst_n, .wb_wen(wb_wen_q), .wb_dest_preg(wb_dest_preg_q), .exe_fresult(exe_fres),
