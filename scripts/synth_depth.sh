@@ -7,5 +7,8 @@ cd "$(dirname "$0")/.."
 TAG=$1; shift
 export SLANG_OPTS="--unroll-limit 100000 -Wno-error=index-oob" SYNTH_LIGHT=1 SYNTH_MEM=1 SYNTH_LTP=1 SYNTH_DEPTH=${SYNTH_DEPTH:-1}
 mkdir -p "build/synth_$TAG"
-printf "%s\n" "$@" | xargs -P "${JOBS:-3}" -I{} bash -c "bash scripts/synth_module.sh {} 12000 ${TMO:-1500} > build/synth_$TAG/{}.out 2>&1; cp build/synth/{}.stat build/synth/{}.ltp build/synth_$TAG/ 2>/dev/null"
+# a function instead of `xargs -I{} bash -c "<long command>"`: BSD xargs (macOS) rejects replacement command lines over 255 bytes
+one() { m=$1; bash scripts/synth_module.sh "$m" 12000 "${TMO:-1500}" > "build/synth_$TAG/$m.out" 2>&1; cp "build/synth/$m.stat" "build/synth/$m.ltp" "build/synth_$TAG/" 2>/dev/null; }
+export -f one; export TAG TMO
+printf "%s\n" "$@" | xargs -P "${JOBS:-3}" -n1 bash -c 'one "$0"'
 for m in "$@"; do printf "%-18s cells=%-9s depth=%s\n" "$m" "$(grep -m1 ' cells$' "build/synth_$TAG/$m.stat" 2>/dev/null | awk '{print $1}')" "$(grep -m1 'Longest topological path' "build/synth_$TAG/$m.ltp" 2>/dev/null | sed 's/.*length=\([0-9]*\).*/\1/')"; done
