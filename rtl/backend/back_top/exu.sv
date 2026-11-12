@@ -8,6 +8,7 @@ module exu
   import ttg_cfg_pkg::*;
   import exu_fu_pkg::*;
   import exu_ctrl_pkg::*;
+  import fp_pkg::*;
 (
   input  logic clk,
   input  logic rst_n,
@@ -23,6 +24,9 @@ module exu
   input  logic [PRF_IDX_WIDTH-1:0] prf2exe_iss_entry_uop_dest_preg [ISSUE_WIDTH],
   input  logic [XLEN_BITS-1:0] prf2exe_iss_entry_uop_src1_rdata [ISSUE_WIDTH],
   input  logic [XLEN_BITS-1:0] prf2exe_iss_entry_uop_src2_rdata [ISSUE_WIDTH],
+  input  logic [FW-1:0] prf2exe_iss_entry_uop_fsrc1 [ISSUE_WIDTH],
+  input  logic [FW-1:0] prf2exe_iss_entry_uop_fsrc2 [ISSUE_WIDTH],
+  input  logic [FW-1:0] prf2exe_iss_entry_uop_fsrc3 [ISSUE_WIDTH],
   input  logic [5:0] prf2exe_iss_entry_uop_ftq_idx [ISSUE_WIDTH],
   input  logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_is_atomic,
   input  logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_dest_en,
@@ -68,12 +72,14 @@ module exu
   output logic [ISSUE_WIDTH-1:0] exe2prf_entry_valid,
   output logic [PRF_IDX_WIDTH-1:0] exe2prf_entry_uop_dest_preg [ISSUE_WIDTH],
   output logic [XLEN_BITS-1:0] exe2prf_entry_uop_result [ISSUE_WIDTH],
+  output logic [FW-1:0] exe2prf_entry_uop_fresult [ISSUE_WIDTH],
   output logic [BR_MASK_WIDTH-1:0] exe2prf_entry_uop_br_mask [ISSUE_WIDTH],
   output logic [ISSUE_WIDTH-1:0] exe2prf_entry_uop_dest_en,
   output logic [4:0] exe2prf_entry_uop_op [ISSUE_WIDTH],
   output logic [TOTAL_FU_COUNT-1:0] exe2prf_bypass_valid,
   output logic [PRF_IDX_WIDTH-1:0] exe2prf_bypass_uop_dest_preg [TOTAL_FU_COUNT],
   output logic [XLEN_BITS-1:0] exe2prf_bypass_uop_result [TOTAL_FU_COUNT],
+  output logic [FW-1:0] exe2prf_bypass_uop_fresult [TOTAL_FU_COUNT],
   output logic [TOTAL_FU_COUNT-1:0] exe2prf_bypass_uop_dest_en,
   output logic [ISSUE_WIDTH-1:0] exu2rob_entry_valid,
   output logic [6:0] exu2rob_entry_uop_rob_idx [ISSUE_WIDTH],
@@ -86,6 +92,7 @@ module exu
   output logic [ISSUE_WIDTH-1:0] exu2rob_entry_uop_page_fault_store,
   output logic [ISSUE_WIDTH-1:0] exu2rob_entry_uop_rob_defer,
   output logic [ISSUE_WIDTH-1:0] exu2rob_entry_uop_flush_pipe,
+  output logic [FFLAGS_W-1:0] exu2rob_entry_uop_fflags [ISSUE_WIDTH],
   output logic [LSU_LDU_COUNT-1:0] exe2lsu_ldu_req_valid,
   output logic [XLEN_BITS-1:0] exe2lsu_ldu_req_uop_result [LSU_LDU_COUNT],
   output logic [PRF_IDX_WIDTH-1:0] exe2lsu_ldu_req_uop_dest_preg [LSU_LDU_COUNT],
@@ -136,6 +143,15 @@ module exu
   logic [N_MC-1:0] fu_mc_dest_en;
   logic [BR_MASK_WIDTH-1:0] fu_mc_br_mask [N_MC];
   logic [ROB_IDX_WIDTH-1:0] fu_mc_rob_idx [N_MC];
+  logic [N_FPU-1:0] fu_fp_ready;
+  logic [N_FPU-1:0] fu_fp_complete;
+  logic [XLEN_BITS-1:0] fu_fp_result [N_FPU];
+  logic [FW-1:0] fu_fp_fresult [N_FPU];
+  logic [FFLAGS_W-1:0] fu_fp_fflags [N_FPU];
+  logic [PRF_IDX_WIDTH-1:0] fu_fp_dest_preg [N_FPU];
+  logic [N_FPU-1:0] fu_fp_dest_en;
+  logic [BR_MASK_WIDTH-1:0] fu_fp_br_mask [N_FPU];
+  logic [ROB_IDX_WIDTH-1:0] fu_fp_rob_idx [N_FPU];
 
   logic exu2fu_flush;
   logic [BR_MASK_WIDTH-1:0] exu2fu_flush_mask;
@@ -183,6 +199,19 @@ module exu
   logic [N_MC-1:0] exu2fu_mc_dest_en;
   logic [BR_MASK_WIDTH-1:0] exu2fu_mc_br_mask [N_MC];
   logic [ROB_IDX_WIDTH-1:0] exu2fu_mc_rob_idx [N_MC];
+  logic [N_FPU-1:0] exu2fu_fp_en;
+  logic [N_FPU-1:0] exu2fu_fp_consume;
+  logic [2:0] exu2fu_fp_func3 [N_FPU];
+  logic [6:0] exu2fu_fp_func7 [N_FPU];
+  logic [31:0] exu2fu_fp_imm [N_FPU];
+  logic [XLEN_BITS-1:0] exu2fu_fp_src1_rdata [N_FPU];
+  logic [FW-1:0] exu2fu_fp_fsrc1 [N_FPU];
+  logic [FW-1:0] exu2fu_fp_fsrc2 [N_FPU];
+  logic [FW-1:0] exu2fu_fp_fsrc3 [N_FPU];
+  logic [PRF_IDX_WIDTH-1:0] exu2fu_fp_dest_preg [N_FPU];
+  logic [N_FPU-1:0] exu2fu_fp_dest_en;
+  logic [BR_MASK_WIDTH-1:0] exu2fu_fp_br_mask [N_FPU];
+  logic [ROB_IDX_WIDTH-1:0] exu2fu_fp_rob_idx [N_FPU];
 
   // ---- exu_ctrl: slots, port arbitration, write-back / bypass / ROB / LSU / CSR / branch outputs
   exu_ctrl u_ctrl (
@@ -199,6 +228,9 @@ module exu
     .prf2exe_iss_entry_uop_dest_preg(prf2exe_iss_entry_uop_dest_preg),
     .prf2exe_iss_entry_uop_src1_rdata(prf2exe_iss_entry_uop_src1_rdata),
     .prf2exe_iss_entry_uop_src2_rdata(prf2exe_iss_entry_uop_src2_rdata),
+    .prf2exe_iss_entry_uop_fsrc1(prf2exe_iss_entry_uop_fsrc1),
+    .prf2exe_iss_entry_uop_fsrc2(prf2exe_iss_entry_uop_fsrc2),
+    .prf2exe_iss_entry_uop_fsrc3(prf2exe_iss_entry_uop_fsrc3),
     .prf2exe_iss_entry_uop_ftq_idx(prf2exe_iss_entry_uop_ftq_idx),
     .prf2exe_iss_entry_uop_is_atomic(prf2exe_iss_entry_uop_is_atomic),
     .prf2exe_iss_entry_uop_dest_en(prf2exe_iss_entry_uop_dest_en),
@@ -244,12 +276,14 @@ module exu
     .exe2prf_entry_valid(exe2prf_entry_valid),
     .exe2prf_entry_uop_dest_preg(exe2prf_entry_uop_dest_preg),
     .exe2prf_entry_uop_result(exe2prf_entry_uop_result),
+    .exe2prf_entry_uop_fresult(exe2prf_entry_uop_fresult),
     .exe2prf_entry_uop_br_mask(exe2prf_entry_uop_br_mask),
     .exe2prf_entry_uop_dest_en(exe2prf_entry_uop_dest_en),
     .exe2prf_entry_uop_op(exe2prf_entry_uop_op),
     .exe2prf_bypass_valid(exe2prf_bypass_valid),
     .exe2prf_bypass_uop_dest_preg(exe2prf_bypass_uop_dest_preg),
     .exe2prf_bypass_uop_result(exe2prf_bypass_uop_result),
+    .exe2prf_bypass_uop_fresult(exe2prf_bypass_uop_fresult),
     .exe2prf_bypass_uop_dest_en(exe2prf_bypass_uop_dest_en),
     .exu2rob_entry_valid(exu2rob_entry_valid),
     .exu2rob_entry_uop_rob_idx(exu2rob_entry_uop_rob_idx),
@@ -262,6 +296,7 @@ module exu
     .exu2rob_entry_uop_page_fault_store(exu2rob_entry_uop_page_fault_store),
     .exu2rob_entry_uop_rob_defer(exu2rob_entry_uop_rob_defer),
     .exu2rob_entry_uop_flush_pipe(exu2rob_entry_uop_flush_pipe),
+    .exu2rob_entry_uop_fflags(exu2rob_entry_uop_fflags),
     .exe2lsu_ldu_req_valid(exe2lsu_ldu_req_valid),
     .exe2lsu_ldu_req_uop_result(exe2lsu_ldu_req_uop_result),
     .exe2lsu_ldu_req_uop_dest_preg(exe2lsu_ldu_req_uop_dest_preg),
@@ -307,6 +342,15 @@ module exu
     .fu_mc_dest_en(fu_mc_dest_en),
     .fu_mc_br_mask(fu_mc_br_mask),
     .fu_mc_rob_idx(fu_mc_rob_idx),
+    .fu_fp_ready(fu_fp_ready),
+    .fu_fp_complete(fu_fp_complete),
+    .fu_fp_result(fu_fp_result),
+    .fu_fp_fresult(fu_fp_fresult),
+    .fu_fp_fflags(fu_fp_fflags),
+    .fu_fp_dest_preg(fu_fp_dest_preg),
+    .fu_fp_dest_en(fu_fp_dest_en),
+    .fu_fp_br_mask(fu_fp_br_mask),
+    .fu_fp_rob_idx(fu_fp_rob_idx),
     .exu2fu_flush(exu2fu_flush),
     .exu2fu_flush_mask(exu2fu_flush_mask),
     .exu2fu_clear_mask(exu2fu_clear_mask),
@@ -352,7 +396,20 @@ module exu
     .exu2fu_mc_dest_preg(exu2fu_mc_dest_preg),
     .exu2fu_mc_dest_en(exu2fu_mc_dest_en),
     .exu2fu_mc_br_mask(exu2fu_mc_br_mask),
-    .exu2fu_mc_rob_idx(exu2fu_mc_rob_idx)
+    .exu2fu_mc_rob_idx(exu2fu_mc_rob_idx),
+    .exu2fu_fp_en(exu2fu_fp_en),
+    .exu2fu_fp_consume(exu2fu_fp_consume),
+    .exu2fu_fp_func3(exu2fu_fp_func3),
+    .exu2fu_fp_func7(exu2fu_fp_func7),
+    .exu2fu_fp_imm(exu2fu_fp_imm),
+    .exu2fu_fp_src1_rdata(exu2fu_fp_src1_rdata),
+    .exu2fu_fp_fsrc1(exu2fu_fp_fsrc1),
+    .exu2fu_fp_fsrc2(exu2fu_fp_fsrc2),
+    .exu2fu_fp_fsrc3(exu2fu_fp_fsrc3),
+    .exu2fu_fp_dest_preg(exu2fu_fp_dest_preg),
+    .exu2fu_fp_dest_en(exu2fu_fp_dest_en),
+    .exu2fu_fp_br_mask(exu2fu_fp_br_mask),
+    .exu2fu_fp_rob_idx(exu2fu_fp_rob_idx)
   );
 
   // ---- single-cycle FUs (SingleCycleFU: complete == en, ready == !en || consume; exu_ctrl derives both itself,
@@ -516,6 +573,50 @@ module exu
     .complete(div_complete), .ready(div_ready), .result(div_result), .done_rob_idx(div_done_rob_idx),
     .done_dest_preg(div_done_dest_preg), .done_dest_en(div_done_dest_en), .done_br_mask(div_done_br_mask)
   );
+
+  // ---- F/D units (fp_unit: pipelined FMA / FMISC / I2F, iterative FDIV): their own flat port group in fu_idx order.
+  // The dynamic rounding mode (fcsr.frm) is wired in S5; until then it reads as round-to-nearest-even.
+  if (FP_EN) begin : g_fpu
+    for (genvar r = 0; r < N_FPU; r++) begin : g_unit
+      localparam int KIND = xc_fu_kind(xc_fp_fu(r));
+      logic [63:0] fresult;
+      assign fu_fp_result[r] = XLEN_BITS'(fresult);
+      assign fu_fp_fresult[r] = fresult;
+      if (KIND == XC_K_FDIV) begin : g_div
+        fp_div_unit u_fp (
+          .clk(clk), .rst_n(rst_n), .en(exu2fu_fp_en[r]), .consume(exu2fu_fp_consume[r]), .flush(exu2fu_flush),
+          .flush_mask(exu2fu_flush_mask), .clear_mask(exu2fu_clear_mask), .func3(exu2fu_fp_func3[r]),
+          .func7(exu2fu_fp_func7[r]), .imm(exu2fu_fp_imm[r]), .src1_rdata(exu2fu_fp_src1_rdata[r]),
+          .fsrc1(exu2fu_fp_fsrc1[r]), .fsrc2(exu2fu_fp_fsrc2[r]), .fsrc3(exu2fu_fp_fsrc3[r]), .frm(3'd0),
+          .rob_idx(exu2fu_fp_rob_idx[r]), .dest_preg(exu2fu_fp_dest_preg[r]), .dest_en(exu2fu_fp_dest_en[r]),
+          .br_mask(exu2fu_fp_br_mask[r]), .complete(fu_fp_complete[r]), .ready(fu_fp_ready[r]), .fresult(fresult),
+          .fflags(fu_fp_fflags[r]), .done_rob_idx(fu_fp_rob_idx[r]), .done_dest_preg(fu_fp_dest_preg[r]),
+          .done_dest_en(fu_fp_dest_en[r]), .done_br_mask(fu_fp_br_mask[r])
+        );
+      end else begin : g_pipe
+        fp_pipe_unit #(.LAT((KIND == XC_K_FMA) ? FP_FMA_LAT : (KIND == XC_K_FMISC) ? FP_MISC_LAT : FP_I2F_LAT)) u_fp (
+          .clk(clk), .rst_n(rst_n), .en(exu2fu_fp_en[r]), .consume(exu2fu_fp_consume[r]), .flush(exu2fu_flush),
+          .flush_mask(exu2fu_flush_mask), .clear_mask(exu2fu_clear_mask), .func3(exu2fu_fp_func3[r]),
+          .imm(exu2fu_fp_imm[r]), .src1_rdata(exu2fu_fp_src1_rdata[r]),
+          .fsrc1(exu2fu_fp_fsrc1[r]), .fsrc2(exu2fu_fp_fsrc2[r]), .fsrc3(exu2fu_fp_fsrc3[r]), .frm(3'd0),
+          .rob_idx(exu2fu_fp_rob_idx[r]), .dest_preg(exu2fu_fp_dest_preg[r]), .dest_en(exu2fu_fp_dest_en[r]),
+          .br_mask(exu2fu_fp_br_mask[r]), .complete(fu_fp_complete[r]), .ready(fu_fp_ready[r]), .fresult(fresult),
+          .fflags(fu_fp_fflags[r]), .done_rob_idx(fu_fp_rob_idx[r]), .done_dest_preg(fu_fp_dest_preg[r]),
+          .done_dest_en(fu_fp_dest_en[r]), .done_br_mask(fu_fp_br_mask[r])
+        );
+      end
+    end
+  end else begin : g_no_fpu
+    assign fu_fp_ready = '0;
+    assign fu_fp_complete = '0;
+    assign fu_fp_result = '{default: '0};
+    assign fu_fp_fresult = '{default: '0};
+    assign fu_fp_fflags = '{default: '0};
+    assign fu_fp_dest_preg = '{default: '0};
+    assign fu_fp_dest_en = '0;
+    assign fu_fp_br_mask = '{default: '0};
+    assign fu_fp_rob_idx = '{default: '0};
+  end
 
   /* verilator lint_on UNUSEDSIGNAL */
 

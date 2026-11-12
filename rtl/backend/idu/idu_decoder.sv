@@ -47,7 +47,7 @@ module idu_decoder import ttg_cfg_pkg::*; (
   logic [2:0]  raw_func3;
   logic [5:0]  raw_dest_areg, raw_src1_areg, raw_src2_areg;
   logic        raw_illegal_inst, raw_is_branch;
-  logic [5:0]  raw_imm_sel;
+  logic [6:0]  raw_imm_sel;
   logic        raw_dest_fp, raw_src1_fp, raw_src2_fp, raw_src3_en;
   logic [4:0]  raw_src3_areg;
   logic [2:0]  raw_fp_cls;
@@ -64,7 +64,7 @@ module idu_decoder import ttg_cfg_pkg::*; (
     .src3_areg(raw_src3_areg), .fp_cls(raw_fp_cls)
   );
 
-  idu_imm_gen u_imm (.inst(entry_inst[31:7]), .imm_sel(raw_imm_sel), .imm(raw_imm));
+  idu_imm_gen u_imm (.inst(entry_inst[31:2]), .imm_sel(raw_imm_sel), .imm(raw_imm));
 
   // Ref: Idu::comb_decode (page_fault -> NOP with diag_val = inst ; else decode())
   always_comb begin

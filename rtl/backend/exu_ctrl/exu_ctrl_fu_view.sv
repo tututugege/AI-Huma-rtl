@@ -16,8 +16,9 @@ module exu_ctrl_fu_view
 );
 
   for (genvar f = 0; f < N_FU; f++) begin : g_fu
-    localparam bit MULTI_CYCLE = xc_is_mc_kind(xc_fu_kind(f));
-    localparam xc_op_t MC_OP = xc_op_t'(xc_mc_op(xc_fu_kind(f)));
+    localparam bit IS_FP = xc_is_fp_kind(xc_fu_kind(f));
+    localparam bit MULTI_CYCLE = xc_is_mc_kind(xc_fu_kind(f)) || IS_FP;
+    localparam xc_op_t MC_OP = IS_FP ? xc_op_t'(xc_fp_op(xc_fu_kind(f))) : xc_op_t'(xc_mc_op(xc_fu_kind(f)));
     xc_done_t done;
 
     // Ref: Exu::comb_fu_exec (collect of units[i]->out)
@@ -26,6 +27,8 @@ module exu_ctrl_fu_view
       if (MULTI_CYCLE) begin
         done.complete  = fu_res[f].mc_complete;
         done.result    = fu_res[f].result;
+        done.fresult   = fu_res[f].fresult;
+        done.fflags    = fu_res[f].fflags;
         done.dest_preg = fu_res[f].dest_preg;
         done.dest_en   = fu_res[f].dest_en;
         done.br_mask   = fu_res[f].br_mask;

@@ -2,11 +2,12 @@
 `default_nettype none
 
 // Exu control: FU input slots, issue-port write-back arbitration, bypass, ready feedback, flush/kill/clear handling and
-// the interfaces to Csr / Lsu / Rob / Prf / Isu / Idu. The 28 FUs are inputs (fu_*) and outputs (exu2fu_*).
+// the interfaces to Csr / Lsu / Rob / Prf / Isu / Idu. The FUs are inputs (fu_*) and outputs (exu2fu_*).
 // Top level only adapts the flat spec ports to the sub-module interfaces (no logic of its own).
 module exu_ctrl
   import ttg_cfg_pkg::*;
   import exu_ctrl_pkg::*;
+  import fp_pkg::*;
 (
   input  logic clk,
   input  logic rst_n,
@@ -22,6 +23,9 @@ module exu_ctrl
   input  logic [PRF_IDX_WIDTH-1:0] prf2exe_iss_entry_uop_dest_preg [ISSUE_WIDTH],
   input  logic [XLEN_BITS-1:0] prf2exe_iss_entry_uop_src1_rdata [ISSUE_WIDTH],
   input  logic [XLEN_BITS-1:0] prf2exe_iss_entry_uop_src2_rdata [ISSUE_WIDTH],
+  input  logic [FW-1:0] prf2exe_iss_entry_uop_fsrc1 [ISSUE_WIDTH],
+  input  logic [FW-1:0] prf2exe_iss_entry_uop_fsrc2 [ISSUE_WIDTH],
+  input  logic [FW-1:0] prf2exe_iss_entry_uop_fsrc3 [ISSUE_WIDTH],
   input  logic [FTQ_IDX_WIDTH-1:0] prf2exe_iss_entry_uop_ftq_idx [ISSUE_WIDTH],
   input  logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_is_atomic,
   input  logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_dest_en,
@@ -54,6 +58,15 @@ module exu_ctrl
   input  logic [N_MC-1:0] fu_mc_dest_en,
   input  logic [BR_MASK_WIDTH-1:0] fu_mc_br_mask [N_MC],
   input  logic [ROB_IDX_WIDTH-1:0] fu_mc_rob_idx [N_MC],
+  input  logic [N_FPU-1:0] fu_fp_ready,
+  input  logic [N_FPU-1:0] fu_fp_complete,
+  input  logic [XLEN_BITS-1:0] fu_fp_result [N_FPU],
+  input  logic [FW-1:0] fu_fp_fresult [N_FPU],
+  input  logic [FFLAGS_W-1:0] fu_fp_fflags [N_FPU],
+  input  logic [PRF_IDX_WIDTH-1:0] fu_fp_dest_preg [N_FPU],
+  input  logic [N_FPU-1:0] fu_fp_dest_en,
+  input  logic [BR_MASK_WIDTH-1:0] fu_fp_br_mask [N_FPU],
+  input  logic [ROB_IDX_WIDTH-1:0] fu_fp_rob_idx [N_FPU],
   input  logic [XLEN_BITS-1:0] lsu2exe_wb_req_uop_diag_val [LSU_LOAD_WB_WIDTH],
   input  logic [XLEN_BITS-1:0] lsu2exe_wb_req_uop_result [LSU_LOAD_WB_WIDTH],
   input  logic [PRF_IDX_WIDTH-1:0] lsu2exe_wb_req_uop_dest_preg [LSU_LOAD_WB_WIDTH],
@@ -80,12 +93,14 @@ module exu_ctrl
   output logic [ISSUE_WIDTH-1:0] exe2prf_entry_valid,
   output logic [PRF_IDX_WIDTH-1:0] exe2prf_entry_uop_dest_preg [ISSUE_WIDTH],
   output logic [XLEN_BITS-1:0] exe2prf_entry_uop_result [ISSUE_WIDTH],
+  output logic [FW-1:0] exe2prf_entry_uop_fresult [ISSUE_WIDTH],
   output logic [BR_MASK_WIDTH-1:0] exe2prf_entry_uop_br_mask [ISSUE_WIDTH],
   output logic [ISSUE_WIDTH-1:0] exe2prf_entry_uop_dest_en,
   output logic [XC_OP_W-1:0] exe2prf_entry_uop_op [ISSUE_WIDTH],
   output logic [TOTAL_FU_COUNT-1:0] exe2prf_bypass_valid,
   output logic [PRF_IDX_WIDTH-1:0] exe2prf_bypass_uop_dest_preg [TOTAL_FU_COUNT],
   output logic [XLEN_BITS-1:0] exe2prf_bypass_uop_result [TOTAL_FU_COUNT],
+  output logic [FW-1:0] exe2prf_bypass_uop_fresult [TOTAL_FU_COUNT],
   output logic [TOTAL_FU_COUNT-1:0] exe2prf_bypass_uop_dest_en,
   output logic [ISSUE_WIDTH-1:0] exu2rob_entry_valid,
   output logic [ROB_IDX_WIDTH-1:0] exu2rob_entry_uop_rob_idx [ISSUE_WIDTH],
@@ -97,6 +112,7 @@ module exu_ctrl
   output logic [ISSUE_WIDTH-1:0] exu2rob_entry_uop_page_fault_load,
   output logic [ISSUE_WIDTH-1:0] exu2rob_entry_uop_rob_defer,
   output logic [ISSUE_WIDTH-1:0] exu2rob_entry_uop_flush_pipe,
+  output logic [FFLAGS_W-1:0] exu2rob_entry_uop_fflags [ISSUE_WIDTH],
   output logic [ISSUE_WIDTH-1:0] exu2rob_entry_uop_page_fault_store,
   output logic [LSU_LDU_COUNT-1:0] exe2lsu_ldu_req_valid,
   output logic [XLEN_BITS-1:0] exe2lsu_ldu_req_uop_result [LSU_LDU_COUNT],
@@ -175,7 +191,20 @@ module exu_ctrl
   output logic [PRF_IDX_WIDTH-1:0] exu2fu_mc_dest_preg [N_MC],
   output logic [N_MC-1:0] exu2fu_mc_dest_en,
   output logic [BR_MASK_WIDTH-1:0] exu2fu_mc_br_mask [N_MC],
-  output logic [ROB_IDX_WIDTH-1:0] exu2fu_mc_rob_idx [N_MC]
+  output logic [ROB_IDX_WIDTH-1:0] exu2fu_mc_rob_idx [N_MC],
+  output logic [N_FPU-1:0] exu2fu_fp_en,
+  output logic [N_FPU-1:0] exu2fu_fp_consume,
+  output logic [2:0] exu2fu_fp_func3 [N_FPU],
+  output logic [6:0] exu2fu_fp_func7 [N_FPU],
+  output logic [31:0] exu2fu_fp_imm [N_FPU],
+  output logic [XLEN_BITS-1:0] exu2fu_fp_src1_rdata [N_FPU],
+  output logic [FW-1:0] exu2fu_fp_fsrc1 [N_FPU],
+  output logic [FW-1:0] exu2fu_fp_fsrc2 [N_FPU],
+  output logic [FW-1:0] exu2fu_fp_fsrc3 [N_FPU],
+  output logic [PRF_IDX_WIDTH-1:0] exu2fu_fp_dest_preg [N_FPU],
+  output logic [N_FPU-1:0] exu2fu_fp_dest_en,
+  output logic [BR_MASK_WIDTH-1:0] exu2fu_fp_br_mask [N_FPU],
+  output logic [ROB_IDX_WIDTH-1:0] exu2fu_fp_rob_idx [N_FPU]
 );
 
   // FU tables (exu_ctrl_pkg) must agree with the configuration this module was written for
@@ -183,18 +212,17 @@ module exu_ctrl
       || xc_kind_count(XC_K_ALU) != ALU_NUM
       || xc_kind_count(XC_K_BR) != BRU_NUM || xc_kind_count(XC_K_LD) != LSU_LDU_COUNT
       || xc_kind_count(XC_K_STA) != LSU_STA_COUNT || xc_kind_count(XC_K_STD) != LSU_SDU_COUNT
-      || xc_kind_count(XC_K_CSR) != 1 || xc_fu_kind(CSR_FU) != XC_K_CSR || xc_fu_port(CSR_FU) != CSR_PORT
+      || (FP_EN && xc_fp_count() != N_FPU) || xc_kind_count(XC_K_CSR) != 1 || xc_fu_kind(CSR_FU) != XC_K_CSR
+      || xc_fu_port(CSR_FU) != CSR_PORT
       || LSU_LDU_COUNT != LSU_LOAD_WB_WIDTH || IQ_ALU_PORT_BASE != 0) begin : g_cfg_check
     $error("exu_ctrl_pkg FU tables do not match ttg_cfg_pkg");
   end
-
   // ---- adapt flat ports to internal records ------------------------------------------------------------------------
   logic [ISSUE_WIDTH-1:0] iss_valid;
   xc_inst_t               iss_inst [ISSUE_WIDTH];
   xc_fu_res_t             fu_res   [N_FU];
   xc_lsu_wb_t             ld_wb    [LSU_LOAD_WB_WIDTH];
   xc_lsu_wb_t             sta_wb   [LSU_STA_COUNT];
-
   for (genvar p = 0; p < ISSUE_WIDTH; p++) begin : g_iss
     assign iss_valid[p] = prf2exe_iss_entry_valid[p];
     assign iss_inst[p] = '{
@@ -204,6 +232,9 @@ module exu_ctrl
       dest_preg:      prf2exe_iss_entry_uop_dest_preg[p],
       src1_rdata:     prf2exe_iss_entry_uop_src1_rdata[p],
       src2_rdata:     prf2exe_iss_entry_uop_src2_rdata[p],
+      fsrc1:          prf2exe_iss_entry_uop_fsrc1[p],
+      fsrc2:          prf2exe_iss_entry_uop_fsrc2[p],
+      fsrc3:          prf2exe_iss_entry_uop_fsrc3[p],
       ftq_idx:        prf2exe_iss_entry_uop_ftq_idx[p],
       is_atomic:      prf2exe_iss_entry_uop_is_atomic[p],
       dest_en:        prf2exe_iss_entry_uop_dest_en[p],
@@ -224,7 +255,6 @@ module exu_ctrl
       op:             prf2exe_iss_entry_uop_op[p]
     };
   end
-
   for (genvar i = 0; i < LSU_LOAD_WB_WIDTH; i++) begin : g_ld_wb
     assign ld_wb[i] = '{
       valid:            lsu2exe_wb_req_valid[i],
@@ -240,7 +270,6 @@ module exu_ctrl
       flush_pipe:       lsu2exe_wb_req_uop_flush_pipe[i]
     };
   end
-
   for (genvar i = 0; i < LSU_STA_COUNT; i++) begin : g_sta_wb
     assign sta_wb[i] = '{
       valid:            lsu2exe_sta_wb_req_valid[i],
@@ -256,7 +285,6 @@ module exu_ctrl
       flush_pipe:       1'b0
     };
   end
-
   // ---- core ------------------------------------------------------------------------------------------------------
   logic [N_FU-1:0]        fu_en;
   logic [N_FU-1:0]        fu_ready;
@@ -267,7 +295,6 @@ module exu_ctrl
   logic [ISSUE_WIDTH-1:0] win_valid;
   logic [ALU_NUM-1:0]     win_is_csr;
   xc_done_t               win [ISSUE_WIDTH];
-
   exu_ctrl_slot u_slot (
     .clk, .rst_n,
     .flush(rob_bcast_flush), .mispred(dec_bcast_mispred), .kill_mask(dec_bcast_br_mask),
@@ -275,10 +302,11 @@ module exu_ctrl
     .iss_valid, .iss_inst, .iss_csr_idx(prf2exe_iss_entry_uop_csr_idx),
     .fu_ready, .fu_en, .fu_inst, .csr_idx(csr_slot_idx)
   );
-
   exu_ctrl_fu_in u_fu_in (
     .fu_alu_result, .fu_agu_result, .fu_sdu_result, .fu_bru_diag_val, .fu_bru_mispred, .fu_bru_br_taken,
     .fu_mc_ready, .fu_mc_complete, .fu_mc_result, .fu_mc_dest_preg, .fu_mc_dest_en, .fu_mc_br_mask, .fu_mc_rob_idx,
+    .fu_fp_ready, .fu_fp_complete, .fu_fp_result, .fu_fp_fresult, .fu_fp_fflags, .fu_fp_dest_preg, .fu_fp_dest_en,
+    .fu_fp_br_mask, .fu_fp_rob_idx,
     .fu_res
   );
 
@@ -298,13 +326,15 @@ module exu_ctrl
   );
 
   exu_ctrl_wb_prf u_wb_prf (
-    .fu_done, .win_valid(win_valid[ALU_NUM-1:0]), .win, .win_is_csr,
+    .fu_done, .win_valid, .win, .win_is_csr,
     .csr_re(exe2csr_re), .csr_rdata(csr2exe_rdata), .ld_wb, .sta_wb,
     .entry_valid(exe2prf_entry_valid), .entry_dest_preg(exe2prf_entry_uop_dest_preg),
-    .entry_result(exe2prf_entry_uop_result), .entry_br_mask(exe2prf_entry_uop_br_mask),
+    .entry_result(exe2prf_entry_uop_result), .entry_fresult(exe2prf_entry_uop_fresult),
+    .entry_br_mask(exe2prf_entry_uop_br_mask),
     .entry_dest_en(exe2prf_entry_uop_dest_en), .entry_op(exe2prf_entry_uop_op),
     .bypass_valid(exe2prf_bypass_valid), .bypass_dest_preg(exe2prf_bypass_uop_dest_preg),
-    .bypass_result(exe2prf_bypass_uop_result), .bypass_dest_en(exe2prf_bypass_uop_dest_en)
+    .bypass_result(exe2prf_bypass_uop_result), .bypass_fresult(exe2prf_bypass_uop_fresult),
+    .bypass_dest_en(exe2prf_bypass_uop_dest_en)
   );
 
   exu_ctrl_wb_rob u_wb_rob (
@@ -314,7 +344,8 @@ module exu_ctrl
     .diag_val(exu2rob_entry_uop_diag_val), .result(exu2rob_entry_uop_result),
     .br_mispred(exu2rob_entry_uop_mispred), .br_taken(exu2rob_entry_uop_br_taken),
     .page_fault_load(exu2rob_entry_uop_page_fault_load), .page_fault_store(exu2rob_entry_uop_page_fault_store),
-    .rob_defer(exu2rob_entry_uop_rob_defer), .flush_pipe(exu2rob_entry_uop_flush_pipe)
+    .rob_defer(exu2rob_entry_uop_rob_defer), .flush_pipe(exu2rob_entry_uop_flush_pipe),
+    .fflags(exu2rob_entry_uop_fflags)
   );
 
   exu_ctrl_br_arb u_br (
@@ -323,55 +354,19 @@ module exu_ctrl
     .br_pc(exu2id_br_pc)
   );
 
-  // ---- Lsu requests: agu 0..3 loads, 4..7 store-address (the Lsu's ldu / sta ports) -----------------------------
-  logic [N_AGU-1:0] agu_valid;
-  logic [XLEN_BITS-1:0]              agu_result    [N_AGU];
-  logic [PRF_IDX_WIDTH-1:0] agu_dest_preg [N_AGU];
-  logic [2:0]               agu_func3     [N_AGU];
-  logic [N_AGU-1:0] agu_is_atomic;
-  logic [4:0]               agu_amo_op    [N_AGU];
-  logic [ROB_IDX_WIDTH-1:0] agu_rob_idx   [N_AGU];
-  logic [N_AGU-1:0] agu_rob_flag;
-  logic [STQ_IDX_WIDTH-1:0] agu_stq_idx   [N_AGU];
-  /* verilator lint_off UNUSEDSIGNAL */  // only the load lanes (the first LSU_LDU_COUNT AGUs) read the stq flag
-  logic [N_AGU-1:0] agu_stq_flag;
-  /* verilator lint_on UNUSEDSIGNAL */
-  logic [LDQ_IDX_WIDTH-1:0] agu_ldq_idx   [N_AGU];
-
-  exu_ctrl_lsu_req u_lsu (
+  // ---- Lsu requests ----
+  exu_ctrl_lsu_out u_lsu_out (
     .fu_done,
-    .agu_valid, .agu_result, .agu_dest_preg, .agu_func3, .agu_is_atomic, .agu_amo_op, .agu_rob_idx, .agu_rob_flag,
-    .agu_stq_idx, .agu_stq_flag, .agu_ldq_idx,
-    .sdu_valid(exe2lsu_sdu_req_valid), .sdu_result(exe2lsu_sdu_req_uop_result),
-    .sdu_rob_idx(exe2lsu_sdu_req_uop_rob_idx), .sdu_rob_flag(exe2lsu_sdu_req_uop_rob_flag),
-    .sdu_stq_idx(exe2lsu_sdu_req_uop_stq_idx)
+    .exe2lsu_ldu_req_valid, .exe2lsu_ldu_req_uop_result, .exe2lsu_ldu_req_uop_dest_preg, .exe2lsu_ldu_req_uop_func3,
+    .exe2lsu_ldu_req_uop_is_atomic, .exe2lsu_ldu_req_uop_amo_op, .exe2lsu_ldu_req_uop_rob_idx,
+    .exe2lsu_ldu_req_uop_rob_flag, .exe2lsu_ldu_req_uop_stq_idx, .exe2lsu_ldu_req_uop_stq_flag,
+    .exe2lsu_ldu_req_uop_ldq_idx,
+    .exe2lsu_sta_req_valid, .exe2lsu_sta_req_uop_result, .exe2lsu_sta_req_uop_dest_preg, .exe2lsu_sta_req_uop_func3,
+    .exe2lsu_sta_req_uop_is_atomic, .exe2lsu_sta_req_uop_amo_op, .exe2lsu_sta_req_uop_rob_idx,
+    .exe2lsu_sta_req_uop_rob_flag, .exe2lsu_sta_req_uop_stq_idx,
+    .exe2lsu_sdu_req_valid, .exe2lsu_sdu_req_uop_result, .exe2lsu_sdu_req_uop_rob_idx,
+    .exe2lsu_sdu_req_uop_rob_flag, .exe2lsu_sdu_req_uop_stq_idx
   );
-
-  for (genvar i = 0; i < LSU_LDU_COUNT; i++) begin : g_ldu
-    assign exe2lsu_ldu_req_valid[i]          = agu_valid[i];
-    assign exe2lsu_ldu_req_uop_result[i]     = agu_result[i];
-    assign exe2lsu_ldu_req_uop_dest_preg[i]  = agu_dest_preg[i];
-    assign exe2lsu_ldu_req_uop_func3[i]      = agu_func3[i];
-    assign exe2lsu_ldu_req_uop_is_atomic[i]  = agu_is_atomic[i];
-    assign exe2lsu_ldu_req_uop_amo_op[i]     = agu_amo_op[i];
-    assign exe2lsu_ldu_req_uop_rob_idx[i]    = agu_rob_idx[i];
-    assign exe2lsu_ldu_req_uop_rob_flag[i]   = agu_rob_flag[i];
-    assign exe2lsu_ldu_req_uop_stq_idx[i]    = agu_stq_idx[i];
-    assign exe2lsu_ldu_req_uop_stq_flag[i]   = agu_stq_flag[i];
-    assign exe2lsu_ldu_req_uop_ldq_idx[i]    = agu_ldq_idx[i];
-  end
-
-  for (genvar i = 0; i < LSU_STA_COUNT; i++) begin : g_sta
-    assign exe2lsu_sta_req_valid[i]          = agu_valid[LSU_LDU_COUNT+i];
-    assign exe2lsu_sta_req_uop_result[i]     = agu_result[LSU_LDU_COUNT+i];
-    assign exe2lsu_sta_req_uop_dest_preg[i]  = agu_dest_preg[LSU_LDU_COUNT+i];
-    assign exe2lsu_sta_req_uop_func3[i]      = agu_func3[LSU_LDU_COUNT+i];
-    assign exe2lsu_sta_req_uop_is_atomic[i]  = agu_is_atomic[LSU_LDU_COUNT+i];
-    assign exe2lsu_sta_req_uop_amo_op[i]     = agu_amo_op[LSU_LDU_COUNT+i];
-    assign exe2lsu_sta_req_uop_rob_idx[i]    = agu_rob_idx[LSU_LDU_COUNT+i];
-    assign exe2lsu_sta_req_uop_rob_flag[i]   = agu_rob_flag[LSU_LDU_COUNT+i];
-    assign exe2lsu_sta_req_uop_stq_idx[i]    = agu_stq_idx[LSU_LDU_COUNT+i];
-  end
 
   // ---- to the FUs --------------------------------------------------------------------------------------------------
   // Ref: Exu::comb_fu_ctrl (the same flush / flush_mask / clear_mask goes to every FU)
@@ -391,7 +386,10 @@ module exu_ctrl
     .exu2fu_mc_en, .exu2fu_mc_consume, .exu2fu_mc_func3, .exu2fu_mc_is_word,
     .exu2fu_mc_func7, .exu2fu_mc_op, .exu2fu_mc_imm,
     .exu2fu_mc_src1_rdata, .exu2fu_mc_src2_rdata, .exu2fu_mc_dest_preg, .exu2fu_mc_dest_en, .exu2fu_mc_br_mask,
-    .exu2fu_mc_rob_idx
+    .exu2fu_mc_rob_idx,
+    .exu2fu_fp_en, .exu2fu_fp_consume, .exu2fu_fp_func3, .exu2fu_fp_func7, .exu2fu_fp_imm, .exu2fu_fp_src1_rdata,
+    .exu2fu_fp_fsrc1, .exu2fu_fp_fsrc2, .exu2fu_fp_fsrc3, .exu2fu_fp_dest_preg, .exu2fu_fp_dest_en,
+    .exu2fu_fp_br_mask, .exu2fu_fp_rob_idx
   );
 
 endmodule

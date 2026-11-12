@@ -49,7 +49,10 @@ struct FmCheck {
     refcpu_get_step_info(ctx, &info);
     refcpu_get_state(ctx, &after);
     const bool trapped = info.is_exception || info.page_fault_inst || info.page_fault_load || info.page_fault_store;
-    if (rd != 0 && !trapped && after.gpr[rd] != rd_val) {   // a trapping instruction writes no register; the next commit pc checks the trap target
+    // F/D: an instruction whose destination is an FP register has no integer result to compare (FP registers: S6)
+    const uint32_t opc = info.instruction & 0x7f, f5 = info.instruction >> 27;
+    const bool fp_dest = opc == 0x07 || (opc & 0x73) == 0x43 || (opc == 0x53 && f5 != 0x14 && f5 != 0x18 && f5 != 0x1c);
+    if (rd != 0 && !trapped && !fp_dest && after.gpr[rd] != rd_val) {   // a trapping instruction writes no register; the next commit pc checks the trap target
       if (info.is_io || info.is_csr) {   // device / counter values are the platform's, not the function model's: adopt the DUT's
         after.gpr[rd] = rd_val;
         refcpu_set_state(ctx, &after);

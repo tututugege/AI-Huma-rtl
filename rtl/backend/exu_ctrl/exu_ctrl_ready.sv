@@ -21,7 +21,7 @@ module exu_ctrl_ready
 
   // Ref: SingleCycleFU::comb_consume (ready = !en || consume); multi-cycle FUs report their own ready
   for (genvar f = 0; f < N_FU; f++) begin : g_fu
-    localparam bit MULTI_CYCLE = xc_is_mc_kind(xc_fu_kind(f));
+    localparam bit MULTI_CYCLE = xc_is_mc_kind(xc_fu_kind(f)) || xc_is_fp_kind(xc_fu_kind(f));
     localparam xc_opset_t KIND_OPS = xc_kind_mask(xc_fu_kind(f));
     if (MULTI_CYCLE) begin : g_mc
       assign fu_ready[f] = fu_res[f].mc_ready;

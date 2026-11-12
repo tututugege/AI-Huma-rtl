@@ -6,7 +6,7 @@ set -uo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 . "$ROOT/scripts/env.sh"
 MAXC=${1:-20000}; MINC=${MINC:-0}
-TB=$ROOT/build/soc/obj/soc_tb
+TB=${SOC_OUT:-$ROOT/build/soc}/obj/soc_tb
 [ -x "$TB" ] || { echo "build first: bash tb/soc/build.sh"; exit 2; }
 run_one() {
   ref=$1; rel=$2

@@ -14,7 +14,8 @@ module mul_pipe
   import ttg_cfg_pkg::*;
   import exu_fu_pkg::*;
 #(
-  parameter int DEPTH = MUL_MAX_LATENCY
+  parameter int DEPTH = MUL_MAX_LATENCY,
+  parameter type UOP_T = fu_uop_t          // payload of an entry (must have a br_mask field); the FP units use fp_uop_t
 ) (
   input  logic                     clk,
   input  logic                     rst_n,
@@ -23,14 +24,14 @@ module mul_pipe
   input  logic [BR_MASK_WIDTH-1:0] clear_mask,
   input  logic                     en,
   input  logic                     consume,
-  input  fu_uop_t                  en_uop,
+  input  UOP_T                  en_uop,
   output logic                     complete,
   output logic                     ready,
-  output fu_uop_t                  done_uop
+  output UOP_T                  done_uop
 );
 
   localparam int RW = $clog2(DEPTH);
-  localparam int UW = $bits(fu_uop_t);
+  localparam int UW = $bits(UOP_T);
   localparam int EW = UW + RW;                 // one stored entry = {uop, rem}
   localparam logic [RW-1:0] REM_NEW = RW'(DEPTH - 2);
 
@@ -42,14 +43,14 @@ module mul_pipe
 
   // ---- state ----
   logic [DEPTH-1:0] valid_q, valid_d;
-  fu_uop_t          uop_q [DEPTH];
-  fu_uop_t          uop_d [DEPTH];
+  UOP_T          uop_q [DEPTH];
+  UOP_T          uop_d [DEPTH];
   logic [RW-1:0]    rem_q [DEPTH];
   logic [RW-1:0]    rem_d [DEPTH];
 
   // ---- kill / clear / complete ----
   logic [DEPTH-1:0] kill, surv, ripe;
-  fu_uop_t          uop_c [DEPTH];            // survivors with clear_mask applied
+  UOP_T          uop_c [DEPTH];            // survivors with clear_mask applied
   logic [UW-1:0]    uop_c_bits [DEPTH];
   logic [RW-1:0]    rem_n [DEPTH];            // rem one cycle later
   logic             flush_all;
@@ -81,7 +82,7 @@ module mul_pipe
     complete   = any_surv && front_ripe;
     pop        = consume && complete;
     keep       = surv & ~(front_oh & {DEPTH{pop}});
-    done_uop   = fu_uop_t'(done_bits);
+    done_uop   = UOP_T'(done_bits);
   end
 
   // ---- accept / ready ----

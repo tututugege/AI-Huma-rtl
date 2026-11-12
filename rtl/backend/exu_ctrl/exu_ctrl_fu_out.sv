@@ -6,6 +6,7 @@
 module exu_ctrl_fu_out
   import ttg_cfg_pkg::*;
   import exu_ctrl_pkg::*;
+  import fp_pkg::*;
 (
   input  logic [N_FU-1:0] fu_en,
   input  xc_inst_t        fu_inst [N_FU],
@@ -52,7 +53,21 @@ module exu_ctrl_fu_out
   output logic [PRF_IDX_WIDTH-1:0] exu2fu_mc_dest_preg [N_MC],
   output logic [N_MC-1:0] exu2fu_mc_dest_en,
   output logic [BR_MASK_WIDTH-1:0] exu2fu_mc_br_mask [N_MC],
-  output logic [ROB_IDX_WIDTH-1:0] exu2fu_mc_rob_idx [N_MC]
+  output logic [ROB_IDX_WIDTH-1:0] exu2fu_mc_rob_idx [N_MC],
+  // F/D units (dummy entry 0 without F/D)
+  output logic [N_FPU-1:0] exu2fu_fp_en,
+  output logic [N_FPU-1:0] exu2fu_fp_consume,
+  output logic [2:0] exu2fu_fp_func3 [N_FPU],
+  output logic [6:0] exu2fu_fp_func7 [N_FPU],
+  output logic [31:0] exu2fu_fp_imm [N_FPU],
+  output logic [XLEN_BITS-1:0] exu2fu_fp_src1_rdata [N_FPU],
+  output logic [FW-1:0] exu2fu_fp_fsrc1 [N_FPU],
+  output logic [FW-1:0] exu2fu_fp_fsrc2 [N_FPU],
+  output logic [FW-1:0] exu2fu_fp_fsrc3 [N_FPU],
+  output logic [PRF_IDX_WIDTH-1:0] exu2fu_fp_dest_preg [N_FPU],
+  output logic [N_FPU-1:0] exu2fu_fp_dest_en,
+  output logic [BR_MASK_WIDTH-1:0] exu2fu_fp_br_mask [N_FPU],
+  output logic [ROB_IDX_WIDTH-1:0] exu2fu_fp_rob_idx [N_FPU]
 );
 
   for (genvar i = 0; i < ALU_NUM; i++) begin : g_alu
@@ -116,6 +131,39 @@ module exu_ctrl_fu_out
     assign exu2fu_mc_dest_en[i]    = fu_inst[FU].dest_en;
     assign exu2fu_mc_br_mask[i]    = fu_inst[FU].br_mask;
     assign exu2fu_mc_rob_idx[i]    = fu_inst[FU].rob_idx;
+  end
+
+  if (FP_EN) begin : g_fp
+    for (genvar i = 0; i < N_FPU; i++) begin : g_fp_out
+      localparam int FU = xc_fp_fu(i);
+      assign exu2fu_fp_en[i]         = fu_en[FU];
+      assign exu2fu_fp_consume[i]    = consume[FU];
+      assign exu2fu_fp_func3[i]      = fu_inst[FU].func3;
+      assign exu2fu_fp_func7[i]      = fu_inst[FU].func7;
+      assign exu2fu_fp_imm[i]        = fu_inst[FU].imm;
+      assign exu2fu_fp_src1_rdata[i] = fu_inst[FU].src1_rdata;
+      assign exu2fu_fp_fsrc1[i]      = fu_inst[FU].fsrc1;
+      assign exu2fu_fp_fsrc2[i]      = fu_inst[FU].fsrc2;
+      assign exu2fu_fp_fsrc3[i]      = fu_inst[FU].fsrc3;
+      assign exu2fu_fp_dest_preg[i]  = fu_inst[FU].dest_preg;
+      assign exu2fu_fp_dest_en[i]    = fu_inst[FU].dest_en;
+      assign exu2fu_fp_br_mask[i]    = fu_inst[FU].br_mask;
+      assign exu2fu_fp_rob_idx[i]    = fu_inst[FU].rob_idx;
+    end
+  end else begin : g_no_fp
+    assign exu2fu_fp_en = '0;
+    assign exu2fu_fp_consume = '0;
+    assign exu2fu_fp_func3 = '{default: '0};
+    assign exu2fu_fp_func7 = '{default: '0};
+    assign exu2fu_fp_imm = '{default: '0};
+    assign exu2fu_fp_src1_rdata = '{default: '0};
+    assign exu2fu_fp_fsrc1 = '{default: '0};
+    assign exu2fu_fp_fsrc2 = '{default: '0};
+    assign exu2fu_fp_fsrc3 = '{default: '0};
+    assign exu2fu_fp_dest_preg = '{default: '0};
+    assign exu2fu_fp_dest_en = '0;
+    assign exu2fu_fp_br_mask = '{default: '0};
+    assign exu2fu_fp_rob_idx = '{default: '0};
   end
 
 endmodule

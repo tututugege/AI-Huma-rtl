@@ -2,7 +2,7 @@
 // Instances: pre, idu, ren, dis, isu, prf, exu, csr, rob, dtlb, lsu, glue.
 `default_nettype none
 
-module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; (
+module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; (
   input  logic clk,
   input  logic rst_n,
   // ---- in: front end -> back end (SimCpu: BackTop::in, FrontPreIO; held registers front2back_hold live in SimCpu)
@@ -266,6 +266,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; (
   logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_flush_pipe;
   logic [ISSUE_WIDTH-1:0] exu2rob_entry_uop_rob_defer;
   logic [ISSUE_WIDTH-1:0] exu2rob_entry_uop_flush_pipe;
+  logic [FFLAGS_W-1:0] exu2rob_entry_uop_fflags [ISSUE_WIDTH];
   logic [6:0] dis2lsu_ldq_rob_idx [DECODE_WIDTH];
   logic [DECODE_WIDTH-1:0] dis2lsu_rob_flag;
   logic [6:0] dis2lsu_rob_idx [DECODE_WIDTH];
@@ -354,6 +355,9 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; (
   logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_src2_is_imm;
   logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_is_word;
   logic [XLEN_BITS-1:0] prf2exe_iss_entry_uop_src2_rdata [ISSUE_WIDTH];
+  logic [FW-1:0] prf2exe_iss_entry_uop_fsrc1 [ISSUE_WIDTH];
+  logic [FW-1:0] prf2exe_iss_entry_uop_fsrc2 [ISSUE_WIDTH];
+  logic [FW-1:0] prf2exe_iss_entry_uop_fsrc3 [ISSUE_WIDTH];
   logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_stq_flag;
   logic [5:0] prf2exe_iss_entry_uop_stq_idx [ISSUE_WIDTH];
   logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_valid;
@@ -395,12 +399,14 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; (
   logic [TOTAL_FU_COUNT-1:0] exe2prf_bypass_uop_dest_en;
   logic [PRF_IDX_WIDTH-1:0] exe2prf_bypass_uop_dest_preg [TOTAL_FU_COUNT];
   logic [XLEN_BITS-1:0] exe2prf_bypass_uop_result [TOTAL_FU_COUNT];
+  logic [FW-1:0] exe2prf_bypass_uop_fresult [TOTAL_FU_COUNT];
   logic [TOTAL_FU_COUNT-1:0] exe2prf_bypass_valid;
   logic [BR_MASK_WIDTH-1:0] exe2prf_entry_uop_br_mask [ISSUE_WIDTH];
   logic [ISSUE_WIDTH-1:0] exe2prf_entry_uop_dest_en;
   logic [PRF_IDX_WIDTH-1:0] exe2prf_entry_uop_dest_preg [ISSUE_WIDTH];
   logic [4:0] exe2prf_entry_uop_op [ISSUE_WIDTH];
   logic [XLEN_BITS-1:0] exe2prf_entry_uop_result [ISSUE_WIDTH];
+  logic [FW-1:0] exe2prf_entry_uop_fresult [ISSUE_WIDTH];
   logic [ISSUE_WIDTH-1:0] exe2prf_entry_valid;
   logic [BR_TAG_WIDTH-1:0] exu2id_br_id;
   logic [XLEN_BITS-1:0] exu2id_br_pc;
@@ -1009,12 +1015,14 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; (
     .exe2prf_bypass_uop_dest_en(exe2prf_bypass_uop_dest_en),
     .exe2prf_bypass_uop_dest_preg(exe2prf_bypass_uop_dest_preg),
     .exe2prf_bypass_uop_result(exe2prf_bypass_uop_result),
+    .exe2prf_bypass_uop_fresult(exe2prf_bypass_uop_fresult),
     .exe2prf_bypass_valid(exe2prf_bypass_valid),
     .exe2prf_entry_uop_br_mask(exe2prf_entry_uop_br_mask),
     .exe2prf_entry_uop_dest_en(exe2prf_entry_uop_dest_en),
     .exe2prf_entry_uop_dest_preg(exe2prf_entry_uop_dest_preg),
     .exe2prf_entry_uop_op(exe2prf_entry_uop_op),
     .exe2prf_entry_uop_result(exe2prf_entry_uop_result),
+    .exe2prf_entry_uop_fresult(exe2prf_entry_uop_fresult),
     .exe2prf_entry_valid(exe2prf_entry_valid),
     // inputs from idu
     .dec_bcast_br_mask(dec_bcast_br_mask),
@@ -1043,6 +1051,10 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; (
     .iss2prf_iss_entry_uop_src2_is_imm(iss2prf_iss_entry_uop_src2_is_imm),
     .iss2prf_iss_entry_uop_is_word(iss2prf_iss_entry_uop_is_word),
     .iss2prf_iss_entry_uop_src2_preg(iss2prf_iss_entry_uop_src2_preg),
+    .iss2prf_iss_entry_uop_src3_preg(iss2prf_iss_entry_uop_src3_preg),
+    .iss2prf_iss_entry_uop_src3_en(iss2prf_iss_entry_uop_src3_en),
+    .iss2prf_iss_entry_uop_src1_fp(iss2prf_iss_entry_uop_src1_fp),
+    .iss2prf_iss_entry_uop_src2_fp(iss2prf_iss_entry_uop_src2_fp),
     .iss2prf_iss_entry_uop_stq_flag(iss2prf_iss_entry_uop_stq_flag),
     .iss2prf_iss_entry_uop_stq_idx(iss2prf_iss_entry_uop_stq_idx),
     .iss2prf_iss_entry_valid(iss2prf_iss_entry_valid),
@@ -1064,6 +1076,9 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; (
     .prf2exe_iss_entry_uop_ftq_next_pc(prf2exe_iss_entry_uop_ftq_next_pc),
     .prf2exe_iss_entry_uop_src1_rdata(prf2exe_iss_entry_uop_src1_rdata),
     .prf2exe_iss_entry_uop_src2_rdata(prf2exe_iss_entry_uop_src2_rdata),
+    .prf2exe_iss_entry_uop_fsrc1(prf2exe_iss_entry_uop_fsrc1),
+    .prf2exe_iss_entry_uop_fsrc2(prf2exe_iss_entry_uop_fsrc2),
+    .prf2exe_iss_entry_uop_fsrc3(prf2exe_iss_entry_uop_fsrc3),
     .prf2exe_iss_entry_uop_dest_preg(prf2exe_iss_entry_uop_dest_preg),
     .prf2exe_iss_entry_uop_ftq_idx(prf2exe_iss_entry_uop_ftq_idx),
     .prf2exe_iss_entry_uop_is_atomic(prf2exe_iss_entry_uop_is_atomic),
@@ -1138,6 +1153,9 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; (
     .prf2exe_iss_entry_uop_src2_is_imm(prf2exe_iss_entry_uop_src2_is_imm),
     .prf2exe_iss_entry_uop_is_word(prf2exe_iss_entry_uop_is_word),
     .prf2exe_iss_entry_uop_src2_rdata(prf2exe_iss_entry_uop_src2_rdata),
+    .prf2exe_iss_entry_uop_fsrc1(prf2exe_iss_entry_uop_fsrc1),
+    .prf2exe_iss_entry_uop_fsrc2(prf2exe_iss_entry_uop_fsrc2),
+    .prf2exe_iss_entry_uop_fsrc3(prf2exe_iss_entry_uop_fsrc3),
     .prf2exe_iss_entry_uop_stq_flag(prf2exe_iss_entry_uop_stq_flag),
     .prf2exe_iss_entry_uop_stq_idx(prf2exe_iss_entry_uop_stq_idx),
     .prf2exe_iss_entry_valid(prf2exe_iss_entry_valid),
@@ -1153,12 +1171,14 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; (
     .exe2prf_entry_valid(exe2prf_entry_valid),
     .exe2prf_entry_uop_dest_preg(exe2prf_entry_uop_dest_preg),
     .exe2prf_entry_uop_result(exe2prf_entry_uop_result),
+    .exe2prf_entry_uop_fresult(exe2prf_entry_uop_fresult),
     .exe2prf_entry_uop_br_mask(exe2prf_entry_uop_br_mask),
     .exe2prf_entry_uop_dest_en(exe2prf_entry_uop_dest_en),
     .exe2prf_entry_uop_op(exe2prf_entry_uop_op),
     .exe2prf_bypass_valid(exe2prf_bypass_valid),
     .exe2prf_bypass_uop_dest_preg(exe2prf_bypass_uop_dest_preg),
     .exe2prf_bypass_uop_result(exe2prf_bypass_uop_result),
+    .exe2prf_bypass_uop_fresult(exe2prf_bypass_uop_fresult),
     .exe2prf_bypass_uop_dest_en(exe2prf_bypass_uop_dest_en),
     .exu2rob_entry_valid(exu2rob_entry_valid),
     .exu2rob_entry_uop_rob_idx(exu2rob_entry_uop_rob_idx),
@@ -1171,6 +1191,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; (
     .exu2rob_entry_uop_page_fault_store(exu2rob_entry_uop_page_fault_store),
     .exu2rob_entry_uop_rob_defer(exu2rob_entry_uop_rob_defer),
     .exu2rob_entry_uop_flush_pipe(exu2rob_entry_uop_flush_pipe),
+    .exu2rob_entry_uop_fflags(exu2rob_entry_uop_fflags),
     .exe2lsu_ldu_req_valid(exe2lsu_ldu_req_valid),
     .exe2lsu_ldu_req_uop_result(exe2lsu_ldu_req_uop_result),
     .exe2lsu_ldu_req_uop_dest_preg(exe2lsu_ldu_req_uop_dest_preg),
@@ -1586,12 +1607,12 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; (
     .rob_commit_commit_entry_uop_amo_op(rob_commit_commit_entry_uop_amo_op)
   );
 
-  // F/D (S2): the ISU produces the issue-port domain bits and the third source; the PRF / EXU consume them from S3
+  // F/D: the PRF takes the third source and the source domain bits; the destination domain bit and the accrued
+  // exception flags have no consumer yet (the destination tag says which file; the ROB takes fflags from S5)
   logic unused_fp_issue;
   always_comb begin
-    unused_fp_issue = ^{iss2prf_iss_entry_uop_src3_en, iss2prf_iss_entry_uop_dest_fp, iss2prf_iss_entry_uop_src1_fp,
-                        iss2prf_iss_entry_uop_src2_fp};
-    for (int p = 0; p < ISSUE_WIDTH; p++) unused_fp_issue ^= ^iss2prf_iss_entry_uop_src3_preg[p];
+    unused_fp_issue = ^iss2prf_iss_entry_uop_dest_fp;
+    for (int p = 0; p < ISSUE_WIDTH; p++) unused_fp_issue ^= ^exu2rob_entry_uop_fflags[p];
   end
 
 endmodule

@@ -79,6 +79,15 @@ package exu_fu_pkg;
     logic                       dest_en;
     logic [BR_MASK_WIDTH-1:0]   br_mask;
   } fu_uop_t;
+  // payload of an F/D unit entry: the 64-bit FP register value (or the integer result in its low bits), the flags
+  typedef struct packed {
+    logic [63:0]                fresult;
+    logic [4:0]                 fflags;
+    logic [ROB_IDX_WIDTH-1:0]   rob_idx;
+    logic [PRF_IDX_WIDTH-1:0]   dest_preg;
+    logic                       dest_en;
+    logic [BR_MASK_WIDTH-1:0]   br_mask;
+  } fp_uop_t;
 
 endpackage
 

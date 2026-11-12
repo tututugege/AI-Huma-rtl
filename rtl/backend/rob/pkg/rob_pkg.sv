@@ -150,6 +150,7 @@ package rob_pkg;
     if (port >= IQ_BR_PORT_BASE && port < IQ_BR_PORT_BASE + BRU_NUM) bit_g = CPLT_G1;
     if (port >= IQ_STA_PORT_BASE && port < IQ_STA_PORT_BASE + LSU_STA_COUNT) bit_g = CPLT_G1;
     if (port >= IQ_STD_PORT_BASE && port < IQ_STD_PORT_BASE + LSU_SDU_COUNT) bit_g = CPLT_G2;
+    if (FPRF_NUM != 0 && port >= IQ_FP_PORT_BASE) bit_g = CPLT_G0;   // F/D ports complete in group 0 like INT / LD
     return bit_g;
   endfunction
 

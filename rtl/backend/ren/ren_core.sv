@@ -235,7 +235,7 @@ module ren_core
   for (genvar i = 0; i < N; i++) begin : g_head_after
     logic [$clog2(N+1)-1:0] taken;
     ttg_popcount #(.N(N)) u_cnt (.bits(alloc_fire & ({N{1'b1}} >> (N - 1 - i))), .count(taken));
-    assign head_after[i] = head + preg_t'(taken);
+    assign head_after[i] = (head + preg_t'(taken)) & preg_t'(PRF_NUM - 1);   // ring position: wraps at PRF_NUM
   end
 
   ren_ckpt u_ckpt (

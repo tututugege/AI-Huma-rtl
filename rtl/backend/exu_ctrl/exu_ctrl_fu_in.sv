@@ -6,6 +6,7 @@
 module exu_ctrl_fu_in
   import ttg_cfg_pkg::*;
   import exu_ctrl_pkg::*;
+  import fp_pkg::*;
 (
   input  logic [XLEN_BITS-1:0]               fu_alu_result [ALU_NUM],
   input  logic [XLEN_BITS-1:0]               fu_agu_result [LSU_AGU_COUNT],
@@ -20,6 +21,15 @@ module exu_ctrl_fu_in
   input  logic [N_MC-1:0] fu_mc_dest_en,
   input  logic [BR_MASK_WIDTH-1:0]  fu_mc_br_mask [N_MC],
   input  logic [ROB_IDX_WIDTH-1:0]  fu_mc_rob_idx [N_MC],
+  input  logic [N_FPU-1:0]          fu_fp_ready,
+  input  logic [N_FPU-1:0]          fu_fp_complete,
+  input  logic [XLEN_BITS-1:0]      fu_fp_result [N_FPU],
+  input  logic [FW-1:0]             fu_fp_fresult [N_FPU],
+  input  logic [FFLAGS_W-1:0]       fu_fp_fflags [N_FPU],
+  input  logic [PRF_IDX_WIDTH-1:0]  fu_fp_dest_preg [N_FPU],
+  input  logic [N_FPU-1:0]          fu_fp_dest_en,
+  input  logic [BR_MASK_WIDTH-1:0]  fu_fp_br_mask [N_FPU],
+  input  logic [ROB_IDX_WIDTH-1:0]  fu_fp_rob_idx [N_FPU],
   output xc_fu_res_t                fu_res [N_FU]
 );
 
@@ -48,6 +58,17 @@ module exu_ctrl_fu_in
         res.dest_en     = fu_mc_dest_en[xc_mc_rank(f)];
         res.br_mask     = fu_mc_br_mask[xc_mc_rank(f)];
         res.rob_idx     = fu_mc_rob_idx[xc_mc_rank(f)];
+      end
+      if (xc_is_fp_kind(KIND)) begin
+        res.mc_ready    = fu_fp_ready[xc_fp_rank(f)];
+        res.mc_complete = fu_fp_complete[xc_fp_rank(f)];
+        res.result      = fu_fp_result[xc_fp_rank(f)];
+        res.fresult     = fu_fp_fresult[xc_fp_rank(f)];
+        res.fflags      = fu_fp_fflags[xc_fp_rank(f)];
+        res.dest_preg   = fu_fp_dest_preg[xc_fp_rank(f)];
+        res.dest_en     = fu_fp_dest_en[xc_fp_rank(f)];
+        res.br_mask     = fu_fp_br_mask[xc_fp_rank(f)];
+        res.rob_idx     = fu_fp_rob_idx[xc_fp_rank(f)];
       end
     end
     assign fu_res[f] = res;

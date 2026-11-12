@@ -20,7 +20,7 @@ module idu_ctrl_decode import ttg_cfg_pkg::*; (
   output logic [5:0]  src2_areg,
   output logic        illegal_inst,
   output logic        is_branch,
-  output logic [5:0]  imm_sel,           // one-hot (or none): U, J, I, B, S, CSR-rs1-field
+  output logic [6:0]  imm_sel,           // one-hot (or none): U, J, I, B, S, CSR-rs1-field, F/D instruction bits
   // F/D (all zero when the core has no FP register file, FPRF_NUM == 0)
   output logic        dest_fp,           // FP register destination (f0 is a real register)
   output logic        src1_fp,
@@ -73,14 +73,15 @@ module idu_ctrl_decode import ttg_cfg_pkg::*; (
 
   // ---- ROM word: {type[4:0], dest_en, src1_en, src2_en, src1_is_pc, src2_is_imm, is_atomic, func3_zero,
   //                  src1_areg_zero, illegal, is_branch, imm_sel[5:0]} ----
-  localparam int ROMW = 21;
-  localparam logic [5:0] IMM_NONE = 6'b000000, IMM_U = 6'b000001, IMM_J = 6'b000010, IMM_I = 6'b000100,
-                         IMM_B = 6'b001000, IMM_S = 6'b010000, IMM_CSR = 6'b100000;
+  localparam int ROMW = 22;
+  localparam logic [6:0] IMM_NONE = 7'b0000000, IMM_U = 7'b0000001, IMM_J = 7'b0000010, IMM_I = 7'b0000100,
+                         IMM_B = 7'b0001000, IMM_S = 7'b0010000, IMM_CSR = 7'b0100000,
+                         IMM_FP = 7'b1000000;   // OP-FP / fused multiply-add: imm = {inst[6:2], inst[31:20]}
 
   //                                   type  dst s1 s2 s1pc s2imm atom f3z s1z ill br   imm
   function automatic logic [ROMW-1:0] row(input logic [4:0] ty, input logic dst, input logic s1,
       input logic s2, input logic s1pc, input logic s2imm, input logic atom, input logic f3z,
-      input logic s1z, input logic ill, input logic br, input logic [5:0] imm);
+      input logic s1z, input logic ill, input logic br, input logic [6:0] imm);
     return {ty, dst, s1, s2, s1pc, s2imm, atom, f3z, s1z, ill, br, imm};
   endfunction
 
@@ -115,15 +116,15 @@ module idu_ctrl_decode import ttg_cfg_pkg::*; (
     CLS_OP32_DIV: row(T_DIV,        1, 1, 1, 0, 0, 0, 0, 0, 0, 0, IMM_NONE),
     CLS_FLOAD:    row(T_LOAD,       1, 1, 0, 0, 1, 0, 0, 0, 0, 0, IMM_I),
     CLS_FSTORE:   row(T_STORE,      0, 1, 1, 0, 1, 0, 0, 0, 0, 0, IMM_S),
-    CLS_FMA3:     row(T_FPOP,       1, 1, 1, 0, 0, 0, 0, 0, 0, 0, IMM_NONE),
-    CLS_FP_FMA:   row(T_FPOP,       1, 1, 1, 0, 0, 0, 0, 0, 0, 0, IMM_NONE),
-    CLS_FP_FDIV:  row(T_FPOP,       1, 1, 1, 0, 0, 0, 0, 0, 0, 0, IMM_NONE),
-    CLS_FP_FSQRT: row(T_FPOP,       1, 1, 0, 0, 0, 0, 0, 0, 0, 0, IMM_NONE),
-    CLS_FP_MISC2: row(T_FPOP,       1, 1, 1, 0, 0, 0, 0, 0, 0, 0, IMM_NONE),
-    CLS_FP_MISC1: row(T_FPOP,       1, 1, 0, 0, 0, 0, 0, 0, 0, 0, IMM_NONE),
-    CLS_FP_CMP:   row(T_FPOP,       1, 1, 1, 0, 0, 0, 0, 0, 0, 0, IMM_NONE),
-    CLS_FP_TOINT: row(T_FPOP,       1, 1, 0, 0, 0, 0, 0, 0, 0, 0, IMM_NONE),
-    CLS_FP_I2F:   row(T_FPOP,       1, 1, 0, 0, 0, 0, 0, 0, 0, 0, IMM_NONE),
+    CLS_FMA3:     row(T_FPOP,       1, 1, 1, 0, 0, 0, 0, 0, 0, 0, IMM_FP),
+    CLS_FP_FMA:   row(T_FPOP,       1, 1, 1, 0, 0, 0, 0, 0, 0, 0, IMM_FP),
+    CLS_FP_FDIV:  row(T_FPOP,       1, 1, 1, 0, 0, 0, 0, 0, 0, 0, IMM_FP),
+    CLS_FP_FSQRT: row(T_FPOP,       1, 1, 0, 0, 0, 0, 0, 0, 0, 0, IMM_FP),
+    CLS_FP_MISC2: row(T_FPOP,       1, 1, 1, 0, 0, 0, 0, 0, 0, 0, IMM_FP),
+    CLS_FP_MISC1: row(T_FPOP,       1, 1, 0, 0, 0, 0, 0, 0, 0, 0, IMM_FP),
+    CLS_FP_CMP:   row(T_FPOP,       1, 1, 1, 0, 0, 0, 0, 0, 0, 0, IMM_FP),
+    CLS_FP_TOINT: row(T_FPOP,       1, 1, 0, 0, 0, 0, 0, 0, 0, 0, IMM_FP),
+    CLS_FP_I2F:   row(T_FPOP,       1, 1, 0, 0, 0, 0, 0, 0, 0, 0, IMM_FP),
     CLS_ILLEGAL:  row(T_NOP,        0, 0, 0, 0, 1, 0, 0, 0, 1, 0, IMM_NONE)};
 
   // ---- F/D side table: {dest_fp, src1_fp, src2_fp, src3_en, fp_cls[2:0]} per class (Ref: Idu::decode) ----

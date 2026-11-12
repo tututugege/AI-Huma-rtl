@@ -3,7 +3,7 @@
 
 // Physical register file: storage, write-back stage, operand read with bypass, FTQ PC read ports, load wake-up.
 // Top level only adapts the flat spec ports to the sub-module interfaces (no logic of its own).
-module prf import ttg_cfg_pkg::*; #(
+module prf import ttg_cfg_pkg::*; import fp_pkg::*; #(
   // UopType encoding width = ceil(log2(MAX_UOP_TYPE=18)) (base_types.h); not exported by ttg_cfg_pkg
   parameter int UOP_TYPE_WIDTH = 5
 ) (
@@ -17,6 +17,12 @@ module prf import ttg_cfg_pkg::*; #(
   input  logic [PRF_IDX_WIDTH-1:0] iss2prf_iss_entry_uop_dest_preg [ISSUE_WIDTH],
   input  logic [PRF_IDX_WIDTH-1:0] iss2prf_iss_entry_uop_src1_preg [ISSUE_WIDTH],
   input  logic [PRF_IDX_WIDTH-1:0] iss2prf_iss_entry_uop_src2_preg [ISSUE_WIDTH],
+  /* verilator lint_off UNUSEDSIGNAL */   // waiver: read only by the FP / store-data lanes
+  input  logic [PRF_IDX_WIDTH-1:0] iss2prf_iss_entry_uop_src3_preg [ISSUE_WIDTH],
+  input  logic [ISSUE_WIDTH-1:0] iss2prf_iss_entry_uop_src3_en,
+  input  logic [ISSUE_WIDTH-1:0] iss2prf_iss_entry_uop_src1_fp,
+  input  logic [ISSUE_WIDTH-1:0] iss2prf_iss_entry_uop_src2_fp,
+  /* verilator lint_on UNUSEDSIGNAL */
   input  logic [FTQ_IDX_WIDTH-1:0] iss2prf_iss_entry_uop_ftq_idx [ISSUE_WIDTH],
   input  logic [FTQ_OFFSET_WIDTH-1:0] iss2prf_iss_entry_uop_ftq_offset [ISSUE_WIDTH],
   input  logic [ISSUE_WIDTH-1:0] iss2prf_iss_entry_uop_is_atomic,
@@ -41,12 +47,16 @@ module prf import ttg_cfg_pkg::*; #(
   input  logic [ISSUE_WIDTH-1:0] exe2prf_entry_valid,
   input  logic [PRF_IDX_WIDTH-1:0] exe2prf_entry_uop_dest_preg [ISSUE_WIDTH],
   input  logic [XLEN_BITS-1:0] exe2prf_entry_uop_result [ISSUE_WIDTH],
+  /* verilator lint_off UNUSEDSIGNAL */   // waiver: unused without F/D
+  input  logic [FW-1:0] exe2prf_entry_uop_fresult [ISSUE_WIDTH],
   input  logic [BR_MASK_WIDTH-1:0] exe2prf_entry_uop_br_mask [ISSUE_WIDTH],
   input  logic [ISSUE_WIDTH-1:0] exe2prf_entry_uop_dest_en,
   input  logic [UOP_TYPE_WIDTH-1:0] exe2prf_entry_uop_op [ISSUE_WIDTH],
   input  logic [TOTAL_FU_COUNT-1:0] exe2prf_bypass_valid,
   input  logic [PRF_IDX_WIDTH-1:0] exe2prf_bypass_uop_dest_preg [TOTAL_FU_COUNT],
   input  logic [XLEN_BITS-1:0] exe2prf_bypass_uop_result [TOTAL_FU_COUNT],
+  input  logic [FW-1:0] exe2prf_bypass_uop_fresult [TOTAL_FU_COUNT],
+  /* verilator lint_on UNUSEDSIGNAL */
   input  logic [TOTAL_FU_COUNT-1:0] exe2prf_bypass_uop_dest_en,
   // LSU write-back requests of this cycle as a bypass source (LP_L2 speculative wake-up: the consumer reads the load
   // result in the cycle of the write-back request); all zero otherwise
@@ -67,6 +77,9 @@ module prf import ttg_cfg_pkg::*; #(
   output logic [XLEN_BITS-1:0] prf2exe_iss_entry_uop_ftq_next_pc [ISSUE_WIDTH],
   output logic [XLEN_BITS-1:0] prf2exe_iss_entry_uop_src1_rdata [ISSUE_WIDTH],
   output logic [XLEN_BITS-1:0] prf2exe_iss_entry_uop_src2_rdata [ISSUE_WIDTH],
+  output logic [FW-1:0] prf2exe_iss_entry_uop_fsrc1 [ISSUE_WIDTH],
+  output logic [FW-1:0] prf2exe_iss_entry_uop_fsrc2 [ISSUE_WIDTH],
+  output logic [FW-1:0] prf2exe_iss_entry_uop_fsrc3 [ISSUE_WIDTH],
   output logic [PRF_IDX_WIDTH-1:0] prf2exe_iss_entry_uop_dest_preg [ISSUE_WIDTH],
   output logic [FTQ_IDX_WIDTH-1:0] prf2exe_iss_entry_uop_ftq_idx [ISSUE_WIDTH],
   output logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_is_atomic,
@@ -122,7 +135,6 @@ module prf import ttg_cfg_pkg::*; #(
     assign src_preg_arr[1][i] = iss2prf_iss_entry_uop_src2_preg[i];
     assign prf2exe_iss_entry_valid[i]          = iss2prf_iss_entry_valid[i];
     assign prf2exe_iss_entry_uop_src1_rdata[i] = src_rdata[0][i];
-    assign prf2exe_iss_entry_uop_src2_rdata[i] = src_rdata[1][i];
     assign prf2exe_iss_entry_uop_dest_preg[i] = iss2prf_iss_entry_uop_dest_preg[i];
     assign prf2exe_iss_entry_uop_ftq_idx[i] = iss2prf_iss_entry_uop_ftq_idx[i];
     assign prf2exe_iss_entry_uop_is_atomic[i] = iss2prf_iss_entry_uop_is_atomic[i];
@@ -209,6 +221,88 @@ module prf import ttg_cfg_pkg::*; #(
         .fu_result    (byp_result),
         .rdata        (src_rdata[s][i])
       );
+    end
+  end
+
+  // ---- F/D: FP register file. Read ports: the three sources of every FP issue lane, the data source (src2) of every
+  // store-data lane (fsw / fsd); the integer src2 of a store-data lane is replaced by the FP value when src2 is FP ----
+  localparam int FP_LANES = FP_EN ? (ISSUE_WIDTH - IQ_FP_PORT_BASE) : 0;
+  localparam int NRD = FP_EN ? (3 * FP_LANES + LSU_SDU_COUNT) : 1;
+  function automatic bit lane_is_fp(int i);
+    return FP_EN && (i >= IQ_FP_PORT_BASE);
+  endfunction
+  function automatic bit lane_is_std(int i);
+    return FP_EN && (i >= IQ_STD_PORT_BASE) && (i < IQ_STD_PORT_BASE + LSU_SDU_COUNT);
+  endfunction
+  function automatic int fp_rd_base(int i);   // first FP read port of lane i
+    int n = 0;
+    for (int q = 0; q < i; q++) n += lane_is_fp(q) ? 3 : (lane_is_std(q) ? 1 : 0);
+    return n;
+  endfunction
+  logic [FW-1:0] fsrc [3][LANES];
+  if (FP_EN) begin : g_fp
+    logic [NRD-1:0]           fp_rd_en;
+    logic [PRF_IDX_WIDTH-1:0] fp_rd_preg [NRD];
+    logic [FW-1:0]            fp_rd_data [NRD];
+    logic [FW-1:0]            exe_fres [LANES];
+    for (genvar i = 0; i < LANES; i++) begin : g_lane
+      assign exe_fres[i] = exe2prf_entry_uop_fresult[i];
+      if (lane_is_fp(i)) begin : g_fp_lane
+        localparam int B = fp_rd_base(i);
+        assign fp_rd_en[B]   = iss2prf_iss_entry_uop_src1_en[i] && iss2prf_iss_entry_uop_src1_fp[i];
+        assign fp_rd_en[B+1] = iss2prf_iss_entry_uop_src2_en[i] && iss2prf_iss_entry_uop_src2_fp[i];
+        assign fp_rd_en[B+2] = iss2prf_iss_entry_uop_src3_en[i];
+        assign fp_rd_preg[B]   = iss2prf_iss_entry_uop_src1_preg[i];
+        assign fp_rd_preg[B+1] = iss2prf_iss_entry_uop_src2_preg[i];
+        assign fp_rd_preg[B+2] = iss2prf_iss_entry_uop_src3_preg[i];
+        assign fsrc[0][i] = fp_rd_data[B];
+        assign fsrc[1][i] = fp_rd_data[B+1];
+        assign fsrc[2][i] = fp_rd_data[B+2];
+      end else if (lane_is_std(i)) begin : g_std_lane
+        localparam int B = fp_rd_base(i);
+        assign fp_rd_en[B]   = iss2prf_iss_entry_uop_src2_en[i] && iss2prf_iss_entry_uop_src2_fp[i];
+        assign fp_rd_preg[B] = iss2prf_iss_entry_uop_src2_preg[i];
+        assign fsrc[0][i] = '0;
+        assign fsrc[1][i] = fp_rd_data[B];
+        assign fsrc[2][i] = '0;
+      end else begin : g_other
+        assign fsrc[0][i] = '0;
+        assign fsrc[1][i] = '0;
+        assign fsrc[2][i] = '0;
+      end
+    end
+    logic [BYP_NUM-1:0]       fp_byp_wen;
+    logic [FW-1:0]            fp_byp_fres [BYP_NUM];
+    for (genvar k = 0; k < TOTAL_FU_COUNT; k++) begin : g_fu_fres
+      assign fp_byp_wen[k]   = byp_wen_vec[k];
+      assign fp_byp_fres[k]  = exe2prf_bypass_uop_fresult[k];
+    end
+    for (genvar k = 0; k < LSU_LOAD_WB_WIDTH; k++) begin : g_lsu_fres
+      assign fp_byp_wen[TOTAL_FU_COUNT + k]  = byp_wen_vec[TOTAL_FU_COUNT + k];
+      assign fp_byp_fres[TOTAL_FU_COUNT + k] = FW'(lsu_byp_result[k]);   // flw / fld data (S4)
+    end
+    prf_fp #(.LANES(LANES), .BYP_NUM(BYP_NUM), .NRD(NRD)) u_fp (
+      .clk, .rst_n, .wb_wen(wb_wen_q), .wb_dest_preg(wb_dest_preg_q), .exe_fresult(exe_fres),
+      .byp_wen(fp_byp_wen), .byp_dest_preg(byp_dest_preg), .byp_fresult(fp_byp_fres),
+      .rd_en(fp_rd_en), .rd_preg(fp_rd_preg), .rd_data(fp_rd_data)
+    );
+  end else begin : g_no_fp
+    for (genvar i = 0; i < LANES; i++) begin : g_zero
+      assign fsrc[0][i] = '0;
+      assign fsrc[1][i] = '0;
+      assign fsrc[2][i] = '0;
+    end
+  end
+  for (genvar i = 0; i < LANES; i++) begin : g_fsrc_out
+    assign prf2exe_iss_entry_uop_fsrc1[i] = fsrc[0][i];
+    assign prf2exe_iss_entry_uop_fsrc2[i] = fsrc[1][i];
+    assign prf2exe_iss_entry_uop_fsrc3[i] = fsrc[2][i];
+    // fsw / fsd data: the store-data lane's src2 is the FP register value (S4 widens the data path to 64 bits)
+    if (lane_is_std(i)) begin : g_std_src2
+      assign prf2exe_iss_entry_uop_src2_rdata[i] = iss2prf_iss_entry_uop_src2_fp[i] ? XLEN_BITS'(fsrc[1][i])
+                                                                                    : src_rdata[1][i];
+    end else begin : g_int_src2
+      assign prf2exe_iss_entry_uop_src2_rdata[i] = src_rdata[1][i];
     end
   end
 

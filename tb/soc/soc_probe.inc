@@ -204,4 +204,4 @@ static void soc_probe(Vsoc_top *top, uint8_t *in, uint8_t *out) {
 }
 constexpr int kCfg_BR_MASK_WIDTH = 32;
 constexpr int kCfg_ROB_IDX_WIDTH = 7;
-constexpr int kCfg_PRF_IDX_WIDTH = 7;
+constexpr int kCfg_PRF_IDX_WIDTH = 8;

@@ -24,33 +24,41 @@ module ren_free_list
   input  preg_t                reclaim_preg [C],  // old_dest_preg of committing slots
   input  logic                 flush,
   input  logic                 mispred,
-  input  preg_t                ckpt_head,         // alloc_checkpoint_head[dec_bcast.br_id]
+  /* verilator lint_off UNUSEDSIGNAL */   // waiver: a ring position is log2(PRF_NUM) bits, the tag may be wider
+  input  preg_t                ckpt_head,         // alloc_checkpoint_head[dec_bcast.br_id] (a ring position)
+  /* verilator lint_on UNUSEDSIGNAL */
   output preg_t                window [N],        // free_list[head + k]
   output preg_t                free_count,
   output preg_t                head
 );
 
   localparam int AW = $clog2(N + 1);
+  // ring positions: PRF_NUM is a power of two, the pointers wrap in log2(PRF_NUM) bits (the tags themselves may be
+  // wider: with F/D the tag space is 8 bits while the integer ring has 128 slots)
+  localparam int PW = $clog2(PRF_NUM);
+  typedef logic [PW-1:0] ptr_t;
 
   logic [PRF_NUM-1:0][PRF_IDX_WIDTH-1:0] list_q, list_d;
-  preg_t head_q, head_d, head_commit_q, head_commit_d, tail_q, tail_d;
+  ptr_t head_q, head_d, head_commit_q, head_commit_d, tail_q, tail_d;
   logic [AW-1:0] alloc_count;
-  preg_t write_ptr [C];
+  ptr_t write_ptr [C];
 
-  assign head = head_q;
+  assign head = preg_t'(head_q);
 
   // ---- read side: N consecutive entries starting at head (indexed reads, pointer wraps in PRF_IDX_WIDTH) ----
-  assign free_count = tail_q - head_q;
+  ptr_t free_ptrs;   // free entries: the difference is modulo the ring size, not the tag width
+  assign free_ptrs  = tail_q - head_q;
+  assign free_count = preg_t'(free_ptrs);
 
   for (genvar k = 0; k < N; k++) begin : g_window
-    assign window[k] = list_q[head_q + preg_t'(k)];
+    assign window[k] = list_q[head_q + ptr_t'(k)];
   end
 
   ttg_popcount #(.N(N)) u_alloc_count (.bits(alloc_fire), .count(alloc_count));
 
   // ---- write side: committed old_dest pregs append at tail + rank ----
   for (genvar k = 0; k < C; k++) begin : g_wptr
-    assign write_ptr[k] = tail_q + preg_t'(reclaim_rank[k]);
+    assign write_ptr[k] = tail_q + ptr_t'(reclaim_rank[k]);
   end
 
   for (genvar e = 0; e < PRF_NUM; e++) begin : g_entry
@@ -59,7 +67,7 @@ module ren_free_list
     logic         hit_any;
     preg_t        hit_value;
     for (genvar k = 0; k < C; k++) begin : g_port
-      assign hit[k]  = reclaim[k] & (write_ptr[k] == preg_t'(e));
+      assign hit[k]  = reclaim[k] & (write_ptr[k] == ptr_t'(e));
       assign data[k] = reclaim_preg[k];
     end
     ren_last_write #(.N(C), .W(PRF_IDX_WIDTH)) u_wr (.hit(hit), .data(data), .any(hit_any), .value(hit_value));
@@ -71,11 +79,11 @@ module ren_free_list
   // appends at tail (C++ rolls tail back on mispredict, but only matters if a commit coincides with a mispredict,
   // which makes the C++ free-list sanity check fail: unreachable, not replicated).
   always_comb begin
-    head_commit_d = head_commit_q + preg_t'(alloc_commit_total);
-    tail_d        = tail_q + preg_t'(reclaim_total);
+    head_commit_d = head_commit_q + ptr_t'(alloc_commit_total);
+    tail_d        = tail_q + ptr_t'(reclaim_total);
     if (flush)         head_d = head_commit_d;
-    else if (mispred)  head_d = ckpt_head;
-    else               head_d = head_q + preg_t'(alloc_count);
+    else if (mispred)  head_d = ptr_t'(ckpt_head);
+    else               head_d = head_q + ptr_t'(alloc_count);
   end
 
   always_ff @(posedge clk) begin
@@ -83,7 +91,7 @@ module ren_free_list
       list_q        <= free_list_init();
       head_q        <= '0;
       head_commit_q <= '0;
-      tail_q        <= preg_t'(PRF_NUM - RAT_NUM);
+      tail_q        <= ptr_t'(PRF_NUM - RAT_NUM);
     end else begin
       list_q        <= list_d;
       head_q        <= head_d;

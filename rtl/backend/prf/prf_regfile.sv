@@ -14,13 +14,14 @@ module prf_regfile import ttg_cfg_pkg::*; #(
   output logic [XLEN_BITS-1:0]              rd_data [2][LANES]
 );
 
+  localparam int IW = $clog2(NREG);   // integer registers only: an FP tag (>= FP_TAG_BASE) selects none here
   logic [XLEN_BITS-1:0] reg_file_q [NREG];
 
   // Ref: Prf::comb_read (register file part)
   always_comb begin
     for (int s = 0; s < 2; s++) begin
       for (int i = 0; i < LANES; i++) begin
-        rd_data[s][i] = reg_file_q[rd_addr[s][i]];
+        rd_data[s][i] = reg_file_q[rd_addr[s][i][IW-1:0]];
       end
     end
   end
