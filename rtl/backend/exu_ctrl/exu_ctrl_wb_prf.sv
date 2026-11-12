@@ -36,7 +36,13 @@ module exu_ctrl_wb_prf
   for (genvar f = 0; f < N_FU; f++) begin : g_bypass
     assign bypass_valid[f]     = fu_done[f].complete;
     assign bypass_dest_preg[f] = fu_done[f].dest_preg;
-    assign bypass_result[f]    = fu_done[f].result;
+    // the CSR FU's result is the CSR read data (muxed into the write-back entry below): a consumer that reads its
+    // operand in the cycle the CSR instruction executes must see it on the bypass too
+    if (f == CSR_FU) begin : g_csr_byp
+      assign bypass_result[f]  = csr_re ? csr_rdata : fu_done[f].result;
+    end else begin : g_other_byp
+      assign bypass_result[f]  = fu_done[f].result;
+    end
     assign bypass_fresult[f]   = fu_done[f].fresult;
     assign bypass_dest_en[f]   = fu_done[f].dest_en;
   end
