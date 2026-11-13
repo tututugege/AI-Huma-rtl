@@ -180,7 +180,7 @@ module dispatch_core
     end
     dispatch_decompose u_decompose (
       .base(base_uop), .itype(alloc_inst[i].itype), .cls(cls[i]), .fp_cls(alloc_inst[i].fp_cls),
-      .me_elim(alloc_inst[i].me_elim),
+      .me_elim(alloc_inst[i].me_elim), .is_rvc(alloc_inst[i].is_rvc),
       .has_iq(has_iq[i]), .uop_iq(lane_uop), .expect_mask(expect_mask[i]));
     always_comb begin
       for (int q = 0; q < IQ_NUM; q++) uop_iq[i][q] = lane_uop[q];

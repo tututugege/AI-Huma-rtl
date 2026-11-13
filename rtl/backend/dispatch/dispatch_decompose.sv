@@ -13,6 +13,7 @@ module dispatch_decompose
   input  inst_type_e                 itype,
   /* verilator lint_off UNUSEDSIGNAL */   // waiver: cls.to_fp is only read when the core has an FP queue
   input  dis_class_t                 cls,         // dis_classify(itype, amo op)
+  input  logic                       is_rvc,      // 16-bit instruction: JAL/JALR link value 2, else 4
   input  logic [2:0]                 fp_cls,      // FP unit class of an FPOP instruction (FPC_*)
   /* verilator lint_on UNUSEDSIGNAL */
   input  logic                       me_elim,     // eliminated move: no uop at all, completes in the ROB at dispatch
@@ -60,7 +61,7 @@ module dispatch_decompose
       INST_FPOP:       uop_iq[IQ_INT].op = UOP_I2F;   // the only FP class issued from an integer port
       INST_JAL, INST_JALR: begin
         uop_iq[IQ_INT].op      = UOP_ADD;
-        uop_iq[IQ_INT].imm     = 32'd4;
+        uop_iq[IQ_INT].imm     = is_rvc ? 32'd2 : 32'd4;
         uop_iq[IQ_INT].src1_en = 1'b0;
         uop_iq[IQ_INT].src2_en = 1'b0;
       end

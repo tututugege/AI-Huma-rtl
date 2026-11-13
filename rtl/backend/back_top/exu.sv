@@ -23,6 +23,7 @@ module exu
   input  logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_valid,
   input  logic [XLEN_BITS-1:0] prf2exe_iss_entry_uop_pc [ISSUE_WIDTH],
   input  logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_ftq_pred_taken,
+  input  logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_ftq_is_rvc,
   input  logic [XLEN_BITS-1:0] prf2exe_iss_entry_uop_ftq_next_pc [ISSUE_WIDTH],
   input  logic [PRF_IDX_WIDTH-1:0] prf2exe_iss_entry_uop_dest_preg [ISSUE_WIDTH],
   input  logic [XLEN_BITS-1:0] prf2exe_iss_entry_uop_src1_rdata [ISSUE_WIDTH],
@@ -182,6 +183,7 @@ module exu
   logic [XLEN_BITS-1:0] exu2fu_bru_pc [BRU_NUM];
   logic [31:0] exu2fu_bru_imm [BRU_NUM];
   logic exu2fu_bru_ftq_pred_taken [BRU_NUM];
+  logic exu2fu_bru_ftq_is_rvc [BRU_NUM];
   logic [XLEN_BITS-1:0] exu2fu_bru_ftq_next_pc [BRU_NUM];
   logic exu2fu_agu_en [LSU_AGU_COUNT];
   logic [XLEN_BITS-1:0] exu2fu_agu_src1_rdata [LSU_AGU_COUNT];
@@ -230,6 +232,7 @@ module exu
     .prf2exe_iss_entry_valid(prf2exe_iss_entry_valid),
     .prf2exe_iss_entry_uop_pc(prf2exe_iss_entry_uop_pc),
     .prf2exe_iss_entry_uop_ftq_pred_taken(prf2exe_iss_entry_uop_ftq_pred_taken),
+    .prf2exe_iss_entry_uop_ftq_is_rvc(prf2exe_iss_entry_uop_ftq_is_rvc),
     .prf2exe_iss_entry_uop_ftq_next_pc(prf2exe_iss_entry_uop_ftq_next_pc),
     .prf2exe_iss_entry_uop_dest_preg(prf2exe_iss_entry_uop_dest_preg),
     .prf2exe_iss_entry_uop_src1_rdata(prf2exe_iss_entry_uop_src1_rdata),
@@ -383,6 +386,7 @@ module exu
     .exu2fu_bru_pc(exu2fu_bru_pc),
     .exu2fu_bru_imm(exu2fu_bru_imm),
     .exu2fu_bru_ftq_pred_taken(exu2fu_bru_ftq_pred_taken),
+    .exu2fu_bru_ftq_is_rvc(exu2fu_bru_ftq_is_rvc),
     .exu2fu_bru_ftq_next_pc(exu2fu_bru_ftq_next_pc),
     .exu2fu_agu_en(exu2fu_agu_en),
     .exu2fu_agu_src1_rdata(exu2fu_agu_src1_rdata),
@@ -443,6 +447,7 @@ module exu
     .clk(clk), .rst_n(rst_n), .en(exu2fu_bru_en), .consume(bru_consume), .op(exu2fu_bru_op), .func3(exu2fu_bru_func3),
     .src1_en(exu2fu_bru_src1_en), .src1_rdata(exu2fu_bru_src1_rdata), .src2_rdata(exu2fu_bru_src2_rdata),
     .pc(exu2fu_bru_pc), .imm(exu2fu_bru_imm), .ftq_pred_taken(exu2fu_bru_ftq_pred_taken),
+    .ftq_is_rvc(exu2fu_bru_ftq_is_rvc),
     .ftq_next_pc(exu2fu_bru_ftq_next_pc), .complete(bru_complete), .ready(bru_ready), .br_taken(fu_bru_br_taken),
     .mispred(fu_bru_mispred), .diag_val(fu_bru_diag_val)
   );

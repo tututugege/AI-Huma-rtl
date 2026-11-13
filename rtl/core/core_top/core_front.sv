@@ -31,6 +31,7 @@ module core_front import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*;
   input  logic [5:0]  commit_extra_src1_areg [COMMIT_WIDTH],
   input  logic [XLEN_BITS-1:0] ftq_commit_info_resp_pc [COMMIT_WIDTH],
   input  logic        ftq_commit_info_resp_pred_taken [COMMIT_WIDTH],
+  input  logic        ftq_commit_info_resp_is_rvc [COMMIT_WIDTH],
   input  logic [COMMIT_WIDTH-1:0] ftq_commit_info_resp_alt_pred,
   input  logic [2:0]  ftq_commit_info_resp_pcpn [COMMIT_WIDTH],
   input  logic [9:0]  ftq_commit_info_resp_tage_idx [COMMIT_WIDTH][TN],
@@ -77,6 +78,7 @@ module core_front import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*;
   output logic [BACKEND_FETCH_WIDTH-1:0] front2pre_page_fault_inst,
   output logic [XLEN_BITS-1:0] front2pre_pc [BACKEND_FETCH_WIDTH],
   output logic [BACKEND_FETCH_WIDTH-1:0] front2pre_predict_dir,
+  output logic [BACKEND_FETCH_WIDTH-1:0] front2pre_is_rvc,
   output logic [BACKEND_FETCH_WIDTH-1:0] front2pre_alt_pred,
   output logic [front_pkg::PCPN_W-1:0]     front2pre_pcpn [BACKEND_FETCH_WIDTH],
   output logic [TAGE_IDX_W-1:0] front2pre_tage_idx [BACKEND_FETCH_WIDTH][TN_MAX],
@@ -123,6 +125,7 @@ module core_front import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*;
     .commit_src1_areg        (commit_extra_src1_areg),
     .ftq_pc                  (ftq_commit_info_resp_pc),
     .ftq_pred_taken          (ftq_commit_info_resp_pred_taken),
+    .ftq_is_rvc          (ftq_commit_info_resp_is_rvc),
     .ftq_alt_pred            (ftq_commit_info_resp_alt_pred),
     .ftq_pcpn                (ftq_commit_info_resp_pcpn),
     .ftq_tage_idx            (ftq_commit_info_resp_tage_idx),
@@ -159,6 +162,8 @@ module core_front import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*;
   logic [31:0] fe_instructions    [FETCH_WIDTH];
   logic [FETCH_WIDTH-1:0] fe_page_fault_inst;
   logic [FETCH_WIDTH-1:0] fe_predict_dir;
+  logic [FETCH_WIDTH-1:0] fe_is_rvc;   // 16-bit instruction (RVC=1); the front end produces it from R2 on
+  assign fe_is_rvc = '0;
   logic [XLEN_BITS-1:0] fe_pc              [FETCH_WIDTH];
   logic [FETCH_WIDTH-1:0] fe_alt_pred;
   logic [front_pkg::PCPN_W-1:0]     fe_pcpn    [FETCH_WIDTH];
@@ -236,6 +241,7 @@ module core_front import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*;
     .instructions                (fe_instructions),
     .page_fault_inst             (fe_page_fault_inst),
     .predict_dir                 (fe_predict_dir),
+    .is_rvc                      (fe_is_rvc),
     .pc                          (fe_pc),
     .alt_pred                    (fe_alt_pred),
     .pcpn                        (fe_pcpn),
@@ -249,6 +255,7 @@ module core_front import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*;
     .back_page_fault             (front2pre_page_fault_inst),
     .back_pc                     (front2pre_pc),
     .back_predict_dir            (front2pre_predict_dir),
+    .back_is_rvc                 (front2pre_is_rvc),
     .back_alt_pred               (front2pre_alt_pred),
     .back_pcpn                   (front2pre_pcpn),
     .back_tage_idx               (front2pre_tage_idx),

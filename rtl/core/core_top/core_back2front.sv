@@ -32,6 +32,7 @@ module core_back2front import ttg_cfg_pkg::*; import dis_pkg::*; import bpu_pkg:
   input  logic [5:0]  commit_src1_areg   [COMMIT_WIDTH],
   input  logic [XLEN_BITS-1:0] ftq_pc             [COMMIT_WIDTH],
   input  logic        ftq_pred_taken     [COMMIT_WIDTH],
+  input  logic        ftq_is_rvc     [COMMIT_WIDTH],
   input  logic [COMMIT_WIDTH-1:0] ftq_alt_pred,
   input  logic [2:0]  ftq_pcpn           [COMMIT_WIDTH],
   input  logic [9:0]  ftq_tage_idx       [COMMIT_WIDTH][TN],
@@ -81,7 +82,8 @@ module core_back2front import ttg_cfg_pkg::*; import dis_pkg::*; import bpu_pkg:
       is_ret[i]  = is_jalr[i] && (commit_src1_areg[i] == 6'd1) && (commit_dest_areg[i] == 6'd0)
                    && (commit_imm[i] == 32'd0);
       class_dir[i]    = is_jal[i] || is_jalr[i] || commit_br_taken[i];
-      class_target[i] = (is_br[i] || is_jal[i] || is_jalr[i]) ? commit_diag_val[i] : ftq_pc[i] + XLEN_BITS'(4);
+      class_target[i] = (is_br[i] || is_jal[i] || is_jalr[i]) ? commit_diag_val[i]
+                        : ftq_pc[i] + (ftq_is_rvc[i] ? XLEN_BITS'(2) : XLEN_BITS'(4));
       if (is_icall[i])     class_br_type[i] = BR_ICALL;
       else if (is_call[i]) class_br_type[i] = BR_CALL;
       else if (is_ret[i])  class_br_type[i] = BR_RET;

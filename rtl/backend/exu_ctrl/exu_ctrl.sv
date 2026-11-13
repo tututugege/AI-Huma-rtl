@@ -1,6 +1,5 @@
 // Ref: back-end/Exu/Exu.cpp  class Exu  (control and arbitration; the functional units themselves are outside)
 `default_nettype none
-
 // Exu control: FU input slots, issue-port write-back arbitration, bypass, ready feedback, flush/kill/clear handling and
 // the interfaces to Csr / Lsu / Rob / Prf / Isu / Idu. The FUs are inputs (fu_*) and outputs (exu2fu_*).
 // Top level only adapts the flat spec ports to the sub-module interfaces (no logic of its own).
@@ -19,6 +18,7 @@ module exu_ctrl
   input  logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_valid,
   input  logic [XLEN_BITS-1:0] prf2exe_iss_entry_uop_pc [ISSUE_WIDTH],
   input  logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_ftq_pred_taken,
+  input  logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_ftq_is_rvc,
   input  logic [XLEN_BITS-1:0] prf2exe_iss_entry_uop_ftq_next_pc [ISSUE_WIDTH],
   input  logic [PRF_IDX_WIDTH-1:0] prf2exe_iss_entry_uop_dest_preg [ISSUE_WIDTH],
   input  logic [XLEN_BITS-1:0] prf2exe_iss_entry_uop_src1_rdata [ISSUE_WIDTH],
@@ -172,6 +172,7 @@ module exu_ctrl
   output logic [XLEN_BITS-1:0] exu2fu_bru_pc [BRU_NUM],
   output logic [31:0] exu2fu_bru_imm [BRU_NUM],
   output logic exu2fu_bru_ftq_pred_taken [BRU_NUM],
+  output logic exu2fu_bru_ftq_is_rvc [BRU_NUM],
   output logic [XLEN_BITS-1:0] exu2fu_bru_ftq_next_pc [BRU_NUM],
   output logic exu2fu_agu_en [LSU_AGU_COUNT],
   output logic [XLEN_BITS-1:0] exu2fu_agu_src1_rdata [LSU_AGU_COUNT],
@@ -209,7 +210,6 @@ module exu_ctrl
   output logic [BR_MASK_WIDTH-1:0] exu2fu_fp_br_mask [N_FPU],
   output logic [ROB_IDX_WIDTH-1:0] exu2fu_fp_rob_idx [N_FPU]
 );
-
   // FU tables (exu_ctrl_pkg) must agree with the configuration this module was written for
   if (!xc_tables_match() || xc_fu_total() != TOTAL_FU_COUNT || xc_mc_count() != N_MC
       || xc_kind_count(XC_K_ALU) != ALU_NUM
@@ -231,6 +231,7 @@ module exu_ctrl
     assign iss_inst[p] = '{
       pc:             prf2exe_iss_entry_uop_pc[p],
       ftq_pred_taken: prf2exe_iss_entry_uop_ftq_pred_taken[p],
+      ftq_is_rvc: prf2exe_iss_entry_uop_ftq_is_rvc[p],
       ftq_next_pc:    prf2exe_iss_entry_uop_ftq_next_pc[p],
       dest_preg:      prf2exe_iss_entry_uop_dest_preg[p],
       src1_rdata:     prf2exe_iss_entry_uop_src1_rdata[p],
@@ -381,7 +382,8 @@ module exu_ctrl
     .exu2fu_alu_src2_is_imm, .exu2fu_alu_is_word, .exu2fu_alu_pc, .exu2fu_alu_imm, .exu2fu_alu_src1_rdata,
     .exu2fu_alu_src2_rdata,
     .exu2fu_bru_en, .exu2fu_bru_op, .exu2fu_bru_func3, .exu2fu_bru_src1_en, .exu2fu_bru_src1_rdata,
-    .exu2fu_bru_src2_rdata, .exu2fu_bru_pc, .exu2fu_bru_imm, .exu2fu_bru_ftq_pred_taken, .exu2fu_bru_ftq_next_pc,
+    .exu2fu_bru_src2_rdata, .exu2fu_bru_pc, .exu2fu_bru_imm, .exu2fu_bru_ftq_pred_taken, .exu2fu_bru_ftq_is_rvc,
+    .exu2fu_bru_ftq_next_pc,
     .exu2fu_agu_en, .exu2fu_agu_src1_rdata, .exu2fu_agu_imm,
     .exu2fu_sdu_en, .exu2fu_sdu_is_atomic, .exu2fu_sdu_func7, .exu2fu_sdu_amo_w,
     .exu2fu_sdu_src1_rdata, .exu2fu_sdu_src2_rdata,

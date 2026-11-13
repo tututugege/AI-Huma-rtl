@@ -94,6 +94,7 @@ package dis_pkg;
     logic                      page_fault_inst;
     logic                      illegal_inst;
     logic [LSU_MDP_BITS-1:0]   mdp;           // wait-table index of the PC (LSU_MEMSPEC; loads only use it)
+    logic                      is_rvc;        // 16-bit instruction (RVC=1): the link value of JAL/JALR is 2
   } dis_inst_t;
 
   // Resources assigned to a slot in the allocation stage (ROB line slot, STQ/LDQ entries).

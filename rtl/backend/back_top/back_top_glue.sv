@@ -15,6 +15,7 @@ module back_top_glue
   input  logic        rob_bcast_sret,
   input  logic        rob_bcast_exception,
   input  logic [XLEN_BITS-1:0] rob_bcast_pc,
+  input  logic        rob_bcast_is_rvc,   // the committing instruction is 16 bits (FTQ ROB-port response, with the pc)
   input  logic [XLEN_BITS-1:0] csr2front_epc,
   input  logic [XLEN_BITS-1:0] csr2front_trap_pc,
   input  logic [XLEN_BITS-1:0] br_latch_redirect_pc,
@@ -44,7 +45,7 @@ module back_top_glue
   always_comb begin
     if (rob_bcast_mret || rob_bcast_sret) flush_redirect_pc = csr2front_epc;
     else if (rob_bcast_exception)         flush_redirect_pc = csr2front_trap_pc;
-    else                                  flush_redirect_pc = rob_bcast_pc + XLEN_BITS'(4);
+    else flush_redirect_pc = rob_bcast_pc + (rob_bcast_is_rvc ? XLEN_BITS'(2) : XLEN_BITS'(4));
   end
 
   assign out_mispred     = rob_bcast_flush | dec_bcast_mispred;

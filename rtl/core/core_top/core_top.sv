@@ -143,6 +143,7 @@ module core_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; i
   logic [XLEN_BITS-1:0] front2pre_pc [BACKEND_FETCH_WIDTH];
   logic [2:0] front2pre_pcpn [BACKEND_FETCH_WIDTH];
   logic [BACKEND_FETCH_WIDTH-1:0] front2pre_predict_dir;
+  logic [BACKEND_FETCH_WIDTH-1:0] front2pre_is_rvc;
   logic [XLEN_BITS-1:0] front2pre_predict_next_fetch_address;
   logic [9:0] front2pre_tage_idx [BACKEND_FETCH_WIDTH][4];
   logic [7:0] front2pre_tage_tag [BACKEND_FETCH_WIDTH][4];
@@ -156,6 +157,7 @@ module core_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; i
   logic [COMMIT_WIDTH-1:0] ftq_commit_info_resp_alt_pred;
   logic [2:0] ftq_commit_info_resp_pcpn [COMMIT_WIDTH];
   logic ftq_commit_info_resp_pred_taken [COMMIT_WIDTH];
+  logic ftq_commit_info_resp_is_rvc [COMMIT_WIDTH];
   logic [9:0] ftq_commit_info_resp_tage_idx [COMMIT_WIDTH][4];
   logic [7:0] ftq_commit_info_resp_tage_tag [COMMIT_WIDTH][4];
   logic out_stall;
@@ -187,6 +189,7 @@ module core_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; i
     .front2pre_pc(front2pre_pc),
     .front2pre_pcpn(front2pre_pcpn),
     .front2pre_predict_dir(front2pre_predict_dir),
+    .front2pre_is_rvc(front2pre_is_rvc),
     .front2pre_predict_next_fetch_address(front2pre_predict_next_fetch_address),
     .front2pre_tage_idx(front2pre_tage_idx),
     .front2pre_tage_tag(front2pre_tage_tag),
@@ -230,6 +233,7 @@ module core_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; i
     .ftq_commit_info_resp_pc(ftq_commit_info_resp_pc),
     .ftq_commit_info_resp_pcpn(ftq_commit_info_resp_pcpn),
     .ftq_commit_info_resp_pred_taken(ftq_commit_info_resp_pred_taken),
+    .ftq_commit_info_resp_is_rvc(ftq_commit_info_resp_is_rvc),
     .ftq_commit_info_resp_tage_idx(ftq_commit_info_resp_tage_idx),
     .ftq_commit_info_resp_tage_tag(ftq_commit_info_resp_tage_tag),
     .out_commit_entry_uop_diag_val(out_commit_entry_uop_diag_val),
@@ -305,6 +309,7 @@ module core_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; i
     .commit_extra_src1_areg,
     .ftq_commit_info_resp_pc,
     .ftq_commit_info_resp_pred_taken,
+    .ftq_commit_info_resp_is_rvc,
     .ftq_commit_info_resp_alt_pred,
     .ftq_commit_info_resp_pcpn,
     .ftq_commit_info_resp_tage_idx,
@@ -347,6 +352,7 @@ module core_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; i
     .front2pre_page_fault_inst,
     .front2pre_pc,
     .front2pre_predict_dir,
+    .front2pre_is_rvc,
     .front2pre_alt_pred,
     .front2pre_pcpn,
     .front2pre_tage_idx,

@@ -264,6 +264,7 @@ package exu_ctrl_pkg;
   typedef struct packed {
     logic [XLEN_BITS-1:0]              pc;
     logic                     ftq_pred_taken;
+    logic                     ftq_is_rvc;
     logic [XLEN_BITS-1:0]              ftq_next_pc;
     logic [PRF_IDX_WIDTH-1:0] dest_preg;
     logic [XLEN_BITS-1:0]              src1_rdata;

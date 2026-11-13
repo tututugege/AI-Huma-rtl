@@ -22,6 +22,7 @@ module bru_bank
   input  logic [XLEN_BITS-1:0]     pc             [N],
   input  logic [31:0]     imm            [N],
   input  logic            ftq_pred_taken [N],
+  input  logic            ftq_is_rvc [N],
   input  logic [XLEN_BITS-1:0]     ftq_next_pc    [N],
   output logic            complete       [N],
   output logic            ready          [N],
@@ -34,7 +35,7 @@ module bru_bank
     bru u_bru (
       .en(en[i]), .consume(consume[i]), .op(op[i]), .func3(func3[i]), .src1_en(src1_en[i]),
       .src1_rdata(src1_rdata[i]), .src2_rdata(src2_rdata[i]), .pc(pc[i]), .imm(imm[i]),
-      .ftq_pred_taken(ftq_pred_taken[i]), .ftq_next_pc(ftq_next_pc[i]),
+      .ftq_pred_taken(ftq_pred_taken[i]), .ftq_is_rvc(ftq_is_rvc[i]), .ftq_next_pc(ftq_next_pc[i]),
       .complete(complete[i]), .ready(ready[i]), .br_taken(br_taken[i]), .mispred(mispred[i]), .diag_val(diag_val[i])
     );
   end

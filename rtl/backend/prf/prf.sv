@@ -68,6 +68,7 @@ module prf import ttg_cfg_pkg::*; import fp_pkg::*; #(
   /* verilator lint_on UNUSEDSIGNAL */
   input  logic [XLEN_BITS-1:0] ftq_prf_pc_resp_resp_pc [FTQ_PRF_PC_PORT_NUM],
   input  logic [FTQ_PRF_PC_PORT_NUM-1:0] ftq_prf_pc_resp_resp_pred_taken,
+  input  logic [FTQ_PRF_PC_PORT_NUM-1:0] ftq_prf_pc_resp_resp_is_rvc,
   input  logic [XLEN_BITS-1:0] ftq_prf_pc_resp_resp_next_pc [FTQ_PRF_PC_PORT_NUM],
   output logic [FTQ_PRF_PC_PORT_NUM-1:0] ftq_prf_pc_req_req_valid,
   output logic [FTQ_IDX_WIDTH-1:0] ftq_prf_pc_req_req_ftq_idx [FTQ_PRF_PC_PORT_NUM],
@@ -77,6 +78,7 @@ module prf import ttg_cfg_pkg::*; import fp_pkg::*; #(
   output logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_valid,
   output logic [XLEN_BITS-1:0] prf2exe_iss_entry_uop_pc [ISSUE_WIDTH],
   output logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_ftq_pred_taken,
+  output logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_ftq_is_rvc,
   output logic [XLEN_BITS-1:0] prf2exe_iss_entry_uop_ftq_next_pc [ISSUE_WIDTH],
   output logic [XLEN_BITS-1:0] prf2exe_iss_entry_uop_src1_rdata [ISSUE_WIDTH],
   output logic [XLEN_BITS-1:0] prf2exe_iss_entry_uop_src2_rdata [ISSUE_WIDTH],
@@ -333,6 +335,7 @@ module prf import ttg_cfg_pkg::*; import fp_pkg::*; #(
     assign ftq_prf_pc_req_req_ftq_offset[p] = iss2prf_iss_entry_uop_ftq_offset[LANE];
     assign prf2exe_iss_entry_uop_pc[LANE]             = ftq_prf_pc_resp_resp_pc[p];
     assign prf2exe_iss_entry_uop_ftq_pred_taken[LANE] = ftq_prf_pc_resp_resp_pred_taken[p];
+    assign prf2exe_iss_entry_uop_ftq_is_rvc[LANE] = ftq_prf_pc_resp_resp_is_rvc[p];
     assign prf2exe_iss_entry_uop_ftq_next_pc[LANE]    = ftq_prf_pc_resp_resp_next_pc[p];
   end
   // lanes without a PC port never receive a PC
@@ -341,6 +344,7 @@ module prf import ttg_cfg_pkg::*; import fp_pkg::*; #(
           (i >= IQ_BR_PORT_BASE && i < IQ_BR_PORT_BASE + BRU_NUM))) begin : g_tie
       assign prf2exe_iss_entry_uop_pc[i]             = '0;
       assign prf2exe_iss_entry_uop_ftq_pred_taken[i] = 1'b0;
+      assign prf2exe_iss_entry_uop_ftq_is_rvc[i] = 1'b0;
       assign prf2exe_iss_entry_uop_ftq_next_pc[i]    = '0;
     end
   end

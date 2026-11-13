@@ -27,6 +27,7 @@ module dispatch
   input  logic [5:0] ren2dis_uop_ftq_idx [DECODE_WIDTH],
   input  logic [FTQ_OFFSET_WIDTH-1:0] ren2dis_uop_ftq_offset [DECODE_WIDTH],
   input  logic [DECODE_WIDTH-1:0] ren2dis_uop_ftq_is_last,
+  input  logic [DECODE_WIDTH-1:0] ren2dis_uop_is_rvc,
   input  logic [LSU_MDP_BITS-1:0] ren2dis_uop_mdp [DECODE_WIDTH],   // wait-table index of the PC (LSU_MEMSPEC)
   input  logic [4:0] ren2dis_uop_type [DECODE_WIDTH],
   input  logic [DECODE_WIDTH-1:0] ren2dis_uop_dest_en,
@@ -197,6 +198,7 @@ module dispatch
       ren_inst[i].ftq_offset = ren2dis_uop_ftq_offset[i];
       ren_inst[i].ftq_is_last = ren2dis_uop_ftq_is_last[i];
       ren_inst[i].mdp = ren2dis_uop_mdp[i];
+      ren_inst[i].is_rvc = ren2dis_uop_is_rvc[i];
       ren_inst[i].dest_en = ren2dis_uop_dest_en[i];
       ren_inst[i].src1_en = ren2dis_uop_src1_en[i];
       ren_inst[i].src2_en = ren2dis_uop_src2_en[i];

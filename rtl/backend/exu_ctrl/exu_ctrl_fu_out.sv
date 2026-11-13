@@ -31,6 +31,7 @@ module exu_ctrl_fu_out
   output logic [XLEN_BITS-1:0] exu2fu_bru_pc [BRU_NUM],
   output logic [31:0] exu2fu_bru_imm [BRU_NUM],
   output logic exu2fu_bru_ftq_pred_taken [BRU_NUM],
+  output logic exu2fu_bru_ftq_is_rvc [BRU_NUM],
   output logic [XLEN_BITS-1:0] exu2fu_bru_ftq_next_pc [BRU_NUM],
   output logic exu2fu_agu_en [LSU_AGU_COUNT],
   output logic [XLEN_BITS-1:0] exu2fu_agu_src1_rdata [LSU_AGU_COUNT],
@@ -96,6 +97,7 @@ module exu_ctrl_fu_out
     assign exu2fu_bru_pc[i]             = fu_inst[FU].pc;
     assign exu2fu_bru_imm[i]            = fu_inst[FU].imm;
     assign exu2fu_bru_ftq_pred_taken[i] = fu_inst[FU].ftq_pred_taken;
+    assign exu2fu_bru_ftq_is_rvc[i] = fu_inst[FU].ftq_is_rvc;
     assign exu2fu_bru_ftq_next_pc[i]    = fu_inst[FU].ftq_next_pc;
   end
 

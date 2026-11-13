@@ -18,6 +18,7 @@ module bru
   input  logic [XLEN_BITS-1:0]     pc,
   input  logic [31:0]     imm,
   input  logic            ftq_pred_taken,
+  input  logic            ftq_is_rvc,
   input  logic [XLEN_BITS-1:0]     ftq_next_pc,
   output logic            complete,
   output logic            ready,
@@ -30,6 +31,7 @@ module bru
 
   logic        is_br, is_jump, cond_eq, cond_lt_s, cond_lt_u, cond_taken;
   logic [XLEN_BITS-1:0] pc_plus4, target, imm_x;
+  // pc_plus4: the next sequential pc (pc + 4, or pc + 2 for a compressed instruction)
   assign imm_x = XLEN_BITS'($signed(imm));
 
   // Ref: BruUnit::impl_compute  (condition of a conditional branch)
@@ -52,7 +54,7 @@ module bru
 
   // Ref: BruUnit::impl_compute  (target, taken, verdict)
   always_comb begin
-    pc_plus4 = pc + XLEN_BITS'(4);
+    pc_plus4 = pc + (ftq_is_rvc ? XLEN_BITS'(2) : XLEN_BITS'(4));
     // JALR (src1_en) targets (rs1 + imm) with bit 0 cleared; JAL and conditional branches are pc-relative
     target   = (is_jump && src1_en) ? ((src1_rdata + imm_x) & ~XLEN_BITS'(1)) : (pc + imm_x);
     br_taken = is_jump || (is_br && cond_taken);

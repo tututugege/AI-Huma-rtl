@@ -11,25 +11,31 @@ module pre_idu_ftq_pc import ttg_cfg_pkg::*; import pre_idu_pkg::*; #(
   input  logic [FTQ_IDX_WIDTH-1:0]     wr_idx,
   input  logic [XLEN_BITS-1:0]                  wr_slot_pc [BACKEND_FETCH_WIDTH],
   input  logic [BACKEND_FETCH_WIDTH-1:0] wr_pred_taken,
+  input  logic [BACKEND_FETCH_WIDTH-1:0] wr_is_rvc,
   input  logic [XLEN_BITS-1:0]                  wr_next_pc,
   input  logic [FTQ_IDX_WIDTH-1:0]     rd_idx [NPORT],
   input  logic [FTQ_OFFSET_WIDTH-1:0]  rd_offset [NPORT],
-  // pc of fetch slot `dis_off` of entry `dis_idx` as base pc + 4 * offset (the slots of an entry are consecutive): a
+  // pc of fetch slot `dis_off` of entry `dis_idx` as base pc + SLOT_BYTES * offset (the slots of an entry are
+  // consecutive): a
   // 64:1 read of the base pc per port instead of a 512:1 read of the slot pc (LSU_MEMSPEC wait-table index)
   input  logic [FTQ_IDX_WIDTH-1:0]     dis_idx [DECODE_WIDTH],
   input  logic [FTQ_OFFSET_WIDTH-1:0]  dis_off [DECODE_WIDTH],
   output logic [XLEN_BITS-1:0]                  dis_pc [DECODE_WIDTH],
+  output logic                         dis_is_rvc [DECODE_WIDTH],
   output logic [XLEN_BITS-1:0]                  rd_pc [NPORT],
   output logic                         rd_pred_taken [NPORT],
+  output logic                         rd_is_rvc [NPORT],
   output logic [XLEN_BITS-1:0]                  rd_next_pc [NPORT]
 );
 
   logic [XLEN_BITS-1:0]                    slot_pc_q [FTQ_SIZE][BACKEND_FETCH_WIDTH];
   logic [BACKEND_FETCH_WIDTH-1:0] pred_taken_q [FTQ_SIZE];
+  logic [BACKEND_FETCH_WIDTH-1:0] is_rvc_q [FTQ_SIZE];
   logic [XLEN_BITS-1:0]                    next_pc_q [FTQ_SIZE];
 
   always_comb begin
-    for (int p = 0; p < DECODE_WIDTH; p++) dis_pc[p] = slot_pc_q[dis_idx[p]][0] + XLEN_BITS'({dis_off[p], 2'b00});
+    for (int p = 0; p < DECODE_WIDTH; p++) dis_is_rvc[p] = is_rvc_q[dis_idx[p]][dis_off[p]];
+    for (int p = 0; p < DECODE_WIDTH; p++) dis_pc[p] = slot_pc_q[dis_idx[p]][0] + (XLEN_BITS'(dis_off[p]) << SLOT_SHIFT);
   end
 
   // Ref: comb_ftq_lookup_prf / comb_ftq_lookup_rob / comb_commit_info (pc, pred_taken) -- reads the registered state
@@ -37,6 +43,7 @@ module pre_idu_ftq_pc import ttg_cfg_pkg::*; import pre_idu_pkg::*; #(
     for (int p = 0; p < NPORT; p++) begin
       rd_pc[p]         = slot_pc_q[rd_idx[p]][rd_offset[p]];
       rd_pred_taken[p] = pred_taken_q[rd_idx[p]][rd_offset[p]];
+      rd_is_rvc[p]     = is_rvc_q[rd_idx[p]][rd_offset[p]];
       rd_next_pc[p]    = next_pc_q[rd_idx[p]];
     end
   end
@@ -47,6 +54,7 @@ module pre_idu_ftq_pc import ttg_cfg_pkg::*; import pre_idu_pkg::*; #(
     if (wr_en) begin
       for (int s = 0; s < BACKEND_FETCH_WIDTH; s++) slot_pc_q[wr_idx][s] <= wr_slot_pc[s];
       pred_taken_q[wr_idx] <= wr_pred_taken;
+      is_rvc_q[wr_idx]     <= wr_is_rvc;
       next_pc_q[wr_idx]    <= wr_next_pc;
     end
   end

@@ -28,10 +28,11 @@ package csr_pkg;
   localparam int R_FCSR     = 18;   // {frm[2:0], fflags[4:0]} (F/D)
 
   // misa: MXL (rv32: 1, rv64: 2) in the top two bits; extensions A(0) B(1) I(8) M(12) S(18) U(20)
-  // (F/D adds F(5) and D(3))
+  // (F/D adds F(5) and D(3); RVC=1 adds C(2))
+  localparam logic [63:0] MISA_C = (RVC_ENABLE != 0) ? 64'h4 : 64'h0;
   localparam logic [XLEN_BITS-1:0] MISA_RESET =
-      XLEN_BITS'((XLEN_BITS == 64) ? (64'h8000000000141103 | (FP_EN ? 64'h28 : 64'h0))
-                                   : (64'h40141103 | (FP_EN ? 64'h28 : 64'h0)));
+      XLEN_BITS'((XLEN_BITS == 64) ? (64'h8000000000141103 | (FP_EN ? 64'h28 : 64'h0) | MISA_C)
+                                   : (64'h40141103 | (FP_EN ? 64'h28 : 64'h0) | MISA_C));
 
   // mstatus reset: rv64 UXL = SXL = 2
 
