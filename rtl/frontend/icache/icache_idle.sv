@@ -14,16 +14,21 @@ module icache_idle import ttg_cfg_pkg::*; import icache_pkg::*; (
   input  logic [IC_TAG_W-1:0]     ppn,
   input  logic                    hit,            // includes "translation valid and no fault"
   input  logic [IC_LINE_W-1:0]    hit_line,
+  input  logic                    hit2,           // RVC=1: the second line (set + 1, tag ppn) is present
   output ic_regs_t                r_n,            // only state/ppn/miss/probe fields change here
   output logic                    resp_valid,
   output logic [XLEN_BITS-1:0]             resp_pc,
   output logic                    resp_page_fault,
   output logic [IC_LINE_W-1:0]    resp_line,
   output logic                    req_ready,      // req_ready_w
-  output logic                    fast_fire       // answered in the presentation cycle: slot stays empty
+  output logic                    fast_fire,      // answered in the presentation cycle: slot stays empty
+  output logic                    pc_ovr_valid,   // RVC=1: the registered request pc is replaced
+  output logic [XLEN_BITS-1:0]             pc_ovr
 );
 
   logic fast, regp, answer, miss_reg, no_txid;
+  logic xl_on, xl_cand, xl_same, xl_blk, xl_blk_reg, xl_pf_done, xl_hit_done, ans_ok;
+  logic [11:0] sel_pc;
   logic [IC_TXID_N-1:0] free_onehot;
   logic [IC_TXID_W-1:0] free_id, alloc_id;
   logic                 free_any;
@@ -34,7 +39,19 @@ module icache_idle import ttg_cfg_pkg::*; import icache_pkg::*; (
   always_comb begin
     fast      = !r.req_valid && req_valid_in && ppn_valid;
     regp      = r.req_valid && ppn_valid;
-    answer    = (fast || regp) && (page_fault || hit);
+    // RVC=1 second line (icache_module.cpp, case IDLE): a hit that needs the first halfword of the next line, which
+    // is not present or in the next page, is not answered: the request is registered (fast) or becomes the
+    // second-line request (registered)
+    xl_on       = r.xl_phase;
+    sel_pc      = fast ? pc[11:0] : r.req_pc[11:0];
+    xl_cand     = ic_xl_cand(sel_pc[5:0], ppn[IC_TAG_W-1 -: 2], hit_line[IC_WORD_W * 15 + 16 +: 2]);
+    xl_same     = sel_pc[11:IC_OFF_W] != '1;
+    xl_blk      = (fast || regp) && !page_fault && hit && !xl_on && !r.xl_done && xl_cand && (!xl_same || !hit2);
+    xl_blk_reg  = regp && xl_blk;
+    xl_pf_done  = regp && page_fault && xl_on;
+    xl_hit_done = regp && !page_fault && hit && xl_on;
+    ans_ok      = page_fault ? !xl_on : (hit && !xl_on && !xl_blk);
+    answer    = (fast || regp) && ans_ok;
     miss_reg  = regp && !page_fault && !hit;
     alloc_id  = r.miss_txv ? r.miss_txid : free_id;
     no_txid   = !r.miss_txv && !free_any;
@@ -42,13 +59,33 @@ module icache_idle import ttg_cfg_pkg::*; import icache_pkg::*; (
     resp_pc         = fast ? pc : r.req_pc;
     resp_page_fault = answer && page_fault;
     resp_line       = (answer && !page_fault) ? hit_line : '0;
-    req_ready       = !r.req_valid || (ppn_valid && (page_fault || hit));
+    req_ready       = !r.req_valid || (ppn_valid && ans_ok);
     fast_fire       = fast && answer;
   end
 
   always_comb begin
     r_n = r;
     if (regp && !page_fault) r_n.ppn = ppn;
+    pc_ovr_valid = 1'b0;
+    pc_ovr       = '0;
+    if (answer) r_n.xl_done = 1'b0;
+    if (xl_pf_done || xl_hit_done) begin   // the second line is present (or its page faulted): replay
+      r_n.xl_phase = 1'b0;  r_n.xl_done = 1'b1;  r_n.xl_fault = xl_pf_done;  r_n.xl_ppn = xl_pf_done ? '0 : ppn;
+      pc_ovr_valid = 1'b1;  pc_ovr = r.xl_pc;
+    end
+    if (xl_blk_reg && !xl_same) begin   // the second line is in the next page: translate it first
+      r_n.xl_phase = 1'b1;  r_n.xl_pc = r.req_pc;
+      pc_ovr_valid = 1'b1;  pc_ovr = {r.req_pc[XLEN_BITS-1:12] + (XLEN_BITS-12)'(1), 12'b0};
+    end
+    if (xl_blk_reg && xl_same && !no_txid) begin   // the second line is in the next set of the same page: fill it first
+      r_n.xl_phase = 1'b1;  r_n.xl_pc = r.req_pc;
+      pc_ovr_valid = 1'b1;  pc_ovr = {r.req_pc[XLEN_BITS-1:IC_OFF_W] + (XLEN_BITS-IC_OFF_W)'(1), {IC_OFF_W{1'b0}}};
+      r_n.state      = IC_SWAP_REQ;
+      r_n.miss_txv   = 1'b1;
+      r_n.miss_txid  = alloc_id;
+      r_n.ready_seen = 1'b0;
+      r_n.probe_inflight = 1'b0;  r_n.probe_done = 1'b0;  r_n.probe_hit = 1'b0;  r_n.probe_word = '0;
+    end
     if (miss_reg && !no_txid) begin
       r_n.state      = IC_SWAP_REQ;
       r_n.miss_txv   = 1'b1;

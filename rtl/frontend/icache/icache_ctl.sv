@@ -42,6 +42,9 @@ module icache_ctl import ttg_cfg_pkg::*; import icache_pkg::*; (
   input  logic [IC_LINE_W-1:0]    hit_line,
   input  logic                    has_invalid,
   input  logic [IC_WAY_W-1:0]     first_invalid,
+  input  logic                    hit2,
+  output logic [IC_IDX_W-1:0]     arr_rd2_index,
+  output logic [IC_TAG_W-1:0]     arr_cmp2_tag,
   output logic                    arr_rd_en,
   output logic [IC_IDX_W-1:0]     arr_rd_index,
   output logic                    arr_cmp_valid,
@@ -107,13 +110,16 @@ module icache_ctl import ttg_cfg_pkg::*; import icache_pkg::*; (
 
   // ---- IDLE step ----
   ic_regs_t idle_r_n;
+  logic idle_ovr_v, swap_ovr_v;
+  logic [XLEN_BITS-1:0] idle_ovr, swap_ovr;
   logic idle_resp_valid, idle_resp_pf, idle_req_ready, idle_fast_fire;
   logic [XLEN_BITS-1:0] idle_resp_pc;
   logic [IC_LINE_W-1:0] idle_resp_line;
   icache_idle u_idle (
-    .r(r_q), .req_valid_in, .pc, .ppn_valid, .page_fault, .ppn, .hit, .hit_line,
+    .r(r_q), .req_valid_in, .pc, .ppn_valid, .page_fault, .ppn, .hit, .hit_line, .hit2,
     .r_n(idle_r_n), .resp_valid(idle_resp_valid), .resp_pc(idle_resp_pc), .resp_page_fault(idle_resp_pf),
-    .resp_line(idle_resp_line), .req_ready(idle_req_ready), .fast_fire(idle_fast_fire)
+    .resp_line(idle_resp_line), .req_ready(idle_req_ready), .fast_fire(idle_fast_fire),
+    .pc_ovr_valid(idle_ovr_v), .pc_ovr(idle_ovr)
   );
 
   // ---- SWAP / WAIT_DC / CANCEL_WAIT step ----
@@ -124,12 +130,13 @@ module icache_ctl import ttg_cfg_pkg::*; import icache_pkg::*; (
   icache_swap u_swap (
     .r(r_q), .mem_req_ready, .mem_req_accepted, .mem_req_accepted_id, .mem_resp_data, .active_resp, .drop_mask,
     .step_done(p_step_done), .step_hit(p_step_hit), .probe_inflight_d(p_infl_d), .probe_done_d(p_done_d),
-    .probe_hit_d(p_hit_d), .probe_word_d(p_word_d), .probe_line_eff, .resp_line_q, .has_invalid, .first_invalid,
+    .probe_hit_d(p_hit_d), .probe_word_d(p_word_d), .probe_line_eff, .resp_line_q, .has_invalid, .first_invalid, .hit2,
     .r_n(swap_r_n), .req_ready(swap_req_ready), .mem_req_valid(swap_mem_req_valid),
     .mem_resp_ready(swap_mem_resp_ready),
     .resp_valid(swap_resp_valid), .resp_single_word(swap_single), .resp_line(swap_resp_line),
     .resp_line_we(swap_line_we),
-    .resp_line_d(swap_line_d), .tw_we(swap_tw_we), .tw_way(swap_tw_way), .tw_line(swap_tw_line)
+    .resp_line_d(swap_line_d), .tw_we(swap_tw_we), .tw_way(swap_tw_way), .tw_line(swap_tw_line),
+    .pc_ovr_valid(swap_ovr_v), .pc_ovr(swap_ovr)
   );
 
   // ---- request slot / ITLB request ----
@@ -165,6 +172,7 @@ module icache_ctl import ttg_cfg_pkg::*; import icache_pkg::*; (
     end
     n_regs.req_valid = slot_rv_d;
     n_regs.req_pc    = slot_pc_d;
+    if (is_idle ? idle_ovr_v : swap_ovr_v) n_regs.req_pc = is_idle ? idle_ovr : swap_ovr;   // RVC=1 second line
     n_regs.ifu_ready = slot_ifu_d;
     r1  = kill1 ? k0_r_n : n_regs;
     r_d = invalidate ? k1_r_n : r1;
@@ -198,6 +206,10 @@ module icache_ctl import ttg_cfg_pkg::*; import icache_pkg::*; (
   always_comb begin
     arr_rd_en     = !refetch && (req_valid_in || r_q.req_valid);
     arr_rd_index  = r_q.req_valid ? r_q.req_pc[11:IC_OFF_W] : pc[11:IC_OFF_W];
+    // RVC=1 second line: second read port = the next set; tag = the page of the request, or the translation of the
+    // next page (replay)
+    arr_rd2_index = arr_rd_index + IC_IDX_W'(1);
+    arr_cmp2_tag  = (!is_idle || arr_rd_index != '1 || !r_q.req_valid) ? (is_idle ? ppn : r_q.ppn) : r_q.xl_ppn;
     arr_cmp_valid = is_idle && !kill1 && ppn_valid && !page_fault && (r_q.req_valid || req_valid_in);
     inv_all       = fence_i;
     tw_we         = !kill1 && swap_tw_we;

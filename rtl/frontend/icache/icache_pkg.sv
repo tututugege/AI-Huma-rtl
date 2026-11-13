@@ -44,6 +44,13 @@ package icache_pkg;
     logic [IC_WORD_IDX_W-1:0] probe_word;   // dcache_probe_word_r
     logic [IC_TAG_W-1:0]    ppn;            // ppn_r
     logic [IC_WAY_W-1:0]    replace_idx;    // replace_idx (round-robin pointer, global)
+    // RVC=1 second line (icache_module.h): the registered request is temporarily the next line (xl_phase), the original
+    // pc waits in xl_pc, xl_done = the original request is replayed with its second line present
+    logic                   xl_phase;
+    logic                   xl_done;
+    logic [XLEN_BITS-1:0]            xl_pc;
+    logic [IC_TAG_W-1:0]    xl_ppn;         // translation of the second line (the next page if it is there)
+    logic                   xl_fault;       // ... which faulted
   } ic_regs_t;
 
   localparam ic_regs_t IC_REGS_RESET = '{
@@ -51,7 +58,8 @@ package icache_pkg;
     // see docs/modules/icache.md 4.1 item 5 (C++ holds 1 but the first peek also sees a false module output)
     ifu_ready: 1'b0,
     state: IC_IDLE, miss_txv: 1'b0, miss_txid: '0, ready_seen: 1'b0, inflight: '0, canceled: '0,
-    probe_inflight: 1'b0, probe_done: 1'b0, probe_hit: 1'b0, probe_word: '0, ppn: '0, replace_idx: '0
+    probe_inflight: 1'b0, probe_done: 1'b0, probe_hit: 1'b0, probe_word: '0, ppn: '0, replace_idx: '0,
+    xl_phase: 1'b0, xl_done: 1'b0, xl_pc: '0, xl_ppn: '0, xl_fault: 1'b0
   };
 
   // non-cacheable fetch: physical address below 0x40000000 (CONFIG_ICACHE_MMIO_UNCACHE_LIMIT) <=> ppn[19:18]==0
@@ -62,6 +70,13 @@ package icache_pkg;
   // icache_req_mem_addr(): one word for an uncached request, otherwise the line base
   function automatic logic [31:0] ic_req_mem_addr(input logic [IC_TAG_W-1:0] ppn, input logic [11:0] pc_low);
     return ic_is_uncache(ppn[IC_TAG_W-1 -: 2]) ? {ppn, pc_low} : {ppn, pc_low[11:IC_OFF_W], {IC_OFF_W{1'b0}}};
+  endfunction
+
+  // RVC=1 second line: a request at pc (physical page ppn) whose group reaches the last halfword of its line, and
+  // that halfword may start a 32-bit instruction (last_lo = its low two bits, 11), needs the first halfword of
+  // the next line (xl_candidate of the model)
+  function automatic logic ic_xl_cand(input logic [5:0] pc_off, input logic [1:0] ppn_hi, input logic [1:0] last_lo);
+    return (RVC_ENABLE != 0) && (pc_off >= 6'd32) && !ic_is_uncache(ppn_hi) && (last_lo == 2'b11);
   endfunction
 
   // DCache probe address of word `word` of the line being fetched

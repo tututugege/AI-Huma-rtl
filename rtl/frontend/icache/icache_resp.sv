@@ -12,6 +12,7 @@ module icache_resp import icache_pkg::*; import ttg_cfg_pkg::*; (
   input  logic                 resp_page_fault,
   input  logic                 resp_single_word,
   input  logic [IC_LINE_W-1:0] resp_line,
+  input  logic [15:0]          next_half,   // RVC=1: first halfword of the next line (upper half of the last window)
   output logic [XLEN_BITS-1:0]          fetch_pc,
   output logic [31:0]          fetch_group [FETCH_WIDTH],
   output logic [FETCH_WIDTH-1:0] page_fault_inst,
@@ -19,21 +20,52 @@ module icache_resp import icache_pkg::*; import ttg_cfg_pkg::*; (
 );
 
   localparam logic [31:0] INST_NOP = 32'h0000_0013;
-  logic [IC_WORD_IDX_W-1:0] base;
-  assign base     = resp_pc[IC_OFF_W-1:2];
   assign fetch_pc = resp_valid ? resp_pc : '0;
 
-  for (genvar i = 0; i < FETCH_WIDTH; i++) begin : g_lane
-    logic [IC_WORD_IDX_W:0] widx;
-    logic in_line, lane_on;
-    assign widx    = {1'b0, base} + (IC_WORD_IDX_W+1)'(i);
-    assign in_line = !widx[IC_WORD_IDX_W];
-    assign lane_on = resp_valid && (resp_single_word ? (i == 0) : in_line);
-    assign inst_valid[i]       = lane_on;
-    assign page_fault_inst[i]  = lane_on && resp_page_fault;
-    assign fetch_group[i]      = (lane_on && !resp_page_fault)
-                                 ? resp_line[IC_WORD_W * widx[IC_WORD_IDX_W-1:0] +: IC_WORD_W]
-                                                                : INST_NOP;
+  if (RVC_ENABLE == 0) begin : g_word
+    logic [IC_WORD_IDX_W-1:0] base;
+    assign base = resp_pc[IC_OFF_W-1:2];
+    for (genvar i = 0; i < FETCH_WIDTH; i++) begin : g_lane
+      logic [IC_WORD_IDX_W:0] widx;
+      logic in_line, lane_on;
+      assign widx    = {1'b0, base} + (IC_WORD_IDX_W+1)'(i);
+      assign in_line = !widx[IC_WORD_IDX_W];
+      assign lane_on = resp_valid && (resp_single_word ? (i == 0) : in_line);
+      assign inst_valid[i]       = lane_on;
+      assign page_fault_inst[i]  = lane_on && resp_page_fault;
+      assign fetch_group[i]      = (lane_on && !resp_page_fault)
+                                   ? resp_line[IC_WORD_W * widx[IC_WORD_IDX_W-1:0] +: IC_WORD_W]
+                                                                  : INST_NOP;
+    end
+    /* verilator lint_off UNUSEDSIGNAL */
+    logic unused_nh;
+    assign unused_nh = ^next_half;
+    /* verilator lint_on UNUSEDSIGNAL */
+  end else begin : g_half
+    // RVC=1: lane i is the 32-bit window that starts at halfword (pc[5:1] + i) of the line (the window of the last
+    // halfword takes its upper half from the next line); a lane is on while its halfword is inside the line.  An
+    // uncached answer is one word in lane 0 (the next word is not available: lane 1 stays off; executable memory
+    // below the uncached limit does not exist on this platform).
+    localparam int IC_HALVES = IC_LINE_W / 16;
+    logic [15:0] half [IC_HALVES + 1];
+    for (genvar h = 0; h < IC_HALVES; h++) begin : g_h
+      assign half[h] = resp_line[16 * h +: 16];
+    end
+    assign half[IC_HALVES] = next_half;
+    logic [IC_OFF_W-2:0] base;
+    assign base = resp_pc[IC_OFF_W-1:1];
+    for (genvar i = 0; i < FETCH_WIDTH; i++) begin : g_lane
+      logic [IC_OFF_W-1:0] hidx;
+      logic in_line, lane_on;
+      assign hidx    = {1'b0, base} + IC_OFF_W'(i);
+      assign in_line = !hidx[IC_OFF_W-1];
+      assign lane_on = resp_valid && (resp_single_word ? (i == 0) : in_line);
+      assign inst_valid[i]       = lane_on;
+      assign page_fault_inst[i]  = lane_on && resp_page_fault;
+      assign fetch_group[i]      = (lane_on && !resp_page_fault)
+                                   ? {half[{1'b0, hidx[IC_OFF_W-2:0]} + (IC_OFF_W)'(1)], half[hidx[IC_OFF_W-2:0]]}
+                                   : INST_NOP;
+    end
   end
 
 endmodule
