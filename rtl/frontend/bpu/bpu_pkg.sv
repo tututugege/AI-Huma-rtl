@@ -21,8 +21,6 @@ package bpu_pkg;
   localparam logic [2:0] BR_IDIRECT = 3'd3;
   localparam logic [2:0] BR_NONCTL  = 3'd4;
   localparam logic [2:0] BR_JAL     = 3'd5;
-  // rf_type only: the mispredicted branch is a carried slot 0 (its checkpoint is the next block's): no exact repair
-  localparam logic [2:0] BR_NOREPAIR = 3'd7;
   localparam logic [2:0] BR_ICALL   = 3'd6;   // jalr rd=ra: indirect target and RAS push of its own pc+4 (BPU_ACC)
 
   // ---- type predictor ----
@@ -65,6 +63,8 @@ package bpu_pkg;
   localparam int RAS_DEPTH = 32;
   localparam int RAS_PTR_W = 5;
   localparam int RAS_CNT_W = 6;
+  localparam int RASQ_N    = 64;              // slots of the speculative RAS queue (append-only)
+  localparam int RASQ_W    = 6;
   // folded history lengths fh_length[k][i] and history lengths ghr_length[i] (BPU.h)
   function automatic int fh_len(input int k, input int i);
     if (k == 0) return (i == 0) ? 8 : 11;

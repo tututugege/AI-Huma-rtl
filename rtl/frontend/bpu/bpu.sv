@@ -181,7 +181,7 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_btb_pkg::*; impo
   logic [XLEN_BITS-1:0] r_val;
 
   bpu_ctl u_ctl (
-    .refetch, .refetch_pd, .rf_valid(rf_valid && rf_type != BR_NOREPAIR), .rf_epoch_ok(rf_epoch == epoch_q),
+    .refetch, .refetch_pd, .rf_valid(rf_valid), .rf_epoch_ok(rf_epoch == epoch_q),
     .pd_valid, .pd_flush, .pdq_have,
     .icache_read_ready, .ptab_size, .r0(r0_q), .r1(r1_q), .fin, .g1, .d_valid, .ovr, .squash, .l1_ov, .issue, .fast,
     .s0_go,
@@ -202,7 +202,8 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_btb_pkg::*; impo
 
   bpu_cmd u_cmd (
     .refetch, .pd_restore, .rep_ok, .ovr, .l1_ov, .issue, .s0_go, .pc(pc_q), .refetch_address, .g0, .g1, .fin,
-    .r0(r0_q), .r1(r1_q), .pd_ck, .pd_hv, .pd_hbits, .pd_ras_op, .pd_ras_val, .rf_ck(hist_ck_t'(rf_ck)),
+    .r0(r0_q), .r1(r1_q), .pd_ck, .pd_hv, .pd_hbits, .pd_ras_op, .pd_ras_val, .rf_ck(hist_ck_t'(rf_ck[HHCK_W-1:0])),
+    .rf_rck(ras_ck_t'({rf_ck[HCK_W-1:HHCK_W], {XLEN_BITS{1'b0}}})),
     .rf_type, .rf_pc, .rf_is_rvc, .h_mode, .h_ck, .h_push_en, .h_push_bits, .r_mode, .r_ck, .r_op, .r_val, .pc1,
     .h2_en, .h2_bits, .r2_op, .r2_val, .pc_d,
     .hr_mode, .hr_ck, .hr_push_en, .hr_push_bits, .rr_mode, .rr_ck, .rr_op, .rr_val
@@ -261,7 +262,7 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_btb_pkg::*; impo
   assign ptab_write_enable          = d_valid;
   assign ptab_base_pc               = r1_q.base;
   assign predict_next_fetch_address = fin.next;
-  assign out_ck                     = HCK_W'(r1_q.ck.h);
+  assign out_ck                     = {r1_q.ck.r.tosr, r1_q.ck.r.tosw, r1_q.ck.r.cnt, r1_q.ck.h};
   assign out_epoch                  = epoch_q;
 
   /* verilator lint_off UNUSEDSIGNAL */

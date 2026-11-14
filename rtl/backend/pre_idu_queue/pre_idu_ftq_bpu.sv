@@ -38,11 +38,11 @@ module pre_idu_ftq_bpu import ttg_cfg_pkg::*; import bpu_pkg::BANK_W; import bpu
   always_comb begin
     rec  = rec_q[rd_idx];
     rel  = rd_br_pc[BANK_TOP:SLOT_SHIFT] - rec.base_rel;
-    // RVC=1: slot 0 may be an instruction carried over from the previous group (pc one slot below the base): its
-    // checkpoint is that of the next block, so the BPU gets no exact repair for it (the model has no record either)
-    slot = rel[BANK_TOP-1:SLOT_SHIFT];
+    // RVC=1: slot 0 may be an instruction carried over from the previous group (pc one slot below the base): it is
+    // completed in slot 0 of this block, whose record repairs it exactly
+    slot = (&rel) ? '0 : rel[BANK_TOP-1:SLOT_SHIFT];
     {rd_epoch, rd_ck} = rec.bck;
-    rd_type = (&rel) ? 3'd7 : rec.kind[slot];   // carried slot 0: BR_NOREPAIR
+    rd_type = rec.kind[slot];
   end
 
   always_ff @(posedge clk) begin

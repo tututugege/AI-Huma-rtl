@@ -7,7 +7,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
   input  logic rst_n,
   // ---- in: front end -> back end (SimCpu: BackTop::in, FrontPreIO; held registers front2back_hold live in SimCpu)
   input  logic [BACKEND_FETCH_WIDTH-1:0] front2pre_alt_pred,
-  input  logic [147:0] front2pre_bpu_ck,
+  input  logic [165:0] front2pre_bpu_ck,
   input  logic [31:0] front2pre_inst [BACKEND_FETCH_WIDTH],
   input  logic [BACKEND_FETCH_WIDTH-1:0] front2pre_page_fault_inst,
   input  logic [XLEN_BITS-1:0] front2pre_pc [BACKEND_FETCH_WIDTH],
@@ -73,7 +73,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
   output logic out_mispred,
   output logic out_no_mispred,
   output logic [XLEN_BITS-1:0] out_redirect_pc,
-  output logic [139:0] out_rf_ck,
+  output logic [157:0] out_rf_ck,
   output logic [7:0] out_rf_epoch,
   output logic [XLEN_BITS-1:0] out_rf_pc,
   output logic out_rf_is_rvc,

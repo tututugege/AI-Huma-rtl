@@ -6,7 +6,7 @@
 // The speculative copies are updated by exactly one command per cycle (the front end's decision of the cycle):
 //   history mode  HOLD: keep   PUSH: push on the current state   CK: load a checkpoint (head + folds), then push
 //                 ARCH: load the architectural copy (after this cycle's commits)
-//   RAS mode      same four, with ARCH = architectural stack, CK = (ptr, cnt, top) restore
+//   RAS mode      same four, with ARCH = the queue rebuilt from the architectural stack, CK = (tosr, tosw, cnt) restore
 module bpu_spec import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; (
   input  logic                clk,
   input  logic                rst_n,
@@ -64,7 +64,10 @@ module bpu_spec import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
   hist_t spec_d1;
   /* verilator lint_on UNUSEDSIGNAL */
   hist_t spec_q, spec_d, arch_q, arch_d;
-  ras_t  sras_q, sras_d, sras_d1, sras_old, aras_q, aras_d;
+  rasc_t aras_q, aras_d;
+  logic [XLEN_BITS-1:0] st_q  [RASQ_N];   // speculative RAS queue
+  logic [RASQ_W-1:0]    nos_q [RASQ_N];
+  rptr_t                rp_q;
 
   // Ref: push_arch: every taken control instruction of the commit lanes pushes its symbol (newest bit first in d)
   logic [23:0] arch_d_bits;
@@ -147,39 +150,89 @@ module bpu_spec import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
     always_comb spec_d = refetch ? spec_r2 : spec_old;
   end
 
+  // ---- speculative RAS: queue arrays + pointers; a command = (pointers, overlay of the array writes) ----
+  function automatic logic [XLEN_BITS-1:0] arch_st(input logic [RAS_PTR_W-1:0] j);
+    return aras_d.st[aras_d.ptr - aras_d.cnt[RAS_PTR_W-1:0] + RAS_PTR_W'(1) + j];
+  endfunction
+
+  /* verilator lint_off UNUSEDSIGNAL */   // the overlay / checkpoint fields a function does not read
+  function automatic logic [XLEN_BITS-1:0] rd_st(input rov_t o, input logic [RASQ_W-1:0] i);
+    logic [XLEN_BITS-1:0] v;
+    v = st_q[i];
+    if (o.arch && !i[RASQ_W-1]) v = arch_st(i[RAS_PTR_W-1:0]);
+    if (o.w1 && o.i1 == i) v = o.v1;
+    if (o.w2 && o.i2 == i) v = o.v2;
+    return v;
+  endfunction
+
+  function automatic logic [RASQ_W-1:0] rd_nos(input rov_t o, input logic [RASQ_W-1:0] i);
+    logic [RASQ_W-1:0] v;
+    v = nos_q[i];
+    if (o.arch && !i[RASQ_W-1]) v = (i == '0) ? '0 : i - RASQ_W'(1);
+    if (o.w1 && o.i1 == i) v = o.n1;
+    if (o.w2 && o.i2 == i) v = o.n2;
+    return v;
+  endfunction
+
+  // the state a command starts from: HOLD / PUSH = the current queue, CK = the checkpoint pointers (the queue keeps
+  // what they reach), ARCH = the queue rebuilt from the committed stack (bottom first at slot 0)
+  function automatic rst_t start(input logic [1:0] mode, input ras_ck_t ck);
+    rst_t s;
+    s = '0;
+    s.p = rp_q;
+    if (mode == M_CK) begin
+      s.p.tosr = ck.tosr; s.p.tosw = ck.tosw; s.p.cnt = ck.cnt;
+    end else if (mode == M_ARCH) begin
+      s.p.cnt  = aras_d.cnt;
+      s.p.tosr = (aras_d.cnt == '0) ? '0 : RASQ_W'(aras_d.cnt - RAS_CNT_W'(1));
+      s.p.tosw = RASQ_W'(aras_d.cnt);
+      s.o.arch = 1'b1;
+    end
+    return s;
+  endfunction
+
+  /* verilator lint_on UNUSEDSIGNAL */
+
+  function automatic rst_t do_op(input rst_t s0, input logic [1:0] op, input logic [XLEN_BITS-1:0] v,
+                                 input logic second);
+    rst_t s;
+    s = s0;
+    if (op == 2'd1) begin
+      if (second) begin s.o.w2 = 1'b1; s.o.i2 = s0.p.tosw; s.o.v2 = v; s.o.n2 = s0.p.tosr; end
+      else        begin s.o.w1 = 1'b1; s.o.i1 = s0.p.tosw; s.o.v1 = v; s.o.n1 = s0.p.tosr; end
+      s.p.tosr = s0.p.tosw;
+      s.p.tosw = s0.p.tosw + RASQ_W'(1);
+      if (s0.p.cnt < RAS_CNT_W'(RAS_DEPTH)) s.p.cnt = s0.p.cnt + RAS_CNT_W'(1);
+    end else if (op == 2'd2 && s0.p.cnt != '0) begin
+      s.p.tosr = rd_nos(s0.o, s0.p.tosr);
+      s.p.cnt  = s0.p.cnt - RAS_CNT_W'(1);
+    end
+    return s;
+  endfunction
+
   // Ref: comb: spec RAS update
-  ras_t rbase1;
-  always_comb begin
-    rbase1 = sras_q;
-    case (r_mode)
-      M_CK:    rbase1 = ras_restore(sras_q, r_ck);
-      M_ARCH:  rbase1 = aras_d;
-      default: rbase1 = sras_q;
-    endcase
-  end
-  always_comb sras_old = (r_mode == 2'd0) ? sras_q : ras_op(rbase1, r_op, r_val);
+  rst_t s_old, s_d1, s_d;
+  always_comb s_old = do_op(start(r_mode, r_ck), r_op, r_val, 1'b0);
   if (REFONLY) begin : g_r_ref
-    ras_t sras_r1;
-    always_comb sras_r1 = ras_op((rr_mode == M_CK) ? ras_restore(sras_q, rr_ck) : aras_d, rr_op, rr_val);
-    always_comb sras_d1 = sras_r1;
-    always_comb sras_d  = refetch ? ras_op(sras_r1, r2_op, r2_val) : sras_old;
+    always_comb s_d1 = do_op(start(rr_mode, rr_ck), rr_op, rr_val, 1'b0);
+    always_comb s_d  = refetch ? do_op(s_d1, r2_op, r2_val, 1'b1) : s_old;
   end else begin : g_r_std
-    always_comb sras_d1 = sras_old;
-    always_comb sras_d  = ras_op(sras_d1, r2_op, r2_val);
+    always_comb s_d1 = s_old;
+    always_comb s_d  = do_op(s_d1, r2_op, r2_val, 1'b1);
   end
 
   always_comb begin
     spec_ck.h.head    = spec_q.head;
     spec_ck.h.fh      = spec_q.fh;
-    spec_ck.r         = ras_take(sras_q);
-    spec_ras_nonempty = (sras_q.cnt != '0);
-    spec_ras_top      = sras_q.st[sras_q.ptr];
+    spec_ck.r         = '{tosr: rp_q.tosr, tosw: rp_q.tosw, cnt: rp_q.cnt, top: st_q[rp_q.tosr]};
+    spec_ras_nonempty = (rp_q.cnt != '0);
+    spec_ras_top      = st_q[rp_q.tosr];
     spec_fh           = spec_q.fh;
     spec1_ck.h.head    = spec_d1.head;
     spec1_ck.h.fh      = spec_d1.fh;
-    spec1_ck.r         = ras_take(sras_d1);
-    spec1_ras_nonempty = (sras_d1.cnt != '0);
-    spec1_ras_top      = sras_d1.st[sras_d1.ptr];
+    spec1_ck.r         = '{tosr: s_d1.p.tosr, tosw: s_d1.p.tosw, cnt: s_d1.p.cnt, top: rd_st(s_d1.o, s_d1.p.tosr)};
+    spec1_ras_nonempty = (s_d1.p.cnt != '0);
+    spec1_ras_top      = rd_st(s_d1.o, s_d1.p.tosr);
     spec1_fh           = spec_d1.fh;
   end
 
@@ -187,13 +240,18 @@ module bpu_spec import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
     if (!rst_n) begin
       spec_q <= '0;
       arch_q <= '0;
-      sras_q <= '0;
+      rp_q     <= '0;
       aras_q <= '0;
+      for (int j = 0; j < RASQ_N; j++) begin st_q[j] <= '0; nos_q[j] <= '0; end
     end else begin
       spec_q <= spec_d;
       arch_q <= arch_d;
-      sras_q <= sras_d;
+      rp_q     <= s_d.p;
       aras_q <= aras_d;
+      for (int j = 0; j < RASQ_N; j++) begin
+        st_q[j]  <= rd_st(s_d.o, RASQ_W'(j));
+        nos_q[j] <= rd_nos(s_d.o, RASQ_W'(j));
+      end
     end
   end
 

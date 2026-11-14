@@ -27,7 +27,7 @@ in  ptw_walk_resp_leaf_ppn 20 @ (((uint32_t)cpu.mem_subsystem.ptw_block.comb_out
 in  ptw_walk_resp_valid 1 @ cpu.mem_subsystem.ptw_block.comb_outputs().walk_clients[(size_t)MemSubsystem::PtwClient::DTLB].resp_valid
 in  ptw_walk_resp_vpn 20 @ ((uint32_t)cpu.mem_subsystem.ptw_block.comb_outputs().walk_clients[(size_t)MemSubsystem::PtwClient::DTLB].resp.vaddr >> 12)
 in  front2pre_alt_pred 1 [16] @ bt.in.alt_pred[i0]
-in  front2pre_bpu_ck 148 @ bt.in.bpu_ck
+in  front2pre_bpu_ck 166 @ bt.in.bpu_ck
 in  front2pre_inst 32 [16] @ bt.in.inst[i0]
 in  front2pre_page_fault_inst 1 [16] @ bt.in.page_fault_inst[i0]
 in  front2pre_pc 32 [16] @ bt.in.pc[i0]
@@ -106,7 +106,7 @@ out out_commit_entry_uop_diag_val 32 [8] when rob_commit_commit_entry_valid @ bt
 out out_mispred 1 @ bt.out.mispred
 out out_no_mispred 1 @ (uint64_t)!bt.out.mispred
 out out_redirect_pc 32 when out_mispred @ bt.out.redirect_pc
-out out_rf_ck 140 @ bt.rf.ck
+out out_rf_ck 158 @ bt.rf.ck
 out out_rf_epoch 8 @ bt.rf.epoch
 out out_rf_pc 32 when out_rf_valid @ bt.out.rf_pc
 out out_rf_type 3 @ bt.rf.type

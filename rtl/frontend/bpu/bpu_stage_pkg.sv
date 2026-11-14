@@ -45,10 +45,13 @@ package bpu_stage_pkg;
     logic [RAS_DEPTH-1:0][XLEN_BITS-1:0] st;
     logic [RAS_PTR_W-1:0]       ptr;
     logic [RAS_CNT_W-1:0]       cnt;
-  } ras_t;
+  } rasc_t;   // the committed RAS: a circular stack
   // checkpoints (state before a block)
   typedef struct packed { logic [HR_PTR_W-1:0] head; fh_t fh; } hist_ck_t;
-  typedef struct packed { logic [RAS_PTR_W-1:0] ptr; logic [RAS_CNT_W-1:0] cnt; logic [XLEN_BITS-1:0] top; } ras_ck_t;
+  typedef struct packed {
+    logic [RASQ_W-1:0] tosr; logic [RASQ_W-1:0] tosw; logic [RAS_CNT_W-1:0] cnt; logic [XLEN_BITS-1:0] top;
+  } ras_ck_t;
+  localparam int RCK_W = 2 * RASQ_W + RAS_CNT_W;   // the pointer part of a RAS checkpoint (what the back end carries)
   typedef struct packed { hist_ck_t h; ras_ck_t r; } ck_t;
 
   // ---- uBTB / L1 entry (taken-path history: the nd fields of the C++ entry are dead and not stored) ----
@@ -134,7 +137,8 @@ package bpu_stage_pkg;
   endfunction
 
 
-  localparam int HCK_W = HR_PTR_W + FH_K * TN * FH_W;   // bits of a history checkpoint (head + folded histories)
+  localparam int HHCK_W = HR_PTR_W + FH_K * TN * FH_W;   // bits of a history checkpoint (head + folded histories)
+  localparam int HCK_W = RCK_W + HHCK_W;                 // carried by the back end: RAS pointers above the history
 
   // ---- block registers of the S1 / S2 stages ----
   typedef struct packed {
@@ -238,8 +242,9 @@ package bpu_stage_pkg;
   endfunction
 
   // ---- RAS ----
-  function automatic ras_t ras_push(input ras_t r, input logic [XLEN_BITS-1:0] v);
-    ras_t n;
+  // committed (circular)
+  function automatic rasc_t ras_push(input rasc_t r, input logic [XLEN_BITS-1:0] v);
+    rasc_t n;
     n = r;
     n.ptr = r.ptr + RAS_PTR_W'(1);
     n.st[n.ptr] = v;
@@ -247,8 +252,8 @@ package bpu_stage_pkg;
     return n;
   endfunction
 
-  function automatic ras_t ras_pop(input ras_t r);
-    ras_t n;
+  function automatic rasc_t ras_pop(input rasc_t r);
+    rasc_t n;
     n = r;
     if (r.cnt != '0) begin
       n.ptr = r.ptr - RAS_PTR_W'(1);
@@ -257,28 +262,26 @@ package bpu_stage_pkg;
     return n;
   endfunction
 
-  function automatic ras_t ras_op(input ras_t r, input logic [1:0] op, input logic [XLEN_BITS-1:0] v);
-    if (op == 2'd1) return ras_push(r, v);
-    if (op == 2'd2) return ras_pop(r);
-    return r;
-  endfunction
-
-  function automatic ras_ck_t ras_take(input ras_t r);
-    ras_ck_t c;
-    c.ptr = r.ptr;
-    c.cnt = r.cnt;
-    c.top = r.st[r.ptr];
-    return c;
-  endfunction
-
-  function automatic ras_t ras_restore(input ras_t r, input ras_ck_t c);
-    ras_t n;
-    n = r;
-    n.ptr = c.ptr;
-    n.cnt = c.cnt;
-    n.st[c.ptr] = c.top;
-    return n;
-  endfunction
+  // speculative RAS: an append-only queue (state in bpu_spec): a push writes slot tosw (nos = the entry below),
+  // a pop follows the nos link of tosr, so a checkpoint of the pointers (tosr, tosw, depth) is exact
+  typedef struct packed {
+    logic [RASQ_W-1:0]    tosr;
+    logic [RASQ_W-1:0]    tosw;
+    logic [RAS_CNT_W-1:0] cnt;      // depth (saturates at RAS_DEPTH)
+  } rptr_t;
+  // what a command changes in the queue arrays: rebuilt from the committed stack, and up to two slot writes
+  typedef struct packed {
+    logic                 arch;
+    logic                 w1;
+    logic [RASQ_W-1:0]    i1;
+    logic [XLEN_BITS-1:0] v1;
+    logic [RASQ_W-1:0]    n1;
+    logic                 w2;
+    logic [RASQ_W-1:0]    i2;
+    logic [XLEN_BITS-1:0] v2;
+    logic [RASQ_W-1:0]    n2;
+  } rov_t;
+  typedef struct packed { rptr_t p; rov_t o; } rst_t;
 
 endpackage
 

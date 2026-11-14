@@ -33,6 +33,7 @@ module bpu_cmd import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*
   input  logic [1:0]  pd_ras_op,
   input  logic [XLEN_BITS-1:0] pd_ras_val,
   input  hist_ck_t    rf_ck,
+  input  ras_ck_t     rf_rck,    // RAS pointers of the repair record (top unused)
   input  logic [2:0]  rf_type,
   input  logic [XLEN_BITS-1:0] rf_pc,
   input  logic        rf_is_rvc,
@@ -103,6 +104,7 @@ module bpu_cmd import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*
       if (pd_restore) begin
         r_mode = M_CK; r_ck = pd_ck.r; r_op = pd_ras_op; r_val = pd_ras_val;
       end else if (rep_ok) begin
+        r_mode = M_CK; r_ck = rf_rck;
         r_op  = (rf_type == BR_CALL || rf_type == BR_ICALL) ? 2'd1 : (rf_type == BR_RET) ? 2'd2 : 2'd0;
         r_val = rf_pc + (rf_is_rvc ? XLEN_BITS'(2) : XLEN_BITS'(4));
       end
@@ -151,6 +153,7 @@ module bpu_cmd import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*
       rr_mode = M_CK; rr_ck = pd_ck.r; rr_op = pd_ras_op; rr_val = pd_ras_val;
     end else if (rep_ok) begin
       hr_mode = M_CK; hr_ck = rf_ck; hr_push_en = rf_taken; hr_push_bits = hsym_of(rf_pc, refetch_address);
+      rr_mode = M_CK; rr_ck = rf_rck;
       rr_op  = (rf_type == BR_CALL || rf_type == BR_ICALL) ? 2'd1 : (rf_type == BR_RET) ? 2'd2 : 2'd0;
       rr_val = rf_pc + (rf_is_rvc ? XLEN_BITS'(2) : XLEN_BITS'(4));
     end

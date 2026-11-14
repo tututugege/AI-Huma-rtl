@@ -21,7 +21,7 @@ in  idu_consume_fire 1 [8] @ bt.idu_consume.fire[i0]
 in  idu_br_latch_mispred 1 @ bt.idu->br_latch.mispred
 in  idu_br_latch_ftq_idx 6 @ bt.idu->br_latch.ftq_idx
 in  idu_br_latch_br_pc 32 @ bt.idu->br_latch.br_pc
-in  front2pre_bpu_ck 148 @ bt.in.bpu_ck
+in  front2pre_bpu_ck 166 @ bt.in.bpu_ck
 in  front2pre_slot_kind 24 @ bt.in.slot_kind
 in  rob_bcast_flush 1 @ bt.rob_bcast.flush
 in  rob_commit_commit_entry_valid 1 [8] @ bt.rob_commit.commit_entry[i0].valid
@@ -37,7 +37,7 @@ in  ftq_rob_pc_req_req_ftq_offset 4 [1] @ bt.ftq_rob_pc_req.req[i0].ftq_offset
 
 # ---- outputs: pre2front handshake (fire is not gated by lane validity beyond valid[i]) ----
 out pre2front_ready 1 @ bt.pre2front.ready
-out out_rf_ck 140 @ bt.rf.ck
+out out_rf_ck 158 @ bt.rf.ck
 out out_rf_epoch 8 @ bt.rf.epoch
 out out_rf_type 3 @ bt.rf.type
 out pre2front_fire 1 [16] @ bt.pre2front.fire[i0]

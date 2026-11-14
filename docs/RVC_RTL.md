@@ -56,3 +56,24 @@ hmmer 的 rv64gc 点上 48.7% 的取指组被 predecode 检查器冲刷（rv32 �
 - 没做：rv32 `RVC=1`（`ref_cycles_rvc.txt` 是修复前的模型周期，会有变化，没有重新生成）。
 hmmer 点：sp11 / sp13 周期 -43% / -42%（3.2 → 5.5 IPC）。
 
+
+## RAS：推测栈改成追加队列，检查点只存指针（trace-model 73aea0d，2026-11-15）
+
+起因：rv64 gcc 在 libc `memset` 的 `ret` 上最多 6% 误预测。memset 的 `sd` 循环以一条跨 32 B 块边界的 32 位 `bne` 结束，即携带指令（pc = 块基址 − 2）。
+旧的修复对它没有记录（`BR_NOREPAIR`），走回退（推测状态 = 提交状态 + epoch + 1），飞行中所有记录随之作废，连锁误预测。
+
+模型与 RTL 的改动（同一套逻辑）：
+
+- 推测 RAS 是 64 槽的追加队列（`bpu_spec`：`st_q[]`、`nos_q[]`、`rp_q` = tosr / tosw / cnt）：压栈写新槽 `tosw`（`nos` = 下面一项），弹栈只沿 `nos` 回退 `tosr`，因此**指针检查点是精确的**（环形栈在“弹栈后错误路径压栈”时会覆盖栈内的项）。深度仍是 32（`cnt` 饱和）。提交 RAS 仍是环形栈。
+- 检查点只有 tosr / tosw / cnt（18 位）加栈顶值；后端 FTQ 携带的检查点从 140 位变为 158 位（`HCK_W` = RAS 指针 + 历史），`back_top` 和 `spec/*.io` 的位宽同步。
+- 误预测修复：历史和 RAS 都从记录恢复，不再强制用提交 RAS（模型的 `repair_blk` 里 `n.sras = n.aras` 删除）。无记录时回退：由提交栈重建队列（槽 0 = 栈底）。
+- 携带指令（pc = 块基址 − 2）由补全它的块的记录精确修复：`pre_idu_ftq_bpu` 不再给槽 0 返回 `BR_NOREPAIR`（该类型删除），槽取 0，类型取该槽的 kind。
+
+实现注意（编译时间）：队列不能做成一个打包的 4096 位结构体在组合逻辑里逐级传递。第一版这样写，Verilator 生成的 C++ 里 clang 单个文件编了 30 分钟以上。现在是数组 + 指针，一次命令的结果是“指针 + 最多两次槽写入（重叠视图）”，两次命令（REFONLY 的重取命令加 S0 压栈）用 `rst_t` 组合，数组只在寄存器更新时写。
+
+验证（均为逐提交 function-model 检查）：
+
+- rv32 `RVC=0` `fm_gate`：64 / 64 通过，周期与新模型逐个相等；7 个程序周期随 RAS 改动变化（coremark、dhrystone、bit、fence-i-self-modify、recursion、smc-addi、vm-pagefault-test），`ref_cycles.txt` 已更新。
+- rv64（`RVC=1`、`FP=1`）：58 个 C 程序 RTL 周期与模型全部相同；`bench`、`benchs`、`chase` 也相同（9545188 / 419407 / 4941826）。
+- 模型侧：gcc 的 sp19 / sp42 / sp35 周期 −14.8% / −18.1% / −8.5%；12 个程序共 93 个点几何平均 −0.48%，没有一个高于 +0.1%。
+- 没做：rv32 `RVC=1` 的参考表 `ref_cycles_rvc.txt` 仍是旧模型的周期，没有重新生成；EXP-015 “RAS 取自提交状态”的结论来自 rv32 数据和环形栈检查点，不适用于这个队列实现。
