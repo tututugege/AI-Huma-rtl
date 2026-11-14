@@ -7,8 +7,11 @@
 //    is the second halfword: the instruction is assembled ({raw0, carried halfword}, pc = group pc - SLOT_BYTES), put in
 //    slot 0 and predecoded again; the instruction starts then follow the chain from slot 1 (start_b);
 //  - slots that do not start an instruction are invalid;
-//  - a 32-bit instruction that starts in the last slot of the group cannot be completed from this group: it is not
-//    delivered, its first halfword leaves for the carry register (straddle / carry_low).
+//  - a 32-bit instruction that starts in the last slot of the group is delivered complete when the BPU predicted it taken
+//    and the window of the slot has its upper halfword (same cache line): the fetch has already moved on to the target,
+//    nothing would ever complete it otherwise.  The sequential continuation of the group is then behind the instruction;
+//  - any other such instruction cannot be completed from this group: it is not delivered, its first halfword leaves for
+//    the carry register (straddle / carry_low).
 // With RVC=0 the group passes unchanged.
 module front_head_fix import ttg_cfg_pkg::*; import front_pkg::*; (
   input  logic [XLEN_BITS-1:0]            base_pc,
@@ -21,6 +24,9 @@ module front_head_fix import ttg_cfg_pkg::*; import front_pkg::*; (
   input  logic [FETCH_WIDTH-1:0]          start_a,
   input  logic [FETCH_WIDTH-1:0]          start_b,
   input  logic [15:0]                     raw0,
+  input  logic [FETCH_WIDTH-1:0]          predict_dir,   // the PTAB's prediction
+  input  logic                            up_ok,         // the last slot's window has its upper halfword
+  input  logic [XLEN_BITS-1:0]            seq_next_i,    // the group's sequential continuation (instruction queue)
   input  logic                            lh_valid,
   input  logic [XLEN_BITS-1:0]            lh_pc,
   input  logic [15:0]                     lh_data,
@@ -33,7 +39,8 @@ module front_head_fix import ttg_cfg_pkg::*; import front_pkg::*; (
   output logic [XLEN_BITS-1:0]            pc0,           // pc of slot 0
   output logic                            straddle,      // the last slot of the group starts an undelivered 32-bit instruction
   output logic [15:0]                     carry_low,     // ... and this is its first halfword
-  output logic [XLEN_BITS-1:0]            group_end_pc   // pc after the last valid slot of the group (before this correction)
+  output logic [XLEN_BITS-1:0]            group_end_pc,  // pc after the last valid slot of the group (before this correction)
+  output logic [XLEN_BITS-1:0]            seq_next_o     // the group's sequential continuation (after this correction)
 );
 
   if (RVC_ENABLE == 0) begin : g_pass
@@ -51,16 +58,19 @@ module front_head_fix import ttg_cfg_pkg::*; import front_pkg::*; (
     assign straddle     = 1'b0;
     assign carry_low    = '0;
     assign group_end_pc = '0;
+    assign seq_next_o   = seq_next_i;
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_rvc;
-    assign unused_rvc = ^{page_fault, is_rvc_i, start_a, start_b, raw0, lh_valid, lh_pc, lh_data};
+    assign unused_rvc = ^{page_fault, is_rvc_i, start_a, start_b, raw0, lh_valid, lh_pc, lh_data, predict_dir, up_ok};
     /* verilator lint_on UNUSEDSIGNAL */
   end else begin : g_rvc
     logic [XLEN_BITS-1:0] asm_pc;
     logic [31:0]          asm_word;
     logic [1:0]           asm_type;
     logic [XLEN_BITS-1:0] asm_tgt;
-    logic [FETCH_WIDTH-1:0] chain, last_oh, straddle_oh, keep;
+    logic [FETCH_WIDTH-1:0] chain, last_oh, straddle_oh, straddle_raw_oh, complete_oh, keep;
+    logic [XLEN_BITS-1:0]   slot_pc [FETCH_WIDTH];
+    logic [XLEN_BITS-1:0]   complete_pc;
     logic [15:0]          straddle_data [FETCH_WIDTH];
     logic [FETCH_WIDTH-1:0] lane_invalid, first_invalid_oh;
     logic                 any_invalid;
@@ -89,7 +99,10 @@ module front_head_fix import ttg_cfg_pkg::*; import front_pkg::*; (
       chain = carry ? start_b : start_a;
       for (int i = 0; i < FETCH_WIDTH; i++) begin
         last_oh[i]     = valid_i[i] && ((i == FETCH_WIDTH - 1) ? 1'b1 : !valid_i[i+1]);
-        straddle_oh[i] = last_oh[i] && chain[i] && !is_rvc_i[i] && !page_fault[i];
+        straddle_raw_oh[i] = last_oh[i] && chain[i] && !is_rvc_i[i] && !page_fault[i];
+        complete_oh[i] = straddle_raw_oh[i] && predict_dir[i] && up_ok;
+        straddle_oh[i] = straddle_raw_oh[i] && !complete_oh[i];
+        slot_pc[i]     = base_pc + XLEN_BITS'(SLOT_BYTES * i);
         keep[i]        = valid_i[i] && (chain[i] || (carry && i == 0));
         valid_o[i]     = keep[i] && !straddle_oh[i];
         straddle_data[i] = insts_i[i][15:0];
@@ -107,6 +120,8 @@ module front_head_fix import ttg_cfg_pkg::*; import front_pkg::*; (
       end
     end
     assign straddle = |straddle_oh;
+    ttg_onehot_mux #(.N(FETCH_WIDTH), .W(XLEN_BITS)) u_complete_pc (.sel(complete_oh), .data(slot_pc), .out(complete_pc));
+    assign seq_next_o = (|complete_oh) ? complete_pc + XLEN_BITS'(4) : seq_next_i;   // a completed instruction is 32 bits wide
     ttg_onehot_mux #(.N(FETCH_WIDTH), .W(16)) u_carry_low (.sel(straddle_oh), .data(straddle_data), .out(carry_low));
   end
 

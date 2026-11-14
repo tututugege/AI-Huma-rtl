@@ -14,7 +14,8 @@ module bpu_main_lane import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_btb_pk
   output logic [2:0]          ty,
   output logic                rvc,          // the predicted branch is a 16-bit instruction
   output logic                taken,
-  output logic [XLEN_BITS-1:0]         target
+  output logic [XLEN_BITS-1:0]         target,
+  output logic                tgt_valid     // the target is a table entry (else the caller uses the fall-through)
 );
 
   logic [TP_WAYS-1:0] ty_hit;
@@ -34,7 +35,8 @@ module bpu_main_lane import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_btb_pk
   end
 
   bpu_btb_sel u_sel (
-    .bank_pc(bank_pc), .br_type(ty), .btb_set(btb_set), .itt(itt), .itt_tag(itt_tag), .target(target)
+    .bank_pc(bank_pc), .br_type(ty), .btb_set(btb_set), .itt(itt), .itt_tag(itt_tag), .target(target),
+    .tgt_valid(tgt_valid)
   );
 
 endmodule

@@ -41,6 +41,7 @@ module icache import ttg_cfg_pkg::*; import icache_pkg::*; import tlb_mmu_pkg::*
   output logic [FETCH_WIDTH-1:0] inst_valid,
   output logic [FETCH_WIDTH-1:0] page_fault_inst,
   output logic [31:0] fetch_group [FETCH_WIDTH],
+  output logic [FETCH_WIDTH-1:0] fetch_upper_ok,
   output logic mem_req_valid,
   output logic [31:0] mem_req_addr,
   output logic [7:0]  mem_req_total_size,
@@ -118,6 +119,7 @@ module icache import ttg_cfg_pkg::*; import icache_pkg::*; import tlb_mmu_pkg::*
 
   icache_resp u_resp (
     .resp_valid, .resp_pc, .resp_page_fault, .resp_single_word, .resp_line, .fetch_pc, .fetch_group,
+    .upper_ok(fetch_upper_ok),
     .page_fault_inst, .inst_valid
   );
 

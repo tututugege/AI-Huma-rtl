@@ -18,13 +18,16 @@ module front_pd_info import ttg_cfg_pkg::*; import front_pkg::*; import bpu_stag
   input  logic [1:0]              ptype      [FETCH_WIDTH],
   input  logic [XLEN_BITS-1:0]             pre_target [FETCH_WIDTH],
   input  logic [FETCH_WIDTH-1:0]  dir_corrected,
+  input  logic [FETCH_WIDTH-1:0]  predict_dir,          // the PTAB's prediction (before the correction)
   input  logic [XLEN_BITS-1:0]             ptab_next,
   output logic                    pd_valid,
   output logic                    pd_flush,
   output logic                    pd_hv,
   output logic [HSYM_W-1:0]       pd_hbits,
   output logic [1:0]              pd_ras_op,
-  output logic [XLEN_BITS-1:0]             pd_ras_val
+  output logic [XLEN_BITS-1:0]             pd_ras_val,
+  output logic                    pd_nb_valid,          // a taken prediction on a non-branch: its type entry is stale
+  output logic [XLEN_BITS-1:0]             pd_nb_pc              // ... the pc of the first such slot
 );
 
   logic [FETCH_WIDTH-1:0] lane_taken;
@@ -57,6 +60,14 @@ module front_pd_info import ttg_cfg_pkg::*; import front_pkg::*; import bpu_stag
   ttg_onehot_mux #(.N(FETCH_WIDTH), .W(2)) u_ty (.sel(first), .data(lane_ty), .out(first_type));
   assign first_rvc = |(first & is_rvc);
 
+  // a taken prediction on an instruction that is not a branch (a dropped slot is not one: its instruction is carried)
+  logic [FETCH_WIDTH-1:0] nb_lane, nb_first;
+  logic                   nb_any;
+  logic [XLEN_BITS-1:0]            nb_pc_d;
+  always_comb for (int i = 0; i < FETCH_WIDTH; i++) nb_lane[i] = flush && inst_valid[i] && predict_dir[i] && ptype[i] == PREDECODE_NON_BRANCH;
+  ttg_first_set #(.N(FETCH_WIDTH)) u_nb_first (.req(nb_lane), .onehot(nb_first), .any(nb_any));
+  ttg_onehot_mux #(.N(FETCH_WIDTH), .W(XLEN_BITS)) u_nb_pc (.sel(nb_first), .data(lane_pc), .out(nb_pc_d));
+
   logic                 hv_d;
   logic [HSYM_W-1:0]    hbits_d;
   logic [1:0]           ras_op_d;
@@ -81,6 +92,8 @@ module front_pd_info import ttg_cfg_pkg::*; import front_pkg::*; import bpu_stag
   logic [HSYM_W-1:0]    pd_hbits_q;
   logic [1:0]           pd_ras_op_q;
   logic [XLEN_BITS-1:0]          pd_ras_val_q;
+  logic                 pd_nb_valid_q;
+  logic [XLEN_BITS-1:0]          pd_nb_pc_q;
 
   always_ff @(posedge clk) begin
     if (!rst_n) begin
@@ -90,6 +103,8 @@ module front_pd_info import ttg_cfg_pkg::*; import front_pkg::*; import bpu_stag
       pd_hbits_q   <= '0;
       pd_ras_op_q  <= '0;
       pd_ras_val_q <= '0;
+      pd_nb_valid_q <= 1'b0;
+      pd_nb_pc_q   <= '0;
     end else begin
       pd_valid_q   <= checked;
       pd_flush_q   <= flush;
@@ -97,6 +112,8 @@ module front_pd_info import ttg_cfg_pkg::*; import front_pkg::*; import bpu_stag
       pd_hbits_q   <= hbits_d;
       pd_ras_op_q  <= ras_op_d;
       pd_ras_val_q <= ras_val_d;
+      pd_nb_valid_q <= nb_any;
+      pd_nb_pc_q   <= nb_pc_d;
     end
   end
 
@@ -106,6 +123,8 @@ module front_pd_info import ttg_cfg_pkg::*; import front_pkg::*; import bpu_stag
   assign pd_hbits   = pd_hbits_q;
   assign pd_ras_op  = pd_ras_op_q;
   assign pd_ras_val = pd_ras_val_q;
+  assign pd_nb_valid = pd_nb_valid_q;
+  assign pd_nb_pc   = pd_nb_pc_q;
 
 endmodule
 

@@ -23,7 +23,10 @@ module bpu_banks import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_btb_pkg::*
   output logic [PCPN_W-1:0]   s2_pcpn    [NBANK],
   // update ports (slot bank)
   input  logic [NBANK-1:0]    wr_valid,
-  input  upd_ent_t            wr_ent     [NBANK]
+  input  upd_ent_t            wr_ent     [NBANK],
+  // type entry cleared by a predecode check (a taken prediction on a non-branch); the bank's update lane must be idle
+  input  logic                clr_valid,
+  input  logic [XLEN_BITS-1:0]         clr_pc
 );
 
   logic [XLEN_BITS-1:0]  slot_pc  [NBANK];     // pc of the block's slot that lives in bank b
@@ -31,6 +34,10 @@ module bpu_banks import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_btb_pkg::*
   tp_entry_t    ty_rd    [NBANK][TP_WAYS];
   logic [2:0]   wr_ty    [NBANK];
   logic         wr_rvc   [NBANK];
+  logic [NBANK-1:0]     ty_valid;
+  logic [XLEN_BITS-1:0] ty_pc    [NBANK];
+  logic [2:0]           ty_ty    [NBANK];
+  logic                 ty_rvc   [NBANK];
 
   always_comb begin
     for (int b = 0; b < NBANK; b++) begin
@@ -38,12 +45,17 @@ module bpu_banks import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_btb_pkg::*
       wr_pc[b]   = wr_ent[b].pc;
       wr_ty[b]   = wr_ent[b].ty;
       wr_rvc[b]  = wr_ent[b].rvc;
+      // the type lane: the update of the bank, else the clear of a stale entry
+      ty_valid[b] = wr_valid[b] || (clr_valid && clr_pc[BANK_TOP - 1:SLOT_SHIFT] == BANK_W'(b));
+      ty_pc[b]    = wr_valid[b] ? wr_pc[b] : clr_pc;
+      ty_ty[b]    = wr_valid[b] ? wr_ty[b] : BR_NONCTL;
+      ty_rvc[b]   = wr_valid[b] ? wr_rvc[b] : 1'b0;
     end
   end
 
   bpu_type u_type (
-    .clk, .rst_n, .rd_pc(slot_pc), .rd_way(ty_rd), .upd_valid(wr_valid), .upd_pc(wr_pc), .upd_br_type(wr_ty),
-    .upd_rvc(wr_rvc)
+    .clk, .rst_n, .rd_pc(slot_pc), .rd_way(ty_rd), .upd_valid(ty_valid), .upd_pc(ty_pc), .upd_br_type(ty_ty),
+    .upd_rvc(ty_rvc)
   );
 
   for (genvar b = 0; b < NBANK; b++) begin : g_bank

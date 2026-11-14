@@ -129,6 +129,7 @@ module front_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; 
   logic [FETCH_WIDTH-1:0] ic_inst_valid;
   logic [FETCH_WIDTH-1:0] ic_page_fault_inst;
   logic [31:0] ic_fetch_group     [FETCH_WIDTH];
+  logic [FETCH_WIDTH-1:0] ic_upper_ok;
 
   logic [31:0] inst_rd_instructions             [FETCH_WIDTH];
   logic [FETCH_WIDTH-1:0] inst_rd_page_fault_inst;
@@ -137,6 +138,7 @@ module front_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; 
   logic [XLEN_BITS-1:0] inst_rd_predecode_target_address [FETCH_WIDTH];
   logic [XLEN_BITS-1:0] inst_rd_seq_next_pc;
   logic [15:0] inst_rd_raw0;
+  logic        inst_rd_up_ok;
   logic [FETCH_WIDTH-1:0] inst_rd_is_rvc, inst_rd_start_a, inst_rd_start_b;
 
   icache u_icache (
@@ -158,6 +160,7 @@ module front_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; 
     .inst_valid      (ic_inst_valid),
     .page_fault_inst (ic_page_fault_inst),
     .fetch_group     (ic_fetch_group),
+    .fetch_upper_ok  (ic_upper_ok),
     .mem_req_valid, .mem_req_addr, .mem_req_total_size, .mem_req_bypass, .mem_req_id, .mem_resp_ready,
     .dc_req_valid, .dc_req_addr,
     .ptw_walk_req_valid, .ptw_walk_req_vpn, .ptw_walk_req_root_ppn, .ptw_walk_resp_consumed, .ptw_walk_flush
@@ -168,12 +171,12 @@ module front_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; 
     .fa_rd_en, .fa_wr_en, .fa_drop_tail,
     .fa_wr_address   (bpu_fetch_address),
     .fa_rd_valid, .fa_rd_address, .fa_full, .fa_empty, .fa_size,
-    .ic_read_complete, .ic_fetch_pc, .ic_inst_valid, .ic_page_fault_inst, .ic_fetch_group,
+    .ic_read_complete, .ic_fetch_pc, .ic_inst_valid, .ic_page_fault_inst, .ic_fetch_group, .ic_upper_ok,
     .inst_rd_en      (predecode_can_run),
     .inst_empty,
     .inst_rd_instructions, .inst_rd_page_fault_inst, .inst_rd_inst_valid, .inst_rd_predecode_type,
     .inst_rd_predecode_target_address, .inst_rd_seq_next_pc,
-    .inst_rd_raw0, .inst_rd_is_rvc, .inst_rd_start_a, .inst_rd_start_b
+    .inst_rd_raw0, .inst_rd_up_ok, .inst_rd_is_rvc, .inst_rd_start_a, .inst_rd_start_b
   );
 
   // ---- prediction side + front.out ----
@@ -190,7 +193,7 @@ module front_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; 
     .upd_valid, .base_pc, .actual_dir, .upd_is_rvc, .br_type, .target, .pred_dir, .alt_pred, .pcpn, .tags, .idxs,
     .inst_rd_instructions, .inst_rd_page_fault_inst, .inst_rd_inst_valid, .inst_rd_predecode_type,
     .inst_rd_predecode_target_address, .inst_rd_seq_next_pc,
-    .inst_rd_raw0, .inst_rd_is_rvc, .inst_rd_start_a, .inst_rd_start_b,
+    .inst_rd_raw0, .inst_rd_up_ok, .inst_rd_is_rvc, .inst_rd_start_a, .inst_rd_start_b,
     .bpu_icache_read_valid, .bpu_fetch_address, .bpu_ptab_write_enable,
     .bpu_override_valid, .bpu_override_squash, .ptab_empty, .f2b_full, .f2b_empty,
     .checker_flush_enable, .checker_flush_address,

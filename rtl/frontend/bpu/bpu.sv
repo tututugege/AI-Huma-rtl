@@ -32,6 +32,8 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_btb_pkg::*; impo
   input  logic [HSYM_W-1:0]   pd_hbits,
   input  logic [1:0]          pd_ras_op,
   input  logic [XLEN_BITS-1:0]         pd_ras_val,
+  input  logic                pd_nb_valid,   // no branch where a taken one was predicted: clear the type entry of
+  input  logic [XLEN_BITS-1:0]         pd_nb_pc,      // ... this pc
   // commit stream
   input  logic [NCOMMIT-1:0]  upd_valid,
   input  logic [XLEN_BITS-1:0]         base_pc    [NCOMMIT],
@@ -123,7 +125,8 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_btb_pkg::*; impo
 
   bpu_banks u_banks (
     .clk, .rst_n, .s1_base(r0_q.base), .s1_tix(r0_tix_q), .s1_raw, .s2_raw(r1_raw_q), .s2_tix(r1_tix_q),
-    .s2_pred(s2_tg_pred), .s2_alt(s2_tg_alt), .s2_pcpn(s2_tg_pcpn), .wr_valid, .wr_ent
+    .s2_pred(s2_tg_pred), .s2_alt(s2_tg_alt), .s2_pcpn(s2_tg_pcpn), .wr_valid, .wr_ent,
+    .clr_valid(pd_valid && pd_nb_valid), .clr_pc(pd_nb_pc)
   );
 
   always_comb begin

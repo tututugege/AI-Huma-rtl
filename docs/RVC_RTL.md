@@ -39,3 +39,20 @@ slot 是 2 字节位置（32 B 块 16 个槽）、预译码按槽展开压缩指
 - RVC=1 的 uBTB 块跟踪器是逐 lane 串行版本（`bpu_ub_track_ser`），RVC=0 是并行版本；时序没评估。
 - RVC=0 的指令队列项里也存 `raw0` / `start_a` / `start_b` / `is_rvc`（综合会剪掉，面积没统计）。
 - `is_rvc` 的位置、周期都已与模型对齐，但 C 程序的周期表还没有（R4）。
+
+## 预测准确率修复（2026-11-15）：trace-model 与 RTL 同步
+
+hmmer 的 rv64gc 点上 48.7% 的取指组被 predecode 检查器冲刷（rv32 几乎为 0）。查到三处，trace-model（`exp/rvc-carry`）和 RTL 都已改：
+
+| 问题 | 原来 | 现在 | RTL |
+|---|---|---|---|
+| BTB 未命中的预测目标 | `Btb::select` 收到的是银行内本地 pc（pc 右移 `BANK_W`），兜底返回它 + 4，得到 `(pc>>4)+4`，一个落在前 64 KiB 的地址，前端去取没有映射的页 | 兜底 = 真实 pc + 指令长度，只在第一个 taken 槽算一次（与 `ras_val` 共用加法器） | `bpu_btb_sel` 只输出 `tgt_valid`，`bpu_main_sel` 选 `first_fall` |
+| 过期的类型表记录 | 非控制指令提交不训练类型表，一次错误的 type 命中会在循环的每次迭代里冲刷一次 | predecode 发现“预测了 taken 但那里不是分支”，把该 pc 的类型条目清成 NONCTL；这个 bank 的类型更新通道本周期有队列项时放弃（下次冲刷再试） | `front_pd_info` 输出 `pd_nb_valid` / `pd_nb_pc`，`bpu_banks` 的类型通道在没有队列写时接清除请求 |
+| 跨组边界的 4 字节预测 taken 分支 | 最后一个槽位的指令被丢弃（预测已跳到目标，没人补上半个半字），冲刷重取 | 上半个半字在同一 cache line 时直接补全；补全后组的顺序下一地址是该指令之后（`seq_next_pc = pc + 4`，不是块末尾，否则预测错误后会从指令中间开始取指） | `icache_resp` 输出 `upper_ok`，经取指缓冲和指令 FIFO（`up_ok`）到 `front_head_fix` |
+
+验证：
+- RTL（rv64，FP=1，RVC=1）58 个 C 程序与 `bench`、`benchs`、`chase`，周期与 trace-model 逐个相等，逐条提交与 function-model 一致（`bench` 2025 万条提交，9,698,580 周期）。
+- 默认配置（rv32，RVC=0，无 FP）`fm_gate` 64 / 64 通过，周期与新模型逐个相等；新模型与旧 `ref_cycles.txt` 只有 `vm-sum-fetch-test` 一个程序不同（3983 → 3990），表已更新。
+- 没做：rv32 `RVC=1`（`ref_cycles_rvc.txt` 是修复前的模型周期，会有变化，没有重新生成）。
+hmmer 点：sp11 / sp13 周期 -43% / -42%（3.2 → 5.5 IPC）。
+

@@ -16,6 +16,7 @@ module inst_fifo import ttg_cfg_pkg::*; import front_pkg::*; (
   input  logic [XLEN_BITS-1:0] wr_predecode_target_address [FETCH_WIDTH],
   input  logic [XLEN_BITS-1:0] wr_seq_next_pc,
   input  logic [15:0] wr_raw0,
+  input  logic        wr_up_ok,
   input  logic [FETCH_WIDTH-1:0] wr_is_rvc,
   input  logic [FETCH_WIDTH-1:0] wr_start_a,
   input  logic [FETCH_WIDTH-1:0] wr_start_b,
@@ -27,6 +28,7 @@ module inst_fifo import ttg_cfg_pkg::*; import front_pkg::*; (
   output logic [XLEN_BITS-1:0] rd_predecode_target_address [FETCH_WIDTH],
   output logic [XLEN_BITS-1:0] rd_seq_next_pc,
   output logic [15:0] rd_raw0,
+  output logic        rd_up_ok,
   output logic [FETCH_WIDTH-1:0] rd_is_rvc,
   output logic [FETCH_WIDTH-1:0] rd_start_a,
   output logic [FETCH_WIDTH-1:0] rd_start_b,
@@ -53,10 +55,12 @@ module inst_fifo import ttg_cfg_pkg::*; import front_pkg::*; (
     wr_entry.seq_next_pc = wr_seq_next_pc;
     rd_seq_next_pc       = rd_entry.seq_next_pc;
     wr_entry.raw0        = wr_raw0;
+    wr_entry.up_ok       = wr_up_ok;
     wr_entry.is_rvc      = wr_is_rvc;
     wr_entry.start_a     = wr_start_a;
     wr_entry.start_b     = wr_start_b;
     rd_raw0              = rd_entry.raw0;
+    rd_up_ok             = rd_entry.up_ok;
     rd_is_rvc            = rd_entry.is_rvc;
     rd_start_a           = rd_entry.start_a;
     rd_start_b           = rd_entry.start_b;

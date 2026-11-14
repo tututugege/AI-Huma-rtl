@@ -42,6 +42,7 @@ package front_pkg;
   // ---- FIFO entries (debug-only fields of the C++ entries are not stored) ----
   // instruction_FIFO entry: one predecoded fetch group
   typedef struct packed {
+    logic                                      up_ok;     // RVC=1: the last slot's window has its upper halfword
     logic [15:0]                               raw0;      // RVC=1: first halfword of slot 0 as fetched (before expansion)
     logic [FETCH_WIDTH-1:0]                    start_b;   // RVC=1: instruction starts when slot 0 is a carried second half
     logic [FETCH_WIDTH-1:0]                    start_a;   // RVC=1: instruction starts when slot 0 begins an instruction

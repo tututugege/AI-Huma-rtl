@@ -26,6 +26,7 @@ module front_fetch_buf import ttg_cfg_pkg::*; import front_pkg::*; (
   input  logic [FETCH_WIDTH-1:0] ic_inst_valid,
   input  logic [FETCH_WIDTH-1:0] ic_page_fault_inst,
   input  logic [31:0] ic_fetch_group     [FETCH_WIDTH],
+  input  logic [FETCH_WIDTH-1:0] ic_upper_ok,
   // instruction queue read side (head of the queue, valid when predecode_can_run)
   input  logic        inst_rd_en,
   output logic        inst_empty,
@@ -36,6 +37,7 @@ module front_fetch_buf import ttg_cfg_pkg::*; import front_pkg::*; (
   output logic [XLEN_BITS-1:0] inst_rd_predecode_target_address [FETCH_WIDTH],
   output logic [XLEN_BITS-1:0] inst_rd_seq_next_pc,
   output logic [15:0] inst_rd_raw0,
+  output logic        inst_rd_up_ok,
   output logic [FETCH_WIDTH-1:0] inst_rd_is_rvc,
   output logic [FETCH_WIDTH-1:0] inst_rd_start_a,
   output logic [FETCH_WIDTH-1:0] inst_rd_start_b
@@ -52,6 +54,15 @@ module front_fetch_buf import ttg_cfg_pkg::*; import front_pkg::*; (
   logic [31:0]            ex_inst [FETCH_WIDTH];
   logic [FETCH_WIDTH-1:0] is_rvc;
   logic [FETCH_WIDTH-1:0] start_a, start_b;
+  // RVC=1: the window of the group's last slot carries a real upper halfword (a 32-bit instruction that starts
+  // there can be completed from this group)
+  logic [FETCH_WIDTH-1:0] last_oh;
+  logic                   up_ok;
+  always_comb begin
+    for (int i = 0; i < FETCH_WIDTH; i++)
+      last_oh[i] = ic_inst_valid[i] && ((i == FETCH_WIDTH - 1) ? 1'b1 : !ic_inst_valid[i+1]);
+  end
+  assign up_ok = (RVC_ENABLE != 0) && |(last_oh & ic_upper_ok);
   if (RVC_ENABLE != 0) begin : g_rvc
     for (genvar i = 0; i < FETCH_WIDTH; i++) begin : g_lane
       logic [31:0] ex;
@@ -128,6 +139,7 @@ module front_fetch_buf import ttg_cfg_pkg::*; import front_pkg::*; (
     .wr_predecode_target_address (predecode_target_address),
     .wr_seq_next_pc              (seq_next_pc),
     .wr_raw0                     (ic_fetch_group[0][15:0]),
+    .wr_up_ok                    (up_ok),
     .wr_is_rvc                   (is_rvc),
     .wr_start_a                  (start_a),
     .wr_start_b                  (start_b),
@@ -139,6 +151,7 @@ module front_fetch_buf import ttg_cfg_pkg::*; import front_pkg::*; (
     .rd_predecode_target_address (inst_rd_predecode_target_address),
     .rd_seq_next_pc              (inst_rd_seq_next_pc),
     .rd_raw0                     (inst_rd_raw0),
+    .rd_up_ok                    (inst_rd_up_ok),
     .rd_is_rvc                   (inst_rd_is_rvc),
     .rd_start_a                  (inst_rd_start_a),
     .rd_start_b                  (inst_rd_start_b),

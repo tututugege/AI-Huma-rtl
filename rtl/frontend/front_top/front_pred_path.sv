@@ -48,6 +48,7 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
   input  logic [XLEN_BITS-1:0]         inst_rd_predecode_target_address [FETCH_WIDTH],
   input  logic [XLEN_BITS-1:0]         inst_rd_seq_next_pc,
   input  logic [15:0]         inst_rd_raw0,
+  input  logic                inst_rd_up_ok,
   input  logic [FETCH_WIDTH-1:0] inst_rd_is_rvc,
   input  logic [FETCH_WIDTH-1:0] inst_rd_start_a,
   input  logic [FETCH_WIDTH-1:0] inst_rd_start_b,
@@ -96,6 +97,8 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
   logic [HSYM_W-1:0]  pd_hbits;
   logic [1:0]         pd_ras_op;
   logic [XLEN_BITS-1:0]        pd_ras_val;
+  logic               pd_nb_valid;
+  logic [XLEN_BITS-1:0] pd_nb_pc;
   logic [HCK_W-1:0]   bpu_out_ck;
   logic [EPOCH_W-1:0] bpu_out_epoch;
 
@@ -110,7 +113,7 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
     .icache_read_ready          (bpu_icache_read_ready),
     .ptab_size                  (ptab_size8),
     .rf_valid, .rf_ck, .rf_epoch, .rf_type, .rf_pc, .rf_is_rvc,
-    .pd_valid, .pd_flush, .pd_hv, .pd_hbits, .pd_ras_op, .pd_ras_val,
+    .pd_valid, .pd_flush, .pd_hv, .pd_hbits, .pd_ras_op, .pd_ras_val, .pd_nb_valid, .pd_nb_pc,
     .upd_valid, .base_pc, .actual_dir, .upd_is_rvc, .br_type, .target, .pred_dir, .alt_pred, .pcpn, .tags, .idxs,
     .icache_read_valid          (bpu_icache_read_valid),
     .fetch_address              (bpu_fetch_address),
@@ -184,12 +187,15 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
   logic                  hf_carry, hf_straddle;
   logic [XLEN_BITS-1:0]  hf_pc0, hf_end;
   logic [15:0]           hf_low;
+  logic [XLEN_BITS-1:0]  hf_seq_next;   // the group's sequential continuation (behind a completed straddler)
 
   front_head_fix u_head_fix (
     .base_pc(ptab_rd_predict_base_pc),
     .insts_i(inst_rd_instructions), .valid_i(inst_rd_inst_valid), .page_fault(inst_rd_page_fault_inst),
     .ptype_i(inst_rd_predecode_type), .ptarget_i(inst_rd_predecode_target_address),
     .is_rvc_i(inst_rd_is_rvc), .start_a(inst_rd_start_a), .start_b(inst_rd_start_b), .raw0(inst_rd_raw0),
+    .predict_dir(ptab_rd_predict_dir), .up_ok(inst_rd_up_ok),
+    .seq_next_i(inst_rd_seq_next_pc), .seq_next_o(hf_seq_next),
     .lh_valid(lh_valid_q), .lh_pc(lh_pc_q), .lh_data(lh_data_q),
     .insts_o(hf_insts), .valid_o(hf_valid), .ptype_o(hf_type), .ptarget_o(hf_target), .is_rvc_o(hf_rvc),
     .carry(hf_carry), .pc0(hf_pc0), .straddle(hf_straddle), .carry_low(hf_low), .group_end_pc(hf_end)
@@ -206,7 +212,7 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
     .predict_next_fetch_address           (ptab_rd_predict_next_fetch_address),
     .predecode_type                       (hf_type),
     .predecode_target_address             (hf_target),
-    .seq_next_pc                          (inst_rd_seq_next_pc),
+    .seq_next_pc                          (hf_seq_next),
     .predict_dir_corrected                (checker_dir_corrected),
     .predict_next_fetch_address_corrected (checker_next_corrected),
     .predecode_flush_enable               (checker_flush_enable)
@@ -221,8 +227,9 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
     .clk, .rst_n, .checked(predecode_can_run), .flush(predecode_can_run && checker_flush_enable),
     .base_pc(ptab_rd_predict_base_pc), .pc0(hf_pc0), .is_rvc(hf_rvc), .insts(hf_insts), .inst_valid(hf_valid),
     .ptype(hf_type), .pre_target(hf_target),
-    .dir_corrected(checker_dir_corrected), .ptab_next(ptab_rd_predict_next_fetch_address),
-    .pd_valid, .pd_flush, .pd_hv, .pd_hbits, .pd_ras_op, .pd_ras_val
+    .dir_corrected(checker_dir_corrected), .predict_dir(ptab_rd_predict_dir),
+    .ptab_next(ptab_rd_predict_next_fetch_address),
+    .pd_valid, .pd_flush, .pd_hv, .pd_hbits, .pd_ras_op, .pd_ras_val, .pd_nb_valid, .pd_nb_pc
   );
 
   // the carry state follows the group the checker looks at (predecode_can_run); a back-end redirect drops it

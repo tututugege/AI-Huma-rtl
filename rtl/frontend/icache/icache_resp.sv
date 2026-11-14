@@ -15,7 +15,8 @@ module icache_resp import icache_pkg::*; import ttg_cfg_pkg::*; (
   output logic [XLEN_BITS-1:0]          fetch_pc,
   output logic [31:0]          fetch_group [FETCH_WIDTH],
   output logic [FETCH_WIDTH-1:0] page_fault_inst,
-  output logic [FETCH_WIDTH-1:0] inst_valid
+  output logic [FETCH_WIDTH-1:0] inst_valid,
+  output logic [FETCH_WIDTH-1:0] upper_ok         // RVC=1: the lane's window has a real upper halfword
 );
 
   localparam logic [31:0] INST_NOP = 32'h0000_0013;
@@ -35,6 +36,7 @@ module icache_resp import icache_pkg::*; import ttg_cfg_pkg::*; (
       assign fetch_group[i]      = (lane_on && !resp_page_fault)
                                    ? resp_line[IC_WORD_W * widx[IC_WORD_IDX_W-1:0] +: IC_WORD_W]
                                                                   : INST_NOP;
+      assign upper_ok[i]         = 1'b0;
     end
   end else begin : g_half
     // RVC=1: lane i is the 32-bit window that starts at halfword (pc[5:1] + i) of the line; a lane is on while its
@@ -64,6 +66,7 @@ module icache_resp import icache_pkg::*; import ttg_cfg_pkg::*; (
       assign page_fault_inst[i]  = lane_on && resp_page_fault;
       assign upper[i]            = (resp_single_word && i == 1) ? 16'h0 : half[h1];
       assign fetch_group[i]      = (lane_on && !resp_page_fault) ? {upper[i], half[h0]} : INST_NOP;
+      assign upper_ok[i]         = !(resp_single_word && i == 1) && (h1 != HI_W'(IC_HALVES));
     end
   end
 

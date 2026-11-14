@@ -59,7 +59,7 @@
 41059 vm-asid-test/vm_asid_test.bin
 19232 vm-pagefault-test/vm_pagefault_test.bin
 25144 vm-sfence-perm-test/vm_sfence_perm_test.bin
-3983 vm-sum-fetch-test/vm_sum_fetch_test.bin
+3990 vm-sum-fetch-test/vm_sum_fetch_test.bin
 4613 wanshu/wanshu.bin
 947 wfi-boundary/wfi-boundary.bin
 3398 directed/memspec_vio.bin
