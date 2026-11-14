@@ -20,6 +20,7 @@ module back_top_glue
   input  logic [XLEN_BITS-1:0] csr2front_trap_pc,
   input  logic [XLEN_BITS-1:0] br_latch_redirect_pc,
   input  logic [XLEN_BITS-1:0] br_latch_br_pc,
+  input  logic br_latch_is_rvc,
   input  logic        dec_bcast_mispred,
   input  logic        pre2front_ready,
   input  logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_valid,
@@ -32,6 +33,7 @@ module back_top_glue
   output logic [XLEN_BITS-1:0] out_redirect_pc,
   output logic        out_rf_valid,    // the redirect is a branch mispredict (not a ROB flush): BPU history repair
   output logic [XLEN_BITS-1:0] out_rf_pc,       // pc of the mispredicted branch
+  output logic out_rf_is_rvc,                   // ... and whether it is a 16-bit instruction
   output logic [XLEN_BITS-1:0] out_commit_entry_uop_diag_val [COMMIT_WIDTH],
   output logic        csr_status_mstatus_mxr,
   output logic        csr_status_mstatus_sum,
@@ -54,6 +56,7 @@ module back_top_glue
   assign out_redirect_pc = rob_bcast_flush ? flush_redirect_pc : br_latch_redirect_pc;
   assign out_rf_valid    = dec_bcast_mispred & ~rob_bcast_flush;
   assign out_rf_pc       = br_latch_br_pc;
+  assign out_rf_is_rvc   = br_latch_is_rvc;
 
   // Ref: BackTop::comb, loop over COMMIT_WIDTH: valid slots get diag_val = redirect_pc while flushing
   for (genvar i = 0; i < COMMIT_WIDTH; i++) begin : g_commit

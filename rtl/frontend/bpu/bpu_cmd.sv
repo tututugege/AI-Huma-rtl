@@ -35,6 +35,7 @@ module bpu_cmd import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*
   input  hist_ck_t    rf_ck,
   input  logic [2:0]  rf_type,
   input  logic [XLEN_BITS-1:0] rf_pc,
+  input  logic        rf_is_rvc,
   output logic [1:0]  h_mode,
   output hist_ck_t    h_ck,
   output logic        h_push_en,
@@ -72,7 +73,7 @@ module bpu_cmd import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*
   logic rf_taken;
 
   always_comb begin
-    rf_taken = (rf_type == BR_DIRECT) ? (refetch_address != rf_pc + XLEN_BITS'(4)) : 1'b1;
+    rf_taken = (rf_type == BR_DIRECT) ? (refetch_address != rf_pc + (rf_is_rvc ? XLEN_BITS'(2) : XLEN_BITS'(4))) : 1'b1;
   end
 
   // Ref: comb: history command
@@ -103,7 +104,7 @@ module bpu_cmd import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*
         r_mode = M_CK; r_ck = pd_ck.r; r_op = pd_ras_op; r_val = pd_ras_val;
       end else if (rep_ok) begin
         r_op  = (rf_type == BR_CALL || rf_type == BR_ICALL) ? 2'd1 : (rf_type == BR_RET) ? 2'd2 : 2'd0;
-        r_val = rf_pc + XLEN_BITS'(4);
+        r_val = rf_pc + (rf_is_rvc ? XLEN_BITS'(2) : XLEN_BITS'(4));
       end
     end else if (ovr) begin
       r_mode = M_CK; r_ck = r1.ck.r; r_op = fin.ras_op; r_val = fin.ras_val;
@@ -151,7 +152,7 @@ module bpu_cmd import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*
     end else if (rep_ok) begin
       hr_mode = M_CK; hr_ck = rf_ck; hr_push_en = rf_taken; hr_push_bits = hsym_of(rf_pc, refetch_address);
       rr_op  = (rf_type == BR_CALL || rf_type == BR_ICALL) ? 2'd1 : (rf_type == BR_RET) ? 2'd2 : 2'd0;
-      rr_val = rf_pc + XLEN_BITS'(4);
+      rr_val = rf_pc + (rf_is_rvc ? XLEN_BITS'(2) : XLEN_BITS'(4));
     end
   end
 

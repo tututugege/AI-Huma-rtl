@@ -76,6 +76,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
   output logic [139:0] out_rf_ck,
   output logic [7:0] out_rf_epoch,
   output logic [XLEN_BITS-1:0] out_rf_pc,
+  output logic out_rf_is_rvc,
   output logic [2:0] out_rf_type,
   output logic out_rf_valid,
   output logic out_stall,
@@ -147,6 +148,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
 
   // ---- nets driven by idu: Idu (back-end/Idu.cpp)
   logic [XLEN_BITS-1:0] br_latch_br_pc;
+  logic br_latch_is_rvc;
   logic [5:0] br_latch_ftq_idx;
   logic br_latch_mispred;
   logic [XLEN_BITS-1:0] br_latch_redirect_pc;
@@ -419,6 +421,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
   logic [ISSUE_WIDTH-1:0] exe2prf_entry_valid;
   logic [BR_TAG_WIDTH-1:0] exu2id_br_id;
   logic [XLEN_BITS-1:0] exu2id_br_pc;
+  logic exu2id_br_is_rvc;
   logic [BR_MASK_WIDTH-1:0] exu2id_clear_mask;
   logic [5:0] exu2id_ftq_idx;
   logic exu2id_mispred;
@@ -636,6 +639,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     // inputs from exu
     .exu2id_br_id(exu2id_br_id),
     .exu2id_br_pc(exu2id_br_pc),
+    .exu2id_br_is_rvc(exu2id_br_is_rvc),
     .exu2id_clear_mask(exu2id_clear_mask),
     .exu2id_ftq_idx(exu2id_ftq_idx),
     .exu2id_mispred(exu2id_mispred),
@@ -692,7 +696,8 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .br_latch_mispred(br_latch_mispred),
     .br_latch_redirect_pc(br_latch_redirect_pc),
     .br_latch_ftq_idx(br_latch_ftq_idx),
-    .br_latch_br_pc(br_latch_br_pc)
+    .br_latch_br_pc(br_latch_br_pc),
+    .br_latch_is_rvc(br_latch_is_rvc)
   );
 
   // ================= ren: Ren (back-end/Ren.cpp)
@@ -1250,7 +1255,8 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .exu2id_redirect_rob_idx(exu2id_redirect_rob_idx),
     .exu2id_br_id(exu2id_br_id),
     .exu2id_ftq_idx(exu2id_ftq_idx),
-    .exu2id_br_pc(exu2id_br_pc)
+    .exu2id_br_pc(exu2id_br_pc),
+    .exu2id_br_is_rvc(exu2id_br_is_rvc)
   );
 
   // ================= csr: Csr (back-end/Exu/Csr.cpp)
@@ -1617,6 +1623,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .csr_status_mstatus(csr_status_mstatus),
     // inputs from idu
     .br_latch_br_pc(br_latch_br_pc),
+    .br_latch_is_rvc(br_latch_is_rvc),
     .br_latch_redirect_pc(br_latch_redirect_pc),
     .dec_bcast_mispred(dec_bcast_mispred),
     // inputs from pre
@@ -1637,6 +1644,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .out_redirect_pc(out_redirect_pc),
     .out_rf_valid(out_rf_valid),
     .out_rf_pc(out_rf_pc),
+    .out_rf_is_rvc(out_rf_is_rvc),
     .out_commit_entry_uop_diag_val(out_commit_entry_uop_diag_val),
     .csr_status_mstatus_mxr(csr_status_mstatus_mxr),
     .csr_status_mstatus_sum(csr_status_mstatus_sum),

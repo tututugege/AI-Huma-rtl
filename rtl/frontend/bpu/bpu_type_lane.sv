@@ -11,6 +11,7 @@ module bpu_type_lane import bpu_pkg::*; (
   input  logic [TP_TAG_W-1:0] tag,
   input  tp_entry_t           way_entry [TP_WAYS],
   input  logic [2:0]          actual_type,
+  input  logic                actual_rvc,
   output logic [2:0]          pred_type,
   output logic                upd_we,
   output logic [0:0]          upd_way,
@@ -45,6 +46,7 @@ module bpu_type_lane import bpu_pkg::*; (
     upd_entry.valid   = 1'b1;
     upd_entry.tag     = tag;
     upd_entry.br_type = actual_type;
+    upd_entry.rvc     = actual_rvc;
     upd_entry.age     = same_type_hit ? ((old_age == 2'd3) ? 2'd3 : old_age + 2'd1) : 2'd1;
     if (actual_type == BR_NONCTL) upd_entry = '0;          // clear the hit entry
   end

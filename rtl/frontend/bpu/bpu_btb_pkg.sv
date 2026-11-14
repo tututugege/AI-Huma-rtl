@@ -17,11 +17,11 @@ package bpu_btb_pkg;
   } btb_ent_t;
 
   function automatic logic [B_IDX_W-1:0] btb_idx_of(input logic [XLEN_BITS-1:0] bank_pc);
-    return B_IDX_W'(hash_fold(32'(bank_pc >> 2), B_IDX_W, SALT_BTB_IDX));   // low 32 bits of the word address
+    return B_IDX_W'(hash_fold(32'(bank_pc >> SLOT_SHIFT), B_IDX_W, SALT_BTB_IDX));   // low 32 bits of the word address
   endfunction
 
   function automatic logic [B_TAG_W-1:0] btb_tag_of(input logic [XLEN_BITS-1:0] bank_pc);
-    return B_TAG_W'((bank_pc >> 2) >> B_IDX_W);
+    return B_TAG_W'((bank_pc >> SLOT_SHIFT) >> B_IDX_W);
   endfunction
 
   // useful_next_state_comb: saturating 0..7

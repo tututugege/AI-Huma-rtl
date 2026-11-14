@@ -20,6 +20,7 @@ module core_back2front import ttg_cfg_pkg::*; import dis_pkg::*; import bpu_pkg:
   input  logic [EPOCH_W-1:0] out_rf_epoch,
   input  logic [2:0]  out_rf_type,
   input  logic [XLEN_BITS-1:0] out_rf_pc,
+  input  logic        out_rf_is_rvc,
   input  logic        rob_bcast_fence,
   input  logic        rob_bcast_fence_i,
   input  logic [COMMIT_WIDTH-1:0] commit_valid,
@@ -45,10 +46,12 @@ module core_back2front import ttg_cfg_pkg::*; import dis_pkg::*; import bpu_pkg:
   output logic [EPOCH_W-1:0] rf_epoch_q,
   output logic [2:0]  rf_type_q,
   output logic [XLEN_BITS-1:0] rf_pc_q,
+  output logic        rf_is_rvc_q,
   output logic        itlb_flush_q,
   output logic        fence_i_q,
   output logic        stall_q,
   output logic [COMMIT_WIDTH-1:0] upd_valid_q,
+  output logic [COMMIT_WIDTH-1:0] upd_is_rvc_q,
   output logic [XLEN_BITS-1:0] upd_base_pc_q [COMMIT_WIDTH],
   output logic [COMMIT_WIDTH-1:0] upd_actual_dir_q,
   output logic [2:0]  upd_br_type_q [COMMIT_WIDTH],
@@ -96,6 +99,7 @@ module core_back2front import ttg_cfg_pkg::*; import dis_pkg::*; import bpu_pkg:
 
   // next-state of the update bundle: payload only for valid slots
   logic [COMMIT_WIDTH-1:0] upd_valid_d;
+  logic [COMMIT_WIDTH-1:0] upd_is_rvc_d;
   logic [XLEN_BITS-1:0] upd_base_pc_d [COMMIT_WIDTH];
   logic [COMMIT_WIDTH-1:0] upd_actual_dir_d;
   logic [2:0]  upd_br_type_d [COMMIT_WIDTH];
@@ -109,6 +113,7 @@ module core_back2front import ttg_cfg_pkg::*; import dis_pkg::*; import bpu_pkg:
   always_comb begin
     for (int i = 0; i < COMMIT_WIDTH; i++) begin
       upd_valid_d[i]      = commit_valid[i];
+      upd_is_rvc_d[i]     = commit_valid[i] && ftq_is_rvc[i];
       upd_base_pc_d[i]    = commit_valid[i] ? ftq_pc[i]          : '0;
       upd_actual_dir_d[i] = commit_valid[i] && class_dir[i];
       upd_br_type_d[i]    = commit_valid[i] ? class_br_type[i]   : 3'd0;
@@ -132,6 +137,7 @@ module core_back2front import ttg_cfg_pkg::*; import dis_pkg::*; import bpu_pkg:
       rf_epoch_q        <= '0;
       rf_type_q         <= '0;
       rf_pc_q           <= '0;
+      rf_is_rvc_q       <= 1'b0;
       itlb_flush_q      <= 1'b0;
       fence_i_q         <= 1'b0;
       stall_q           <= 1'b0;
@@ -143,6 +149,7 @@ module core_back2front import ttg_cfg_pkg::*; import dis_pkg::*; import bpu_pkg:
       rf_epoch_q        <= out_rf_epoch;
       rf_type_q         <= out_rf_type;
       rf_pc_q           <= out_rf_pc;
+      rf_is_rvc_q       <= out_rf_is_rvc;
       itlb_flush_q      <= rob_bcast_fence;
       fence_i_q         <= rob_bcast_fence_i;
       stall_q           <= out_stall;
@@ -153,6 +160,7 @@ module core_back2front import ttg_cfg_pkg::*; import dis_pkg::*; import bpu_pkg:
     always_ff @(posedge clk) begin
       if (!rst_n) begin
         upd_valid_q[i]      <= 1'b0;
+        upd_is_rvc_q[i]     <= 1'b0;
         upd_base_pc_q[i]    <= '0;
         upd_actual_dir_q[i] <= 1'b0;
         upd_br_type_q[i]    <= 3'd0;
@@ -164,6 +172,7 @@ module core_back2front import ttg_cfg_pkg::*; import dis_pkg::*; import bpu_pkg:
         upd_idxs_q[i]       <= '{default: '0};
       end else begin
         upd_valid_q[i]      <= upd_valid_d[i];
+        upd_is_rvc_q[i]     <= upd_is_rvc_d[i];
         upd_base_pc_q[i]    <= upd_base_pc_d[i];
         upd_actual_dir_q[i] <= upd_actual_dir_d[i];
         upd_br_type_q[i]    <= upd_br_type_d[i];

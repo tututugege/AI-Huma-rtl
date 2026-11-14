@@ -28,6 +28,7 @@ module bpu_main_sel import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_btb_pkg
   logic [NLANE-1:0]   lane_valid;
   logic [BANK_W-1:0]  lane_bank   [NLANE];
   logic [2:0]         lane_ty     [NLANE];
+  logic [NLANE-1:0]   lane_rvc;
   logic [NLANE-1:0]   lane_taken;
   logic [NITT-1:0][T_TAG_W-1:0] lane_itt_tag [NLANE];
   logic [XLEN_BITS-1:0]        lane_target [NLANE];
@@ -36,14 +37,15 @@ module bpu_main_sel import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_btb_pkg
   logic [XLEN_BITS-1:0]        first_pc;
   logic [XLEN_BITS-1:0]        first_target;
   logic [2:0]         first_ty;
-  logic [2:0]         first_slot;
+  logic [UB_SLOT_W-1:0] first_slot;
+  logic               first_rvc;
 
   always_comb begin
     bnd = block_bnd(base);
     for (int i = 0; i < NLANE; i++) begin
-      lane_pc[i]    = base + XLEN_BITS'(4 * i);
+      lane_pc[i]    = base + XLEN_BITS'(SLOT_BYTES * i);
       lane_valid[i] = lane_pc[i] < bnd;
-      lane_bank[i]  = base[BANK_W + 1:2] + BANK_W'(i);
+      lane_bank[i]  = base[BANK_TOP - 1:SLOT_SHIFT] + BANK_W'(i);
     end
   end
 
@@ -52,7 +54,7 @@ module bpu_main_sel import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_btb_pkg
       .pc(lane_pc[i][31:BANK_W]), .valid(lane_valid[i]), .ty_way(ty_way[lane_bank[i]]),
       .tg_pred(tg_pred[lane_bank[i]]),
       .btb_set(btb_set[lane_bank[i]]), .itt(itt[lane_bank[i]]), .itt_tag(lane_itt_tag[i]),
-      .ty(lane_ty[i]), .taken(lane_taken[i]), .target(lane_target[i])
+      .ty(lane_ty[i]), .rvc(lane_rvc[i]), .taken(lane_taken[i]), .target(lane_target[i])
     );
     always_comb begin
       for (int k = 0; k < NITT; k++) lane_itt_tag[i][k] = ix[lane_bank[i]].tag[ITT_TBL[k]];
@@ -71,23 +73,25 @@ module bpu_main_sel import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_btb_pkg
   ttg_onehot_mux #(.N(NLANE), .W(XLEN_BITS)) u_pc (.sel(first_taken), .data(lane_pc), .out(first_pc));
   ttg_onehot_mux #(.N(NLANE), .W(XLEN_BITS)) u_tgt (.sel(first_taken), .data(lane_target), .out(first_target));
   ttg_onehot_mux #(.N(NLANE), .W(3)) u_ty (.sel(first_taken), .data(lane_ty), .out(first_ty));
+  assign first_rvc = |(first_taken & lane_rvc);
 
   // Ref: main_select: first taken slot -> next pc (RET with a non-empty RAS: top of the block's checkpoint),
   // history bits and RAS operation
   always_comb begin
     first_slot = '0;
-    for (int i = 0; i < NLANE; i++) if (first_taken[i]) first_slot = 3'(i);
+    for (int i = 0; i < NLANE; i++) if (first_taken[i]) first_slot = UB_SLOT_W'(i);
     pred       = '0;
     pred.taken = any_taken;
     pred.next  = bnd;
     if (any_taken) begin
       pred.slot  = first_slot;
       pred.ty    = first_ty;
+      pred.rvc   = first_rvc;
       pred.next  = (first_ty == BR_RET && ck_ras_nonempty) ? ck_ras_top : first_target;
       pred.hbits = hsym_of(first_pc, pred.next);
       if (first_ty == BR_CALL || first_ty == BR_ICALL) begin
         pred.ras_op  = 2'd1;
-        pred.ras_val = first_pc + XLEN_BITS'(4);
+        pred.ras_val = first_pc + (first_rvc ? XLEN_BITS'(2) : XLEN_BITS'(4));
       end else if (first_ty == BR_RET) begin
         pred.ras_op = 2'd2;
       end

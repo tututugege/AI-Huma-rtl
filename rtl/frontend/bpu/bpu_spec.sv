@@ -15,6 +15,7 @@ module bpu_spec import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
   input  logic [XLEN_BITS-1:0]         base_pc  [NCOMMIT],
   input  logic [2:0]          br_type  [NCOMMIT],
   input  logic [NCOMMIT-1:0]  actual_dir,
+  input  logic [NCOMMIT-1:0]  upd_is_rvc,
   input  logic [XLEN_BITS-1:0]         target   [NCOMMIT],
   // speculative update command
   input  logic [1:0]          h_mode,
@@ -88,7 +89,8 @@ module bpu_spec import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
     aras_d = aras_q;
     for (int i = 0; i < NCOMMIT; i++) begin
       if (upd_valid[i]) begin
-        if (br_type[i] == BR_CALL || br_type[i] == BR_ICALL) aras_d = ras_push(aras_d, base_pc[i] + XLEN_BITS'(4));
+        if (br_type[i] == BR_CALL || br_type[i] == BR_ICALL)
+          aras_d = ras_push(aras_d, base_pc[i] + (upd_is_rvc[i] ? XLEN_BITS'(2) : XLEN_BITS'(4)));
         else if (br_type[i] == BR_RET)                       aras_d = ras_pop(aras_d);
       end
     end

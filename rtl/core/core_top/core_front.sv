@@ -15,6 +15,7 @@ module core_front import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*;
   input  logic [EPOCH_W-1:0] out_rf_epoch,
   input  logic [2:0]  out_rf_type,
   input  logic [XLEN_BITS-1:0] out_rf_pc,
+  input  logic out_rf_is_rvc,
   output logic [BCK_W-1:0] front2pre_bpu_ck,
   output logic [FETCH_WIDTH-1:0][KIND_W-1:0] front2pre_slot_kind,
   input  logic        out_stall,
@@ -96,9 +97,11 @@ module core_front import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*;
   logic [EPOCH_W-1:0] b2f_rf_epoch;
   logic [2:0]  b2f_rf_type;
   logic [XLEN_BITS-1:0] b2f_rf_pc;
+  logic b2f_rf_is_rvc;
   logic [COMMIT_WIDTH-1:0] upd_valid;
   logic [XLEN_BITS-1:0] upd_base_pc  [COMMIT_WIDTH];
   logic [COMMIT_WIDTH-1:0] upd_actual_dir;
+  logic [COMMIT_WIDTH-1:0] upd_is_rvc;
   logic [2:0]  upd_br_type  [COMMIT_WIDTH];
   logic [XLEN_BITS-1:0] upd_target   [COMMIT_WIDTH];
   logic [COMMIT_WIDTH-1:0] upd_pred_dir;
@@ -112,7 +115,7 @@ module core_front import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*;
     .out_mispred             (out_mispred),
     .out_stall               (out_stall),
     .out_redirect_pc         (out_redirect_pc),
-    .out_rf_valid, .out_rf_ck, .out_rf_epoch, .out_rf_type, .out_rf_pc,
+    .out_rf_valid, .out_rf_ck, .out_rf_epoch, .out_rf_type, .out_rf_pc, .out_rf_is_rvc,
     .rob_bcast_fence         (rob_bcast_fence),
     .rob_bcast_fence_i       (rob_bcast_fence_i),
     .commit_valid            (rob_commit_commit_entry_valid),
@@ -137,12 +140,14 @@ module core_front import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*;
     .rf_epoch_q              (b2f_rf_epoch),
     .rf_type_q               (b2f_rf_type),
     .rf_pc_q                 (b2f_rf_pc),
+    .rf_is_rvc_q             (b2f_rf_is_rvc),
     .itlb_flush_q            (b2f_itlb_flush),
     .fence_i_q               (b2f_fence_i),
     .stall_q                 (b2f_stall),
     .upd_valid_q             (upd_valid),
     .upd_base_pc_q           (upd_base_pc),
     .upd_actual_dir_q        (upd_actual_dir),
+    .upd_is_rvc_q            (upd_is_rvc),
     .upd_br_type_q           (upd_br_type),
     .upd_target_q            (upd_target),
     .upd_pred_dir_q          (upd_pred_dir),
@@ -181,6 +186,7 @@ module core_front import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*;
     .be_rf_epoch                (b2f_rf_epoch),
     .be_rf_type                 (b2f_rf_type),
     .be_rf_pc                   (b2f_rf_pc),
+    .be_rf_is_rvc               (b2f_rf_is_rvc),
     .itlb_flush                 (b2f_itlb_flush),
     .fence_i                    (b2f_fence_i),
     .fifo_read_enable           (can_read),
@@ -193,6 +199,7 @@ module core_front import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*;
     .upd_valid                  (upd_valid),
     .base_pc                    (upd_base_pc),
     .actual_dir                 (upd_actual_dir),
+    .upd_is_rvc                 (upd_is_rvc),
     .br_type                    (upd_br_type),
     .target                     (upd_target),
     .pred_dir                   (upd_pred_dir),

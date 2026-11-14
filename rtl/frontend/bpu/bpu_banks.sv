@@ -1,8 +1,10 @@
 // Ref: front-end/BPU/BPU_pipe.h  BpuPipe::main_read, apply_table_update (type, TAGE and BTB/ITT banks)
 `default_nettype none
 
-// The arrays of the main predictor: type predictor, TAGE and BTB / ITT, one bank per slot position (bank = pc[4:2]).
-//   S1  the block's slots read their banks (the slot of bank b is the pc of the block with pc[4:2] == b); the raw
+// The arrays of the main predictor: type predictor, TAGE and BTB / ITT, one bank per slot position
+// (bank = pc[4:SLOT_SHIFT]).
+//   S1  the block's slots read their banks (the slot of bank b is the pc of the block with pc[4:SLOT_SHIFT] == b);
+//       the raw
 //       array data leave the module to be registered into S2.
 //   S2  the TAGE banks do their compare / select (provider, alternate, use-alt counter of the bank).
 //   update  the write ports of the update queue: at most one entry per bank and cycle.
@@ -28,17 +30,20 @@ module bpu_banks import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_btb_pkg::*
   logic [XLEN_BITS-1:0]  wr_pc    [NBANK];
   tp_entry_t    ty_rd    [NBANK][TP_WAYS];
   logic [2:0]   wr_ty    [NBANK];
+  logic         wr_rvc   [NBANK];
 
   always_comb begin
     for (int b = 0; b < NBANK; b++) begin
-      slot_pc[b] = s1_base + XLEN_BITS'(32'(4 * ((b - int'(s1_base[BANK_W + 1:2])) & (NBANK - 1))));
+      slot_pc[b] = s1_base + XLEN_BITS'(32'(SLOT_BYTES * ((b - int'(s1_base[BANK_TOP - 1:SLOT_SHIFT])) & (NBANK - 1))));
       wr_pc[b]   = wr_ent[b].pc;
       wr_ty[b]   = wr_ent[b].ty;
+      wr_rvc[b]  = wr_ent[b].rvc;
     end
   end
 
   bpu_type u_type (
-    .clk, .rst_n, .rd_pc(slot_pc), .rd_way(ty_rd), .upd_valid(wr_valid), .upd_pc(wr_pc), .upd_br_type(wr_ty)
+    .clk, .rst_n, .rd_pc(slot_pc), .rd_way(ty_rd), .upd_valid(wr_valid), .upd_pc(wr_pc), .upd_br_type(wr_ty),
+    .upd_rvc(wr_rvc)
   );
 
   for (genvar b = 0; b < NBANK; b++) begin : g_bank
@@ -69,7 +74,7 @@ module bpu_banks import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_btb_pkg::*
       .clk, .rst_n, .rd_base(s1_tix[b].base), .rd_idx(s1_tix[b].idx), .rd_raw(tg_rd), .sel_raw(s2_raw[b].tg),
       .sel_tag_in(s2_tix[b].tag),
       .sel_pred(s2_pred[b]), .sel_alt_pred(s2_alt[b]), .sel_pcpn(s2_pcpn[b]),
-      .update_en(tg_en), .upd_pc_idx(wr_pc[b][T_BASE_W + BANK_W + 2 - 1:BANK_W + 2]), .real_dir(wr_ent[b].dir),
+      .update_en(tg_en), .upd_pc_idx(wr_pc[b][BANK_TOP + T_BASE_W - 1:BANK_TOP]), .real_dir(wr_ent[b].dir),
       .pred_in(tg_en && wr_ent[b].pred), .alt_pred_in(tg_en && wr_ent[b].alt), .pcpn_in(wr_ent[b].pcpn),
       .tag_in(upd_tag), .idx_in(upd_idx)
     );

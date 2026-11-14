@@ -50,6 +50,7 @@ module exu_ctrl_fu_view
         done.br_id     = fu_inst[f].br_id;
         done.ftq_idx   = fu_inst[f].ftq_idx;
         done.pc        = fu_inst[f].pc;
+        done.is_rvc    = fu_inst[f].ftq_is_rvc;
         done.func3     = fu_inst[f].func3;
         done.amo_op    = fu_inst[f].func7[6:2];
         done.is_atomic = fu_inst[f].is_atomic;

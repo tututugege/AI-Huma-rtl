@@ -12,6 +12,7 @@ module bpu_main_lane import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_btb_pk
   input  itt_ent_t [NITT-1:0] itt,
   input  logic [NITT-1:0][T_TAG_W-1:0] itt_tag,
   output logic [2:0]          ty,
+  output logic                rvc,          // the predicted branch is a 16-bit instruction
   output logic                taken,
   output logic [XLEN_BITS-1:0]         target
 );
@@ -25,6 +26,7 @@ module bpu_main_lane import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_btb_pk
     tag = pc[5 + TP_SET_W +: TP_TAG_W];
     for (int w = 0; w < TP_WAYS; w++) ty_hit[w] = ty_way[w].valid && (ty_way[w].tag == tag);
     ty = ty_hit[0] ? ty_way[0].br_type : ty_hit[1] ? ty_way[1].br_type : BR_NONCTL;
+    rvc = ty_hit[0] ? ty_way[0].rvc : ty_hit[1] ? ty_way[1].rvc : 1'b0;
     // Ref: main_select: taken
     taken = valid && ty != BR_NONCTL &&
             (ty == BR_RET || ty == BR_CALL || ty == BR_ICALL || ty == BR_IDIRECT || ty == BR_JAL || tg_pred);

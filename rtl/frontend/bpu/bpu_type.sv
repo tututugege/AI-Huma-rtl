@@ -13,7 +13,8 @@ module bpu_type import ttg_cfg_pkg::*; import bpu_pkg::*; (
   output tp_entry_t   rd_way      [NBANK][TP_WAYS],
   input  logic [NBANK-1:0] upd_valid,
   input  logic [XLEN_BITS-1:0] upd_pc      [NBANK],
-  input  logic [2:0]  upd_br_type [NBANK]
+  input  logic [2:0]  upd_br_type [NBANK],
+  input  logic        upd_rvc     [NBANK]
 );
 
   localparam int NRD = NBANK + NBANK;
@@ -34,11 +35,11 @@ module bpu_type import ttg_cfg_pkg::*; import bpu_pkg::*; (
   logic [2:0]          upd_pred_type_unused [NBANK];   // update lanes do not use the prediction output
   /* verilator lint_on UNUSEDSIGNAL */
 
-  // lane decode: bank = pc[4:2], set = (pc>>5) & 511, tag = (pc>>14) & 255
+  // lane decode: bank = pc[4:SLOT_SHIFT], set = (pc>>5) & 511, tag = (pc>>14) & 255
   always_comb begin
     for (int l = 0; l < NBANK; l++) begin
-      rd_addr_s1[l] = {rd_pc[l][4:2], rd_pc[l][5 +: TP_SET_W]};
-      upd_addr[l]   = {upd_pc[l][4:2], upd_pc[l][5 +: TP_SET_W]};
+      rd_addr_s1[l] = {rd_pc[l][BANK_TOP-1:SLOT_SHIFT], rd_pc[l][5 +: TP_SET_W]};
+      upd_addr[l]   = {upd_pc[l][BANK_TOP-1:SLOT_SHIFT], upd_pc[l][5 +: TP_SET_W]};
       upd_tag[l]    = upd_pc[l][5 + TP_SET_W +: TP_TAG_W];
       rd_addr[l]         = rd_addr_s1[l];
       rd_addr[NBANK + l] = upd_addr[l];
@@ -62,7 +63,7 @@ module bpu_type import ttg_cfg_pkg::*; import bpu_pkg::*; (
 
   for (genvar l = 0; l < NBANK; l++) begin : g_upd
     bpu_type_lane u_lane (
-      .tag(upd_tag[l]), .way_entry(upd_entry_rd[l]), .actual_type(upd_br_type[l]),
+      .tag(upd_tag[l]), .way_entry(upd_entry_rd[l]), .actual_type(upd_br_type[l]), .actual_rvc(upd_rvc[l]),
       .pred_type(upd_pred_type_unused[l]), .upd_we(lane_we[l]), .upd_way(lane_way[l]), .upd_entry(lane_entry[l])
     );
   end

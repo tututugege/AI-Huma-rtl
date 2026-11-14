@@ -6,12 +6,13 @@
 package bpu_pkg;
   import ttg_cfg_pkg::*;
 
-  localparam int NBANK   = 8;                 // BPU_BANK_NUM
-  localparam int BANK_W  = 3;
+  localparam int NBANK   = FETCH_WIDTH;       // BPU_BANK_NUM = FETCH_WIDTH (RVC=1: 16 two-byte slots)
+  localparam int BANK_W  = $clog2(NBANK);
   localparam int NLANE   = FETCH_WIDTH;       // lanes of one fetch group (8)
   localparam int NCOMMIT = COMMIT_WIDTH;      // commit lanes (8)
   localparam int PC_W    = XLEN_BITS;
-  localparam int BPC_W   = PC_W - BANK_W;     // bank pc = pc >> 3 (BankPcComb)
+  localparam int BPC_W   = PC_W - BANK_W;     // bank pc = pc >> BANK_W (BankPcComb)
+  localparam int BANK_TOP = BANK_W + SLOT_SHIFT;   // bank field = pc[BANK_TOP-1:SLOT_SHIFT] (BANK_TOP = 5)
 
   // branch types (BPU_configs.h)
   localparam logic [2:0] BR_DIRECT  = 3'd0;   // conditional branch
@@ -33,6 +34,7 @@ package bpu_pkg;
     logic [TP_TAG_W-1:0] tag;
     logic [2:0]         br_type;
     logic [1:0]         age;
+    logic               rvc;       // the branch is a 16-bit instruction (RAS push value pc + 2)
   } tp_entry_t;
 
   // ---- TAGE ----

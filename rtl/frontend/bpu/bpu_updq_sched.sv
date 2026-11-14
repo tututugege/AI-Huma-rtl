@@ -46,17 +46,18 @@ module bpu_updq_sched import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage
     end
     for (int j = 0; j < UQ_DEPTH; j++) begin
       drop1[j] = 1'b0;
-      for (int m = 0; m < j; m++) if (cand1[m] && ent_pc[m][4:2] == ent_pc[j][4:2]) drop1[j] = 1'b1;
+      for (int m = 0; m < j; m++)
+        if (cand1[m] && ent_pc[m][BANK_TOP-1:SLOT_SHIFT] == ent_pc[j][BANK_TOP-1:SLOT_SHIFT]) drop1[j] = 1'b1;
     end
     used1 = '0;
-    for (int j = 0; j < UQ_DEPTH; j++) if (cand1[j] && !drop1[j]) used1[ent_pc[j][4:2]] = 1'b1;
+    for (int j = 0; j < UQ_DEPTH; j++) if (cand1[j] && !drop1[j]) used1[ent_pc[j][BANK_TOP-1:SLOT_SHIFT]] = 1'b1;
   end
 
   // Ref: update_queue, second leader (block bank and slot banks must be free)
   always_comb begin
     for (int k = 0; k < UQ_DEPTH; k++) begin
       elig2[k] = ent_valid[k] && !(cand1[k] && !drop1[k]) && !bank_busy[ent_pc[k][6:5]] &&
-                 !wb1[ent_pc[k][6:5]] && !used1[ent_pc[k][4:2]];
+                 !wb1[ent_pc[k][6:5]] && !used1[ent_pc[k][BANK_TOP-1:SLOT_SHIFT]];
     end
   end
   ttg_first_set #(.N(UQ_DEPTH)) u_lead2 (.req(elig2), .onehot(lead2), .any(any2));
@@ -71,11 +72,12 @@ module bpu_updq_sched import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage
     end
     for (int j = 0; j < UQ_DEPTH; j++) begin
       cand2[j] = lead2[j] || (after2[j] && ent_valid[j] && !(cand1[j] && !drop1[j]) && ent_pc[j][31:5] == win2 &&
-                              ent_idx[j] == idx2 && !used1[ent_pc[j][4:2]]);
+                              ent_idx[j] == idx2 && !used1[ent_pc[j][BANK_TOP-1:SLOT_SHIFT]]);
     end
     for (int j = 0; j < UQ_DEPTH; j++) begin
       drop2[j] = 1'b0;
-      for (int m = 0; m < j; m++) if (cand2[m] && ent_pc[m][4:2] == ent_pc[j][4:2]) drop2[j] = 1'b1;
+      for (int m = 0; m < j; m++)
+        if (cand2[m] && ent_pc[m][BANK_TOP-1:SLOT_SHIFT] == ent_pc[j][BANK_TOP-1:SLOT_SHIFT]) drop2[j] = 1'b1;
     end
     apply = (cand1 & ~drop1) | (cand2 & ~drop2);
   end

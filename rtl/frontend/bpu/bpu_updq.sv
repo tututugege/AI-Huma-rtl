@@ -11,6 +11,7 @@ module bpu_updq import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
   input  logic [NCOMMIT-1:0]  upd_valid,
   input  logic [XLEN_BITS-1:0]         base_pc    [NCOMMIT],
   input  logic [NCOMMIT-1:0]  actual_dir,
+  input  logic [NCOMMIT-1:0]  upd_is_rvc,
   input  logic [2:0]          br_type    [NCOMMIT],
   input  logic [XLEN_BITS-1:0]         target     [NCOMMIT],
   input  logic [NCOMMIT-1:0]  pred_dir,
@@ -52,6 +53,7 @@ module bpu_updq import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
       lane_ent[l].alt    = alt_pred[l];
       lane_ent[l].ty     = br_type[l];
       lane_ent[l].tgt    = target[l];
+      lane_ent[l].rvc    = upd_is_rvc[l];
       lane_ent[l].pcpn   = pcpn[l];
       for (int k = 0; k < TN; k++) begin
         lane_ent[l].tag[k] = tags[l][k];
@@ -68,8 +70,8 @@ module bpu_updq import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
     for (int b = 0; b < NBANK; b++) wr_ent[b] = '0;
     for (int i = 0; i < UQ_DEPTH; i++) begin
       if (apply[i]) begin
-        wr_valid[uq_q[i].pc[BANK_W + 1:2]]  = 1'b1;
-        wr_ent[uq_q[i].pc[BANK_W + 1:2]]    = uq_q[i];
+        wr_valid[uq_q[i].pc[BANK_TOP - 1:SLOT_SHIFT]]  = 1'b1;
+        wr_ent[uq_q[i].pc[BANK_TOP - 1:SLOT_SHIFT]]    = uq_q[i];
       end
     end
   end

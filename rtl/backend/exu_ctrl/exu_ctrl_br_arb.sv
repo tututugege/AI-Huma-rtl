@@ -13,12 +13,13 @@ module exu_ctrl_br_arb
   output logic [ROB_IDX_WIDTH-1:0]     redirect_rob_idx,
   output logic [BR_TAG_WIDTH-1:0]      br_id,
   output logic [FTQ_IDX_WIDTH-1:0]     ftq_idx,
-  output logic [XLEN_BITS-1:0]                  br_pc
+  output logic [XLEN_BITS-1:0]                  br_pc,
+  output logic                         br_is_rvc
 );
 
   localparam int NBR = BRU_NUM;
   // {diag_val, rob_idx, br_id, ftq_idx, pc}
-  localparam int DW  = XLEN_BITS + ROB_IDX_WIDTH + BR_TAG_WIDTH + FTQ_IDX_WIDTH + XLEN_BITS;
+  localparam int DW  = XLEN_BITS + ROB_IDX_WIDTH + BR_TAG_WIDTH + FTQ_IDX_WIDTH + XLEN_BITS + 1;
 
   logic [NBR-1:0] resolved;          // BRU produced a result (it is never flushed: see notes 4.2-1)
   logic [NBR-1:0] wrong;             // resolved and mispredicted
@@ -33,7 +34,7 @@ module exu_ctrl_br_arb
     assign resolved[i] = fu_done[FU].complete;
     assign wrong[i]    = resolved[i] && fu_done[FU].mispred;
     assign cand[i]     = {fu_done[FU].diag_val, fu_done[FU].rob_idx, fu_done[FU].br_id, fu_done[FU].ftq_idx,
-                          fu_done[FU].pc};
+                          fu_done[FU].pc, fu_done[FU].is_rvc};
     assign tag_bits[i] = resolved[i] ? (BR_MASK_WIDTH'(1) << fu_done[FU].br_id) : '0;
     for (genvar j = 0; j < NBR; j++) begin : g_cmp
       if (j == i) begin : g_self
@@ -58,7 +59,7 @@ module exu_ctrl_br_arb
 
   always_comb begin
     mispred = |wrong;
-    {redirect_pc, redirect_rob_idx, br_id, ftq_idx, br_pc} = oldest_bits;
+    {redirect_pc, redirect_rob_idx, br_id, ftq_idx, br_pc, br_is_rvc} = oldest_bits;
   end
 
 endmodule

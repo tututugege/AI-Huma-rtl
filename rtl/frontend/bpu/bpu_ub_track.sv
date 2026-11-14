@@ -17,6 +17,7 @@ module bpu_ub_track import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_p
   input  logic [XLEN_BITS-1:0]         base_pc  [NCOMMIT],
   input  logic [2:0]          br_type  [NCOMMIT],
   input  logic [NCOMMIT-1:0]  actual_dir,
+  input  logic [NCOMMIT-1:0]  upd_is_rvc,
   input  logic [NCOMMIT-1:0]  pred_dir,
   input  logic [XLEN_BITS-1:0]         target   [NCOMMIT],
   output logic [NCOMMIT-1:0]  ev_valid,
@@ -54,7 +55,7 @@ module bpu_ub_track import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_p
       taken[i]    = upd_valid[i] && (br_type[i] != BR_NONCTL) && actual_dir[i];
       ntslot[i]   = upd_valid[i] && !taken[i] && (br_type[i] == BR_DIRECT) && pred_dir[i];
       nt_plain[i] = upd_valid[i] && !taken[i] && !ntslot[i];
-      nxt[i]      = base_pc[i] + XLEN_BITS'(4);
+      nxt[i]      = base_pc[i] + (upd_is_rvc[i] ? XLEN_BITS'(2) : XLEN_BITS'(4));
       next_pc[i]  = taken[i] ? target[i] : nxt[i];
     end
     // discontinuity of every valid lane against the next pc of the previous valid lane (or the state of last cycle)
@@ -129,11 +130,12 @@ module bpu_ub_track import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_p
     ev_valid = '0;
     for (int i = 0; i < NCOMMIT; i++) begin
       ev[i]       = '0;
-      ev[i].start = lane_start[i][31:2];
-      ev[i].slot  = 3'((base_pc[i] - lane_start[i]) >> 2);
+      ev[i].start = lane_start[i][31:SLOT_SHIFT];
+      ev[i].slot  = UB_SLOT_W'((base_pc[i] - lane_start[i]) >> SLOT_SHIFT);
       ev[i].ty    = br_type[i];
       if (taken[i]) begin
-        ev_valid[i] = 1'b1; ev[i].kind = EV_TAKEN; ev[i].tgt = target[i][XLEN_BITS-1:2];
+        ev_valid[i] = 1'b1; ev[i].kind = EV_TAKEN; ev[i].tgt = target[i][XLEN_BITS-1:SLOT_SHIFT];
+        ev[i].rvc = upd_is_rvc[i];
       end else if (ntslot[i]) begin
         ev_valid[i] = 1'b1; ev[i].kind = EV_NTSLOT;
       end else if (boundary[i]) begin

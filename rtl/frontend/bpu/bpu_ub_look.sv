@@ -18,11 +18,12 @@ module bpu_ub_look import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
 
   logic [WAYS-1:0] match;
   logic [WAYS-1:0] cand;
-  logic [2:0]      best_slot;
+  logic [UB_SLOT_W-1:0] best_slot;
   logic [WAYS-1:0] best_way;
   logic            any_cand;
-  logic [2:0]      e_slot;
+  logic [UB_SLOT_W-1:0] e_slot;
   logic [2:0]      e_ty;
+  logic            e_rvc;
   logic [UB_TGT_W-1:0] e_tgt;
   logic [XLEN_BITS-1:0]     bpc;
 
@@ -30,35 +31,36 @@ module bpu_ub_look import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
   always_comb begin
     for (int w = 0; w < WAYS; w++) begin
       match[w] = ent[w].v && (ent[w].tag == tag);
-      cand[w]  = match[w] && ((base + XLEN_BITS'(ent[w].slot) * XLEN_BITS'(4)) < bnd) &&
+      cand[w]  = match[w] && ((base + XLEN_BITS'(ent[w].slot) * XLEN_BITS'(SLOT_BYTES)) < bnd) &&
                  (ent[w].ty != BR_DIRECT || ent[w].ctr >= 2'd2);
     end
     any_cand  = |cand;
-    best_slot = 3'd7;
+    best_slot = '1;
     for (int w = 0; w < WAYS; w++) if (cand[w] && ent[w].slot < best_slot) best_slot = ent[w].slot;
     best_way = '0;
     for (int w = WAYS - 1; w >= 0; w--) if (cand[w] && ent[w].slot == best_slot) best_way = WAYS'(1) << w;
   end
 
   always_comb begin
-    e_slot = '0; e_ty = '0; e_tgt = '0;
+    e_slot = '0; e_ty = '0; e_tgt = '0; e_rvc = 1'b0;
     for (int w = 0; w < WAYS; w++) begin
       if (best_way[w]) begin
-        e_slot = ent[w].slot; e_ty = ent[w].ty; e_tgt = ent[w].tgt;
+        e_slot = ent[w].slot; e_ty = ent[w].ty; e_tgt = ent[w].tgt; e_rvc = ent[w].rvc;
       end
     end
-    bpc = base + XLEN_BITS'(e_slot) * XLEN_BITS'(4);
+    bpc = base + XLEN_BITS'(e_slot) * XLEN_BITS'(SLOT_BYTES);
     g = '0;
     g.hit = |match;
     if (any_cand) begin
       g.taken = 1'b1;
       g.slot  = e_slot;
       g.ty    = e_ty;
-      g.next  = (e_ty == BR_RET && ras_nonempty) ? ras_top : {e_tgt, 2'b00};
+      g.rvc   = e_rvc;
+      g.next  = (e_ty == BR_RET && ras_nonempty) ? ras_top : (XLEN_BITS'(e_tgt) << SLOT_SHIFT);
       g.hbits = hsym_of(bpc, g.next);
       if (e_ty == BR_CALL || e_ty == BR_ICALL) begin
         g.ras_op  = 2'd1;
-        g.ras_val = bpc + XLEN_BITS'(4);
+        g.ras_val = bpc + (e_rvc ? XLEN_BITS'(2) : XLEN_BITS'(4));
       end else if (e_ty == BR_RET) begin
         g.ras_op = 2'd2;
       end

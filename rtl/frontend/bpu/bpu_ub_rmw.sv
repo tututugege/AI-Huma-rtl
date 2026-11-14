@@ -4,14 +4,15 @@
 // Read-modify-write of one uBTB / L1 set by the head of the train queue.  Every conditional-branch way of the block
 // below the event slot steps its counter down; a taken event finds its way by slot or allocates (invalid way, else
 // lowest counter).  Outputs the new ways and the mask of the ways whose content changed.
-module bpu_ub_rmw import bpu_pkg::*; import bpu_stage_pkg::*; #(
+module bpu_ub_rmw import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; #(
   parameter int WAYS = 4
 ) (
   input  logic                 ev_valid,
   input  logic [1:0]           ev_kind,
-  input  logic [2:0]           ev_slot,
+  input  logic [UB_SLOT_W-1:0] ev_slot,
   input  logic [2:0]           ev_ty,
   input  logic [UB_TGT_W-1:0]  ev_tgt,
+  input  logic                 ev_rvc,
   input  logic [UB_TAG_W-1:0]  tag,
   input  ub_ent_t              old_ent [WAYS],
   output ub_ent_t              new_ent [WAYS],
@@ -25,7 +26,7 @@ module bpu_ub_rmw import bpu_pkg::*; import bpu_stage_pkg::*; #(
   logic [WAYS-1:0] match;
   logic [WAYS-1:0] same_way;          // way that already describes the event branch
   logic            same_any;
-  logic [3:0]      limit;
+  logic [UB_SLOT_W:0] limit;
   logic [WAYS-1:0] alloc_way;         // allocation victim (one-hot)
   logic [WAYS-1:0] invalid;
   logic [1:0]      min_ctr;
@@ -33,7 +34,8 @@ module bpu_ub_rmw import bpu_pkg::*; import bpu_stage_pkg::*; #(
 
   // Ref: ub_rmw, counter decrement loop
   always_comb begin
-    limit = (ev_kind == EV_TAKEN) ? {1'b0, ev_slot} : (ev_kind == EV_FALL) ? 4'd8 : ({1'b0, ev_slot} + 4'd1);
+    limit = (ev_kind == EV_TAKEN) ? {1'b0, ev_slot} :
+            (ev_kind == EV_FALL)  ? (UB_SLOT_W + 1)'(FETCH_WIDTH) : ({1'b0, ev_slot} + (UB_SLOT_W + 1)'(1));
     for (int w = 0; w < WAYS; w++) begin
       match[w]    = ev_valid && old_ent[w].v && (old_ent[w].tag == tag);
       same_way[w] = match[w] && (ev_kind == EV_TAKEN) && (old_ent[w].slot == ev_slot);
@@ -67,6 +69,7 @@ module bpu_ub_rmw import bpu_pkg::*; import bpu_stage_pkg::*; #(
           new_ent[w].slot = ev_slot;
           new_ent[w].ty  = ev_ty;
           new_ent[w].tgt = ev_tgt;
+          new_ent[w].rvc = ev_rvc;
           if (same_any) new_ent[w].ctr = (ev_ty == BR_DIRECT && old_ent[w].ctr != 2'd3) ? old_ent[w].ctr + 2'd1 : 2'd3;
           else          new_ent[w].ctr = (ev_ty == BR_DIRECT) ? 2'd2 : 2'd3;
         end

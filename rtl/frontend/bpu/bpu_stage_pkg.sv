@@ -17,7 +17,9 @@ package bpu_stage_pkg;
   localparam int L1_SET_W  = 8;
   localparam int L1_SETS   = 1 << L1_SET_W;
   localparam int UB_TAG_W  = 10;
-  localparam int UB_TGT_W  = XLEN_BITS - 2;    // target word address
+  localparam int UB_TGT_W  = XLEN_BITS - SLOT_SHIFT;    // target slot address
+  localparam int UB_WA_W   = 32 - SLOT_SHIFT;  // block start slot address (set / tag hash: low bits only)
+  localparam int UB_SLOT_W = $clog2(FETCH_WIDTH);   // slot offset of the taken branch in the block
   localparam int HSYM_W    = 3;                // history bits pushed by a taken branch (BPO_HSYM)
   localparam int HR_BITS   = 256;              // circular history buffer
   localparam int HR_PTR_W  = 8;
@@ -30,7 +32,7 @@ package bpu_stage_pkg;
   localparam int ITT_IDX_W = 6;                // ITT: 64 entries per table and bank (CFG_ITT_SIZE)
   localparam int ITT_TBL [NITT] = '{1, 2, 3};  // TAGE tables (history 13 / 32 / 119) whose index / tag the ITT reuses
   localparam int EPOCH_W   = 8;
-  localparam int LANE_W    = 3;                // log2(NLANE)
+  localparam int LANE_W    = $clog2(NLANE);    // log2(NLANE)
 
   // ---- history ring + folded histories, RAS ----
   typedef logic [FH_K-1:0][TN-1:0][FH_W-1:0] fh_t;
@@ -54,17 +56,19 @@ package bpu_stage_pkg;
     logic                 v;
     logic [UB_TAG_W-1:0]  tag;
     logic [2:0]           ty;
-    logic [2:0]           slot;
+    logic [UB_SLOT_W-1:0] slot;
     logic [1:0]           ctr;
     logic [UB_TGT_W-1:0]  tgt;
+    logic                 rvc;      // the taken branch is a 16-bit instruction
   } ub_ent_t;
 
   // ---- what a block pushes / jumps to: the S0 / S1 guess and the final (S2) prediction share one type ----
   typedef struct packed {
     logic                 hit;      // tag match (S0 guess only)
     logic                 taken;
-    logic [2:0]           slot;
+    logic [UB_SLOT_W-1:0] slot;
     logic [2:0]           ty;
+    logic                 rvc;      // the taken branch is a 16-bit instruction
     logic [XLEN_BITS-1:0]          next;
     logic [HSYM_W-1:0]    hbits;    // taken: HSYM history bits pushed
     logic [1:0]           ras_op;   // 0 none, 1 push, 2 pop
@@ -82,15 +86,17 @@ package bpu_stage_pkg;
     logic [PCPN_W-1:0]           pcpn;
     logic [TN-1:0][T_TAG_W-1:0]  tag;
     logic [TN-1:0][T_IDX_W-1:0]  idx;
+    logic                        rvc;     // the committed instruction is 16 bits (type predictor, RAS push value)
   } upd_ent_t;
 
   // ---- train event of the uBTB / L1 (kind 0 taken, 1 fall-through end, 2 predicted-taken-not-taken) ----
   typedef struct packed {
     logic [1:0]          kind;
-    logic [31:2]         start;   // block start word address (set / tag hash: low bits only)
-    logic [2:0]          slot;
+    logic [31:SLOT_SHIFT] start;   // block start slot address (set / tag hash: low bits only)
+    logic [UB_SLOT_W-1:0] slot;
     logic [2:0]          ty;
     logic [UB_TGT_W-1:0] tgt;
+    logic                rvc;
   } ub_ev_t;
 
 
@@ -116,7 +122,7 @@ package bpu_stage_pkg;
     logic [XLEN_BITS-1:0] target;
   } itt_ent_t;
 
-  // Ref: Tage::index.  idx = (fh0 ^ w) & mask, tag = (fh1 ^ fh2 ^ w) & mask, w = bank pc >> 2
+  // Ref: Tage::index.  idx = (fh0 ^ w) & mask, tag = (fh1 ^ fh2 ^ w) & mask, w = bank pc >> SLOT_SHIFT
   function automatic tg_ix_t tage_index(input logic [T_BASE_W-1:0] pc_idx, input fh_t fh);
     tg_ix_t x;
     x.base = pc_idx;
@@ -150,7 +156,7 @@ package bpu_stage_pkg;
   // ---- helpers ----
   function automatic logic [XLEN_BITS-1:0] block_bnd(input logic [XLEN_BITS-1:0] base);
     logic [XLEN_BITS-1:0] plus;
-    plus = base + XLEN_BITS'(FETCH_WIDTH * 4);
+    plus = base + XLEN_BITS'(FETCH_WIDTH * SLOT_BYTES);
     return ((base & ~XLEN_BITS'(ICACHE_LINE_SIZE - 1)) != (plus & ~XLEN_BITS'(ICACHE_LINE_SIZE - 1))) ?
            (plus & ~XLEN_BITS'(ICACHE_LINE_SIZE - 1)) : plus;
   endfunction
@@ -159,24 +165,24 @@ package bpu_stage_pkg;
   function automatic logic [HSYM_W-1:0] hsym_of(input logic [XLEN_BITS-1:0] pc, input logic [XLEN_BITS-1:0] tgt);
     logic [31:0] v, w;
     logic [HSYM_W-1:0] r;
-    w = 32'(pc >> 2);   // the model hashes the low 32 bits of the word address
-    v = w ^ 32'(tgt >> 2) ^ (w >> 7);
+    w = 32'(pc >> SLOT_SHIFT);   // the model hashes the low 32 bits of the slot address
+    v = w ^ 32'(tgt >> SLOT_SHIFT) ^ (w >> 7);
     r = '0;
     for (int i = 0; i < 32; i += HSYM_W) r = r ^ HSYM_W'(v >> i);
     return r;
   endfunction
 
   // uBTB / L1 set index and tag of the block start word address w: set = (w ^ w>>k) & (S-1), tag = (w>>k) & mask
-  function automatic logic [UB_SET_W-1:0] ub_set_of(input logic [29:0] w);
+  function automatic logic [UB_SET_W-1:0] ub_set_of(input logic [UB_WA_W-1:0] w);
     return UB_SET_W'(w ^ (w >> UB_SET_W));
   endfunction
-  function automatic logic [UB_TAG_W-1:0] ub_tag_of(input logic [29:0] w);
+  function automatic logic [UB_TAG_W-1:0] ub_tag_of(input logic [UB_WA_W-1:0] w);
     return UB_TAG_W'(w >> UB_SET_W);
   endfunction
-  function automatic logic [L1_SET_W-1:0] l1_set_of(input logic [29:0] w);
+  function automatic logic [L1_SET_W-1:0] l1_set_of(input logic [UB_WA_W-1:0] w);
     return L1_SET_W'(w ^ (w >> L1_SET_W));
   endfunction
-  function automatic logic [UB_TAG_W-1:0] l1_tag_of(input logic [29:0] w);
+  function automatic logic [UB_TAG_W-1:0] l1_tag_of(input logic [UB_WA_W-1:0] w);
     return UB_TAG_W'(w >> L1_SET_W);
   endfunction
 

@@ -24,6 +24,7 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_btb_pkg::*; impo
   input  logic [EPOCH_W-1:0]  rf_epoch,
   input  logic [2:0]          rf_type,
   input  logic [XLEN_BITS-1:0]         rf_pc,
+  input  logic                rf_is_rvc,
   // result of the predecode check of the previous cycle
   input  logic                pd_valid,
   input  logic                pd_flush,
@@ -35,6 +36,7 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_btb_pkg::*; impo
   input  logic [NCOMMIT-1:0]  upd_valid,
   input  logic [XLEN_BITS-1:0]         base_pc    [NCOMMIT],
   input  logic [NCOMMIT-1:0]  actual_dir,
+  input  logic [NCOMMIT-1:0]  upd_is_rvc,
   input  logic [2:0]          br_type    [NCOMMIT],
   input  logic [XLEN_BITS-1:0]         target     [NCOMMIT],
   input  logic [NCOMMIT-1:0]  pred_dir,
@@ -105,7 +107,7 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_btb_pkg::*; impo
 
   logic [3:0] upd_occ, tq_occ;
   bpu_ubtb u_ubtb (
-    .clk, .rst_n, .upd_valid, .base_pc, .br_type, .actual_dir, .pred_dir, .target,
+    .clk, .rst_n, .upd_valid, .base_pc, .br_type, .actual_dir, .upd_is_rvc, .pred_dir, .target,
     .s0_base, .s0_bnd, .s0_ras_nonempty, .s0_ras_top, .s0_guess(g0),
     .s1_base(r0_q.base), .s1_bnd(block_bnd(r0_q.base)), .s1_ras_nonempty(r0_q.ck.r.cnt != '0),
     .s1_ras_top(r0_q.ck.r.top), .s1_guess(g1), .tq_occ(tq_occ)
@@ -128,12 +130,13 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_btb_pkg::*; impo
     bank_busy = '0;
     if (r0_q.valid) begin
       bank_busy[r0_q.base[6:5]] = 1'b1;
-      bank_busy[2'((block_bnd(r0_q.base) - XLEN_BITS'(4)) >> 5) & 2'(NBB - 1)] = 1'b1;
+      bank_busy[2'((block_bnd(r0_q.base) - XLEN_BITS'(SLOT_BYTES)) >> 5) & 2'(NBB - 1)] = 1'b1;
     end
   end
 
   bpu_updq u_updq (
-    .clk, .rst_n, .upd_valid, .base_pc, .actual_dir, .br_type, .target, .pred_dir, .alt_pred, .pcpn, .tags, .idxs,
+    .clk, .rst_n, .upd_valid, .base_pc, .actual_dir, .upd_is_rvc, .br_type, .target, .pred_dir, .alt_pred, .pcpn,
+    .tags, .idxs,
     .bank_busy, .wr_valid, .wr_ent, .occ(upd_occ)
   );
   assign commit_upd_free = 4'(UQ_DEPTH) - upd_occ;
@@ -196,13 +199,14 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_btb_pkg::*; impo
   bpu_cmd u_cmd (
     .refetch, .pd_restore, .rep_ok, .ovr, .l1_ov, .issue, .s0_go, .pc(pc_q), .refetch_address, .g0, .g1, .fin,
     .r0(r0_q), .r1(r1_q), .pd_ck, .pd_hv, .pd_hbits, .pd_ras_op, .pd_ras_val, .rf_ck(hist_ck_t'(rf_ck)),
-    .rf_type, .rf_pc, .h_mode, .h_ck, .h_push_en, .h_push_bits, .r_mode, .r_ck, .r_op, .r_val, .pc1,
+    .rf_type, .rf_pc, .rf_is_rvc, .h_mode, .h_ck, .h_push_en, .h_push_bits, .r_mode, .r_ck, .r_op, .r_val, .pc1,
     .h2_en, .h2_bits, .r2_op, .r2_val, .pc_d,
     .hr_mode, .hr_ck, .hr_push_en, .hr_push_bits, .rr_mode, .rr_ck, .rr_op, .rr_val
   );
 
   bpu_spec u_spec (
-    .clk, .rst_n, .upd_valid, .base_pc, .br_type, .actual_dir, .target, .h_mode, .h_ck, .h_push_en, .h_push_bits,
+    .clk, .rst_n, .upd_valid, .base_pc, .br_type, .actual_dir, .upd_is_rvc, .target, .h_mode, .h_ck, .h_push_en,
+    .h_push_bits,
     .r_mode, .r_ck, .r_op, .r_val, .h2_en, .h2_bits, .r2_op, .r2_val,
     .spec_ck, .spec_ras_nonempty, .spec_ras_top, .spec_fh, .spec1_ck, .spec1_ras_nonempty, .spec1_ras_top, .spec1_fh,
     .refetch, .hr_mode, .hr_ck, .hr_push_en, .hr_push_bits, .rr_mode, .rr_ck, .rr_op, .rr_val
@@ -258,7 +262,8 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_btb_pkg::*; impo
 
   /* verilator lint_off UNUSEDSIGNAL */
   logic unused_ok;   // S0 / S1 guess slot and type fields are statistics-only
-  assign unused_ok = ^{g0.slot, g0.ty, g1.slot, g1.ty, fin.slot, fin.ty, fast, spec_ck.h.head, pc1};
+  assign unused_ok = ^{g0.slot, g0.ty, g0.rvc, g1.slot, g1.ty, g1.rvc, fin.slot, fin.ty, fin.rvc, fast,
+                       spec_ck.h.head, pc1};
   /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

@@ -137,6 +137,7 @@ module core_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; i
   logic [EPOCH_W-1:0] out_rf_epoch;
   logic [2:0]  out_rf_type;
   logic [XLEN_BITS-1:0] out_rf_pc;
+  logic out_rf_is_rvc;
   logic [BACKEND_FETCH_WIDTH-1:0] front2pre_alt_pred;
   logic [31:0] front2pre_inst [BACKEND_FETCH_WIDTH];
   logic [BACKEND_FETCH_WIDTH-1:0] front2pre_page_fault_inst;
@@ -183,6 +184,7 @@ module core_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; i
     .out_rf_epoch(out_rf_epoch),
     .out_rf_type(out_rf_type),
     .out_rf_pc(out_rf_pc),
+    .out_rf_is_rvc(out_rf_is_rvc),
     .front2pre_alt_pred(front2pre_alt_pred),
     .front2pre_inst(front2pre_inst),
     .front2pre_page_fault_inst(front2pre_page_fault_inst),
@@ -293,6 +295,7 @@ module core_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; i
     .out_rf_epoch,
     .out_rf_type,
     .out_rf_pc,
+    .out_rf_is_rvc,
     .front2pre_bpu_ck,
     .front2pre_slot_kind,
     .out_stall,
