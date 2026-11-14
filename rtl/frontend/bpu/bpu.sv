@@ -178,7 +178,8 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_btb_pkg::*; impo
   logic [XLEN_BITS-1:0] r_val;
 
   bpu_ctl u_ctl (
-    .refetch, .refetch_pd, .rf_valid, .rf_epoch_ok(rf_epoch == epoch_q), .pd_valid, .pd_flush, .pdq_have,
+    .refetch, .refetch_pd, .rf_valid(rf_valid && rf_type != BR_NOREPAIR), .rf_epoch_ok(rf_epoch == epoch_q),
+    .pd_valid, .pd_flush, .pdq_have,
     .icache_read_ready, .ptab_size, .r0(r0_q), .r1(r1_q), .fin, .g1, .d_valid, .ovr, .squash, .l1_ov, .issue, .fast,
     .s0_go,
     .pd_restore, .rep_ok
