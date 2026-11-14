@@ -27,3 +27,12 @@ rv64 `crc32`、`memory-stress` 曾与模型差几十周期，根因不是 RTL：
 ## 历史（仅供查阅）
 
 "有意义的行为逐拍一致"、"被覆盖的瞬态不复刻"、边界信号逐拍比较等原则只在旧体系下有意义，见标签 `legacy-reference` 下的本文件。
+
+## 找第一个不一致的点：`scripts/align_check.sh`
+
+周期不等时先用它定位，再决定是否值得逐周期对打印。`bash scripts/align_check.sh <prog.bin> [soc_tb] [trace-model 模拟器]`（环境变量 `BIN` 指纹分箱周期、`IV` PMU 区间、`DRILL=1` 自动下钻；模型要用和 RTL 相同的配置运行，例如 `LSU_PIPE_NOWD=1`），两边各自输出，脚本只比对：
+
+1. **PMU 时间序列**：每 `IV` 周期各第一档事件的增量（模型 `PMU=1 PMU_INTERVAL`，RTL 测试平台 `SOC_TB_PMU_IV`）。第一个不同的区间说明哪个子系统先出问题、在哪段周期内。
+2. **指纹**（`trace-model/front-end/BPU/fpr.h`，RTL 测试平台包含的是同一个头文件）：每 `BIN` 周期一个箱，记 PTAB 写入（`PT`：块基址、下一地址、方向掩码）和预测表更新（`UP`：pc、方向、类型、目标、预测元数据、16 位标志）的个数和交换律哈希（同一周期内的顺序不影响）。第一个个数或哈希不同的箱就是该流的第一个分歧；`DRILL=1` 会用 `FPR_DUMP=<from>:<to>` 重跑两边并并排打印该窗口里的原始事件。
+
+两边的事件周期是同一个口径（RTL 的 PMU `CYCLES` 计数，第一个复位后周期为 0；模型用自己的周期减 1）。RTL 侧只读内部信号（`tb/soc/pmu_public.vlt`），不加 RTL 代码。只支持 rv32 的 RTL（更新队列项的位偏移写在 `soc_tb.cpp`）。要加新的指纹流，在 `fpr.h` 加一个函数，模型和测试平台各调用一次。

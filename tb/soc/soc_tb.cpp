@@ -47,6 +47,7 @@ namespace {
 constexpr int kTicks = CONFIG_AXI_SUBSYSTEM_FREQ_DIV;   // fast ticks per CPU cycle (platform config.h = trace-model config.h = rtl ttg_cfg_pkg)
 static_assert(kTicks >= 1 && kTicks <= 16, "mem_top phase counter is 4 bits");
 constexpr int kInstStore = 6;   // InstType::STORE
+#include "fpr.h"   // alignment fingerprints (trace-model front-end/BPU/fpr.h): FPR=<bin cycles>, FPR_DUMP=<from>:<to>
 constexpr int kPmuEv = 51;           // pmu_ev_pkg::PMU_NUM_EV (gen_pmu_pkg.py)
 static uint64_t pmu_total[kPmuEv];
 constexpr int kUopEbreak = 10;  // the commit entry's `type` is the instruction type (rob_pkg ITYPE_EBREAK)
@@ -392,12 +393,35 @@ long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
 #ifdef SOC_TB_FM
       if (fm_on && !fm_pend.empty()) fm_flush(cycles);   // commits of the previous cycle: their register values are visible now
 #endif
+      if (fpr::on()) {   // alignment fingerprints: PTAB writes and predictor-table updates of this cycle (the cycle number is the PMU cycle counter)
+        auto *R = top->rootp;
+        fpr::set_raw_cycle(pmu_total[0]);
+        if (R->soc_top__DOT__u_core__DOT__u_front__DOT__u_front__DOT__u_pred_path__DOT__ptab_wr_en)
+          fpr::pt(R->soc_top__DOT__u_core__DOT__u_front__DOT__u_front__DOT__u_pred_path__DOT__bpu_ptab_base_pc,
+                  R->soc_top__DOT__u_core__DOT__u_front__DOT__u_front__DOT__u_pred_path__DOT__bpu_predict_next_fetch_address,
+                  R->soc_top__DOT__u_core__DOT__u_front__DOT__u_front__DOT__u_pred_path__DOT__bpu_pred_dir);
+        const unsigned ap = R->soc_top__DOT__u_core__DOT__u_front__DOT__u_front__DOT__u_pred_path__DOT__u_bpu__DOT__u_updq__DOT__apply;
+        for (int i = 0; i < 8; ++i) {
+          if (!((ap >> i) & 1)) continue;
+          const auto &w = R->soc_top__DOT__u_core__DOT__u_front__DOT__u_front__DOT__u_pred_path__DOT__u_bpu__DOT__u_updq__DOT__uq_q[i];   // 146 bits, rv32
+          auto bits = [&](int lo, int n) { uint64_t v = 0; for (int b = 0; b < n; ++b) { const int k = lo + b; v |= uint64_t((w[k / 32] >> (k % 32)) & 1u) << b; } return uint32_t(v); };
+          fpr::up(bits(114, 32), bits(113, 1), bits(108, 3), bits(76, 32), bits(112, 1), bits(73, 3), bits(0, 1));
+        }
+      }
       {  // PMU event bus (EXP-013 tier 1): sum every lane; printed at the end, compared with the trace-model's PMU=1 totals
         const auto &bus = top->rootp->soc_top__DOT__u_core__DOT__pmu_ev_inc;
         for (int e = 0; e < kPmuEv; ++e) {
           uint32_t v = 0;
           for (int b = 0; b < 8; ++b) { const int bit = e * 8 + b; v |= ((bus[bit / 32] >> (bit % 32)) & 1u) << b; }
           pmu_total[e] += v;
+        }
+        static const uint64_t pmu_iv = std::getenv("SOC_TB_PMU_IV") ? std::strtoull(std::getenv("SOC_TB_PMU_IV"), nullptr, 0) : 0;   // time series: every N cycles, the per-event deltas
+        static uint64_t pmu_last[kPmuEv], pmu_next = pmu_iv;
+        if (pmu_iv && pmu_total[0] >= pmu_next) {
+          std::printf("PMU_IV %llu", (unsigned long long)pmu_total[0]);
+          for (int e = 0; e < kPmuEv; ++e) { std::printf(" %llu", (unsigned long long)(pmu_total[e] - pmu_last[e])); pmu_last[e] = pmu_total[e]; }
+          std::printf("\n");
+          pmu_next += pmu_iv;
         }
       }
       for (int i = 0; i < 8; ++i)
