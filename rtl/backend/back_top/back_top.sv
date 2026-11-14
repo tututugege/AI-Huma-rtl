@@ -15,7 +15,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
   input  logic [BACKEND_FETCH_WIDTH-1:0] front2pre_predict_dir,
   input  logic [BACKEND_FETCH_WIDTH-1:0] front2pre_is_rvc,
   input  logic [XLEN_BITS-1:0] front2pre_predict_next_fetch_address,
-  input  logic [23:0] front2pre_slot_kind,
+  input  logic [FETCH_WIDTH-1:0][2:0] front2pre_slot_kind,
   input  logic [9:0] front2pre_tage_idx [BACKEND_FETCH_WIDTH][4],
   input  logic [7:0] front2pre_tage_tag [BACKEND_FETCH_WIDTH][4],
   input  logic [BACKEND_FETCH_WIDTH-1:0] front2pre_valid,

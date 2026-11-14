@@ -18,6 +18,7 @@ module rvc_expand import ttg_cfg_pkg::*; #(
   localparam logic [6:0] LOAD = 7'h03, STORE = 7'h23, OPIMM = 7'h13, OP = 7'h33, OPIMMW = 7'h1b, OPW = 7'h3b,
                          LOADFP = 7'h07, STOREFP = 7'h27;
 
+  /* verilator lint_off UNUSEDSIGNAL */   // the offsets of b / j instructions have bit 0 = 0
   function automatic logic [31:0] enc_i(input logic [6:0] opc, input logic [4:0] rd, input logic [2:0] f3,
                                         input logic [4:0] rs1, input logic [11:0] imm);
     return {imm, rs1, f3, rd, opc};
@@ -37,6 +38,8 @@ module rvc_expand import ttg_cfg_pkg::*; #(
   function automatic logic [31:0] enc_j(input logic [4:0] rd, input logic [20:0] imm);
     return {imm[20], imm[10:1], imm[11], imm[19:12], rd, 7'h6f};
   endfunction
+
+  /* verilator lint_on UNUSEDSIGNAL */
 
   logic [1:0]  q;
   logic [2:0]  f3;

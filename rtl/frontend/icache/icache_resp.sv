@@ -39,7 +39,7 @@ module icache_resp import icache_pkg::*; import ttg_cfg_pkg::*; (
   end else begin : g_half
     // RVC=1: lane i is the 32-bit window that starts at halfword (pc[5:1] + i) of the line; a lane is on while its
     // halfword is inside the line.  The window of the line's last halfword has no upper half (0): a 32-bit instruction
-    // that starts there is carried to the next group by the front end.  An uncached answer is one word in lane 0.
+    // that starts there is carried to the next group by the front end.  An uncached answer is one word = two slots.
     localparam int IC_HALVES = IC_LINE_W / 16;
     logic [15:0] half [IC_HALVES + 1];
     for (genvar h = 0; h < IC_HALVES; h++) begin : g_h
@@ -48,17 +48,22 @@ module icache_resp import icache_pkg::*; import ttg_cfg_pkg::*; (
     assign half[IC_HALVES] = 16'h0;
     logic [IC_OFF_W-2:0] base;
     assign base = resp_pc[IC_OFF_W-1:1];
+    localparam int HI_W = $clog2(IC_HALVES + 1);
+    logic [15:0] upper [FETCH_WIDTH];
     for (genvar i = 0; i < FETCH_WIDTH; i++) begin : g_lane
       logic [IC_OFF_W-1:0] hidx;
+      logic [HI_W-1:0]     h0, h1;
       logic in_line, lane_on;
       assign hidx    = {1'b0, base} + IC_OFF_W'(i);
       assign in_line = !hidx[IC_OFF_W-1];
-      assign lane_on = resp_valid && (resp_single_word ? (i == 0) : in_line);
+      // an uncached answer is one word = two halfword slots (the window of the second one has no upper half)
+      assign lane_on = resp_valid && (resp_single_word ? (i < 2) : in_line);
+      assign h0      = HI_W'(hidx[IC_OFF_W-2:0]);
+      assign h1      = h0 + HI_W'(1);
       assign inst_valid[i]       = lane_on;
       assign page_fault_inst[i]  = lane_on && resp_page_fault;
-      assign fetch_group[i]      = (lane_on && !resp_page_fault)
-                                   ? {half[{1'b0, hidx[IC_OFF_W-2:0]} + (IC_OFF_W)'(1)], half[hidx[IC_OFF_W-2:0]]}
-                                   : INST_NOP;
+      assign upper[i]            = (resp_single_word && i == 1) ? 16'h0 : half[h1];
+      assign fetch_group[i]      = (lane_on && !resp_page_fault) ? {upper[i], half[h0]} : INST_NOP;
     end
   end
 

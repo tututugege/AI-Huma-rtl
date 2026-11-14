@@ -205,7 +205,7 @@ module pre_idu_queue import ttg_cfg_pkg::*; import pre_idu_pkg::*; import front_
 
   pre_idu_ftq_bpu u_bpu (
     .clk, .wr_en(alloc), .wr_idx(ftq_tail), .wr_bck(front2pre_bpu_ck), .wr_kind(front2pre_slot_kind),
-    .wr_base_pc(front_slot_pc[0]), .rd_idx(idu_br_latch_ftq_idx), .rd_br_pc(idu_br_latch_br_pc), .rd_ck(out_rf_ck),
+    .wr_pc1(front_slot_pc[1]), .rd_idx(idu_br_latch_ftq_idx), .rd_br_pc(idu_br_latch_br_pc), .rd_ck(out_rf_ck),
     .rd_epoch(out_rf_epoch), .rd_type(out_rf_type)
   );
 

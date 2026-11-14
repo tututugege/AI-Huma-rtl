@@ -37,9 +37,12 @@ module bpu_ub_track_ser import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_sta
     cond  = tr_cond_q;
     ev_valid = '0;
     for (int i = 0; i < NCOMMIT; i++) begin
-      ev[i] = '0;
+      ev[i]  = '0;
+      pc     = base_pc[i];
+      bnd    = block_bnd(start);
+      is_dir = 1'b0; taken = 1'b0; ntslot = 1'b0;
+      nxt    = pc;
       if (upd_valid[i]) begin
-        pc = base_pc[i];
         if (!v || pc != expct || pc >= block_bnd(start)) begin
           v = 1'b1; start = pc; cond = 1'b0;
         end

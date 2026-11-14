@@ -5,15 +5,16 @@
 // slot and the block's base pc.  One write port (an allocation), one read port addressed by the FTQ index of the
 // mispredicted branch: the slot of the branch is its pc relative to the block base, the type is the stored type of
 // that slot.
-module pre_idu_ftq_bpu import ttg_cfg_pkg::*; import front_pkg::BCK_W; import front_pkg::KIND_W;
+module pre_idu_ftq_bpu import ttg_cfg_pkg::*; import bpu_pkg::BANK_W; import bpu_pkg::BANK_TOP;
+  import front_pkg::BCK_W; import front_pkg::KIND_W;
   import bpu_stage_pkg::HCK_W; import bpu_stage_pkg::EPOCH_W; (
   input  logic                        clk,
   input  logic                        wr_en,
   input  logic [FTQ_IDX_WIDTH-1:0]    wr_idx,
   input  logic [BCK_W-1:0]            wr_bck,
   input  logic [FETCH_WIDTH-1:0][KIND_W-1:0] wr_kind,
-  /* verilator lint_off UNUSEDSIGNAL */  // only pc[4:2] (the slot inside the block) matters to the repair record
-  input  logic [XLEN_BITS-1:0]        wr_base_pc,
+  /* verilator lint_off UNUSEDSIGNAL */  // only the slot position inside the window matters to the record
+  input  logic [XLEN_BITS-1:0]        wr_pc1,        // pc of slot 1 (slot 0 may start before the block)
   input  logic [FTQ_IDX_WIDTH-1:0]    rd_idx,
   input  logic [XLEN_BITS-1:0]        rd_br_pc,
   /* verilator lint_on UNUSEDSIGNAL */
@@ -25,28 +26,32 @@ module pre_idu_ftq_bpu import ttg_cfg_pkg::*; import front_pkg::BCK_W; import fr
   typedef struct packed {
     logic [BCK_W-1:0]                   bck;
     logic [FETCH_WIDTH-1:0][KIND_W-1:0] kind;
-    logic [4:2]                         base_slot;   // bank position of lane 0 (the block spans at most 8 words)
+    logic [BANK_TOP:SLOT_SHIFT]         base_rel;    // slot position of the block base (carried slot 0: -1)
   } rec_t;
 
   rec_t rec_q [FTQ_SIZE];
   rec_t rec;
-  logic [2:0] slot;
+  logic [BANK_TOP:SLOT_SHIFT] rel;
+  logic [BANK_W-1:0]          slot;
 
   // Ref: comb: slot of the branch inside its block
   always_comb begin
     rec  = rec_q[rd_idx];
-    slot = rd_br_pc[4:2] - rec.base_slot;
+    rel  = rd_br_pc[BANK_TOP:SLOT_SHIFT] - rec.base_rel;
+    // RVC=1: slot 0 may be an instruction carried over from the previous group, its pc is one slot below the base
+    slot = (&rel) ? '0 : rel[BANK_TOP-1:SLOT_SHIFT];
     {rd_epoch, rd_ck} = rec.bck;
     rd_type = rec.kind[slot];
   end
 
   always_ff @(posedge clk) begin
-    if (wr_en) rec_q[wr_idx] <= '{bck: wr_bck, kind: wr_kind, base_slot: wr_base_pc[4:2]};
+    if (wr_en) rec_q[wr_idx] <= '{bck: wr_bck, kind: wr_kind, base_rel: wr_pc1[BANK_TOP:SLOT_SHIFT] - (BANK_W + 1)'(1)};
   end
 
   /* verilator lint_off UNUSEDSIGNAL */
   logic unused_pc;    // only the word position inside the 32-byte window of the pcs is needed
-  assign unused_pc = ^{rd_br_pc[31:5], rd_br_pc[1:0], wr_base_pc[31:5], wr_base_pc[1:0]};
+  assign unused_pc = ^{rd_br_pc[31:BANK_TOP+1], rd_br_pc[SLOT_SHIFT-1:0],
+                       wr_pc1[31:BANK_TOP+1], wr_pc1[SLOT_SHIFT-1:0]};
   /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule
