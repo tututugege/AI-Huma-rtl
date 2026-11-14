@@ -1,6 +1,7 @@
 # RTL 的 C 扩展（RVC=1）
 
-> 状态（2026-11-14）：R0、R1、R2a（I$ 第二行）完成；R2b（预译码 / 起点链 / lastHalf / FIFO）、R3 未开始。分支 `exp/rvc-rtl`（工作区 `rtl-rvc`），未合并。
+> 状态（2026-11-14）：R0–R3 完成：`RVC=1` 非 C 程序 64 / 64 提交与 function-model 一致，周期与 `ref_cycles_rvc.txt` 逐个相等；`RVC=0` fm_gate 64 / 64 周期不变。R4（C 程序、Linux）未做。分支 `exp/rvc-rtl`（工作区 `rtl-rvc`），未合并。
+> 设计：**C910 式携带**（不是香山式二次取行）：组末 32 位指令的前半字存进携带寄存器，下一个顺序组的 slot 0 拼成整条（pc = 组 pc − 2），预测仍按第一个半字。
 
 目标：RTL 与 trace-model 的 `RVC=1` 配置周期逐个相等、提交逐条与 function-model（`RVC=1`）一致。设计依据在总仓库 `docs/EXPLORATION.md` 的 EXP-037 / 038：
 slot 是 2 字节位置（32 B 块 16 个槽）、预译码按槽展开压缩指令并给出指令起点链、跨块 32 位指令归起始所在的块（`lastHalf`）、
@@ -22,7 +23,19 @@ slot 是 2 字节位置（32 B 块 16 个槽）、预译码按槽展开压缩指
 |---|---|---|
 | R0 | 配置包导出 `RVC_ENABLE` / `SLOT_*`；`RVC=1` 参考周期表 | `RVC=0` 配置包下 lint 不变 |
 | R1 | 后端：每槽 `is_rvc`（FTQ 存、前端 → 后端通路，前端先接 0）、`pc + ilen`（BRU、ROB 刷新后取指、提交时的顺序目标）、JAL / JALR 的链接值、`misa.C`、FTQ 槽 pc = 基址 + `SLOT_BYTES` × 偏移 | `RVC=0`：lint、`fm_gate` 周期与 `ref_cycles.txt` 全部相等 |
-| R2a | I$ 第二行（香山式，按需；trace-model `icache_module.cpp` 的 `xl_*`）：第二个 tag / 半字读口、两阶段请求寄存器、重放、半字窗口（`icache_resp`）。`RVC=0` 的 lint、`fm_gate` 周期不变；`RVC=1` 的行为要等 R2b 才能整体验证 | `RVC=0` 全部相等 |
-| R2b | 前端其余：I$ 每槽 32 位窗口（行尾跨行、页尾取下一页，见 trace-model `ICacheTop.cpp`）、压缩指令展开、起点链 `start_a` / `start_b`、`lastHalf`、`seq_next_pc`、预译码检查器的 `is_rvc`、各 FIFO / PTAB 宽度 16、指令缓冲按指令 | `RVC=1`：非 C 程序周期等于 `ref_cycles_rvc.txt` |
-| R3 | BPU：16 槽几何、uBTB 字段（`UB_SLOT_BITS` / `UB_TGT_BITS`、`ub_expand`）、BTB / TAGE 哈希按 `SLOT_SHIFT`、RAS 压栈 `pc + 长度`、训练带长度位、块边界 | 同上，BPU 计数与模型一致 |
+| R2 | 前端：`rvc_expand`（对 function-model 的 `rvc::expand` 全量比对）、每槽展开 / `is_rvc` / 起点链 `start_a` `start_b` / `raw0` 存进指令队列、`front_head_fix`（携带拼接、起点过滤、组末跨界指令）、携带寄存器、`is_rvc` 和 carry 位经 f2b 到后端、FTQ 的 slot 0 pc；I$ 只给半字窗口（组末最后一个半字没有高半字） | `RVC=0` 全部相等 |
+| R3 | BPU（已完成）：16 槽几何、uBTB 字段（`UB_SLOT_BITS` / `UB_TGT_BITS`、`ub_expand`）、BTB / TAGE 哈希按 `SLOT_SHIFT`、RAS 压栈 `pc + 长度`、训练带长度位、块边界 | 同上，BPU 计数与模型一致 |
 | R4 | C 程序（`build_c`：cpu-tests、`rvc-*`、`rvc-sv32`、`rvc-fencei`、`rvc-irq`）和 Linux（rv32c）逐条对 function-model、周期对 trace-model | 全部 PASS、周期相等 |
+
+## 约定（slot / pc）
+
+- slot 是 2 字节位置，一个 32 字节块 16 个槽；一组的第 i 个槽 pc = 组基址 + `SLOT_BYTES` × i。
+- 唯一的例外：携带拼成的指令占 slot 0，pc = 组基址 − `SLOT_BYTES`（`front_head_fix` 的 `carry`，f2b 项里的 `carry` 位）。FTQ 取 pc：slot 0 单独读，slot 1.. 从 slot 1 起算（`pre_idu_ftq_pc`）；BPU 修复记录里的槽号用多一位的相对槽号，`−1` 表示携带的 slot 0（`pre_idu_ftq_bpu`）。
+- BPU 的 bank = `pc[BANK_TOP-1:SLOT_SHIFT]`（`BANK_TOP` = 5），bank pc = pc >> `BANK_W`；所有哈希在 slot 地址（pc >> `SLOT_SHIFT`）上做。
+- 预测按指令的第一个半字；携带指令不参与 BPU 训练的元数据对齐（它用下一块 slot 0 的预测元数据）——对 SPEC 的影响还没量化。
+
+## 已知遗留
+
+- RVC=1 的 uBTB 块跟踪器是逐 lane 串行版本（`bpu_ub_track_ser`），RVC=0 是并行版本；时序没评估。
+- RVC=0 的指令队列项里也存 `raw0` / `start_a` / `start_b` / `is_rvc`（综合会剪掉，面积没统计）。
+- `is_rvc` 的位置、周期都已与模型对齐，但 C 程序的周期表还没有（R4）。
