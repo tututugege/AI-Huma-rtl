@@ -6,7 +6,7 @@
 // Miss service step (no kill): issue the AXI read of the line (or one word if uncached), wait for the response,
 // wait for the
 // DCache probe to finish, then refill (write one way of the set, answer the fetch).  Also the CANCEL_WAIT cycle.
-module icache_swap import ttg_cfg_pkg::*; import icache_pkg::*; (
+module icache_swap import icache_pkg::*; (
   input  ic_regs_t                r,
   // port values
   input  logic                    mem_req_ready,
@@ -27,7 +27,6 @@ module icache_swap import ttg_cfg_pkg::*; import icache_pkg::*; (
   // set status (meta of the request's set)
   input  logic                    has_invalid,
   input  logic [IC_WAY_W-1:0]     first_invalid,
-  input  logic                    hit2,             // RVC=1: the second line (set + 1, tag ppn_r) is present
   output ic_regs_t                r_n,
   output logic                    req_ready,
   output logic                    mem_req_valid,
@@ -39,14 +38,11 @@ module icache_swap import ttg_cfg_pkg::*; import icache_pkg::*; (
   output logic [IC_LINE_W-1:0]    resp_line_d,
   output logic                    tw_we,
   output logic [IC_WAY_W-1:0]     tw_way,
-  output logic [IC_LINE_W-1:0]    tw_line,
-  output logic                    pc_ovr_valid,     // RVC=1: the registered request pc is replaced (second line replay)
-  output logic [XLEN_BITS-1:0]             pc_ovr
+  output logic [IC_LINE_W-1:0]    tw_line
 );
 
   logic sw_req, sw_wait, wdc, cw, unc, accepted_sel, ready_seen_now, gnt, to_wdc;
   logic finish_swap, finish_wdc, finish, cw_acc;
-  logic xl_fill, xl_after_fill, xl_quiet;
   logic [IC_WAY_W-1:0] replace_next;
   logic [IC_LINE_W-1:0] mem_line_w;
   logic [IC_TXID_N-1:0] txid_mask;
@@ -76,17 +72,9 @@ module icache_swap import ttg_cfg_pkg::*; import icache_pkg::*; (
     replace_next = unc ? r.replace_idx : (has_invalid ? first_invalid : r.replace_idx + IC_WAY_W'(1));
     resp_line_we = gnt;
     resp_line_d  = mem_line_w;
+    resp_valid       = finish;
     resp_single_word = finish && unc;
     resp_line        = step_hit ? probe_line_eff : (wdc ? resp_line_q : mem_line_w);
-    // RVC=1 second line: a fill of the second line is not an answer (the original request is replayed); a fill of a
-    // line whose request needs its second line, which is not present, is not answered either (the replay starts the
-    // second-line fetch)
-    xl_fill       = finish && r.xl_phase;
-    xl_after_fill = finish && !unc && !r.xl_phase && !r.xl_done &&
-                    ic_xl_cand(r.req_pc[5:0], r.ppn[IC_TAG_W-1 -: 2], resp_line[IC_WORD_W * 15 + 16 +: 2]) &&
-                    (r.req_pc[11:IC_OFF_W] == '1 || !hit2);
-    xl_quiet      = xl_fill || xl_after_fill;
-    resp_valid       = finish && !xl_quiet;
     tw_we   = finish && !unc;
     tw_way  = wdc ? r.replace_idx : replace_next;
     tw_line = resp_line;
@@ -102,8 +90,6 @@ module icache_swap import ttg_cfg_pkg::*; import icache_pkg::*; (
     r_n.inflight = r.inflight & ~drop_mask;
     r_n.canceled = r.canceled & ~drop_mask;
     req_ready = 1'b0;
-    pc_ovr_valid = finish && r.xl_phase;
-    pc_ovr       = r.xl_pc;
     if (sw_req && accepted_sel && !active_resp) begin
       r_n.state = IC_SWAP_WAIT;
       r_n.inflight = (r.inflight & ~drop_mask) | txid_mask;
@@ -117,11 +103,7 @@ module icache_swap import ttg_cfg_pkg::*; import icache_pkg::*; (
       r_n.state = IC_IDLE;  r_n.miss_txv = 1'b0;  r_n.ready_seen = 1'b0;
       r_n.probe_inflight = 1'b0;  r_n.probe_done = 1'b0;  r_n.probe_hit = 1'b0;  r_n.probe_word = '0;
       if (r.miss_txv) r_n.inflight = (r.inflight & ~drop_mask) & ~txid_mask;
-      req_ready = !xl_quiet;
-      if (!xl_quiet) r_n.xl_done = 1'b0;
-      if (xl_fill) begin
-        r_n.xl_phase = 1'b0;  r_n.xl_done = 1'b1;  r_n.xl_fault = 1'b0;  r_n.xl_ppn = r.ppn;
-      end
+      req_ready = 1'b1;
     end
     if (cw) begin
       r_n.state = IC_IDLE;  r_n.miss_txv = 1'b0;  r_n.ready_seen = 1'b0;

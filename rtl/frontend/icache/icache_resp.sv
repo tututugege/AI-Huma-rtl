@@ -12,7 +12,6 @@ module icache_resp import icache_pkg::*; import ttg_cfg_pkg::*; (
   input  logic                 resp_page_fault,
   input  logic                 resp_single_word,
   input  logic [IC_LINE_W-1:0] resp_line,
-  input  logic [15:0]          next_half,   // RVC=1: first halfword of the next line (upper half of the last window)
   output logic [XLEN_BITS-1:0]          fetch_pc,
   output logic [31:0]          fetch_group [FETCH_WIDTH],
   output logic [FETCH_WIDTH-1:0] page_fault_inst,
@@ -37,21 +36,16 @@ module icache_resp import icache_pkg::*; import ttg_cfg_pkg::*; (
                                    ? resp_line[IC_WORD_W * widx[IC_WORD_IDX_W-1:0] +: IC_WORD_W]
                                                                   : INST_NOP;
     end
-    /* verilator lint_off UNUSEDSIGNAL */
-    logic unused_nh;
-    assign unused_nh = ^next_half;
-    /* verilator lint_on UNUSEDSIGNAL */
   end else begin : g_half
-    // RVC=1: lane i is the 32-bit window that starts at halfword (pc[5:1] + i) of the line (the window of the last
-    // halfword takes its upper half from the next line); a lane is on while its halfword is inside the line.  An
-    // uncached answer is one word in lane 0 (the next word is not available: lane 1 stays off; executable memory
-    // below the uncached limit does not exist on this platform).
+    // RVC=1: lane i is the 32-bit window that starts at halfword (pc[5:1] + i) of the line; a lane is on while its
+    // halfword is inside the line.  The window of the line's last halfword has no upper half (0): a 32-bit instruction
+    // that starts there is carried to the next group by the front end.  An uncached answer is one word in lane 0.
     localparam int IC_HALVES = IC_LINE_W / 16;
     logic [15:0] half [IC_HALVES + 1];
     for (genvar h = 0; h < IC_HALVES; h++) begin : g_h
       assign half[h] = resp_line[16 * h +: 16];
     end
-    assign half[IC_HALVES] = next_half;
+    assign half[IC_HALVES] = 16'h0;
     logic [IC_OFF_W-2:0] base;
     assign base = resp_pc[IC_OFF_W-1:1];
     for (genvar i = 0; i < FETCH_WIDTH; i++) begin : g_lane

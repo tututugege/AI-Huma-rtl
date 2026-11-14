@@ -64,8 +64,6 @@ module icache_kill import ttg_cfg_pkg::*; import icache_pkg::*; (
     r_n = r;
     r_n.req_valid = 1'b0;
     r_n.ifu_ready = 1'b0;
-    r_n.xl_phase  = 1'b0;
-    r_n.xl_done   = 1'b0;
     r_n.inflight  = (r.inflight & ~drop_mask) | set_both;
     r_n.canceled  = (r.canceled & ~drop_mask) | set_both;
     case (r.state)

@@ -72,6 +72,7 @@ module front_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; 
   output logic [XLEN_BITS-1:0] out_predict_next_fetch_address,
   output logic [BCK_W-1:0] out_bpu_ck,
   output logic [FETCH_WIDTH-1:0][KIND_W-1:0] out_slot_kind,
+  output logic [FETCH_WIDTH-1:0] out_is_rvc,
   // ---- memory side outputs ----
   output logic        mem_req_valid,
   output logic [31:0] mem_req_addr,
@@ -133,6 +134,8 @@ module front_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; 
   logic [1:0]  inst_rd_predecode_type           [FETCH_WIDTH];
   logic [XLEN_BITS-1:0] inst_rd_predecode_target_address [FETCH_WIDTH];
   logic [XLEN_BITS-1:0] inst_rd_seq_next_pc;
+  logic [15:0] inst_rd_raw0;
+  logic [FETCH_WIDTH-1:0] inst_rd_is_rvc, inst_rd_start_a, inst_rd_start_b;
 
   icache u_icache (
     .clk, .rst_n,
@@ -167,7 +170,8 @@ module front_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; 
     .inst_rd_en      (predecode_can_run),
     .inst_empty,
     .inst_rd_instructions, .inst_rd_page_fault_inst, .inst_rd_inst_valid, .inst_rd_predecode_type,
-    .inst_rd_predecode_target_address, .inst_rd_seq_next_pc
+    .inst_rd_predecode_target_address, .inst_rd_seq_next_pc,
+    .inst_rd_raw0, .inst_rd_is_rvc, .inst_rd_start_a, .inst_rd_start_b
   );
 
   // ---- prediction side + front.out ----
@@ -183,12 +187,13 @@ module front_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; 
     .upd_valid, .base_pc, .actual_dir, .br_type, .target, .pred_dir, .alt_pred, .pcpn, .tags, .idxs,
     .inst_rd_instructions, .inst_rd_page_fault_inst, .inst_rd_inst_valid, .inst_rd_predecode_type,
     .inst_rd_predecode_target_address, .inst_rd_seq_next_pc,
+    .inst_rd_raw0, .inst_rd_is_rvc, .inst_rd_start_a, .inst_rd_start_b,
     .bpu_icache_read_valid, .bpu_fetch_address, .bpu_ptab_write_enable,
     .bpu_override_valid, .bpu_override_squash, .ptab_empty, .f2b_full, .f2b_empty,
     .checker_flush_enable, .checker_flush_address,
     .out_inst_valid, .out_instructions, .out_page_fault_inst, .out_predict_dir, .out_pc, .out_alt_pred,
     .out_pcpn, .out_tage_idx, .out_tage_tag, .out_predict_next_fetch_address,
-    .out_bpu_ck, .out_slot_kind, .commit_upd_free, .commit_tq_free
+    .out_bpu_ck, .out_slot_kind, .out_is_rvc, .commit_upd_free, .commit_tq_free
   );
 
   // the delayed predecode refetch is the part of the global refetch that does not come from the back end

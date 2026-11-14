@@ -7,7 +7,7 @@
 // the line of the hit way is selected here so the FSM never sees the other seven.
 // Storage is written like a memory (01 section 3.1): one write port, one way per write; valid bits are a register
 // vector with a whole-cache clear (fence.i -> invalidate_all clears only valid, not tag/data).
-module icache_arr import ttg_cfg_pkg::*; import icache_pkg::*; (
+module icache_arr import icache_pkg::*; (
   input  logic                    clk,
   input  logic                    rst_n,
   // read request: the set of the request being looked up
@@ -19,12 +19,6 @@ module icache_arr import ttg_cfg_pkg::*; import icache_pkg::*; (
   output logic [IC_LINE_W-1:0]    hit_line,       // line of the hit way (meaningful when hit)
   output logic                    has_invalid,    // some way of the set is invalid (response valid only)
   output logic [IC_WAY_W-1:0]     first_invalid,  // lowest invalid way
-  // second read port (RVC=1 second line): is the line with tag cmp2_tag in set rd2_index present, and its first
-  // halfword
-  input  logic [IC_IDX_W-1:0]     rd2_index,
-  input  logic [IC_TAG_W-1:0]     cmp2_tag,
-  output logic                    hit2,
-  output logic [15:0]             hit2_half,
   // write port (refill)
   input  logic                    we,
   input  logic [IC_IDX_W-1:0]     w_index,
@@ -72,26 +66,6 @@ module icache_arr import ttg_cfg_pkg::*; import icache_pkg::*; (
   ttg_onehot_to_idx #(.N(IC_WAYS)) u_inv_idx (.onehot(invalid_onehot), .idx(first_invalid_idx));
 
   assign hit           = hit_any;
-
-  if (RVC_ENABLE != 0) begin : g_port2
-    logic [IC_WAYS-1:0] m2, oh2;
-    logic [15:0] half2 [IC_WAYS];
-    logic any2;
-    for (genvar w = 0; w < IC_WAYS; w++) begin : g_w2
-      assign m2[w]    = valid_q[w][rd2_index] && (tag_q[w][rd2_index] == cmp2_tag);
-      assign half2[w] = data_q[w][rd2_index][15:0];
-    end
-    ttg_first_set #(.N(IC_WAYS)) u_hit2 (.req(m2), .onehot(oh2), .any(any2));
-    ttg_onehot_mux #(.N(IC_WAYS), .W(16)) u_half2 (.sel(oh2), .data(half2), .out(hit2_half));
-    assign hit2 = any2;
-  end else begin : g_no_port2
-    /* verilator lint_off UNUSEDSIGNAL */
-    logic unused2;
-    assign unused2 = ^{rd2_index, cmp2_tag};
-    /* verilator lint_on UNUSEDSIGNAL */
-    assign hit2      = 1'b0;
-    assign hit2_half = 16'h0;
-  end
   assign has_invalid   = rd_en && invalid_any;
   assign first_invalid = first_invalid_idx;
 

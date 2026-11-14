@@ -42,6 +42,10 @@ package front_pkg;
   // ---- FIFO entries (debug-only fields of the C++ entries are not stored) ----
   // instruction_FIFO entry: one predecoded fetch group
   typedef struct packed {
+    logic [15:0]                               raw0;      // RVC=1: first halfword of slot 0 as fetched (before expansion)
+    logic [FETCH_WIDTH-1:0]                    start_b;   // RVC=1: instruction starts when slot 0 is a carried second half
+    logic [FETCH_WIDTH-1:0]                    start_a;   // RVC=1: instruction starts when slot 0 begins an instruction
+    logic [FETCH_WIDTH-1:0]                    is_rvc;    // RVC=1: the slot holds a 16-bit instruction (expanded)
     logic [XLEN_BITS-1:0]                               seq_next_pc;
     logic [FETCH_WIDTH-1:0][XLEN_BITS-1:0]     predecode_target_address;
     logic [FETCH_WIDTH-1:0][1:0]               predecode_type;
@@ -77,6 +81,8 @@ package front_pkg;
     logic [FETCH_WIDTH-1:0]        predict_dir_corrected;
     logic [FETCH_WIDTH-1:0]        inst_valid;
     logic [FETCH_WIDTH-1:0]        page_fault_inst;
+    logic [FETCH_WIDTH-1:0]        is_rvc;
+    logic                          carry;      // RVC=1: slot 0 is an instruction assembled with the carried halfword (pc = base - SLOT_BYTES)
     logic [FETCH_WIDTH-1:0][31:0]  fetch_group;
   } f2b_fifo_entry_t;
 endpackage

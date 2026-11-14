@@ -2,7 +2,7 @@
 `default_nettype none
 
 // front2back_FIFO: 32 x 2424b queue of checked fetch groups waiting for the back end.  Port adaptation only.
-// The entry keeps the lane-0 pc: lane i of the C++ entry is lane0 + 4*i (it is copied from the PTAB entry), so the
+// The entry keeps the lane-0 pc: lane i of the C++ entry is lane0 + SLOT_BYTES*i (a carried slot 0: base - SLOT_BYTES) (it is copied from the PTAB entry), so the
 // per-lane pc ports of the C++ interface are replaced by the single base pc.
 module front2back_fifo import ttg_cfg_pkg::*; import front_pkg::*; (
   input  logic                    clk,
@@ -22,6 +22,8 @@ module front2back_fifo import ttg_cfg_pkg::*; import front_pkg::*; (
   input  logic [XLEN_BITS-1:0]             wr_predict_next_fetch_address_corrected,
   input  logic [BCK_W-1:0]        wr_bpu_ck,
   input  logic [FETCH_WIDTH-1:0][KIND_W-1:0] wr_slot_kind,
+  input  logic [FETCH_WIDTH-1:0] wr_is_rvc,
+  input  logic                    wr_carry,
   output logic                    rd_valid,
   output logic [31:0]             rd_fetch_group [FETCH_WIDTH],
   output logic [FETCH_WIDTH-1:0] rd_page_fault_inst,
@@ -35,6 +37,8 @@ module front2back_fifo import ttg_cfg_pkg::*; import front_pkg::*; (
   output logic [XLEN_BITS-1:0]             rd_predict_next_fetch_address_corrected,
   output logic [BCK_W-1:0]        rd_bpu_ck,
   output logic [FETCH_WIDTH-1:0][KIND_W-1:0] rd_slot_kind,
+  output logic [FETCH_WIDTH-1:0] rd_is_rvc,
+  output logic                    rd_carry,
   output logic                    full,
   output logic                    empty
 );
@@ -48,6 +52,8 @@ module front2back_fifo import ttg_cfg_pkg::*; import front_pkg::*; (
       wr_entry.page_fault_inst[i]        = wr_page_fault_inst[i];
       wr_entry.inst_valid[i]             = wr_inst_valid[i];
       wr_entry.predict_dir_corrected[i]  = wr_predict_dir_corrected[i];
+      wr_entry.is_rvc[i]                 = wr_is_rvc[i];
+      rd_is_rvc[i]                       = rd_entry.is_rvc[i];
       wr_entry.meta.alt_pred[i]     = wr_alt_pred[i];
       wr_entry.meta.pcpn[i]         = wr_pcpn[i];
       for (int j = 0; j < TN_MAX; j++) begin
@@ -65,6 +71,8 @@ module front2back_fifo import ttg_cfg_pkg::*; import front_pkg::*; (
         rd_tage_tag[i][j] = rd_entry.meta.tage_tag[i][j];
       end
     end
+    wr_entry.carry                                  = wr_carry;
+    rd_carry                                        = rd_entry.carry;
     wr_entry.bpu_ck                                 = wr_bpu_ck;
     wr_entry.slot_kind                              = wr_slot_kind;
     rd_bpu_ck                                       = rd_entry.bpu_ck;

@@ -34,13 +34,49 @@ module front_fetch_buf import ttg_cfg_pkg::*; import front_pkg::*; (
   output logic [FETCH_WIDTH-1:0] inst_rd_inst_valid,
   output logic [1:0]  inst_rd_predecode_type          [FETCH_WIDTH],
   output logic [XLEN_BITS-1:0] inst_rd_predecode_target_address [FETCH_WIDTH],
-  output logic [XLEN_BITS-1:0] inst_rd_seq_next_pc
+  output logic [XLEN_BITS-1:0] inst_rd_seq_next_pc,
+  output logic [15:0] inst_rd_raw0,
+  output logic [FETCH_WIDTH-1:0] inst_rd_is_rvc,
+  output logic [FETCH_WIDTH-1:0] inst_rd_start_a,
+  output logic [FETCH_WIDTH-1:0] inst_rd_start_b
 );
 
   logic [1:0]  predecode_type           [FETCH_WIDTH];
   logic [XLEN_BITS-1:0] predecode_target_address [FETCH_WIDTH];
   logic [XLEN_BITS-1:0] seq_next_pc;
   logic        inst_wr_en;
+
+  // RVC=1: a window whose low bits are not 11 is a 16-bit instruction: it is expanded here (an illegal encoding becomes
+  // 0) and marked.  start_a / start_b: which slots begin an instruction when slot 0 begins one / when slot 0 is the
+  // second half of the previous group's last instruction (the chain of the valid prefix).
+  logic [31:0]            ex_inst [FETCH_WIDTH];
+  logic [FETCH_WIDTH-1:0] is_rvc;
+  logic [FETCH_WIDTH-1:0] start_a, start_b;
+  if (RVC_ENABLE != 0) begin : g_rvc
+    for (genvar i = 0; i < FETCH_WIDTH; i++) begin : g_lane
+      logic [31:0] ex;
+      rvc_expand u_expand (.h(ic_fetch_group[i][15:0]), .inst(ex));
+      assign is_rvc[i]  = ic_inst_valid[i] && (ic_fetch_group[i][1:0] != 2'b11);
+      assign ex_inst[i] = is_rvc[i] ? ex : ic_fetch_group[i];
+      if (i == 0) begin : g_first
+        assign start_a[i] = ic_inst_valid[i];
+        assign start_b[i] = 1'b0;
+      end else if (i == 1) begin : g_second
+        assign start_a[i] = ic_inst_valid[i] && start_a[0] && is_rvc[0];
+        assign start_b[i] = ic_inst_valid[i];
+      end else begin : g_rest
+        assign start_a[i] = ic_inst_valid[i] && ((start_a[i-1] && is_rvc[i-1]) || (start_a[i-2] && !is_rvc[i-2]));
+        assign start_b[i] = ic_inst_valid[i] && ((start_b[i-1] && is_rvc[i-1]) || (start_b[i-2] && !is_rvc[i-2]));
+      end
+    end
+  end else begin : g_word
+    always_comb begin
+      for (int i = 0; i < FETCH_WIDTH; i++) ex_inst[i] = ic_fetch_group[i];
+    end
+    assign is_rvc  = '0;
+    assign start_a = '0;
+    assign start_b = '0;
+  end
 
   fetch_addr_fifo u_fa_fifo (
     .clk, .rst_n,
@@ -59,7 +95,7 @@ module front_fetch_buf import ttg_cfg_pkg::*; import front_pkg::*; (
   predecode u_predecode (
     .clk, .rst_n,
     .fetch_pc                 (ic_fetch_pc),
-    .inst                     (ic_fetch_group),
+    .inst                     (ex_inst),
     .inst_valid               (ic_inst_valid),
     .predecode_type,
     .predecode_target_address
@@ -85,12 +121,16 @@ module front_fetch_buf import ttg_cfg_pkg::*; import front_pkg::*; (
     .refetch                     (global_refetch),
     .rd_en                       (inst_rd_en),
     .wr_en                       (inst_wr_en),
-    .wr_instructions             (ic_fetch_group),
+    .wr_instructions             (ex_inst),
     .wr_page_fault_inst          (ic_page_fault_inst),
     .wr_inst_valid               (ic_inst_valid),
     .wr_predecode_type           (predecode_type),
     .wr_predecode_target_address (predecode_target_address),
     .wr_seq_next_pc              (seq_next_pc),
+    .wr_raw0                     (ic_fetch_group[0][15:0]),
+    .wr_is_rvc                   (is_rvc),
+    .wr_start_a                  (start_a),
+    .wr_start_b                  (start_b),
     .rd_valid                    (inst_rd_valid),
     .rd_instructions             (inst_rd_instructions),
     .rd_page_fault_inst          (inst_rd_page_fault_inst),
@@ -98,6 +138,10 @@ module front_fetch_buf import ttg_cfg_pkg::*; import front_pkg::*; (
     .rd_predecode_type           (inst_rd_predecode_type),
     .rd_predecode_target_address (inst_rd_predecode_target_address),
     .rd_seq_next_pc              (inst_rd_seq_next_pc),
+    .rd_raw0                     (inst_rd_raw0),
+    .rd_is_rvc                   (inst_rd_is_rvc),
+    .rd_start_a                  (inst_rd_start_a),
+    .rd_start_b                  (inst_rd_start_b),
     .full                        (inst_full),
     .empty                       (inst_empty)
   );

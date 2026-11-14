@@ -35,8 +35,13 @@ module pre_idu_ftq_pc import ttg_cfg_pkg::*; import pre_idu_pkg::*; #(
 
   always_comb begin
     for (int p = 0; p < DECODE_WIDTH; p++) dis_is_rvc[p] = is_rvc_q[dis_idx[p]][dis_off[p]];
-    for (int p = 0; p < DECODE_WIDTH; p++)
-      dis_pc[p] = slot_pc_q[dis_idx[p]][0] + (XLEN_BITS'(dis_off[p]) << SLOT_SHIFT);
+    // RVC=1: slot 0 of an entry may be an instruction assembled with a carried halfword (pc = group pc - SLOT_BYTES):
+    // slots 1.. are consecutive from slot 1, slot 0 is read on its own
+    for (int p = 0; p < DECODE_WIDTH; p++) begin
+      if (RVC_ENABLE == 0) dis_pc[p] = slot_pc_q[dis_idx[p]][0] + (XLEN_BITS'(dis_off[p]) << SLOT_SHIFT);
+      else if (dis_off[p] == '0) dis_pc[p] = slot_pc_q[dis_idx[p]][0];
+      else dis_pc[p] = slot_pc_q[dis_idx[p]][1] + (XLEN_BITS'(dis_off[p] - FTQ_OFFSET_WIDTH'(1)) << SLOT_SHIFT);
+    end
   end
 
   // Ref: comb_ftq_lookup_prf / comb_ftq_lookup_rob / comb_commit_info (pc, pred_taken) -- reads the registered state

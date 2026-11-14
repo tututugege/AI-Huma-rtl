@@ -45,6 +45,10 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
   input  logic [1:0]          inst_rd_predecode_type           [FETCH_WIDTH],
   input  logic [XLEN_BITS-1:0]         inst_rd_predecode_target_address [FETCH_WIDTH],
   input  logic [XLEN_BITS-1:0]         inst_rd_seq_next_pc,
+  input  logic [15:0]         inst_rd_raw0,
+  input  logic [FETCH_WIDTH-1:0] inst_rd_is_rvc,
+  input  logic [FETCH_WIDTH-1:0] inst_rd_start_a,
+  input  logic [FETCH_WIDTH-1:0] inst_rd_start_b,
   // to control / fetch side
   output logic                bpu_icache_read_valid,
   output logic [XLEN_BITS-1:0]         bpu_fetch_address,
@@ -69,6 +73,7 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
   output logic [XLEN_BITS-1:0]         out_predict_next_fetch_address,
   output logic [BCK_W-1:0]    out_bpu_ck,
   output logic [FETCH_WIDTH-1:0][KIND_W-1:0] out_slot_kind,
+  output logic [FETCH_WIDTH-1:0] out_is_rvc,
   output logic [3:0] commit_upd_free,   // compact ROB commit credits (EXP-028)
   output logic [3:0] commit_tq_free
 );
@@ -165,6 +170,29 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
     .size                          (ptab_size)
   );
 
+  // ---- RVC=1: carry register (first halfword of a 32-bit instruction that starts in the last slot of a group) ----
+  logic                  lh_valid_q;
+  logic [XLEN_BITS-1:0]  lh_pc_q;
+  logic [15:0]           lh_data_q;
+  logic [31:0]           hf_insts   [FETCH_WIDTH];
+  logic [FETCH_WIDTH-1:0] hf_valid;
+  logic [1:0]            hf_type    [FETCH_WIDTH];
+  logic [XLEN_BITS-1:0]  hf_target  [FETCH_WIDTH];
+  logic [FETCH_WIDTH-1:0] hf_rvc;
+  logic                  hf_carry, hf_straddle;
+  logic [XLEN_BITS-1:0]  hf_pc0, hf_end;
+  logic [15:0]           hf_low;
+
+  front_head_fix u_head_fix (
+    .base_pc(ptab_rd_predict_base_pc),
+    .insts_i(inst_rd_instructions), .valid_i(inst_rd_inst_valid), .page_fault(inst_rd_page_fault_inst),
+    .ptype_i(inst_rd_predecode_type), .ptarget_i(inst_rd_predecode_target_address),
+    .is_rvc_i(inst_rd_is_rvc), .start_a(inst_rd_start_a), .start_b(inst_rd_start_b), .raw0(inst_rd_raw0),
+    .lh_valid(lh_valid_q), .lh_pc(lh_pc_q), .lh_data(lh_data_q),
+    .insts_o(hf_insts), .valid_o(hf_valid), .ptype_o(hf_type), .ptarget_o(hf_target), .is_rvc_o(hf_rvc),
+    .carry(hf_carry), .pc0(hf_pc0), .straddle(hf_straddle), .carry_low(hf_low), .group_end_pc(hf_end)
+  );
+
   // ---- predecode checker: PTAB head vs predecoded instruction-queue head ----
   logic [FETCH_WIDTH-1:0][KIND_W-1:0] slot_kind;
   logic [FETCH_WIDTH-1:0] checker_dir_corrected;
@@ -174,8 +202,8 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
     .clk, .rst_n,
     .predict_dir                          (ptab_rd_predict_dir),
     .predict_next_fetch_address           (ptab_rd_predict_next_fetch_address),
-    .predecode_type                       (inst_rd_predecode_type),
-    .predecode_target_address             (inst_rd_predecode_target_address),
+    .predecode_type                       (hf_type),
+    .predecode_target_address             (hf_target),
     .seq_next_pc                          (inst_rd_seq_next_pc),
     .predict_dir_corrected                (checker_dir_corrected),
     .predict_next_fetch_address_corrected (checker_next_corrected),
@@ -184,16 +212,31 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
   assign checker_flush_address = checker_next_corrected;
 
   for (genvar i = 0; i < FETCH_WIDTH; i++) begin : g_kind
-    front_slot_kind u_kind (.inst(inst_rd_instructions[i]), .kind(slot_kind[i]));
+    front_slot_kind u_kind (.inst(hf_insts[i]), .kind(slot_kind[i]));
   end
 
   front_pd_info u_pd (
     .clk, .rst_n, .checked(predecode_can_run), .flush(predecode_can_run && checker_flush_enable),
-    .base_pc(ptab_rd_predict_base_pc), .insts(inst_rd_instructions), .inst_valid(inst_rd_inst_valid),
-    .ptype(inst_rd_predecode_type), .pre_target(inst_rd_predecode_target_address),
+    .base_pc(ptab_rd_predict_base_pc), .pc0(hf_pc0), .is_rvc(hf_rvc), .insts(hf_insts), .inst_valid(hf_valid),
+    .ptype(hf_type), .pre_target(hf_target),
     .dir_corrected(checker_dir_corrected), .ptab_next(ptab_rd_predict_next_fetch_address),
     .pd_valid, .pd_flush, .pd_hv, .pd_hbits, .pd_ras_op, .pd_ras_val
   );
+
+  // the carry state follows the group the checker looks at (predecode_can_run); a back-end redirect drops it
+  logic [XLEN_BITS-1:0] lh_new_pc;
+  logic                 lh_new_valid, any_taken;
+  assign lh_new_pc    = hf_end;
+  assign any_taken    = |(hf_valid & checker_dir_corrected);
+  assign lh_new_valid = hf_straddle && !any_taken && (!checker_flush_enable || checker_next_corrected == lh_new_pc);
+  always_ff @(posedge clk) begin
+    if (!rst_n || be_refetch) lh_valid_q <= 1'b0;
+    else if (predecode_can_run) lh_valid_q <= lh_new_valid;
+    if (predecode_can_run) begin
+      lh_pc_q   <= lh_new_pc;
+      lh_data_q <= hf_low;
+    end
+  end
 
   // ---- front2back queue: write = checked group, read = what the back end sees next ----
   logic [31:0] f2b_rd_fetch_group [FETCH_WIDTH];
@@ -208,6 +251,8 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
   logic [XLEN_BITS-1:0] f2b_rd_predict_next_fetch_address_corrected;
   logic [BCK_W-1:0] f2b_rd_bck;
   logic [FETCH_WIDTH-1:0][KIND_W-1:0] f2b_rd_kind;
+  logic [FETCH_WIDTH-1:0] f2b_rd_is_rvc;
+  logic                   f2b_rd_carry;
 
   /* verilator lint_off UNUSEDSIGNAL */
   logic                f2b_rd_valid;
@@ -218,9 +263,9 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
     .refetch                                 (be_refetch),
     .rd_en                                   (be_fifo_read_enable),
     .wr_en                                   (f2b_wr_en),
-    .wr_fetch_group                          (inst_rd_instructions),
+    .wr_fetch_group                          (hf_insts),
     .wr_page_fault_inst                      (inst_rd_page_fault_inst),
-    .wr_inst_valid                           (inst_rd_inst_valid),
+    .wr_inst_valid                           (hf_valid),
     .wr_predict_dir_corrected                (checker_dir_corrected),
     .wr_predict_base_pc                      (ptab_rd_predict_base_pc),
     .wr_alt_pred                             (ptab_rd_alt_pred),
@@ -230,6 +275,8 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
     .wr_predict_next_fetch_address_corrected (checker_next_corrected),
     .wr_bpu_ck                               (ptab_rd_bck),
     .wr_slot_kind                            (slot_kind),
+    .wr_is_rvc                               (hf_rvc),
+    .wr_carry                                (hf_carry),
     .rd_valid                                (f2b_rd_valid),
     .rd_fetch_group                          (f2b_rd_fetch_group),
     .rd_page_fault_inst                      (f2b_rd_page_fault_inst),
@@ -243,6 +290,8 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
     .rd_predict_next_fetch_address_corrected (f2b_rd_predict_next_fetch_address_corrected),
     .rd_bpu_ck                               (f2b_rd_bck),
     .rd_slot_kind                            (f2b_rd_kind),
+    .rd_is_rvc                               (f2b_rd_is_rvc),
+    .rd_carry                                (f2b_rd_carry),
     .full                                    (f2b_full),
     .empty                                   (f2b_empty)
   );
@@ -252,8 +301,9 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
   always_comb begin
     out_base_pc = f2b_use_bypass ? ptab_rd_predict_base_pc : f2b_rd_predict_base_pc;
     for (int i = 0; i < FETCH_WIDTH; i++) begin
-      out_inst_valid[i]      = f2b_use_bypass ? inst_rd_inst_valid[i]      : f2b_rd_inst_valid[i];
-      out_instructions[i]    = f2b_use_bypass ? inst_rd_instructions[i]    : f2b_rd_fetch_group[i];
+      out_inst_valid[i]      = f2b_use_bypass ? hf_valid[i]                : f2b_rd_inst_valid[i];
+      out_instructions[i]    = f2b_use_bypass ? hf_insts[i]                : f2b_rd_fetch_group[i];
+      out_is_rvc[i]          = f2b_use_bypass ? hf_rvc[i]                  : f2b_rd_is_rvc[i];
       out_page_fault_inst[i] = f2b_use_bypass ? inst_rd_page_fault_inst[i] : f2b_rd_page_fault_inst[i];
       out_predict_dir[i]     = f2b_use_bypass ? checker_dir_corrected[i]   : f2b_rd_predict_dir_corrected[i];
       out_alt_pred[i]        = f2b_use_bypass ? ptab_rd_alt_pred[i]        : f2b_rd_alt_pred[i];
@@ -262,8 +312,10 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
         out_tage_idx[i][j] = f2b_use_bypass ? ptab_rd_tage_idx[i][j] : f2b_rd_tage_idx[i][j];
         out_tage_tag[i][j] = f2b_use_bypass ? ptab_rd_tage_tag[i][j] : f2b_rd_tage_tag[i][j];
       end
-      out_pc[i] = out_base_pc + XLEN_BITS'(4 * i);
+      out_pc[i] = out_base_pc + XLEN_BITS'(SLOT_BYTES * i);
     end
+    // a carried slot 0 starts one slot before the group
+    out_pc[0] = f2b_use_bypass ? hf_pc0 : (f2b_rd_carry ? out_base_pc - XLEN_BITS'(SLOT_BYTES) : out_base_pc);
     out_predict_next_fetch_address = f2b_use_bypass ? checker_next_corrected
                                                     : f2b_rd_predict_next_fetch_address_corrected;
     out_bpu_ck    = f2b_use_bypass ? ptab_rd_bck : f2b_rd_bck;

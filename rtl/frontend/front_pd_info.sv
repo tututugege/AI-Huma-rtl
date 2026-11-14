@@ -10,7 +10,9 @@ module front_pd_info import ttg_cfg_pkg::*; import front_pkg::*; import bpu_stag
   input  logic                    rst_n,
   input  logic                    checked,              // the checker compared a PTAB head with the instruction head
   input  logic                    flush,                // ... and found a wrong prediction
-  input  logic [XLEN_BITS-1:0]             base_pc,
+  input  logic [XLEN_BITS-1:0]             base_pc,    // pc of slot 0 of the group (lane i >= 1 is base + SLOT_BYTES * i); lane 0 is pc0
+  input  logic [XLEN_BITS-1:0]             pc0,
+  input  logic [FETCH_WIDTH-1:0]  is_rvc,
   input  logic [31:0]             insts      [FETCH_WIDTH],
   input  logic [FETCH_WIDTH-1:0]  inst_valid,
   input  logic [1:0]              ptype      [FETCH_WIDTH],
@@ -32,6 +34,7 @@ module front_pd_info import ttg_cfg_pkg::*; import front_pkg::*; import bpu_stag
   logic [21:0]            first_fld;            // {imm12, rs1, rd} of the first taken instruction
   logic [XLEN_BITS-1:0]            first_tgt;
   logic [1:0]             first_type;
+  logic                   first_rvc;
   logic [XLEN_BITS-1:0]            lane_pc  [FETCH_WIDTH];
   logic [XLEN_BITS-1:0]            lane_tgt [FETCH_WIDTH];
   logic [1:0]             lane_ty  [FETCH_WIDTH];
@@ -39,7 +42,7 @@ module front_pd_info import ttg_cfg_pkg::*; import front_pkg::*; import bpu_stag
 
   always_comb begin
     for (int i = 0; i < FETCH_WIDTH; i++) begin
-      lane_pc[i]    = base_pc + XLEN_BITS'(4 * i);
+      lane_pc[i]    = (i == 0) ? pc0 : base_pc + XLEN_BITS'(SLOT_BYTES * i);
       lane_ty[i]    = ptype[i];
       lane_fld[i]   = {insts[i][31:20], insts[i][19:15], insts[i][11:7]};
       lane_tgt[i]   = (ptype[i] == PREDECODE_JALR) ? ptab_next : pre_target[i];
@@ -52,6 +55,7 @@ module front_pd_info import ttg_cfg_pkg::*; import front_pkg::*; import bpu_stag
   ttg_onehot_mux #(.N(FETCH_WIDTH), .W(22)) u_fld (.sel(first), .data(lane_fld), .out(first_fld));
   ttg_onehot_mux #(.N(FETCH_WIDTH), .W(XLEN_BITS)) u_tgt (.sel(first), .data(lane_tgt), .out(first_tgt));
   ttg_onehot_mux #(.N(FETCH_WIDTH), .W(2)) u_ty (.sel(first), .data(lane_ty), .out(first_type));
+  assign first_rvc = |(first & is_rvc);
 
   logic                 hv_d;
   logic [HSYM_W-1:0]    hbits_d;
@@ -66,7 +70,7 @@ module front_pd_info import ttg_cfg_pkg::*; import front_pkg::*; import bpu_stag
     ras_val_d = '0;
     if (hv_d && first_type == PREDECODE_JAL && first_fld[4:0] == 5'd1) begin
       ras_op_d  = 2'd1;
-      ras_val_d = first_pc + XLEN_BITS'(4);
+      ras_val_d = first_pc + (first_rvc ? XLEN_BITS'(2) : XLEN_BITS'(4));
     end else if (hv_d && first_type == PREDECODE_JALR && first_fld[4:0] == 5'd0 && first_fld[9:5] == 5'd1 &&
                  first_fld[21:10] == 12'd0) begin
       ras_op_d = 2'd2;

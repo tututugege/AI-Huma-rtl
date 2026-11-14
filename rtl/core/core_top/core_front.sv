@@ -162,8 +162,7 @@ module core_front import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*;
   logic [31:0] fe_instructions    [FETCH_WIDTH];
   logic [FETCH_WIDTH-1:0] fe_page_fault_inst;
   logic [FETCH_WIDTH-1:0] fe_predict_dir;
-  logic [FETCH_WIDTH-1:0] fe_is_rvc;   // 16-bit instruction (RVC=1); the front end produces it from R2 on
-  assign fe_is_rvc = '0;
+  logic [FETCH_WIDTH-1:0] fe_is_rvc;   // 16-bit instruction (RVC=1)
   logic [XLEN_BITS-1:0] fe_pc              [FETCH_WIDTH];
   logic [FETCH_WIDTH-1:0] fe_alt_pred;
   logic [front_pkg::PCPN_W-1:0]     fe_pcpn    [FETCH_WIDTH];
@@ -223,6 +222,7 @@ module core_front import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*;
     .out_predict_next_fetch_address (fe_predict_next_fetch_address),
     .out_bpu_ck                 (fe_bpu_ck),
     .out_slot_kind              (fe_slot_kind),
+    .out_is_rvc                 (fe_is_rvc),
     .mem_req_valid, .mem_req_addr, .mem_req_total_size, .mem_req_bypass, .mem_req_id, .mem_resp_ready,
     .dc_req_valid, .dc_req_addr,
     .ptw_walk_req_valid         (itlb_walk_req_valid),

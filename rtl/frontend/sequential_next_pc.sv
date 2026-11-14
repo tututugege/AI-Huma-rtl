@@ -1,7 +1,7 @@
 // Ref: front-end/front_top.cpp  sequential_next_pc (78-96, CONFIG_FRONT_VALID_PREFIX_SEQ_NEXT = 1)
 `default_nettype none
 
-// Next sequential fetch pc after a fetch group: fetch_pc + 4 * (length of the leading run of valid lanes), cut back
+// Next sequential fetch pc after a fetch group: fetch_pc + SLOT_BYTES * (length of the leading run of valid lanes), cut back
 // to the start of the next cache line when the run would cross a line boundary.
 module sequential_next_pc import ttg_cfg_pkg::*; import front_pkg::*; (
   // clk / rst_n: required first ports of every top-level module (harness wrapper); this block is purely combinational
@@ -35,7 +35,7 @@ module sequential_next_pc import ttg_cfg_pkg::*; import front_pkg::*; (
 
   always_comb begin
     valid_prefix = any_invalid ? PREFIX_W'(first_invalid_idx) : PREFIX_W'(FETCH_WIDTH);
-    group_end_pc = fetch_pc + XLEN_BITS'(valid_prefix) * XLEN_BITS'(INST_BYTES);
+    group_end_pc = fetch_pc + XLEN_BITS'(valid_prefix) * XLEN_BITS'(SLOT_BYTES);
     // a group that runs past its cache line is cut at the line boundary
     seq_next_pc  = ((group_end_pc & LINE_MASK) != (fetch_pc & LINE_MASK)) ? (group_end_pc & LINE_MASK) : group_end_pc;
   end

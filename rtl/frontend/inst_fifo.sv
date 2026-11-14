@@ -15,6 +15,10 @@ module inst_fifo import ttg_cfg_pkg::*; import front_pkg::*; (
   input  logic [1:0]  wr_predecode_type          [FETCH_WIDTH],
   input  logic [XLEN_BITS-1:0] wr_predecode_target_address [FETCH_WIDTH],
   input  logic [XLEN_BITS-1:0] wr_seq_next_pc,
+  input  logic [15:0] wr_raw0,
+  input  logic [FETCH_WIDTH-1:0] wr_is_rvc,
+  input  logic [FETCH_WIDTH-1:0] wr_start_a,
+  input  logic [FETCH_WIDTH-1:0] wr_start_b,
   output logic        rd_valid,
   output logic [31:0] rd_instructions            [FETCH_WIDTH],
   output logic [FETCH_WIDTH-1:0] rd_page_fault_inst,
@@ -22,6 +26,10 @@ module inst_fifo import ttg_cfg_pkg::*; import front_pkg::*; (
   output logic [1:0]  rd_predecode_type          [FETCH_WIDTH],
   output logic [XLEN_BITS-1:0] rd_predecode_target_address [FETCH_WIDTH],
   output logic [XLEN_BITS-1:0] rd_seq_next_pc,
+  output logic [15:0] rd_raw0,
+  output logic [FETCH_WIDTH-1:0] rd_is_rvc,
+  output logic [FETCH_WIDTH-1:0] rd_start_a,
+  output logic [FETCH_WIDTH-1:0] rd_start_b,
   output logic        full,
   output logic        empty
 );
@@ -44,6 +52,14 @@ module inst_fifo import ttg_cfg_pkg::*; import front_pkg::*; (
     end
     wr_entry.seq_next_pc = wr_seq_next_pc;
     rd_seq_next_pc       = rd_entry.seq_next_pc;
+    wr_entry.raw0        = wr_raw0;
+    wr_entry.is_rvc      = wr_is_rvc;
+    wr_entry.start_a     = wr_start_a;
+    wr_entry.start_b     = wr_start_b;
+    rd_raw0              = rd_entry.raw0;
+    rd_is_rvc            = rd_entry.is_rvc;
+    rd_start_a           = rd_entry.start_a;
+    rd_start_b           = rd_entry.start_b;
   end
 
   /* verilator lint_off UNUSEDSIGNAL */
