@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Find the first point where the RTL and the trace-model disagree.
 
-usage: align_check.py <model_stderr> <model_series.csv> <rtl_stdout> <rtl_stderr> <pmu_events.def> [--bin N]
+usage: align_check.py <model_stderr> <model_series.csv> <rtl_stdout> <rtl_stderr> <pmu_events.def> [--bin N] [--skip K]
+  --skip K: do not compare the first K PMU intervals (a run restored from a checkpoint: interval 0 holds the restore program's statistics)
 
 Two independent kinds of evidence, both written by the simulators themselves (scripts/align_check.sh runs them):
   * PMU time series: the tier-1 event counts of every PMU_INTERVAL cycles (model: PMU=1 CSV, RTL: SOC_TB_PMU_IV lines).  The first interval in
@@ -26,6 +27,8 @@ def main():
     a = [x for x in sys.argv[1:] if not x.startswith("--")]
     binw = int(sys.argv[sys.argv.index("--bin") + 1]) if "--bin" in sys.argv else 256
     if "--bin" in sys.argv: a.remove(sys.argv[sys.argv.index("--bin") + 1])
+    skip = int(sys.argv[sys.argv.index("--skip") + 1]) if "--skip" in sys.argv else 0
+    if "--skip" in sys.argv: a.remove(sys.argv[sys.argv.index("--skip") + 1])
     tm_err, tm_csv, rtl_out, rtl_err, deffile = a[:5]
     names = names_from_def(deffile)
     bad = 0
@@ -33,13 +36,14 @@ def main():
     tm = list(csv.DictReader(open(tm_csv))) if tm_csv != "-" else []
     rtl = []
     for l in open(rtl_out, errors="ignore"):
-        if l.startswith("PMU_IV "):
-            f = l.split(); rtl.append((int(f[1]), [int(x) for x in f[2:]]))
+        k = l.find("PMU_IV ")   # not necessarily at the start of the line: the console text of an unfinished line (OpenSBI banner) comes first
+        if k >= 0:
+            f = l[k:].split(); rtl.append((int(f[1]), [int(x) for x in f[2:]]))
     t1 = ["CYCLES", "INSTRET", "COMMIT_LOAD", "COMMIT_STORE", "COMMIT_BRANCH", "COMMIT_JUMP", "CYC_COMMIT_ZERO", "CYC_COMMIT_FULL", "BR_MISPRED",
           "FLUSH_EXCEPTION", "FLUSH_OTHER", "SLOT_FIRE", "SLOT_KILLED", "SLOT_FE_EMPTY", "SLOT_FE_RECOV_MISPRED", "SLOT_FE_RECOV_FLUSH", "SLOT_BE", "CYC_RECOVERING"]
     n = min(len(tm), len(rtl)) - 1   # the last interval may be incomplete
     first = None
-    for i in range(max(n, 0)):
+    for i in range(skip, max(n, 0)):
         diffs = []
         for e in t1:
             if e not in names or e not in tm[i]: continue

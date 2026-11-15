@@ -167,10 +167,11 @@ package bpu_stage_pkg;
 
   // taken-path history symbol: XOR-fold of (pc>>2 ^ tgt>>2 ^ pc>>9) into HSYM_W bits (model hist_sym)
   function automatic logic [HSYM_W-1:0] hsym_of(input logic [XLEN_BITS-1:0] pc, input logic [XLEN_BITS-1:0] tgt);
-    logic [31:0] v, w;
+    logic [31:0] v;
+    logic [XLEN_BITS-1:0] w;
     logic [HSYM_W-1:0] r;
-    w = 32'(pc >> SLOT_SHIFT);   // the model hashes the low 32 bits of the slot address
-    v = w ^ 32'(tgt >> SLOT_SHIFT) ^ (w >> 7);
+    w = pc >> SLOT_SHIFT;   // the model shifts the full-width slot address (sign-extended on rv64) and truncates the XOR to 32 bits
+    v = 32'(w ^ (tgt >> SLOT_SHIFT) ^ (w >> 7));
     r = '0;
     for (int i = 0; i < 32; i += HSYM_W) r = r ^ HSYM_W'(v >> i);
     return r;

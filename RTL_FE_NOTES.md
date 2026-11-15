@@ -74,7 +74,7 @@ The PTAB bypass path (S2 `fin` -> PTAB write-through -> checker -> `predecode_re
 ## Update 2026-11-09: shallower paths, per-bit measurements, recommendation
 
 Changes (pure restructure, no event changes timing, so the model needed no change; model = exp/fe-refs `b02eaf6`):
-- RFAST bit0 only (no BFAST): S0 uses a refetch-only copy of the restore command (`bpu_cmd.hr_*/rr_*`, state `spec_r1` / `sras_r1` in `bpu_spec`), selected by `refetch`;
+- RFAST bit0 only (no BFAST): S0 uses a refetch-only copy of the restore command (`bpu_cmd.hr_*/rr_*`, state `spec_r1` / `s_d1` (the RAS command result, pointers + slot overlay) in `bpu_spec`), selected by `refetch`;
   no dependence on the S2 / S1 decisions. The normal (non-refetch) update keeps the old structure; the result is a mux on `refetch`.
 - Fast configurations push history with one linear multi-bit step (`bpu_hist_vec`, up to 6 bits: command push plus S0 push) instead of chained single-bit pushes.
 - `front_pred_path`: `slot_kind` declared before its use (one-line order change; slang accepted it afterwards, lint 0 warnings in all settings).

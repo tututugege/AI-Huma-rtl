@@ -4,7 +4,7 @@
 # instructions) is restored on the RTL SoC (ckpt2image.py + ckpt2stub.py, SOC_TB_STUB) and run for <cycles> with the per-commit
 # function-model check.  PASS = no [FM] mismatch/reject line and more than 1M instructions checked.  Segments overlap slightly
 # (16M cycles for 10M instructions); the microarchitectural state is cold at every segment start, so cycles are NOT compared here.
-# env JOBS (default 4).  Each segment ends at the cycle limit, so its log is complete (no stdout buffering issue).
+# env JOBS (default 4), SEGS (number of segments, default 13).  Each segment ends at the cycle limit, so its log is complete (no stdout buffering issue).
 set -uo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd); . "$ROOT/scripts/env.sh"
 TB=$1; CK=$2; OUT=$3; CYC=${4:-16000000}; mkdir -p "$OUT"
@@ -19,5 +19,5 @@ one() {
   if [ "${chk:-0}" -gt 1000000 ] && [ "$bad" = 0 ]; then echo "PASS $n checked=$chk"; else echo "FAIL $n checked=${chk:-none} mismatches=$bad"; fi
 }
 export -f one; export ROOT OUT TB CYC FM
-ls "$CK"/ckpt_special_s*.gz | head -13 | xargs -P "${JOBS:-4}" -I{} bash -c 'one {}' | sort | tee "$OUT/summary.txt"
+ls "$CK"/ckpt_special_s*.gz | head -"${SEGS:-13}" | xargs -P "${JOBS:-4}" -I{} bash -c 'one {}' | sort | tee "$OUT/summary.txt"
 echo "== $(grep -c '^PASS' "$OUT/summary.txt") PASS, $(grep -c '^FAIL' "$OUT/summary.txt") FAIL"

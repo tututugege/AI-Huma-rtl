@@ -67,7 +67,7 @@ S2  比较选择：类型、TAGE provider/alt、BTB/ITT 目标、第一条 taken
 2. `gen_backtop.py` 与后端 spec 已同步（脚本重新生成 back_top.sv / exu.sv，lint 0 警告，抽查周期相等）；失效的 `spec/bpu_{hist,btb,tage,uq,type}.io` 已删除，`spec/bpu.io`、`front_top.io`、`ptab.io` 等前端 spec 仍是旧接口（旧回放体系已退役）。`docs/modules/bpu.md` 已重写。
 3. 综合：第 4 节末尾列出的提交侧长路径没有流水化；整机面积没推算。
 4. 没有 SPEC 点上的 IPC 复核（模型文档的 -3.3% 数字未在 RTL 侧复现，RTL 与模型周期相等所以结论等同于模型）。
-5. 检查点宽度 `HCK_W` 按 11 位域存，仿真里是 140 位。
+5. 检查点宽度 `HCK_W` 按 11 位域存：历史 140 位，加 RAS 指针 18 位（tosr / tosw / cnt）共 158 位（2026-11-15 起；之前 140 位）。
 
 ## 6. 复现
 ```

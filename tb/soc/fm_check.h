@@ -7,9 +7,14 @@
 #include <cstdio>
 #include <functional>
 
+// A committed store as the RTL's store queue holds it (physical address, data, func3); kind 0: RAM (the function model's memory is compared),
+// 2: any device (only the address is compared: the model keeps no readable copy of a device store)
+struct StoreChk { bool v = false; uint32_t pa = 0; uint64_t data = 0; uint8_t f3 = 0; uint8_t kind = 2; };
+
 struct FmCheck {
   RefCpuContext *ctx = nullptr;
-  uint64_t steps = 0, synced_io = 0, irqs = 0;
+  uint64_t steps = 0, synced_io = 0, irqs = 0, forced_pf = 0, io_loads = 0, stores_checked = 0;
+  const uint64_t *mmio_reads = nullptr;   // number of device reads the testbench's peripheral model has served (every committed device load must have had one)
   bool failed = false;
   std::function<uint32_t(uint32_t)> dut_mem;   // the testbench memory, for diagnostics
 
@@ -37,13 +42,14 @@ struct FmCheck {
   // One committed instruction.  dut_pc: commit pc; rd/rd_val: destination architectural register and the value the core wrote
   // (rd == 0: none).  Returns false on the first disagreement (message already printed).
   bool commit(uint64_t cycle, refcpu_xlen_t dut_pc, unsigned rd, refcpu_xlen_t rd_val, bool fp_rd = false, unsigned frd = 0,
-              uint64_t frd_val = 0) {
+              uint64_t frd_val = 0, int force_pf = -1, const StoreChk *st = nullptr) {
     RefCpuState before{}, after{};
     refcpu_get_state(ctx, &before);
     if (before.pc != dut_pc) {
       std::fprintf(stderr, "[FM] cycle %llu commit #%llu: pc rtl=%llx fm=%llx\n", (unsigned long long)cycle, (unsigned long long)steps, (unsigned long long)dut_pc, (unsigned long long)before.pc);
       return failed = true, false;
     }
+    if (force_pf >= 0) { refcpu_force_next_page_fault(ctx, uint32_t(force_pf)); ++forced_pf; }   // the DUT's TLB / walker saw a stale PTE (legal until sfence.vma): same fault in the model
     refcpu_step(ctx, 1);
     ++steps;
     RefCpuStepInfo info{};
@@ -63,6 +69,36 @@ struct FmCheck {
       }
     }
 #endif
+    if (st && st->v && !trapped && ((info.instruction & 0x7f) == 0x23 || (info.instruction & 0x7f) == 0x27)) {   // store: same address, same data as the model's
+      const uint32_t ins = info.instruction;
+      int32_t imm = int32_t(((ins >> 25) << 5) | ((ins >> 7) & 0x1f)); imm = (imm << 20) >> 20;
+      const refcpu_xlen_t va = before.gpr[(ins >> 15) & 31] + refcpu_xlen_t(int64_t(imm));
+      uint32_t fpa = 0;
+      if (refcpu_translate_data(ctx, va, 2, &fpa) && fpa != st->pa) {
+        std::fprintf(stderr, "[FM] cycle %llu commit #%llu pc=%llx inst=%08x: store address rtl=%08x fm=%08x (va=%llx)\n", (unsigned long long)cycle, (unsigned long long)steps,
+                     (unsigned long long)dut_pc, ins, st->pa, fpa, (unsigned long long)va);
+        return failed = true, false;
+      }
+      const unsigned sz = 1u << (st->f3 & 3);
+      const uint64_t mask = sz == 8 ? ~0ull : ((1ull << (8 * sz)) - 1);
+      bool have = false; uint64_t fmv = 0;
+      if (st->kind == 0 && (st->pa & 3) + sz <= 8) {
+        const uint32_t base = st->pa & ~3u;
+        const uint64_t lo = uint64_t(refcpu_load_word(ctx, base)) | (uint64_t(refcpu_load_word(ctx, base + 4)) << 32);
+        fmv = (lo >> ((st->pa & 3) * 8)) & mask; have = true;
+      }
+      if (have && fmv != (st->data & mask)) {
+        std::fprintf(stderr, "[FM] cycle %llu commit #%llu pc=%llx inst=%08x: store pa=%08x size=%u data rtl=%llx fm=%llx\n", (unsigned long long)cycle, (unsigned long long)steps,
+                     (unsigned long long)dut_pc, ins, st->pa, sz, (unsigned long long)(st->data & mask), (unsigned long long)fmv);
+        return failed = true, false;
+      }
+      ++stores_checked;
+    }
+    if (mmio_reads && !trapped && info.is_io && (info.instruction & 0x7f) == 0x03 && ++io_loads > *mmio_reads) {   // a device load the RTL completed without any request reaching the peripheral model
+      std::fprintf(stderr, "[FM] cycle %llu commit #%llu pc=%llx inst=%08x: device load #%llu committed but only %llu device reads were served (the RTL returned %llx)\n", (unsigned long long)cycle,
+                   (unsigned long long)steps, (unsigned long long)dut_pc, info.instruction, (unsigned long long)io_loads, (unsigned long long)*mmio_reads, (unsigned long long)rd_val);
+      return failed = true, false;
+    }
     if (rd != 0 && !trapped && !fp_dest && after.gpr[rd] != rd_val) {   // a trapping instruction writes no register; the next commit pc checks the trap target
       const uint32_t csr_no = info.instruction >> 20;   // fflags / frm / fcsr, mstatus / sstatus, misa: architectural state, compared
       const bool arch_csr = (csr_no >= 1 && csr_no <= 3) || csr_no == 0x300 || csr_no == 0x100 || csr_no == 0x301;

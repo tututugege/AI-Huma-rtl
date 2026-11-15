@@ -22,7 +22,7 @@ note: S0 uBTB / S1 L1 + 阵列读 / S2 比较，taken 历史，PDCKPT，FTQ 检�
 | `bpu_banks`（`bpu_type`、`bpu_tage_bank/pred/upd`、`bpu_btb_bank/upd/sel`） | 主预测器阵列：S1 读、S2 选择、更新写口 |
 | `bpu_main_sel`、`bpu_main_lane` | S2 比较选择、第一条 taken、历史位 / RAS 操作 |
 | `bpu_updq`、`bpu_updq_sched` | 更新队列（8 项）与写调度（2 个领头写，4 个 block bank，同窗口合并） |
-| `bpu_spec`、`bpu_hist_vec` | 投机/提交历史与 RAS；提交侧一次压入至多 24 位 |
+| `bpu_spec`、`bpu_hist_vec` | 投机/提交历史与 RAS；提交侧一次压入至多 24 位。投机 RAS 是 64 槽追加队列（`st_q` / `nos_q` 数组 + `tosr` / `tosw` / `cnt`，检查点只存指针，精确），提交 RAS 是 32 项环形栈；一次命令 = 指针 + 至多两次槽写入（`rst_t`），不整体拷贝队列。详见 `docs/RVC_RTL.md` 的 RAS 一节 |
 | `bpu_pdq` | PDCKPT：PTAB 内每块的检查点队列 |
 | `bpu_ctl`、`bpu_cmd`、`bpu_stage0` | override / L1 覆盖 / 发射判定，投机状态命令与 pc，S0 TAGE 索引 |
 

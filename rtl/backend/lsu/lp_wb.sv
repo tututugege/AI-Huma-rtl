@@ -163,10 +163,11 @@ module lp_wb
         wb_diag[p] = ldq_q[ld_i[p]].vaddr;
         wb_isw[p] = (ldq_q[ld_i[p]].func3[1:0] == 2'd2);
         wb_result[p] = ldq_q[ld_i[p]].pf ? ldq_q[ld_i[p]].vaddr : ld_res[p];
-        wb_dest[p] = ldq_q[ld_i[p]].dest_preg;
+        // a faulting load does not write its destination (architecturally rd is unchanged; like the SC fault below)
+        wb_dest[p] = ldq_q[ld_i[p]].pf ? PRFW'(0) : ldq_q[ld_i[p]].dest_preg;
         wb_br[p] = ldq_q[ld_i[p]].br_mask;
         wb_rob[p] = ldq_q[ld_i[p]].rob_idx;
-        wb_dest_en[p] = ldq_q[ld_i[p]].dest_preg != '0;
+        wb_dest_en[p] = !ldq_q[ld_i[p]].pf && ldq_q[ld_i[p]].dest_preg != '0;
         wb_pf_load[p] = ldq_q[ld_i[p]].pf;
       end else if (kind_sc[p]) begin
         wb_diag[p] = sq[sc_idx_p[p]].vaddr;

@@ -160,8 +160,8 @@ module pre_idu_queue import ttg_cfg_pkg::*; import pre_idu_pkg::*; import front_
   always_comb for (int p = 0; p < DECODE_WIDTH; p++) ftq_dis_resp_is_rvc[p] = dis_is_rvc[p];
   for (genvar p = 0; p < DECODE_WIDTH; p++) begin : g_dis_pc
     if (LSU_MEMSPEC != 0) begin : g_on
-      // wait-table index of the load PC: pc[2+B-1:2] ^ pc[2+2B-1:2+B]
-      assign ftq_dis_resp_mdp[p] = dis_pc[p][2 +: LSU_MDP_BITS] ^ dis_pc[p][2+LSU_MDP_BITS +: LSU_MDP_BITS];
+      // wait-table index of the load PC: pc[S+B-1:S] ^ pc[S+2B-1:S+B], S = SLOT_SHIFT (2-byte aligned instructions with RVC), as the model's mdp_idx
+      assign ftq_dis_resp_mdp[p] = dis_pc[p][SLOT_SHIFT +: LSU_MDP_BITS] ^ dis_pc[p][SLOT_SHIFT+LSU_MDP_BITS +: LSU_MDP_BITS];
     end else begin : g_off
       /* verilator lint_off UNUSEDSIGNAL */
       logic unused;

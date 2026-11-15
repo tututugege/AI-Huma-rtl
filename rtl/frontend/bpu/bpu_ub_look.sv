@@ -56,7 +56,8 @@ module bpu_ub_look import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
       g.slot  = e_slot;
       g.ty    = e_ty;
       g.rvc   = e_rvc;
-      g.next  = (e_ty == BR_RET && ras_nonempty) ? ras_top : (XLEN_BITS'(e_tgt) << SLOT_SHIFT);
+      // the uBTB keeps the low 32 bits of the target slot address: the upper bits come from the block base (model ub_expand), not zero
+      g.next  = (e_ty == BR_RET && ras_nonempty) ? ras_top : ((base & ~XLEN_BITS'(32'hffffffff)) | XLEN_BITS'(32'(e_tgt) << SLOT_SHIFT));
       g.hbits = hsym_of(bpc, g.next);
       if (e_ty == BR_CALL || e_ty == BR_ICALL) begin
         g.ras_op  = 2'd1;

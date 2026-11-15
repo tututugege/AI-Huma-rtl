@@ -26,7 +26,9 @@ fi
 LSUPFLAG=""; grep -q "LSU_PIPE = 1;" "$ROOT/rtl/common/ttg_cfg_pkg.sv" && LSUPFLAG="-DSOC_LSU_PIPE"   # staged LSU: the testbench reads its STQ entry
 # F/D (FPRF_NUM > 0 in the config): the FP units compute through DPI-C (tb/fp_dpi/fp_dpi.cpp, Berkeley softfloat of the function model)
 FPDPI=(); FPINC=""; FPLD=""
-if ! grep -q "FPRF_NUM = 0;" "$ROOT/rtl/common/ttg_cfg_pkg.sv"; then
+# (the rv64 copy of the tree gets its own rv64gc configuration below: FP on unless SOC_FP=0)
+FP_ON=1; if [ "${SOC_XLEN:-32}" = 64 ]; then [ "${SOC_FP:-1}" = 0 ] && FP_ON=0; else grep -q "FPRF_NUM = 0;" "$ROOT/rtl/common/ttg_cfg_pkg.sv" && FP_ON=0; fi
+if [ "$FP_ON" = 1 ]; then
   FPDPI=("$ROOT/tb/fp_dpi/fp_dpi.cpp"); FPINC="-DSOC_FP -I$AI_HUMA_ROOT/function-model/lib/softfloat/include"
   FPLD="$AI_HUMA_ROOT/function-model/lib/softfloat/softfloat.a"
 fi
@@ -40,11 +42,13 @@ XLENFLAG=""
 if [ "${SOC_XLEN:-32}" = 64 ]; then
   XLENFLAG="-DXLEN=64"
   rm -rf "$OUT/rtl64"; mkdir -p "$OUT/rtl64"; cp -R "$ROOT/rtl" "$OUT/rtl64/rtl"
-  sed -i.bak -e 's/XLEN_BITS = 32;/XLEN_BITS = 64;/' -e 's/MUL_MAX_LATENCY = 2;/MUL_MAX_LATENCY = 3;/' -e 's/DIV_MAX_LATENCY = 16;/DIV_MAX_LATENCY = 32;/' "$OUT/rtl64/rtl/common/ttg_cfg_pkg.sv"
+  # the rv64 core is the rv64gc configuration of the model: the configuration package of the copy is generated from the trace-model sources with -DXLEN=64 -DRVC=1 -DFP=1
+  # (SOC_RVC / SOC_FP override; this equals the package gen_cfg.sh emits with those flags), so the committed rv32 package stays untouched
+  python3 "$ROOT/harness/tools/gen_cfg_pkg.py" "${TM_DIR:-$AI_HUMA_ROOT/trace-model}" "$OUT/rtl64/rtl/common/ttg_cfg_pkg.sv" -DXLEN=64 -DRVC=${SOC_RVC:-1} -DFP=${SOC_FP:-1} > /dev/null
   NF=(); for f in "${FILES[@]}"; do NF+=("${f/#$ROOT\/rtl\//$OUT/rtl64/rtl/}"); done; FILES=("${NF[@]}")
 fi
 [ -n "${FMLIB:-}" ] && FMLD="$FMLIB $AI_HUMA_ROOT/function-model/lib/softfloat/softfloat.a -lz"
-python3 "$ROOT/tools/gen_soc_probe.py" >/dev/null
+TTG_CFG_PKG=$([ "${SOC_XLEN:-32}" = 64 ] && echo "$OUT/rtl64/rtl/common/ttg_cfg_pkg.sv") python3 "$ROOT/tools/gen_soc_probe.py" >/dev/null   # the probe needs the widths of the configuration that is built
 cd "$OUT"
 # reference platform models (not RTL)
 for s in axi-interconnect-kit/sim_ddr/SimDDR.cpp back-end/PhysMemory.cpp; do

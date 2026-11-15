@@ -1,5 +1,5 @@
 # Trace-model cycles of the integrated default configuration (2026-11-11: compact ROB EXP-028, CFG_ROB_COMPACT=1, on top of: trace-model exp/store-wb: write buffer EXP-024 on, 4 entries x 2 stores, 2 drain ports; LSU_PIPE_NOWD=1 as the RTL has no LDQ/STQ watchdog): LSU_MEMSPEC=1 with the value path (LSU_MS_DATA=1), wait table 64x1, FE_RFAST=15, FE_BFAST=0, prefetcher on, move elimination on.
-# 67 programs + directed/memspec_vio.bin + directed/itt-dispatch.bin (EXP-025: 3-table ITT). Kill switch LSU_MEMSPEC=0: ref_cycles_nomemspec.txt. Other legacy tables: ref_cycles_legacy_lsu*.txt, ref_cycles_nopf.txt (older configurations, not regenerated).
+# 67 programs + directed/memspec_vio.bin + directed/itt-dispatch.bin (EXP-025: 3-table ITT) + directed/memspec_data.bin (stale value path of the memory-order speculation: branches / jalr / ALU chains / stale store data on a stale load, rv32; memspec_data64.bin is the rv64 build) + directed/memspec_addr.bin (stale ADDRESS path: a store / load through a base register that came from a stale load; fails on a model with LSU_MS_DATA=1) + directed/memspec_pf.bin (a faulting load does not write rd: wrong-path page fault under MPRV paging; only the rv64 build tells the old RTL apart). Kill switch LSU_MEMSPEC=0: ref_cycles_nomemspec.txt. Other legacy tables: ref_cycles_legacy_lsu*.txt, ref_cycles_nopf.txt (older configurations, not regenerated).
 1871 add-longlong/add-longlong.bin
 1332 add/add.bin
 2217 atomic-boundary/atomic-boundary.bin
@@ -64,3 +64,6 @@
 947 wfi-boundary/wfi-boundary.bin
 3398 directed/memspec_vio.bin
 222439 directed/itt-dispatch.bin
+5598 directed/memspec_data.bin
+3086 directed/memspec_addr.bin
+2700 directed/memspec_pf.bin
