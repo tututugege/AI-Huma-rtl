@@ -27,16 +27,15 @@ package csr_pkg;
   localparam int R_MISA     = 17;
   localparam int R_FCSR     = 18;   // {frm[2:0], fflags[4:0]} (F/D)
 
-  // misa: MXL (rv32: 1, rv64: 2) in the top two bits; extensions A(0) B(1) I(8) M(12) S(18) U(20)
+  // misa: MXL = 2 (rv64) in the top two bits; extensions A(0) B(1) I(8) M(12) S(18) U(20)
   // (F/D adds F(5) and D(3); RVC=1 adds C(2))
   localparam logic [63:0] MISA_C = (RVC_ENABLE != 0) ? 64'h4 : 64'h0;
   localparam logic [XLEN_BITS-1:0] MISA_RESET =
-      XLEN_BITS'((XLEN_BITS == 64) ? (64'h8000000000141103 | (FP_EN ? 64'h28 : 64'h0) | MISA_C)
-                                   : (64'h40141103 | (FP_EN ? 64'h28 : 64'h0) | MISA_C));
+      XLEN_BITS'(64'h8000000000141103 | (FP_EN ? 64'h28 : 64'h0) | MISA_C);
 
   // mstatus reset: rv64 UXL = SXL = 2
 
-  localparam logic [XLEN_BITS-1:0] MSTATUS_RESET = XLEN_BITS'((XLEN_BITS == 64) ? 64'hA00000000 : 64'h0);
+  localparam logic [XLEN_BITS-1:0] MSTATUS_RESET = XLEN_BITS'(64'hA00000000);
 
   // ---- CSR address table: address, backing register, write mask, read mask ----
   localparam int NENT_MAX = 24;                   // 21 integer-core CSRs + fflags / frm / fcsr
@@ -55,11 +54,11 @@ package csr_pkg;
   };
   // with F/D the SD bit (bit XLEN-1) is read-only and derived from FS (csr_read), not stored
   localparam logic [XLEN_BITS-1:0] MSTATUS_WMASK =
-      XLEN_BITS'((XLEN_BITS == 64) ? 64'h7FF9BB : (FP_EN ? 64'h007FF9BB : 64'h807FF9BB));
+      XLEN_BITS'(64'h7FF9BB);
   localparam logic [XLEN_BITS-1:0] SSTATUS_MASK =
-      XLEN_BITS'((XLEN_BITS == 64) ? 64'h3000DE133 : 64'h800DE133);  // sstatus read mask
+      XLEN_BITS'(64'h3000DE133);  // sstatus read mask
   localparam logic [XLEN_BITS-1:0] SSTATUS_WMASK =
-      XLEN_BITS'((XLEN_BITS == 64) ? 64'hDE133 : (FP_EN ? 64'h000DE133 : 64'h800DE133));  // rv64: UXL read-only
+      XLEN_BITS'(64'hDE133);  // UXL read-only
   // Interrupt CSRs per the privileged spec (no N extension; same as the function model):
   //   mie / mip hold SSI/MSI/STI/MTI/SEI/MEI (0xAAA), mideleg holds SSI/STI/SEI (0x222),
   //   the supervisor views sie / sip show only the bits delegated by mideleg (ENT_DELEG), and sip can only write SSIP.

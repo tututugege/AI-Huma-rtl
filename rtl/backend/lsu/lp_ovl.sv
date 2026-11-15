@@ -53,7 +53,7 @@ module lp_ovl import ttg_cfg_pkg::*; #(
       2'b00:   return 4'd1;
       2'b01:   return 4'd2;
       2'b10:   return 4'd4;
-      default: return (XLEN_BITS == 64) ? 4'd8 : 4'd4;
+      default: return 4'd8;
     endcase
   endfunction
 

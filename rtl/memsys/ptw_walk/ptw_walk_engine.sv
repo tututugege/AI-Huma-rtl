@@ -38,7 +38,7 @@ module ptw_walk_engine import memcpu_pkg::*; import ttg_cfg_pkg::*; (
   logic                    rr_q;        // client preferred by the next selection
   logic [PT_PPN_W-1:0]     l1_ppn_q;    // level-1 PTE ppn: base of the level-0 table
   logic [PT_ID_W-1:0]      req_id_q;    // id of the granted read (meaningful in *_WAIT)
-  logic [PT_LVL_W-1:0]     level_q;     // level of the PTE read in flight (Sv32: 1, 0; Sv39: 2, 1, 0)
+  logic [PT_LVL_W-1:0]     level_q;     // level of the PTE read in flight (Sv39: 2, 1, 0)
 
   // ---- select (IDLE only; round robin, rr_q first) ----
   wire idle = state_q == PW_IDLE;

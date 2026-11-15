@@ -23,9 +23,9 @@ module sdu
 
   logic lt_s, lt_u;
   always_comb begin
-    lt_s = (XLEN_BITS == 64 && amo_w) ? ($signed(src1_rdata[XLEN_BITS/2-1:0]) < $signed(src2_rdata[XLEN_BITS/2-1:0]))
+    lt_s = (amo_w) ? ($signed(src1_rdata[XLEN_BITS/2-1:0]) < $signed(src2_rdata[XLEN_BITS/2-1:0]))
                                        : ($signed(src1_rdata) < $signed(src2_rdata));  // amomin/amomax compare signed
-    lt_u = (XLEN_BITS == 64 && amo_w) ? (src1_rdata[XLEN_BITS/2-1:0] < src2_rdata[XLEN_BITS/2-1:0])
+    lt_u = (amo_w) ? (src1_rdata[XLEN_BITS/2-1:0] < src2_rdata[XLEN_BITS/2-1:0])
                                        : (src1_rdata < src2_rdata);
   end
 

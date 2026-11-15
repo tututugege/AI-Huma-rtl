@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Generate tb/soc/soc_probe.inc: reads every core_top boundary field (the spec/core_top.io layout) from the Verilated soc_top
 into a trace-record-shaped byte buffer, so the closed-loop run can be compared field by field with a core_top trace recorded
-from the reference simulator.  Needs build/lock_core_top/core_top_fields.h (iogen output) and rtl/core/soc_top/soc_top.sv."""
+from the reference simulator.  Needs tb/soc/core_top_fields.h (a committed snapshot of the iogen field table of the core_top boundary) and rtl/core/soc_top/soc_top.sv."""
 import re, os
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-hdr = open(os.path.join(ROOT, 'build/lock_core_top/core_top_fields.h')).read()
+hdr = open(os.path.join(ROOT, 'tb/soc/core_top_fields.h')).read()
 soc = open(os.path.join(ROOT, 'rtl/core/soc_top/soc_top.sv')).read()
 nets = set(re.findall(r'^\s+logic\s+(?:\[[^\]]*\]\s*)?(\w+)', soc, re.M))
 # 1-bit lane arrays declared as packed vectors (`logic [N-1:0] x`, no unpacked dims): read bit-wise

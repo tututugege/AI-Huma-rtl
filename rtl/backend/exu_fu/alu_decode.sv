@@ -20,7 +20,7 @@ module alu_decode
   output alu_ctl_t        ctl
 );
 
-  localparam logic [6:0] F7_BASE   = 7'h00;  // plain RV32I
+  localparam logic [6:0] F7_BASE   = 7'h00;  // plain base ISA
   localparam logic [6:0] F7_ALT    = 7'h20;  // sub / sra / xnor / orn / andn
   localparam logic [6:0] F7_SHADD  = 7'h10;  // Zba shNadd
   localparam logic [6:0] F7_MINMAX = 7'h05;  // Zbb min/max, Zbc clmul*
@@ -32,7 +32,7 @@ module alu_decode
 
   // rv64 immediate shifts / unary ops: funct7[0] is shamt[5], not an opcode bit
   logic [6:0] func7;
-  assign func7 = (XLEN_BITS == 64 && src2_is_imm) ? {func7_in[6:1], 1'b0} : func7_in;
+  assign func7 = (src2_is_imm) ? {func7_in[6:1], 1'b0} : func7_in;
 
   // ---- field predicates ----
   logic op_is_add, op_is_wfi, imm_form, reg_form;

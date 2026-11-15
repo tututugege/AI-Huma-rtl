@@ -11,6 +11,8 @@ note: 后端整体，含 lsu
 
 # back_top 设计笔记（后端集成：back_top）
 
+> **2026-11-16**：生成器 `tools/gen_backtop.py` / `gen_soc_top.py` 和 `spec/*.io`（`core_top.io` 除外）已删除，本文件对应的 `.sv` 现在直接手改；下面凡提到“生成文件 / 重新生成”的地方都是历史说明。
+
 > **更新（2026-11-12，rv64 / 现状）**：**`back_top.sv` 和 `exu.sv` 是生成文件**（`tools/gen_backtop.py` + `spec/*.io`），为 rv64 手改过位宽，spec 和生成器没有同步，**重新生成会丢 rv64 位宽**；`back_top_glue.sv` 是手写的。ROB 在 `ROB_COMPACT = 1` 下是紧凑 ROB（`rob.md`），多了 `bpu_upd_free` / `bpu_tq_free` 输入和 `rob2dis_free` 输出（接线见 `back_top.sv`）。
 
 ## 1. 范围与文件

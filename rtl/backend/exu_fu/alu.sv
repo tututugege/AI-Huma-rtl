@@ -1,7 +1,7 @@
 // Ref: back-end/Exu/include/Fu.h  AluUnit
 `default_nettype none
 
-// Integer ALU: RV32I / RV64I (+ *W forms) + Zba/Zbb/Zbs/Zbc subset.  Datapath = shared adder, comparators,
+// Integer ALU: RV64I (+ *W forms) + Zba/Zbb/Zbs/Zbc subset.  Datapath = shared adder, comparators,
 // bitwise unit, funnel shifter, carry-less multiplier and a Zbb unary unit; alu_decode picks the unit.
 module alu
   import exu_fu_pkg::*;
@@ -110,9 +110,9 @@ module alu
 
   always_comb begin
     mm_res    = pick_a ? opa : opb;
-    // pack: XLEN/2-bit halves (packw: 16-bit halves, rv64 only); packh: bytes
+    // pack: XLEN/2-bit halves (packw: 16-bit halves); packh: bytes
     pack_res  = ctl.packh ? {{(XLEN_BITS - 16){1'b0}}, opb[7:0], opa[7:0]}
-              : (ctl.w_res && XLEN_BITS == 64) ? XLEN_BITS'({opb[15:0], opa[15:0]})
+              : (ctl.w_res) ? XLEN_BITS'({opb[15:0], opa[15:0]})
               : {opb[XLEN_BITS/2-1:0], opa[XLEN_BITS/2-1:0]};
     clmul_res = ({XLEN_BITS{ctl.clmul}} & clmul_prod[XLEN_BITS-1:0])
               | ({XLEN_BITS{ctl.clmulr}} & clmul_prod[2*XLEN_BITS-2:XLEN_BITS-1])

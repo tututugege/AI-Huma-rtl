@@ -28,7 +28,7 @@ bash scripts/fm_gate.sh $PWD/build/soc_fm/obj/soc_tb $PWD/build/gate
 ## 生成文件与 rv64 的已知债务
 
 - `rtl/common/ttg_cfg_pkg.sv`：由 `harness/tools/gen_cfg_pkg.py`（`make cfg`）生成。默认就是 rv64gc 的包（2026-11-16 起），构建时不再生成副本。
-- `rtl/backend/back_top/back_top.sv`、`exu.sv`、`rtl/core/soc_top/soc_top.sv` 是**生成文件**（`tools/gen_backtop.py`、`tools/gen_soc_top.py`，输入 `spec/*.io`）。**为 rv64 手改过位宽，spec/*.io 和生成器没有同步：重新生成会丢掉这些位宽，rv64 就坏了。** 改这三个文件前先把位宽改动回写到 `spec/*.io` 与生成器（待办，见总仓库 `docs/TODO.md`），否则只能手改。
+- `rtl/backend/back_top/back_top.sv`、`exu.sv`、`rtl/core/soc_top/soc_top.sv` 以前由 `tools/gen_backtop.py`、`tools/gen_soc_top.py`（输入 `spec/*.io`）生成，生成器和 `spec/` 已在 2026-11-16 删除（它们为 rv64 手改过位宽，早已不同步）：**这三个文件现在直接手改**。`spec/` 已整个删除；测试平台探针用的 core_top 边界字段表是入库的快照 `tb/soc/core_top_fields.h`。
 - 数据通路里 `XLEN_BITS` 相关的位宽：PC、寄存器、立即数、ALU/乘除、CSR、LSU/dcache 数据字 `DW = XLEN`；dcache 的行和 AXI 一侧仍是 32 位字；物理地址始终 32 位（rv64 是 Sv39 虚拟地址、32 位物理地址）。
 
 翻译阶段的"逐拍锁步 / trace 回放 / 变异检查"体系完成使命后退役，代码在标签 `legacy-reference`，文档在 [docs/history/](docs/history/)。

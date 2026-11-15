@@ -74,7 +74,7 @@ module mem_route_resp import ttg_cfg_pkg::*; import memcpu_pkg::*; (
   /* verilator lint_off UNUSEDSIGNAL */  // only the addressed 32-bit word reaches the ICache
   logic [XLEN_BITS-1:0] ic_word;
   /* verilator lint_on UNUSEDSIGNAL */
-  assign ic_word  = (XLEN_BITS == 64 && issued_hi_q) ? (resp_data[P3] >> 32) : resp_data[P3];
+  assign ic_word  = (issued_hi_q) ? (resp_data[P3] >> 32) : resp_data[P3];
   assign ic_data  = (owner_ic && is_hit) ? ic_word[31:0] : 32'd0;
 
   // ---- PTW feedback ----

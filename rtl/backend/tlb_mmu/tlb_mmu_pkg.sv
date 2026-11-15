@@ -4,8 +4,7 @@
 package tlb_mmu_pkg;
   import ttg_cfg_pkg::*;
 
-  // Sv32 (XLEN 32): 2 levels of 10-bit VPNs, 9-bit ASID satp[30:22]; Sv39 (XLEN 64): 3 levels of 9-bit VPNs, 16-bit
-  // ASID satp[59:44].  The physical address is 32 bits in both: only ppn[19:0] of a PTE reaches it.
+  // Sv39: 3 levels of 9-bit VPNs, 16-bit ASID satp[59:44].  The physical address is 32 bits in both: only ppn[19:0] of a PTE reaches it.
   localparam bit RV64 = (XLEN_BITS == 64);
   localparam int ASID_W = RV64 ? 16 : 9;
   localparam int LEVELS = RV64 ? 3 : 2;
@@ -127,7 +126,7 @@ package tlb_mmu_pkg;
     return r;
   endfunction
 
-  // satp: translation enabled (Sv32: MODE bit 31; Sv39: MODE = 8) and ASID
+  // satp: translation enabled (Sv39: MODE = 8) and ASID
   function automatic logic satp_on(input logic [XLEN_BITS-1:0] satp);
     return RV64 ? (satp[XLEN_BITS-1 -: 4] == 4'd8) : satp[XLEN_BITS-1];
   endfunction
@@ -140,7 +139,7 @@ package tlb_mmu_pkg;
     return RV64 ? s[44 +: ASID_W] : s[22 +: ASID_W];
   endfunction
 
-  // Sv39: a virtual address must be sign-extended from bit 38 (always true on Sv32)
+  // Sv39: a virtual address must be sign-extended from bit 38 
   function automatic logic va_canonical(input logic [XLEN_BITS-1:0] v);
     logic signed [XLEN_BITS-1:0] top;
     top = $signed(v) >>> 38;

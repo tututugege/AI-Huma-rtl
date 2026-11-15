@@ -1,7 +1,7 @@
 // Ref: MemSubSystem/include/MemPtwBlock.h  on_walk_mem_resp (PTE classification)
 `default_nettype none
 
-// Classify the PTE read at `level` (Sv32: 1, 0; Sv39: 2, 1, 0): fault (invalid / W without R / Sv39 reserved bits / a
+// Classify the PTE read at `level` (Sv39: 2, 1, 0): fault (invalid / W without R / Sv39 reserved bits / a
 // misaligned superpage / a pointer at level 0), next-level pointer, or leaf.  Only ppn[19:0] reaches the 32-bit
 // physical address; perm = pte[7:0].
 module ptw_walk_pte import memcpu_pkg::*; import ttg_cfg_pkg::*; (
@@ -22,7 +22,7 @@ module ptw_walk_pte import memcpu_pkg::*; import ttg_cfg_pkg::*; (
   wire w = pte_w[2];
   wire x = pte_w[3];
   // Sv39: bits 63:54 are reserved (Svnapot / Svpbmt are not implemented)
-  wire rsvd_hi     = (XLEN_BITS == 64) && (pte_w[63:54] != 10'd0);
+  wire rsvd_hi     = (pte_w[63:54] != 10'd0);
   wire reserved    = !v || (!r && w) || rsvd_hi;
   wire is_leaf_enc = r || x;
   // the ppn bits below a superpage's level must be zero

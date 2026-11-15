@@ -286,7 +286,7 @@ package lp_pkg;
       2'b00:   return 13'd1;
       2'b01:   return 13'd2;
       2'b10:   return 13'd4;
-      default: return (XLEN_BITS == 64) ? 13'd8 : 13'd4;
+      default: return 13'd8;
     endcase
   endfunction
 

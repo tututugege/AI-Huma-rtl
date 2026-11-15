@@ -10,7 +10,7 @@ frontend/icache/        指令缓存（含 ITLB 胶合）
 frontend/front_top/     前端顶层
 memsys/<模块>/          访存子系统：dcache（含驱逐脏行的缓冲 dcache_wb 和预取 dcache_pf；EXP-024 的 store 写缓冲在 lsu 里：lp_wbuf）mem_route ptw_walk peripheral_axi axi_cpu_port_adapter（+ memcpu_pkg）axi_interconnect axi_llc axi_subsys mem_top
 core/core_top/          前后端联调顶层（边界为存储侧口与退休流）
-core/soc_top/           整核顶层 soc_top = core_top + mem_top（生成文件，tools/gen_soc_top.py）
+core/soc_top/           整核顶层 soc_top = core_top + mem_top（手改，原生成器已删除）
 pmu/                    性能计数器块与事件总线（tier 1，CSR 未接）
 ```
 - 一个目录一个模块族；顶层文件名与目录同名，只做端口适配，逻辑在子模块。

@@ -217,7 +217,7 @@ module idu_ctrl_decode import ttg_cfg_pkg::*; (
   assign cls[CLS_SYS_NOP]  = sys_plain & ~(is_ecall | is_ebreak | is_mret | is_wfi | is_sret | is_sfence);
   assign cls[CLS_AMO]      = (opcode == OPC_AMO) & (amo_op != AMO_LR);
   assign cls[CLS_AMO_LR]   = (opcode == OPC_AMO) & (amo_op == AMO_LR);
-  // rv32: Zfinx FP in the OP-FP opcode; rv64: no F/D yet (OP-FP is illegal), 32-bit ops in OP-IMM-32 / OP-32
+  // 32-bit ops in OP-IMM-32 / OP-32
   localparam bit RV64 = (XLEN_BITS == 64);
   assign cls[CLS_OPIMM32]  = RV64 & (opcode == OPC_OPIMM32);
   assign cls[CLS_OP32_ALU] = RV64 & (opcode == OPC_OP32) & (funct7 != 7'd1);

@@ -31,7 +31,7 @@ module csr_regfile
 
   // satp: rv64 implements Bare (0) and Sv39 (8) only; a write of any other mode has no effect
   logic satp_wr_ok;
-  assign satp_wr_ok = (XLEN_BITS == 32) | (commit_wdata[XLEN_BITS-1 -: 4] == 4'd0)
+  assign satp_wr_ok = (commit_wdata[XLEN_BITS-1 -: 4] == 4'd0)
                     | (commit_wdata[XLEN_BITS-1 -: 4] == 4'd8);
 
   logic [NENT-1:0] hit;

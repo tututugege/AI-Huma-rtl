@@ -11,6 +11,8 @@ note: core_top + mem_top；测试平台 tb/soc（Verilator）+ 参考的 SimDDR/
 
 # soc_top / mem_top 设计笔记（整核闭环）
 
+> **2026-11-16**：生成器 `tools/gen_backtop.py` / `gen_soc_top.py` 和 `spec/*.io`（`core_top.io` 除外）已删除，本文件对应的 `.sv` 现在直接手改；下面凡提到“生成文件 / 重新生成”的地方都是历史说明。
+
 > **更新（2026-11-12，rv64 / 现状）**：1) `soc_top.sv` 是**生成文件**（`tools/gen_soc_top.py`），为 rv64 手改过位宽，重新生成会丢（见根 README）。2) 测试平台：`SOC_XLEN=64` 用 `XLEN_BITS=64` 的 `rtl/` 副本构建，`-DXLEN=64` 传给 C++；`tb/soc/fm_check.h` 每提交一条指令让 function-model 执行并比较 PC 和目的寄存器（`tb_xlen_t` 宽度随 XLEN），`FMLIB` 必须指向同位宽的 `librefcpu.a`；rv32 用 `SOC_FM=1`。3) 测试平台环境变量：`SOC_TB_FM=1`（逐条对比）、`SOC_TB_SEMIHOST=1`（OpenSBI/Linux 的 semihosting）、`SOC_TB_LOG=<n>`（每 n 周期一行进度）、`SOC_TB_STLOG=<物理地址>`（打印提交到该 8 字节字的 store）、`SOC_TB_PMU=1`（打印 PMU 事件总数）。Linux 需要构建时加 `SOC_VOPT="--threads 4 -DTTG_EBREAK_TRAP"`。4) 8 字节 MMIO（`ld`/`sd`）经 `peripheral_axi` 本地设备路径，测试平台的 `PeripheralModel` 按 8 字节读写。
 
 > 默认配置是**不分频**（`AXI_SUBSYSTEM_FREQ_DIV = 1`，每 CPU 周期 1 个 tick，DRAMsim3 作 DDR 后端）。下面第 2 节的 16 tick 规则、第 3 节的“每周期 16 个 tick”、“空闲 tick 跳过”一节描述原分频配置，**该配置不再支持**（空闲跳过只在 16 tick 时启用）；第 4 节和 Linux 表是 2026-11-04 的历史结果，最新结果见下面“当前验证状态”。

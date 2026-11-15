@@ -141,7 +141,7 @@ package isu_pkg;
   function automatic logic [WB_OFF_W-1:0] wb_offset(input op_t op, input logic [6:0] func7, input logic is_word);
     if (op == op_t'(UOP_MUL)) return WB_OFF_W'((MUL_MAX_LATENCY <= 0) ? 1 : MUL_MAX_LATENCY);
     else if (op == op_t'(UOP_DIV))
-      return WB_OFF_W'(((XLEN_BITS == 64 && is_word) ? DIV_MAX_LATENCY / 2 : DIV_MAX_LATENCY) + 1);
+      return WB_OFF_W'(((is_word) ? DIV_MAX_LATENCY / 2 : DIV_MAX_LATENCY) + 1);
     else if (FP_EN && op == op_t'(UOP_FDIV)) return WB_OFF_W'(fp_latency(op, func7)) + WB_OFF_W'(1);
     else if (FP_EN && (op == op_t'(UOP_FMA) || op == op_t'(UOP_FMISC) || op == op_t'(UOP_I2F)))
       return WB_OFF_W'(fp_latency(op, func7));

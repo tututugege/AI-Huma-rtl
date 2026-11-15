@@ -55,7 +55,7 @@ module isu_wake_src
       assign div_req_preg[R]  = grant_uop[p].dest_preg;
       assign div_req_mask[R]  = grant_uop[p].br_mask;
       // rv64 divw / divuw / remw / remuw take half the iterations (Isu::get_latency: div_latency(is_word))
-      assign div_req_count[R] = (XLEN_BITS == 64 && grant_uop[p].is_word) ? COUNT_W'(DIV_MAX_LATENCY / 2 - 1)
+      assign div_req_count[R] = (grant_uop[p].is_word) ? COUNT_W'(DIV_MAX_LATENCY / 2 - 1)
                                                                           : COUNT_W'(DIV_MAX_LATENCY - 1);
     end
     // fast wake-up: single-cycle uop with a destination (ports that can issue ALU ops own a fast channel)

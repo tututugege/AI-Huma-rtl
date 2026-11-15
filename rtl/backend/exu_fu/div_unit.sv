@@ -40,7 +40,7 @@ module div_unit
   exu_iter_ctl #(.CW(CW)) u_ctl (
     .clk(clk), .rst_n(rst_n), .flush(flush), .flush_mask(flush_mask), .clear_mask(clear_mask),
     .en(en), .consume(consume), .en_br_mask(br_mask),
-    .lat_m1(is_word && XLEN_BITS == 64 ? CW'(LAT / 2 - 1) : CW'(LAT - 1)),
+    .lat_m1(is_word ? CW'(LAT / 2 - 1) : CW'(LAT - 1)),
     .accept(accept), .run(run), .complete(complete), .ready(ready), .done_br_mask(done_br_mask)
   );
 

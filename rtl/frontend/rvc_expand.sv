@@ -3,7 +3,7 @@
 
 // Expansion of a 16-bit compressed instruction into the equivalent 32-bit instruction.  An illegal / reserved
 // encoding gives 0 (all zero is an illegal 32-bit instruction: the back end raises the illegal-instruction exception).
-// With XLEN = 32: c.jal, c.flw/c.fsw/c.flwsp/c.fswsp (HAS_FP); with XLEN = 64: c.addiw/c.subw/c.addw/c.ld/c.sd/c.ldsp/c.sdsp.
+// rv64: c.addiw/c.subw/c.addw/c.ld/c.sd/c.ldsp/c.sdsp.
 module rvc_expand import ttg_cfg_pkg::*; #(
   parameter int IS_RV64 = (XLEN_BITS == 64) ? 1 : 0,
   parameter int HAS_FP  = (FPRF_NUM != 0) ? 1 : 0
@@ -106,7 +106,7 @@ module rvc_expand import ttg_cfg_pkg::*; #(
             end
           end
           3'd4: begin
-            if (f2 == 2'd0 || f2 == 2'd1) begin   // c.srli / c.srai (rv32: shamt[5] must be 0)
+            if (f2 == 2'd0 || f2 == 2'd1) begin   // c.srli / c.srai
               if (RV64 || !h12)
                 inst = enc_i(OPIMM, rs1p, 3'd5, rs1p, {1'b0, f2 == 2'd1, 4'b0, imm6u});
             end else if (f2 == 2'd2) begin        // c.andi

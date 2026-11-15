@@ -47,10 +47,10 @@ make tracker                                # 由 docs/modules/*.md 头部重新
 ```
 docs/        本目录（history/ 为退役文档）
 rtl/         所有 RTL（common/ backend/ frontend/ memsys/ core/ pmu/），说明见 rtl/README.md
-spec/        模块接口规格 <module>.io（tools/gen_backtop.py 由它生成 back_top.sv / exu.sv；**这些生成文件为 rv64 手改过，重新生成会丢位宽**，见根 README）
+spec/        已删除（模块接口规格和生成器 gen_backtop / gen_soc_top 都删了，back_top.sv / exu.sv / soc_top.sv 现在直接手改）
 harness/     tools/（gen_cfg_pkg 配置包生成器、iogen、svlint）、include/trace_format.h（测试平台用）
 tb/soc/      整核测试平台（SimDDR、外设模型、function-model 逐条对比）
-tools/       生成器：gen_backtop、dimmap（字面尺寸 → 配置参数）、pack_bits、gen_soc_probe、gen_soc_top
+tools/       gen_soc_probe、gen_skipmask（测试平台构建用）、ckpt2image、lint_back_top.sh、toplint.sh
 tests/       专项测试：common（原语）、dcache（定向程序）、pmu、rv64（`mmio64.c`，8 字节 MMIO）（`tests/fpu` 随 Zfinx 的 FPU 于 2026-11-12 删除）
 scripts/     索引见 scripts/README.md
 programs/    缩短版 dhrystone/coremark 及源码（programs/big）
