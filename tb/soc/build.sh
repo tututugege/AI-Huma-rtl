@@ -26,8 +26,7 @@ fi
 LSUPFLAG=""; grep -q "LSU_PIPE = 1;" "$ROOT/rtl/common/ttg_cfg_pkg.sv" && LSUPFLAG="-DSOC_LSU_PIPE"   # staged LSU: the testbench reads its STQ entry
 # F/D (FPRF_NUM > 0 in the config): the FP units compute through DPI-C (tb/fp_dpi/fp_dpi.cpp, Berkeley softfloat of the function model)
 FPDPI=(); FPINC=""; FPLD=""
-# (the rv64 copy of the tree gets its own rv64gc configuration below: FP on unless SOC_FP=0)
-FP_ON=1; if [ "${SOC_XLEN:-32}" = 64 ]; then [ "${SOC_FP:-1}" = 0 ] && FP_ON=0; else grep -q "FPRF_NUM = 0;" "$ROOT/rtl/common/ttg_cfg_pkg.sv" && FP_ON=0; fi
+FP_ON=1; grep -q "FPRF_NUM = 0;" "$ROOT/rtl/common/ttg_cfg_pkg.sv" && FP_ON=0   # (the committed package is rv64gc; a package generated with -DFP=0 builds without the FP units)
 if [ "$FP_ON" = 1 ]; then
   FPDPI=("$ROOT/tb/fp_dpi/fp_dpi.cpp"); FPINC="-DSOC_FP -I$AI_HUMA_ROOT/function-model/lib/softfloat/include"
   FPLD="$AI_HUMA_ROOT/function-model/lib/softfloat/softfloat.a"
@@ -36,19 +35,11 @@ INC=""
 for d in include libs/include back-end back-end/include axi-interconnect-kit/include axi-interconnect-kit/sim_ddr/include \
          axi-interconnect-kit/axi_interconnect/include axi-interconnect-kit/mmio/include MemSubSystem/include diff/include front-end back-end/Exu/include back-end/Lsu/include back-end/tools/include function-model/include/api legacy/mmu/include; do INC="$INC -I$REF/$d"; done
 FILES=(); while IFS= read -r f; do FILES+=("$ROOT/$f"); done < <(bash "$ROOT/scripts/rtl_files.sh" "$ROOT")
-# SOC_XLEN=64: build the rv64 core from a copy of rtl/ whose config package has XLEN_BITS = 64 and the 64-bit mul/div latencies
-# (what gen_cfg_pkg.py emits from the trace-model config.h with -DXLEN=64); the function-model library must be the XLEN=64 build (FMLIB)
-XLENFLAG=""
-if [ "${SOC_XLEN:-32}" = 64 ]; then
-  XLENFLAG="-DXLEN=64"
-  rm -rf "$OUT/rtl64"; mkdir -p "$OUT/rtl64"; cp -R "$ROOT/rtl" "$OUT/rtl64/rtl"
-  # the rv64 core is the rv64gc configuration of the model: the configuration package of the copy is generated from the trace-model sources with -DXLEN=64 -DRVC=1 -DFP=1
-  # (SOC_RVC / SOC_FP override; this equals the package gen_cfg.sh emits with those flags), so the committed rv32 package stays untouched
-  python3 "$ROOT/harness/tools/gen_cfg_pkg.py" "${TM_DIR:-$AI_HUMA_ROOT/trace-model}" "$OUT/rtl64/rtl/common/ttg_cfg_pkg.sv" -DXLEN=64 -DRVC=${SOC_RVC:-1} -DFP=${SOC_FP:-1} > /dev/null
-  NF=(); for f in "${FILES[@]}"; do NF+=("${f/#$ROOT\/rtl\//$OUT/rtl64/rtl/}"); done; FILES=("${NF[@]}")
-fi
+# the core is rv64 (XLEN_BITS = 64 in the committed configuration package, see scripts/gen_cfg.sh); the function-model library must be the matching
+# build: XLEN=64 FP=1 RVC=1 (FMLIB, default $AI_HUMA_ROOT/function-model/librefcpu.a)
+XLENFLAG="-DXLEN=64"
 [ -n "${FMLIB:-}" ] && FMLD="$FMLIB $AI_HUMA_ROOT/function-model/lib/softfloat/softfloat.a -lz"
-TTG_CFG_PKG=$([ "${SOC_XLEN:-32}" = 64 ] && echo "$OUT/rtl64/rtl/common/ttg_cfg_pkg.sv") python3 "$ROOT/tools/gen_soc_probe.py" >/dev/null   # the probe needs the widths of the configuration that is built
+python3 "$ROOT/tools/gen_soc_probe.py" >/dev/null   # the probe needs the widths of the configuration that is built
 cd "$OUT"
 # reference platform models (not RTL)
 for s in axi-interconnect-kit/sim_ddr/SimDDR.cpp back-end/PhysMemory.cpp; do

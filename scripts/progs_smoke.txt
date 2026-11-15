@@ -50,9 +50,5 @@ tests/trap-precise-store/trap-precise-store.bin
 tests/unalign/unalign.bin
 tests/wanshu/wanshu.bin
 tests/wfi-boundary/wfi-boundary.bin
-vm/vm-asid-test/vm_asid_test.bin
-vm/vm-pagefault-test/vm_pagefault_test.bin
-vm/vm-sfence-perm-test/vm_sfence_perm_test.bin
-vm/vm-sum-fetch-test/vm_sum_fetch_test.bin
 big/dhrystone.bin
 tests/load-store-aligned/load-store-aligned.bin

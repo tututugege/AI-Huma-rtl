@@ -7,7 +7,7 @@ L=${LLVM:-/opt/homebrew/opt/llvm/bin}
 T=$TTG_PROGS/tests
 mkdir -p $HERE/cm
 for IT in 2; do
-  CF="--target=riscv32 -march=rv32ima_zicsr_zifencei -mabi=ilp32 -O2 -mcmodel=medlow -mstrict-align -ffreestanding -fno-builtin -nostdlib -I$HERE/inc -I$B/coremark -I$B -I$B/include -DITERATIONS=$IT"
+  CF="--target=riscv64 -march=rv64ima_zicsr_zifencei -mabi=lp64 -O2 -mcmodel=medany -mstrict-align -ffreestanding -fno-builtin -nostdlib -I$HERE/inc -I$B/coremark -I$B -I$B/include -DITERATIONS=$IT"
   objs=(); ok=1
   for s in $B/start.S $B/lib/*.c $B/coremark/*.c; do
     o=$HERE/cm/$IT.$(basename $s).o

@@ -10,7 +10,7 @@ T=$TTG_PROGS/tests
 D=$HERE/dhry; mkdir -p $D; cd $D; rm -f *.o
 cp $B/dhrystone/*.c $B/dhrystone/*.h .
 sed -i '' "s/#define NUMBER_OF_RUNS [0-9]*/#define NUMBER_OF_RUNS $RUNS/" dhrystone.h
-CF="--target=riscv32 -march=rv32ima_zicsr_zifencei -mabi=ilp32 -O0 -mcmodel=medlow -mstrict-align -ffreestanding -fno-builtin -nostdlib -std=gnu89 -I. -I$HERE/inc -I$B -I$B/include -w"
+CF="--target=riscv64 -march=rv64ima_zicsr_zifencei -mabi=lp64 -O0 -mcmodel=medany -mstrict-align -ffreestanding -fno-builtin -nostdlib -std=gnu89 -I. -I$HERE/inc -I$B -I$B/include -w"
 objs=()
 for s in $B/start.S $B/lib/*.c dhrystone.c dhrystone_main.c $HERE/libc_min.c; do
   o=$(basename $s).o; $L/clang $CF -c $s -o $o; objs+=($o)

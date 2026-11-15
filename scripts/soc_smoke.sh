@@ -17,6 +17,6 @@ run_one() {
   if [ "$got" = "$ref" ] && ! echo "$out" | grep -q "NO EBREAK"; then echo "PASS $rel $ref"; else echo "FAIL $rel ref=$ref rtl=${got:-none} $out"; fi
 }
 export -f run_one; export ROOT TB
-{ ls "$TTG_PROGS"/tests/*/*.bin "$TTG_PROGS"/vm/*/*.bin; echo "$TTG_BIG/dhrystone.bin"; echo "$TTG_BIG/coremark.bin"; } > "$ROOT/build/soc_progs.txt"
+{ ls "$TTG_PROGS"/tests/*/*.bin; echo "$TTG_BIG/dhrystone.bin"; echo "$TTG_BIG/coremark.bin"; } > "$ROOT/build/soc_progs.txt"
 awk -v m="$MAXC" -v n="$MINC" '$1<=m && $1>=n' "$ROOT/scripts/ref_cycles.txt" | xargs -P "${JOBS:-4}" -L1 bash -c 'run_one $0 $1' | tee "$ROOT/build/soc_smoke.log"
 echo "== PASS: $(grep -c '^PASS' "$ROOT/build/soc_smoke.log")  FAIL: $(grep -c '^FAIL' "$ROOT/build/soc_smoke.log")"

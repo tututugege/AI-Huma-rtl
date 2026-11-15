@@ -19,7 +19,11 @@
     .macro CHAIN n
     mv   t1, s0
     .rept \n
+#ifdef RV64
+    lwu  t1, 0(t1)            /* the chain word is a 32-bit address: zero-extend (lw would give 0xffffffff80001000) */
+#else
     lw   t1, 0(t1)
+#endif
     .endr
     .endm
 
@@ -76,7 +80,7 @@
     .endm
 
 _start:
-    lui  s0, 0x80001          /* P */
+    li   s0, 0x80001000       /* P (li: lui would sign-extend to 0xffffffff80001000 on rv64) */
     addi a2, s0, 16           /* T */
     li   s1, 0                /* last value stored to T */
     li   s5, 0

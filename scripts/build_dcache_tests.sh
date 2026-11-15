@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the directed DCache coverage programs tests/dcache/*.c with Homebrew LLVM (riscv32), same flags/linker script as
+# Build the directed DCache coverage programs tests/dcache/*.c with Homebrew LLVM (riscv64), same flags/linker script as
 # tututugege-trace/scripts/build_tests.sh (which must have been run once: it produces build/tests/link.lds).
 #   usage: build_dcache_tests.sh [outdir]      default outdir: build/dcache_tests   (one <name>/<name>.bin per source)
 set -uo pipefail
@@ -9,7 +9,7 @@ OUT=${1:-$ROOT/build/dcache_tests}
 BM=$AI_HUMA_ROOT/trace-model/baremetal
 LDS=$TTG_PROGS/tests/link.lds
 L=${LLVM:-/opt/homebrew/opt/llvm/bin}
-CF="--target=riscv32 -march=rv32ima_zicsr_zifencei -mabi=ilp32 -O2 -ffp-contract=off -mcmodel=medlow -mstrict-align -ffreestanding -fno-builtin -nostdlib -I$BM -I$BM/include"
+CF="--target=riscv64 -march=rv64ima_zicsr_zifencei -mabi=lp64 -O2 -ffp-contract=off -mcmodel=medany -mstrict-align -ffreestanding -fno-builtin -nostdlib -I$BM -I$BM/include"
 for src in "$ROOT"/tests/dcache/*.c; do
   t=$(basename "$src" .c); d=$OUT/$t; mkdir -p "$d"; objs=(); ok=1
   for s in "$BM/start.S" "$BM"/lib/*.c "$src"; do

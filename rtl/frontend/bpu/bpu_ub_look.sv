@@ -24,7 +24,9 @@ module bpu_ub_look import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
   logic [UB_SLOT_W-1:0] e_slot;
   logic [2:0]      e_ty;
   logic            e_rvc;
+  /* verilator lint_off UNUSEDSIGNAL */   // rv64: the physical address is 32 bits, the upper bits of the stored target are not used here
   logic [UB_TGT_W-1:0] e_tgt;
+  /* verilator lint_on UNUSEDSIGNAL */
   logic [XLEN_BITS-1:0]     bpc;
 
   // Ref: s0_lookup, candidate selection

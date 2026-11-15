@@ -4,11 +4,11 @@
 #
 #   RTL_ROOT         this repository                                   (derived)
 #   AI_HUMA_ROOT     the AI-Huma checkout that contains rtl/ and trace-model/   (default: parent of RTL_ROOT)
-#   TTG_PROGS        built test programs: $TTG_PROGS/tests/<t>/<t>.bin, $TTG_PROGS/vm/<t>/<t>.bin   (default: trace-model/build)
+#   TTG_PROGS        built test programs: $TTG_PROGS/tests/<t>/<t>.bin   (default: trace-model/build)
 #   TTG_BIG          shortened dhrystone(64) / coremark(2)             (default: $RTL_ROOT/programs/big)
 #   TM               trace-model simulator binary                      (default: trace-model/build/simulator)
 # Program lists (scripts/progs*.txt, ...): one program per line; a relative entry is resolved by `ttg_resolve_list`:
-#   tests/<t>/<t>.bin, vm/<t>/<t>.bin  -> $TTG_PROGS/...      big/<n>.bin -> $TTG_BIG/<n>.bin      extra/<n>.bin -> programs/extra/<n>.bin      tm/<path> -> $AI_HUMA_ROOT/trace-model/<path>
+#   tests/<t>/<t>.bin  -> $TTG_PROGS/...      big/<n>.bin -> $TTG_BIG/<n>.bin      extra/<n>.bin -> programs/extra/<n>.bin      tm/<path> -> $AI_HUMA_ROOT/trace-model/<path>
 #   absolute entries are kept as they are; a `|cap` suffix (scripts/progs.txt) is kept.
 
 _env_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -36,7 +36,7 @@ ttg_resolve_list() {
 
 # ttg_all_progs: every gate test + vm test + dhrystone/coremark (shortened) + float_test that exists
 ttg_all_progs() {
-  ls "$TTG_PROGS"/tests/*/*.bin "$TTG_PROGS"/vm/*/*.bin
+  ls "$TTG_PROGS"/tests/*/*.bin
   local p
   for p in "$TTG_BIG/dhrystone.bin" "$TTG_BIG/coremark.bin" "$AI_HUMA_ROOT/trace-model/baremetal/float-test/float_test.bin"; do [ -f "$p" ] && echo "$p"; done
 }
