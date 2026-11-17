@@ -160,3 +160,34 @@ IQ INT/BR/STD 128/64/64 → 64/32/16（LD、STA 不变）、发射端口 LD/STA/
 - **没有跑出来**：rv64 的 `dcache_bank` 超过 12 GB 内存看门狗被杀（rv32 是 162,674 单元）；`lsu_core`、`isu`、`rob`、`ren` 等大聚合模块没有做，它们的数据位宽依赖较小（rob 里只有 `diag_val` / `result` / PC 相关字段，ren / isu 基本不依赖 XLEN），预计不是主要来源，但没有实测。
 - **不能回答**：真实频率、工艺库面积、时序（WNS）。这仍然**没有做**，需要工艺库和综合工具。
 - **脚本**：`scripts/synth_depth.sh` 改为不用过长的 `xargs -I` 命令行（macOS 的 BSD xargs 对替换后的命令行有 255 字节限制，原来的写法在本机直接报 "command line cannot be assembled, too long"）。
+
+## 11. TLB 并行化与 first_set 改为对数深度（2026-11-17，EXP-042）
+
+**问题**：第 10 节里 `tlb_mmu` 深度 159（rv32）/ 163（rv64），是本表里除前端外最深的模块。`synth_depth.sh` 的最长路径：
+lane 0 查表（64 项比较）→ `ttg_first_set`（`req & -req`，64 位进位链，约 60 级）→ lane 0 → lane 1 → … → lane 6 的 `chain`（8 个口串行，每口一次 refill 比较 + walk 状态选择）→ `ptw_walk_resp_consumed`。
+
+**改动**（行为逐拍不变，见 `docs/modules/tlb_mmu.md` 第 3 节第 6 条、第 5 节）：
+1. `tlb_mmu_core` / `tlb_mmu_lane`：8 个口并行计算，口间依赖改为两次 8 位 first_set（A：服务当前 walk 的口；B：启动新 walk 的口，三种情况各预选一个）；每口对两种回填视图预先算好结果，选择信号只控制最后一级二选一。
+2. `ttg_first_set`（公共原语，37 个模块在用）：`req & -req` 改为 Kogge-Stone 前缀或（`log2 N` 级），函数相同。
+
+**结果**（rv64 配置包，本报告第 2 节设置 + `SYNTH_DEPTH=1 SYNTH_LTP=1`，`synth_depth.sh`，main `8abb7ab` 对比改动后）：
+
+| 模块 | main 单元 | 改后单元 | main 深度 | 改后深度 |
+|---|---|---|---|---|
+| `tlb_mmu` | 84,088 | 80,255 | 163 | **67** |
+| `tlb_mmu_lookup` | 12,609 | 12,703 | 61 | 33 |
+| `icache_itlb`（ITLB，1 口） | 14,058 | 13,967 | 68 | 49 |
+| `lsu_stlf_match` | 53,209 | 53,289 | 139 | 97 |
+| `bpu_main_sel` | 86,418 | 87,446 | 121 | 113 |
+| `isu_alloc_chain` | 2,005 | 3,530 | 72 | 55 |
+| `isu_iq_select` | 1,974 | 2,575 | 69 | 46 |
+| `dcache_mshr_alloc` | 9,002 | 8,303 | 29 | 32 |
+| `axi_llc_mshr` | 55,226 | 55,115 | 23 | 23 |
+| `rob_commit_ctrl` / `ren_alloc_sel` / `lp_ffs` | 179 / 710 / 21 | 181 / 707 / 21 | 16 / 16 / 4 | 16 / 17 / 4 |
+
+rv32 配置包（改动时在旧基线 `15af4b4` 上测）：`tlb_mmu` 159 → 63，`tlb_mmu_lookup` 55 → 32，`icache_itlb` 67 → 43。
+
+**读法**：
+- TLB 剩下的最长路径：查表（约 33 级）→ A 选择 → `a_ok` → B 选择 → `walk_q` 的 D 端；A→B 是语义本身的依赖（B 要知道 A 有没有让 walk 退休）。再往下要靠改结构（例如查表结果打一拍、或者限制 walk 只由 load 口启动），会改变周期，不在本次范围。
+- first_set 的前缀或在宽向量上多用面积（`isu_alloc_chain` +1.5k、`isu_iq_select` +0.6k 单元/实例），换来深度下降。真实综合工具通常也会把 `req & -req` 映射成快速进位，所以这里的深度下降对 first_set 部分是**代理的偏差被修正**，对 TLB 的串行链部分是实打实的结构改进。
+- 仍然没有工艺库和时序约束（不是 WNS）。

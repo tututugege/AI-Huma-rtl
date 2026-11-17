@@ -36,15 +36,22 @@ note: ITLB 经 icache 验证
  lsu req[8]  ─► tlb_mmu_lookup ×8 (并行 64 路比较 + 优先级选) ─┐
  tlb_mmu_store (64 项 + 替换指针 repl_q) ───────────────────────┤
                                                                 ▼
- ptw resp ─► tlb_mmu_early (已回的 walk 响应提前回填) ─► chain[0] ─► tlb_mmu_lane 0 ─► lane 1 ─ … ─► lane 7 ─► chain[8]
- walk_q ────────────────────────────────────────────────────────┘                                           │
-                                         walk_d / refill(写 store) / ptw req,consume,flush ◄─────────────────┘
+ ptw resp ─► tlb_mmu_early ─► 本拍初始状态 ─► tlb_mmu_lane ×8（并行：各口自己的 miss / 同页 / 权限 / 两种回填视图下的结果）
+ walk_q ─────────────────────────────────┘                      │
+                    A 选择（first_set：第一个在 walk 页上缺失的口）─┤
+                    B 选择（first_set ×3：walk 空闲 / A 成功 / A 出错 三种情况预先选好）─┤
+                                  ▼                              ▼
+          walk_d / refill(写 store) / ptw req,consume,flush     各口结果 = 末级二选一（视图 1 / 退休口 / 视图 0）
 ```
+> **2026-11-17 EXP-042 改为并行**：原来 8 个口是 `chain[0] → lane 0 → … → lane 7 → chain[8]` 的串行链（综合深度代理 rv64 163 级，最长路径
+> 查表 → 64 位 first_set（加法器式 `req & -req`）→ 8 个口依次串过去）。现在各口并行计算，口与口之间的依赖用两次 8 选 1 的 first_set 解决，
+> 行为与串行版逐拍相同（`tests/tlb_par/`，见第 5 节）。下面第 3 节"lane 链"描述的是**参考行为**（C++ 的顺序语义），RTL 的实现方式见第 3 节末尾。
+
 - 模块：`tlb_mmu_pkg`（类型/权限检查/地址合成函数）、`tlb_mmu_store`（TLB 阵列：valid 向量 + 项，fence 清 valid、refill 写 `repl_q` 槽并 +1）、
-  `tlb_mmu_lookup`（一个口的全相联查表，最低下标优先）、`tlb_mmu_early`（walk 响应已回时的提前处理）、`tlb_mmu_lane`（一个端口的核心：旁路/权限/walk 状态机一步）、
-  `tlb_mmu_core`（通用 N 口核心：模式选择、lane 串联、walk 寄存器；ITLB 复用时 `FETCH=1, LANES=1`）、`tlb_mmu`（DTLB 顶层，只做端口适配）。
-- 为什么 lane 要串联：8 个口共享**一个** walk 寄存器、一个 PTW 请求口、一个响应；`top_comb` 里 `shadow_walk/shadow_refill/shadow_req_ready/shadow_resp_valid` 一口传一口，
-  先到的口先启动 walk / 先消费响应，后面的口看到更新后的状态。这是显式的优先级链（口 0 最高），不是 C++ 的循环残留。
+  `tlb_mmu_lookup`（一个口的全相联查表，最低下标优先）、`tlb_mmu_early`（walk 响应已回时的提前处理）、`tlb_mmu_lane`（一个端口自己能算的部分：旁路/权限/缺失判断，两种回填视图下的结果，最后按核心的选择出结果）、
+  `tlb_mmu_core`（通用 N 口核心：模式选择、A/B 两次选择、walk 寄存器；ITLB 复用时 `FETCH=1, LANES=1`）、`tlb_mmu`（DTLB 顶层，只做端口适配）。
+- 为什么口与口之间有依赖：8 个口共享**一个** walk 寄存器、一个 PTW 请求口、一个响应；`top_comb` 里 `shadow_walk/shadow_refill/shadow_req_ready/shadow_resp_valid` 一口传一口，
+  先到的口先启动 walk / 先消费响应，后面的口看到更新后的状态。这是显式的优先级（口 0 最高），不是 C++ 的循环残留；但它不需要逐口串行实现，见第 3 节末尾。
 - 状态：
   - `entry_valid_q[64]` + `entry_q[64]`（global,asid[9],level,vpn1[10],vpn0[10],ppn[20],perm[8] = 59 位）；`repl_q`（6 位，轮转指针，复位 0）；
   - `walk_q`（active, req_sent, vpn[20], access_type[2], satp[32], eff_priv[2], mxr, sum = 60 位）。
@@ -67,6 +74,14 @@ note: ITLB 经 icache 验证
    （发请求之后 walk 不会再被后面的口改写：响应已失效、walk 已 active，别页口只返回 MISS）。`ptw_walk_flush = fence||cancel`；
    `ptw_walk_resp_consumed = fence ? 0 : cancel ? early_hit : (early 消费 || 任一口消费)`。
 5. 无 stale 读：所有读都是本拍 comb 值或寄存器；`last_retry_reason_` 不影响任何输出。
+6. **并行实现（EXP-042）**。上面的链里，一拍内真正改变共享状态的口最多两个：
+   - **A**：walk 在拍初 active 时，第一个"缺失且页/satp 与 walk 相同"的口（`a_req = miss0 & walk_same`，first_set）。它要么发请求（`!req_sent && req_ready`），
+     要么消费响应（`req_sent && resp_valid`）；响应页与 walk 页相同则 walk 退休：出错/权限不过 → 该口 FAULT，否则该口 HIT 并产生回填 `refill1`。
+     A 之前和之后的其余缺失口只能是 MISS（别的页 → OTHER_WALK；同页 → 已发请求、响应已被隐藏）。
+   - **B**：walk 在拍初空闲（全部口），或被 A 退休（只有 A 之后的口），第一个缺失的口启动新 walk（`req_sent = req_ready`）。之后的缺失口都是 MISS。
+   - 回填只有两种来源：拍初的 `early_refill`（视图 0）或 A 的 `refill1`（视图 1，内容 = 响应 + walk 页 + 当前 ASID，与是哪个口无关），所以每个口对两种视图都先算好
+     `miss0/miss1` 和完整结果，A 之后的口在 A 成功时取视图 1。B 的三种情况（空闲 / A 成功 / A 出错）各有一个 first_set，最后按情况选。
+   - 结果：`tlb_mmu` 深度代理 rv64 **163 → 67**（`tlb_mmu_lookup` 61 → 33：64 位 first_set 改成对数深度的前缀或），单元数 −5%；见 `docs/09-synthesis-report.md` 第 11 节。
 
 ## 4. 与 C++ 的差异点、放宽与消费者核对
 **删除的字段（无消费者）**：`MMUResp` 全部字段保留；`PtwWalkReq.access_type`（PTW 强制 0，不读）、`PtwWalkReq.satp[31:22]`（PTW 只取 `satp & 0x3FFFFF`）、`vaddr[11:0]`（只取 `>>12`）；
@@ -85,11 +100,14 @@ note: ITLB 经 icache 验证
 1. 缓存响应出错且无人请求该页时，响应一直留在 PTW 端口、walk 一直 active，直到有同页请求（FAULT）或 cancel/fence 清除。
 2. cancel 拍：已回的合法响应仍会被回填进 TLB（`cancel_pending_walk` 先 `consume_completed_walk_refill(true)`，top 的 cancel 分支保留 `refill_next`），并且出错/权限不过的响应也被消费。
 3. `walk.satp != satp`（整字比较，含 ASID）也会让同页请求被判为 OTHER_WALK_ACTIVE；satp 的 MODE 位在能走到该比较的路径上恒为 1。
-4. 配置 `LSU_LDU_COUNT=LSU_STA_COUNT=4` 时 8 个口串联，口 0 优先；C++ 里 ldq 口先于 stq 口。
+4. 8 个口（`LSU_LDU_COUNT` 个 load 口在前，`LSU_STA_COUNT` 个 store 口在后）按口号优先，口 0 最高；C++ 里 ldq 口先于 stq 口。RTL 并行实现，优先级由 first_set 体现（第 3 节第 6 条）。
 5. `shadow_walk_req_ready` 在 C++ 里发请求后清零，RTL 不复刻：一拍要发第二个请求，必须有 walk 再次空闲，而空闲只能由"消费响应"造成，响应在发请求时已被隐藏——因此该清零不可观察（变异 `req_ready` 清零不会改变任何输出；见变异表说明）。
 **隐含依赖表登记**：无 stale 读（见第 3 节第 5 点）；PTW 端口输入需从 `ptw_block.comb_outputs()` 取而非适配器（录制细节，见第 1 节）。
 
 ## 5. 验证
+- **并行化（EXP-042，2026-11-17）**：`tests/tlb_par/run.sh [周期]` 把并行核心与旧串行核心（`tests/tlb_par/tlb_mmu_core_ref.sv`、`tlb_mmu_lane_ref.sv`，原样保留）并排，同一组随机输入（小页池、超级页邻居、satp/特权/MPRV 随机、PTW 响应多数对准 walk 页、fence/cancel）逐拍比较全部输出，DTLB（8 口）和 ITLB（`FETCH=1`，1 口）各一份，`ENTRIES=8` 让替换和重叠项常见；同时把 `ttg_first_set` 与 `req & -req` 在 N=1/3/7/8/13/64 上比较。rv64 300 万拍 0 不一致（rv32 配置包在改动时也跑过 500 万拍 0 不一致）；3 个人为变异（A 不查权限、B 不限 A 之后、不用视图 1）均在 10 万拍内被抓到。
+  整芯片（基于 main `8abb7ab`）：`lint_chip` 0 警告；fm_gate 67/67、周期与 `ref_cycles.txt` 0 差异；Linux 检查点窗口 s03/s07/s11（各 400 万周期，对 trace-model main `5b95b35`、function-model main `55affa0`）3/3 PASS，rtl.out / rtl.err 与同环境下 rtl main 逐字节相同。
+  以下为 2026-11-03 翻译时的验证记录（逐模块 lock-step 系统已于之后退役）。
 - spec：`spec/tlb_mmu.io`，41 个字段名（输入 24、输出 17；LSU 侧字段是 4 路数组，总比特数见 trace 头）。PTW 输入取自 `ptw_block.comb_outputs()`（见第 1 节），PTW 输出取自适配器 `comb_in_/seq_in_`（局部镜像结构体）。
 - trace：73 个真实程序（61 个 gate 测试 + dhrystone/coremark/coremark10 + 4 个 vm 测试 + float/sha/cjpeg/linear_alg/parser，各 ≤30000 拍，vm 测试跑到结束 ≈2.7–69k 拍）+ 6 条随机（4 条 20 万拍；2 条 10 万拍 `stale`），共 79 条、1.76M 条记录，全部 PASS。
 - 真实程序覆盖（全部 73 个程序合计）：DTLB 的页表遍历只有 7 次请求/7 次响应消费、1 次出错响应、9 次 fence，且全部在 M 态 + MPRV 下（vm 测试）或 S/U 态很少的拍；**没有**：TLB 填满/替换、超级页、A/D 位缺失的权限错、cancel 拍已有响应、

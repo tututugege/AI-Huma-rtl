@@ -73,16 +73,6 @@ package tlb_mmu_pkg;
     logic [PERM_W-1:0] perm;
   } tlb_mmu_ptw_resp_t;
 
-  // state handed from one lane to the next (top_comb shadow_*): the walk, the refill of this cycle, and whether the PTW
-  // response is still unconsumed (the request slot needs no shadow: once a port has sent a request the walk is active
-  // with req_sent set and the response is hidden, so no later port can start a second request)
-  typedef struct packed {
-    tlb_mmu_walk_t  walk;
-    logic           refill_valid;
-    tlb_mmu_entry_t refill;
-    logic           resp_valid;
-  } tlb_mmu_chain_t;
-
   // Ref: TlbMmu::check_perm
   function automatic logic perm_ok(input logic [PERM_W-1:0] perm, input logic [1:0] access_type,
                                    input logic [1:0] eff_priv, input logic sum, input logic mxr);
