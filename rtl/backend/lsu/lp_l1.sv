@@ -98,11 +98,12 @@ module lp_l1
   logic [2:0]     rp_phys [NRP];          // its port
   logic [NPH-1:0] picked;                 // ports taken by the load replays
   always_comb begin
-    // Slot k of L1 is AGU k, the DTLB port of an AGU is its own: a request holds them when the AGU has a valid request, whether the
-    // request is accepted (alive) or not, so the replay allocation does not wait for the acceptance check (it contains the flush)
+    // Slot k of L1 is AGU k, the DTLB port of an AGU is its own: a request holds them when the AGU holds a uop (a register of the EXU slot, before
+    // the flush / mispredict kill), whether the request is accepted (alive) or not, so the replay allocation does not wait for the kill or the
+    // acceptance check (they contain the flush)
     used_new = '0;
-    for (int i = 0; i < NLD; i++) used_new[i] = ag[i].v;
-    for (int k = 0; k < NST; k++) if (sa[k].v) used_new[st_phys(k)] = 1'b1;
+    for (int i = 0; i < NLD; i++) used_new[i] = ag[i].occ;
+    for (int k = 0; k < NST; k++) if (sa[k].occ) used_new[st_phys(k)] = 1'b1;
     free_l = ~used_new[NLD-1:0];
     fcnt[0] = '0;
     for (int q = 0; q < NLD; q++) fcnt[q+1] = fcnt[q] + 3'(free_l[q]);
@@ -112,7 +113,7 @@ module lp_l1
       for (int q = 0; q < NLD; q++) if (free_l[q] && fcnt[q] == 3'(j)) port_of[j] = 3'(q);
     end
     free_s = '0;
-    for (int i = 0; i < NLD; i++) free_s[i] = !ag[i].v;
+    for (int i = 0; i < NLD; i++) free_s[i] = !ag[i].occ;
     scnt[0] = '0;
     for (int q = 0; q < NLD; q++) scnt[q+1] = scnt[q] + 3'(free_s[q]);
     nfs = scnt[NLD];
@@ -225,7 +226,7 @@ module lp_l1
   always_comb begin
     s_free = 1'b0;
     s_slot = '0;
-    for (int i = NST - 1; i >= 0; i--) if (!sa[i].v) begin s_free = 1'b1; s_slot = 3'(i); end
+    for (int i = NST - 1; i >= 0; i--) if (!sa[i].occ) begin s_free = 1'b1; s_slot = 3'(i); end
     srp_free = 1'b0;
     srp_phys = '0;
     for (int q = NPH - 1; q >= NL; q--) if (!used_new[q] && !picked[q]) begin srp_free = 1'b1; srp_phys = 3'(q); end   // lowest free port a STA may use

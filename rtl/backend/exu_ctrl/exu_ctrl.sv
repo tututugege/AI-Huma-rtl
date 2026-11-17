@@ -118,6 +118,8 @@ module exu_ctrl
   output logic [ISSUE_WIDTH-1:0] exu2rob_entry_uop_illegal,
   output logic [ISSUE_WIDTH-1:0] exu2rob_entry_uop_page_fault_store,
   output logic [LSU_LDU_COUNT-1:0] exe2lsu_ldu_req_valid,
+  output logic [LSU_LDU_COUNT-1:0] exe2lsu_ldu_req_occ,     // the load AGU holds a uop (killed or not): the replay allocation of the LSU
+  output logic [LSU_STA_COUNT-1:0] exe2lsu_sta_req_occ,
   output logic [XLEN_BITS-1:0] exe2lsu_ldu_req_uop_result [LSU_LDU_COUNT],
   output logic [PRF_IDX_WIDTH-1:0] exe2lsu_ldu_req_uop_dest_preg [LSU_LDU_COUNT],
   output logic [2:0] exe2lsu_ldu_req_uop_func3 [LSU_LDU_COUNT],
@@ -292,7 +294,7 @@ module exu_ctrl
     };
   end
   // ---- core ------------------------------------------------------------------------------------------------------
-  logic [N_FU-1:0]        fu_en;
+  logic [N_FU-1:0]        fu_en, fu_occ;
   logic [N_FU-1:0]        fu_ready;
   logic [N_FU-1:0]        consume;
   xc_inst_t               fu_inst [N_FU];
@@ -306,7 +308,7 @@ module exu_ctrl
     .flush(rob_bcast_flush), .mispred(dec_bcast_mispred), .kill_mask(dec_bcast_br_mask),
     .clear_mask(dec_bcast_clear_mask),
     .iss_valid, .iss_inst, .iss_csr_idx(prf2exe_iss_entry_uop_csr_idx),
-    .fu_ready, .fu_en, .fu_inst, .csr_idx(csr_slot_idx)
+    .fu_ready, .fu_en, .fu_occ, .fu_inst, .csr_idx(csr_slot_idx)
   );
   exu_ctrl_fu_in u_fu_in (
     .fu_alu_result, .fu_agu_result, .fu_sdu_result, .fu_bru_diag_val, .fu_bru_mispred, .fu_bru_br_taken,
@@ -360,7 +362,7 @@ module exu_ctrl
   );
   // ---- Lsu requests ----
   exu_ctrl_lsu_out u_lsu_out (
-    .fu_done,
+    .fu_done, .fu_occ, .exe2lsu_ldu_req_occ, .exe2lsu_sta_req_occ,
     .exe2lsu_ldu_req_valid, .exe2lsu_ldu_req_uop_result, .exe2lsu_ldu_req_uop_dest_preg, .exe2lsu_ldu_req_uop_func3,
     .exe2lsu_ldu_req_uop_is_atomic, .exe2lsu_ldu_req_uop_amo_op, .exe2lsu_ldu_req_uop_rob_idx,
     .exe2lsu_ldu_req_uop_rob_flag, .exe2lsu_ldu_req_uop_stq_idx, .exe2lsu_ldu_req_uop_stq_flag,

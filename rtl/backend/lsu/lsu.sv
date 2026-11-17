@@ -35,6 +35,8 @@ module lsu
   input  logic [LSU_SDU_COUNT-1:0] exe2lsu_sdu_req_uop_rob_flag,
   input  logic [5:0] exe2lsu_sdu_req_uop_stq_idx [LSU_SDU_COUNT],
   input  logic [LSU_LDU_COUNT-1:0] exe2lsu_ldu_req_valid,
+  input  logic [LSU_LDU_COUNT-1:0] exe2lsu_ldu_req_occ,
+  input  logic [LSU_STA_COUNT-1:0] exe2lsu_sta_req_occ,
   input  logic [XLEN_BITS-1:0] exe2lsu_ldu_req_uop_result [LSU_LDU_COUNT],
   input  logic [PRF_IDX_WIDTH-1:0] exe2lsu_ldu_req_uop_dest_preg [LSU_LDU_COUNT],
   input  logic [2:0] exe2lsu_ldu_req_uop_func3 [LSU_LDU_COUNT],

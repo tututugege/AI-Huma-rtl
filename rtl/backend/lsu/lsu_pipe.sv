@@ -35,6 +35,8 @@ module lsu_pipe
   input  logic [LSU_SDU_COUNT-1:0] exe2lsu_sdu_req_uop_rob_flag,
   input  logic [5:0] exe2lsu_sdu_req_uop_stq_idx [LSU_SDU_COUNT],
   input  logic [LSU_LDU_COUNT-1:0] exe2lsu_ldu_req_valid,
+  input  logic [LSU_LDU_COUNT-1:0] exe2lsu_ldu_req_occ,
+  input  logic [LSU_STA_COUNT-1:0] exe2lsu_sta_req_occ,
   input  logic [XLEN_BITS-1:0] exe2lsu_ldu_req_uop_result [LSU_LDU_COUNT],
   input  logic [PRF_IDX_WIDTH-1:0] exe2lsu_ldu_req_uop_dest_preg [LSU_LDU_COUNT],
   input  logic [2:0] exe2lsu_ldu_req_uop_func3 [LSU_LDU_COUNT],
@@ -157,6 +159,7 @@ module lsu_pipe
     end
     for (int i = 0; i < NLD; i++) begin
       agl[i].v = exe2lsu_ldu_req_valid[i];
+      agl[i].occ = exe2lsu_ldu_req_occ[i];
       agl[i].ldq = exe2lsu_ldu_req_uop_ldq_idx[i];
       agl[i].rob_idx = exe2lsu_ldu_req_uop_rob_idx[i];
       agl[i].rob_flag = exe2lsu_ldu_req_uop_rob_flag[i];
@@ -171,6 +174,7 @@ module lsu_pipe
     end
     for (int i = 0; i < NST; i++) begin
       ags[i].v = exe2lsu_sta_req_valid[i];
+      ags[i].occ = exe2lsu_sta_req_occ[i];
       ags[i].stq = exe2lsu_sta_req_uop_stq_idx[i];
       ags[i].rob_idx = exe2lsu_sta_req_uop_rob_idx[i];
       ags[i].rob_flag = exe2lsu_sta_req_uop_rob_flag[i];

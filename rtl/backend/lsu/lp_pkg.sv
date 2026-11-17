@@ -142,6 +142,7 @@ package lp_pkg;
 
   typedef struct packed {   // load AGU arrival (port i)
     logic            v;
+    logic            occ;           // the AGU holds a uop (killed by a flush / mispredict or not): the replay allocation looks at this
     logic [LQW-1:0]  ldq;
     logic [ROBW-1:0] rob_idx;
     logic            rob_flag;
@@ -155,6 +156,7 @@ package lp_pkg;
 
   typedef struct packed {   // STA AGU arrival (port i)
     logic            v;
+    logic            occ;           // (as lp_agu_ld_t)
     logic [SQW-1:0]  stq;
     logic [ROBW-1:0] rob_idx;
     logic            rob_flag;

@@ -19,6 +19,7 @@ module exu_ctrl_slot
   input  logic [CSR_IDX_WIDTH-1:0] iss_csr_idx,    // csr_idx of the instruction issued on the CSR port
   input  logic [N_FU-1:0]          fu_ready,       // FU can take a new instruction (after this cycle's consume)
   output logic [N_FU-1:0]          fu_en,          // slot holds a live instruction: dispatched to the FU this cycle
+  output logic [N_FU-1:0]          fu_occ,         // slot holds an instruction, killed by a flush / mispredict or not (a register, no kill logic in front)
   output xc_inst_t                 fu_inst [N_FU], // the dispatched instruction (br_mask with clear applied)
   output logic [CSR_IDX_WIDTH-1:0] csr_idx         // csr_idx of the instruction in the CSR slot
 );
@@ -37,6 +38,7 @@ module exu_ctrl_slot
     always_comb begin
       slot_killed = xc_killed(mispred, slot_q.br_mask, kill_mask);
       fu_en[f]    = valid_q && !flush && !slot_killed;
+      fu_occ[f]   = valid_q;
       fu_inst[f]  = slot_q;
       fu_inst[f].br_mask = slot_q.br_mask & ~clear_mask;
       load[f] = !flush && iss_valid[PORT] && !xc_killed(mispred, iss_inst[PORT].br_mask, kill_mask)

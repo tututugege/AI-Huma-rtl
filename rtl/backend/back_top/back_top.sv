@@ -393,6 +393,8 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
   logic exe2lsu_ldu_req_uop_stq_flag [LSU_LDU_COUNT];
   logic [5:0] exe2lsu_ldu_req_uop_stq_idx [LSU_LDU_COUNT];
   logic [LSU_LDU_COUNT-1:0] exe2lsu_ldu_req_valid;
+  logic [LSU_LDU_COUNT-1:0] exe2lsu_ldu_req_occ;
+  logic [LSU_STA_COUNT-1:0] exe2lsu_sta_req_occ;
   logic [XLEN_BITS-1:0] exe2lsu_sdu_req_uop_result [LSU_SDU_COUNT];
   logic [LSU_SDU_COUNT-1:0] exe2lsu_sdu_req_uop_rob_flag;
   logic [6:0] exe2lsu_sdu_req_uop_rob_idx [LSU_SDU_COUNT];
@@ -1214,6 +1216,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .exu2rob_entry_uop_fflags(exu2rob_entry_uop_fflags),
     .exu2rob_entry_uop_illegal(exu2rob_entry_uop_illegal),
     .exe2lsu_ldu_req_valid(exe2lsu_ldu_req_valid),
+    .exe2lsu_ldu_req_occ(exe2lsu_ldu_req_occ), .exe2lsu_sta_req_occ(exe2lsu_sta_req_occ),
     .exe2lsu_ldu_req_uop_result(exe2lsu_ldu_req_uop_result),
     .exe2lsu_ldu_req_uop_dest_preg(exe2lsu_ldu_req_uop_dest_preg),
     .exe2lsu_ldu_req_uop_func3(exe2lsu_ldu_req_uop_func3),
@@ -1488,6 +1491,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .exe2lsu_ldu_req_uop_stq_flag(exe2lsu_ldu_req_uop_stq_flag),
     .exe2lsu_ldu_req_uop_stq_idx(exe2lsu_ldu_req_uop_stq_idx),
     .exe2lsu_ldu_req_valid(exe2lsu_ldu_req_valid),
+    .exe2lsu_ldu_req_occ(exe2lsu_ldu_req_occ), .exe2lsu_sta_req_occ(exe2lsu_sta_req_occ),
     .exe2lsu_sdu_req_uop_result(exe2lsu_sdu_req_uop_result),
     .exe2lsu_sdu_req_uop_rob_flag(exe2lsu_sdu_req_uop_rob_flag),
     .exe2lsu_sdu_req_uop_rob_idx(exe2lsu_sdu_req_uop_rob_idx),

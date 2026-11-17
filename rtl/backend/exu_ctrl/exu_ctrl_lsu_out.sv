@@ -8,6 +8,9 @@ module exu_ctrl_lsu_out
   import exu_ctrl_pkg::*;
 (
   input  xc_done_t fu_done [N_FU],
+  input  logic [N_FU-1:0] fu_occ,
+  output logic [LSU_LDU_COUNT-1:0] exe2lsu_ldu_req_occ,
+  output logic [LSU_STA_COUNT-1:0] exe2lsu_sta_req_occ,
   output logic [LSU_LDU_COUNT-1:0] exe2lsu_ldu_req_valid,
   output logic [XLEN_BITS-1:0] exe2lsu_ldu_req_uop_result [LSU_LDU_COUNT],
   output logic [PRF_IDX_WIDTH-1:0] exe2lsu_ldu_req_uop_dest_preg [LSU_LDU_COUNT],
@@ -61,6 +64,7 @@ module exu_ctrl_lsu_out
 
   for (genvar i = 0; i < LSU_LDU_COUNT; i++) begin : g_ldu
     assign exe2lsu_ldu_req_valid[i]          = agu_valid[i];
+    assign exe2lsu_ldu_req_occ[i]            = fu_occ[xc_agu_fu(i)];
     assign exe2lsu_ldu_req_uop_result[i]     = agu_result[i];
     assign exe2lsu_ldu_req_uop_dest_preg[i]  = agu_dest_preg[i];
     assign exe2lsu_ldu_req_uop_func3[i]      = agu_func3[i];
@@ -75,6 +79,7 @@ module exu_ctrl_lsu_out
 
   for (genvar i = 0; i < LSU_STA_COUNT; i++) begin : g_sta
     assign exe2lsu_sta_req_valid[i]          = agu_valid[LSU_LDU_COUNT+i];
+    assign exe2lsu_sta_req_occ[i]            = fu_occ[xc_agu_fu(LSU_LDU_COUNT+i)];
     assign exe2lsu_sta_req_uop_result[i]     = agu_result[LSU_LDU_COUNT+i];
     assign exe2lsu_sta_req_uop_dest_preg[i]  = agu_dest_preg[LSU_LDU_COUNT+i];
     assign exe2lsu_sta_req_uop_func3[i]      = agu_func3[LSU_LDU_COUNT+i];
