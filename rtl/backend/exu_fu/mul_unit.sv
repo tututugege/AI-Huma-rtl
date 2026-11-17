@@ -32,20 +32,29 @@ module mul_unit
 );
 
   logic [XLEN_BITS-1:0] product;
-  fu_uop_t     en_uop, done_uop;
+  fu_uop_t     en_uop;
+  /* verilator lint_off UNUSEDSIGNAL */   // waiver: done_uop.result is unused (the product comes from the multiplier pipeline)
+  fu_uop_t     done_uop;
+  /* verilator lint_on UNUSEDSIGNAL */
 
+  // the multiplier is spread over the latency (mul_core): its result of this cycle belongs to the entry that completes now
   mul_core u_core (
-    .func3(func3), .is_word(is_word), .src1_rdata(src1_rdata), .src2_rdata(src2_rdata), .result(product)
+    .clk(clk), .func3(func3), .is_word(is_word), .src1_rdata(src1_rdata), .src2_rdata(src2_rdata), .result(product)
   );
 
   always_comb begin
-    en_uop = '{result: product, rob_idx: rob_idx, dest_preg: dest_preg, dest_en: dest_en, br_mask: br_mask};
-    result         = done_uop.result;
+    en_uop = '{result: '0, rob_idx: rob_idx, dest_preg: dest_preg, dest_en: dest_en, br_mask: br_mask};
+    result         = product;   // (done_uop.result is unused: the product comes from the multiplier pipeline, valid when complete)
     done_rob_idx   = done_uop.rob_idx;
     done_dest_preg = done_uop.dest_preg;
     done_dest_en   = done_uop.dest_en;
     done_br_mask   = done_uop.br_mask;
   end
+
+`ifndef SYNTHESIS
+  // the result of the multiplier pipeline is lost if the completed entry is not consumed in its completion cycle
+  always_ff @(posedge clk) if (rst_n && complete && !consume) $error("mul_unit: a completed product was not consumed in its completion cycle");
+`endif
 
   mul_pipe u_pipe (
     .clk(clk), .rst_n(rst_n), .flush(flush), .flush_mask(flush_mask), .clear_mask(clear_mask),
