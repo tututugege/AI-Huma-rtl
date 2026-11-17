@@ -55,23 +55,55 @@ module lp_l1
   output logic                pf_any            // a load or store page fault (clears the LR/SC reservation)
 );
 
+  // ---- shared AGUs / DTLB ports (LSU_AGU_SHARED, docs/TLB_PORTS.md in trace-model) ----
+  // NPH physical ports: 0 .. NLD-1 serve the loads (the last NM of them are shared), NL .. NPH-1 serve the STAs (the first NM of
+  // them are shared). A new load of AGU i holds port i, a new STA of AGU k holds port st_phys(k). A replay that needs the DTLB
+  // takes a free port it may use (the load replays first, in register order, then the STA replay); with none it stays in its
+  // register. NM = 0: every pipe has its own port, nothing is ever refused.
+  localparam int NM  = LSU_AGU_SHARED;
+  localparam int NL  = NLD - NM;
+  localparam int NS  = NST - NM;
+  localparam int NPH = NLD + NS;
+  function automatic int st_phys(input int k);
+    return (k < NS) ? NLD + k : NL + (k - NS);
+  endfunction
+
   // ---- load slots ----
   logic [2:0]     pre [NLD+1];
   logic [2:0]     nnew;
   logic [2:0]     rpos [NRP];     // load slot of replay register r (after the new loads and the older replays)
   logic [NRP-1:0] rp_ok;
   logic [2:0]     acc;
+  logic [NPH-1:0] used;           // physical ports taken: new requests, then the load replays in order
+  logic [NPH-1:0] free_ld;
   always_comb begin
+    used = '0;
+    for (int i = 0; i < NLD; i++) used[i] = ag_acc[i];
+    for (int k = 0; k < NST; k++) if (sa_acc[k]) used[st_phys(k)] = 1'b1;
     pre[0] = '0;
     for (int i = 0; i < NLD; i++) pre[i+1] = pre[i] + 3'(ag_acc[i]);
     nnew = pre[NLD];
     acc = nnew;
+    free_ld = '0;
     for (int r = 0; r < NRP; r++) begin
+      logic need, got;
       rpos[r] = acc;
-      rp_cons[r] = rp_v[r] && rpos[r] < 3'(NLD);
+      need = rp_v[r] && rpos[r] < 3'(NLD) && rp_pipe[r] && !rp_f[r].pa_v;   // a DTLB request
+      got = 1'b1;
+      if (need) begin
+        got = 1'b0;
+        for (int q = 0; q < NLD; q++) begin   // lowest free port a load may use
+          if (!got && !used[q]) begin
+            got = 1'b1;
+            used[q] = 1'b1;
+          end
+        end
+      end
+      rp_cons[r] = rp_v[r] && rpos[r] < 3'(NLD) && got;
       rp_ok[r] = rp_cons[r] && rp_pipe[r];
       acc = acc + 3'(rp_ok[r]);
     end
+    free_ld = used;
   end
 
   always_comb begin
@@ -140,11 +172,14 @@ module lp_l1
   // ---- STA slots ----
   logic [2:0] spre [NST+1];
   logic [2:0] ns;
+  logic       srp_free;
   always_comb begin
     spre[0] = '0;
     for (int i = 0; i < NST; i++) spre[i+1] = spre[i] + 3'(sa_acc[i]);
     ns = spre[NST];
-    srp_cons = srp_v && ns < 3'(NST);
+    srp_free = 1'b0;
+    for (int q = NL; q < NPH; q++) if (!free_ld[q]) srp_free = 1'b1;   // a port a STA may use is free
+    srp_cons = srp_v && ns < 3'(NST) && srp_free;
     for (int k = 0; k < NST; k++) begin
       s1_v[k] = 1'b0;
       s1_replay[k] = 1'b0;

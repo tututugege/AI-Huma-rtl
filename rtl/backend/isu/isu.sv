@@ -171,7 +171,15 @@ module isu
   end
   isu_wb_gate u_wb_gate (.clk(clk), .rst_n(rst_n), .flush_all(rob_bcast_flush), .off(wb_off), .reserve(grant_valid),
                          .port_ok(wb_ok));
-  assign gate_ok_all = fp_ok_all & wb_ok;
+  // shared AGUs (LSU_AGU_SHARED): the last LSU_AGU_SHARED STA ports use the AGU of the last LSU_AGU_SHARED load ports; a load that
+  // was granted keeps it (the load queue wins), the STA port is not granted then (its slot stays in the queue)
+  logic [ISSUE_WIDTH-1:0] agu_ok;
+  always_comb begin
+    agu_ok = '1;
+    for (int j = 0; j < LSU_AGU_SHARED; j++)
+      agu_ok[IQ_STA_PORT_BASE + (LSU_STA_COUNT - LSU_AGU_SHARED) + j] = !grant_valid[IQ_LD_PORT_BASE + (LSU_LDU_COUNT - LSU_AGU_SHARED) + j];
+  end
+  assign gate_ok_all = fp_ok_all & wb_ok & agu_ok;
 
   if (FP_EN) begin : g_gate
     logic [FP_REQ_UNITS-1:0]   c_valid, c_fpw, c_ok;

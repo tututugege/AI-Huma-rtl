@@ -97,6 +97,8 @@ package ttg_cfg_pkg;
   localparam int LSU_STA_COUNT = 3;
   localparam int LSU_LDU_COUNT = 4;
   localparam int LSU_AGU_COUNT = 7;
+  localparam int LSU_AGU_SHARED = 2;
+  localparam int LSU_AGU_PHYS = 5;
   localparam int LSU_LDU_WIDTH = 2;
   localparam int LSU_SDU_COUNT = 3;
   localparam int LSU_LOAD_WB_WIDTH = 4;
