@@ -85,20 +85,24 @@ module lp_l1
   logic [2:0]     fcnt [NLD+1];           // free load-capable ports below q
   logic [2:0]     port_of [NLD];          // the j-th free load-capable port
   logic [2:0]     nf;
-  logic [2:0]     pre [NLD+1];
-  logic [2:0]     nnew;
+  logic [NLD-1:0] free_s;                 // free load slots: the AGU of the slot has no valid load request
+  logic [2:0]     scnt [NLD+1];           // free load slots below q
+  logic [2:0]     slot_of [NLD];          // the j-th free load slot
+  logic [2:0]     nfs;
   logic [NLD-1:0] sr_t [NRP+1];           // sr_t[r][i]: more than i load slots left before replay register r
   logic [NLD-1:0] pr_t [NRP+1];           // more than i DTLB ports left
   logic [NLD-1:0] ut_t [NRP+1];           // more than i DTLB ports taken by the older replays
-  logic [2:0]     rpos [NRP];             // load slot of replay register r (after the new loads and the older replays)
+  logic [2:0]     rpos [NRP];             // replay register r takes the rpos-th free load slot
   logic [NRP-1:0] rp_ok;
   logic [NRP-1:0] rp_need;                // the replay of register r is a DTLB request
   logic [2:0]     rp_phys [NRP];          // its port
   logic [NPH-1:0] picked;                 // ports taken by the load replays
   always_comb begin
+    // Slot k of L1 is AGU k, the DTLB port of an AGU is its own: a request holds them when the AGU has a valid request, whether the
+    // request is accepted (alive) or not, so the replay allocation does not wait for the acceptance check (it contains the flush)
     used_new = '0;
-    for (int i = 0; i < NLD; i++) used_new[i] = ag_acc[i];
-    for (int k = 0; k < NST; k++) if (sa_acc[k]) used_new[st_phys(k)] = 1'b1;
+    for (int i = 0; i < NLD; i++) used_new[i] = ag[i].v;
+    for (int k = 0; k < NST; k++) if (sa[k].v) used_new[st_phys(k)] = 1'b1;
     free_l = ~used_new[NLD-1:0];
     fcnt[0] = '0;
     for (int q = 0; q < NLD; q++) fcnt[q+1] = fcnt[q] + 3'(free_l[q]);
@@ -107,11 +111,17 @@ module lp_l1
       port_of[j] = '0;
       for (int q = 0; q < NLD; q++) if (free_l[q] && fcnt[q] == 3'(j)) port_of[j] = 3'(q);
     end
-    pre[0] = '0;
-    for (int i = 0; i < NLD; i++) pre[i+1] = pre[i] + 3'(ag_acc[i]);
-    nnew = pre[NLD];
+    free_s = '0;
+    for (int i = 0; i < NLD; i++) free_s[i] = !ag[i].v;
+    scnt[0] = '0;
+    for (int q = 0; q < NLD; q++) scnt[q+1] = scnt[q] + 3'(free_s[q]);
+    nfs = scnt[NLD];
+    for (int j = 0; j < NLD; j++) begin
+      slot_of[j] = '0;
+      for (int q = 0; q < NLD; q++) if (free_s[q] && scnt[q] == 3'(j)) slot_of[j] = 3'(q);
+    end
     for (int i = 0; i < NLD; i++) begin
-      sr_t[0][i] = nnew < 3'(NLD - i);
+      sr_t[0][i] = nfs > 3'(i);
       pr_t[0][i] = nf > 3'(i);
     end
     ut_t[0] = '0;
@@ -130,8 +140,8 @@ module lp_l1
         if (rp_need[r] && (j == 0 ? !ut_t[r][0] : (ut_t[r][j-1] && !ut_t[r][j]))) rp_phys[r] = port_of[j];
       end
     end
-    // load slot of the replay: after the new loads and the older consumed replays
-    rpos[0] = nnew;
+    // free load slot of the replay: the older consumed replays took the first ones
+    rpos[0] = '0;
     for (int r = 1; r < NRP; r++) rpos[r] = rpos[r-1] + 3'(rp_ok[r-1]);
     picked = '0;
     for (int q = 0; q < NLD; q++)
@@ -144,8 +154,8 @@ module lp_l1
       l1[k] = '0;
       mmu_l_req_port[k] = '0;
       for (int i = 0; i < NLD; i++) begin
-        if (ag_acc[i] && pre[i] == 3'(k)) begin
-          mmu_l_req_port[k] = 3'(i);   // a new load holds the port of its AGU
+        if (ag_acc[i] && i == k) begin
+          mmu_l_req_port[k] = 3'(i);   // a new load sits in the slot and holds the port of its AGU
           l1[k].v = 1'b1;
           l1[k].need_tlb = 1'b1;
           l1[k].ldq = ag[i].ldq;
@@ -157,7 +167,7 @@ module lp_l1
         end
       end
       for (int r = 0; r < NRP; r++) begin
-        if (rp_ok[r] && rpos[r] == 3'(k)) begin
+        if (rp_ok[r] && slot_of[rpos[r][1:0]] == 3'(k)) begin
           mmu_l_req_port[k] = rp_phys[r];
           l1[k].v = 1'b1;
           l1[k].replay = 1'b1;
@@ -207,33 +217,31 @@ module lp_l1
   end
 
   // ---- STA slots ----
-  logic [2:0] spre [NST+1];
-  logic [2:0] ns;
+  logic       s_free;             // some STA slot has no valid request
+  logic [2:0] s_slot;             // the lowest free STA slot (the STA replay takes it)
   logic       srp_free;
   logic [2:0] srp_phys;           // port of the STA replay
   logic       srp_req;            // the STA replay is a DTLB request
   always_comb begin
-    spre[0] = '0;
-    for (int i = 0; i < NST; i++) spre[i+1] = spre[i] + 3'(sa_acc[i]);
-    ns = spre[NST];
+    s_free = 1'b0;
+    s_slot = '0;
+    for (int i = NST - 1; i >= 0; i--) if (!sa[i].v) begin s_free = 1'b1; s_slot = 3'(i); end
     srp_free = 1'b0;
     srp_phys = '0;
     for (int q = NPH - 1; q >= NL; q--) if (!used_new[q] && !picked[q]) begin srp_free = 1'b1; srp_phys = 3'(q); end   // lowest free port a STA may use
-    srp_cons = srp_v && ns < 3'(NST) && srp_free;
+    srp_cons = srp_v && s_free && srp_free;
     srp_req = srp_cons && srp_ok;
     for (int k = 0; k < NST; k++) begin
       s1_v[k] = 1'b0;
       s1_replay[k] = 1'b0;
       s1_stq[k] = '0;
       mmu_s_req_port[k] = '0;
-      for (int i = 0; i < NST; i++) begin
-        if (sa_acc[i] && spre[i] == 3'(k)) begin
-          mmu_s_req_port[k] = 3'(st_phys(i));   // a new STA holds the port of its AGU
-          s1_v[k] = 1'b1;
-          s1_stq[k] = sa[i].stq;
-        end
+      if (sa_acc[k]) begin
+        mmu_s_req_port[k] = 3'(st_phys(k));   // a new STA sits in the slot and holds the port of its AGU
+        s1_v[k] = 1'b1;
+        s1_stq[k] = sa[k].stq;
       end
-      if (srp_req && ns == 3'(k)) begin
+      if (srp_req && s_slot == 3'(k)) begin
         mmu_s_req_port[k] = srp_phys;
         s1_v[k] = 1'b1;
         s1_replay[k] = 1'b1;
