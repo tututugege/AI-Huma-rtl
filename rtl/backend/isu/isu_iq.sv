@@ -9,7 +9,12 @@ module isu_iq
   parameter int SIZE      = 64,
   parameter int DW        = IQ_DISPATCH_WIDTH,
   parameter int NP        = 4,
-  parameter int PORT_BASE = 0
+  parameter int PORT_BASE = 0,
+  // memory queue with shared AGUs: the SH_N ports from SH_STA_LO (store addresses) share an AGU with the SH_N ports from SH_LO_LD
+  // (loads): a load that is granted keeps it, the store-address port is not granted then (its pick stays taken)
+  parameter int SH_N      = 0,
+  parameter int SH_LD_LO  = 0,
+  parameter int SH_STA_LO = 0
 ) (
   input  logic                     clk,
   input  logic                     rst_n,
@@ -60,7 +65,11 @@ module isu_iq
     assign sel_uop        = isu_uop_t'(sel_bits);
     assign grant_uop[p]   = sel_uop;
     assign cand_valid[p]  = sel_valid[p] && !issue_block && ((fu_ready[p] & op_onehot(sel_uop.op)) != '0);
-    assign grant_valid[p] = cand_valid[p] && gate_ok[p];
+    if (SH_N > 0 && p >= SH_STA_LO && p < SH_STA_LO + SH_N) begin : g_shared
+      assign grant_valid[p] = cand_valid[p] && gate_ok[p] && !grant_valid[SH_LD_LO + (p - SH_STA_LO)];
+    end else begin : g_own
+      assign grant_valid[p] = cand_valid[p] && gate_ok[p];
+    end
     assign granted_by_port[p] = sel_onehot[p] & {SIZE{grant_valid[p]}};
   end
 

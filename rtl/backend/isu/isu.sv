@@ -175,8 +175,8 @@ module isu
   // was granted keeps it (the load queue wins), the STA port is not granted then (its slot stays in the queue)
   logic [ISSUE_WIDTH-1:0] agu_ok;
   always_comb begin
-    agu_ok = '1;
-    for (int j = 0; j < LSU_AGU_SHARED; j++)
+    agu_ok = '1;   // (MEM_MERGE: the memory queue applies it itself, isu_iq SH_*)
+    for (int j = 0; j < (MEM_MERGE != 0 ? 0 : LSU_AGU_SHARED); j++)
       agu_ok[IQ_STA_PORT_BASE + (LSU_STA_COUNT - LSU_AGU_SHARED) + j] = !grant_valid[IQ_LD_PORT_BASE + (LSU_LDU_COUNT - LSU_AGU_SHARED) + j];
   end
   assign gate_ok_all = fp_ok_all & wb_ok & agu_ok;
@@ -210,6 +210,10 @@ module isu
     localparam int NP   = iq_port_num(q);
     localparam int PB   = iq_port_base(q);
     localparam int EW   = iq_enq_width(q);   // enqueue lanes actually present (<= IQ_DISPATCH_WIDTH)
+
+    if (NP == 0) begin : g_empty   // MEM_MERGE: the STA queue does not exist (its uops are in the memory queue)
+      assign iss2dis_ready_num[q] = '0;
+    end else begin : g_q
 
     logic [EW-1:0]                enq_valid;
     isu_enq_t                     enq [EW];
@@ -268,13 +272,16 @@ module isu
     // dispatch may place at most EW uops per cycle: report min(free entries, EW) (the model checks both limits)
     assign iss2dis_ready_num[q] = (free_slots > READY_NUM_W'(EW)) ? READY_NUM_W'(EW) : free_slots;
 
-    isu_iq #(.SIZE(SIZE), .DW(EW), .NP(NP), .PORT_BASE(PB)) u_iq (
+    isu_iq #(.SIZE(SIZE), .DW(EW), .NP(NP), .PORT_BASE(PB),
+             .SH_N((MEM_MERGE != 0 && q == 1) ? LSU_AGU_SHARED : 0),   // q = 1: the load / memory queue
+             .SH_LD_LO(LSU_LDU_COUNT - LSU_AGU_SHARED), .SH_STA_LO(LSU_LDU_COUNT + LSU_STA_COUNT - LSU_AGU_SHARED)) u_iq (
       .clk(clk), .rst_n(rst_n), .enq_valid(enq_valid), .enq(enq), .woken(woken), .fu_ready(fu_ready),
       .gate_ok(gate_ok_all[PB +: NP]),
       .issue_block(issue_block), .flush_all(rob_bcast_flush), .flush_br(flush_br),
       .flush_br_mask(dec_bcast_br_mask), .clear_mask(dec_bcast_clear_mask),
       .cancel_v(cancel_v), .free_slots(free_slots), .cand_valid(g_cand), .grant_valid(g_valid),
       .grant_uop(g_uop));
+    end
   end
 
   // ---- issue ports to the PRF ----

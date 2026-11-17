@@ -40,8 +40,8 @@ package isu_pkg;
   function automatic int iq_size(int q);
     case (q)
       0: return IQ_INT_SIZE;
-      1: return IQ_LD_SIZE;
-      2: return IQ_STA_SIZE;
+      1: return MEM_MERGE != 0 ? IQ_MEM_SIZE : IQ_LD_SIZE;     // MEM_MERGE: one memory queue (loads + store addresses) ...
+      2: return MEM_MERGE != 0 ? 1 : IQ_STA_SIZE;              // ... and an empty one-slot STA queue (never used)
       3: return IQ_STD_SIZE;
       5: return FP_IQ_SIZE;
       default: return IQ_BR_SIZE;
@@ -52,8 +52,8 @@ package isu_pkg;
   function automatic int iq_enq_width(int q);
     case (q)
       0: return IQ_INT_ENQ_WIDTH;
-      1: return IQ_LD_ENQ_WIDTH;
-      2: return IQ_STA_ENQ_WIDTH;
+      1: return MEM_MERGE != 0 ? IQ_MEM_ENQ_WIDTH : IQ_LD_ENQ_WIDTH;
+      2: return MEM_MERGE != 0 ? 1 : IQ_STA_ENQ_WIDTH;
       3: return IQ_STD_ENQ_WIDTH;
       5: return FP_IQ_ENQ_WIDTH;
       default: return IQ_BR_ENQ_WIDTH;
@@ -74,8 +74,8 @@ package isu_pkg;
   function automatic int iq_port_num(int q);
     case (q)
       0: return ALU_NUM;
-      1: return LSU_LDU_COUNT;
-      2: return LSU_STA_COUNT;
+      1: return MEM_MERGE != 0 ? LSU_LDU_COUNT + LSU_STA_COUNT : LSU_LDU_COUNT;   // the memory queue serves the load and the STA ports
+      2: return MEM_MERGE != 0 ? 0 : LSU_STA_COUNT;
       3: return LSU_SDU_COUNT;
       5: return ISSUE_WIDTH - IQ_FP_PORT_BASE;          // the FP ports come last
       default: return BRU_NUM;

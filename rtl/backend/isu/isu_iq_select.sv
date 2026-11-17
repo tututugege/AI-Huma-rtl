@@ -16,23 +16,26 @@ module isu_iq_select
   output logic [NP-1:0]   sel_valid             // port found a slot
 );
 
-  logic [SIZE-1:0] taken [NP + 1];              // slots chosen by ports before p
-  assign taken[0] = '0;
+  // Port p takes the lowest ready slot it can serve that no earlier port took. A slot taken by a port whose capabilities do not
+  // overlap port p's could not be p's candidate anyway, so the chain only runs over ports with overlapping capabilities: the
+  // load ports and the STA ports of a memory queue select independently (and the ports of a queue of one kind form one chain).
+  logic [SIZE-1:0] taken [NP];                  // slots chosen by earlier ports that port p could also serve
 
   for (genvar p = 0; p < NP; p++) begin : g_port
     localparam op_set_t CAP = port_cap(PORT_BASE + p);
     logic [SIZE-1:0] cap_match;
     logic [SIZE-1:0] candidate;
+    always_comb begin
+      taken[p] = '0;
+      for (int q = 0; q < p; q++)
+        if ((port_cap(PORT_BASE + q) & CAP) != '0) taken[p] = taken[p] | sel_onehot[q];
+    end
     for (genvar i = 0; i < SIZE; i++) begin : g_slot
       assign cap_match[i] = |(entry_op[i] & CAP);
     end
     assign candidate = ready & cap_match & ~taken[p];
     ttg_first_set #(.N(SIZE)) u_pick (.req(candidate), .onehot(sel_onehot[p]), .any(sel_valid[p]));
-    assign taken[p + 1] = taken[p] | sel_onehot[p];
   end
-
-  logic [SIZE-1:0] unused_taken_last;           // the final chain value has no consumer
-  assign unused_taken_last = taken[NP];
 
 endmodule
 

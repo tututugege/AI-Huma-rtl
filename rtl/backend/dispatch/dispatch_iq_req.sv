@@ -10,6 +10,7 @@ module dispatch_iq_req
 (
   input  logic [NUM_SLOTS-1:0] fire,
   input  logic [IQ_NUM-1:0]    has_iq   [NUM_SLOTS],
+  input  logic [1:0]           cnt_iq   [NUM_SLOTS][IQ_NUM],
   input  logic [IQ_PORT_W-1:0] port_idx [NUM_SLOTS][IQ_NUM],
   input  dis_iss_uop_t         uop_iq   [NUM_SLOTS][IQ_NUM],
   output logic                 req_valid [IQ_NUM][IQ_PORTS],
@@ -19,22 +20,33 @@ module dispatch_iq_req
   localparam int UOP_W = $bits(dis_iss_uop_t);
 
   for (genvar q = 0; q < IQ_NUM; q++) begin : g_iq
-    logic [UOP_W-1:0] lane_uop [NUM_SLOTS];   // this IQ's uop of every lane
+    logic [UOP_W-1:0] lane_uop  [NUM_SLOTS];   // this IQ's (first) uop of every lane
+    logic [UOP_W-1:0] lane_uop2 [NUM_SLOTS];   // its second uop (only the memory queue: the STA of an AMO's LD + STA)
     always_comb begin
-      for (int i = 0; i < NUM_SLOTS; i++) lane_uop[i] = uop_iq[i][q];
+      for (int i = 0; i < NUM_SLOTS; i++) begin
+        lane_uop[i]  = uop_iq[i][q];
+        lane_uop2[i] = uop_iq[i][q];
+        if (MEM_MERGE != 0 && q == IQ_LD) begin
+          lane_uop[i]  = has_iq[i][IQ_LD] ? uop_iq[i][IQ_LD] : uop_iq[i][IQ_STA];   // a load, else a store address
+          lane_uop2[i] = uop_iq[i][IQ_STA];
+        end
+      end
     end
 
     for (genvar s = 0; s < IQ_PORTS; s++) begin : g_port
-      logic [NUM_SLOTS-1:0] owner;   // lane driving port s (at most one)
-      logic [UOP_W-1:0]     owner_uop;
+      logic [NUM_SLOTS-1:0] owner;    // lane whose first uop drives port s (at most one)
+      logic [NUM_SLOTS-1:0] owner2;   // lane whose second uop drives port s (at most one)
+      logic [UOP_W-1:0]     owner_uop, owner_uop2;
       always_comb begin
         for (int i = 0; i < NUM_SLOTS; i++) begin
-          owner[i] = fire[i] && has_iq[i][q] && (port_idx[i][q] == IQ_PORT_W'(s));
+          owner[i]  = fire[i] && (cnt_iq[i][q] != 2'd0) && (port_idx[i][q] == IQ_PORT_W'(s));
+          owner2[i] = fire[i] && (cnt_iq[i][q] == 2'd2) && ((port_idx[i][q] + IQ_PORT_W'(1)) == IQ_PORT_W'(s));
         end
-        req_valid[q][s] = |owner;
+        req_valid[q][s] = (|owner) || (|owner2);
       end
       ttg_onehot_mux #(.N(NUM_SLOTS), .W(UOP_W)) u_mux (.sel(owner), .data(lane_uop), .out(owner_uop));
-      always_comb req_uop[q][s] = dis_iss_uop_t'(owner_uop);
+      ttg_onehot_mux #(.N(NUM_SLOTS), .W(UOP_W)) u_mux2 (.sel(owner2), .data(lane_uop2), .out(owner_uop2));
+      always_comb req_uop[q][s] = dis_iss_uop_t'((|owner2) ? owner_uop2 : owner_uop);
     end
   end
 

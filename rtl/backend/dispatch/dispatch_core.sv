@@ -187,8 +187,21 @@ module dispatch_core
     end
   end
 
+  // uops a lane sends to each queue. MEM_MERGE: the store addresses go to the memory queue (the load queue), so an AMO (LD + STA)
+  // sends two uops there; the STA queue gets none
+  logic [1:0] cnt_iq [NUM_SLOTS][IQ_NUM];
+  always_comb begin
+    for (int i = 0; i < NUM_SLOTS; i++) begin
+      for (int q = 0; q < IQ_NUM; q++) cnt_iq[i][q] = 2'(has_iq[i][q]);
+      if (MEM_MERGE != 0) begin
+        cnt_iq[i][IQ_LD]  = 2'(has_iq[i][IQ_LD]) + 2'(has_iq[i][IQ_STA]);
+        cnt_iq[i][IQ_STA] = 2'd0;
+      end
+    end
+  end
+
   dispatch_iq_alloc u_iq_alloc (
-    .inst_valid(inst_valid), .has_iq(has_iq), .ready_num(ready_num),
+    .inst_valid(inst_valid), .cnt_iq(cnt_iq), .ready_num(ready_num),
     .port_idx(port_idx), .fit(fit));
 
   // ---- comb_fire ----
@@ -199,7 +212,7 @@ module dispatch_core
     .dis_fire(dis_fire), .dis2ren_ready(dis2ren_ready));
 
   dispatch_iq_req u_iq_req (
-    .fire(dis_fire), .has_iq(has_iq), .port_idx(port_idx), .uop_iq(uop_iq),
+    .fire(dis_fire), .has_iq(has_iq), .cnt_iq(cnt_iq), .port_idx(port_idx), .uop_iq(uop_iq),
     .req_valid(req_valid), .req_uop(req_uop));
 
   logic [LSU_MDP_BITS-1:0] inst_mdp [NUM_SLOTS];
