@@ -159,6 +159,7 @@ module dispatch_core
 
   for (genvar i = 0; i < NUM_SLOTS; i++) begin : g_decompose
     dis_iss_uop_t lane_uop [IQ_NUM];
+    logic [IQ_NUM-1:0] lane_has_iq;
     dis_iss_uop_t base_uop;
     // Ref: Dispatch::make_dis_iss_uop
     always_comb begin
@@ -181,9 +182,22 @@ module dispatch_core
     dispatch_decompose u_decompose (
       .base(base_uop), .itype(alloc_inst[i].itype), .cls(cls[i]), .fp_cls(alloc_inst[i].fp_cls),
       .me_elim(alloc_inst[i].me_elim), .is_rvc(alloc_inst[i].is_rvc),
-      .has_iq(has_iq[i]), .uop_iq(lane_uop), .expect_mask(expect_mask[i]));
+      .has_iq(lane_has_iq), .uop_iq(lane_uop), .expect_mask(expect_mask[i]));
+    // INT_CLUSTERS = 2: an integer uop goes to the queue of its position: CSR to IQ_INT, I2F to IQ_INT1, the others by the
+    // parity of the ROB index (Ref: route_iq in back-end/include/util.h)
+    logic to_int1;
     always_comb begin
+      to_int1 = 1'b0;
+      if (INT_CLUSTERS == 2) begin
+        if (lane_uop[IQ_INT].op == UOP_CSR)      to_int1 = 1'b0;
+        else if (lane_uop[IQ_INT].op == UOP_I2F) to_int1 = 1'b1;
+        else                                            to_int1 = res[i].rob_idx[0];
+      end
+      has_iq[i] = lane_has_iq;
+      has_iq[i][IQ_INT]  = lane_has_iq[IQ_INT] && !to_int1;
+      has_iq[i][IQ_INT1] = lane_has_iq[IQ_INT] && to_int1;
       for (int q = 0; q < IQ_NUM; q++) uop_iq[i][q] = lane_uop[q];
+      uop_iq[i][IQ_INT1] = lane_uop[IQ_INT];
     end
   end
 

@@ -8,13 +8,14 @@ package dis_pkg;
   localparam int NUM_SLOTS = DECODE_WIDTH;                  // dispatch lanes == decode lanes
   localparam int SLOT_IDX_W = $clog2(NUM_SLOTS);
   localparam bit FP_EN = (FPRF_NUM != 0);                   // F/D: the core has an FP register file and an FP queue
-  localparam int IQ_NUM = FP_EN ? 6 : 5;                    // IQ_INT, IQ_LD, IQ_STA, IQ_STD, IQ_BR (, IQ_FP)
+  localparam int IQ_NUM = 7;                                // IQ_INT, IQ_LD, IQ_STA, IQ_STD, IQ_BR, IQ_FP (F/D), IQ_INT1
   localparam int IQ_INT = 0;
   localparam int IQ_LD = 1;
   localparam int IQ_STA = 2;
   localparam int IQ_STD = 3;
   localparam int IQ_BR = 4;
   localparam int IQ_FP = 5;                                 // only exists when FP_EN
+  localparam int IQ_INT1 = 6;                               // the second integer queue (INT_CLUSTERS = 2)
   localparam int IQ_PORTS = MAX_IQ_DISPATCH_WIDTH;          // request ports per IQ
   localparam int IQ_PORT_W = $clog2(IQ_PORTS);
   localparam int STQ_PORTS = MAX_STQ_DISPATCH_WIDTH;

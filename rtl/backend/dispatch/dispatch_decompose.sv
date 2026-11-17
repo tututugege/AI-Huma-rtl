@@ -33,6 +33,7 @@ module dispatch_decompose
     has_iq[IQ_STA] = cls.is_store;
     has_iq[IQ_STD] = cls.is_store;
     has_iq[IQ_BR]  = cls.to_br;
+    has_iq[IQ_INT1] = 1'b0;   // (dispatch steers the integer uops of INT_CLUSTERS = 2 to it)
   end
 
   logic has_fp_uop;   // the instruction has an IQ_FP uop

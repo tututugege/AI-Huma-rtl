@@ -1,7 +1,7 @@
 // Ref: back-end/Isu.cpp  class Isu  (comb_begin/ready/awake/calc_latency_next/enq/issue/flush/seq)
 `default_nettype none
 
-// Issue unit: five issue queues (INT, LD, STA, STD, BR) plus the wake-up network. Port adapter only; logic is in
+// Issue unit: issue queues (INT, INT1, LD, STA, STD, BR, FP) plus the wake-up network. Port adapter only; logic is in
 // isu_iq (queue), isu_wake_src (wake channels, delayed wake-ups) and isu_wake_bus (preg map).
 module isu
   import ttg_cfg_pkg::*;
@@ -208,7 +208,6 @@ module isu
   for (genvar q = 0; q < IQ_NUM; q++) begin : g_iq
     localparam int SIZE = iq_size(q);
     localparam int NP   = iq_port_num(q);
-    localparam int PB   = iq_port_base(q);
     localparam int EW   = iq_enq_width(q);   // enqueue lanes actually present (<= IQ_DISPATCH_WIDTH)
 
     if (NP == 0) begin : g_empty   // MEM_MERGE: the STA queue does not exist (its uops are in the memory queue)
@@ -219,7 +218,7 @@ module isu
     isu_enq_t                     enq [EW];
     logic [READY_NUM_W-1:0]       free_slots;
     op_set_t                      fu_ready [NP];
-    logic [NP-1:0]                g_valid, g_cand;
+    logic [NP-1:0]                g_valid, g_cand, g_gate_ok;
     isu_uop_t                     g_uop [NP];
 
     for (genvar w = 0; w < EW; w++) begin : g_enq
@@ -263,21 +262,23 @@ module isu
     end
 
     for (genvar p = 0; p < NP; p++) begin : g_port
-      assign fu_ready[p]          = exe2iss_fu_ready_mask[PB + p];
-      assign grant_valid[PB + p]  = g_valid[p];
-      assign cand_valid_all[PB + p] = g_cand[p];
-      assign grant_uop[PB + p]    = g_uop[p];
+      localparam int PP = iq_port(q, p);   // physical issue port
+      assign fu_ready[p]          = exe2iss_fu_ready_mask[PP];
+      assign g_gate_ok[p]         = gate_ok_all[PP];
+      assign grant_valid[PP]      = g_valid[p];
+      assign cand_valid_all[PP]   = g_cand[p];
+      assign grant_uop[PP]        = g_uop[p];
     end
 
     // dispatch may place at most EW uops per cycle: report min(free entries, EW) (the model checks both limits)
     assign iss2dis_ready_num[q] = (free_slots > READY_NUM_W'(EW)) ? READY_NUM_W'(EW) : free_slots;
 
-    isu_iq #(.SIZE(SIZE), .DW(EW), .NP(NP), .PORT_BASE(PB),
+    isu_iq #(.SIZE(SIZE), .DW(EW), .NP(NP), .QID(q),
              .SH_N((MEM_MERGE != 0 && q == 1) ? LSU_AGU_SHARED : 0),   // q = 1: the load / memory queue
              .SH_LD_LO(LSU_LDU_COUNT - LSU_AGU_SHARED), .SH_STA_LO(LSU_LDU_COUNT + LSU_STA_COUNT - LSU_AGU_SHARED),
              .AGE_EN(MEM_AGE != 0 && q == 1)) u_iq (   // the memory queue selects the oldest on the first port of each capability
       .clk(clk), .rst_n(rst_n), .enq_valid(enq_valid), .enq(enq), .woken(woken), .fu_ready(fu_ready),
-      .gate_ok(gate_ok_all[PB +: NP]),
+      .gate_ok(g_gate_ok),
       .issue_block(issue_block), .flush_all(rob_bcast_flush), .flush_br(flush_br),
       .flush_br_mask(dec_bcast_br_mask), .clear_mask(dec_bcast_clear_mask),
       .cancel_v(cancel_v), .free_slots(free_slots), .cand_valid(g_cand), .grant_valid(g_valid),

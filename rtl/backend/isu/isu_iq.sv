@@ -9,7 +9,7 @@ module isu_iq
   parameter int SIZE      = 64,
   parameter int DW        = IQ_DISPATCH_WIDTH,
   parameter int NP        = 4,
-  parameter int PORT_BASE = 0,
+  parameter int QID       = 0,   // issue queue number (its ports: isu_pkg iq_port)
   // memory queue with shared AGUs: the SH_N ports from SH_STA_LO (store addresses) share an AGU with the SH_N ports from SH_LO_LD
   // (loads): a load that is granted keeps it, the store-address port is not granted then (its pick stays taken)
   parameter int SH_N      = 0,
@@ -59,7 +59,7 @@ module isu_iq
       assign older[i] = '0;
     end
   end
-  isu_iq_select #(.SIZE(SIZE), .NP(NP), .PORT_BASE(PORT_BASE), .AGE_EN(AGE_EN)) u_select (
+  isu_iq_select #(.SIZE(SIZE), .NP(NP), .QID(QID), .AGE_EN(AGE_EN)) u_select (
     .ready(slot_ready), .entry_op(slot_op), .older(older), .sel_onehot(sel_onehot), .sel_valid(sel_valid));
 
   logic [UW-1:0] slot_bits [SIZE];

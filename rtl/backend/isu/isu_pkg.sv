@@ -31,8 +31,9 @@ package isu_pkg;
   // op classes with a multi-cycle FP latency (delayed wake-up, FP register write reservation)
   localparam op_set_t MASK_FPD = MASK_FMA | MASK_FMISC | MASK_FDIV | MASK_I2F;
   // ---- issue queues and issue ports (config.h GLOBAL_IQ_CONFIG / GLOBAL_ISSUE_PORT_CONFIG) ----------
-  localparam int IQ_NUM = FP_EN ? 6 : 5;                    // IQ_INT, IQ_LD, IQ_STA, IQ_STD, IQ_BR (, IQ_FP)
+  localparam int IQ_NUM = 7;                                // IQ_INT, IQ_LD, IQ_STA, IQ_STD, IQ_BR, IQ_FP (F/D), IQ_INT1
   localparam int IQ_FP = 5;
+  localparam int IQ_INT1 = 6;                               // the second integer queue (INT_CLUSTERS = 2), an empty one otherwise
   localparam int IQ_DISPATCH_WIDTH = DECODE_WIDTH;          // enqueue lanes per IQ
   localparam int WAKE_NUM = MAX_WAKEUP_PORTS;               // iss_awake channels
   localparam int READY_NUM_W = IQ_READY_NUM_WIDTH;          // iss2dis.ready_num width
@@ -43,7 +44,8 @@ package isu_pkg;
       1: return MEM_MERGE != 0 ? IQ_MEM_SIZE : IQ_LD_SIZE;     // MEM_MERGE: one memory queue (loads + store addresses) ...
       2: return MEM_MERGE != 0 ? 1 : IQ_STA_SIZE;              // ... and an empty one-slot STA queue (never used)
       3: return IQ_STD_SIZE;
-      5: return FP_IQ_SIZE;
+      5: return FP_EN ? FP_IQ_SIZE : 1;
+      6: return INT_CLUSTERS == 2 ? IQ_INT_SIZE : 1;
       default: return IQ_BR_SIZE;
     endcase
   endfunction
@@ -55,7 +57,8 @@ package isu_pkg;
       1: return MEM_MERGE != 0 ? IQ_MEM_ENQ_WIDTH : IQ_LD_ENQ_WIDTH;
       2: return MEM_MERGE != 0 ? 1 : IQ_STA_ENQ_WIDTH;
       3: return IQ_STD_ENQ_WIDTH;
-      5: return FP_IQ_ENQ_WIDTH;
+      5: return FP_EN ? FP_IQ_ENQ_WIDTH : 1;
+      6: return INT_CLUSTERS == 2 ? IQ_INT_ENQ_WIDTH : 1;
       default: return IQ_BR_ENQ_WIDTH;
     endcase
   endfunction
@@ -73,13 +76,21 @@ package isu_pkg;
 
   function automatic int iq_port_num(int q);
     case (q)
-      0: return ALU_NUM;
+      0: return INT_CLUSTERS == 2 ? 3 : ALU_NUM;          // INT_CLUSTERS = 2: queue 0 has ports 0, 1, 4 ...
+      6: return INT_CLUSTERS == 2 ? 3 : 0;                // ... and queue 6 (IQ_INT1) ports 2, 3, 5
       1: return MEM_MERGE != 0 ? LSU_LDU_COUNT + LSU_STA_COUNT : LSU_LDU_COUNT;   // the memory queue serves the load and the STA ports
       2: return MEM_MERGE != 0 ? 0 : LSU_STA_COUNT;
       3: return LSU_SDU_COUNT;
-      5: return ISSUE_WIDTH - IQ_FP_PORT_BASE;          // the FP ports come last
+      5: return FP_EN ? ISSUE_WIDTH - IQ_FP_PORT_BASE : 0;   // the FP ports come last
       default: return BRU_NUM;
     endcase
+  endfunction
+
+  // physical issue port of port p of queue q (the INT queues of INT_CLUSTERS = 2 split the six ALU ports 0, 1, 4 / 2, 3, 5)
+  function automatic int iq_port(int q, int p);
+    if (INT_CLUSTERS == 2 && q == IQ_INT1) return (p == 0) ? 2 : (p == 1) ? 3 : 5;
+    if (INT_CLUSTERS == 2 && q == 0)       return (p == 0) ? 0 : (p == 1) ? 1 : 4;
+    return iq_port_base(q) + p;
   endfunction
 
   // capability mask of physical issue port p (config.h GLOBAL_ISSUE_PORT_CONFIG, ports 0..5 are the INT cluster)
