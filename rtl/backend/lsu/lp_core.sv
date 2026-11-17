@@ -256,6 +256,48 @@ module lp_core
   end
   assign ev_sc = sc_go;
 
+  // STAEV_REG (model CFG_LSU_STAEV_REG): the STA / STD events and the broadcast views (the STQ entry after this cycle's DTLB result / STD write)
+  // are registered: a parked load is woken one cycle later, from the registered view, so the DTLB result -> STQ update -> wake-up confirm chain
+  // is cut here. The retire and SC events and the alive check are not delayed.
+  logic [SQ-1:0] ev_sta_w, ev_data_w;
+  lp_sta_info_t  sta_info_w [NST];
+  lp_std_t       sdw_w [NSD];
+  if (LP_STAEV_REG != 0) begin : g_evreg
+    logic [SQ-1:0] ev_sta_q, ev_data_q;
+    lp_sta_info_t  sta_info_q [NST];
+    lp_std_t       sdw_q [NSD];
+    always_ff @(posedge clk) begin
+      if (!rst_n) begin
+        ev_sta_q <= '0;
+        ev_data_q <= '0;
+        for (int k = 0; k < NST; k++) sta_info_q[k] <= '0;
+        for (int k = 0; k < NSD; k++) sdw_q[k] <= '0;
+      end else begin
+        ev_sta_q <= ev_sta;
+        ev_data_q <= sd_acc;
+        for (int k = 0; k < NST; k++) sta_info_q[k] <= sta_info[k];
+        for (int k = 0; k < NSD; k++) sdw_q[k] <= sdw[k];
+      end
+    end
+    assign ev_sta_w = ev_sta_q;
+    assign ev_data_w = ev_data_q;
+    for (genvar k = 0; k < NST; k++) begin : g_si
+      assign sta_info_w[k] = sta_info_q[k];
+    end
+    for (genvar k = 0; k < NSD; k++) begin : g_sd
+      assign sdw_w[k] = sdw_q[k];
+    end
+  end else begin : g_noevreg
+    assign ev_sta_w = ev_sta;
+    assign ev_data_w = sd_acc;
+    for (genvar k = 0; k < NST; k++) begin : g_si
+      assign sta_info_w[k] = sta_info[k];
+    end
+    for (genvar k = 0; k < NSD; k++) begin : g_sd
+      assign sdw_w[k] = sdw[k];
+    end
+  end
+
   // ------------------------------------------------------------------ queues
   logic [LQ-1:0] rp_pick;
   logic [BRW-1:0] br_al [SQ];
@@ -320,9 +362,9 @@ module lp_core
     .rb_hi_valid(rb_hi_valid), .rb_hi_rob_idx(rb_hi_rob_idx), .rb_head_valid(rb_head_valid),
     .rb_head_rob_idx(rb_head_rob_idx), .stq_head_tag({head_flag_q, head_q}), .unc_busy(unc_valid_post_resp),
     .dis(dis_ldw),
-    .ev_sta(ev_sta), .ev_data(sd_acc), .ev_ret(ev_ret), .ev_sc(ev_sc),
+    .ev_sta(ev_sta_w), .ev_data(ev_data_w), .ev_ret(ev_ret), .ev_sc(ev_sc),
     .alive_post(((LP_CUT & 1) != 0) ? alive_w : alive_post),
-    .sta_info(sta_info), .sdw(sdw), .fill_v(fill_en), .fill_line(fill_line),
+    .sta_info(sta_info_w), .sdw(sdw_w), .fill_v(fill_en), .fill_line(fill_line),
     .rp_pick(rp_pick),
     .q_o(ldq_q), .empty_w(empty_w), .l2_ok(l2_ok), .rs_ok(rs_ok), .res_v(res_v), .wbp3(wbp3),
     .pipe_r(pipe_r), .wb3_r(wb3_r), .wbp_r(wbp_r), .wbp_m(wbp_m),
