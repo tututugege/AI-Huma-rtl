@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Build the closed-loop SoC testbench: Verilated soc_top + the reference's SimDDR / PhysMemory.
-#   usage: tb/soc/build.sh        env: REFSRC (reference source tree), JOBS
+#   usage: tb/soc/build.sh        env: REFSRC (reference source tree), JOBS (C++ compile jobs, default: all cores)
+# Build time (2026-11-17, 14 cores, rv64 Linux testbench): Verilator elaboration + conversion ~60 s (single-threaded, the floor),
+# C++ ~23 s.  The C++ files are split (--output-split / --output-split-cfuncs 5000) so the jobs share the work: without it one
+# 7.4 MB file bounds the compile (111 s total with -j 6, 88 s with all cores + split; simulation speed and output unchanged).
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 . "$ROOT/scripts/env.sh"
@@ -46,8 +49,9 @@ for s in axi-interconnect-kit/sim_ddr/SimDDR.cpp back-end/PhysMemory.cpp; do
   clang++ -std=c++2a -O2 -w $INC $DS3FLAGS -c "$REF/$s" -o "$(basename "$s" .cpp).o" &
 done
 wait
-verilator --cc --exe --build -j "${JOBS:-6}" -Wno-fatal -Wno-lint -Wno-style -Wno-UNOPTFLAT ${DEBUG:+--public-flat-rw} $VOPT --x-assign 0 --x-initial 0 \
-  --top-module soc_top -Mdir obj -CFLAGS "$COPT $DS3FLAGS $LSUPFLAG $XLENFLAG ${FMOPT[*]:-} ${DEBUG:+-DSOC_TB_DEBUG} -std=c++2a -w $INC $FPINC -I$ROOT/harness/include -I$ROOT/tb/soc -I${TM_DIR:-$AI_HUMA_ROOT/trace-model}/front-end/BPU" \
+JOBS=${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 6)}
+verilator --cc --exe --build -j "$JOBS" --output-split 5000 --output-split-cfuncs 5000 -Wno-fatal -Wno-lint -Wno-style -Wno-UNOPTFLAT ${DEBUG:+--public-flat-rw} $VOPT --x-assign 0 --x-initial 0 \
+  --top-module soc_top -Mdir obj -CFLAGS "$COPT $DS3FLAGS $LSUPFLAG $XLENFLAG ${FMOPT[*]:-} ${DEBUG:+-DSOC_TB_DEBUG} -std=c++2a -w $INC $FPINC -I$ROOT/harness/include -I$ROOT/tb/soc" \
   -LDFLAGS "$OUT/SimDDR.o $OUT/PhysMemory.o $FMLD $DS3LD $FPLD" \
   "$ROOT/tb/soc/soc_public.vlt" "$ROOT/tb/soc/pmu_public.vlt" "$ROOT/tb/soc/soc_tb.cpp" ${FPDPI[@]+"${FPDPI[@]}"} "${FILES[@]}" -o soc_tb > build.log 2>&1 || { grep -E "error:|%Error" build.log | grep -v "Command Failed" | head -12 | cut -c1-200; echo "BUILD FAILED, see $OUT/build.log"; exit 1; }
 # idle-tick skip: byte ranges of Verilator scratch temporaries (ignored by the fixed-point compare)

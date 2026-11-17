@@ -8,4 +8,4 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd); . "$ROOT/scripts/env.sh"
 OUT=${1:-$ROOT/build/soc64vcd}; THREADS=${THREADS:-4}
 : "${FMLIB:?set FMLIB to the XLEN=64 FP=1 RVC=1 librefcpu.a of the function model}"
 cd "$ROOT"
-SOC_XLEN=64 SOC_FM=1 SOC_COPT="-O2 -DSOC_TB_TRACE" SOC_VOPT="-DTTG_EBREAK_TRAP --threads $THREADS --trace" FMLIB=$FMLIB SOC_OUT=$OUT TM_DIR=${TM_DIR:-$AI_HUMA_ROOT/trace-model} JOBS=${JOBS:-6} bash tb/soc/build.sh
+SOC_XLEN=64 SOC_FM=1 SOC_COPT="-O2 -DSOC_TB_TRACE" SOC_VOPT="-DTTG_EBREAK_TRAP --threads $THREADS --trace" FMLIB=$FMLIB SOC_OUT=$OUT TM_DIR=${TM_DIR:-$AI_HUMA_ROOT/trace-model} bash tb/soc/build.sh

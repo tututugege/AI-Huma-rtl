@@ -19,6 +19,7 @@ SOC_FM=1 FMLIB=<function-model librefcpu.a> SOC_OUT=$PWD/build/soc_fm bash tb/so
 bash scripts/fm_gate.sh $PWD/build/soc_fm/obj/soc_tb $PWD/build/gate
 ```
 
+- **测试平台构建时间**（2026-11-17，14 核）：`tb/soc/build.sh` 默认用全部核编译 C++（`JOBS` 可改），并按 5000 条语句拆分生成的 C++（`--output-split` / `--output-split-cfuncs`，否则单个 7.4 MB 文件决定编译时间）。rv64 Linux 测试平台 111 s → 89 s，fm_gate 测试平台 82 s；其中约 60 s 是 Verilator 单线程的展开 + 转换，是下限。仿真速度和输出不变（Linux 窗口 50 万周期逐字节相同，fm_gate 67/67 周期 0 差异）。测试平台自带 `tb/soc/fpr.h`（对齐指纹，哈希与 trace-model 相同），不再 include trace-model 的源码。
 - **正确性门禁**：逐条提交对比 function-model（`tb/soc/fm_check.h`），`fm_gate.sh` 跑 `scripts/ref_cycles.txt` 的 67 个 rv64 程序（见 `docs/RV32_REMOVAL.md` 的结果）。（以下为旧 rv32/rv64 时期的说明，保留作参考：个测试平台跑的（见总仓库 `docs/MAIN_RECORDS.md` 2026-11-12 行）。
 - **周期**是性能指标：`ref_cycles.txt` 是 trace-model 在当前配置下（并设 `LSU_PIPE_NOWD=1`，RTL 没有 LDQ/STQ 看门狗）的周期，合入 main 时 RTL 与它逐个相等。
 - **跑 Linux**（数小时）：测试平台要用 `SOC_VOPT="--threads 4 -DTTG_EBREAK_TRAP"` 构建（ebreak 当断点异常，内核需要），运行时设 `SOC_TB_SEMIHOST=1 SOC_TB_FM=1 SOC_TB_LOG=2000000`，例如

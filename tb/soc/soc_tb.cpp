@@ -50,7 +50,7 @@ namespace {
 constexpr int kTicks = CONFIG_AXI_SUBSYSTEM_FREQ_DIV;   // fast ticks per CPU cycle (platform config.h = trace-model config.h = rtl ttg_cfg_pkg)
 static_assert(kTicks >= 1 && kTicks <= 16, "mem_top phase counter is 4 bits");
 constexpr int kInstStore = 6;   // InstType::STORE
-#include "fpr.h"   // alignment fingerprints (trace-model front-end/BPU/fpr.h): FPR=<bin cycles>, FPR_DUMP=<from>:<to>
+#include "fpr.h"   // alignment fingerprints (tb/soc/fpr.h, same hash as the trace-model): FPR=<bin cycles>, FPR_DUMP=<from>:<to>
 constexpr int kPmuEv = 51;           // pmu_ev_pkg::PMU_NUM_EV (gen_pmu_pkg.py)
 static uint64_t pmu_total[kPmuEv];
 constexpr int kUopEbreak = 10;  // the commit entry's `type` is the instruction type (rob_pkg ITYPE_EBREAK)
