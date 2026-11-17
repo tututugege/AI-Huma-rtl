@@ -1,14 +1,13 @@
 // Ref: back-end/Lsu/TlbMmu.cpp  TlbMmu::top_comb / translate_lsu_ports / flush / cancel_pending_walk / seq
 `default_nettype none
 
-// N-port translation core shared by the DTLB (LD_LANES load ports then store ports) and, later, the ITLB (FETCH=1,
+// N-port translation core shared by the DTLB (one port per physical AGU, the type of a request comes with it) and the ITLB (FETCH=1,
 // one fetch port).
 // Per cycle exactly one of three modes: fence (SFENCE.VMA: flush the TLB and the walk), cancel (pipeline flush /
 // mispredict: drop the
 // walk, tell the PTW), translate (serve the ports).
 module tlb_mmu_core import tlb_mmu_pkg::*; import ttg_cfg_pkg::*; #(
   parameter int LANES = 8,
-  parameter int LD_LANES = 4,       // lanes [0, LD_LANES) are loads, the rest stores (ignored when FETCH)
   parameter bit FETCH = 1'b0,
   parameter int ENTRIES = 64
 ) (
@@ -24,6 +23,7 @@ module tlb_mmu_core import tlb_mmu_pkg::*; import ttg_cfg_pkg::*; #(
   input  logic [1:0]  mpp,
   input  logic        req_valid [LANES],
   input  logic [XLEN_BITS-1:0] req_vaddr [LANES],
+  input  logic        req_is_store [LANES],   // the request of the port is a store address (the port type is per request)
   input  logic        ptw_req_ready,
   input  logic        ptw_resp_valid,
   input  tlb_mmu_ptw_resp_t ptw_resp,
@@ -37,9 +37,6 @@ module tlb_mmu_core import tlb_mmu_pkg::*; import ttg_cfg_pkg::*; #(
   output logic        ptw_flush
 );
 
-  function automatic logic [1:0] lane_access_type(input int lane);
-    return FETCH ? ACC_FETCH : (lane < LD_LANES ? ACC_LOAD : ACC_STORE);
-  endfunction
 
   logic translate;
   assign translate = !fence && !cancel;
@@ -104,8 +101,9 @@ module tlb_mmu_core import tlb_mmu_pkg::*; import ttg_cfg_pkg::*; #(
     tlb_mmu_lookup #(.ENTRIES(ENTRIES)) u_lookup (
       .entry_valid, .entry, .vpn(req_vaddr[l][12 +: VPN_W]), .asid(satp_asid(satp)), .hit(table_hit), .xlat(table_xlat)
     );
-    tlb_mmu_lane #(.ACCESS_TYPE(lane_access_type(l))) u_lane (
-      .valid(req_valid[l] && translate), .vaddr(req_vaddr[l]), .satp, .privilege, .mxr, .sum, .mprv, .mpp,
+    tlb_mmu_lane u_lane (
+      .valid(req_valid[l] && translate), .access_type(FETCH ? ACC_FETCH : (req_is_store[l] ? ACC_STORE : ACC_LOAD)),
+      .vaddr(req_vaddr[l]), .satp, .privilege, .mxr, .sum, .mprv, .mpp,
       .table_hit, .table_xlat, .refill0_valid, .refill0(early_refill), .refill1, .walk_vpn(walk0.vpn),
       .walk_satp(walk0.satp), .ptw_resp_fault(ptw_resp.fault), .ptw_resp_level(ptw_resp.level),
       .ptw_resp_ppn(ptw_resp.ppn), .ptw_resp_perm(ptw_resp.perm),

@@ -10,10 +10,9 @@
 //   bare mode            -> HIT, paddr = vaddr
 //   refill / table hit   -> permission check -> HIT or FAULT
 //   miss                 -> MISS, or HIT/FAULT if this port retires the in-flight walk
-module tlb_mmu_lane import tlb_mmu_pkg::*; import ttg_cfg_pkg::*; #(
-  parameter logic [1:0] ACCESS_TYPE = ACC_LOAD
-) (
+module tlb_mmu_lane import tlb_mmu_pkg::*; import ttg_cfg_pkg::*; (
   input  logic                valid,
+  input  logic [1:0]          access_type,   // ACC_LOAD / ACC_STORE (a shared AGU port serves both) / ACC_FETCH
   input  logic [XLEN_BITS-1:0] vaddr,
   // translation context (shared by all ports of the cycle)
   input  logic [XLEN_BITS-1:0] satp,
@@ -56,7 +55,7 @@ module tlb_mmu_lane import tlb_mmu_pkg::*; import ttg_cfg_pkg::*; #(
   logic              rm0, rm1;
 
   always_comb begin
-    eff_priv = effective_priv(ACCESS_TYPE, privilege, mprv, mpp);
+    eff_priv = effective_priv(access_type, privilege, mprv, mpp);
     bare = eff_priv == 2'd3 || !satp_on(satp);
     vpn = vaddr[12 +: VPN_W];
     asid = satp_asid(satp);
@@ -67,8 +66,8 @@ module tlb_mmu_lane import tlb_mmu_pkg::*; import ttg_cfg_pkg::*; #(
     miss0 = live && !rm0 && !table_hit;
     miss1 = live && !rm1 && !table_hit;
     walk_same = walk_vpn == vpn && walk_satp == satp;
-    resp_perm_ok = perm_ok(ptw_resp_perm, ACCESS_TYPE, eff_priv, sum, mxr);
-    walk_new = '{active: 1'b1, req_sent: 1'b0, vpn: vpn, access_type: ACCESS_TYPE, satp: satp, eff_priv: eff_priv,
+    resp_perm_ok = perm_ok(ptw_resp_perm, access_type, eff_priv, sum, mxr);
+    walk_new = '{active: 1'b1, req_sent: 1'b0, vpn: vpn, access_type: access_type, satp: satp, eff_priv: eff_priv,
                  mxr: mxr, sum: sum};
   end
 
@@ -86,7 +85,7 @@ module tlb_mmu_lane import tlb_mmu_pkg::*; import ttg_cfg_pkg::*; #(
     end else if (valid && noncanon) begin
       r = RES_FAULT;   // Sv39: a non-canonical address is a page fault
     end else if (valid && (refill_match || table_hit)) begin
-      r = perm_ok(x.perm, ACCESS_TYPE, eff_priv, sum, mxr) ? RES_HIT : RES_FAULT;
+      r = perm_ok(x.perm, access_type, eff_priv, sum, mxr) ? RES_HIT : RES_FAULT;
       pa = compose_paddr(vaddr[VLOW_W-1:0], x.level, x.ppn);
     end
   endfunction

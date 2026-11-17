@@ -482,16 +482,10 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
   logic [PRF_IDX_WIDTH-1:0] rob_commit_commit_entry_uop_old_dest_preg [COMMIT_WIDTH];
 
   // ---- nets driven by dtlb: TlbMmu, DTLB instance (back-end/Lsu/TlbMmu.cpp)
-  logic [5:0] mmu2lsu_ldq_resp_entry_idx [LSU_LDU_COUNT];
-  logic [31:0] mmu2lsu_ldq_resp_paddr [LSU_LDU_COUNT];
-  logic [1:0] mmu2lsu_ldq_resp_result [LSU_LDU_COUNT];
-  logic [LSU_LDU_COUNT-1:0] mmu2lsu_ldq_resp_valid;
-  logic [5:0] mmu2lsu_ldq_resp_wait_idx [LSU_LDU_COUNT];
-  logic [5:0] mmu2lsu_stq_resp_entry_idx [LSU_STA_COUNT];
-  logic [31:0] mmu2lsu_stq_resp_paddr [LSU_STA_COUNT];
-  logic [1:0] mmu2lsu_stq_resp_result [LSU_STA_COUNT];
-  logic [LSU_STA_COUNT-1:0] mmu2lsu_stq_resp_valid;
-  logic [5:0] mmu2lsu_stq_resp_wait_idx [LSU_STA_COUNT];
+  logic [5:0] mmu2lsu_resp_entry_idx [LSU_AGU_PHYS];
+  logic [31:0] mmu2lsu_resp_paddr [LSU_AGU_PHYS];
+  logic [1:0] mmu2lsu_resp_result [LSU_AGU_PHYS];
+  logic [LSU_AGU_PHYS-1:0] mmu2lsu_resp_valid;
 
   // ---- nets driven by lsu: RealLsu (back-end/Lsu/RealLsu.cpp)
   logic [5:0] lsu2dis_ldq_alloc_idx [DECODE_WIDTH];
@@ -515,14 +509,10 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
   logic [XLEN_BITS-1:0] lsu2exe_wb_req_uop_result [LSU_LOAD_WB_WIDTH];
   logic [6:0] lsu2exe_wb_req_uop_rob_idx [LSU_LOAD_WB_WIDTH];
   logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_valid;
-  logic [5:0] lsu2mmu_ldq_req_entry_idx [LSU_LDU_COUNT];
-  logic [XLEN_BITS-1:0] lsu2mmu_ldq_req_vaddr [LSU_LDU_COUNT];
-  logic [LSU_LDU_COUNT-1:0] lsu2mmu_ldq_req_valid;
-  logic [5:0] lsu2mmu_ldq_req_wait_idx [LSU_LDU_COUNT];
-  logic [5:0] lsu2mmu_stq_req_entry_idx [LSU_STA_COUNT];
-  logic [XLEN_BITS-1:0] lsu2mmu_stq_req_vaddr [LSU_STA_COUNT];
-  logic [LSU_STA_COUNT-1:0] lsu2mmu_stq_req_valid;
-  logic [5:0] lsu2mmu_stq_req_wait_idx [LSU_STA_COUNT];
+  logic [5:0] lsu2mmu_req_entry_idx [LSU_AGU_PHYS];
+  logic [XLEN_BITS-1:0] lsu2mmu_req_vaddr [LSU_AGU_PHYS];
+  logic [LSU_AGU_PHYS-1:0] lsu2mmu_req_valid;
+  logic [LSU_AGU_PHYS-1:0] lsu2mmu_req_is_store;
   logic lsu2rob_committed_store_pending;
   // LP_L2[3] with LP_L2[0]: a consumer woken at L2 reads the load result in the cycle of the write-back request
   logic [LSU_LOAD_WB_WIDTH-1:0] lsu_byp_valid;
@@ -554,8 +544,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
   logic [DECODE_WIDTH-1:0] nc_dis2rob_uop_is_atomic;
   logic [FTQ_PRF_PC_PORT_NUM-1:0] nc_ftq_prf_pc_resp_resp_valid;
   logic [0:0] nc_ftq_rob_pc_resp_resp_valid;
-  logic [LSU_LDU_COUNT-1:0] nc_mmu2lsu_ldq_resp_hit;
-  logic [LSU_STA_COUNT-1:0] nc_mmu2lsu_stq_resp_hit;
+  logic [LSU_AGU_PHYS-1:0] nc_mmu2lsu_resp_hit;
   logic nc_rob_bcast_trap_val_valid;
   logic [COMMIT_WIDTH-1:0] nc_rob_commit_commit_entry_uop_mispred;
   /* verilator lint_on UNUSEDSIGNAL */
@@ -1439,14 +1428,10 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     // inputs from idu
     .dec_bcast_mispred(dec_bcast_mispred),
     // inputs from lsu
-    .ldq_req_entry_idx(lsu2mmu_ldq_req_entry_idx),
-    .ldq_req_vaddr(lsu2mmu_ldq_req_vaddr),
-    .ldq_req_valid(lsu2mmu_ldq_req_valid),
-    .ldq_req_wait_idx(lsu2mmu_ldq_req_wait_idx),
-    .stq_req_entry_idx(lsu2mmu_stq_req_entry_idx),
-    .stq_req_vaddr(lsu2mmu_stq_req_vaddr),
-    .stq_req_valid(lsu2mmu_stq_req_valid),
-    .stq_req_wait_idx(lsu2mmu_stq_req_wait_idx),
+    .req_entry_idx(lsu2mmu_req_entry_idx),
+    .req_vaddr(lsu2mmu_req_vaddr),
+    .req_valid(lsu2mmu_req_valid),
+    .req_is_store(lsu2mmu_req_is_store),
     // inputs from rob
     .rob_bcast_fence(rob_bcast_fence),
     .rob_bcast_flush(rob_bcast_flush),
@@ -1459,18 +1444,11 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .ptw_walk_resp_valid(ptw_walk_resp_valid),
     .ptw_walk_resp_vpn(ptw_walk_resp_vpn),
     // outputs
-    .ldq_resp_valid(mmu2lsu_ldq_resp_valid),
-    .ldq_resp_result(mmu2lsu_ldq_resp_result),
-    .ldq_resp_hit(nc_mmu2lsu_ldq_resp_hit),
-    .ldq_resp_paddr(mmu2lsu_ldq_resp_paddr),
-    .ldq_resp_entry_idx(mmu2lsu_ldq_resp_entry_idx),
-    .ldq_resp_wait_idx(mmu2lsu_ldq_resp_wait_idx),
-    .stq_resp_valid(mmu2lsu_stq_resp_valid),
-    .stq_resp_result(mmu2lsu_stq_resp_result),
-    .stq_resp_hit(nc_mmu2lsu_stq_resp_hit),
-    .stq_resp_paddr(mmu2lsu_stq_resp_paddr),
-    .stq_resp_entry_idx(mmu2lsu_stq_resp_entry_idx),
-    .stq_resp_wait_idx(mmu2lsu_stq_resp_wait_idx),
+    .resp_valid(mmu2lsu_resp_valid),
+    .resp_result(mmu2lsu_resp_result),
+    .resp_hit(nc_mmu2lsu_resp_hit),
+    .resp_paddr(mmu2lsu_resp_paddr),
+    .resp_entry_idx(mmu2lsu_resp_entry_idx),
     .ptw_walk_req_valid(ptw_walk_req_valid),
     .ptw_walk_req_vpn(ptw_walk_req_vpn),
     .ptw_walk_req_root_ppn(ptw_walk_req_root_ppn),
@@ -1494,16 +1472,10 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .dis2lsu_rob_flag(dis2lsu_rob_flag),
     .dis2lsu_rob_idx(dis2lsu_rob_idx),
     // inputs from dtlb
-    .mmu2lsu_ldq_resp_entry_idx(mmu2lsu_ldq_resp_entry_idx),
-    .mmu2lsu_ldq_resp_paddr(mmu2lsu_ldq_resp_paddr),
-    .mmu2lsu_ldq_resp_result(mmu2lsu_ldq_resp_result),
-    .mmu2lsu_ldq_resp_valid(mmu2lsu_ldq_resp_valid),
-    .mmu2lsu_ldq_resp_wait_idx(mmu2lsu_ldq_resp_wait_idx),
-    .mmu2lsu_stq_resp_entry_idx(mmu2lsu_stq_resp_entry_idx),
-    .mmu2lsu_stq_resp_paddr(mmu2lsu_stq_resp_paddr),
-    .mmu2lsu_stq_resp_result(mmu2lsu_stq_resp_result),
-    .mmu2lsu_stq_resp_valid(mmu2lsu_stq_resp_valid),
-    .mmu2lsu_stq_resp_wait_idx(mmu2lsu_stq_resp_wait_idx),
+    .mmu2lsu_resp_entry_idx(mmu2lsu_resp_entry_idx),
+    .mmu2lsu_resp_paddr(mmu2lsu_resp_paddr),
+    .mmu2lsu_resp_result(mmu2lsu_resp_result),
+    .mmu2lsu_resp_valid(mmu2lsu_resp_valid),
     // inputs from exu
     .exe2lsu_ldu_req_uop_amo_op(exe2lsu_ldu_req_uop_amo_op),
     .exe2lsu_ldu_req_uop_dest_preg(exe2lsu_ldu_req_uop_dest_preg),
@@ -1605,14 +1577,10 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .lsu2dcache_store_ports_strb(lsu2dcache_store_ports_strb),
     .lsu2dcache_store_ports_l2(lsu2dcache_store_ports_l2),
     .lsu2dcache_store_ports_req_id(lsu2dcache_store_ports_req_id),
-    .lsu2mmu_ldq_req_valid(lsu2mmu_ldq_req_valid),
-    .lsu2mmu_ldq_req_vaddr(lsu2mmu_ldq_req_vaddr),
-    .lsu2mmu_ldq_req_entry_idx(lsu2mmu_ldq_req_entry_idx),
-    .lsu2mmu_ldq_req_wait_idx(lsu2mmu_ldq_req_wait_idx),
-    .lsu2mmu_stq_req_valid(lsu2mmu_stq_req_valid),
-    .lsu2mmu_stq_req_vaddr(lsu2mmu_stq_req_vaddr),
-    .lsu2mmu_stq_req_entry_idx(lsu2mmu_stq_req_entry_idx),
-    .lsu2mmu_stq_req_wait_idx(lsu2mmu_stq_req_wait_idx)
+    .lsu2mmu_req_valid(lsu2mmu_req_valid),
+    .lsu2mmu_req_vaddr(lsu2mmu_req_vaddr),
+    .lsu2mmu_req_entry_idx(lsu2mmu_req_entry_idx),
+    .lsu2mmu_req_is_store(lsu2mmu_req_is_store)
   );
 
   // ================= glue: BackTop-level glue (back-end/BackTop.cpp), see back_top_glue.sv

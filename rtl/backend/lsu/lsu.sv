@@ -71,16 +71,10 @@ module lsu
   input  logic dcache2lsu_load_retry_busy [LSU_LDU_COUNT],
   input  logic dcache2lsu_store_retry_busy [LSU_STA_COUNT],
   /* verilator lint_on UNUSEDSIGNAL */
-  input  logic [LSU_LDU_COUNT-1:0] mmu2lsu_ldq_resp_valid,
-  input  logic [31:0] mmu2lsu_ldq_resp_paddr [LSU_LDU_COUNT],
-  input  logic [1:0] mmu2lsu_ldq_resp_result [LSU_LDU_COUNT],
-  input  logic [5:0] mmu2lsu_ldq_resp_entry_idx [LSU_LDU_COUNT],
-  input  logic [5:0] mmu2lsu_ldq_resp_wait_idx [LSU_LDU_COUNT],
-  input  logic [LSU_STA_COUNT-1:0] mmu2lsu_stq_resp_valid,
-  input  logic [31:0] mmu2lsu_stq_resp_paddr [LSU_STA_COUNT],
-  input  logic [1:0] mmu2lsu_stq_resp_result [LSU_STA_COUNT],
-  input  logic [5:0] mmu2lsu_stq_resp_entry_idx [LSU_STA_COUNT],
-  input  logic [5:0] mmu2lsu_stq_resp_wait_idx [LSU_STA_COUNT],
+  input  logic [LSU_AGU_PHYS-1:0] mmu2lsu_resp_valid,
+  input  logic [31:0] mmu2lsu_resp_paddr [LSU_AGU_PHYS],
+  input  logic [1:0] mmu2lsu_resp_result [LSU_AGU_PHYS],
+  input  logic [5:0] mmu2lsu_resp_entry_idx [LSU_AGU_PHYS],
   output logic [5:0] lsu2dis_stq_tail,
   output logic lsu2dis_stq_tail_flag,
   output logic [6:0] lsu2dis_stq_free,
@@ -126,14 +120,10 @@ module lsu
   output logic [DST_STRB_W-1:0] lsu2dcache_store_ports_strb [LSU_STA_COUNT],
   output logic [DST_L2_W-1:0] lsu2dcache_store_ports_l2 [LSU_STA_COUNT],
   output logic [5:0] lsu2dcache_store_ports_req_id [LSU_STA_COUNT],
-  output logic [LSU_LDU_COUNT-1:0] lsu2mmu_ldq_req_valid,
-  output logic [XLEN_BITS-1:0] lsu2mmu_ldq_req_vaddr [LSU_LDU_COUNT],
-  output logic [5:0] lsu2mmu_ldq_req_entry_idx [LSU_LDU_COUNT],
-  output logic [5:0] lsu2mmu_ldq_req_wait_idx [LSU_LDU_COUNT],
-  output logic [LSU_STA_COUNT-1:0] lsu2mmu_stq_req_valid,
-  output logic [XLEN_BITS-1:0] lsu2mmu_stq_req_vaddr [LSU_STA_COUNT],
-  output logic [5:0] lsu2mmu_stq_req_entry_idx [LSU_STA_COUNT],
-  output logic [5:0] lsu2mmu_stq_req_wait_idx [LSU_STA_COUNT]
+  output logic [LSU_AGU_PHYS-1:0] lsu2mmu_req_valid,
+  output logic [XLEN_BITS-1:0] lsu2mmu_req_vaddr [LSU_AGU_PHYS],
+  output logic [5:0] lsu2mmu_req_entry_idx [LSU_AGU_PHYS],
+  output logic [LSU_AGU_PHYS-1:0] lsu2mmu_req_is_store
 );
 
   if (LSU_PIPE != 0) begin : g_pipe
@@ -211,11 +201,35 @@ module lsu
   for (genvar i = 0; i < LSU_STA_COUNT; i++) begin : g_dcs_valid
     assign dcs_valid_vec[i] = dcache2lsu_store_resps_valid[i];
   end
+  // The legacy LSU (LSU_PIPE = 0) keeps one DTLB request per load / STA lane: it can only run with every lane on its own
+  // DTLB port (LSU_AGU_SHARED = 0): port i of the loads, then the stores.
+  logic [31:0] leg_ld_resp_paddr [LSU_LDU_COUNT];
+  logic [1:0] leg_ld_resp_result [LSU_LDU_COUNT];
+  logic [5:0] leg_ld_resp_entry_idx [LSU_LDU_COUNT];
+  logic [31:0] leg_st_resp_paddr [LSU_STA_COUNT];
+  logic [1:0] leg_st_resp_result [LSU_STA_COUNT];
+  logic [5:0] leg_st_resp_entry_idx [LSU_STA_COUNT];
+  for (genvar i = 0; i < LSU_LDU_COUNT; i++) begin : g_leg_ld_resp
+    assign leg_ld_resp_paddr[i] = mmu2lsu_resp_paddr[i];
+    assign leg_ld_resp_result[i] = mmu2lsu_resp_result[i];
+    assign leg_ld_resp_entry_idx[i] = mmu2lsu_resp_entry_idx[i];
+  end
+  for (genvar i = 0; i < LSU_STA_COUNT; i++) begin : g_leg_st_resp
+    assign leg_st_resp_paddr[i] = mmu2lsu_resp_paddr[LSU_LDU_COUNT + i];
+    assign leg_st_resp_result[i] = mmu2lsu_resp_result[LSU_LDU_COUNT + i];
+    assign leg_st_resp_entry_idx[i] = mmu2lsu_resp_entry_idx[LSU_LDU_COUNT + i];
+  end
+  logic [XLEN_BITS-1:0] leg_ld_req_vaddr [LSU_LDU_COUNT];
+  logic [5:0] leg_ld_req_entry_idx [LSU_LDU_COUNT];
+  logic [5:0] leg_ld_req_wait_idx [LSU_LDU_COUNT];
+  logic [XLEN_BITS-1:0] leg_st_req_vaddr [LSU_STA_COUNT];
+  logic [5:0] leg_st_req_entry_idx [LSU_STA_COUNT];
+  logic [5:0] leg_st_req_wait_idx [LSU_STA_COUNT];
   for (genvar i = 0; i < LSU_LDU_COUNT; i++) begin : g_mmu_ld_valid
-    assign mmu_ld_valid_vec[i] = mmu2lsu_ldq_resp_valid[i];
+    assign mmu_ld_valid_vec[i] = mmu2lsu_resp_valid[i];
   end
   for (genvar i = 0; i < LSU_STA_COUNT; i++) begin : g_mmu_st_valid
-    assign mmu_st_valid_vec[i] = mmu2lsu_stq_resp_valid[i];
+    assign mmu_st_valid_vec[i] = mmu2lsu_resp_valid[LSU_LDU_COUNT + i];
   end
   for (genvar i = 0; i < 8; i++) begin : g_lsu2dis_ldq_alloc_valid_oc_valid
     assign lsu2dis_ldq_alloc_valid[i] = lsu2dis_ldq_alloc_valid_vec[i];
@@ -245,11 +259,21 @@ module lsu
   for (genvar i = 0; i < LSU_STA_COUNT; i++) begin : g_dcs_req_valid_ts_valid
     assign lsu2dcache_store_ports_valid[i] = dcs_req_valid_vec[i];
   end
-  for (genvar i = 0; i < LSU_LDU_COUNT; i++) begin : g_mmu_ld_req_valid_eq_valid
-    assign lsu2mmu_ldq_req_valid[i] = mmu_ld_req_valid_vec[i];
-  end
-  for (genvar i = 0; i < LSU_STA_COUNT; i++) begin : g_mmu_st_req_valid_eq_valid
-    assign lsu2mmu_stq_req_valid[i] = mmu_st_req_valid_vec[i];
+  if (LSU_AGU_PHYS == LSU_LDU_COUNT + LSU_STA_COUNT) begin : g_leg_ports
+    for (genvar i = 0; i < LSU_LDU_COUNT; i++) begin : g_mmu_ld_req
+      assign lsu2mmu_req_valid[i] = mmu_ld_req_valid_vec[i];
+      assign lsu2mmu_req_vaddr[i] = leg_ld_req_vaddr[i];
+      assign lsu2mmu_req_entry_idx[i] = leg_ld_req_entry_idx[i];
+      assign lsu2mmu_req_is_store[i] = 1'b0;
+    end
+    for (genvar i = 0; i < LSU_STA_COUNT; i++) begin : g_mmu_st_req
+      assign lsu2mmu_req_valid[LSU_LDU_COUNT + i] = mmu_st_req_valid_vec[i];
+      assign lsu2mmu_req_vaddr[LSU_LDU_COUNT + i] = leg_st_req_vaddr[i];
+      assign lsu2mmu_req_entry_idx[LSU_LDU_COUNT + i] = leg_st_req_entry_idx[i];
+      assign lsu2mmu_req_is_store[LSU_LDU_COUNT + i] = 1'b1;
+    end
+  end else begin : g_leg_noports
+    $error("the legacy LSU (LSU_PIPE = 0) cannot run with shared AGUs (LSU_AGU_SHARED > 0)");
   end
   for (genvar i = 0; i < NST; i++) begin : g_sta_dup
     assign lsu2exe_sta_wb_req_uop_diag_val[i] = sta_wb_vaddr_w[i];
@@ -281,11 +305,11 @@ module lsu
     .dcl_valid(dcl_valid_vec), .dcl_req_id(dcache2lsu_load_resps_req_id), .dcl_data(dcache2lsu_load_resps_data),
     .dcl_replay(dcache2lsu_load_resps_replay), .dcs_valid(dcs_valid_vec), .dcs_req_id(dcache2lsu_store_resps_req_id),
     .dcs_replay(dcache2lsu_store_resps_replay), .fill_valid(dcache2lsu_mshr_fill),
-    .fill_line(dcache2lsu_mshr_fill_line), .mmu_ld_valid(mmu_ld_valid_vec), .mmu_ld_paddr(mmu2lsu_ldq_resp_paddr),
-    .mmu_ld_result(mmu2lsu_ldq_resp_result), .mmu_ld_entry_idx(mmu2lsu_ldq_resp_entry_idx),
-    .mmu_ld_wait_idx(mmu2lsu_ldq_resp_wait_idx), .mmu_st_valid(mmu_st_valid_vec),
-    .mmu_st_paddr(mmu2lsu_stq_resp_paddr), .mmu_st_result(mmu2lsu_stq_resp_result),
-    .mmu_st_entry_idx(mmu2lsu_stq_resp_entry_idx), .mmu_st_wait_idx(mmu2lsu_stq_resp_wait_idx),
+    .fill_line(dcache2lsu_mshr_fill_line), .mmu_ld_valid(mmu_ld_valid_vec), .mmu_ld_paddr(leg_ld_resp_paddr),
+    .mmu_ld_result(leg_ld_resp_result), .mmu_ld_entry_idx(leg_ld_resp_entry_idx),
+    .mmu_ld_wait_idx(leg_ld_resp_entry_idx), .mmu_st_valid(mmu_st_valid_vec),
+    .mmu_st_paddr(leg_st_resp_paddr), .mmu_st_result(leg_st_resp_result),
+    .mmu_st_entry_idx(leg_st_resp_entry_idx), .mmu_st_wait_idx(leg_st_resp_entry_idx),
     .lsu2dis_stq_tail(lsu2dis_stq_tail), .lsu2dis_stq_tail_flag(lsu2dis_stq_tail_flag),
     .lsu2dis_stq_free(lsu2dis_stq_free), .lsu2dis_ldq_free(lsu2dis_ldq_free),
     .lsu2dis_ldq_alloc_valid(lsu2dis_ldq_alloc_valid_vec), .lsu2dis_ldq_alloc_idx(lsu2dis_ldq_alloc_idx),
@@ -302,10 +326,10 @@ module lsu
     .dcs_req_valid(dcs_req_valid_vec), .dcs_req_addr(lsu2dcache_store_ports_addr),
     .dcs_req_data(lsu2dcache_store_ports_data), .dcs_req_strb(lsu2dcache_store_ports_strb),
     .dcs_req_id_o(lsu2dcache_store_ports_req_id), .mmu_ld_req_valid(mmu_ld_req_valid_vec),
-    .mmu_ld_req_vaddr(lsu2mmu_ldq_req_vaddr), .mmu_ld_req_entry_idx(lsu2mmu_ldq_req_entry_idx),
-    .mmu_ld_req_wait_idx(lsu2mmu_ldq_req_wait_idx), .mmu_st_req_valid(mmu_st_req_valid_vec),
-    .mmu_st_req_vaddr(lsu2mmu_stq_req_vaddr), .mmu_st_req_entry_idx(lsu2mmu_stq_req_entry_idx),
-    .mmu_st_req_wait_idx(lsu2mmu_stq_req_wait_idx), .sta_wb_vaddr(sta_wb_vaddr_w));
+    .mmu_ld_req_vaddr(leg_ld_req_vaddr), .mmu_ld_req_entry_idx(leg_ld_req_entry_idx),
+    .mmu_ld_req_wait_idx(leg_ld_req_wait_idx), .mmu_st_req_valid(mmu_st_req_valid_vec),
+    .mmu_st_req_vaddr(leg_st_req_vaddr), .mmu_st_req_entry_idx(leg_st_req_entry_idx),
+    .mmu_st_req_wait_idx(leg_st_req_wait_idx), .sta_wb_vaddr(sta_wb_vaddr_w));
 
   end
 

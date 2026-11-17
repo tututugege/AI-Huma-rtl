@@ -42,14 +42,10 @@ module lp_core
   input  logic [NLD-1:0]      ld_retry_busy,
   input  logic [NST-1:0]      st_retry_busy,
   // MMU
-  input  logic [NLD-1:0]      mmu_l_valid,
-  input  logic [31:0]         mmu_l_paddr [NLD],
-  input  logic [1:0]          mmu_l_result [NLD],
-  input  logic [LQW-1:0]      mmu_l_entry [NLD],
-  input  logic [NST-1:0]      mmu_s_valid,
-  input  logic [31:0]         mmu_s_paddr [NST],
-  input  logic [1:0]          mmu_s_result [NST],
-  input  logic [SQW-1:0]      mmu_s_entry [NST],
+  input  logic [LSU_AGU_PHYS-1:0] mmu_valid,
+  input  logic [31:0]         mmu_paddr [LSU_AGU_PHYS],
+  input  logic [1:0]          mmu_result [LSU_AGU_PHYS],
+  input  logic [5:0]          mmu_entry [LSU_AGU_PHYS],
   // outputs
   output logic [SQW-1:0]      o_stq_tail,
   output logic                o_stq_tail_flag,
@@ -96,12 +92,10 @@ module lp_core
   output logic [DST_STRB_W-1:0] dcs_req_strb [NST],
   output logic [DST_L2_W-1:0]  dcs_req_l2 [NST],  // merged store {strb2, word2, data2}; strb2 == 0: none
   output logic [SQW-1:0]      dcs_req_id_o [NST],
-  output logic [NLD-1:0]      mmu_l_req_valid,
-  output logic [XLEN_BITS-1:0]         mmu_l_req_vaddr [NLD],
-  output logic [LQW-1:0]      mmu_l_req_idx [NLD],
-  output logic [NST-1:0]      mmu_s_req_valid,
-  output logic [XLEN_BITS-1:0]         mmu_s_req_vaddr [NST],
-  output logic [SQW-1:0]      mmu_s_req_idx [NST]
+  output logic [LSU_AGU_PHYS-1:0] mmu_req_valid,
+  output logic [XLEN_BITS-1:0] mmu_req_vaddr [LSU_AGU_PHYS],
+  output logic [5:0]          mmu_req_idx [LSU_AGU_PHYS],
+  output logic [LSU_AGU_PHYS-1:0] mmu_req_st
 );
   // ------------------------------------------------------------------ registers outside the queues
   lp_pl12_t        pl12_q [NLD];
@@ -221,10 +215,8 @@ module lp_core
     .ag(agl), .ag_acc(ag_acc), .sa(ags), .sa_acc(sa_acc),
     .rp_v(rp_v_q), .rp_ldq(rp_ldq_q), .rp_pipe(rp_pipe), .rp_f(rp_f),
     .srp_v(srp_v_q), .srp_stq(srp_stq_q), .srp_ok(srp_ok), .srp_vaddr(sq[srp_stq_q].vaddr),
-    .mmu_l_valid(mmu_l_valid), .mmu_l_paddr(mmu_l_paddr), .mmu_l_result(mmu_l_result), .mmu_l_entry(mmu_l_entry),
-    .mmu_s_valid(mmu_s_valid), .mmu_s_paddr(mmu_s_paddr), .mmu_s_result(mmu_s_result), .mmu_s_entry(mmu_s_entry),
-    .mmu_l_req_valid(mmu_l_req_valid), .mmu_l_req_vaddr(mmu_l_req_vaddr), .mmu_l_req_idx(mmu_l_req_idx),
-    .mmu_s_req_valid(mmu_s_req_valid), .mmu_s_req_vaddr(mmu_s_req_vaddr), .mmu_s_req_idx(mmu_s_req_idx),
+    .mmu_valid(mmu_valid), .mmu_paddr(mmu_paddr), .mmu_result(mmu_result), .mmu_entry(mmu_entry),
+    .mmu_req_valid(mmu_req_valid), .mmu_req_vaddr(mmu_req_vaddr), .mmu_req_idx(mmu_req_idx), .mmu_req_st(mmu_req_st),
     .l1(l1), .tl_l(tl_l), .l_tlb(l_tlb), .l_hit(l_hit), .l_paddr(l_paddr), .l_mmio(l_mmio), .rp_cons(rp_cons),
     .s1_v(s1_v), .s1_replay(s1_replay), .s1_stq(s1_stq), .tl_s(tl_s), .tl_s_miss(tl_s_miss),
     .srp_cons(srp_cons), .pf_any(pf_any));
