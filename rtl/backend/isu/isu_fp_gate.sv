@@ -65,14 +65,19 @@ module isu_fp_gate
     end
   end
 
-  // the chain over the candidates: a candidate sees the earlier granted ones that write in its cycle
+  // A candidate is granted iff the cycle it writes in still has a free port after the earlier candidates of that cycle. A refused
+  // earlier candidate only exists once the cycle is full, in which case the later ones are refused as well, so counting all the
+  // earlier *requesting* candidates of the same cycle (granted or not) gives the same answer as counting the granted ones:
+  // there is no chain over the candidates.
+  logic [NC-1:0] req;
+  assign req = cand_valid & cand_fpw;
   for (genvar k = 0; k < NC; k++) begin : g_gate
     logic [NC-1:0] same;
     logic [CNT_W-1:0] n_same;
-    assign same = granted & same_slot[k];
+    assign same = req & same_slot[k];
     ttg_popcount #(.N(NC), .CW(CNT_W)) u_same (.bits(same), .count(n_same));
-    assign gate_ok[k] = !(cand_valid[k] && cand_fpw[k]) || (P == 0) || ((occ0[k] + n_same) < CNT_W'(P));
-    assign granted[k] = cand_valid[k] && cand_fpw[k] && gate_ok[k];
+    assign gate_ok[k] = !req[k] || (P == 0) || ((occ0[k] + n_same) < CNT_W'(P));
+    assign granted[k] = req[k] && gate_ok[k];
   end
 
   // per slot: reservations added this cycle; the slot of the current cycle is consumed at its end
