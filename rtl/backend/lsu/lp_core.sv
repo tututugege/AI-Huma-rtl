@@ -13,6 +13,7 @@ module lp_core
   input  logic [4:0]          cm_amo_op [NCM],
   input  logic [SQW-1:0]      cm_stq_idx [NCM],
   input  logic                rb_flush,
+  input  logic                rb_flush_now,   // the flush decided in this cycle: qualifies the store commits
   input  logic                rb_head_valid,
   input  logic [ROBW-1:0]     rb_head_rob_idx,
   input  logic                rb_hi_valid,
@@ -336,7 +337,7 @@ module lp_core
   assign fill_en = fill_valid && LSU_WAIT_MSHR_FILL != 0;
 
   lp_stq u_stq (
-    .clk(clk), .rst_n(rst_n), .rb_flush(rb_flush), .clear_mask(dec_clear_mask), .head_q(head_q), .alive_w(alive_w),
+    .clk(clk), .rst_n(rst_n), .rb_flush(rb_flush_now), .clear_mask(dec_clear_mask), .head_q(head_q), .alive_w(alive_w),
     .win4(win4), .win13(win13), .cm_go(cm_go),
     .mm_done(resp_fire && !unc_is_load_q), .mm_idx(unc_idx_q),
     .dcs_valid(dcs_valid), .dcs_req_id(dcs_req_id), .dcs_replay(dcs_replay), .fill_v(fill_en), .fill_line(fill_line),

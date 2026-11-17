@@ -132,6 +132,9 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
   output logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_valid
 );
 
+  // FLUSH_REG: the delayed flush / fence broadcasts (the register is further down, docs/FLUSH_REG.md)
+  logic rob_flush_q, rob_fence_q, rob_fence_i_q, rob_fence_raw, rob_fence_i_raw;
+
   // ---- nets driven by pre: PreIduQueue (back-end/PreIduQueue.cpp)
   logic [XLEN_BITS-1:0] ftq_prf_pc_resp_resp_next_pc [FTQ_PRF_PC_PORT_NUM];
   logic [XLEN_BITS-1:0] ftq_prf_pc_resp_resp_pc [FTQ_PRF_PC_PORT_NUM];
@@ -573,7 +576,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .ftq_rob_pc_req_req_ftq_idx(ftq_rob_pc_req_req_ftq_idx),
     .ftq_rob_pc_req_req_ftq_offset(ftq_rob_pc_req_req_ftq_offset),
     .ftq_rob_pc_req_req_valid(ftq_rob_pc_req_req_valid),
-    .rob_bcast_flush(rob_bcast_flush),
+    .rob_bcast_flush(rob_flush_q),
     .rob_commit_commit_entry_uop_ftq_idx(rob_commit_commit_entry_uop_ftq_idx),
     .rob_commit_commit_entry_uop_ftq_is_last(rob_commit_commit_entry_uop_ftq_is_last),
     .rob_commit_commit_entry_uop_ftq_offset(rob_commit_commit_entry_uop_ftq_offset),
@@ -646,7 +649,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     // inputs from ren
     .ren2dec_ready(ren2dec_ready),
     // inputs from rob
-    .rob_bcast_flush(rob_bcast_flush),
+    .rob_bcast_flush(rob_flush_q),
     // outputs
     .dec2ren_valid(dec2ren_valid),
     .dec2ren_uop_diag_val(dec2ren_uop_diag_val),
@@ -732,7 +735,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .dec_bcast_clear_mask(dec_bcast_clear_mask),
     .dec_bcast_mispred(dec_bcast_mispred),
     // inputs from rob
-    .rob_bcast_flush(rob_bcast_flush),
+    .rob_bcast_flush(rob_flush_q),
     .rob_bcast_interrupt(rob_bcast_interrupt),
     .rob_commit_commit_entry_uop_dest_areg(rob_commit_commit_entry_uop_dest_areg),
     .rob_commit_commit_entry_uop_dest_en(rob_commit_commit_entry_uop_dest_en),
@@ -853,7 +856,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .rob2dis_ready(rob2dis_ready),
     .rob2dis_rob_flag(rob2dis_rob_flag),
     .rob2dis_stall(rob2dis_stall),
-    .rob_bcast_flush(rob_bcast_flush),
+    .rob_bcast_flush(rob_flush_q),
     // outputs
     .dis2ren_ready(dis2ren_ready),
     .pmu_slot_valid(pmu_slot_valid),
@@ -982,7 +985,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .prf_awake_wake_preg(prf_awake_wake_preg),
     .prf_awake_wake_valid(prf_awake_wake_valid),
     // inputs from rob
-    .rob_bcast_flush(rob_bcast_flush),
+    .rob_bcast_flush(rob_flush_q),
     // outputs
     .iss2dis_ready_num(iss2dis_ready_num),
     .iss2prf_iss_entry_valid(iss2prf_iss_entry_valid),
@@ -1081,7 +1084,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .ftq_prf_pc_resp_resp_pred_taken(ftq_prf_pc_resp_resp_pred_taken),
     .ftq_prf_pc_resp_resp_is_rvc(ftq_prf_pc_resp_resp_is_rvc),
     // inputs from rob
-    .rob_bcast_flush(rob_bcast_flush),
+    .rob_bcast_flush(rob_flush_q),
     // outputs
     .ftq_prf_pc_req_req_valid(ftq_prf_pc_req_req_valid),
     .ftq_prf_pc_req_req_ftq_idx(ftq_prf_pc_req_req_ftq_idx),
@@ -1182,7 +1185,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .prf2exe_iss_entry_uop_stq_idx(prf2exe_iss_entry_uop_stq_idx),
     .prf2exe_iss_entry_valid(prf2exe_iss_entry_valid),
     // inputs from rob
-    .rob_bcast_flush(rob_bcast_flush),
+    .rob_bcast_flush(rob_flush_q),
     // outputs
     .exe2csr_we(exe2csr_we),
     .exe2csr_re(exe2csr_re),
@@ -1299,6 +1302,24 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .csr_status_privilege(csr_status_privilege)
   );
 
+
+  // ================= FLUSH_REG (trace-model CFG_FLUSH_REG, docs/FLUSH_REG.md): the ROB decides a global flush in cycle t and clears itself; the other
+  // modules, the front end's redirect and the fence broadcasts see it one cycle later (a register), so the commit -> trap -> flush logic of the ROB
+  // is not in their combinational paths. rob_bcast_flush stays the ROB's own decision of this cycle (it qualifies this cycle's commit).
+  always_ff @(posedge clk) begin
+    if (!rst_n) begin
+      rob_flush_q   <= 1'b0;
+      rob_fence_q   <= 1'b0;
+      rob_fence_i_q <= 1'b0;
+    end else begin
+      rob_flush_q   <= rob_bcast_flush;
+      rob_fence_q   <= rob_fence_raw;
+      rob_fence_i_q <= rob_fence_i_raw;
+    end
+  end
+  assign rob_bcast_fence   = rob_fence_q;
+  assign rob_bcast_fence_i = rob_fence_i_q;
+
   // ================= rob: Rob (back-end/Rob.cpp)
   rob u_rob (
     .clk(clk),
@@ -1392,13 +1413,14 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .commit_extra_src1_areg(commit_extra_src1_areg),
     .commit_extra_imm(commit_extra_imm),
     .rob_bcast_flush(rob_bcast_flush),
+    .flush_pend(rob_flush_q),
     .rob_bcast_mret(rob_bcast_mret),
     .rob_bcast_sret(rob_bcast_sret),
     .rob_bcast_ecall(rob_bcast_ecall),
     .rob_bcast_breakpoint(rob_bcast_breakpoint),
     .rob_bcast_exception(rob_bcast_exception),
-    .rob_bcast_fence(rob_bcast_fence),
-    .rob_bcast_fence_i(rob_bcast_fence_i),
+    .rob_bcast_fence(rob_fence_raw),
+    .rob_bcast_fence_i(rob_fence_i_raw),
     .rob_bcast_page_fault_inst(rob_bcast_page_fault_inst),
     .rob_bcast_page_fault_load(rob_bcast_page_fault_load),
     .rob_bcast_page_fault_store(rob_bcast_page_fault_store),
@@ -1436,8 +1458,8 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .req_valid(lsu2mmu_req_valid),
     .req_is_store(lsu2mmu_req_is_store),
     // inputs from rob
-    .rob_bcast_fence(rob_bcast_fence),
-    .rob_bcast_flush(rob_bcast_flush),
+    .rob_bcast_fence(rob_fence_q),
+    .rob_bcast_flush(rob_flush_q),
     // inputs from top input
     .ptw_walk_req_ready(ptw_walk_req_ready),
     .ptw_walk_resp_fault(ptw_walk_resp_fault),
@@ -1513,7 +1535,8 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .dec_bcast_clear_mask(dec_bcast_clear_mask),
     .dec_bcast_mispred(dec_bcast_mispred),
     // inputs from rob
-    .rob_bcast_flush(rob_bcast_flush),
+    .rob_bcast_flush(rob_flush_q),
+    .rob_flush_now(rob_bcast_flush),
     .rob_bcast_head_incomplete_rob_idx(rob_bcast_head_incomplete_rob_idx),
     .rob_bcast_head_incomplete_valid(rob_bcast_head_incomplete_valid),
     .rob_bcast_head_rob_idx(rob_bcast_head_rob_idx),
@@ -1603,6 +1626,8 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     // inputs from rob
     .rob_bcast_exception(rob_bcast_exception),
     .rob_bcast_flush(rob_bcast_flush),
+    .flush_q(rob_flush_q),
+    .clk(clk), .rst_n(rst_n),
     .rob_bcast_mret(rob_bcast_mret),
     .rob_bcast_pc(rob_bcast_pc), .rob_bcast_is_rvc(ftq_rob_pc_resp_resp_is_rvc[0]),
     .rob_bcast_sret(rob_bcast_sret),

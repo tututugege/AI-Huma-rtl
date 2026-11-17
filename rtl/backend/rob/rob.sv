@@ -8,6 +8,7 @@ module rob
   input  logic clk,
   input  logic rst_n,
   input  logic dec_bcast_mispred,
+  input  logic flush_pend,   // the flush of the previous cycle (FLUSH_REG): the other modules clear in this cycle, a stale mispredict must not recover the (empty) ROB
   input  logic [6:0] dec_bcast_redirect_rob_idx,
   input  logic csr2rob_interrupt_req,
   input  logic lsu2rob_committed_store_pending,
@@ -179,11 +180,14 @@ module rob
   rob_entry_t                commit_uop [ROB_BANK_NUM];
 
   logic [ROB_IDX_WIDTH-1:0] enq_idx_cpt;
+  logic dec_mispred_eff;
+  assign dec_mispred_eff = dec_bcast_mispred && !flush_pend;
+
   if (ROB_COMPACT != 0) begin : g_cpt   // compact ROB (EXP-028)
     assign enq_line = '0;
     rob_core_cpt u_core (
       .clk(clk), .rst_n(rst_n),
-      .dec_mispred(dec_bcast_mispred), .dec_redirect_rob_idx(dec_bcast_redirect_rob_idx),
+      .dec_mispred(dec_mispred_eff), .dec_redirect_rob_idx(dec_bcast_redirect_rob_idx),
       .interrupt_req(csr2rob_interrupt_req), .committed_store_pending(lsu2rob_committed_store_pending),
       .front_stall(front_stall), .bpu_upd_free(bpu_upd_free), .bpu_tq_free(bpu_tq_free),
       .ftq_resp_pc(ftq_rob_pc_resp_resp_pc[0]),
@@ -208,7 +212,7 @@ module rob
   end else begin : g_line               // line ROB: one dispatch group per line
     rob_core u_core (
       .clk(clk), .rst_n(rst_n),
-      .dec_mispred(dec_bcast_mispred), .dec_redirect_rob_idx(dec_bcast_redirect_rob_idx),
+      .dec_mispred(dec_mispred_eff), .dec_redirect_rob_idx(dec_bcast_redirect_rob_idx),
       .interrupt_req(csr2rob_interrupt_req), .committed_store_pending(lsu2rob_committed_store_pending),
       .front_stall(front_stall), .ftq_resp_pc(ftq_rob_pc_resp_resp_pc[0]),
       .dis_fire(dis_fire), .dis_uop(dis_uop), .wb(wb),

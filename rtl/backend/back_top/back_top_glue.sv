@@ -10,7 +10,10 @@ module back_top_glue
   import ttg_cfg_pkg::*;
   import dis_pkg::*;
 (
-  input  logic        rob_bcast_flush,
+  input  logic        clk,
+  input  logic        rst_n,
+  input  logic        rob_bcast_flush,   // the flush decided in this cycle
+  input  logic        flush_q,           // the flush of the previous cycle: delivered to the front end now (FLUSH_REG)
   input  logic        rob_bcast_mret,
   input  logic        rob_bcast_sret,
   input  logic        rob_bcast_exception,
@@ -50,18 +53,25 @@ module back_top_glue
     else flush_redirect_pc = rob_bcast_pc + (rob_bcast_is_rvc ? XLEN_BITS'(2) : XLEN_BITS'(4));
   end
 
-  assign out_mispred     = rob_bcast_flush | dec_bcast_mispred;
+  // FLUSH_REG: the front end is redirected by a flush one cycle after the decision (with the back end's clear), from a registered pc; in the cycle of the
+  // decision the redirect is held back (a branch mispredict of that cycle is dropped as well: the flush wins). Ref: Rob::redirect with pend_.
+  logic [XLEN_BITS-1:0] redirect_pc_q;
+  always_ff @(posedge clk) begin
+    if (!rst_n) redirect_pc_q <= '0;
+    else        redirect_pc_q <= flush_redirect_pc;
+  end
+  assign out_mispred     = flush_q | (dec_bcast_mispred & ~rob_bcast_flush);
   assign out_no_mispred  = ~out_mispred;
   assign out_stall       = ~pre2front_ready;
-  assign out_redirect_pc = rob_bcast_flush ? flush_redirect_pc : br_latch_redirect_pc;
-  assign out_rf_valid    = dec_bcast_mispred & ~rob_bcast_flush;
+  assign out_redirect_pc = flush_q ? redirect_pc_q : br_latch_redirect_pc;
+  assign out_rf_valid    = dec_bcast_mispred & ~rob_bcast_flush & ~flush_q;
   assign out_rf_pc       = br_latch_br_pc;
   assign out_rf_is_rvc   = br_latch_is_rvc;
 
   // Ref: BackTop::comb, loop over COMMIT_WIDTH: valid slots get diag_val = redirect_pc while flushing
   for (genvar i = 0; i < COMMIT_WIDTH; i++) begin : g_commit
     assign out_commit_entry_uop_diag_val[i] =
-        rob_bcast_flush ? out_redirect_pc : rob_commit_commit_entry_uop_diag_val[i];
+        rob_bcast_flush ? flush_redirect_pc : rob_commit_commit_entry_uop_diag_val[i];   // (this cycle's commit: the redirect target of the flush decided now)
   end
   // (rob_commit_commit_entry_valid only qualifies the diag_val in the boundary spec; the override itself is per slot)
   logic commit_valid_unused;  // lint: kept as a port so the glue's interface documents the qualification

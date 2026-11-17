@@ -12,6 +12,7 @@ module lsu_pipe
   input  logic [4:0] rob_commit_commit_entry_uop_amo_op [COMMIT_WIDTH],
   input  logic [5:0] rob_commit_commit_entry_uop_stq_idx [COMMIT_WIDTH],
   input  logic rob_bcast_flush,
+  input  logic rob_flush_now,   // the flush decided in this cycle (rob_bcast_flush is delayed by FLUSH_REG): it qualifies this cycle's store commits
   input  logic rob_bcast_head_valid,
   input  logic [6:0] rob_bcast_head_rob_idx,
   input  logic rob_bcast_head_incomplete_valid,
@@ -195,7 +196,7 @@ module lsu_pipe
   lp_core u_core (
     .clk(clk), .rst_n(rst_n),
     .cm_valid(cm_valid_w), .cm_type(rob_commit_commit_entry_uop_type), .cm_amo_op(rob_commit_commit_entry_uop_amo_op),
-    .cm_stq_idx(rob_commit_commit_entry_uop_stq_idx), .rb_flush(rob_bcast_flush), .rb_head_valid(rob_bcast_head_valid),
+    .cm_stq_idx(rob_commit_commit_entry_uop_stq_idx), .rb_flush(rob_bcast_flush), .rb_flush_now(rob_flush_now), .rb_head_valid(rob_bcast_head_valid),
     .rb_head_rob_idx(rob_bcast_head_rob_idx), .rb_hi_valid(rob_bcast_head_incomplete_valid),
     .rb_hi_rob_idx(rob_bcast_head_incomplete_rob_idx), .dec_mispred(dec_bcast_mispred),
     .dec_br_mask(dec_bcast_br_mask), .dec_clear_mask(dec_bcast_clear_mask),
