@@ -154,6 +154,7 @@ package isu_pkg;
   localparam int WB_NCLS  = FP_EN ? 11 : 4;
   localparam int WB_CLS_W = $clog2(WB_NCLS);
   // 0: one cycle, 1: MUL, 2 / 3: DIV word / double, 4 .. 7: FDIV S / D, FSQRT S / D, 8: FMA, 9: FMISC, 10: I2F
+  /* verilator lint_off UNUSEDSIGNAL */   // waiver: only func7[6:2] / func7[0] of the FDIV class are read
   function automatic logic [WB_CLS_W-1:0] wb_class(input op_t op, input logic [6:0] func7, input logic is_word);
     if (op == op_t'(UOP_MUL)) return WB_CLS_W'(1);
     else if (op == op_t'(UOP_DIV)) return is_word ? WB_CLS_W'(2) : WB_CLS_W'(3);
@@ -163,6 +164,7 @@ package isu_pkg;
     else if (FP_EN && op == op_t'(UOP_I2F)) return WB_CLS_W'(10);
     else return '0;
   endfunction
+  /* verilator lint_on UNUSEDSIGNAL */
   // completion offset of a class (equals wb_offset of any uop of the class)
   function automatic int wb_cls_off(input int c);
     case (c)
