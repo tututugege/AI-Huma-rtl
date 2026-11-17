@@ -8,10 +8,15 @@ module isu_iq_select
 #(
   parameter int SIZE      = 64,
   parameter int NP        = 4,
-  parameter int PORT_BASE = 0                   // physical issue port of this queue's port 0
+  parameter int PORT_BASE = 0,                  // physical issue port of this queue's port 0
+  // AGE_EN: the first port of each capability (no earlier port shares a capability bit with it) takes the oldest ready uop it can
+  // serve (isu_oldest_pick), the other ports the lowest slot (the memory queue; docs/MEM_IQ.md in trace-model)
+  parameter bit AGE_EN    = 1'b0,
+  parameter int KW        = 8
 ) (
   input  logic [SIZE-1:0] ready,
   input  op_set_t         entry_op [SIZE],      // one-hot op class of each slot
+  input  logic [KW-1:0]   age_key [SIZE],       // {rob_flag, rob_idx} of each slot (read when AGE_EN)
   output logic [SIZE-1:0] sel_onehot [NP],      // slot chosen by each port (all zero when none)
   output logic [NP-1:0]   sel_valid             // port found a slot
 );
@@ -20,6 +25,12 @@ module isu_iq_select
   // overlap port p's could not be p's candidate anyway, so the chain only runs over ports with overlapping capabilities: the
   // load ports and the STA ports of a memory queue select independently (and the ports of a queue of one kind form one chain).
   logic [SIZE-1:0] taken [NP];                  // slots chosen by earlier ports that port p could also serve
+
+  function automatic bit first_of_cap(input int base, input int p);
+    bit f = 1'b1;
+    for (int q = 0; q < p; q++) if ((port_cap(base + q) & port_cap(base + p)) != '0) f = 1'b0;
+    return f;
+  endfunction
 
   for (genvar p = 0; p < NP; p++) begin : g_port
     localparam op_set_t CAP = port_cap(PORT_BASE + p);
@@ -34,7 +45,13 @@ module isu_iq_select
       assign cap_match[i] = |(entry_op[i] & CAP);
     end
     assign candidate = ready & cap_match & ~taken[p];
-    ttg_first_set #(.N(SIZE)) u_pick (.req(candidate), .onehot(sel_onehot[p]), .any(sel_valid[p]));
+    // first port of its capability: no earlier port could take any slot this port can
+    localparam bit FIRST = first_of_cap(PORT_BASE, p);
+    if (AGE_EN && FIRST) begin : g_age
+      isu_oldest_pick #(.N(SIZE), .KW(KW)) u_pick (.cand(candidate), .key(age_key), .onehot(sel_onehot[p]), .any(sel_valid[p]));
+    end else begin : g_slot_prio
+      ttg_first_set #(.N(SIZE)) u_pick (.req(candidate), .onehot(sel_onehot[p]), .any(sel_valid[p]));
+    end
   end
 
 endmodule
