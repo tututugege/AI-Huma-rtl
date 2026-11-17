@@ -13,7 +13,7 @@ module isu_wb_gate
   input  logic                  clk,
   input  logic                  rst_n,
   input  logic                  flush_all,        // every reservation is cleared on a global flush
-  input  logic [WB_OFF_W-1:0]   off [ISSUE_WIDTH],  // completion offset of the port's pick (cycles, >= 1)
+  input  logic [WB_CLS_W-1:0]   cls [ISSUE_WIDTH],  // completion class of the port's pick (its offset is a constant of the class)
   input  logic [ISSUE_WIDTH-1:0] reserve,         // the port's pick is granted (after every gate)
   output logic [ISSUE_WIDTH-1:0] port_ok          // the pick's completion cycle is free
 );
@@ -26,8 +26,21 @@ module isu_wb_gate
 
   for (genvar p = 0; p < ISSUE_WIDTH; p++) begin : g_port
     logic [RB-1:0] slot;
-    assign slot = now_q + off[p];
-    assign port_ok[p] = !busy_q[p][slot];
+    logic [RB-1:0] off_sel;
+    logic          ok_c [WB_NCLS];            // the class's completion cycle is free, from the registered table only
+    always_comb begin
+      off_sel = '0;
+      for (int c = 0; c < WB_NCLS; c++) if (cls[p] == WB_CLS_W'(c)) off_sel = RB'(wb_cls_off(c));
+    end
+    for (genvar c = 0; c < WB_NCLS; c++) begin : g_cls
+      if (port_serves_cls(p, c)) begin : g_ok
+        assign ok_c[c] = !busy_q[p][now_q + RB'(wb_cls_off(c))];
+      end else begin : g_na
+        assign ok_c[c] = 1'b1;
+      end
+    end
+    assign slot = now_q + off_sel;
+    assign port_ok[p] = ok_c[cls[p]];
     for (genvar s = 0; s < RING; s++) begin : g_slot
       always_ff @(posedge clk) begin
         if (!rst_n || flush_all)  busy_q[p][s] <= 1'b0;

@@ -149,6 +149,57 @@ package isu_pkg;
   endfunction
   /* verilator lint_on UNUSEDSIGNAL */
 
+  // ---- completion classes: the write-back and FP write-port gates look the state up per class (the offset is a constant of the
+  // class) before the pick is known, instead of decoding the picked uop first ----
+  localparam int WB_NCLS  = FP_EN ? 11 : 4;
+  localparam int WB_CLS_W = $clog2(WB_NCLS);
+  // 0: one cycle, 1: MUL, 2 / 3: DIV word / double, 4 .. 7: FDIV S / D, FSQRT S / D, 8: FMA, 9: FMISC, 10: I2F
+  function automatic logic [WB_CLS_W-1:0] wb_class(input op_t op, input logic [6:0] func7, input logic is_word);
+    if (op == op_t'(UOP_MUL)) return WB_CLS_W'(1);
+    else if (op == op_t'(UOP_DIV)) return is_word ? WB_CLS_W'(2) : WB_CLS_W'(3);
+    else if (FP_EN && op == op_t'(UOP_FDIV)) return WB_CLS_W'(4) + WB_CLS_W'({(func7[6:2] == 5'h0b), func7[0]});
+    else if (FP_EN && op == op_t'(UOP_FMA)) return WB_CLS_W'(8);
+    else if (FP_EN && op == op_t'(UOP_FMISC)) return WB_CLS_W'(9);
+    else if (FP_EN && op == op_t'(UOP_I2F)) return WB_CLS_W'(10);
+    else return '0;
+  endfunction
+  // completion offset of a class (equals wb_offset of any uop of the class)
+  function automatic int wb_cls_off(input int c);
+    case (c)
+      1: return (MUL_MAX_LATENCY <= 0) ? 1 : MUL_MAX_LATENCY;
+      2: return DIV_MAX_LATENCY / 2 + 1;
+      3: return DIV_MAX_LATENCY + 1;
+      4: return FP_EN ? FP_FDIV_S_LAT + 1 : 1;
+      5: return FP_EN ? FP_FDIV_D_LAT + 1 : 1;
+      6: return FP_EN ? FP_FSQRT_S_LAT + 1 : 1;
+      7: return FP_EN ? FP_FSQRT_D_LAT + 1 : 1;
+      8: return FP_EN ? FP_FMA_LAT : 1;
+      9: return FP_EN ? FP_MISC_LAT : 1;
+      10: return FP_EN ? FP_I2F_LAT : 1;
+      default: return 1;
+    endcase
+  endfunction
+  // FP register-file write latency of a class (the divide classes finish one cycle after their wake-up latency; the FP write
+  // happens at the latency); 0 for a class that does not write the FP file
+  function automatic int fp_cls_lat(input int c);
+    if (!FP_EN || c < 4) return 0;
+    else if (c <= 7) return wb_cls_off(c) - 1;
+    else return wb_cls_off(c);
+  endfunction
+  // can issue port p complete a uop of class c (its capability includes the class's unit)
+  function automatic bit port_serves_cls(input int p, input int c);
+    case (c)
+      0: return 1'b1;
+      1: return (port_cap(p) & MASK_MUL) != '0;
+      2, 3: return (port_cap(p) & MASK_DIV) != '0;
+      4, 5, 6, 7: return FP_EN && (port_cap(p) & MASK_FDIV) != '0;
+      8: return FP_EN && (port_cap(p) & MASK_FMA) != '0;
+      9: return FP_EN && (port_cap(p) & MASK_FMISC) != '0;
+      10: return FP_EN && (port_cap(p) & MASK_I2F) != '0;
+      default: return 1'b0;
+    endcase
+  endfunction
+
   // ---- uop as stored in an issue queue and as sent to the PRF (IqStoredUop minus dbg, minus src busy) ----
   typedef struct packed {
     logic [PRF_IDX_WIDTH-1:0]    dest_preg;

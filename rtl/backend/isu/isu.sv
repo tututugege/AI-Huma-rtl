@@ -165,11 +165,11 @@ module isu
   logic [ISSUE_WIDTH-1:0] gate_ok_all, fp_ok_all, wb_ok;
 
   // ---- completion-cycle reservation of every issue port (EXP-035) ----
-  logic [WB_OFF_W-1:0] wb_off [ISSUE_WIDTH];
-  for (genvar p = 0; p < ISSUE_WIDTH; p++) begin : g_wb_off
-    assign wb_off[p] = wb_offset(grant_uop[p].op, grant_uop[p].func7, grant_uop[p].is_word);
+  logic [WB_CLS_W-1:0] wb_cls [ISSUE_WIDTH];
+  for (genvar p = 0; p < ISSUE_WIDTH; p++) begin : g_wb_cls
+    assign wb_cls[p] = wb_class(grant_uop[p].op, grant_uop[p].func7, grant_uop[p].is_word);
   end
-  isu_wb_gate u_wb_gate (.clk(clk), .rst_n(rst_n), .flush_all(rob_bcast_flush), .off(wb_off), .reserve(grant_valid),
+  isu_wb_gate u_wb_gate (.clk(clk), .rst_n(rst_n), .flush_all(rob_bcast_flush), .cls(wb_cls), .reserve(grant_valid),
                          .port_ok(wb_ok));
   // shared AGUs (LSU_AGU_SHARED): the last LSU_AGU_SHARED STA ports use the AGU of the last LSU_AGU_SHARED load ports; a load that
   // was granted keeps it (the load queue wins), the STA port is not granted then (its slot stays in the queue)
@@ -183,7 +183,7 @@ module isu
 
   if (FP_EN) begin : g_gate
     logic [FP_REQ_UNITS-1:0]   c_valid, c_fpw, c_ok;
-    logic [FP_COUNT_W:0]       c_lat [FP_REQ_UNITS];
+    logic [WB_CLS_W-1:0]       c_cls [FP_REQ_UNITS];
     for (genvar p = 0; p < ISSUE_WIDTH; p++) begin : g_port
       if (port_has(MASK_FPD, p)) begin : g_cand
         localparam int R = port_rank(MASK_FPD, p);
@@ -191,7 +191,7 @@ module isu
         assign c_fpw[R]   = grant_uop[p].dest_en && grant_uop[p].dest_fp &&
                             ((grant_uop[p].op == op_t'(UOP_FMA)) || (grant_uop[p].op == op_t'(UOP_FMISC)) ||
                              (grant_uop[p].op == op_t'(UOP_FDIV)) || (grant_uop[p].op == op_t'(UOP_I2F)));
-        assign c_lat[R]   = fp_latency(grant_uop[p].op, grant_uop[p].func7);
+        assign c_cls[R]   = wb_cls[p];
         assign fp_ok_all[p] = c_ok[R];
       end else begin : g_free
         assign fp_ok_all[p] = 1'b1;
@@ -199,7 +199,7 @@ module isu
     end
     isu_fp_gate #(.NC(FP_REQ_UNITS)) u_gate (
       .clk(clk), .rst_n(rst_n), .flush_all(rob_bcast_flush), .cand_valid(c_valid), .cand_fpw(c_fpw),
-      .cand_lat(c_lat), .gate_ok(c_ok));
+      .cand_cls(c_cls), .gate_ok(c_ok));
   end else begin : g_no_gate
     assign fp_ok_all = '1;
   end

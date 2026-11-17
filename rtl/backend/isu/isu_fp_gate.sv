@@ -19,7 +19,7 @@ module isu_fp_gate
   input  logic          flush_all,      // the reference clears every reservation on a global flush
   input  logic [NC-1:0] cand_valid,     // candidate is granted by its queue (before this gate)
   input  logic [NC-1:0] cand_fpw,       // ... and writes the FP register file (dest_en & dest_fp & an FP-unit op)
-  input  logic [FP_COUNT_W:0] cand_lat [NC],   // model latency in cycles (>= 2)
+  input  logic [WB_CLS_W-1:0] cand_cls [NC],   // completion class of the candidate (its write latency is a constant of the class)
   output logic [NC-1:0] gate_ok         // candidate may issue (not an FP write, or a port is free in its cycle)
 );
 
@@ -32,22 +32,46 @@ module isu_fp_gate
 
   logic [RB-1:0] slot [NC];
   logic [NC-1:0] granted;               // candidate holds a reservation
-  logic [CNT_W-1:0] occ [NC];           // reservations in the candidate's cycle before it
+  logic [CNT_W-1:0] occ_c [WB_NCLS];    // reservations in the cycle a class writes (registered table only)
+  logic [CNT_W-1:0] occ0 [NC];          // ... for the candidate's class
+  logic [NC-1:0] same_slot [NC];        // same_slot[k][j]: earlier candidate j writes in the same cycle as k (from the classes only)
+
+  for (genvar c = 0; c < WB_NCLS; c++) begin : g_cls
+    if (fp_cls_lat(c) > 0) begin : g_fp
+      assign occ_c[c] = busy_q[now_q + RB'(fp_cls_lat(c))];
+    end else begin : g_nofp
+      assign occ_c[c] = '0;
+    end
+  end
 
   for (genvar k = 0; k < NC; k++) begin : g_cand
-    logic [NC-1:0] same;                // earlier granted candidates that reserve the same cycle
-    logic [CNT_W-1:0] n_same;
-    for (genvar j = 0; j < NC; j++) begin : g_same
-      if (j < k) begin : g_older
-        assign same[j] = granted[j] & (slot[j] == slot[k]);
-      end else begin : g_none
-        assign same[j] = 1'b0;
+    logic [RB-1:0] lat_k;
+    always_comb begin
+      lat_k = '0;
+      occ0[k] = '0;
+      for (int c = 0; c < WB_NCLS; c++) if (cand_cls[k] == WB_CLS_W'(c)) begin
+        lat_k = RB'(fp_cls_lat(c));
+        occ0[k] = occ_c[c];
       end
     end
+    assign slot[k] = now_q + lat_k;
+    for (genvar j = 0; j < NC; j++) begin : g_same
+      logic [RB-1:0] lat_j;
+      always_comb begin
+        lat_j = '0;
+        for (int c = 0; c < WB_NCLS; c++) if (cand_cls[j] == WB_CLS_W'(c)) lat_j = RB'(fp_cls_lat(c));
+      end
+      assign same_slot[k][j] = (j < k) && (lat_j == lat_k);
+    end
+  end
+
+  // the chain over the candidates: a candidate sees the earlier granted ones that write in its cycle
+  for (genvar k = 0; k < NC; k++) begin : g_gate
+    logic [NC-1:0] same;
+    logic [CNT_W-1:0] n_same;
+    assign same = granted & same_slot[k];
     ttg_popcount #(.N(NC), .CW(CNT_W)) u_same (.bits(same), .count(n_same));
-    assign slot[k]    = now_q + RB'(cand_lat[k]);
-    assign occ[k]     = busy_q[slot[k]] + n_same;
-    assign gate_ok[k] = !(cand_valid[k] && cand_fpw[k]) || (P == 0) || (occ[k] < CNT_W'(P));
+    assign gate_ok[k] = !(cand_valid[k] && cand_fpw[k]) || (P == 0) || ((occ0[k] + n_same) < CNT_W'(P));
     assign granted[k] = cand_valid[k] && cand_fpw[k] && gate_ok[k];
   end
 
