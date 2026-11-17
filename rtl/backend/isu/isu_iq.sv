@@ -15,8 +15,7 @@ module isu_iq
   parameter int SH_N      = 0,
   parameter int SH_LD_LO  = 0,
   parameter int SH_STA_LO = 0,
-  parameter bit AGE_EN    = 1'b0,   // the oldest-on-first-port select (isu_iq_select)
-  parameter bit INT_PAR   = 1'b0    // the parallel select of the INT queue (isu_int_select)
+  parameter bit AGE_EN    = 1'b0    // the oldest-on-first-port select (isu_iq_select)
 ) (
   input  logic                     clk,
   input  logic                     rst_n,
@@ -60,7 +59,7 @@ module isu_iq
       assign older[i] = '0;
     end
   end
-  isu_iq_select #(.SIZE(SIZE), .NP(NP), .PORT_BASE(PORT_BASE), .AGE_EN(AGE_EN), .INT_PAR(INT_PAR)) u_select (
+  isu_iq_select #(.SIZE(SIZE), .NP(NP), .PORT_BASE(PORT_BASE), .AGE_EN(AGE_EN)) u_select (
     .ready(slot_ready), .entry_op(slot_op), .older(older), .sel_onehot(sel_onehot), .sel_valid(sel_valid));
 
   logic [UW-1:0] slot_bits [SIZE];

@@ -102,7 +102,6 @@ package ttg_cfg_pkg;
   localparam int IQ_MEM_ENQ_WIDTH = 6;
   localparam int MEM_AGE = 1;
   localparam int IQ_SAME_CYCLE_REUSE = 0;
-  localparam int INT_PAR_SELECT = 1;
   localparam int LSU_AGU_SHARED = 2;
   localparam int LSU_AGU_PHYS = 5;
   localparam int LSU_LDU_WIDTH = 2;
