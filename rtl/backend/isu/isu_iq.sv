@@ -95,7 +95,9 @@ module isu_iq
 
   // a slot freed by an issue this cycle can be reused by an enqueue in the same cycle
   isu_alloc_chain #(.NREQ(DW), .NSLOT(SIZE)) u_alloc (
-    .clk(clk), .req(enq_valid), .free(~(slot_valid & ~granted_slot)), .slot_onehot(enq_slot));
+    .clk(clk), .req(enq_valid),
+    .free(IQ_SAME_CYCLE_REUSE != 0 ? ~(slot_valid & ~granted_slot) : ~slot_valid),   // 0: the allocation does not wait for this cycle's issue
+    .slot_onehot(enq_slot));
 
   isu_iq_store #(.SIZE(SIZE), .DW(DW)) u_store (
     .clk(clk), .rst_n(rst_n),
