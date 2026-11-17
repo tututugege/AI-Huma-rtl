@@ -49,14 +49,9 @@ module lp_l1
   output logic                pf_any            // a load or store page fault (clears the LR/SC reservation)
 );
 
-  // slot-level view of the DTLB requests / responses (the slot is the L1 slot, the port the physical one)
-  logic [NLD-1:0]      mmu_l_req_valid;
-  logic [XLEN_BITS-1:0] mmu_l_req_vaddr [NLD];
-  logic [LQW-1:0]      mmu_l_req_idx [NLD];
+  // Slot-level view of the DTLB responses: slot k reads the response of its DTLB port (its tag).  The requests are built per
+  // port, not per slot: no slot-to-port selection sits between the AGU and the DTLB.
   logic [2:0]          mmu_l_req_port [NLD];
-  logic [NST-1:0]      mmu_s_req_valid;
-  logic [XLEN_BITS-1:0] mmu_s_req_vaddr [NST];
-  logic [SQW-1:0]      mmu_s_req_idx [NST];
   logic [2:0]          mmu_s_req_port [NST];
   logic [NLD-1:0]      mmu_l_valid;
   logic [31:0]         mmu_l_paddr [NLD];
@@ -80,82 +75,70 @@ module lp_l1
     return (k < NS) ? NLD + k : NL + (k - NS);
   endfunction
 
-  // ---- slots <-> DTLB ports ----
-  // port q takes the request of the slot whose port tag is q (at most one valid request per port); a slot reads the response
-  // of its port
-  always_comb begin
-    for (int q = 0; q < LSU_AGU_PHYS; q++) begin
-      mmu_req_valid[q] = 1'b0;
-      mmu_req_vaddr[q] = '0;
-      mmu_req_idx[q] = '0;
-      mmu_req_st[q] = 1'b0;
-      for (int k = 0; k < NLD; k++) if (mmu_l_req_valid[k] && mmu_l_req_port[k] == 3'(q)) begin
-        mmu_req_valid[q] = 1'b1;
-        mmu_req_vaddr[q] = mmu_req_vaddr[q] | mmu_l_req_vaddr[k];
-        mmu_req_idx[q] = mmu_req_idx[q] | 6'(mmu_l_req_idx[k]);
-      end
-      for (int k = 0; k < NST; k++) if (mmu_s_req_valid[k] && mmu_s_req_port[k] == 3'(q)) begin
-        mmu_req_valid[q] = 1'b1;
-        mmu_req_st[q] = 1'b1;
-        mmu_req_vaddr[q] = mmu_req_vaddr[q] | mmu_s_req_vaddr[k];
-        mmu_req_idx[q] = mmu_req_idx[q] | 6'(mmu_s_req_idx[k]);
-      end
-    end
-    for (int k = 0; k < NLD; k++) begin
-      mmu_l_valid[k] = mmu_valid[mmu_l_req_port[k]];
-      mmu_l_paddr[k] = mmu_paddr[mmu_l_req_port[k]];
-      mmu_l_result[k] = mmu_result[mmu_l_req_port[k]];
-      mmu_l_entry[k] = LQW'(mmu_entry[mmu_l_req_port[k]]);
-    end
-    for (int k = 0; k < NST; k++) begin
-      mmu_s_valid[k] = mmu_valid[mmu_s_req_port[k]];
-      mmu_s_paddr[k] = mmu_paddr[mmu_s_req_port[k]];
-      mmu_s_result[k] = mmu_result[mmu_s_req_port[k]];
-      mmu_s_entry[k] = SQW'(mmu_entry[mmu_s_req_port[k]]);
-    end
-  end
-
-  // ---- load slots ----
+  // ---- DTLB port allocation of the replays (a short chain over the replay registers, on thermometer counters) ----
+  // used_new: the ports held by the new requests. The load replays take the free load-capable ports lowest first, so the j-th
+  // replay that needs the DTLB gets the j-th free port (port_of[j]). The chain over the replay registers carries three
+  // thermometer-coded counters (a consumed replay shifts them by one): the load slots left, the DTLB ports left and the
+  // DTLB ports taken (its position selects the port).
+  logic [NPH-1:0] used_new;
+  logic [NLD-1:0] free_l;                 // free ports a load may use
+  logic [2:0]     fcnt [NLD+1];           // free load-capable ports below q
+  logic [2:0]     port_of [NLD];          // the j-th free load-capable port
+  logic [2:0]     nf;
   logic [2:0]     pre [NLD+1];
   logic [2:0]     nnew;
-  logic [2:0]     rpos [NRP];     // load slot of replay register r (after the new loads and the older replays)
+  logic [NLD-1:0] sr_t [NRP+1];           // sr_t[r][i]: more than i load slots left before replay register r
+  logic [NLD-1:0] pr_t [NRP+1];           // more than i DTLB ports left
+  logic [NLD-1:0] ut_t [NRP+1];           // more than i DTLB ports taken by the older replays
+  logic [2:0]     rpos [NRP];             // load slot of replay register r (after the new loads and the older replays)
   logic [NRP-1:0] rp_ok;
-  logic [2:0]     acc;
-  logic [NPH-1:0] used;           // physical ports taken: new requests, then the load replays in order
-  logic [NPH-1:0] free_ld;
-  logic [2:0]     rp_phys [NRP];  // physical port of the load replay of register r (when it needs the DTLB)
+  logic [NRP-1:0] rp_need;                // the replay of register r is a DTLB request
+  logic [2:0]     rp_phys [NRP];          // its port
+  logic [NPH-1:0] picked;                 // ports taken by the load replays
   always_comb begin
-    used = '0;
-    for (int i = 0; i < NLD; i++) used[i] = ag_acc[i];
-    for (int k = 0; k < NST; k++) if (sa_acc[k]) used[st_phys(k)] = 1'b1;
+    used_new = '0;
+    for (int i = 0; i < NLD; i++) used_new[i] = ag_acc[i];
+    for (int k = 0; k < NST; k++) if (sa_acc[k]) used_new[st_phys(k)] = 1'b1;
+    free_l = ~used_new[NLD-1:0];
+    fcnt[0] = '0;
+    for (int q = 0; q < NLD; q++) fcnt[q+1] = fcnt[q] + 3'(free_l[q]);
+    nf = fcnt[NLD];
+    for (int j = 0; j < NLD; j++) begin
+      port_of[j] = '0;
+      for (int q = 0; q < NLD; q++) if (free_l[q] && fcnt[q] == 3'(j)) port_of[j] = 3'(q);
+    end
     pre[0] = '0;
     for (int i = 0; i < NLD; i++) pre[i+1] = pre[i] + 3'(ag_acc[i]);
     nnew = pre[NLD];
-    acc = nnew;
-    free_ld = '0;
-    for (int r = 0; r < NRP; r++) begin
-      logic need, got;
-      rpos[r] = acc;
-      need = rp_v[r] && rpos[r] < 3'(NLD) && rp_pipe[r] && !rp_f[r].pa_v;   // a DTLB request
-      got = 1'b1;
-      rp_phys[r] = '0;
-      if (need) begin
-        got = 1'b0;
-        for (int q = 0; q < NLD; q++) begin   // lowest free port a load may use
-          if (!got && !used[q]) begin
-            got = 1'b1;
-            used[q] = 1'b1;
-            rp_phys[r] = 3'(q);
-          end
-        end
-      end
-      rp_cons[r] = rp_v[r] && rpos[r] < 3'(NLD) && got;
-      rp_ok[r] = rp_cons[r] && rp_pipe[r];
-      acc = acc + 3'(rp_ok[r]);
+    for (int i = 0; i < NLD; i++) begin
+      sr_t[0][i] = nnew < 3'(NLD - i);
+      pr_t[0][i] = nf > 3'(i);
     end
-    free_ld = used;
+    ut_t[0] = '0;
+    for (int r = 0; r < NRP; r++) begin
+      logic cons, take_port;
+      rp_need[r] = rp_pipe[r] && !rp_f[r].pa_v;
+      cons = rp_v[r] && sr_t[r][0] && (!rp_need[r] || pr_t[r][0]);   // a slot left, and a port if it needs one
+      rp_cons[r] = cons;
+      rp_ok[r] = cons && rp_pipe[r];
+      take_port = rp_ok[r] && rp_need[r];
+      sr_t[r+1] = rp_ok[r] ? (sr_t[r] >> 1) : sr_t[r];
+      pr_t[r+1] = take_port ? (pr_t[r] >> 1) : pr_t[r];
+      ut_t[r+1] = take_port ? {ut_t[r][NLD-2:0], 1'b1} : ut_t[r];
+      rp_phys[r] = '0;
+      for (int j = 0; j < NLD; j++) begin   // the (ports taken)-th free port
+        if (rp_need[r] && (j == 0 ? !ut_t[r][0] : (ut_t[r][j-1] && !ut_t[r][j]))) rp_phys[r] = port_of[j];
+      end
+    end
+    // load slot of the replay: after the new loads and the older consumed replays
+    rpos[0] = nnew;
+    for (int r = 1; r < NRP; r++) rpos[r] = rpos[r-1] + 3'(rp_ok[r-1]);
+    picked = '0;
+    for (int q = 0; q < NLD; q++)
+      for (int j = 0; j < NLD; j++) if (free_l[q] && fcnt[q] == 3'(j) && ut_t[NRP][j]) picked[q] = 1'b1;
   end
 
+  // ---- load slots ----
   always_comb begin
     for (int k = 0; k < NLD; k++) begin
       l1[k] = '0;
@@ -193,13 +176,14 @@ module lp_l1
     end
   end
 
-  // ---- DTLB requests and responses of the load slots ----
+  // ---- DTLB responses of the load slots ----
   always_comb begin
     for (int k = 0; k < NLD; k++) begin
       logic resp_ok, r_hit, r_pf;
-      mmu_l_req_valid[k] = l1[k].v && l1[k].need_tlb;
-      mmu_l_req_vaddr[k] = l1[k].vaddr;
-      mmu_l_req_idx[k] = l1[k].ldq;
+      mmu_l_valid[k] = mmu_valid[mmu_l_req_port[k]];
+      mmu_l_paddr[k] = mmu_paddr[mmu_l_req_port[k]];
+      mmu_l_result[k] = mmu_result[mmu_l_req_port[k]];
+      mmu_l_entry[k] = LQW'(mmu_entry[mmu_l_req_port[k]]);
       resp_ok = mmu_l_valid[k] && mmu_l_entry[k] == l1[k].ldq;
       r_hit = resp_ok && mmu_l_result[k] == MMU_HIT;
       r_pf = resp_ok && mmu_l_result[k] == MMU_PF;
@@ -226,44 +210,77 @@ module lp_l1
   logic [2:0] spre [NST+1];
   logic [2:0] ns;
   logic       srp_free;
-  logic [2:0] srp_phys;           // physical port of the STA replay
+  logic [2:0] srp_phys;           // port of the STA replay
+  logic       srp_req;            // the STA replay is a DTLB request
   always_comb begin
     spre[0] = '0;
     for (int i = 0; i < NST; i++) spre[i+1] = spre[i] + 3'(sa_acc[i]);
     ns = spre[NST];
     srp_free = 1'b0;
     srp_phys = '0;
-    for (int q = NPH - 1; q >= NL; q--) if (!free_ld[q]) begin srp_free = 1'b1; srp_phys = 3'(q); end   // lowest free port a STA may use
+    for (int q = NPH - 1; q >= NL; q--) if (!used_new[q] && !picked[q]) begin srp_free = 1'b1; srp_phys = 3'(q); end   // lowest free port a STA may use
     srp_cons = srp_v && ns < 3'(NST) && srp_free;
+    srp_req = srp_cons && srp_ok;
     for (int k = 0; k < NST; k++) begin
       s1_v[k] = 1'b0;
       s1_replay[k] = 1'b0;
       s1_stq[k] = '0;
-      mmu_s_req_vaddr[k] = '0;
       mmu_s_req_port[k] = '0;
       for (int i = 0; i < NST; i++) begin
         if (sa_acc[i] && spre[i] == 3'(k)) begin
           mmu_s_req_port[k] = 3'(st_phys(i));   // a new STA holds the port of its AGU
           s1_v[k] = 1'b1;
           s1_stq[k] = sa[i].stq;
-          mmu_s_req_vaddr[k] = sa[i].vaddr;
         end
       end
-      if (srp_cons && srp_ok && ns == 3'(k)) begin
+      if (srp_req && ns == 3'(k)) begin
         mmu_s_req_port[k] = srp_phys;
         s1_v[k] = 1'b1;
         s1_replay[k] = 1'b1;
         s1_stq[k] = srp_stq;
-        mmu_s_req_vaddr[k] = srp_vaddr;
       end
-      mmu_s_req_valid[k] = s1_v[k];
-      mmu_s_req_idx[k] = s1_stq[k];
+    end
+  end
+
+  // ---- DTLB requests, built per port: the new request of the port's AGU, or the replay that took the port ----
+  always_comb begin
+    for (int q = 0; q < NPH; q++) begin
+      mmu_req_valid[q] = 1'b0;
+      mmu_req_vaddr[q] = '0;
+      mmu_req_idx[q] = '0;
+      mmu_req_st[q] = 1'b0;
+      if (q < NLD && ag_acc[q]) begin   // new load
+        mmu_req_valid[q] = 1'b1;
+        mmu_req_vaddr[q] = mmu_req_vaddr[q] | ag[q].vaddr;
+        mmu_req_idx[q] = mmu_req_idx[q] | 6'(ag[q].ldq);
+      end
+      for (int k = 0; k < NST; k++) if (sa_acc[k] && st_phys(k) == q) begin   // new STA
+        mmu_req_valid[q] = 1'b1;
+        mmu_req_st[q] = 1'b1;
+        mmu_req_vaddr[q] = mmu_req_vaddr[q] | sa[k].vaddr;
+        mmu_req_idx[q] = mmu_req_idx[q] | 6'(sa[k].stq);
+      end
+      for (int r = 0; r < NRP; r++) if (rp_ok[r] && rp_need[r] && rp_phys[r] == 3'(q)) begin   // load replay
+        mmu_req_valid[q] = 1'b1;
+        mmu_req_vaddr[q] = mmu_req_vaddr[q] | rp_f[r].vaddr;
+        mmu_req_idx[q] = mmu_req_idx[q] | 6'(rp_ldq[r]);
+      end
+      if (srp_req && srp_phys == 3'(q)) begin   // STA replay
+        mmu_req_valid[q] = 1'b1;
+        mmu_req_st[q] = 1'b1;
+        mmu_req_vaddr[q] = mmu_req_vaddr[q] | srp_vaddr;
+        mmu_req_idx[q] = mmu_req_idx[q] | 6'(srp_stq);
+      end
     end
   end
 
   always_comb begin
     for (int k = 0; k < NST; k++) begin
       logic resp_ok;
+      mmu_s_valid[k] = mmu_valid[mmu_s_req_port[k]];
+      mmu_s_paddr[k] = mmu_paddr[mmu_s_req_port[k]];
+      mmu_s_result[k] = mmu_result[mmu_s_req_port[k]];
+      mmu_s_entry[k] = SQW'(mmu_entry[mmu_s_req_port[k]]);
       resp_ok = mmu_s_valid[k] && mmu_s_entry[k] == s1_stq[k];
       tl_s[k] = '0;
       tl_s[k].hit = s1_v[k] && resp_ok && mmu_s_result[k] == MMU_HIT;
