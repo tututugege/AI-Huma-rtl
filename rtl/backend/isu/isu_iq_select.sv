@@ -11,13 +11,12 @@ module isu_iq_select
   parameter int PORT_BASE = 0,                  // physical issue port of this queue's port 0
   // AGE_EN: the first port of each capability (no earlier port shares a capability bit with it) takes the oldest ready uop it can
   // serve (isu_oldest_pick), the other ports the lowest slot (the memory queue; docs/MEM_IQ.md in trace-model)
-  parameter bit AGE_EN    = 1'b0,
-  parameter int KW        = 8
+  parameter bit AGE_EN    = 1'b0
 ) (
   input  logic [SIZE-1:0] ready,
   input  op_set_t         entry_op [SIZE],      // one-hot op class of each slot
   /* verilator lint_off UNUSEDSIGNAL */   // waiver: read only by a queue with AGE_EN
-  input  logic [KW-1:0]   age_key [SIZE],       // {rob_flag, rob_idx} of each slot
+  input  logic [SIZE-1:0] older [SIZE],         // age matrix: older[i][j] = slot j is older than slot i
   /* verilator lint_on UNUSEDSIGNAL */
   output logic [SIZE-1:0] sel_onehot [NP],      // slot chosen by each port (all zero when none)
   output logic [NP-1:0]   sel_valid             // port found a slot
@@ -50,7 +49,11 @@ module isu_iq_select
     // first port of its capability: no earlier port could take any slot this port can
     localparam bit FIRST = first_of_cap(PORT_BASE, p);
     if (AGE_EN && FIRST) begin : g_age
-      isu_oldest_pick #(.N(SIZE), .KW(KW)) u_pick (.cand(candidate), .key(age_key), .onehot(sel_onehot[p]), .any(sel_valid[p]));
+      // the oldest candidate: a candidate with no older candidate
+      for (genvar i = 0; i < SIZE; i++) begin : g_old
+        assign sel_onehot[p][i] = candidate[i] && !(|(older[i] & candidate));
+      end
+      assign sel_valid[p] = |candidate;
     end else begin : g_slot_prio
       ttg_first_set #(.N(SIZE)) u_pick (.req(candidate), .onehot(sel_onehot[p]), .any(sel_valid[p]));
     end

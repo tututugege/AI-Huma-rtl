@@ -46,17 +46,21 @@ module isu_iq
   logic [NP-1:0]   sel_valid;
   logic [SIZE-1:0] granted_slot;
   logic [SIZE-1:0] enq_slot [DW];
+  logic [SIZE-1:0] write_slot;           // slots written by an enqueue this cycle
   isu_uop_t        enq_uop  [DW];
   logic [DW-1:0]   enq_wait1, enq_wait2, enq_wait3;
 
   // ---- select and grant (reads registered state only) ----
-  localparam int KW = ROB_IDX_WIDTH + 1;
-  logic [KW-1:0] age_key [SIZE];
-  for (genvar i = 0; i < SIZE; i++) begin : g_key
-    assign age_key[i] = {slot_uop[i].rob_flag, slot_uop[i].rob_idx};
+  logic [SIZE-1:0] older [SIZE];
+  if (AGE_EN) begin : g_age
+    isu_age_matrix #(.SIZE(SIZE)) u_age (.clk(clk), .write(write_slot), .slot_valid(slot_valid), .older(older));
+  end else begin : g_noage
+    for (genvar i = 0; i < SIZE; i++) begin : g_z
+      assign older[i] = '0;
+    end
   end
-  isu_iq_select #(.SIZE(SIZE), .NP(NP), .PORT_BASE(PORT_BASE), .AGE_EN(AGE_EN), .KW(KW)) u_select (
-    .ready(slot_ready), .entry_op(slot_op), .age_key(age_key), .sel_onehot(sel_onehot), .sel_valid(sel_valid));
+  isu_iq_select #(.SIZE(SIZE), .NP(NP), .PORT_BASE(PORT_BASE), .AGE_EN(AGE_EN)) u_select (
+    .ready(slot_ready), .entry_op(slot_op), .older(older), .sel_onehot(sel_onehot), .sel_valid(sel_valid));
 
   logic [UW-1:0] slot_bits [SIZE];
   for (genvar i = 0; i < SIZE; i++) begin : g_bits
@@ -98,6 +102,11 @@ module isu_iq
     .clk(clk), .req(enq_valid),
     .free(IQ_SAME_CYCLE_REUSE != 0 ? ~(slot_valid & ~granted_slot) : ~slot_valid),   // 0: the allocation does not wait for this cycle's issue
     .slot_onehot(enq_slot));
+
+  always_comb begin
+    write_slot = '0;
+    for (int w = 0; w < DW; w++) write_slot = write_slot | enq_slot[w];
+  end
 
   isu_iq_store #(.SIZE(SIZE), .DW(DW)) u_store (
     .clk(clk), .rst_n(rst_n),
