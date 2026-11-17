@@ -41,7 +41,9 @@ module lp_l1b
     logic cv, cu;
     logic [SQW-1:0] ci;
     assign en = l1[k].v && l_hit[k] && !l_mmio[k];
-    lp_cam u_cam (.voff(l1[k].vaddr[11:0]), .func3(l1[k].func3), .paddr(l_paddr[k]), .full(!l1[k].need_tlb),
+    // the full-address compare only exists for a replay whose paddr is known (full = !need_tlb): it reads the register, not the DTLB response
+    // (l_paddr is the response or that register: a structural path from the DTLB into the CAM that is never used)
+    lp_cam u_cam (.voff(l1[k].vaddr[11:0]), .func3(l1[k].func3), .paddr(l1[k].paddr_reg), .full(!l1[k].need_tlb),
                   .snap_idx(l1[k].snap_idx), .snap_flag(l1[k].snap_flag), .head(head_q), .head_flag(head_flag_q),
                   .count(count_q), .cv_va(cv_va), .cv_voff(cv_voff), .cv_f3(cv_f3), .sq(sq),
                   .spec_ok(spec_ok[k]), .cand_v(cv), .cand(ci), .unk(cu));
