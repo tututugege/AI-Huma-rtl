@@ -102,11 +102,12 @@ module lp_ptr
   // ---- P10: dispatch slot i takes the entry tail + (number of requests before it) ----
   logic [CNTW-1:0] n_req [NDIS+1];
   logic [CNTW-1:0] count_al;
-  always_comb begin
-    n_req[0] = '0;
-    for (int i = 0; i < NDIS; i++) n_req[i+1] = n_req[i] + CNTW'(al_req[i]);
-    count_al = count_q + n_req[NDIS];
+  // (the number of requests before slot i: a popcount of the lower requests, not a chain of adders)
+  for (genvar i = 0; i <= NDIS; i++) begin : g_nreq
+    localparam logic [NDIS-1:0] BELOW = NDIS'((64'(1) << i) - 64'(1));
+    ttg_popcount #(.N(NDIS), .CW(CNTW)) u_n (.bits(al_req & BELOW), .count(n_req[i]));
   end
+  assign count_al = count_q + n_req[NDIS];
   for (genvar s = 0; s < SQ; s++) begin : g_al
     logic [NDIS-1:0] hit;
     for (genvar i = 0; i < NDIS; i++) begin : g_p
@@ -122,8 +123,12 @@ module lp_ptr
   logic [SQ-1:0] hit_slot, hit_pos, hit_first;
   logic [63:0]   hit_rot;
   logic          any_hit;
-  assign keep_committed = ccount_cm > count_al ? count_al : ccount_cm;
+  // A flush or a mispredict stops the dispatch (dispatch_fire_ctl: no allocation in such a cycle), so those branches work on count_q: they do not
+  // wait for the allocation requests, which come late (the dispatch fire).
+  logic [CNTW-1:0] count_fm;   // count after the flush step, for the mispredict cut (no allocation in this cycle)
+  assign keep_committed = ccount_cm > count_q ? count_q : ccount_cm;
   assign count_flushed = flush ? keep_committed : count_al;
+  assign count_fm = flush ? keep_committed : count_q;
   // LP_CUT[8]: committed stores are never cut (a mispredict only cuts younger stores; ccount_cm <= count_q <= count_al)
   assign ccount_flushed = (flush && ((LP_CUT & 256) == 0)) ? keep_committed : ccount_cm;
   for (genvar s = 0; s < SQ; s++) begin : g_hit
@@ -134,15 +139,15 @@ module lp_ptr
   // count_flushed afterwards.  Equivalent: only positions below count_al hold live entries, so a live hit always
   // comes before any stale one; a first hit at or above count_flushed means no hit inside the window.
   for (genvar j = 0; j < SQ; j++) begin : g_pos
-    assign hit_pos[j] = hit_rot[j] && (((LP_L2 & 1024) != 0) || count_flushed > CNTW'(j));
+    assign hit_pos[j] = hit_rot[j] && (((LP_L2 & 1024) != 0) || count_fm > CNTW'(j));
   end
   lp_ffs #(.N(SQ)) u_first (.req(hit_pos), .onehot(hit_first), .any(any_hit));
   logic [SQW-1:0] first_ix;
   ttg_onehot_to_idx #(.N(SQ)) u_fix (.onehot(hit_first), .idx(first_ix));
   always_comb begin
-    count_m = count_flushed;
+    count_m = count_fm;
     if ((LP_L2 & 1024) != 0) begin
-      if (any_hit && CNTW'(first_ix) < count_flushed) count_m = CNTW'(first_ix);
+      if (any_hit && CNTW'(first_ix) < count_fm) count_m = CNTW'(first_ix);
     end else begin
       for (int j = 0; j < SQ; j++) if (hit_first[j]) count_m = CNTW'(j);
     end

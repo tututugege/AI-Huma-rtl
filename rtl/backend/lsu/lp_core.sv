@@ -304,8 +304,7 @@ module lp_core
   logic [SQ-1:0] srp_take;
   always_comb begin
     for (int j = 0; j < SQ; j++) begin
-      br_al[j] = sq[j].br_mask;
-      for (int i = 0; i < NDIS; i++) if (al_slot[j][i]) br_al[j] = dis_st[i].br_mask;
+      br_al[j] = sq[j].br_mask;   // (a mispredict cycle has no allocation: the registered masks are what the cut looks at)
     end
   end
 

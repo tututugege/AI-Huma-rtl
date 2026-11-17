@@ -18,7 +18,9 @@ module dispatch_lsu_alloc
   input  logic [STQ_FREE_W-1:0]     stq_free,
   input  logic [LDQ_FREE_W-1:0]     ldq_free,
   input  logic [LDQ_IDX_WIDTH-1:0]  ldq_alloc_idx   [LDQ_PORTS],
+  /* verilator lint_off UNUSEDSIGNAL */   // waiver: kept for the interface; the grant is decided by ldq_free
   input  logic [LDQ_PORTS-1:0] ldq_alloc_valid,
+  /* verilator lint_on UNUSEDSIGNAL */
   output logic [NUM_SLOTS-1:0] lsu_ok,
   output logic [STQ_IDX_WIDTH-1:0]  stq_idx    [NUM_SLOTS],
   output logic [NUM_SLOTS-1:0] stq_flag,
@@ -57,7 +59,9 @@ module dispatch_lsu_alloc
 
     // Ref: Dispatch::comb_alloc (load_alloc_count / store_alloc_count conditions)
     always_comb begin
-      ld_granted = want_ld[i] && (LDQ_FREE_W'(ld_rank[i]) < ldq_free) && ldq_alloc_valid[ld_rank[i][LDQ_PORT_W-1:0]];
+      // (the LSU's free-slot picker has a valid output for the m-th free entry, which is `m < free count`: the count alone decides the grant, the
+      // picker's serial chain only produces the index, a data path)
+      ld_granted = want_ld[i] && (LDQ_FREE_W'(ld_rank[i]) < ldq_free);
       st_granted = want_st[i] && (STQ_FREE_W'(st_rank[i]) < stq_free);
       stq_pos    = STQ_POS_W'(stq_tail) + STQ_POS_W'(st_rank[i]);
       lsu_ok[i] = (!want_ld[i] || ld_granted) && (!want_st[i] || st_granted);
