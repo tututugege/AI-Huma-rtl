@@ -130,16 +130,41 @@ module prf import ttg_cfg_pkg::*; import fp_pkg::*; #(
   logic [FTQ_PRF_PC_PORT_NUM-1:0] req_valid_vec;
   logic [LSU_LOAD_WB_WIDTH-1:0]   wake_valid_vec;
 
+  // Shared AGUs (LSU_AGU_SHARED): the last NSH STA lanes use the AGU of the last NSH load lanes, so they also share its src1 read
+  // port (the base register). The load lane's read port takes the STA lane's address when that lane issues (a granted load wins in
+  // the issue stage, so both never issue together); the STA lane's own read port is not used and its data is the load lane's.
+  localparam int NSH       = LSU_AGU_SHARED;
+  localparam int SH_LD_LO  = IQ_LD_PORT_BASE + LSU_LDU_COUNT - NSH;     // first shared load lane
+  localparam int SH_STA_LO = IQ_STA_PORT_BASE + LSU_STA_COUNT - NSH;    // first shared STA lane
+  function automatic bit lane_sh_ld(int i);
+    return NSH > 0 && i >= SH_LD_LO && i < SH_LD_LO + NSH;
+  endfunction
+  function automatic bit lane_sh_sta(int i);
+    return NSH > 0 && i >= SH_STA_LO && i < SH_STA_LO + NSH;
+  endfunction
+
   for (genvar i = 0; i < LANES; i++) begin : g_lane
     assign exe_valid_vec[i]   = exe2prf_entry_valid[i];
     assign exe_dest_en_vec[i] = exe2prf_entry_uop_dest_en[i];
     assign exe_is_load_vec[i] = exe2prf_entry_uop_op[i] == UOP_LOAD;
-    assign src_en_arr[0][i]   = iss2prf_iss_entry_uop_src1_en[i];
+    if (lane_sh_ld(i)) begin : g_sh_ld
+      localparam int S = SH_STA_LO + (i - SH_LD_LO);   // the STA lane that shares this port
+      assign src_en_arr[0][i]   = iss2prf_iss_entry_valid[S] ? iss2prf_iss_entry_uop_src1_en[S] : iss2prf_iss_entry_uop_src1_en[i];
+      assign src_preg_arr[0][i] = iss2prf_iss_entry_valid[S] ? iss2prf_iss_entry_uop_src1_preg[S] : iss2prf_iss_entry_uop_src1_preg[i];
+      assign prf2exe_iss_entry_uop_src1_rdata[i] = src_rdata[0][i];
+    end else if (lane_sh_sta(i)) begin : g_sh_sta
+      localparam int L = SH_LD_LO + (i - SH_STA_LO);   // the load lane whose read port this lane uses
+      assign src_en_arr[0][i]   = 1'b0;
+      assign src_preg_arr[0][i] = '0;
+      assign prf2exe_iss_entry_uop_src1_rdata[i] = src_rdata[0][L];
+    end else begin : g_own
+      assign src_en_arr[0][i]   = iss2prf_iss_entry_uop_src1_en[i];
+      assign src_preg_arr[0][i] = iss2prf_iss_entry_uop_src1_preg[i];
+      assign prf2exe_iss_entry_uop_src1_rdata[i] = src_rdata[0][i];
+    end
     assign src_en_arr[1][i]   = iss2prf_iss_entry_uop_src2_en[i];
-    assign src_preg_arr[0][i] = iss2prf_iss_entry_uop_src1_preg[i];
     assign src_preg_arr[1][i] = iss2prf_iss_entry_uop_src2_preg[i];
     assign prf2exe_iss_entry_valid[i]          = iss2prf_iss_entry_valid[i];
-    assign prf2exe_iss_entry_uop_src1_rdata[i] = src_rdata[0][i];
     assign prf2exe_iss_entry_uop_dest_preg[i] = iss2prf_iss_entry_uop_dest_preg[i];
     assign prf2exe_iss_entry_uop_ftq_idx[i] = iss2prf_iss_entry_uop_ftq_idx[i];
     assign prf2exe_iss_entry_uop_is_atomic[i] = iss2prf_iss_entry_uop_is_atomic[i];
