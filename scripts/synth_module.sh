@@ -23,12 +23,16 @@ SLANG=${SLANG:-/Users/ruyaoh/personal/yosys-slang/build/slang.so}   # yosys-slan
 # SYNTH_MEM=1: keep memories as $mem cells (stat lists their bits) instead of mapping them to flops: for storage-dominated modules.
 # Both options skip the SAT-based `share` pass: on wide muxes (dcache_arr, lsu_dc_req_st: 1.9M SAT variables) it never finishes.
 # SYNTH_LTP=1: also print the longest topological path (gate levels, flip-flops excluded) of the flattened result to build/synth/<top>.ltp: a depth proxy, not timing.
+# SYNTH_ADDER=<kogge-stone|sklansky|han-carlson>: map the adders ($alu / $lcu) with that yosys choice instead of the default carry chain (depth proxy: a tool maps `+` to a fast adder)
 # SYNTH_LIGHT=1: light ABC script (strash; map) instead of yosys' default one.  The default script does not finish (>600 s) on deep combinational
 #   logic (fpu_div: 7.4k gates, divider array); the light one takes ~2 s and gives a comparable (less optimised) gate count.
 ABC_CMD="abc"; [ -n "${SYNTH_LIGHT:-}" ] && ABC_CMD="abc -script +strash;map"
 # SYNTH_DEPTH=1: depth-oriented ABC script (AIG balancing + dc2 before the delay-oriented map): use together with SYNTH_LTP for the depth proxy;
 #   the plain light script keeps OR/AND chains of loops unbalanced (a 64-step chain stays 64 levels deep).
 [ -n "${SYNTH_DEPTH:-}" ] && ABC_CMD="abc -script +strash;balance;dc2;balance;map"
+# SYNTH_ABC="<abc commands>": any ABC script (e.g. "strash;balance;map"); dc2 rewrites adders / comparators into long carry chains, so a script without it shows the structural depth of arithmetic
+[ -n "${SYNTH_ABC:-}" ] && ABC_CMD="abc -script +$SYNTH_ABC"
+TECHMAP_CMD="techmap"; [ -n "${SYNTH_ADDER:-}" ] && TECHMAP_CMD="techmap -map +/choices/$SYNTH_ADDER.v -map +/techmap.v"
 if [ -n "${SYNTH_MEM:-}${SYNTH_LIGHT:-}" ]; then
   MEMMAP="memory_map"; [ -n "${SYNTH_MEM:-}" ] && MEMMAP=""
   # coarse part of `synth` written out WITHOUT `check`: on very wide vectors (icache_arr: 850k wire bits, 421 cells) `check` never finishes
@@ -49,7 +53,7 @@ opt_clean
 opt -fast -full
 $MEMMAP
 opt -full
-techmap
+$TECHMAP_CMD
 opt -fast
 $ABC_CMD
 opt -fast"
