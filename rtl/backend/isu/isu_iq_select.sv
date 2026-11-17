@@ -16,7 +16,9 @@ module isu_iq_select
 ) (
   input  logic [SIZE-1:0] ready,
   input  op_set_t         entry_op [SIZE],      // one-hot op class of each slot
-  input  logic [KW-1:0]   age_key [SIZE],       // {rob_flag, rob_idx} of each slot (read when AGE_EN)
+  /* verilator lint_off UNUSEDSIGNAL */   // waiver: read only by a queue with AGE_EN
+  input  logic [KW-1:0]   age_key [SIZE],       // {rob_flag, rob_idx} of each slot
+  /* verilator lint_on UNUSEDSIGNAL */
   output logic [SIZE-1:0] sel_onehot [NP],      // slot chosen by each port (all zero when none)
   output logic [NP-1:0]   sel_valid             // port found a slot
 );
