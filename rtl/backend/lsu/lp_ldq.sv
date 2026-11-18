@@ -172,7 +172,10 @@ module lp_ldq
           l2_dec_e = l2_dec[p];
           l2w_e = l2w[p];
         end
-        if (dcl_valid[p] && !dcl_req_id[p][31] && dcl_req_id[p][LQW-1:0] == LQW'(e)) begin
+        // (the epoch is part of the match: a stale response of an earlier request of this entry on another port must not
+        // shadow the response of the current request; the last matching port wins only among live responses)
+        if (dcl_valid[p] && !dcl_req_id[p][31] && dcl_req_id[p][LQW-1:0] == LQW'(e) &&
+            dcl_req_id[p][LQW +: EPW] == q_o[e].epoch) begin
           rs_v = 1'b1;
           rs_ep = dcl_req_id[p][LQW +: EPW];
           rs_hit_e = dcl_replay[p] == RT_HIT;
