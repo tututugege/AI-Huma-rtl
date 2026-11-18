@@ -180,17 +180,14 @@ module dispatch_core
       .base(base_uop), .itype(alloc_inst[i].itype), .cls(cls[i]), .fp_cls(alloc_inst[i].fp_cls),
       .me_elim(alloc_inst[i].me_elim), .is_rvc(alloc_inst[i].is_rvc),
       .has_k(lane_has), .uop_k(lane_uop), .expect_mask(expect_mask[i]));
-    // The uops of the lane go to the queues: INT_CLUSTERS = 2: an integer uop goes to the queue of its position: CSR to IQ_INT,
+    // The uops of the lane go to the queues: an integer uop goes to the queue of its position: CSR to IQ_INT,
     // I2F to IQ_INT1, the others by the parity of the ROB index (Ref: route_iq in back-end/include/util.h); the load and the
     // store address both go to the memory queue (an AMO sends two uops there); STD, BR and FP to their own queues.
     logic to_int1;
     always_comb begin
-      to_int1 = 1'b0;
-      if (INT_CLUSTERS == 2) begin
-        if (lane_uop[K_INT].op == UOP_CSR)      to_int1 = 1'b0;
-        else if (lane_uop[K_INT].op == UOP_I2F) to_int1 = 1'b1;
-        else                                    to_int1 = res[i].rob_idx[0];
-      end
+      if (lane_uop[K_INT].op == UOP_CSR)      to_int1 = 1'b0;
+      else if (lane_uop[K_INT].op == UOP_I2F) to_int1 = 1'b1;
+      else                                    to_int1 = res[i].rob_idx[0];
       has_iq[i] = '0;
       has_iq[i][IQ_INT]  = lane_has[K_INT] && !to_int1;
       has_iq[i][IQ_INT1] = lane_has[K_INT] && to_int1;

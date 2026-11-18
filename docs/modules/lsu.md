@@ -45,10 +45,8 @@ depth: 100 层（单模块综合，通用门代理，提交 312e6f8 的说明里
 | `NRET` | 4 | STQ 每拍最多从队首退休的 store 数 |
 | `EPW` / `RWW` | 4 / 3 | 每个 LDQ 项的请求代号位宽、重放倒计时位宽 |
 | `LSU_PEPLAY_WAIT_CYCLES`（`RWAIT`） | 4 | MSHR_HIT / MSHR_FULL 类重放的等待拍数 |
-| `LSU_WAIT_MSHR_FILL` | 1 | 打开：DCache 填充事件唤醒等待中的 load / store（`lp_core` 的 `fill_en`） |
 | `LSU_MEMSPEC`（`MS`） | 1 | 访存相关性推测开 |
 | `LSU_MDP_BITS` / `LSU_MDP_CLR` | 6 / 2000 | 等待表索引位宽（64 项 × 1 位）/ 清零周期 |
-| `LP_STAEV_REG` | 1 | STA / STD 事件先进寄存器再唤醒停车的 load（模型 `CFG_LSU_STAEV_REG`） |
 | `LP_CUT` | 262143（18 位全 1） | 关键路径切点掩码，见第 9 节 |
 | `LP_L2` | 1907 | 另一组切点 / 功能位，见第 9 节 |
 | `DCACHE_OFFSET_BITS` / `LINEW` | 6 / 26 | 缓存行 64 B；行号位宽 `32 - 6` |
@@ -161,7 +159,7 @@ depth: 100 层（单模块综合，通用门代理，提交 312e6f8 的说明里
 
 29 个 `lp_*` 共 4098 行，`lsu.sv` + `lsu_pipe.sv` 384 行，`lsu_lrsc` + `lsu_pkg` 315 行，合计 4797 行。
 
-状态：LDQ 每项一个状态（4 位）和 `lp_ldq_t` 的字段（`rob_idx / rob_flag / br_mask / dest_preg / func3 / vaddr / pa_v / paddr / mmio / pf / lrsc / result / snap_idx / snap_flag / rcause / blk / rwait / rtype / epoch / spec / vio / second / wait_b / mdp`，其中 `snap_idx / snap_flag` 是分派时 STQ 的尾，即"比这个 load 老的 store 到哪里为止"）；STQ 每项 `lp_stq_t`（`va_v / pa_v / data_v / pf / mmio / lrsc / sc_pass / suppress / trp / wbp / wbd / cmt / iss / mmw / done` 各 1 位，加 `vaddr / paddr / data / func3 / dest_preg / rob_idx / rob_flag / br_mask / rtype / rwait`）；STQ 指针 `head_q / head_flag_q / count_q / ccount_q`；`pl12_q [4]`（L1/L2 寄存器）；L3 寄存器；`rp_v_q / rp_ldq_q [4]` 与 `rp_ptr_q`（轮转指针）；`srp_v_q / srp_stq_q` 与 `srp_ptr_q`；STA / STD 事件寄存（`LP_STAEV_REG`）；写缓冲 `ent_q [4]` 和年龄矩阵 `lt_q`；未缓存单元；LR / SC 预约；等待表 `tab_q [64]`、`trn_q [64]`、清零计时器。
+状态：LDQ 每项一个状态（4 位）和 `lp_ldq_t` 的字段（`rob_idx / rob_flag / br_mask / dest_preg / func3 / vaddr / pa_v / paddr / mmio / pf / lrsc / result / snap_idx / snap_flag / rcause / blk / rwait / rtype / epoch / spec / vio / second / wait_b / mdp`，其中 `snap_idx / snap_flag` 是分派时 STQ 的尾，即"比这个 load 老的 store 到哪里为止"）；STQ 每项 `lp_stq_t`（`va_v / pa_v / data_v / pf / mmio / lrsc / sc_pass / suppress / trp / wbp / wbd / cmt / iss / mmw / done` 各 1 位，加 `vaddr / paddr / data / func3 / dest_preg / rob_idx / rob_flag / br_mask / rtype / rwait`）；STQ 指针 `head_q / head_flag_q / count_q / ccount_q`；`pl12_q [4]`（L1/L2 寄存器）；L3 寄存器；`rp_v_q / rp_ldq_q [4]` 与 `rp_ptr_q`（轮转指针）；`srp_v_q / srp_stq_q` 与 `srp_ptr_q`；STA / STD 事件寄存；写缓冲 `ent_q [4]` 和年龄矩阵 `lt_q`；未缓存单元；LR / SC 预约；等待表 `tab_q [64]`、`trn_q [64]`、清零计时器。
 
 ## 5. 一拍内的数据流
 
@@ -195,7 +193,7 @@ depth: 100 层（单模块综合，通用门代理，提交 312e6f8 的说明里
 
 ### 5.4 停车、唤醒和重放
 
-1. **唤醒事件**：本拍的 STA 到达 / DTLB 结果（`ev_sta`）、STD 写入（`ev_data`）、STQ 退休（`ev_ret`）、SC 判决（`ev_sc`）。因为 `LP_STAEV_REG = 1`，STA / STD 事件和广播视图（`sta_info`：STQ 项在本拍 DTLB 结果和 STD 之后的 `va_v / voff / func3 / pa_v / paddr / data_v / hold_sc / suppress / data`）先进寄存器，停车的 load 晚一拍被唤醒；退休、SC 事件和"项是否存活"的判断不晚。
+1. **唤醒事件**：本拍的 STA 到达 / DTLB 结果（`ev_sta`）、STD 写入（`ev_data`）、STQ 退休（`ev_ret`）、SC 判决（`ev_sc`）。STA / STD 事件（模型 `CFG_LSU_STAEV_REG`）和广播视图（`sta_info`：STQ 项在本拍 DTLB 结果和 STD 之后的 `va_v / voff / func3 / pa_v / paddr / data_v / hold_sc / suppress / data`）先进寄存器，停车的 load 晚一拍被唤醒；退休、SC 事件和"项是否存活"的判断不晚。
 2. **每项的唤醒**（`lp_wk`，每个 LDQ 项一个）：`RC_ADDR` 在 `ev_sta || ev_ret` 时对阻挡它的 store 做同样的 STLF 确认：不重叠 → `LS_RDY`；部分重叠 → 改成 `RC_HOLD`；数据没到 → 改成 `RC_DATA`；可以转发 → `LS_WBP` 并把转发值存入 `result`；仍无地址 → 不动。`RC_HOLD`：store 退休或 SC 判决 → `LS_RDY`。`RC_DATA`：STD 写入该 store → `LS_WBP`（值从那个 STD 口取）；store 先退休 → `LS_RDY`。`RC_TLB` / `RC_DC`：`rwait` 每拍减 1，减到 0 → `LS_RDY`；`RC_DC` 还可被填充事件提前唤醒：`MSHR_HIT` 且填充行号等于 load 的行号；`MSHR_FULL` 在填充事件拍，只让最低的 `NLD` 个候选（拍首已停车的）被唤醒。`LP_L2[8]` 打开：本拍刚在 L2 停车的 load 的唤醒按口（4 个单元）算，不再串在 L2 决定之后每项算一遍（等价，不改周期）。
 3. **重放寄存器**（`lp_rp`）：`LS_RDY` 的项（现行 `LP_CUT[2] = 1`：只看拍首寄存的 RDY 位，本拍刚被唤醒的项下一拍才被挑；关掉该位则本拍唤醒的也算）按轮转指针 `rp_ptr_q` 旋转后用 find-first 挑最低的 4 个，第 j 个空闲的重放寄存器拿第 j 个；被挑中的项当拍进入 `LS_PIPE`，号码存进寄存器，指针 = 最后一个被挑中的号 + 1。下一拍寄存器里的 load 被 L1 的空闲槽消费（`rp_cons`），该项已死则清除。轮转是为了防止两个总在页表遍历上失败的 load 占满重放寄存器，让遍历的拥有者饿死（模型 `docs/LSU_PIPE.md` 第 4.3 节）。重放与新 load 没有优先级，新 load 先占槽。
 4. **STA 重放寄存器**：STQ 项在 DTLB 未命中时置 `trp`；`lp_rp` 在这些项（且存活）里也用轮转指针（`srp_ptr_q`）找"不小于指针的第一个，否则全体第一个"，装进 `srp`，下一拍拿到空闲 STA 槽和口就重新请求 DTLB（只有仍有 `va_v && !pa_v && !pf` 的才请求）。
@@ -284,7 +282,7 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 - `rb_flush` 和 `FLUSH_REG`：LSU 里其他模块用晚一拍的 flush，store 提交限定用本拍的 `rob_flush_now`；
 - 重放的槽和口分配看 AGU 的占用，不看接受结果，模型对应 `ExeLsuReqEntry::raw`。
 
-配置相关：RTL 的参考周期表是 `scripts/ref_cycles_memiq6_nr_int2_ev5.txt`，它的首行说明累计的模型开关；其中与 LSU 有关的是 `CFG_AGU_SHARED=2`、`CFG_LSU_SLOT_FIXED=1`、`CFG_LSU_STAEV_REG=1`、`CFG_FLUSH_REG=1`、`CFG_LSU_WBMERGE_REG=1`（这几个在模型 `include/config.h` 里默认都是 0，所以用默认配置的模型生成的周期与 RTL 不同）。RTL 的 `LP_STAEV_REG`、`LSU_AGU_SHARED` 等在包里是常量，不是可选路径；`ttg_cfg_pkg.sv` 的文件头写着由 `gen_cfg_pkg.py` 生成、不要手改，isu.md 里说它目前是手工编辑的、与生成的不同步，本文没有核对这一点。
+配置相关：RTL 的参考周期表是 `scripts/ref_cycles_memiq6_nr_int2_ev5.txt`，它的首行说明累计的模型开关；其中与 LSU 有关的是 `CFG_AGU_SHARED=2`、`CFG_LSU_SLOT_FIXED=1`、`CFG_LSU_STAEV_REG=1`、`CFG_FLUSH_REG=1`、`CFG_LSU_WBMERGE_REG=1`（这几个在模型 `include/config.h` 里默认都是 0，所以用默认配置的模型生成的周期与 RTL 不同）。RTL 的 `LSU_AGU_SHARED` 等在包里是常量，不是可选路径；`ttg_cfg_pkg.sv` 的文件头写着由 `gen_cfg_pkg.py` 生成、不要手改，isu.md 里说它目前是手工编辑的、与生成的不同步，本文没有核对这一点。
 
 在代码里看到的可疑点（只记录，没有改）：
 
@@ -313,7 +311,7 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 
 ## 9. 参数与开关速查
 
-`LSU_MEMSPEC`、`LSU_MDP_BITS`、`LSU_MDP_CLR`、`LSU_AGU_SHARED`、`LSU_AGU_PHYS`、`LSU_PEPLAY_WAIT_CYCLES`、`LSU_WAIT_MSHR_FILL`、`LDQ_SIZE`、`STQ_SIZE`（`ttg_cfg_pkg`）；`LP_STAEV_REG`、`LP_CUT`、`LP_L2`、`NRP`、`NDR`、`NRET`、`NWB`（`lp_pkg`）；`NINS`（`lp_wbuf`）。
+`LSU_MEMSPEC`、`LSU_MDP_BITS`、`LSU_MDP_CLR`、`LSU_AGU_SHARED`、`LSU_AGU_PHYS`、`LSU_PEPLAY_WAIT_CYCLES`、`LDQ_SIZE`、`STQ_SIZE`（`ttg_cfg_pkg`）；`LP_CUT`、`LP_L2`、`NRP`、`NDR`、`NRET`、`NWB`（`lp_pkg`）；`NINS`（`lp_wbuf`）。
 
 **`LP_CUT`（262143 = 0 到 17 位全 1）**：18 个关键路径切点。名字取自 `lp_pkg.sv` 的注释和代码位置；模型把其中七个改变周期的切点冻结成固定行为（B、R、D、F、G、H、FM，模型的位号与 RTL 的位号不同），其余为 RTL 单独的切点。
 
@@ -362,3 +360,4 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 - 更早：见 git 历史（分级 LSU 合入 2026-11-07，store 写缓冲 EXP-024，访存推测 EXP-018 / 019，rv64 等）。
 
 - 2026-11-18：删除旧 LSU 和没用的东西：30 个 `lsu_*` 文件（2688 行）、`lsu.sv` 里 `LSU_PIPE = 0` 的分支和 `LSU_PIPE` 常量（`dcache_s1`、`back_top`、`tb/soc/build.sh` 里依赖它的地方改为无条件）、`lp_pkg::NDC`；`lp_stq_ent` 里 `dr_pick ? rw13 : rw13` 两边相同，简化成 `rw13`。整核周期不变（见提交说明）。
+- 2026-11-18：删除只剩一种取值的 `LP_STAEV_REG`（STA / STD 事件寄存直接展开，`lp_core.sv` 里没有 `generate` 的另一支）和 `LSU_WAIT_MSHR_FILL`（`fill_en = fill_valid`）。

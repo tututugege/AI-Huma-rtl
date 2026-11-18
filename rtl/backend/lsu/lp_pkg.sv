@@ -30,7 +30,6 @@ package lp_pkg;
   //   bit10 T  : STQ mispredict cut: first hit searched without the count mask in front (equivalent)
   localparam int LP_L2 = 1907;
   // 1: the STA / STD events and broadcast views are registered before the wake-up of the parked loads (model CFG_LSU_STAEV_REG)
-  localparam int LP_STAEV_REG = 1;
   // memory-dependence speculation (EXP-018, model CFG_LSU_MEMSPEC): loads pass older stores with an unknown address
   localparam bit MS   = LSU_MEMSPEC != 0;
   localparam int MDPW = LSU_MDP_BITS;       // wait-table index width (PC hash)

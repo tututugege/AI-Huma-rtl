@@ -38,14 +38,14 @@ depth: 88 层（单模块综合，去掉 dc2 的结构深度；见第 6 节）
 
 | 队列 | 槽数 | 入队 lane | 口数 | 备注 |
 | --- | --- | --- | --- | --- |
-| INT0（q0） | 32（`IQ_INT_SIZE`） | 4（`IQ_INT_ENQ_WIDTH`） | 3 | `INT_CLUSTERS = 2`：两个整数队列各管三个口；CSR 进 INT0，I2F 进 INT1（口 2、3 有 I2F 能力） |
+| INT0（q0） | 32（`IQ_INT_SIZE`） | 4（`IQ_INT_ENQ_WIDTH`） | 3 | 两个整数队列各管三个口；CSR 进 INT0，I2F 进 INT1（口 2、3 有 I2F 能力） |
 | INT1（q5） | 32 | 4 | 3 | |
-| 内存（q1，load + STA 合并） | 64（`IQ_MEM_SIZE`） | 6（`IQ_MEM_ENQ_WIDTH`） | 7（4 load + 3 STA） | `MEM_AGE = 1`：每种能力的第一个口取最老的就绪 uop，其余口取最低槽；STA 口 11、12 与 load 口 8、9 共用 AGU（`LSU_AGU_SHARED = 2`，load 优先） |
+| 内存（q1，load + STA 合并） | 64（`IQ_MEM_SIZE`） | 6（`IQ_MEM_ENQ_WIDTH`） | 7（4 load + 3 STA） | 每种能力的第一个口取最老的就绪 uop，其余口取最低槽；STA 口 11、12 与 load 口 8、9 共用 AGU（`LSU_AGU_SHARED = 2`，load 优先） |
 | STD（q2） | 16 | 4 | 3 | |
 | BR（q3） | 32 | 5 | 2 | |
 | FP（q4） | 32 | 4 | 3 | 仅 F/D（`FPRF_NUM != 0`） |
 
-其他：`IQ_SAME_CYCLE_REUSE = 0`（槽分配只看寄存的 valid 位，不等本拍发射腾出的槽）；`MUL_MAX_LATENCY = 3`、`DIV_MAX_LATENCY = 32`；`WAKE_NUM = MAX_WAKEUP_PORTS = 22`；`TAG_NUM = 224`（preg 个数）；`FPW_CH = 8` 路 FP 延迟唤醒通道。
+其他：槽分配只看寄存的 valid 位，不等本拍发射腾出的槽；`MUL_MAX_LATENCY = 3`、`DIV_MAX_LATENCY = 32`；`WAKE_NUM = MAX_WAKEUP_PORTS = 22`；`TAG_NUM = 224`（preg 个数）；`FPW_CH = 8` 路 FP 延迟唤醒通道。
 
 ## 3. 接口
 
@@ -110,7 +110,7 @@ depth: 88 层（单模块综合，去掉 dc2 的结构深度；见第 6 节）
 
 ### 5.3 入队
 
-`isu_alloc_chain`：每个槽数自己前面有几个空闲槽（log 深度的饱和前缀计数），每个请求数自己前面有几个有效请求，秩相等的配对。空闲只看寄存的 `valid`（`IQ_SAME_CYCLE_REUSE = 0`）。入队的 uop 先叠加本拍的 `woken`（`wait = en & busy & ~woken[preg]`）。
+`isu_alloc_chain`：每个槽数自己前面有几个空闲槽（log 深度的饱和前缀计数），每个请求数自己前面有几个有效请求，秩相等的配对。空闲只看寄存的 `valid`（不等本拍发射腾出的槽）。入队的 uop 先叠加本拍的 `woken`（`wait = en & busy & ~woken[preg]`）。
 
 ### 5.4 flush
 
@@ -137,7 +137,7 @@ depth: 88 层（单模块综合，去掉 dc2 的结构深度；见第 6 节）
 | --- | --- | --- |
 | 入队分配改成并行秩匹配 | `0593e8b` | 原来是 NREQ 个 find-first 串起来 |
 | 年龄矩阵代替锦标赛比较 | `fae3f37` | 内存队列"最老优先"选择的深度 |
-| `IQ_SAME_CYCLE_REUSE = 0` | `0e82d3f` | 分配不再等本拍的发射结果（模型同步加开关，`CFG_IQ_SAME_CYCLE_REUSE`） |
+| 分配不再等本拍的发射结果 | `0e82d3f` | 原来由 `IQ_SAME_CYCLE_REUSE` 开关选，2026-11-18 开关删除，直接写成 `free = ~slot_valid`（模型里仍有 `CFG_IQ_SAME_CYCLE_REUSE`） |
 | 完成类闸 | `ff11fc3` | 完成周期预留和 FP 写口闸按"完成类"（11 类，偏移是类的常量）查表，不再先解码被选 uop |
 | FP 闸无链 | `871437e` | 一个候选能否拿到写口只看前面候选的授予 |
 | 选择只在能力重叠的口之间串联 | `isu_iq_select.sv` 现行写法 | load 口和 STA 口各选各的 |
@@ -159,7 +159,7 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 - 延迟唤醒广播用当前拍状态，不受本拍误预测影响（被错误路径杀掉的 MUL / DIV 也会广播一次）；
 - 溢出时 RTL 丢掉多出的请求，不报错（分派受 `ready_num` 流控，不会发生）。
 
-配置相关的有意差异：RTL 只有现行这一种配置（load 与 STA 合并成一个内存队列，没有独立的 STA 队列）；`INT_CLUSTERS = 2`、`MEM_AGE = 1`、`IQ_SAME_CYCLE_REUSE = 0`、`LSU_AGU_SHARED = 2` 在模型里是编译期开关（`CFG_INT_CLUSTERS`、`CFG_MEM_MERGE`、`CFG_ISSUE_OLDEST_FIRST/QUEUES`、`CFG_IQ_SAME_CYCLE_REUSE`、`CFG_AGU_SHARED`），RTL 的参考周期用这些开关同配置的模型生成。
+配置相关的有意差异：RTL 只有现行这一种配置（load 与 STA 合并成一个内存队列，没有独立的 STA 队列）；两个 INT 队列、内存队列的最老优先、不等本拍发射的槽分配、共用 AGU 在模型里是编译期开关（`CFG_INT_CLUSTERS`、`CFG_ISSUE_OLDEST_FIRST/QUEUES`、`CFG_IQ_SAME_CYCLE_REUSE`、`CFG_AGU_SHARED`；`CFG_MEM_MERGE` 已删），RTL 的参考周期用这些开关同配置的模型生成。
 
 ## 8. 验证
 
@@ -169,10 +169,11 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 
 ## 9. 参数与开关速查
 
-`INT_CLUSTERS`、`IQ_INT_SIZE`、`IQ_INT_ENQ_WIDTH`、`IQ_MEM_SIZE`、`IQ_MEM_ENQ_WIDTH`、`MEM_AGE`、`IQ_SAME_CYCLE_REUSE`、`LSU_AGU_SHARED`、`IQ_STD_*`、`IQ_BR_*`、`FP_IQ_*`、`FP_WB_PORTS`（`isu_pkg`，EXP-032）；`LP_L2[3]`（LSU 推测唤醒）。`ttg_cfg_pkg.sv` 目前是手工编辑的，与 `make cfg` 生成的不同步（待统一，见 docs/TODO.md）。
+`IQ_INT_SIZE`、`IQ_INT_ENQ_WIDTH`、`IQ_MEM_SIZE`、`IQ_MEM_ENQ_WIDTH`、`LSU_AGU_SHARED`、`IQ_STD_*`、`IQ_BR_*`、`FP_IQ_*`、`FP_WB_PORTS`（`isu_pkg`，EXP-032）；`LP_L2[3]`（LSU 推测唤醒）。`ttg_cfg_pkg.sv` 目前是手工编辑的，与 `make cfg` 生成的不同步（待统一，见 docs/TODO.md）。
 
 ## 10. 变更记录
 
-- 2026-11-17/18（exp/agu-share）：两个 INT 队列、合并内存队列与年龄选择、共享 AGU、并行分配、完成类闸、FP 闸去链、`IQ_SAME_CYCLE_REUSE = 0`（见第 6 节表）；全局 flush 晚一拍到达（docs/FLUSH_REG.md）。
+- 2026-11-17/18（exp/agu-share）：两个 INT 队列、合并内存队列与年龄选择、共享 AGU、并行分配、完成类闸、FP 闸去链、不等本拍发射的槽分配（见第 6 节表）；全局 flush 晚一拍到达（docs/FLUSH_REG.md）。
 - 2026-11-12：rv64（`is_word`、*W 除法延迟减半）；F/D（FP 队列、延迟唤醒槽、FP 写口闸，EXP-031..036）。
 - 更早：见 git 历史。
+- 2026-11-18：删除只剩一种取值的开关 `INT_CLUSTERS`、`MEM_AGE`、`IQ_SAME_CYCLE_REUSE`（`isu_pkg`、`isu.sv`、`isu_iq.sv` 里直接写成唯一取值）。

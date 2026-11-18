@@ -265,7 +265,7 @@ module isu
     isu_iq #(.SIZE(SIZE), .DW(EW), .NP(NP), .QID(q),
              .SH_N((q == IQ_MEM) ? LSU_AGU_SHARED : 0),
              .SH_LD_LO(LSU_LDU_COUNT - LSU_AGU_SHARED), .SH_STA_LO(LSU_LDU_COUNT + LSU_STA_COUNT - LSU_AGU_SHARED),
-             .AGE_EN(MEM_AGE != 0 && q == IQ_MEM)) u_iq (   // the memory queue selects the oldest on the first port of each capability
+             .AGE_EN(q == IQ_MEM)) u_iq (   // the memory queue selects the oldest on the first port of each capability
       .clk(clk), .rst_n(rst_n), .enq_valid(enq_valid), .enq(enq), .woken(woken), .fu_ready(fu_ready),
       .gate_ok(g_gate_ok),
       .issue_block(issue_block), .flush_all(rob_bcast_flush), .flush_br(flush_br),

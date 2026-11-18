@@ -9,12 +9,12 @@
 | --- | --- | --- |
 | [back_top](modules/back_top.md) | 3/2420 | 待测 |
 | [csr](modules/csr.md) | 10/742 | 29 层 |
-| [dispatch](modules/dispatch.md) | 13/1517 | 56 层 |
+| [dispatch](modules/dispatch.md) | 13/1514 | 56 层 |
 | [exu_ctrl](modules/exu_ctrl.md) | 14/1689 | 17 层 |
 | [exu_fu](modules/exu_fu.md) | 26/1782 | 73 层 |
 | [idu](modules/idu.md) | 11/938 | 67 层 |
 | [isu](modules/isu.md) | 14/1535 | 88 层 |
-| [lsu](modules/lsu.md) | 33/4797 | 100 层 |
+| [lsu](modules/lsu.md) | 33/4785 | 100 层 |
 | [pre_idu_queue](modules/pre_idu_queue.md) | 8/734 | 39 层 |
 | [prf](modules/prf.md) | 8/728 | 36 层 |
 | [ren](modules/ren.md) | 18/1600 | 110 层 |
@@ -51,9 +51,9 @@
 
 | 模块 | RTL（文件/行） | 深度 |
 | --- | --- | --- |
-| [common](modules/common.md) | 6/307 | 待测 |
+| [common](modules/common.md) | 6/303 | 待测 |
 | [core_top](modules/core_top.md) | 4/1017 | 待测 |
 | [pmu](modules/pmu.md) | 3/364 | 90 层 |
 | [soc_top](modules/soc_top.md) | 1/147 | 待测 |
 
-合计（各文档的目录有重叠时会重复计数）：295 个文件，35772 行。
+合计（各文档的目录有重叠时会重复计数）：295 个文件，35753 行。

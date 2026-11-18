@@ -263,40 +263,29 @@ module lp_core
   logic [SQ-1:0] ev_sta_w, ev_data_w;
   lp_sta_info_t  sta_info_w [NST];
   lp_std_t       sdw_w [NSD];
-  if (LP_STAEV_REG != 0) begin : g_evreg
-    logic [SQ-1:0] ev_sta_q, ev_data_q;
-    lp_sta_info_t  sta_info_q [NST];
-    lp_std_t       sdw_q [NSD];
-    always_ff @(posedge clk) begin
-      if (!rst_n) begin
-        ev_sta_q <= '0;
-        ev_data_q <= '0;
-        for (int k = 0; k < NST; k++) sta_info_q[k] <= '0;
-        for (int k = 0; k < NSD; k++) sdw_q[k] <= '0;
-      end else begin
-        ev_sta_q <= ev_sta;
-        ev_data_q <= sd_acc;
-        for (int k = 0; k < NST; k++) sta_info_q[k] <= sta_info[k];
-        for (int k = 0; k < NSD; k++) sdw_q[k] <= sdw[k];
-      end
+  logic [SQ-1:0] ev_sta_q, ev_data_q;
+  lp_sta_info_t  sta_info_q [NST];
+  lp_std_t       sdw_q [NSD];
+  always_ff @(posedge clk) begin
+    if (!rst_n) begin
+      ev_sta_q <= '0;
+      ev_data_q <= '0;
+      for (int k = 0; k < NST; k++) sta_info_q[k] <= '0;
+      for (int k = 0; k < NSD; k++) sdw_q[k] <= '0;
+    end else begin
+      ev_sta_q <= ev_sta;
+      ev_data_q <= sd_acc;
+      for (int k = 0; k < NST; k++) sta_info_q[k] <= sta_info[k];
+      for (int k = 0; k < NSD; k++) sdw_q[k] <= sdw[k];
     end
-    assign ev_sta_w = ev_sta_q;
-    assign ev_data_w = ev_data_q;
-    for (genvar k = 0; k < NST; k++) begin : g_si
-      assign sta_info_w[k] = sta_info_q[k];
-    end
-    for (genvar k = 0; k < NSD; k++) begin : g_sd
-      assign sdw_w[k] = sdw_q[k];
-    end
-  end else begin : g_noevreg
-    assign ev_sta_w = ev_sta;
-    assign ev_data_w = sd_acc;
-    for (genvar k = 0; k < NST; k++) begin : g_si
-      assign sta_info_w[k] = sta_info[k];
-    end
-    for (genvar k = 0; k < NSD; k++) begin : g_sd
-      assign sdw_w[k] = sdw[k];
-    end
+  end
+  assign ev_sta_w = ev_sta_q;
+  assign ev_data_w = ev_data_q;
+  for (genvar k = 0; k < NST; k++) begin : g_si
+    assign sta_info_w[k] = sta_info_q[k];
+  end
+  for (genvar k = 0; k < NSD; k++) begin : g_sd
+    assign sdw_w[k] = sdw_q[k];
   end
 
   // ------------------------------------------------------------------ queues
@@ -334,7 +323,7 @@ module lp_core
   logic [SQ-1:0] dr_pick, dr_mmio, dr_fol, wb_mark, wbi_v;  logic [SQW-1:0] dr_ml [SQ];
   logic [SQ-1:0] alive_flushed;
   logic fill_en;
-  assign fill_en = fill_valid && LSU_WAIT_MSHR_FILL != 0;
+  assign fill_en = fill_valid;
 
   lp_stq u_stq (
     .clk(clk), .rst_n(rst_n), .rb_flush(rb_flush_now), .clear_mask(dec_clear_mask), .head_q(head_q), .alive_w(alive_w),

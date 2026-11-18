@@ -100,7 +100,7 @@ module isu_iq
   // a slot freed by an issue this cycle can be reused by an enqueue in the same cycle
   isu_alloc_chain #(.NREQ(DW), .NSLOT(SIZE)) u_alloc (
     .clk(clk), .req(enq_valid),
-    .free(IQ_SAME_CYCLE_REUSE != 0 ? ~(slot_valid & ~granted_slot) : ~slot_valid),   // 0: the allocation does not wait for this cycle's issue
+    .free(~slot_valid),   // the allocation starts from the registered valid bits: it does not wait for this cycle's issue
     .slot_onehot(enq_slot));
 
   always_comb begin

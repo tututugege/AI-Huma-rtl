@@ -15,7 +15,7 @@ package dis_pkg;
   localparam int IQ_STD  = 2;
   localparam int IQ_BR   = 3;
   localparam int IQ_FP   = 4;                               // only exists when FP_EN
-  localparam int IQ_INT1 = 5;                               // the second integer queue (INT_CLUSTERS = 2)
+  localparam int IQ_INT1 = 5;                               // the second integer queue
   // kinds of uop an instruction is split into (dispatch_decompose): at most one uop of each kind per instruction; the
   // kinds LD and STA both go to the memory queue (an AMO sends both), INT goes to IQ_INT or IQ_INT1
   localparam int K_NUM = 6;

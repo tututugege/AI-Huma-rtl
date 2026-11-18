@@ -29,7 +29,6 @@ depth: 56 层（dispatch，单模块综合，2026-11-18，`SYNTH_ABC="strash;bal
 | 发射队列 | 6 个：INT0 = 0、内存 = 1、STD = 2、BR = 3、FP = 4、INT1 = 5 | `dis_pkg::IQ_NUM = 6`，`IQ_INT/IQ_MEM/IQ_STD/IQ_BR/IQ_FP/IQ_INT1` |
 | 每队列请求口数 | 8 | `MAX_IQ_DISPATCH_WIDTH`（`IQ_PORTS`） |
 | uop 种类 | 6 | `dis_pkg::K_NUM`：`K_INT/K_LD/K_STA/K_STD/K_BR/K_FP` |
-| 两个整数队列 | 开 | `INT_CLUSTERS = 2` |
 | STQ / LDQ 分配口 | 各 8 | `MAX_STQ_DISPATCH_WIDTH`、`MAX_LDQ_DISPATCH_WIDTH` |
 | STQ / LDQ 项数 | 各 64 | `STQ_SIZE`、`LDQ_SIZE` |
 | 忙表 | 224 位（每个物理寄存器标号一位；整数 0..127，FP 从 128 起） | `TAG_NUM`、`FP_TAG_BASE = 128` |
@@ -178,7 +177,7 @@ RTL 与模型保持一致的细节（读模型时容易误判）：
 
 ## 9. 参数与开关速查
 
-`DECODE_WIDTH`、`INT_CLUSTERS`、`MAX_IQ_DISPATCH_WIDTH`、`MAX_STQ_DISPATCH_WIDTH`、`MAX_LDQ_DISPATCH_WIDTH`、`STQ_SIZE`、`LDQ_SIZE`、`TAG_NUM`、`FPRF_NUM`（FP 队列和 FP uop 是否存在）、`LSU_MEMSPEC` / `LSU_MDP_BITS`（`mdp`）、`LP_L2[3]`（取消向量）。`ttg_cfg_pkg.sv` 目前是手工编辑的，与 `make cfg` 生成的不同步（待统一，见 docs/TODO.md）。
+`DECODE_WIDTH`、`MAX_IQ_DISPATCH_WIDTH`、`MAX_STQ_DISPATCH_WIDTH`、`MAX_LDQ_DISPATCH_WIDTH`、`STQ_SIZE`、`LDQ_SIZE`、`TAG_NUM`、`FPRF_NUM`（FP 队列和 FP uop 是否存在）、`LSU_MEMSPEC` / `LSU_MDP_BITS`（`mdp`）、`LP_L2[3]`（取消向量）。`ttg_cfg_pkg.sv` 目前是手工编辑的，与 `make cfg` 生成的不同步（待统一，见 docs/TODO.md）。
 
 ## 10. 变更记录
 
@@ -186,7 +185,7 @@ RTL 与模型保持一致的细节（读模型时容易误判）：
 
 - `2e6acb6`：去掉空的 STA 队列和 `MEM_MERGE = 0` 的路径，现为 6 个队列（INT、MEM、STD、BR、FP、INT1）；`dispatch_decompose` 按种类拆分，`dispatch_core` 把种类映射到队列。
 - `64a908e`：load 授予只看空闲数；冲刷 / 误预测那拍的 STQ 指针更新用寄存值；lane 之前的请求数用 popcount。
-- `6d7ed85`：两个 INT 队列（`INT_CLUSTERS = 2`，CSR 进 0、I2F 进 1、其余按 `rob_idx` 奇偶）。
+- `6d7ed85`：两个 INT 队列（CSR 进 INT0、I2F 进 INT1、其余按 `rob_idx` 奇偶）；2026-11-18 删掉 `INT_CLUSTERS` 开关，分流直接写成唯一做法。
 - `237738c`：load 和 STA 合并进一个内存队列（`dispatch_iq_alloc`、`dispatch_iq_req` 按队列计数和放置，AMO 向内存队列送两个）。
 - 更早：见 git 历史。
 - 2026-11-18：删除 `ROB_COMPACT == 0`（行式 ROB）的分支：`dispatch_core` 里 `rob_idx` 按行编号的写法、`dispatch_fire_ctl` 里 `rob_fit` 恒真的写法，以及 `dis_pkg` 里只给它们用的 `ROB_BANK_W`、`ROB_LINE_W`。

@@ -30,11 +30,11 @@ depth: 待测（由协调者补）
 **现状与生成结果不一致（本次对照的结果）**：文件头还写着"Generated … do not edit"，但检入的文件已经手工改过。本次用 `trace-model-tlbports` 的 `config.h` 实际跑了一遍生成器（输出写到临时目录，没有动检入文件）：
 
 - 用 `gen_cfg.sh` 的默认 `-D` 生成：173 个常量，与检入文件相比有 5 个值不同——`LSU_AGU_SHARED`（0 对 2）、`LSU_AGU_PHYS`（7 对 5）、`IQ_INT_ENQ_WIDTH`（7 对 4）、`IQ_MEM_ENQ_WIDTH`（8 对 6）、`IQ_INT_SIZE`（64 对 32）。这是因为现行 RTL 配置不是模型的默认配置；
-- 再加 `-DCFG_AGU_SHARED=2 -DCFG_INT_CLUSTERS=2 -DCFG_INT_IQ_SIZE=32 -DCFG_INT_IQ_ENQ_WIDTH=4 -DCFG_MEM_IQ_ENQ_WIDTH=6`，生成的值与检入文件逐个相同；
-- 检入文件里有 10 个生成器不会输出的常量：`INT_CLUSTERS`、`MEM_AGE`、`IQ_SAME_CYCLE_REUSE`（手工加，RTL 在用：`INT_CLUSTERS` 3 个文件，`MEM_AGE`、`IQ_SAME_CYCLE_REUSE` 各 1 个文件，它们在模型里是 `CFG_INT_CLUSTERS`、`CFG_ISSUE_OLDEST_FIRST/QUEUES`、`CFG_IQ_SAME_CYCLE_REUSE` 宏，不是 `constexpr`）；另 7 个（`VIRTUAL_MEMORY_LENGTH`、`DCACHE_WORDS_PER_BANK`、`DCACHE_MISS_NUM`、`LDQ_WAIT_MMU_UPPER_BOUND`、`STQ_WIAT_MMU_UPPER_BOUND`、`STQ_MMU_DONE_UPPER_BOUND`、`UART_ADDR_MASK`）是模型里已经没有的旧常量，RTL 里也没有任何文件用它们；
+- 再加 `-DCFG_AGU_SHARED=2 -DCFG_INT_IQ_SIZE=32 -DCFG_INT_IQ_ENQ_WIDTH=4 -DCFG_MEM_IQ_ENQ_WIDTH=6`，生成的值与检入文件逐个相同；
+- 检入文件里有 7 个生成器不会输出的、没有人用的常量（2026-11-18 之前还有 3 个手工加的：`INT_CLUSTERS`、`MEM_AGE`、`IQ_SAME_CYCLE_REUSE`，现在 RTL 只有一种取值，已经删掉）：（`VIRTUAL_MEMORY_LENGTH`、`DCACHE_WORDS_PER_BANK`、`DCACHE_MISS_NUM`、`LDQ_WAIT_MMU_UPPER_BOUND`、`STQ_WIAT_MMU_UPPER_BOUND`、`STQ_MMU_DONE_UPPER_BOUND`、`UART_ADDR_MASK`）是模型里已经没有的旧常量，RTL 里也没有任何文件用它们；
 - 文件里的顺序与生成器的输出也不同（例如 `XLEN_BITS` 等生成器放在最后）。
 
-所以：数值上，检入文件 = "模型 + 上面那组 `-D`" 再加上几个手工常量；但没有机器同步，`make cfg` 会改掉手工加的内容并回到模型默认值，不能直接用。待办（`isu.md` 第 9 节也提到）：把现行配置固化成生成器的输入（一个固定的 `-D` 列表），把 `INT_CLUSTERS`、`MEM_AGE`、`IQ_SAME_CYCLE_REUSE` 放进生成器，删掉 7 个无用常量。
+所以：数值上，检入文件 = "模型 + 上面那组 `-D`" 再加上几个手工常量；但没有机器同步，`make cfg` 会改掉手工加的内容并回到模型默认值，不能直接用。待办（`isu.md` 第 9 节也提到）：把现行配置固化成生成器的输入（一个固定的 `-D` 列表），删掉 7 个无用常量。
 
 参考周期也依赖同一组开关：`scripts/ref_cycles_memiq6_nr_int2_ev5.txt` 由模型在"与 RTL 同配置"下生成（上面的 `CFG_*`，加上 `CFG_ISSUE_OLDEST_FIRST/QUEUES`、`CFG_IQ_SAME_CYCLE_REUSE`、`CFG_FE_OVR_REG` 等不进配置包的开关）。完整的开关列表本次没有逐个核对。
 
@@ -42,7 +42,7 @@ depth: 待测（由协调者补）
 
 ## 3. 接口
 
-- `ttg_cfg_pkg`：只有 `localparam`（`int`，少数 `longint unsigned`：`RAM_SIZE`、`MAX_SIM_TIME`、`UART_ADDR_MASK`、`SIM_CACHE_ADDR_2_MIN`）。常量的分组（按文件里的出现顺序）：核宽度（`XLEN_BITS`、取指 / 译码 / 提交宽度）、ICache / DCache 几何、寄存器堆（`PRF_NUM`、`FPRF_NUM`、`TAG_NUM`）、ROB / 队列大小、功能单元掩码（`OP_MASK_*`）和延迟、发射口与发射队列（`ISSUE_WIDTH`、`IQ_*`、`INT_CLUSTERS`、`MEM_AGE`……）、LSU、TLB、各种位宽（`*_IDX_WIDTH`）、MMIO 地址（`UART_*`、`TIMER_*`、`XPS_INTC_*`……）、前端 FIFO 深度、FP 延迟。数值见文件；其他模块文档引用具体常量时写常量名。
+- `ttg_cfg_pkg`：只有 `localparam`（`int`，少数 `longint unsigned`：`RAM_SIZE`、`MAX_SIM_TIME`、`UART_ADDR_MASK`、`SIM_CACHE_ADDR_2_MIN`）。常量的分组（按文件里的出现顺序）：核宽度（`XLEN_BITS`、取指 / 译码 / 提交宽度）、ICache / DCache 几何、寄存器堆（`PRF_NUM`、`FPRF_NUM`、`TAG_NUM`）、ROB / 队列大小、功能单元掩码（`OP_MASK_*`）和延迟、发射口与发射队列（`ISSUE_WIDTH`、`IQ_*`……）、LSU、TLB、各种位宽（`*_IDX_WIDTH`）、MMIO 地址（`UART_*`、`TIMER_*`、`XPS_INTC_*`……）、前端 FIFO 深度、FP 延迟。数值见文件；其他模块文档引用具体常量时写常量名。
 - `fp_pkg`：`FP_EN`（`FPRF_NUM != 0`）、`FLEN`（64）、`FW`（FP 数据总线位宽：有 F/D 时 `FLEN`，否则 1）、`FFLAGS_W`（5）、函数 `fp_load_data(d, is_w)`（`is_w` 时返回 `{32'hFFFF_FFFF, d[31:0]}`，即 NaN 装箱，否则整个字）、`FP_LAT_MAX`、`FP_LAT_W`、函数 `fp_div_latency(func7)`（`func7[0]` 是 D 格式、`func7[6:2] == 5'h0b` 是 `fsqrt`，返回 `FP_FDIV_S_LAT / FP_FSQRT_S_LAT / FP_FDIV_D_LAT / FP_FSQRT_D_LAT`）。
 - 原语端口：
 
@@ -102,3 +102,4 @@ depth 待测（由协调者补）。从代码读出的、未综合验证的情�
 
 - `261bd67..HEAD` 里 `rtl/common` 的改动（均为配置包）：`b9ae0d5`（共享 AGU：`LSU_AGU_SHARED`、`LSU_AGU_PHYS`）、`237738c` / `120701a`（合并的内存发射队列、6 条入队 lane、`MEM_AGE`）、`0e82d3f`（`IQ_SAME_CYCLE_REUSE`）、`6d7ed85`（两个 INT 队列：`INT_CLUSTERS`、`IQ_INT_SIZE`、`IQ_INT_ENQ_WIDTH`）、`2e6acb6`（去掉 `MEM_MERGE`、`IQ_LD_*`、`IQ_STA_*`）；另有 `1db84c7` 及其回退 `ad24170`。
 - 更早：见 git 历史。
+- 2026-11-18：删除只剩一种取值的常量：`INT_CLUSTERS`（2）、`MEM_AGE`（1）、`IQ_SAME_CYCLE_REUSE`（0）、`LSU_WAIT_MSHR_FILL`（1）、`LP_STAEV_REG`（1，在 `lp_pkg`），用到它们的地方直接写成唯一取值。
