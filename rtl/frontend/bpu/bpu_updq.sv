@@ -76,24 +76,50 @@ module bpu_updq import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
     end
   end
 
-  // Ref: update_queue: keep the entries that did not write (in order), then append the new control entries
+  // Ref: update_queue: keep the entries that did not write (in order), then append the new control entries.
+  // Written with prefix counts instead of a running index: the new position of a kept entry is the number of kept
+  // entries before it, of a new entry the number kept plus the new ones before it (a full queue drops the rest).
+  logic [UQ_DEPTH-1:0] keep;
+  logic [CNT_W-1:0]    pos_k [UQ_DEPTH];     // new position of each kept entry
+  logic [CNT_W-1:0]    n_keep;
+  logic [CNT_W-1:0]    pos_l [NCOMMIT];      // new position of each new control entry (before the full check)
+  logic [CNT_W-1:0]    n_new;
   always_comb begin
-    int unsigned k;
-    for (int i = 0; i < UQ_DEPTH; i++) uq_d[i] = uq_q[i];
-    k = 0;
-    for (int i = 0; i < UQ_DEPTH; i++) begin
-      if (ent_valid[i] && !apply[i]) begin
-        uq_d[k] = uq_q[i];
-        k = k + 1;
+    for (int i = 0; i < UQ_DEPTH; i++) keep[i] = ent_valid[i] && !apply[i];
+  end
+  for (genvar i = 0; i <= UQ_DEPTH; i++) begin : g_pk
+    localparam logic [UQ_DEPTH-1:0] BELOW = UQ_DEPTH'((64'(1) << i) - 64'(1));
+    logic [CNT_W-1:0] c;
+    ttg_popcount #(.N(UQ_DEPTH), .CW(CNT_W)) u_c (.bits(keep & BELOW), .count(c));
+    if (i < UQ_DEPTH) begin : g_e
+      assign pos_k[i] = c;
+    end else begin : g_n
+      assign n_keep = c;
+    end
+  end
+  for (genvar l = 0; l <= NCOMMIT; l++) begin : g_pl
+    localparam logic [NCOMMIT-1:0] BELOWL = NCOMMIT'((64'(1) << l) - 64'(1));
+    logic [CNT_W-1:0] c;
+    ttg_popcount #(.N(NCOMMIT), .CW(CNT_W)) u_c (.bits(lane_ctl & BELOWL), .count(c));
+    if (l < NCOMMIT) begin : g_e
+      assign pos_l[l] = c;
+    end else begin : g_n
+      assign n_new = c;
+    end
+  end
+  always_comb begin
+    logic [CNT_W:0] tot;
+    tot = (CNT_W+1)'(n_keep) + (CNT_W+1)'(n_new);
+    n_d = (tot > (CNT_W+1)'(UQ_DEPTH)) ? CNT_W'(UQ_DEPTH) : CNT_W'(tot);
+    for (int j = 0; j < UQ_DEPTH; j++) begin
+      uq_d[j] = uq_q[j];                                           // beyond the new count: unchanged
+      if (CNT_W'(j) < n_d) begin
+        uq_d[j] = '0;
+        for (int i = 0; i < UQ_DEPTH; i++) if (keep[i] && pos_k[i] == CNT_W'(j)) uq_d[j] = uq_d[j] | uq_q[i];
+        for (int l = 0; l < NCOMMIT; l++)
+          if (lane_ctl[l] && ((CNT_W+1)'(n_keep) + (CNT_W+1)'(pos_l[l])) == (CNT_W+1)'(j)) uq_d[j] = uq_d[j] | lane_ent[l];
       end
     end
-    for (int l = 0; l < NCOMMIT; l++) begin
-      if (lane_ctl[l] && k < UQ_DEPTH) begin
-        uq_d[k] = lane_ent[l];
-        k = k + 1;
-      end
-    end
-    n_d = CNT_W'(k);
   end
 
   always_ff @(posedge clk) begin
