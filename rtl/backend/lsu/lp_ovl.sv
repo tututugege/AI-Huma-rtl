@@ -18,27 +18,22 @@ module lp_ovl import ttg_cfg_pkg::*; #(
 );
 
   localparam int U = W - 3;
-  logic [U-1:0] ul, us, x, pl, ps;
+  logic [U-1:0] ul, us, us_p, us_m;
   logic         eq0, s_is_l1, l_is_s1;
   logic signed [5:0] dl, lw, sw;
   logic         c0, c1, cm;
 
+  // The load side (lo, lf) arrives late, the store side (so, sf) is a register: compare the load's upper part with the
+  // store's upper part and with its neighbours (us + 1, us - 1, computed from the store side alone), three parallel
+  // equality tests with no prefix chain on the late side.
   always_comb begin
     ul = lo[W-1:3];
     us = so[W-1:3];
-    x = ul ^ us;
-    // pl[i] = &ul[i-1:0], ps[i] = &us[i-1:0]: bit i of (u + 1) differs from u iff all lower bits are 1
-    pl = '0;
-    ps = '0;
-    pl[0] = 1'b1;
-    ps[0] = 1'b1;
-    for (int i = 1; i < U; i++) begin
-      pl[i] = pl[i-1] & ul[i-1];
-      ps[i] = ps[i-1] & us[i-1];
-    end
-    eq0 = (x == '0);
-    s_is_l1 = (x == pl) && !(&ul);   // us == ul + 1 (no wrap of the upper part)
-    l_is_s1 = (x == ps) && !(&us);   // ul == us + 1
+    us_p = us + U'(1);
+    us_m = us - U'(1);
+    eq0 = (ul == us);
+    s_is_l1 = (ul == us_m) && (us != '0);       // us == ul + 1 (no wrap of the upper part)
+    l_is_s1 = (ul == us_p) && !(&us);           // ul == us + 1
     lw = $signed({2'b00, ld_w(lf[1:0])});
     sw = $signed({2'b00, ld_w(sf[1:0])});
     dl = $signed({3'b000, so[2:0]}) - $signed({3'b000, lo[2:0]});
