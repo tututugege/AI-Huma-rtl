@@ -1,21 +1,22 @@
 # Trace-model cycles of the rv64gc configuration (2026-11-16, rv32 dropped from main): trace-model build with XLEN=64 FP=1 RVC=1, LSU_PIPE_NOWD=1 (the RTL has no LDQ wakeup delay), model defaults otherwise.
 # 61 gate programs (trace-model build/tests, rv64ima, no C: the front end fetches with the 16-slot geometry) + big/dhrystone.bin, big/coremark.bin + directed/memspec_{data,addr,pf,vio}.bin (rv64 builds, programs/directed/build.sh). RTL must be equal program by program (scripts/fm_gate.sh).
+# 2026-11-18: regenerated after the trace-model dropped CFG_MEM_MERGE (one memory issue queue for the loads and the store addresses is the only configuration; 10 of the 67 programs changed, geomean 1.0003). Other experiment switches stay at their defaults (0).
 1420 add-longlong/add-longlong.bin
 1500 add/add.bin
 2407 atomic-boundary/atomic-boundary.bin
-286265 big/coremark.bin
-100722 big/dhrystone.bin
+286440 big/coremark.bin
+101883 big/dhrystone.bin
 1752 bit/bit.bin
 2878 bitmanip-boundary/bitmanip-boundary.bin
 4979 bubble-sort/bubble-sort.bin
 2196 crc32/crc32.bin
 2178 csr-alias-boundary/csr-alias-boundary.bin
-6109 dcache-conflict-writeback/dcache-conflict-writeback.bin
-1555 dcache-mshr-pressure/dcache-mshr-pressure.bin
-3310 directed/memspec_addr.bin
+6019 dcache-conflict-writeback/dcache-conflict-writeback.bin
+1554 dcache-mshr-pressure/dcache-mshr-pressure.bin
+3312 directed/memspec_addr.bin
 7381 directed/memspec_data.bin
 2959 directed/memspec_pf.bin
-3718 directed/memspec_vio.bin
+3725 directed/memspec_vio.bin
 2393 div/div.bin
 832 dummy/dummy.bin
 1375 fact/fact.bin
@@ -31,20 +32,20 @@
 1437 if-else/if-else.bin
 1391 illegal-instruction-trap/illegal-instruction-trap.bin
 3858 interrupt-vectored/interrupt-vectored.bin
-215822 itt-dispatch/itt-dispatch.bin
+215819 itt-dispatch/itt-dispatch.bin
 1775 leap-year/leap-year.bin
 2137 load-store-aligned/load-store-aligned.bin
-2773 matrix-mul/matrix-mul.bin
+2826 matrix-mul/matrix-mul.bin
 1863 max/max.bin
 1691 memory-boundary/memory-boundary.bin
-343381 memory-stress-small/memory-stress-small.bin
+343486 memory-stress-small/memory-stress-small.bin
 2268 mersenne/mersenne.bin
 2731 min3/min3.bin
 1121 mov-c/mov-c.bin
 1368 movsx/movsx.bin
 1933 mul-longlong/mul-longlong.bin
 2008 pascal/pascal.bin
-616950 pf-stress/pf-stress.bin
+617305 pf-stress/pf-stress.bin
 12426 prime/prime.bin
 4979 quick-sort/quick-sort.bin
 2885 recursion/recursion.bin
