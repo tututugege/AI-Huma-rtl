@@ -16,56 +16,62 @@ module bpu_ub_look import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
   output pred_t          g
 );
 
-  logic [WAYS-1:0] match;
-  logic [WAYS-1:0] cand;
-  logic [UB_SLOT_W-1:0] best_slot;
-  logic [WAYS-1:0] best_way;
-  logic            any_cand;
-  logic [UB_SLOT_W-1:0] e_slot;
-  logic [2:0]      e_ty;
-  logic            e_rvc;
-  /* verilator lint_off UNUSEDSIGNAL */   // rv64: the physical address is 32 bits, the upper bits of the stored target are not used here
-  logic [UB_TGT_W-1:0] e_tgt;
-  /* verilator lint_on UNUSEDSIGNAL */
-  logic [XLEN_BITS-1:0]     bpc;
+  // Low-depth form of the lookup (same guess; checked against the sequential form by random test).  Per way, in
+  // parallel: the tag match, the "slot inside the block" test as a small compare against the block length bnd - base
+  // (a few low bits, never a 64-bit add and compare), and everything that follows from the way's entry (block end pc,
+  // target, history symbol, RAS value).  The winner is the lowest slot among the candidates (the lowest way on a tie),
+  // found by pairwise slot compares; the guess is then one select by the winner, not a chain of selects and adders.
+  localparam int SB = SLOT_BYTES;
+  logic [WAYS-1:0] match, cand, win;
+  logic [7:0]      blk_len;     // bnd - base, 1 .. 32 (the block never ends more than 255 bytes behind its start)
+  assign blk_len = bnd[7:0] - base[7:0];
 
-  // Ref: s0_lookup, candidate selection
   always_comb begin
     for (int w = 0; w < WAYS; w++) begin
       match[w] = ent[w].v && (ent[w].tag == tag);
-      cand[w]  = match[w] && ((base + XLEN_BITS'(ent[w].slot) * XLEN_BITS'(SLOT_BYTES)) < bnd) &&
+      cand[w]  = match[w] && ((9'(ent[w].slot) * 9'(SB)) < {1'b0, blk_len}) &&
                  (ent[w].ty != BR_DIRECT || ent[w].ctr >= 2'd2);
     end
-    any_cand  = |cand;
-    best_slot = '1;
-    for (int w = 0; w < WAYS; w++) if (cand[w] && ent[w].slot < best_slot) best_slot = ent[w].slot;
-    best_way = '0;
-    for (int w = WAYS - 1; w >= 0; w--) if (cand[w] && ent[w].slot == best_slot) best_way = WAYS'(1) << w;
+    for (int w = 0; w < WAYS; w++) begin
+      win[w] = cand[w];
+      for (int o = 0; o < WAYS; o++) begin
+        if (o != w && cand[o] && !(ent[w].slot < ent[o].slot || (ent[w].slot == ent[o].slot && w < o))) win[w] = 1'b0;
+      end
+    end
+  end
+
+  // per way: what the guess would be if this way wins
+  logic [XLEN_BITS-1:0]  w_bpc  [WAYS];
+  logic [XLEN_BITS-1:0]  w_next [WAYS];
+  logic [XLEN_BITS-1:0]  w_rv   [WAYS];
+  logic [HSYM_W-1:0]     w_hb   [WAYS];
+  logic [1:0]            w_op   [WAYS];
+  always_comb begin
+    for (int w = 0; w < WAYS; w++) begin
+      w_bpc[w]  = base + XLEN_BITS'(ent[w].slot) * XLEN_BITS'(SB);
+      // the uBTB keeps the low 32 bits of the target slot address: the upper bits come from the block base (model ub_expand), not zero
+      w_next[w] = (ent[w].ty == BR_RET && ras_nonempty) ? ras_top : ((base & ~XLEN_BITS'(32'hffffffff)) | XLEN_BITS'(32'(ent[w].tgt) << SLOT_SHIFT));
+      w_hb[w]   = hsym_of(w_bpc[w], w_next[w]);
+      w_rv[w]   = w_bpc[w] + (ent[w].rvc ? XLEN_BITS'(2) : XLEN_BITS'(4));
+      w_op[w]   = (ent[w].ty == BR_CALL || ent[w].ty == BR_ICALL) ? 2'd1 : (ent[w].ty == BR_RET) ? 2'd2 : 2'd0;
+    end
   end
 
   always_comb begin
-    e_slot = '0; e_ty = '0; e_tgt = '0; e_rvc = 1'b0;
-    for (int w = 0; w < WAYS; w++) begin
-      if (best_way[w]) begin
-        e_slot = ent[w].slot; e_ty = ent[w].ty; e_tgt = ent[w].tgt; e_rvc = ent[w].rvc;
-      end
-    end
-    bpc = base + XLEN_BITS'(e_slot) * XLEN_BITS'(SLOT_BYTES);
     g = '0;
     g.hit = |match;
-    if (any_cand) begin
+    if (|cand) begin
       g.taken = 1'b1;
-      g.slot  = e_slot;
-      g.ty    = e_ty;
-      g.rvc   = e_rvc;
-      // the uBTB keeps the low 32 bits of the target slot address: the upper bits come from the block base (model ub_expand), not zero
-      g.next  = (e_ty == BR_RET && ras_nonempty) ? ras_top : ((base & ~XLEN_BITS'(32'hffffffff)) | XLEN_BITS'(32'(e_tgt) << SLOT_SHIFT));
-      g.hbits = hsym_of(bpc, g.next);
-      if (e_ty == BR_CALL || e_ty == BR_ICALL) begin
-        g.ras_op  = 2'd1;
-        g.ras_val = bpc + (e_rvc ? XLEN_BITS'(2) : XLEN_BITS'(4));
-      end else if (e_ty == BR_RET) begin
-        g.ras_op = 2'd2;
+      for (int w = 0; w < WAYS; w++) begin
+        if (win[w]) begin
+          g.slot    = ent[w].slot;
+          g.ty      = ent[w].ty;
+          g.rvc     = ent[w].rvc;
+          g.next    = w_next[w];
+          g.hbits   = w_hb[w];
+          g.ras_op  = w_op[w];
+          g.ras_val = (w_op[w] == 2'd1) ? w_rv[w] : '0;
+        end
       end
     end else begin
       g.next = bnd;
