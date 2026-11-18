@@ -60,27 +60,27 @@ package pmu_ev_pkg;
   localparam int PMU_EV_OCC_LDQ = 49;  // occ +7b: load-queue entries in use
   localparam int PMU_EV_OCC_STQ = 50;  // occ +7b: store-queue entries in use
   localparam int PMU_EV_SLOT_BE_IQ_SPACE_INT = 51;  // slot +4b: slots stalled: INT issue queue has no free entry
-  localparam int PMU_EV_SLOT_BE_IQ_SPACE_LD = 52;  // slot +4b: slots stalled: LD issue queue has no free entry
-  localparam int PMU_EV_SLOT_BE_IQ_SPACE_STA = 53;  // slot +4b: slots stalled: STA issue queue has no free entry
-  localparam int PMU_EV_SLOT_BE_IQ_SPACE_STD = 54;  // slot +4b: slots stalled: STD issue queue has no free entry
-  localparam int PMU_EV_SLOT_BE_IQ_SPACE_BR = 55;  // slot +4b: slots stalled: BR issue queue has no free entry
+  localparam int PMU_EV_SLOT_BE_IQ_SPACE_MEM = 52;  // slot +4b: slots stalled: memory issue queue has no free entry
+  localparam int PMU_EV_SLOT_BE_IQ_SPACE_STD = 53;  // slot +4b: slots stalled: STD issue queue has no free entry
+  localparam int PMU_EV_SLOT_BE_IQ_SPACE_BR = 54;  // slot +4b: slots stalled: BR issue queue has no free entry
+  localparam int PMU_EV_SLOT_BE_IQ_SPACE_FP = 55;  // slot +4b: slots stalled: FP issue queue has no free entry
   localparam int PMU_EV_SLOT_BE_IQ_WIDTH_INT = 56;  // slot +4b: slots stalled: INT issue queue enqueue width exhaust...
-  localparam int PMU_EV_SLOT_BE_IQ_WIDTH_LD = 57;  // slot +4b: slots stalled: LD issue queue enqueue width exhausted...
-  localparam int PMU_EV_SLOT_BE_IQ_WIDTH_STA = 58;  // slot +4b: slots stalled: STA issue queue enqueue width exhaust...
-  localparam int PMU_EV_SLOT_BE_IQ_WIDTH_STD = 59;  // slot +4b: slots stalled: STD issue queue enqueue width exhaust...
-  localparam int PMU_EV_SLOT_BE_IQ_WIDTH_BR = 60;  // slot +4b: slots stalled: BR issue queue enqueue width exhausted...
+  localparam int PMU_EV_SLOT_BE_IQ_WIDTH_MEM = 57;  // slot +4b: slots stalled: memory issue queue enqueue width exha...
+  localparam int PMU_EV_SLOT_BE_IQ_WIDTH_STD = 58;  // slot +4b: slots stalled: STD issue queue enqueue width exhaust...
+  localparam int PMU_EV_SLOT_BE_IQ_WIDTH_BR = 59;  // slot +4b: slots stalled: BR issue queue enqueue width exhausted...
+  localparam int PMU_EV_SLOT_BE_IQ_WIDTH_FP = 60;  // slot +4b: slots stalled: FP issue queue enqueue width exhausted...
   localparam int PMU_EV_OCC_IQ_INT = 61;  // occ +7b: INT issue-queue entries in use
-  localparam int PMU_EV_OCC_IQ_LD = 62;  // occ +7b: LD issue-queue entries in use
-  localparam int PMU_EV_OCC_IQ_STA = 63;  // occ +7b: STA issue-queue entries in use
-  localparam int PMU_EV_OCC_IQ_STD = 64;  // occ +5b: STD issue-queue entries in use
-  localparam int PMU_EV_OCC_IQ_BR = 65;  // occ +6b: BR issue-queue entries in use
+  localparam int PMU_EV_OCC_IQ_MEM = 62;  // occ +7b: memory issue-queue entries in use
+  localparam int PMU_EV_OCC_IQ_STD = 63;  // occ +5b: STD issue-queue entries in use
+  localparam int PMU_EV_OCC_IQ_BR = 64;  // occ +6b: BR issue-queue entries in use
+  localparam int PMU_EV_OCC_IQ_FP = 65;  // occ +6b: FP issue-queue entries in use
 
   // increment width per event (bits actually driven; the rest of the bus lane is zero)
   localparam int PMU_EV_W [PMU_NUM_EV] = '{
     1, 4, 4, 4, 4, 4, 4, 4, 4, 4, 1, 1, 4, 4, 4, 4, 4, 4, 4, 4,
     4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 1, 1, 1, 1, 4, 1, 1, 1, 1,
     1, 2, 2, 7, 1, 1, 1, 1, 8, 7, 7, 4, 4, 4, 4, 4, 4, 4, 4, 4,
-    4, 7, 7, 7, 5, 6
+    4, 7, 7, 5, 6, 6
   };
 
 endpackage
