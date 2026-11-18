@@ -2,96 +2,143 @@
 module: prf
 area: backend
 rtl: rtl/backend/prf
-spec: prf*
-status: green
-lockstep: 68/68 (整程序)
-mutants: 10/10（6 仅随机）
-note: Prf 寄存器堆+旁路+唤醒
+model: 当前 trace-model 里没有对应的调度单元：模型没有寄存器堆（操作数值是 trace 的事实），`Prf.cpp` 已不存在。唯一有对应的时序行为是 back-end/Exu/Exu.cpp 的 `Exu::load_wake` 和 `LoadWake` 写回寄存器（RTL 的 `prf_awake`）；FTQ pc 读口对应 `Exu::seq` 里的 `needs_ftq_pc`
+status: 整核周期与模型逐个相等（fm_gate 67/67，参考 scripts/ref_cycles_memiq6_nr_int2_ev5.txt；沿用 isu.md 记录的验收结果，本文作者没有重跑）
+depth: 36 层（prf，单模块综合，2026-11-18，`SYNTH_ABC="strash;balance;map"`，生成门代理，见第 6 节）
 ---
 
-# prf 设计笔记
+# prf 设计文档
 
-> **更新（2026-11-12，rv64 / 现状）**：寄存器值、`pc`、`ftq_next_pc`、各 bypass 结果都是 `XLEN_BITS` 位（`prf.sv`）；rv64 的 PRF 位数翻倍，面积 / 综合数字（docs/09）是 rv32 的。
+## 1. 职责
 
-## 1. 对应的 C++
-- 文件/类：`back-end/Prf.cpp`、`back-end/include/Prf.h`，`class Prf`（参考模型 commit 2f31e8d）。
-- BackTop 调用顺序：`comb_begin`(277) → `comb_complete`(空) → `comb_awake`(289) → `comb_write`(290) →
-  … → `comb_req_ftq`(323) → `pre->comb_ftq_lookup_prf` → `comb_read`(325) → … → `comb_pipeline`(391) → `seq`。
-- 输入（spec 里 `in`；简化后删去 `ftq_prf_pc_resp.resp[].valid`）：
-  - `dec_bcast`：mispred、br_mask、clear_mask（br_id/redirect_rob_idx 未被读）
-  - `rob_bcast.flush`
-  - `iss2prf.iss_entry[22]`：valid + uop 全部字段（除 dbg）
-  - `exe2prf.entry[22]`：valid + uop{dest_preg,result,br_mask,dest_en,op}
-  - `exe2prf.bypass[28]`：valid + uop{dest_preg,result,dest_en}（br_mask/op 未被读）
-  - `ftq_prf_pc_resp.resp[10]`：pc、pred_taken、next_pc
-- 输出（`out`）：`ftq_prf_pc_req.req[10]`、`prf_awake.wake[4]`、`prf2exe.iss_entry[22]`。
-  其他模块不直接读 Prf 成员（`reg_file` 仅被 BackTop 的 checkpoint 恢复/difftest 路径写入，不属于 RTL 边界）。
-- 端口命名：BackTop 线名 + 字段路径，例如 `iss2prf_iss_entry_uop_dest_preg[i]`、`exe2prf_bypass_valid[k]`。
-- 位宽：PRF_IDX 7，UOP_TYPE 5（`UOP_LOAD`=3），BR_MASK 64，ISSUE_WIDTH 22，TOTAL_FU 28，FTQ_PRF_PC_PORT 10，LSU_LOAD_WB_WIDTH 4。
+物理寄存器堆，是 ISU 和执行单元之间的一环。每拍做五件事：
 
-## 2. 硬件结构（简化后）
+1. 为 ISU 这拍发射的每条指令读出操作数：每个发射口 2 个整数读口（`src1`、`src2`），浮点口和浮点 store-data 口另有浮点读口；读口带**旁路**：如果想读的寄存器正好被某个执行单元这拍出结果、或者被写回级这拍要写，就直接取那个值，不等写进寄存器堆；
+2. 接收 `exu_ctrl` 的写回（`exe2prf_entry`，21 个口）：先在**写回级**（每个口一组寄存器）停一拍，下一拍写进寄存器堆，同一拍被旁路给读口；
+3. 为需要 pc 的指令（用 pc 做源的 ALU 指令、分支）向 FTQ 要 pc、预测方向、下一 pc，并把回答按口送回（`ftq_prf_pc_req / resp`）；
+4. 把写回级里的 load 广播成唤醒（`prf_awake`，最多 `LSU_LOAD_WB_WIDTH = 4` 个），去 ISU 和分派；
+5. 共用 AGU 的 STA 口借用 load 口的 `src1` 读口（见 5.2）。
+
+模型里没有寄存器堆，所以没有"PRF 的周期行为"可对：写回晚一拍、读口旁路这些在 RTL 里是为了数据正确，模型靠 trace 事实绕过。模型里和 PRF 有关的时序只有 load 的晚唤醒（`Exu::load_wake`：load 写回时若 LSU 没有提前唤醒其消费者，写回寄存器之后一拍才唤醒）。术语：**写回级**是 `prf_wb_pipe` 里每口的那组寄存器；**旁路**是不经寄存器堆直接取值。
+
+## 2. 配置（`ttg_cfg_pkg` / `fp_pkg`，现行默认）
+
+| 项 | 值（常量） |
+| --- | --- |
+| 整数物理寄存器 | `PRF_NUM = 128`，每个 `XLEN_BITS = 64` 位 |
+| 浮点物理寄存器 | `FPRF_NUM = 96`，每个 `FW = FLEN = 64` 位；浮点寄存器的编号从 `FP_TAG_BASE = 128` 起，和整数寄存器共用一个编号空间 `TAG_NUM = 224`，编号宽 `PRF_IDX_WIDTH = 8` |
+| 口（写回通道）数 | `LANES = ISSUE_WIDTH = 21` |
+| 整数读口 | 每口 2 个，共 42 个（其中两个共用 STA 口的 `src1` 读口不用，见 5.2） |
+| 浮点读口 | `NRD = 3 * FP_LANES + LSU_SDU_COUNT = 12`：3 个浮点口（`ISSUE_WIDTH - IQ_FP_PORT_BASE`）各 3 个源，3 个 store-data 口各 1 个数据源（fsw / fsd） |
+| 旁路源 | `BYP_NUM = TOTAL_FU_COUNT + LSU_LOAD_WB_WIDTH = 35`：31 个执行单元结果加 4 路 LSU 写回请求 |
+| FTQ pc 口 | `FTQ_PRF_PC_PORT_NUM = 8`：口 0..5（ALU 口）、6..7 对应分支口 16、17 |
+| 唤醒槽 | `LSU_LOAD_WB_WIDTH = 4` |
+| 共用 AGU | `LSU_AGU_SHARED = 2`：被借用的 load 口从 `IQ_LD_PORT_BASE + LSU_LDU_COUNT - 2 = 8` 起，借用的 STA 口从 `IQ_STA_PORT_BASE + LSU_STA_COUNT - 2 = 11` 起，即 load 口 8、9 与 STA 口 11、12 配对 |
+| 口号 | 与 isu.md 一致（0..5 整数、6..9 load、10..12 STA、13..15 STD、16..17 BR、18..20 FP） |
+
+`ttg_cfg_pkg.sv` 目前是手工编辑的，与 `make cfg` 生成的不同步（待统一，见 docs/TODO.md）。
+
+## 3. 接口
+
+| 方向 | 信号组 | 含义 |
+| --- | --- | --- |
+| 入 | `iss2prf_iss_entry_valid / _uop_*  [ISSUE_WIDTH]` | ISU 本拍的发射结果，读口用其中的 `src*_preg`、`src*_en`、`src1_fp / src2_fp`、`src3_*`、`ftq_idx`、`ftq_offset` 等 |
+| 入 | `exe2prf_entry_valid / _uop_{dest_preg, result, fresult, br_mask, dest_en, op} [ISSUE_WIDTH]` | 执行单元的写回，进写回级 |
+| 入 | `exe2prf_bypass_valid / _uop_{dest_preg, result, fresult, dest_en} [TOTAL_FU_COUNT]` | 每个完成的执行单元一路，只作旁路源 |
+| 入 | `lsu_byp_valid / dest_preg / result / is_w [LSU_LOAD_WB_WIDTH]` | LSU 的 load 写回请求作旁路源；只在 `LSU_PIPE != 0` 且 `LP_L2` 的位 0 和位 3 同时打开时有效（`back_top.sv` 里生成），否则全 0；现行 `LP_L2 = 1907`（`rtl/backend/lsu/lp_pkg.sv`）的位 3 为 0，所以现行配置下这四路恒为 0，旁路源实际只有写回级和 31 个执行单元 |
+| 入 | `ftq_prf_pc_resp_resp_{pc, pred_taken, is_rvc, next_pc} [8]` | FTQ 的回答 |
+| 入 | `dec_bcast_{mispred, br_mask, clear_mask}`、`rob_bcast_flush` | 误预测、分支号清除、全局 flush（经 `rob_flush_q` 晚一拍，docs/FLUSH_REG.md） |
+| 出 | `prf2exe_iss_entry_valid / _uop_*  [ISSUE_WIDTH]` | 发射结果原样透传，加上读出的 `src1_rdata`、`src2_rdata`、`fsrc1..3`，以及口 0..5、16、17 的 `pc`、`ftq_pred_taken`、`ftq_is_rvc`、`ftq_next_pc`（其他口为 0） |
+| 出 | `ftq_prf_pc_req_req_{valid, ftq_idx, ftq_offset} [8]` | 向 FTQ 要 pc |
+| 出 | `prf_awake_wake_valid / _preg [LSU_LOAD_WB_WIDTH]` | load 晚唤醒 |
+
+## 4. 结构
+
 ```
- exe2prf.entry ─▶ prf_wb_pipe ─(wb_*_q: wen/is_load/dest_preg/result/br_mask x22)─┬▶ prf_write_arb ─▶ prf_regfile (128x32)
- dec_bcast/flush ┘                                                                  ├▶ prf_awake ─▶ prf_awake_wake_*
- iss2prf src_preg ─▶ prf_regfile 读口(2x22) ─▶ prf_bypass x44 (prf.sv generate) ◀──┘ + exe2prf.bypass
- iss2prf ─▶ prf_pc_port(请求条件) ─▶ ftq_prf_pc_req；ftq_prf_pc_resp 按口直连回发射口
+ exe2prf_entry ─► prf_wb_pipe（21 口写回级）─┬─► prf_write_arb ─► prf_regfile（128 × 64，整数）
+ dec_bcast / flush ─┘                         ├─► prf_fp（浮点：写回暂存、96 × 64、12 个读口含旁路）
+                                              ├─► 各读口的旁路比较
+                                              └─► prf_awake ─► prf_awake_wake_*
+ iss2prf 的 src_preg ─► prf_regfile 读口（2 × 21）─► prf_bypass × 42 ─► src1_rdata / src2_rdata
+ exe2prf_bypass、lsu_byp ───────────────────────────► （旁路源）
+ iss2prf ─► prf_pc_port（请求条件）─► ftq_prf_pc_req；ftq_prf_pc_resp 按口直连回发射口
 ```
-- `prf.sv`：端口适配（透传 uop、44 个 bypass 实例的 generate、PC 口接线）。
-- `prf_wb_pipe`：22 路写回级寄存器。只保存"写寄存器的结果"：`wen = !flush && valid && dest_en && !被误预测杀`，
-  载荷（dest_preg/result/br_mask/is_load）每拍直接采样 Exu 输出，不做无效槽保持。
-- `prf_write_arb`：每个物理寄存器：命中的写口 AND-OR（无优先级），`reg_wr_en = |hits`。
-- `prf_regfile`：128x32，2x22 异步读口。
-- `prf_bypass`：`!src_en||preg==0 → 0；有 FU/WB 命中 → 命中数据（AND-OR）；否则寄存器堆`。
-- `prf_pc_port`：只算 4+6 个口的请求条件（ALU 口需 src1_is_pc 且 op∈ALU，BR 口需 op∈BR）。
-- `prf_awake`：写回级里未被杀的 load，按口序压缩进 4 个唤醒槽（前缀 popcount + 独热选择）。
 
-## 3. 一拍内的数据流
-- 读（`comb_read`/`comb_awake`）用寄存器当前值（`reg_file`、`inst_r`），写进 `*_1`；写回级旁路补上"本拍写入、本拍读不到"的值。
-- `prf2exe`、`ftq_prf_pc_req` 只依赖 iss2prf/ftq 响应/exe 旁路/写回级；`prf_awake` 依赖写回级与 dec_bcast。
+| 文件 | 行数 | 职责 |
+| --- | --- | --- |
+| `prf.sv` | 391 | 顶层：端口适配、共用 AGU 的读口借用、42 个整数读口的旁路实例、浮点读口编号、pc 口接线 |
+| `prf_wb_pipe.sv` | 64 | 21 口写回级寄存器 |
+| `prf_write_arb.sv` | 29 | 每个整数寄存器的写使能和写数据 |
+| `prf_regfile.sv` | 40 | 整数寄存器堆存储和异步读口 |
+| `prf_bypass.sv` | 45 | 一个读口的旁路选择 |
+| `prf_fp.sv` | 81 | 浮点寄存器堆：写回暂存、写口、读口加旁路（同一个编号空间里编号 ≥ `FP_TAG_BASE` 的才是浮点寄存器） |
+| `prf_pc_port.sv` | 32 | 哪些发射口需要向 FTQ 要 pc |
+| `prf_awake.sv` | 46 | load 唤醒 |
 
-## 4. 与 C++ 的差异点、放宽、删除、不复刻
-差异：无功能差异（有意义输出逐拍一致）。
+状态：整数寄存器堆 `reg_file_q[128]`（复位全 0）；浮点寄存器堆 `reg_file_q[96]`；写回级每口 `wb_wen_q`、`wb_is_load_q`、`wb_dest_preg_q`（8 位）、`wb_result_q`（64 位）、`wb_br_mask_q`（32 位）和浮点的 `wb_fres_q`（64 位）。
 
-**放宽（`when`）及消费者核对**
-- `prf2exe_iss_entry_uop_*`（全部）`when prf2exe_iss_entry_valid`：消费者 `Exu::comb_exec/Isu 发射口 → Exu` 只处理 `valid` 为真的槽
-  （`Exu.cpp:310` 先判 `iss_entry[p_idx].valid` 才转换）。RTL 在 valid=0 时直通（不再清零）。
-- `prf_awake_wake_preg when prf_awake_wake_valid`：读取点 `Isu.cpp:364`、`Dispatch.cpp:7` 都先判 `wake[i].valid`。
-- `ftq_prf_pc_req_req_ftq_idx/ftq_offset when ftq_prf_pc_req_req_valid`：读取点 `PreIduQueue::comb_ftq_lookup_prf` 先判 `req[i].valid`。
-  RTL 无条件直通发射口的 ftq_idx/offset（不再按请求清零）。
-- 严格比较的：`prf2exe_*_pc/ftq_pred_taken/ftq_next_pc`（FTQ 对未请求的口返回全 0，RTL 直通该口的响应，天然一致）、
-  `src{1,2}_rdata`（`!src_en||p0` 读 0 这类门控保留：消费者 `Fu.h` 的 src_en 逻辑对未使能源是否读值未逐一核对，按规则不放宽）。
+## 5. 一拍内的数据流
 
-**删除的字段（spec 与端口）及理由**
-- 输出 `prf2exe_iss_entry_uop_{ftq_resp_valid, ftq_offset, src1_preg, src2_preg, src2_en}`：Exu/Lsu/Rob 无读取点
-  （全后端 grep：`ftq_resp_valid`、`src1_preg/src2_preg`、`src2_en` 在 Exu/Lsu 里无引用；`ftq_offset` 只在 Rob 自己的结构里）。
-- 输入 `ftq_prf_pc_resp_resp_valid`：恒等于请求 valid（见不复刻第 5 条），冗余。
+### 5.1 写回级和寄存器堆
 
-**选择不复刻的 C++ 行为**
-1. 写回级里"无效槽保持旧载荷"（`inst_r_1[i]` 在 !valid 时保留 uop）：载荷无条件采样，只有 `wen` 有意义。
-2. 同拍多个写口写同一物理寄存器（C++ 后者胜）：重命名保证单一生产者，真实 trace 中 0 次，RTL 用 AND-OR。
-3. FU 旁路与写回级旁路同时命中同一 preg 的优先级、多 FU 命中的 break：同上，真实 trace 0 次。
-4. >4 个 load 同拍唤醒时丢弃多余者：LSU 只有 4 个 load 写回口，不可达（真实 trace 0 次）。
-5. FTQ 响应缺失：不存在——`fill_ftq_pc_resp`（PreIduQueue.cpp:9）里 `resp.valid` 恒等于 `req.valid`，未请求的口整体为 0。因此 `resp.valid` 输入冗余，已删；`entry_valid` 无人读。
-6. 写 p0 的保护（`dest_preg != 0`、`reg_file_1[0]=0`）：p0 的读口恒返回 0，内容不可观测；dest_en 且 dest_preg=0 的写回真实 trace 0 次。
-7. `UOP_LOAD` 的 `decode_uop_type` 断言（op<18）：不复刻。
+`prf_wb_pipe`：`wb_wen_d = !flush && 写回有效 && 有目的寄存器 && !被本拍误预测杀（br_mask 与 dec_bcast_br_mask 相交）`；载荷（`dest_preg`、`result`、`is_load`）每拍无条件采样 `exe2prf_entry`，`br_mask` 采样前清掉 `clear_mask`。`prf_write_arb` 对每个整数寄存器：命中它的写口（`wb_wen_q && wb_dest_preg_q == p`）做 AND-OR，`写使能 = |命中`，不排优先级，因为一个物理寄存器同时只有一个生产者在飞；浮点编号（≥ 128）不命中任何整数寄存器，写 `p0` 无害（读 `p0` 恒为 0）。`prf_fp` 对浮点寄存器做同样的事，用同一个写回级的 `wb_wen_q` 和 `wb_dest_preg_q`，浮点结果 `fresult` 在 `prf_fp` 里自己再暂存一拍。
 
-## 5. 验证
-- spec：`spec/prf.io`（71 个字段）。
-- trace：64 个真实程序（61 gate 与 dhrystone/coremark 等；gate 各 30000 拍，大程序 100000 拍）+ 3 条随机 trace
-  （`tests/prf/run_rand.sh`，驱动参考模型真实 `Prf` 类，各 40003 条；约束：同时可见的写回/旁路目的寄存器互不相同、
-  FTQ 对请求口必答、未请求口全 0 —— 与重命名/FTQ 的真实保证一致）。共 67 条、621,726 条记录，全部 PASS。
-- 真实程序覆盖：flush 616 拍、mispred 2.3 万、clear_mask≠0 27 万、exe 条目被杀 4248、FU 旁路命中 38 万、WB 旁路命中 13 万、
-  同拍 load 唤醒 1–4 个、被杀 load 1229 次、ALU 取 PC 7 万次、BR 取 PC 41 万次。随机 trace 补足上述各项的高密度组合与 p0 源。
-- 变异（严格比较的字段抓到；dhrystone / rand_a，记录号）：
-  - A3 load 编码 3→4：`prf_awake_wake_valid[0]` rec107 / `[2]` rec4
-  - A4 clear_mask 用 AND 代替 AND-NOT：`prf_awake_wake_valid[0]` rec612 / `wake_preg[3]` rec35
-  - A5 误预测 kill 用 OR 代替 AND：`src1_rdata[10]` rec137 / `wake_valid[0]` rec8
-  - A6 ALU 取 PC 条件取反：`ftq_prf_pc_req_req_valid[0]` rec35 / `[2]` rec1
-  - A8 唤醒槽 rank 偏 1：`wake_valid[0]` rec107 / `wake_preg[0]` rec4
-  - A9 PC 口接线错位：`prf2exe_iss_entry_uop_pc[0]` rec59 / `[1]` rec3
-  - B1 FU 旁路数据截成 16 位：`src1_rdata[0]` rec78 / `[2]` rec4
-  - B2 mispred 同拍 flush 失效：dhrystone 抓不到（真实程序无同拍），rand_a `wake_valid[0]` rec12
-  - B3 写口只对偶数口有效：`src1_rdata[0]` rec81 / `[11]` rec5
-  - B4 WB 旁路对奇数 preg 忽略 wen：`src1_rdata[6]` rec385 / `[18]` rec4
-  共 10 个变异全部被抓到，均由严格比较的字段（`wake_valid`、`src*_rdata`、`req_valid`、`pc`）报出。
-- 简化前后行数（rtl/backend/prf）：9 个文件 785 行 → 7 个文件 505 行（其中 prf.sv 244 行主要是 spec 端口声明）；spec 82 → 76 行。
+### 5.2 读操作数
+
+1. 读口的寄存器号取自 ISU 这拍发射的指令，不经寄存器：`iss2prf_*_src_preg → prf_regfile 异步读 → prf_bypass`。
+2. `prf_bypass`：`!src_en` 或 `src_preg == 0` 读 0；否则如果写回级某口（`wb_wen_q && wb_dest_preg_q == src_preg`）或某个旁路源（`exe2prf_bypass` 有效且有目的寄存器、或 LSU 写回请求）的目的寄存器等于 `src_preg`，取它的值（两组命中各自独热选择，相或）；否则取寄存器堆。一个寄存器只有一个生产者在飞，所以最多一个命中，不排优先级。
+3. **共用 AGU 的 STA 口借用 load 口的 `src1` 读口**（`prf.sv`，`lane_sh_ld` / `lane_sh_sta`）：load 口 8、9 的 `src1` 读口，当配对的 STA 口 11、12 这拍有发射时，读 STA 口的 `src1_preg`（`src1_en` 同理），否则读自己的；STA 口自己的 `src1` 读口不用（`src_en = 0`），它的 `src1_rdata` 取配对 load 口的读出值。ISU 保证配对的两口同拍只发一条（load 优先），所以不会冲突。
+4. 浮点：浮点口的三个源和 store-data 口的数据源读 `prf_fp`（旁路规则同上，旁路源多了 `lsu_byp` 的 `fp_load_data`，即 `flw` 的 NaN-boxing）；store-data 口的 `src2_rdata` 在 `src2_fp` 为 1 时换成浮点读出值的低 `XLEN` 位。
+5. FTQ pc：口 0..5 在 `src1_is_pc` 且操作属于 ALU 类时、口 16、17 在操作属于分支类时发请求（`prf_pc_port`）；FTQ 的回答按口号直连回对应发射口，其他口的 pc 字段接 0。
+
+### 5.3 唤醒
+
+`prf_awake`：写回级里 `wb_wen_q && wb_is_load_q` 且不被本拍误预测杀的 lane 按口序压缩进 4 个槽（每槽数自己前面有几个唤醒的 lane，选第 k 个）。写回级里的 load 来自口 6..9 的 LSU 写回，最多 4 个，所以不会丢。
+
+## 6. 关键路径与深度
+
+单模块综合深度 **36 层**（prf；2026-11-18；`scripts/synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`，生成门代理，不是时序）。综合报告给出的最长路径：从 `\u_wb_pipe.wb_br_mask_q [671]` 到 `\prf_awake_wake_preg [7]`。，本模块没有单独综合过。以下是从代码读出的，未综合验证：
+
+| 路径 | 内容 |
+| --- | --- |
+| ISU 发射 → 读 → 槽 | ISU 授予 → 被选中 uop 的 `src_preg`（`iss2prf`）→ 整数寄存器堆按编号读（128 选 1）并行 `prf_bypass` 里的 56 个比较（写回级 21 口加旁路源 35 路）→ 独热选择 → `prf2exe_*_rdata` → `exu_ctrl` 槽的寄存器；这条路径把 ISU 的"选择 → 授予"接在后面，是整核最长环路的一部分 |
+| 写回级 → 写回 / 唤醒 | 每个整数寄存器（128 个）、每个浮点寄存器（96 个）各对 21 个写口比较 `wb_dest_preg_q` 生成写使能；唤醒槽的前缀计数 |
+| FTQ pc | `iss2prf` → `prf_pc_port` 的请求条件 → FTQ（模块外）→ 回答 → 发射口 pc；FTQ 的回答直接穿过 PRF |
+
+本分支和深度有关的改动：`41e5893` 让共用 AGU 的 STA 口借用 load 口的 `src1` 读口（读口个数减少，读口输入多一个二选一）；全局 flush 晚一拍（`803692f`）使 `rob_bcast_flush` 来自寄存器。
+
+## 7. 与模型的差异和取舍
+
+模型里有、RTL 里有意没有复刻的、或两边不同的：
+
+- **没有寄存器堆**：模型里 `ISSUE → PRF 读 → 槽` 的数据通路、旁路、写回级都不存在，PRF 的正确性只能靠整核逐条提交的函数模型检查（fm_gate）；
+- **晚唤醒的条件**：模型 `Exu::seq` 只对"没被 LSU 提前唤醒"的 load（`!early_woken`，LSU 在 L3 寄存器处已唤醒的不算）在写回寄存器一拍后唤醒；RTL 的 `prf_awake` 对写回级里每个有目的寄存器、没被杀的 load 都广播，RTL 没有 `early_woken` 这根线。RTL 里 LSU 的提前唤醒（`lsu2iss_wake_*`）和这里的晚唤醒会对同一个寄存器各唤醒一次，周期仍与模型逐个相等（fm_gate），重复唤醒为何无害本文没有逐点核对；
+- **FP 写回口**：模型的 `exe2prf.entry` 只有整数口；RTL 的 `prf_fp` 为浮点口 18..20 的写回写浮点寄存器堆；
+- **`exe2prf_bypass` 与 LSU 写回旁路**：模型里没有人读 bypass；RTL 的读口旁路源包含它们和 `lsu_byp`（现行配置下 `lsu_byp` 恒为 0，见第 3 节）。
+
+RTL 与模型保持一致的细节：
+
+- 晚唤醒按口序取前 `LSU_LOAD_WB_WIDTH` 个、跳过被本拍误预测杀的（模型 `load_wake`）；
+- 写回级 `wb_wen` 用 flush 之外还看误预测，但寄存堆的写入本身不被下一拍的误预测撤销（写一个已经死掉的物理寄存器无害）。
+
+未核对（继承自旧文档）：
+
+- 旧文档的"放宽（`when valid`）与消费者核对"清单、变异检查（10/10）和 trace 回放结果：随 `spec/` 退役；旧文档提到的"rv64 的 PRF 位数翻倍，面积 / 综合数字是 rv32 的"：本文没有综合，不重复。
+
+代码里的小问题（没有改）：`prf.sv` 参数 `UOP_TYPE_WIDTH` 的注释写"MAX_UOP_TYPE=18"，现在是 21（有 F/D 时），宽度 5 位仍够；`prf.sv` 顶部注释"commit 2f31e8d"指一个已不存在的模型文件；`prf_write_arb.sv` 注释里的"see notes"指旧文档。
+
+## 8. 验证
+
+- **门禁**：`scripts/fm_gate.sh` 67 个程序，每条提交对比函数模型，周期对 `scripts/ref_cycles_memiq6_nr_int2_ev5.txt`。寄存器值（含旁路和写回级）靠这个逐条提交检查：错值会在下一个提交里被发现。浮点寄存器堆由 `fd-*` 程序和 `tests/fp_chain` 覆盖。
+- **Lint**：`scripts/lint_chip.sh` 0 告警。
+- **没有模块级的独立测试**：旧的 trace 回放和变异检查随 `spec/` 退役。**待补**：写一个"读口 + 旁路 + 写回级"对一个简单的软件寄存器堆参考模型的随机测试（随机写回、随机旁路源、随机读），重点测同拍被写和被旁路、共用 AGU 的 `src1` 借用、`p0`。
+
+## 9. 参数与开关速查
+
+`PRF_NUM`、`FPRF_NUM`、`FP_TAG_BASE`、`TAG_NUM`、`PRF_IDX_WIDTH`、`ISSUE_WIDTH`、`TOTAL_FU_COUNT`、`LSU_LOAD_WB_WIDTH`、`LSU_SDU_COUNT`、`FTQ_PRF_PC_PORT_NUM`、`LSU_AGU_SHARED`、`IQ_*_PORT_BASE`、`ALU_NUM`、`BRU_NUM`（`ttg_cfg_pkg`）；`FP_EN`、`FW`、`FLEN`（`fp_pkg`）；`LSU_PIPE`、`lp_pkg::LP_L2`（决定 `lsu_byp_valid` 是否有效，在 `back_top.sv`）。
+
+## 10. 变更记录
+
+- 2026-11-17/18（exp/agu-share，`261bd67..HEAD`）：`41e5893` 共用 AGU 的 STA 口借用 load 口的 `src1` 读口（EXP-TLBPORTS 第 2 步）；`803692f` 全局 flush 晚一拍到达（本模块自身没改，见 docs/FLUSH_REG.md）。
+- 2026-11-12：rv64（寄存器、pc、旁路结果 `XLEN_BITS` 位）；F/D（浮点寄存器堆 `prf_fp`、浮点读口、`lsu_byp` 的 NaN-boxing）。
+- 更早：见 git 历史。

@@ -1,82 +1,110 @@
 ---
 module: dcache_pf
 area: memsys
-rtl: rtl/memsys/dcache
-status: green (PF_EN=0 default; PF_EN=1 cycle-equal to trace-model on 66/66 programs)
-note: L1D prefetcher h1 (EXP-009), cycle contract taken from trace-model branch exp/prefetch-h1 (0eb258c)
+rtl: rtl/memsys/dcache/dcache_pf.sv
+model: trace-model MemSubSystem/include/DataPrefetcher.h（类 `DataPrefetcher`，`RealDcache` 的成员 `pf`，没有自己的调度单元；它的 `seq()` 由 `RealDcache::seq()` 调用）
+status: 整核周期与模型逐个相等（fm_gate 67/67，参考 scripts/ref_cycles_memiq6_nr_int2_ev5.txt）
+depth: 74 层（dcache_pf，单模块综合，2026-11-18，`SYNTH_ABC="strash;balance;map"`，生成门代理，见第 6 节）
 ---
 
-# L1D 数据预取器 h1：RTL 实现规格
+# dcache_pf 设计文档
 
-> **更新（2026-11-12，rv64 / 现状）**：数据字宽度同 `dcache.md`（`DW = XLEN_BITS`，预取只发整行请求，不受 XLEN 影响）。rv64 的预取一致性没有单独验证，只靠逐条对比的 rv64 程序和 Linux 覆盖。
+## 1. 职责
 
-C++ 规格：trace-model `exp/prefetch-h1`（`MemSubSystem/include/DataPrefetcher.h` + `RealDcache.cpp` / `MSHR.cpp` / `DcacheConfig.cpp` 里的预取改动，`git diff main exp/prefetch-h1 -- MemSubSystem`）。
-预取**默认开**（2026-11-06 起；trace-model `PF_ENABLE=0`、RTL `-GPF_EN=0` 关闭）。开时 RTL 与 trace-model 逐程序周期相同（`scripts/ref_cycles.txt`，门禁 66/66）；关时与旧基线（`scripts/ref_cycles_nopf.txt`）相同。
-设计与结果见 `docs/EXPLORATION.md` EXP-009。本文列出 RTL 要做的事和 C++ 里必须逐拍复刻的行为。
+L1 数据缓存的预取器，冻结设计 "h1"（EXP-009，模型头文件注释称它是 RTL 的规格）。它做三件事：
 
-## 1. 新模块 `dcache_pf`（对应 `DataPrefetcher`）
-状态（约 0.4 KB）：请求 FIFO 8×27 位 + 指针；单表项步长检测器 {valid, last[26], stride[8, 有符号], conf[2]}；
-主生成器 {valid, next[26], base[26], stride[8], left[4], pushed}；LLC 下一行生成器 {valid, next[26], base[26], left}；训练输入寄存器 2×{valid, line[26], miss, pf_hit}。
-每拍（时序更新，组合只读寄存器）：
-1. `head_taken` → FIFO 出队。
-2. 主生成器有效：占用 FIFO 写口；候选 = `next`；与 `base` 不在同一 4 KiB 页（`line>>6` 不同）→ 生成器作废（不入队）；否则与 FIFO 中已有行比较（CAM），重复则丢，否则入队 `{line, llc=0}`；`next += stride`（26 位回绕）；`left` 减到 0 作废。
-3. 主生成器本拍没有占用写口且 LLC 生成器有效：同样的页检查和 CAM，入队 `{line, llc=1}`，`next += 1`，`left` 减到 0 作废。
-4. 训练：用上一拍寄存的 ≤2 个事件，按口序依次（见下）。
-5. 选择：本拍 stage 2 的 4 个 load 口事件中，`miss || pf_hit` 的前 2 个（口序）写入输入寄存器，其余丢弃。
-训练（每个事件）：`miss` 则 LLC 生成器 := {base=line, next=line+1, left=1}（覆盖）；步长检测器：无效 → 分配 {last=line, stride=0, conf=0} 并返回；
-`d = sext(line-last)`；`d==0` 返回；`in_range` = d 在 int8 范围；`d==stride && in_range` → conf<3 时 +1；否则 conf>0 → conf-1，conf 变 0 且 in_range 时 stride:=d；否则 stride := in_range ? d : 0；`last := line`；
-`conf>=2 && stride!=0` → 主生成器 := {base=line, next=line+2*stride, stride, left=8}（覆盖）。
-注意同一拍两个事件顺序训练（后者看到前者更新后的表项），第二个事件的 `start` 覆盖第一个。
-输出：`head_valid`、`head_addr = line<<6`、`head_llc`。
+1. **训练**：看 load 口第二级的访问事件，每拍最多取 2 个，事件是"L1D 未命中"或"第一次用到被预取进来的行"。用一个全局的（不分 PC、只有一条）步长表项检测步长；
+2. **生成候选**：步长置信度够了就发一串步长预取（"步长突发"，8 个候选，从触发行之后 2 个步长处开始，不跨 4 KiB 页）；另有一个"下一行"引擎，每次 load 未命中后给下一行发一个候选，这一行只进 LLC，不填进 L1D；
+3. **请求队列**：候选进一个 8 项 FIFO（同一行去重，满了丢弃），队头交给 `dcache_s1` 借一个空闲的 load 口做 tag 探测；探测不命中、MSHR 有空项时，由 `dcache` 顶层在 MSHR 里分配一个预取项（见 dcache.md）。
 
-## 2. dcache_s1（stage 1）
-- 每个 load 槽新增寄存器位 `pf`（探测槽）、`pf_llc`、`perf_replay`（见 §6 的 LSU 重放位）。
-- 探测：在所有需求（填充快照、load0..3、store0..3 的 bank 授权）之后，取**第一个** `!slot.valid` 的 load 槽 i（槽有效 = 真实请求或隐藏重试已占用）；若该行 bank 已被占用（填充、需求、重试）→ 本拍不探测（不出队）；否则该槽 `valid=1, pf=1, pf_llc=head_llc, addr=head_addr, req_id[31]=1（不是 LSU 请求）, replayed=0, perf_replay=1`，出队。该槽读阵列 tag、查 WB 旁路、查 MSHR（`is_prefetch=1`，不触发提升）。
-- 只有 `PF_EN` 且 `head_valid` 时才做；此时槽的 `valid` 判断在选择隐藏重试之后。
+它在模型里不是调度单元：`DataPrefetcher` 的输入由 `RealDcache::stage2` 写入（`acc[]`），输出（队头）被 `RealDcache::stage1` 读，状态在 `RealDcache::seq` → `pf.seq()` 里更新。
 
-## 3. dcache_s2_ld / s2_st（stage 2）
-- pf 槽不产生 LSU 响应，也不走 load 的分类链；先处理所有需求 load、store，之后才处理探测。
-- 空项计数：`free_in` → 需求 load0..3 → store0..3 各占用一个后，探测才用剩余（`free_rem_after_stores`，**含 store 占用**，由 `mshr_free - ld_alloc_cnt - st_alloc_cnt` 得到）。
-- 探测判定顺序：WB 旁路命中 → 丢；cache 命中或与本拍填充同行（`s2f` 或 MSHR 当前 fill_req 同行）→ 丢；MSHR 已有同行项 → 丢；`free <= PF_MSHR_RESERVE(=0)` → 丢；否则向 MSHR 申请一项 `{is_prefetch=1, no_fill=pf_llc}`。
-- 需求 load 命中且 `!perf_replay && req_id[31]==0`：pf 位置位的路清零，并产生 `pf_hit` 事件（`pf.acc[i]`）；需求 load 的 miss 分支（WB 旁路、命中判定之后、MSHR 查找之前）在同样条件下产生 `miss` 事件。ICache 探针（`probe`）的 CONFLICT 分支先于 miss 事件，不产生事件（对照 C++ 行序）。
-- 事件的 `paddr` 为槽地址。
+## 2. 配置（现行默认）
 
-## 4. dcache_mshr
-- 项新增 `is_prefetch`、`no_fill`。
-- 需求请求（load / store，任何 `find` 或分配合并）遇到 `is_prefetch` 项：清 `is_prefetch`、`no_fill`（"晚到提升"）。探测的 find 不提升。
-- AXI 读口发请求：先选"需求项"（`valid && !issued && !is_prefetch` 的最低下标），没有再选预取项。
-- `no_fill` 项的 AXI 响应到达（该项 `valid && issued`）：响应当拍就被吸收（`resp_ready` 对应 accepted），**不进保持槽**，项直接释放，并给出 `release_event`（本拍）；保持槽占用时的 `take` 条件按 C++ `comb_inputs_axi` 的顺序（保持槽空才收）。
-- `fill_req` 带 `is_prefetch`，经 `s2f` 带到 stage 2 的填充写。释放项清 `is_prefetch/no_fill`。
+| 项 | 值 | 来源（模型常量 / RTL 常量） |
+| --- | --- | --- |
+| 请求 FIFO 深度 | 8 | `PF_QUEUE` / `QD`，指针 `QW = 3` |
+| 每拍训练事件数 | 2 | `PF_TRAIN_PORTS` / `NTR` |
+| 突发候选数 | 8 | `PF_DEGREE` / `DEGREE`，剩余计数 4 位 |
+| 起始距离 | 2 个步长 | `PF_DIST`；RTL 里写死成左移一位（`{sx(stride)[LINE_W-2:0], 1'b0}`） |
+| 置信度阈值 | 2 | `PF_CONF_THR`；RTL 里写死成 `st_conf_d >= 2'd2`，置信度 2 位，上限 3 |
+| 步长位数 | 8 位有符号（单位：行） | `PF_STRIDE_BITS` / `SB` |
+| 下一行引擎行数 | 1 | `PF_LLC_LINES`；RTL 里 `g2` 没有计数器，隐含为 1 |
+| 行号位数 | 26（`addr[31:6]`） | `PF_LINE_BITS` / `LINE_W`（`dcache_pkg`） |
+| MSHR 保留 | 0：只要有空项探测就能分配 | `PF_MSHR_RESERVE`；RTL 里 `pf_free = mshr_free - ld_alloc_cnt - st_alloc_cnt`，`pf_ok = pf_cand & (pf_free != 0)`（`dcache.sv`） |
+| 总开关 | 参数 `PF_EN`（默认 1；`soc_top` 传入） | 模型：环境变量 `PF_ENABLE`（0 关闭，`DataPrefetcher::enabled_`） |
 
-## 5. 阵列与填充
-- 每路新增 `pf` 位（256 组 × 4 路）：填充写时 := `is_prefetch`（目标路 = 已有同 tag 路否则牺牲路）；需求 load 命中且满足 §3 条件时清零。
-- `mshr_fill`（给 LSU 的唤醒）= `fill_valid || release_event`；`release_event` 时 `mshr_fill_addr` 为 0（C++ 在无填充时地址为 0）。
-- 预取填充与需求填充在 PLRU 上同样处理（`INSERT` 开关已删除，行为 = 普通填充）。
+没有准确率节流、没有来自 LSU 的 PC（模型头文件注释说明这是有意的）。
 
-## 6. LSU → DCache 新增信号 `ld_req_replay`（每个 load 口 1 位）
-训练要求 `!perf_replay`，`perf_replay = 隐藏重试 ? 1 : lsu_req.replay`，其中 LSU 请求的 `replay = (l.replay_type != HIT)`（`RealLsu.cpp:472`，该 load 上次被 DCache 回过非 HIT 响应后重发）。
-这个位目前不在 RTL 的 LSU→DCache 接口上（spec `lsu.io`/`mem_route.io` 明确省略了 `*.replay` 请求标志）。需要从 `lsu_dc_req_ld`（已有 `replay_type`）一路接到 `lsu` → `back_top` → `core_top` → `soc_top` → `mem_top` → `mem_route` → `dcache`；`mem_route` 里 PTW / ICache 复用的口（`LSU_LDU_COUNT-1`）为 0。相应 spec（`lsu.io`、`mem_route.io`、`dcache.io`、`core_top.io`、`back_top.io`）补字段。
+## 3. 接口
 
-## 7. 参数与开关
-`dcache` 顶层参数 `PF_EN`（默认 1，由 `mem_top` 参数 → `soc_top` 参数给出；关闭：`SOC_VOPT="-GPF_EN=0"`）。`PF_EN=0` 时所有新状态被综合优化掉、`ld_req_replay` 不被使用；周期不变。
+| 方向 | 信号 | 含义 |
+| --- | --- | --- |
+| 出 | `head_valid`、`head_line`、`head_llc` | FIFO 队头：非空、行号、是否只进 LLC |
+| 入 | `head_taken` | `dcache_s1` 这拍把队头送去探测了，下一拍弹出 |
+| 入 | `acc_valid/acc_line/acc_miss/acc_pf_hit [NLD]` | 本拍第二级各 load 口的访问事件：未命中（含合并进在途 MSHR 项的）、或第一次使用预取行。重发的请求和隐藏重试不产生事件（`dcache_s2_ld` 里 `dem` 要求 `!slot_perf_replay`、来自 LSU、不是探测） |
+
+`PF_EN = 0` 时 `dcache.sv` 不实例化本模块，`pf_head_valid` 等恒为 0（`g_nopf`）。
+
+## 4. 结构
+
+| 文件 | 行数 | 职责 |
+| --- | --- | --- |
+| `dcache_pf.sv` | 214 | 全部：FIFO、步长表项、两个生成器、训练输入寄存器 |
+
+状态（全部寄存器）：
+
+- FIFO：`q_line_q[8]`（26 位）、`q_llc_q[8]`、`q_head_q`、`q_cnt_q`；
+- 步长表项：`st_valid_q`、`st_last_q`（上次的行号）、`st_stride_q`（8 位）、`st_conf_q`（2 位）；
+- 步长突发生成器 `g_*`：有效、下一行 `g_next_q`、基准行 `g_base_q`（页检查用）、步长、剩余次数；
+- 下一行生成器 `g2_*`：有效、下一行、基准行（页检查用）；
+- 训练输入寄存器：`in_valid_q/in_miss_q/in_line_q [2]`（上一拍选出的事件，这一拍才用来训练，使训练不在第二级的路径上）。
+
+## 5. 一拍内的数据流
+
+顺序与模型 `DataPrefetcher::seq` 一致（RTL 里是同一个组合块的几段，随后统一打入寄存器）：
+
+1. **弹出**：`head_taken` 为真则队头出队（`cnt_a`、`head_a`）；
+2. **步长生成器**：有效则占用 FIFO 的写口；下一行与基准行不在同一页（行号 `[25:6]` 不同）则作废，否则推入候选 `g_next_q`（`llc = 0`），`g_next` 加一个步长，剩余次数减一，到 0 作废；
+3. **下一行生成器**：写口没被步长生成器占用时才工作；同页则推入候选 `g2_next_q`（`llc = 1`），然后作废；
+4. **去重与写入**：候选与弹出后的 FIFO 项逐项比较行号，相同则丢弃；FIFO 满则丢弃；否则写到 `head_a + cnt_a`。生成器的 `g_next`、`g_left` 不管候选是否被丢弃都照常推进（与模型 `push_candidate` 一致）；
+5. **训练**（对上一拍寄存的 2 个事件按顺序依次处理）：
+   - 未命中事件：启动下一行生成器（基准行 = 本行，下一行 = 本行 + 1）；
+   - 步长表项无效则以本行建立（步长 0、置信度 0）；否则 `d = 本行 - st_last`：`d == 0` 不更新；`d` 在 8 位有符号范围内且等于已存步长则置信度加一（上限 3）；否则置信度大于 0 就减一，减到 0 且 `d` 在范围内则采用 `d` 作为新步长；置信度已是 0 则直接以 `d`（不在范围内则为 0）为步长；更新 `st_last`；置信度 ≥ 2 且步长非 0 则启动步长突发（基准行 = 本行，起点 = 本行 + 2 个步长，剩余 8 次）；
+6. **选择新事件**：按 load 口顺序取前 2 个"未命中或首次使用预取行"的访问，寄存起来供下一拍训练，多余的丢弃。
+
+## 6. 关键路径与深度
+
+单模块综合深度 **74 层**（dcache_pf；2026-11-18；`scripts/synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`，生成门代理，不是时序）。综合报告给出的最长路径：从 `\st_last_q [1]` 到 `\g_next_q [24]`。。从代码读出的，未综合验证：
+
+- **FIFO 去重**：写入候选 `push_line`（由生成器状态直接给出）与 8 项逐项比较后，才决定 `do_push`；
+- **训练**：两个事件在同一个组合块里依次串行更新步长表项（第二个事件看第一个的结果），行号减法、范围判断、置信度更新、突发启动串起来，是组合链最长的部分；
+- 预取器的输入全部走寄存器（`in_*_q`），第二级的 load 路径不经过它；它只把 `head_*` 给 `dcache_s1`，`head_line` 是 8 选 1 的读出。
+
+## 7. 与模型的差异和取舍
+
+- 开关：模型是环境变量 `PF_ENABLE`，RTL 是参数 `PF_EN`；
+- 配置常量里 `PF_DIST`、`PF_CONF_THR`、`PF_LLC_LINES` 在 RTL 中是写死的结构（见第 2 节），改这些常量要改代码；
+- 模型的 `PfStats`（issued、useful、late 等）是性能统计，RTL 没有；PMU 的预取事件在 RTL 里另有来源（本次没有核对）；
+- 模型的 `pf::Table` / `pf::Fifo` 有"每拍固定端口数、违反则中止"的建模规则检查，RTL 由结构本身保证；
+- 事件选择："第一个 `PF_TRAIN_PORTS` 个事件"在两边都按 load 口顺序。
+
+模型里看起来不一致的地方：无。
+
+未核对（继承自旧文档）：旧文档中的预取收益数字（IPC 提升）未带入；PMU 预取事件的来源未核对。
 
 ## 8. 验证
-1. `PF_EN=0`：`lint.sh`、`lint_chip.sh`、门禁 66/66、周期与 `ref_cycles.txt` 全部相同。
-2. `PF_EN=1`：trace-model `PF_ENABLE=1` 与 RTL 在带预取的程序上逐周期相同（dhrystone、coremark、memory-stress-small、matmul；以及强制打开的小程序）；不一致用 `scripts/first_diff.sh`。
-3. 重测 `axi_llc` 读响应队列 RQD（现为 8）：预取使 AXI 读请求更密。
-4. `scripts/synth_module.sh` 面积代理：`dcache_pf` + MSHR + 阵列 pf 位；`docs/MAIN_RECORDS.md`（性能 + 综合）按 `docs/WORKFLOW.md`。
 
-## 9. 风险
-- `perf_replay` 位原来是"只喂 perf"的字段，现在影响行为；LSU 侧 `replay_type` 的产生点必须与 trace-model 同拍。
-- 探测占用一个空闲 load 槽的阵列读口与 WB/MSHR 查找口，需确认这些口在 RTL 里按槽复用（`slot_granted`）；pf 槽的 `slot_id[31]=1`，不能被"隐藏重试"逻辑当作 LSU 请求（`retry_issue` 条件含 `!slot_id[31]`，已满足；pf 槽 `replayed=0`，不会进重试）。
-- `no_fill` 项在 AXI 响应当拍释放：C++ `comb_inputs_axi` 的顺序与"保持槽空才收"条件需逐拍对齐，否则与 `mshr_fill` 唤醒错一拍。
+- **门禁**：`scripts/fm_gate.sh`（67 个程序，周期逐个等于 `scripts/ref_cycles_memiq6_nr_int2_ev5.txt`）。预取行为影响周期，所以周期相等同时验证了预取器；直接的预取程序有 `pf-stress`、`directed/memspec_pf.bin`。
+- **关闭预取的参考**：`scripts/ref_cycles_nopf.txt`（模型 `PF_ENABLE=0`，RTL `SOC_VOPT="-GPF_EN=0"`；文件头日期 2026-11-16，不在当前门禁里，本次没有运行）。
+- **Linux**：`scripts/linux_gate.sh` 的 PMU 序列对比。
+- **Lint**：`scripts/lint_chip.sh`。
+- **没有模块级独立测试**。**待补**：给 `dcache_pf` 加一个和模型 `DataPrefetcher` 并排的随机事件流测试（只需事件序列和 `head_taken` 序列，输出队头序列对比），改训练逻辑深度时用。
 
-## 10. 实现与验证结果（2026-11-06）
-- RTL：`dcache_pf.sv`（新）；`dcache_s1`（探测槽、`perf_replay`、`s2f_pf`）、`dcache_s2_ld`（pf 槽排除、训练事件、`pf_cand`）、`dcache_s2_st`（`alloc_cnt`）、`dcache_mshr`（`is_prefetch/no_fill`、晚到提升、两遍 AXI 选择、`no_fill` 响应当拍释放 + `release_event`）、`dcache_bank/arr`（pf 位）、`dcache_resp`（`release_event` 唤醒）、`dcache`/`mem_top`/`soc_top`（参数 `PF_EN`）、`ld_req_replay` 由 `lsu_dc_req_ld` 经 lsu/back_top/core_top/mem_top/mem_route 接到 dcache。
-- 开关：`soc_top` 参数 `PF_EN`（默认 1）；关闭：`SOC_VOPT="-GPF_EN=0" SOC_OUT=<dir> SOC_FM=1 bash tb/soc/build.sh`，门禁用 `REF_CYCLES=scripts/ref_cycles_nopf.txt`。
-- `PF_EN=0`：`lint.sh rtl/memsys/dcache` 通过，门禁 66/66，周期与 `ref_cycles_nopf.txt`（旧基线）全部相同（新增的 `ld_req_replay`/pf 位被综合掉）。
-- `PF_EN=1`：`bash scripts/fm_gate.sh ...`（默认表 `ref_cycles.txt` 即预取开）66/66 通过（逐条对比无不一致），周期与 trace-model `PF_ENABLE=1`（`exp/prefetch-h1` `0eb258c`）逐个相同；其中 25 个程序的周期因预取而变化（dhrystone 162,033 → 161,183，coremark 255,335 → 256,573，memory-stress-small 347,305 → 334,635）。
-- 面积代理（yosys 通用门，相对数字）：`dcache_pf` 3,334 个单元、422 个触发器；`dcache_mshr` 95,540（main）→ 95,020（两个标志位的触发器增加，被其他逻辑的差异抵消）；阵列新增 pf 位 256×4 = 1,024 个触发器。工艺库、时序（WNS）：**未做**。
-- 调试中发现的两个实现错误（已修）：`dcache_pf` 里 `g_valid_d` 等在两个 `always_comb` 里赋值，后一个覆盖前一个（预取器从不入队）；`slot_pf_llc` 没有和 `slot_pf` 相与，需求项被标成 `no_fill`（表现为 dhrystone 周期差 2）。
-- 定向压力测试 `pf-stress`（`trace-model/tests/extra/pf-stress.c`，已进两边的门禁，67 个程序）：RTL 与 trace-model 周期相等（开 625,240、关 612,878），统计里 `probe_mshr_full` 17,593、晋升 1,369、LLC-only 释放 3,661、页边界丢弃 174。
-- 未做：`axi_llc` 读响应队列 RQD 重测（预取使 AXI 读请求更密）、SPEC 云上全量复跑、`docs/MAIN_RECORDS.md`（未合入 main）。
+## 9. 参数与开关速查
+
+`PF_EN`（`dcache`、`mem_top`、`soc_top` 参数）；`dcache_pf` 内部局部参数 `QD`、`QW`、`SB`、`DEGREE`、`NTR`；`NLD`、`LINE_W`（`dcache_pkg`）。
+
+## 10. 变更记录
+
+本分支未改动，更早：见 git 历史（预取器引入于 EXP-009）。

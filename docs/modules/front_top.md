@@ -1,125 +1,161 @@
 ---
 module: front_top
 area: frontend
-rtl: rtl/frontend/front_top rtl/core/core_top
-spec: front_top core_top
-status: green
-lockstep: 68/68（front_top、core_top）
-mutants: 30 个中 24 杀死，3 等价，3 覆盖缺口
-note: 前端顶层 + 前后端联调 core_top
+rtl: rtl/frontend/front_top（front_top.sv、front_fetch_buf.sv、front_pred_path.sv）
+model: trace-model front-end/front_core.h 的 `FrontCore`（各调度单元 `front.core.*` 的连线 `FrontCore::FrontCore` 和阶段顺序 `FrontCore::comb`）；指令起点扫描对应 front-end/front_top.cpp 的 `InstPort::comb_write`（调度单元 `front.core.inst_port`）
+status: 整核周期与模型逐个相等（fm_gate 67/67，参考 scripts/ref_cycles_memiq6_nr_int2_ev5.txt）
+depth: 待测（由协调者补）
 ---
 
-# front_top 设计笔记（前端顶层）与 core_top（前后端联调）
+# front_top 设计文档
 
-> **更新（2026-11-12，rv64 / 现状）**：前端所有 PC（`fetch_address`、`seq_next_pc`、`predict_base_pc`、`predict_next_fetch_address`、`predecode_target_address`……，见 `front_pkg`）都是 `XLEN_BITS` 位；下文凡写 32 位 PC 处，rv64 为 64 位。RFAST/BFAST 快速路径见 `RTL_FE_NOTES.md`（默认 `FE_RFAST = 15`、`FE_BFAST = 0`）。
+## 1. 职责
 
-覆盖两个装配体：`front_top`（前端整体，spec/front_top.io）和 `core_top`（front_top + back_top + SimCpu 胶合，spec/core_top.io）。
-子模块（predecode / predecode_checker / 4 个 FIFO / front_ctrl / BPU / ICache+ITLB）的设计见 `front_basic.md`、`bpu.md`、`icache.md`，
-这里只写装配层。总原则见 06 第 0 节：只要求边界上每拍可观察行为功能等价，`front_comb_calc` 的调用结构不复刻。
+前端的装配层：把 BPU、I-Cache（含 ITLB）、四个队列、预译码、检查器接成一个一拍求值一次的组合网络，状态全在子模块里。三个文件各管一块：
 
-## 1. 对应的 C++
-- `front-end/front_top.cpp` `front_comb_calc`（步骤 S1–S14，见 `analysis/frontend-boundary.md`）；边界 = `FrontTop::in/out`（`front.in/front.out`）加 icache 的存储侧口。
-- `rv_simu_mmu_v2.cpp`：`SimCpu::cycle()`、`front_comb_before_back()`（front.out → back.in，`no_taken` 截断，`frontend_can_read`）、`back2front_comb()`、`front2back_hold_comb/seq`。
+- `front_top.sv`：只连线。把 `front_ctrl`、`icache`、`front_fetch_buf`、`front_pred_path` 接起来，对外是"后端来的重定向和训练包、存储侧口、送后端的取指组"；
+- `front_fetch_buf.sv`：取指地址队列、I-Cache 回来的取指组的展开（16 位压缩指令还原成 32 位）和预译码、指令起点扫描、顺序下一 pc、指令队列的写；
+- `front_pred_path.sv`：BPU、PTAB、携带寄存器（`lh_*`）和 `front_head_fix`、预测检查器、`front_pd_info`、`front2back` 队列、送后端的输出旁路。
 
-## 2. 硬件结构
-```
- front_top
-   front_ctrl (已有)            global_refetch（含延迟一拍的 predecode refetch）、各读写使能、f2b 输出旁路选择
-   icache (已有, 含 ITLB)        fetch_addr FIFO 队首 -> 取指组；AXI 读口 / DCache 探针 / PTW walk 口直接引出
-   front_fetch_buf (本批)        fetch_addr_fifo、predecode(8 lane)、sequential_next_pc、inst_fifo
-   front_pred_path (本批)        BPU、PTAB、predecode_checker、front2back_fifo、front.out 旁路 mux、pc[i]=base+4i
- core_top
-   core_front                    front_top + core_back2front + core_front2back
-     core_back2front             back2front 寄存器（refetch/地址/itlb_flush/fence_i/stall + 提交槽的 BPU 训练包）
-     core_front2back             can_read 选择、no-taken 截断、8->16 lane 展宽、stall 保持寄存器
-   back_top (已有)
-```
-- front_top 顶层 194 行，`front_fetch_buf` 103，`front_pred_path` 287（均 <400）；core_top 340、core_front 242、core_back2front 163、core_front2back ~150。
-- front_top 本身**没有新增状态**：状态全部在子模块里（FIFO 指针、BPU、ICache、`predecode_refetch`）。组合路径：FIFO 队首 -> checker -> `do_predecode_flush` -> icache.invalidate；
-  不成环（`do_predecode_flush` 只进 `predecode_refetch` 寄存器和 icache 的次态；icache 的前端输出 `read_complete/fetch_group` 不依赖 `invalidate`）。
-- SC-L / loop 元数据：BPU 没有这些输出（恒 0），装配层给 PTAB/f2b 的写口接常量 0；读口悬空。条目仍按原宽度存储（PTAB/f2b 里 8×181 位恒 0，见 front_basic §4.5，属 BPU 层决定）。
-- 展宽/截断（`no_taken`）和 `front2back_hold` 属于 SimCpu 一侧，**不在 front_top 边界内**，放在 `core_front2back`。
+模型里没有与 `front_top` 同名的类。模型的前端是 `FrontCore`：它拥有 BPU、四个队列端口、I-Cache、检查器、控制，每个是一个调度单元（`front.core.ctrl / bpu_pipe / fa_port / ptab_port / inst_port / f2b_port / icache / checker`），`FrontCore::FrontCore` 里每个输入接到驱动它的模块输出上，`FrontCore::comb` 里的阶段顺序由 `scripts/comb/gen_top_order.py` 从各单元的 `CONTRACT` 注释生成。RTL 的 `front_top` 就是这张连线图；没有"顺序"，一切是一拍内的组合网络。各块的细节见 [bpu.md](bpu.md)、[icache.md](icache.md)、[front_ctrl.md](front_ctrl.md)、[front_fifos.md](front_fifos.md)、[predecode.md](predecode.md)。
 
-## 3. 一拍内的数据流（对应参考调用顺序，frontend-boundary §1）
-寄存后的 back2front（`core_back2front` 的 `_q`）→ 一次组合（front_top）→ back_top 组合 → 时钟沿：BPU/FIFO/ICache 状态、`core_back2front` 寄存器、hold 寄存器。
-- `frontend_can_read = !stall_q || refetch_q`；不可读时 `fifo_read_enable=0`（front_top 仍照常求值，BPU/ICache/FIFO 写侧推进），back.in 取 hold 寄存器。可读时 `fifo_read_enable=1`，`refetch` 恒等于 `refetch_q`（C++ 的"不可读则 refetch=false"与"refetch_q 时一定可读"合并后无区别）。
-- `back.in.valid[j] = FIFO_valid & inst_valid[j] & 之前没有"valid 且预测跳转"的 lane`（前缀或，不用逐 lane 串行变量）；lane 8..15 恒无效、指令 `INST_NOP`，其余字段 0。
-- hold 寄存器每拍无条件写入 back.in：只在"上一拍 stall 且无重定向"后的拍里才被读（此时 C++ 才存非空 hold）；C++ 还会清掉已被后端接受的 lane（`fire`），但后端 all-or-nothing（`PreIduQueue::comb_accept_front`：ready 时 `fire=valid`，不 ready 时全 0），hold 里的组恒为完整的组，所以不需要 `fire`（变异检查里该变异"等价"，故删除了这条依赖）。
-- back2front 训练包：提交槽有效时 `actual_dir=(JAL|JALR)?1:br_taken`，`actual_target=(BR|JAL|JALR)?diag_val:ftq_pc+4`，`br_type` 按 CALL/RET/IDIRECT/JAL/DIRECT/NONCTL 分类（`back2front_comb`）。C++ 在槽无效时保留上一值（tage_tag 清 0）；本实现无效槽整体清 0（BPU 的所有消费者——更新队列、历史、类型预测器——都由 `upd_valid` 门控，见 `bpu_uq/bpu_hist/bpu_type`），不建保持寄存器。
+本文不含 `rtl/core/core_top` 里的胶合（`core_back2front`、`core_front2back`、`core_front`）：`front_top` 的后端侧输入就是它们寄存之后的值（`be_*`、`upd_*`、`csr_*` 是寄存后的 back2front）。
 
-## 4. 与 C++ 的差异点、放宽、删除、不复刻
+## 2. 配置（`ttg_cfg_pkg` / `front_pkg`，现行默认）
 
-### 4.1 spec/front_top.io 的字段（63 个）与放宽
-| 字段 | 处理 | 消费者核对 |
+| 项 | 值 | 来源 |
 | --- | --- | --- |
-| `be_refetch/be_refetch_address/itlb_flush/fence_i/fifo_read_enable`、csr_status 6 个、BPU 训练包 10 组 | 输入，取自 `cpu.front.in.*`、`TTG_IC.csr_*`、`bpu_seq_txn.inp.*`（与 icache.io/bpu.io 同表达式）| — |
-| icache 存储侧输入 17 个、输出 12 个 | 同 icache.io（TTG_IC）| 请求字段 `when *_valid` 沿用 icache.io 已核对的放宽 |
-| `out_valid`、`out_lane_valid[8]`（= `FIFO_valid & inst_valid[i]`）| 严格比较 | `back.in.valid[j]` 的来源；`out_lane_valid` 同时是 core_front2back 的输入 |
-| `out_instructions/page_fault_inst/predict_dir/pc/alt_pred/altpcpn/pcpn/tage_idx/tage_tag`、`out_predict_next_fetch_address` | `when out_valid`（整条 front.out 载荷只在 FIFO_valid 时有意义）| `PreIduQueue.cpp:121-192`：载荷只在 `incoming_valid_num>0`（即某 lane `valid`）分支和按 lane valid 的指令缓冲写里读；`valid` 是 `FIFO_valid & inst_valid & no-taken` 的子集；FIFO_valid=0 时 C++ 输出是全 0/残留，无人读 |
-| `out_pc[i]` | 逐 lane 比较（RTL 内 `base + 4i`）| 同时在整程序上验证 base+4i 恒等式（front_basic 用一次性 spec 在 5 个程序验证过，这里变成 68 个程序的常驻检查）|
-| **删除**：`front.out.commit_stall`（BPU `update_queue_full` 恒 0；core 里 `front_stall` 接 0）、SC-L/loop 元数据（恒 0）、`front.in.reset`、perf/dbg/tma | | `PreIduQueue` spec 已写明 `front_stall` 无读者；back_top 里该输入只接到 rob（C++ 值恒 0）|
+| 取指组 | 16 个槽（slot），每槽 2 字节，共 32 字节 | `FETCH_WIDTH = 16`、`SLOT_BYTES = 2`、`FETCH_BYTES = 32` |
+| 压缩指令 | 开 | `RVC_ENABLE = 1` |
+| 提交口（训练包）数 | 8 | `COMMIT_WIDTH = 8`（BPU 里叫 `NCOMMIT`） |
+| 取指地址队列 | 16 项 × 64 位 | `FETCH_ADDR_FIFO_SIZE = 16` |
+| 指令队列 | 16 项 × 1729 位 | `INSTRUCTION_FIFO_SIZE = 16`，`inst_fifo_entry_t` |
+| PTAB | 16 项 × 1526 位 | `PTAB_SIZE = 16`，`ptab_entry_t` |
+| front2back 队列 | 8 项 × 2135 位 | `FRONT2BACK_FIFO_SIZE = 8`，`f2b_fifo_entry_t` |
+| 随块走的修复记录 | `BCK_W = 166` 位 = 8 位纪元 + 158 位检查点（140 位历史 + 18 位 RAS 指针） | `EPOCH_W`、`HCK_W` |
+| 快速路径开关 | `FE_RFAST = 15`（位 0、1、2、3 全开），`FE_BFAST = 0` | `ttg_cfg_pkg` |
 
-### 4.2 spec/core_top.io（96 个字段）
-输入 = icache 存储侧（TTG_IC）+ LSU 的 DCache/MMIO 响应 + DTLB walk 响应 + 中断注入（同 back_top.io 表达式）；输出 = icache 与 LSU 的存储侧请求 + 退休流（`rob_commit_*`、`rob_bcast_*`、`out_mispred/out_redirect_pc`、`out_commit_entry_uop_diag_val`、提交 pc）。后端不再从前端读输入，前端的任何偏差必须通过"取指请求/退休流"变得可见。核边界不含 back_top 内部的 front2pre_*（已由 front_top.io 单独验证）。
+条目位宽是手工按 `front_pkg` 里结构体的字段加出来的（`$bits` 没有综合验证过），队列文件头部的位宽注释（"16 x 576b"、"32 x 2424b"等）是旧值，以本表为准。
 
-### 4.3 选择不复刻
-1. `front_comb_calc` 的 S0/S3'/S15（快照、统计、deadlock snapshot）、`front_stats`、8 个 full/empty latch（FIFO 的 size 函数）、四个 FIFO 的"读调用+写调用+accumulate"。
-2. inst FIFO 的 `inst_fifo_full_for_write`：结构上不可达，`front_fifo` 内断言（写满）已覆盖；`inst_wr_en = read_complete & !global_refetch`。其中 `!global_refetch` 与 icache 的 `resp_valid = !kill1 && ...` 重复，变异 `inst_wr_en_ignores_refetch` 因此等价（保留作防御）。
-3. `FIFO_read_enable=false` 时 `front.in.refetch=false` 的清零（refetch_q 时一定可读，不会触发）。
-4. back2front 训练包无效槽的残留值（见 §3）、hold 寄存器的 `fire` 清除（§3）。
-5. `frontend_can_read=false` 的拍：C++ 仍调用 `comb_bpu`，RTL 等价（front_top 每拍求值，`fifo_read_enable=0`）。
+`FE_RFAST` 的四位（代码里的实际含义）：位 0 = BPU 在重定向那一拍就按新 pc 发射 S0（`bpu_ctl`、`bpu.sv`）；位 1 = PTAB 写读旁路（`front_ctrl_enables`、`ptab`）；位 2 = I-Cache 重定向后不空等一拍（`icache_kill`）；位 3 = 后端 `pre_idu_ibuf` 的旁路（不属前端）。`FE_BFAST` 非 0 的分支（S2 / L1 覆盖时 S0 也立即重发、`WR_AFTER_DROP`）在当前配置里不会被综合进来，模型里也已删除这个开关，见第 7 节。
 
-### 4.4 疑点 / 参考模型观察（无需修改）
-- `bpu_icache_read_ready` 名字误导（沿用，见 front_basic §4.1）。
-- 恒 0 的 `commit_stall` 若以后 BPU 更新队列会满，`front_stall` 必须接回（core_top 里写死 `1'b0`）。
-- ITLB 的 `$error("itlb_flush without refetch")` 断言：在核里由 `itlb_flush_q`（SFENCE.VMA 提交）与 `refetch_q` 同拍成立。
+## 3. 接口
 
-## 5. 验证
-- **front_top 整程序实时锁步**（`REFSIM=…/refsim_tap BIG_CYCLES=300000 JOBS=3 bash scripts/lockstep_multi.sh front_top`）：**68/68 PASS**（后端里的各块相同的 68 个程序：61 gate + vm + dhrystone/coremark/float）。
-- **core_top 整程序实时锁步**（同命令，模块名 `core_top`）：**68/68 PASS**，共约 149 万拍；coremark（2 次迭代）约 22.7 万拍跑完。
-- lint：`rtl/frontend/front_top`、`rtl/core/core_top` 干净（需要 `scripts/lint.sh` 增加两个装配分支，见交付报告）。
-- 变异检查（`tests/front_top/mut_front_top.py`：每个 spec 一次构建，运行时 `TTG_MUT=K` 选变异体，先在 9 个短程序上筛，幸存者再在 12 个短 gate 程序 × 15 万拍上复跑）：
+端口按模型 `FrontTopIn / FrontTopOut`（`front_IO.h`）的字段平铺：
 
-| 层 | 变异 | 结果（第一个失配）|
+| 方向 | 信号组 | 含义 |
 | --- | --- | --- |
-| front_top | ctrl 的 `be_fifo_read_enable` 接常 1 | KILLED vm_sum_fetch@2536 `out_valid` |
-| | icache `refetch` 只接后端 refetch（漏 predecode refetch）| KILLED smc-div@12 `ptw_walk_flush` |
-| | fetch_addr 写地址 ^4 | KILLED smc-div@4 `mem_req_addr` |
-| | ctrl `icache_ready` 常 1 | KILLED smc-div@55 `mem_req_addr` |
-| | `out_lane_valid` 不看 `out_valid` | KILLED vm_sum_fetch@2537 `out_lane_valid[0]` |
-| | inst/PTAB 读使能改成 fa_rd_en | KILLED vm_pagefault@3312 `ptw_walk_flush` |
-| | predecode 的 pc 接 0 | KILLED smc-div@71 `out_predict_next_fetch_address` |
-| | seq_next_pc 的 valid 接成 page_fault | KILLED smc-div@11 |
-| | fetch_addr FIFO 的 clear 去掉 | KILLED smc-div@16 `mem_req_addr` |
-| | PTAB 的 base_pc 写成 next_pc | KILLED smc-div@11 `out_pc[0]` |
-| | f2b FIFO 用 global_refetch 清 | KILLED dhrystone@3862 `out_valid` |
-| | checker 的 seq_next_pc 接 PTAB 预测地址 | KILLED smc-div@11 |
-| | f2b 写入未校正方向 | KILLED vm_sum_fetch@2540 `out_predict_dir[4]` |
-| | `out_pc` 步长 2 | KILLED smc-div@11 `out_pc[1]` |
-| | 旁路时 next_pc 取未校正值 | KILLED smc-div@11 |
-| | 旁路 tage_tag 错位 | KILLED smc-div@1693 `out_tage_tag[0][0]` |
-| | BPU refetch 地址接 0 | KILLED smc-div@16 `mem_req_addr` |
-| | icache `invalidate` 接 0 | **幸存**（覆盖缺口：predecode 冲刷拍与 AXI/DCache 探针请求同拍的情形；下一拍的 refetch 本就杀死请求，只有冲刷拍的存储侧端口会不同，真实程序几乎不触发；icache.md 的随机 trace 变异已覆盖该模块内部）|
-| | `inst_wr_en` 去掉 `!global_refetch` | **幸存 = 等价**（icache `resp_valid` 已含 `!kill1`）|
-| core_top | `can_read` 忽略 refetch_q | KILLED smc-div@145 `dtlb_walk_flush` |
-| | hold 寄存器 pc 取前端值而非 back.in | KILLED vm_pagefault@3367 |
-| | no-taken 截断包含 taken lane 自身之后 | KILLED smc-div@59 |
-| | stall 寄存器接 0 | KILLED vm_pagefault@3402 `rob_commit_commit_entry_valid[6]` |
-| | 训练包 target 对 JALR 用 ftq_pc+4 | KILLED smc-div@236 `mem_req_valid` |
-| | refetch 寄存器接 stall | KILLED smc-div@18 `itlb_walk_flush` |
-| | 训练包 pcpn 取 altpcpn | KILLED vm_sum_fetch@187 `mem_req_valid` |
-| | mstatus.SUM 位接 MXR | **幸存 = 等价**（取指不看 MXR/SUM/MPRV）|
-| | CALL 判定去掉 `dest_en` | **幸存 = 等价**（JAL 恒写 rd，`dest_areg==1` 蕴含 `dest_en`）|
-| | RET 判定去掉 `imm==0` | **幸存 = 覆盖缺口**（程序里没有带非零偏移的 `jalr x0, imm(ra)`；需要定向测试）|
-| | `itlb_flush` 接 `fence_i` | **幸存 = 覆盖缺口**（没有"SFENCE.VMA 之后取指翻译才暴露陈旧 ITLB 项"的程序；需要定向测试）|
+| 入 | `be_refetch`、`be_refetch_address` | 后端重定向（冲刷 / 误预测 / 异常），已是寄存后的值 |
+| 入 | `be_rf_valid / _ck / _epoch / _type / _pc / _is_rvc` | 后端分支误预测带回的修复记录：检查点、纪元、类型、分支 pc、是否 16 位 |
+| 入 | `itlb_flush`、`fence_i`、`fifo_read_enable` | SFENCE.VMA、FENCE.I、后端本拍是否读 front2back 队列 |
+| 入 | `csr_status_*` | satp、特权级、mxr、sum、mprv、mpp，给 ITLB |
+| 入 | `upd_valid / base_pc / actual_dir / upd_is_rvc / br_type / target / pred_dir / alt_pred / pcpn / tags / idxs [NCOMMIT]` | 提交流的 BPU 训练包 |
+| 入 | `mem_*`、`dc_*`、`ptw_walk_*` | I-Cache 的存储侧：AXI 读口响应、DCache 探针响应、ITLB 的页表遍历响应 |
+| 出 | `out_valid`、`out_lane_valid[16]`、`out_instructions`、`out_pc`、`out_predict_dir`、`out_is_rvc`、`out_page_fault_inst`、`out_alt_pred`、`out_pcpn`、`out_tage_idx / _tag`、`out_predict_next_fetch_address`、`out_bpu_ck`、`out_slot_kind` | 送后端的取指组（后端那一侧的 no-taken 截断不在这里） |
+| 出 | `mem_req_*`、`mem_resp_ready`、`dc_req_*`、`ptw_walk_req_*`、`ptw_walk_resp_consumed`、`ptw_walk_flush` | I-Cache 的存储侧请求 |
+| 出 | `commit_upd_free`、`commit_tq_free` | BPU 更新队列和 uBTB 训练队列的空闲项数，给紧凑 ROB 做提交信用（EXP-028） |
 
-  共 30 个变异（front_top 19、core 11）：24 个被抓到，6 个幸存：3 个等价（`inst_wr_en` 重复防御、SUM/MXR、CALL 的 dest_en），3 个是覆盖缺口（icache `invalidate`、RET 的 imm==0、`itlb_flush` 接 fence_i，都需要定向测试）。
-- 复现：`REFSIM=…/refsim_tap python3 tests/front_top/mut_front_top.py --jobs 3`；结果 `build/mut_front_top.txt`。
+`out_pc[i]` 是 `基址 + 2*i`（`SLOT_BYTES * i`），只有被携带的槽 0 例外（见 [predecode.md](predecode.md) 第 5 节）；队列里只存基址，不存每槽 pc。`out_lane_valid[i] = out_valid & out_inst_valid[i]`（`front_top.sv`）。
 
-## 6. 复现
-```bash
-export REFSIM=$RTL_ROOT/refsim_tap
-BIG_CYCLES=300000 JOBS=3 bash scripts/lockstep_multi.sh front_top     # 前端 68/68
-BIG_CYCLES=300000 JOBS=3 bash scripts/lockstep_multi.sh core_top      # 核 68/68（构建约 75 秒）
-python3 tests/front_top/mut_front_top.py --jobs 3
+## 4. 结构
+
 ```
+ front_top（只连线，无状态）
+   front_ctrl        : 全局 refetch（含晚一拍的 predecode refetch）、各读写使能、f2b 输出旁路选择        -> front_ctrl.md
+   icache            : 取指地址队列队首 -> 取指组（含 ITLB），存储侧口直接引出                          -> icache.md
+   front_fetch_buf   : fetch_addr_fifo、rvc_expand x16、predecode x16、指令起点扫描、sequential_next_pc、inst_fifo
+   front_pred_path   : bpu、ptab、front_head_fix、predecode_checker、front_slot_kind x16、front_pd_info、
+                       front2back_fifo、携带寄存器 lh_*、front.out 旁路 mux
+```
+
+| 文件 | 行数 | 职责 |
+| --- | --- | --- |
+| `front_top.sv` | 222 | 连线；`refetch_pd = global_refetch & !be_refetch`；`out_lane_valid` |
+| `front_fetch_buf.sv` | 199 | 取指侧：16 路 `rvc_expand`、`is_rvc`、指令起点扫描（`start_a / start_b`）、`up_ok`、`inst_wr_en = ic_read_complete & !global_refetch` |
+| `front_pred_path.sv` | 339 | 预测侧：BPU 的例化（`bpu_bck = {epoch, ck}`）、携带寄存器、检查器、`front2back` 写、输出旁路 |
+
+状态：`front_top` 自己没有；`front_fetch_buf` 没有（队列状态在 `front_fifo` 里）；`front_pred_path` 有携带寄存器 `lh_valid_q`（1 位）、`lh_pc_q`（64 位）、`lh_data_q`（16 位）。其余状态在子模块：`front_refetch_ctrl` 的 `predecode_refetch_q` 和地址、四个队列的指针和计数、BPU、I-Cache、`front_pd_info` 的一拍寄存器。
+
+### 指令起点扫描（`front_fetch_buf.sv`）
+
+压缩指令（RVC）使一个取指组里的 16 个槽不一定都是指令的开头：32 位指令占两个槽。第 i 槽是不是一条指令的开头，取决于它前面一个槽是不是一条 32 位指令的开头：`start[i] = valid[i] & (!start[i-1] | is_rvc[i-1])`。写成逐槽的链很长。现行写法利用"槽 i 是开头，当且仅当它到前面最近一条 16 位指令的距离为偶数"：对每个槽，找它左边最近的一个 `is_rvc` 为 1 的槽及这个槽下标的奇偶，做 4 轮（距离 1、2、4、8）的前缀扫描。输出两份：
+
+- `start_a`：槽 0 是一条指令的开头（普通情形；扫描里"左边没有 16 位指令"当作在槽 -1，奇数位）；
+- `start_b`：槽 0 是上一组最后一条 32 位指令的后半（携带情形）；槽 0 当作一条 16 位指令、在偶数位。
+
+两份都写进指令队列，由 `front_head_fix` 按本组是否被携带选用其中一份。`up_ok` 是"本组最后一个有效槽的窗口有真实的高 16 位"（它的下一个半字在同一缓存行内）。
+
+## 5. 一拍内的数据流
+
+下面是各块之间的依赖顺序（同一拍内，从寄存器出发）：
+
+1. 寄存器值：四个队列的计数、`predecode_refetch_q`、携带寄存器、BPU 阶段寄存器、I-Cache 寄存器。`front_ctrl` 算出 `global_refetch = be_refetch | predecode_refetch_q`。
+2. 取指地址队列队首（`fa_rd_en` 成立时）作为 `req_valid / fetch_address` 送 I-Cache；I-Cache 的 `read_complete / fetch_pc / fetch_group / inst_valid / page_fault_inst / fetch_upper_ok` 回来。
+3. `front_fetch_buf`：16 路展开（`ic_fetch_group[i][1:0] != 2'b11` 的窗口是 16 位指令，展开成 32 位，非法编码展开成 0）、预测译码（只看展开后的字）、起点扫描、`seq_next_pc`；`ic_read_complete & !global_refetch` 时整组写进指令队列。
+4. BPU 同拍给出 `icache_read_valid / fetch_address`（S0 块，经 `fa_wr_en` 写取指地址队列）和 `ptab_write_enable`（S2 块，经 `ptab_wr_en` 写 PTAB）。
+5. `predecode_can_run`（指令队列非空、PTAB 非空或同拍有旁路写、`front2back` 队列不满、无全局 refetch）时，读指令队列队首和 PTAB 队首；`front_head_fix` 处理携带、丢弃非起点槽、处理末槽跨组；`predecode_checker` 比较预测与预译码；`front_slot_kind` 为每槽译出 BPU 类型。
+6. 检查通过或不通过都要写 `front2back` 队列（`f2b_wr_en`）；队列空、后端本拍读时走旁路（`f2b_use_bypass`），本拍写的条目直接当输出。
+7. `do_predecode_flush = predecode_can_run & checker_flush_enable`：进 `predecode_refetch_q`（下一拍成为全局 refetch）、进 I-Cache 的 `invalidate`（同拍的第二步）、进 `front_pd_info` 的寄存器（下一拍告诉 BPU）。
+
+没有组合环：`do_predecode_flush` 只进寄存器和 I-Cache 的次态，I-Cache 的取指组输出不依赖 `invalidate`（`icache_ctl` 中 `resp_*` 只看 `kill1`）。
+
+## 6. 关键路径与深度
+
+`depth: 待测（由协调者补）`。已测的单模块数字（通用门级代理，层数）：
+
+| 模块 | 层数 | 说明 |
+| --- | --- | --- |
+| `front_fetch_buf` | 40 | 指令起点扫描改成前缀扫描之后；改之前链比这深约 40 层 |
+| `front_top` 整体 | 132 | **uBTB 查表改写之前**的测量；最长路径在 BPU 里：S1 阶段寄存器 → uBTB 查表 → override / 发射判定 → 投机历史更新 |
+| `front_top` 整体（更早） | 528 / 182 / 159 | 整核修复之前，528 是 `bpu_ub_track_ser` 的块跟踪器 |
+
+从代码读出的，未综合验证：前端的组合路径有两条值得注意。一是 BPU 内的 S0 环（见 [bpu.md](bpu.md) 第 6 节）；二是检查链：指令队列队首 → `front_head_fix`（起点链选择、携带组装、末槽判定）→ `predecode_checker`（第一个 taken 槽、目标选择、与 PTAB 预测比较）→ `do_predecode_flush` → `front2back` 写使能和 `predecode_refetch_q`，以及 `front_pd_info` 的第一个 taken 槽选择。这条链不经过 BPU，但队列读口是存储器读，没有再切一拍。
+
+深度相关的改动（均不改变周期）：
+
+| 改动 | 提交 | 作用 |
+| --- | --- | --- |
+| 指令起点用前缀扫描 | `737e7a5` | `front_fetch_buf` 从 16 槽的链改为 4 轮扫描 |
+| 取指地址队列在 push 后一拍才弹出（`head_fresh`） | `4eb8f0e` | 弹出不再依赖同拍 BPU S2 覆盖的决定，见 [front_fifos.md](front_fifos.md) |
+| 其余的深度改动都在 BPU 里 | `7551dd0`、`47f4a7d`、`2c76ba2` | 见 [bpu.md](bpu.md) |
+
+## 7. 与模型的差异和取舍
+
+模型里有、RTL 里有意没有复刻的：
+
+- `FE_PAIR`（一拍取两个块，默认关）和 `FE_IPF`（I-Cache 预取，默认关）：RTL 没有，模型默认也是关（`include/env.h`）；
+- PMU 前端分类（`FrontControl::finish` 里 `g_pmu_front.feo_*` 的损失原因）：RTL 的前端里没有，RTL 只有一级事件（见 `rtl/pmu`）；
+- 模型的 `ReadData` 快照、`front_state` 的 `d` 值、八个 `*_full / *_empty` 锁存：RTL 的 `full / empty` 直接由计数算（`front_fifo`），没有这些寄存器；
+- 模型 `pend_*`（FE_PAIR 的第二块）：没有；
+- `front.in.reset`（只在模型 `FrontTop::init()` 一拍有效）：RTL 用 `rst_n`，没有"& !reset"项；
+- 实例化时 `bpu_can_run` 只用于 `front_ctrl` 内部，顶层接到 `unused_ok`；`override_valid` 在 `front_pred_path` 里不再被用（`override_squash` 仍用于丢取指地址队列的尾项）。
+
+RTL 与模型保持一致的细节：
+
+- 全局 refetch 只清取指地址队列、指令队列、PTAB；`front2back` 队列只被**后端**重定向清（`front2back_fifo.refetch` 接 `be_refetch`），预译码冲刷不清它；
+- 携带寄存器在后端重定向或复位时清；预译码冲刷时除非冲刷的那组自己产生了新的携带且续在其后，否则也等于被清（`lh_valid_q <= lh_new_valid`，其中含 `!checker_flush_enable || corrected == lh_new_pc`）。
+
+模型的默认值与参考周期：`include/config.h` 里 `CFG_FE_OVR_REG` 的默认值是 0；RTL 只有"取指地址队列晚一拍弹出"这一种行为，对应 `CFG_FE_OVR_REG = 1`，参考周期表 ev5 就是用 `CFG_FE_OVR_REG=1` 生成的（该表第一行注释）。`FE_RFAST` 在模型里没有对应的开关，是固定行为；RTL 保留的参数用来在没有模型对照的情况下构建变体（`include/config.h` 注释）。
+
+未核对（继承自旧文档）：
+
+- 旧文档写"后端是整组接收（`PreIduQueue::comb_accept_front`：ready 时 `fire = valid`，不 ready 时全 0），hold 里的组恒为完整的组"，这条属于 core_top 胶合，本轮没有核对；
+- 旧文档写"指令队列条目数不超过 PTAB 条目数不超过 15，所以指令队列永不满，`front_fetch_buf` 去掉了 full 条件"：只有仿真断言（`front_fifo` 的溢出断言）在保护，没有独立验证；
+- 旧文档写"BPU 无效训练槽整体清 0，所有消费者都由 `upd_valid` 门控"：本轮只核对了 `bpu_updq`（`lane_ctl` 含 `upd_valid`），其余消费者没有逐个核对。
+
+## 8. 验证
+
+- **门禁**：`scripts/fm_gate.sh` 67 个程序，每条提交对比 function-model，周期对 `scripts/ref_cycles_memiq6_nr_int2_ev5.txt`（模型同配置生成）：67/67 通过，周期逐个相等。其中触及前端的有 `fence-i-self-modify`（FENCE.I 与自修改代码）、`itt-dispatch`（间接跳转表）、各陷入 / 中断程序（后端重定向）、`dhrystone / coremark`（取指带宽和预测）。
+- **Linux**：`scripts/linux_gate.sh`（整机从复位启动，每区间 PMU 一级事件与模型相同、逐条检查、控制台到 `login:`）、`scripts/linux_segments_cmp.sh`（检查点窗口，PT / UP 指纹相同）。前端的 PT（PTAB 写）和 UP（预测表更新）指纹由 `scripts/align_check.sh` / `align_check.py` 比较（RTL 侧 `tb/soc/fpr.h`，模型侧 `front-end/BPU/fpr.h`），能指出第一个分歧的区间和事件。
+- **Lint**：`scripts/lint_chip.sh` 0 告警。
+- **没有前端装配层的独立测试**。`scripts/fe_refs/` 里的 `ref_r15_b0.txt`、`ref_r15_b3.txt` 是 `FE_RFAST = 15` 下 `FE_BFAST = 0 / 3` 的旧周期表，数值与现行参考不同（例如 `add-longlong` 1869 对 1441），不是现行门禁的一部分。
+- **待补**：前端深度改写（起点扫描）的等价性是用"对每个有效前缀穷举 65536 种压缩模式与链式写法比较"证明的，测试台在草稿目录、不在仓库里；应把它收进 `tb/`。
+
+## 9. 参数与开关速查
+
+`FE_RFAST`、`FE_BFAST`、`RVC_ENABLE`、`FETCH_WIDTH`、`FETCH_BYTES`、`SLOT_BYTES`、`COMMIT_WIDTH`（`ttg_cfg_pkg`）；`FETCH_ADDR_FIFO_SIZE`、`INSTRUCTION_FIFO_SIZE`、`PTAB_SIZE`、`FRONT2BACK_FIFO_SIZE`（`ttg_cfg_pkg`，`front_pkg` 里换名为 `*_DEPTH` 并给出"满"阈值 `*_FULL_AT`）。`ttg_cfg_pkg.sv` 文件头写着"由 gen_cfg_pkg.py 生成，不要手改"，但当前内容与 `make cfg` 的输出是否一致没有核对。
+
+## 10. 变更记录
+
+- 2026-11-17/18（exp/agu-share）：指令起点前缀扫描 `737e7a5`；取指地址队列 push 后一拍才弹出 `4eb8f0e`（模型 `CFG_FE_OVR_REG`，16 个 SPEC 点几何平均 IPC -0.82 %）；BPU 的三处深度改写 `7551dd0`、`47f4a7d`、`2c76ba2`（见 bpu.md）。
+- 更早：见 git 历史。

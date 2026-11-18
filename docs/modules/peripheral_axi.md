@@ -2,50 +2,105 @@
 module: peripheral_axi
 area: memsys
 rtl: rtl/memsys/peripheral_axi
-spec: peripheral_axi
-status: green
-lockstep: 68/68
-mutants: 26 个中 24 杀死，2 等价
-note: 真实程序几乎不走该路径
+model: trace-model MemSubSystem/PeripheralAxi.cpp、include/PeripheralAxi.h（调度单元 `mem_subsystem.peripheral_axi_`，类 `PeripheralAxi`，阶段 `comb_commit_store`、`comb`）；设备本体是同目录的 `PeripheralModel`（它是 `PeripheralAxi` 的子模块，不单独调度）
+status: 整核周期与模型逐个相等（fm_gate 67/67，参考 scripts/ref_cycles_memiq6_nr_int2_ev5.txt）
+depth: 10 层（peripheral_axi，单模块综合，2026-11-18，`SYNTH_ABC="strash;balance;map"`，生成门代理，见第 6 节）
 ---
 
-# peripheral_axi 设计笔记（PeripheralAxi：LSU MMIO / uncached 访问单元）
+# peripheral_axi 设计文档
 
-> **更新（2026-11-12，rv64 / 现状）**：1) MMIO 数据是 `XLEN_BITS` 位（`req_wdata`、`env_rdata`、`resp_rdata`）：rv64 的 8 字节 `ld`/`sd` 走本地设备（`env_*`）路径；`peripheral_axi_fmt` 在 rv64 上多处理 `lwu`（func3=110）并把 `lw` 符号扩展到 64 位。AXI 路径的数据仍是 32 位（真实程序不走）。2) **`0x87f00000` 的 uncached RAM 窗口已删除（EXP-027）**：下文 “uncached RAM” 一类地址不再存在，本模块只服务 MMIO（`is_mmio`）访问；SPEC/gate 的统计数字（uncached 读写次数）是窗口时期的。
+## 1. 职责
 
-分析与边界见 `docs/analysis/memsys-boundary.md` §2.4；录制点 `docs/analysis/memcpu-record-hook.md`。`PeripheralModel`（UART/CLINT/INTC/SD/boot/DMA/随机中断，805 行）、`PhysMemory` 留在 testbench，不翻。
+不经过数据缓存的访问（MMIO，即访问外设的读写）的发起单元。LSU 判断某次 load / store 是外设访问（`is_mmio`）后，把请求交给它；它一次只处理一个请求，走两条路之一：
 
-## 1. 对应的 C++
-- `MemSubSystem/PeripheralAxi.cpp`（264 行）+ `include/PeripheralAxi.h`（86 行）；调用：`MemSubsystem::comb_inputs` 里 `comb_outputs(); comb_inputs();`（tick 0），`seq`。LSU 的 `peripheral_req/resp` 与 EXTRA 读/写 AXI 主口（`bypass=1`）。
-- 顶层 `peripheral_resp_hold`（`RV:1066/1110/1186`）在 SimCpu 里，不是本模块：边界输出是 `comb_inputs` 之后的 `*peripheral_resp`，hold 寄存器由顶层/core_top 负责一拍延迟。
-- 边界：每 CPU 周期一条记录（`spec/peripheral_axi.io`，33 字段）。
+1. **环境建模的设备**（由测试平台里的设备模型回答，如定时器）：当拍接受请求，读数据由环境给（`env_rdata`），下一拍给出响应；
+2. **其余地址**：在 AXI 读 / 写主口（EXTRA 口，见 mem_top.md）上发一次单字访问（旁路 LLC），等 AXI 响应后给出响应。
 
-## 2. 硬件结构
-| 模块 | 职责 |
-| --- | --- |
-| `peripheral_axi`（顶层）| 端口适配，例化 `fmt` + `ctl` |
-| `peripheral_axi_fmt` | 纯组合：按 func3 的访问大小（`size/wstrb/wdata` 打包）与读数据符号/零扩展（LB/LH/LW/LBU/LHU，其余原样）|
-| `peripheral_axi_ctl` | 访问 FSM + 寄存器（`busy write accepted resp_valid addr wdata func3 rdata`，~104 位；C++ 的 `req_id`（恒 0）删除）|
+响应只有一拍有效（`resp_is_mmio` 为 1 的那一拍），空闲时 `resp_ready` 为 1。
+
+模型是两个阶段：`comb_commit_store`（把本拍提交的设备 store 应用到设备模型）和 `comb`（请求 / 响应 / AXI 信号）；状态更新在 `seq`。
+
+## 2. 配置
+
+| 项 | 值 | 来源 |
+| --- | --- | --- |
+| 数据字 | 请求 / 响应数据 `XLEN_BITS = 64`；AXI 通路是单个 32 位字 | `ttg_cfg_pkg`、`peripheral_axi_fmt.sv` |
+| AXI 访问大小 | `total_size = 字节数 - 1`，2 位，取值 0、1、3（1、2、4 字节） | `PA_SIZE_W`（`memcpu_pkg`） |
+| 字节使能 | 4 位 | `axi_wr_req_wstrb` |
+| AXI id | 0（EXTRA 口，`mem_axi` 里写死） | `mem_axi.sv` |
+| 状态更新时机 | 只在 `cpu_en`（= `phase0`，现行配置恒为 1） | |
+
+## 3. 接口
+
+| 方向 | 信号 | 含义 |
+| --- | --- | --- |
+| 入 | `req_is_mmio`、`req_wen`、`req_addr`、`req_wdata`、`req_func3` | LSU 的外设请求：地址、写使能、写数据（64 位）、访问类型 func3 |
+| 入 | `env_modeled`、`env_rdata` | 该地址是否是环境建模的设备；若是，读数据（64 位，已按 func3 扩展） |
+| 入 | `axi_rd_req_accepted`、`axi_rd_resp_valid`、`axi_rd_resp_data[31:0]` | AXI 读口：请求被接受、响应及数据字 |
+| 入 | `axi_wr_req_accepted`、`axi_wr_resp_valid` | AXI 写口 |
+| 出 | `resp_ready`、`resp_is_mmio`、`resp_rdata` | 给 LSU：空闲；响应有效；读数据 |
+| 出 | `axi_rd_req_valid/addr/size`、`axi_rd_resp_ready` | AXI 读请求 |
+| 出 | `axi_wr_req_valid/addr/size/wstrb/wdata`、`axi_wr_resp_ready` | AXI 写请求 |
+| 出 | `env_rd_en`、`env_rd_addr`、`env_rd_func3` | 向环境要读数据（只在"接受请求且是环境设备的读"那一拍为 1） |
+
+响应给 LSU 之前，`mem_top` 还有一级保持寄存器（`hold_*`，对应模型里 `mmio_resp_d` 寄存器，`SimCpu.cpp` 中 `peripheral_resp` 指向 `back.lsu->mmio_resp_d`），所以 LSU 比本模块的响应晚一拍看到。
+
+## 4. 结构
+
 ```
- idle ──(is_mmio, region≠AXI)──► resp_valid (下一拍答复；env 读/写在接受拍发出)
-      └─(is_mmio, region=AXI)──► busy: 发请求(直到 accepted) ─► 等响应 ─► resp_valid
+ peripheral_axi (顶层：端口适配)
+   ├ peripheral_axi_fmt : 与访问大小有关的格式化（组合）：AXI 大小、字节使能、写数据截断、读数据符号 / 零扩展
+   └ peripheral_axi_ctl : 状态机（空闲 / 发请求 / 等响应 / 响应一拍）和寄存器
 ```
-**环境接口**（切在 testbench 一侧，不是 C++ 端口）：`env_modeled`（1 = 由环境模拟的设备，0 = 走 AXI；= `PeripheralModel::is_modeled_mmio` 的译码）、`env_rd_en/addr/func3` → `env_rdata`（同拍组合返回最终读数据：`PeripheralModel::read_load`）。modeled 写**不**触发环境动作（真正的设备写在提交路径 `on_commit_store`，不属于本模块）。2026-11-11 删除了非缓存内存窗口（0x4ff00000、0x87f00000、0xfff00000 各 1 MB，早先 SoC DMA / cache 一致性问题的遗留，按 MMIO 访问）及其读写通路：原来的 `env_region`（0 AXI / 1 uncached RAM / 2 modeled）改为 `env_modeled`，只服务 uncached RAM 的 `env_wr_*` 端口删除。
 
-## 3. 一拍内的数据流
-1. 输出只来自寄存器：`resp_ready = !busy && !resp_valid`；`resp_is_mmio = resp_valid`，`resp_rdata = rdata`；busy 且未 accepted → AXI 请求（读/写 + addr + size + wstrb/wdata）；busy 且 accepted → `resp_ready`。
-2. 次态（C++ `comb_inputs`，优先级链）：`resp_valid` → 清（本拍不接新请求）；空闲且 `is_mmio` → 本地服务（`resp_valid<=1`，`rdata<=wen?0:env_rdata`）或 AXI（`busy<=1`）；busy 未 accepted 且对应通道 `accepted` → `accepted<=1`；busy 已 accepted 且对应通道 `resp_valid` → `busy<=0,resp_valid<=1,rdata<=写?0:extract(resp_data0,func3)`。请求（addr/wdata/func3/write）在接受拍锁存。
-3. C++ 里 `comb_inputs` 的读响应分支又重算 `peripheral_resp->ready = !nxt.busy && !nxt.resp_valid`——该分支里 `cur.busy` 为真，结果恒为 0，与"只由 `cur` 寄存器决定"的公式一致（已核对，随机/真实 `resp_ready` 均与公式吻合）。
+| 文件 | 行数 | 职责 |
+| --- | --- | --- |
+| `peripheral_axi.sv` | 55 | 顶层 |
+| `peripheral_axi_ctl.sv` | 143 | 状态机 |
+| `peripheral_axi_fmt.sv` | 41 | 格式化 |
 
-## 4. 与 C++ 的差异点、放宽、不复刻
-- 删除：`req_id`（恒 0，互连只用它标记事务；RTL 集成时把读/写口 id 接 0）、AXI `req_ready`（C++ 从不读）、`resp_id`（不读）、`resp_data[1..15]`、`wdata[1..15]`（恒 0）、`total_size` 高位（只有 0/1/3）、`nxt.write=false` 的清除（`write` 仅在 busy 时有意义）。
-- 放宽（`when`）：`resp_rdata`←`resp_is_mmio`（LSU `RealLsu.cpp:286-304` 先判 `peripheral_resp->ready` / `is_mmio`）；AXI 请求负载←`req_valid`（互连读口只在 `req.valid` 内读）；`env_*` 负载←各自 `en`。
-- **环境契约**：`env_rdata` 只在 `env_rd_en` 的拍有意义（写请求时 C++ 把 `rdata` 置 0，RTL 取 `req_wen ? 0 : env_rdata`；testbench 在 `env_rd_en=0` 时返回 0 则该保护与否等价——变异 `ctl_local_write_rdata` 因此存活）。
-- 疑点（登记）：C++ 里 modeled 写请求本身没有任何设备动作（设备写在提交钩子里按 store 提交顺序发生），时序上"提交钩子"与"本模块 N+1 周期 resp_valid"相互独立；集成时 testbench 必须保持这一点。
-- 真实程序**从不走 AXI 路径**：68 个程序里 `per_req_*_axi = 0`、`rdEX/wrEX_ready_never`（互连对 EXTRA 口从不 ready）——peripheral 的整个 busy 分支只有随机覆盖。
+状态：`busy_q`（AXI 访问进行中）、`write_q`、`accepted_q`（AXI 请求已被接受，等响应）、`resp_valid_q`（响应这一拍有效）、`addr_q`（32 位）、`wdata_q`、`rdata_q`（各 64 位）、`func3_q`。
 
-## 5. 验证
-- spec：`spec/peripheral_axi.io`（33 字段）。
-- 整程序锁步：68/68 PASS（真实流量：uncached 读 49036 / 写 48276、modeled 读 110 / 写 2222；`func3` 0/1/2/4/5 全有；请求到来时 `resp_valid` 为真而被忽略 49822 次）。
-- 随机生成器（`-DMOD_PERI`，驱动**真实** `PeripheralAxi.cpp` + 真实 `PeripheralModel`，`pmem_read/write` 打桩）：6 个 profile × 6 万拍全 PASS；覆盖（profile 0）：AXI 读完成 3296、AXI 写完成 3420、uncached 读/写各 ~1100、modeled 读/写各 ~1100、func3 0–7 全部（3/6/7 约 140 次）、忙时请求被忽略 19057 次；握手"杂波"（该状态下应被忽略的 accepted/resp_valid 脉冲）每个通道 2–15%。
-- 变异（`tests/memcpu/peripheral_axi_mutants.py`）：**26 个，24 个被杀**。真实程序锁步也杀的 5 个：空闲判定忽略 `resp_valid`、接受非 MMIO 请求、modeled 走 AXI、uncached 写扩到所有区域、本地读使能在写请求时也为真；**只靠随机才杀的 19 个**：全部 `fmt_*`（size/strobe/wdata 打包、LB/LH/LBU/LHU/默认的符号扩展）、AXI 通道互换、响应 ready 提前、写数据不屏蔽、写响应 rdata、func3/write 不锁存、答复持续两拍等——**peripheral 的 AXI 路径与 size/符号扩展在 68 个真实程序里完全没有被覆盖**，这些规则只有随机在证明。存活 2 个：`ctl_cpu_en_ignored`（锁步里 `cpu_en` 恒 1）与 `ctl_local_write_rdata`（环境契约：写请求时 `env_rdata` 恒 0，保护与否等价，见 §4）。
+## 5. 一拍内的数据流
+
+输出全部来自寄存器状态（除 `env_rd_*` 和 AXI 请求的有效位随状态组合得出）。
+
+1. **空闲** = `!busy_q && !resp_valid_q`，此时 `resp_ready = 1`，可以接受请求：`accept = idle && req_is_mmio`；
+   - `env_modeled`：本拍 `env_rd_en`（若是读）；下一拍 `resp_valid_q = 1`，`rdata` = 读数据（写则 0）；
+   - 否则：`busy_q = 1`，`accepted_q = 0`；
+   两种情况都锁存地址、写数据、func3、写标志；
+2. **发请求** = `busy_q && !accepted_q`：对应的 AXI 读或写请求有效，大小、字节使能、写数据由 `peripheral_axi_fmt` 按锁存的 func3 给出（`func3[1:0]`：0 → 1 字节、1 → 2 字节、其余 → 4 字节，写数据取低 32 位）；`axi_*_req_accepted` 到来后 `accepted_q = 1`；
+3. **等响应** = `busy_q && accepted_q`：`axi_*_resp_ready = 1`；响应到来后 `busy_q = 0`、`resp_valid_q = 1`，读数据 = 响应字按 func3 扩展（写则 0）；
+4. **响应一拍**：`resp_valid_q` 只持续一拍，这一拍不接受新请求。
+
+读数据扩展（`peripheral_axi_fmt`）：`func3` 为 0（lb）、1（lh）符号扩展，4（lbu）、5（lhu）、6（lwu）零扩展，其余（lw 以及 ld 的低字）符号扩展到 64 位。
+
+## 6. 关键路径与深度
+
+单模块综合深度 **10 层**（peripheral_axi；2026-11-18；`scripts/synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`，生成门代理，不是时序）。综合报告给出的最长路径：从 `\u_ctl.func3_q [1]` 到 `\u_ctl.rdata_q [40]`。。从代码读出的，未综合验证：很浅。最长的链是 `env_modeled`（来自环境）→ `local_serve` / `axi_issue` → 状态次态；`req_is_mmio` → `accept`；读数据格式化是 6 选 1 的扩展。AXI 的 `accepted` / `resp_valid` 输入直接进状态次态。
+
+## 7. 与模型的差异和取舍
+
+- **设备本体不在 RTL 里**：模型里 `PeripheralModel`（定时器、中断控制器等设备）是 `PeripheralAxi` 的子模块，读数据由 `read_load64` 直接给出；RTL 只保留握手，设备由测试台里的 C++ `PeripheralModel` 扮演，经 `env_modeled / env_rdata / env_rd_en` 接入（`tb/soc/soc_tb.cpp`：每拍用 `PeripheralModel::is_modeled_mmio(addr)` 驱动 `env_modeled`，`env_rd_en` 时调用 `read_mmio`）；
+- **提交时的设备 store**：模型的 `comb_commit_store`（`on_commit_store`：每个提交的设备 store 作用到设备）在 RTL 里没有对应逻辑，由测试台在提交时调用 `periph.on_commit_store`（`soc_tb.cpp`，`sd` 按两个字写）；设备中断线（模型 `out.csr_interrupt_inject`）在 RTL 里怎么接入，本次没有核对；
+- **读数据高 32 位**：模型的 `extract_read_data` 返回 32 位值再放进 64 位的 `rdata`（高 32 位为 0）；RTL 的格式化对 lb / lh / lw 做符号扩展到 64 位。只影响走 AXI 的（非环境设备的）有符号小读；环境设备的读数据在两边都由设备模型 / 测试台按 func3 扩展。没有核对 LSU 是否会再次扩展，因此不能断言一致；
+- 模型的 `req_id` 是 8 位恒 0，RTL 的 AXI id 在 `mem_axi` 里写死为 0；
+- 模型的 `bypass` 标志（旁路 LLC）在 RTL 的 `mem_axi` 里由 `m_rd_bypass[3] = phase0`、`m_wr_bypass[1] = phase0` 给出，不在本模块里。
+
+未核对（继承自旧文档）：无，旧文档内容未带入。
+
+## 8. 验证
+
+- **门禁**：`scripts/fm_gate.sh` 67 个程序（周期对 `scripts/ref_cycles_memiq6_nr_int2_ev5.txt`），与外设直接相关的有 `timer-mmio`（读写定时器，走环境建模设备路径）；`timer-interrupt-mask`、`interrupt-vectored` 等中断程序依赖设备产生的中断，但它们是否发出 MMIO 访问没有核对。走 AXI 的非建模地址路径（AXI 读 / 写 EXTRA 口）在这些程序里是否出现也没有核对。
+- **定向程序**：`tests/rv64/mmio64.c`（8 字节 ld / sd 访问定时器，`mtimecmp` 往返，64 位 `mtime`，`lw / lwu / lh` 视图）；构建与运行方式没有脚本入口（`scripts/` 里没有引用它），本次没有运行。
+- **Linux 整核门禁**：`scripts/linux_gate.sh`（串口、定时器、中断都走这条路径；逐提交对拍功能模型的设备读检查）。
+- **Lint**：`scripts/lint_chip.sh`。
+- **没有 peripheral_axi 的模块级测试**。**待补**：与模型 `PeripheralAxi` 并排的随机测试（随机请求序列、随机 AXI 接受 / 响应延迟、两种访问路径、各种 func3），并核对读数据高位的差异。
+
+## 9. 参数与开关速查
+
+`XLEN_BITS`（`ttg_cfg_pkg`）；`PA_SIZE_W`（`memcpu_pkg`）。无其他开关。
+
+## 10. 变更记录
+
+本分支未改动（`git log 261bd67..HEAD -- rtl/memsys/peripheral_axi` 为空），更早：`f0bd79d` rv64 step 6：8 字节 MMIO（ld / sd）；`4e954d7` ROB 紧凑（EXP-028）清理批次；`2d78026` 初次引入。

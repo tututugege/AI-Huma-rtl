@@ -2,73 +2,121 @@
 module: ptw_walk
 area: memsys
 rtl: rtl/memsys/ptw_walk
-spec: ptw_walk
-status: green
-lockstep: 68/68
-mutants: 29 个中 28 杀死，1 等价
-note: 只翻默认配置下活着的部分
+model: trace-model MemSubSystem/include/MemPtwBlock.h、include/PtwWalkPort.h（调度单元 `mem_subsystem.ptw_block`，类 `MemPtwBlock`，阶段 `comb_request`、`comb_feedback`；类全部写在头文件里）
+status: 整核周期与模型逐个相等（fm_gate 67/67，参考 scripts/ref_cycles_memiq6_nr_int2_ev5.txt）
+depth: 47 层（ptw_walk，单模块综合，2026-11-18，`SYNTH_ABC="strash;balance;map"`，生成门代理，见第 6 节）
 ---
 
-# ptw_walk 设计笔记（MemPtwBlock 活着的部分：两个 walk 客户端共享一个页表遍历器）
+# ptw_walk 设计文档
 
-> **更新（2026-11-12，rv64 / 现状）**：页表遍历深度和 PTE 大小由 `memcpu_pkg` 给出：rv32 为 `PT_LEVELS = 2`、PTE 4 字节（`PT_PTE_SHIFT = 2`）、VPN 10 位；rv64 Sv39 为 `PT_LEVELS = 3`、PTE 8 字节（`PT_PTE_SHIFT = 3`）、VPN 9 位，`PT_LVL_W = 2`。PTE 经 dcache 读（`ptw_event_data` 是 `XLEN` 位）。物理地址仍是 32 位。下文的 `L1_REQ/L2_REQ` 两步序列和地址拼接是 rv32 的；rv64 多一级。
+## 1. 职责
 
-分析与边界见 `docs/analysis/memsys-boundary.md` §2.3；录制点 `docs/analysis/memcpu-record-hook.md`。
+页表遍历器（page-table walker）：ITLB 和 DTLB 缺失时，由它按 Sv39 的三级页表从内存里读页表项（PTE，8 字节），找到叶子项后把结果还给发请求的 TLB。两个 TLB 共用这一个遍历器，一次只走一个遍历（round-robin 在两个客户之间选）。
 
-## 1. 对应的 C++
-- `MemSubSystem/include/MemPtwBlock.h`（1236 行，**活着的只有 walk 客户端 + walker 状态机，约 330 行**：`State/WalkClientState`、`apply_port_inputs`、`send_walk_req`、`select_walk_owner`、`project_outputs_from_state`、`apply_grant/events/wakeups`、`on_walk_read_granted`、`on_walk_mem_resp`、`retry_active_walk`、`flush_walk_client_state`）。
-- **死代码（核实，不翻）**：`PtwWalker.cpp/.h`（`lldb` 在 4 个会走页表的 vm 程序上对 `PtwWalker::start/tick` 下断点，命中 0 次）、`PtwMemPort` 路径（`MemSubsystemPtwMemPortAdapter::send_read_req` 命中 0 次，68 个程序 `ptw_memclient_req_valid = 0`、`MEM_DTLB/ITLB` 的 grant/event/wakeup 为 0）、`PtwCompactCoreKernel.h`（整个源码树没有调用者）、`on_walk_mem_replay`（路由块 `replay` 恒 0）、事件槽 1..3、`access_type`。
-- 调用顺序（`MemSubsystem::comb_inputs/seq`）：`comb_begin(客户端输入)`（latch 请求、选 walk owner、算 `issue_walk_read/addr`）→ 路由块 `comb_request` → `comb_finish(grant, event, wakeup)` → `seq(walk_client_flush)`。边界每 CPU 周期一条记录（`spec/ptw_walk.io`，21 字段）。
+遍历器自己不访问内存：它每拍最多发出一个"读这个地址"的请求，经 `mem_route` 借数据缓存的 P3 口（见 mem_route.md）去读；请求被接受时 `mem_route` 给"授权"（grant），PTE 回来时给"事件"（event），读没成功（冲突或等填充）时给"唤醒"（wakeup）让它重发。
 
-## 2. 硬件结构
+1. **客户侧**（每个 TLB 一份）：锁存请求，维护"挂起 / 在途 / 响应有效"三个状态，把响应（是否缺页、叶子 PPN、权限、叶子级别）寄存后给 TLB；
+2. **遍历器状态机**：选客户 → 读第 2 级页表项 → 读第 1 级 → 读第 0 级（遇到叶子提前结束）→ 发布结果；
+3. **PTE 判断**：无效、`W` 无 `R`、保留位、未对齐的大页、级别 0 上还是指针，都是缺页；有 `R` 或 `X` 是叶子；其余是指向下一级的指针。
+
+模型对应一个调度单元 `ptw_block`（`MemPtwBlock::comb_request`：TLB 的请求进、读请求出；`comb_feedback`：授权 / 事件 / 唤醒进、更新状态、消耗 TLB 的请求）。
+
+## 2. 配置（`memcpu_pkg`、`ttg_cfg_pkg`，现行默认）
+
+| 项 | 值 | 来源 |
+| --- | --- | --- |
+| 页表 | Sv39：3 级，每级 VPN 9 位，PTE 8 字节 | `PT_LEVELS = 3`、`PT_VPN_PART_W = 9`、`PT_PTE_SHIFT = 3` |
+| 客户 | 2：0 = DTLB，1 = ITLB | `PT_NCLIENT` |
+| VPN 宽度 | 27 | `PT_VPN_W` |
+| 根页号输入 | 22 位（TLB 给的 satp.ppn 低位） | `PT_PPN_IN_W` |
+| 能进入 32 位物理地址的页号 | 20 位（`ppn << 12` 超出 32 位的部分被丢弃） | `PT_PPN_W` |
+| 权限位 | 8 位（pte[7:0]） | `PT_PERM_W` |
+| 叶子级别 | 2 位（0..2） | `PT_LVL_W` |
+| 读请求 id | 4 位（与 `mem_route` 的路由 id 同宽） | `PT_ID_W = RT_ID_W` |
+| 数据字 | `XLEN_BITS = 64`，PTE 直接用 64 位 | |
+| 状态更新时机 | 只在 `cpu_en`（现行配置恒为 1）更新 | |
+
+## 3. 接口
+
+| 方向 | 信号组 | 含义 |
+| --- | --- | --- |
+| 入 | `client_req_valid/vpn/root_ppn [PT_NCLIENT]` | TLB 的遍历请求（只在 `req_ready` 时发） |
+| 入 | `client_resp_consumed`、`client_flush` | TLB 取走了响应；TLB 丢弃自己的遍历（冲刷 / 取消） |
+| 入 | `grant_valid/req_id` | 读请求被数据缓存接受，并带路由 id |
+| 入 | `event_valid/data/req_id` | PTE 回来了（64 位 + id） |
+| 入 | `wakeup_walk` | 读没成功，请重发 |
+| 出 | `client_req_ready`、`client_resp_valid/fault/vpn/leaf_ppn/leaf_perm/leaf_level` | 给 TLB，全是寄存器输出（时钟沿后才变，TLB 下一拍看到） |
+| 出 | `issue_walk_read`、`walk_read_addr` | 要读的 PTE 地址，组合输出，给 `mem_route` |
+
+## 4. 结构
+
 ```
- TLB(2) ─ req/vpn/root_ppn/resp_consumed/flush ─► ptw_walk_client ×2 ──pending/vpn/root──► ptw_walk_engine ──► issue_walk_read, addr ─► mem_route
-          ◄─ req_ready/resp_valid/fault/vpn/ppn/perm/level (寄存器直出)   ◄─ sel/publish/pub_*    ▲  grant / event(data,id) / wakeup ◄─ mem_route
-                                                                                      ptw_walk_pte (PTE 分类)
+ ptw_walk (顶层：2 个 client 实例 + 1 个 engine)
+   ├ ptw_walk_client ×2 : 每个 TLB 一份的请求锁存和响应寄存
+   └ ptw_walk_engine    : 共享状态机（选客户、读请求、授权、PTE 事件、唤醒、冲刷）
+        └ ptw_walk_pte  : PTE 的判断（缺页 / 指针 / 叶子，PPN、权限）
 ```
-| 模块 | 职责 |
-| --- | --- |
-| `ptw_walk`（顶层）| 端口适配 + 两个客户端 + 引擎 |
-| `ptw_walk_client` | 一个 TLB 的端口寄存器：请求锁存（忙时忽略）、`pending→inflight→resp_valid`、冲刷（最后生效）；TLB 只看到寄存器 |
-| `ptw_walk_engine` | 遍历器 FSM `IDLE→L1_REQ→L1_WAIT→(L2_REQ→L2_WAIT)→IDLE`、轮转选客户端、读地址、grant/event/wakeup/flush 优先级链 |
-| `ptw_walk_pte` | PTE 分类（V/R/W/X + 超级页对齐）；`fault/pointer/leaf` + ppn/perm 切片 |
 
-状态：引擎 `state(3) owner(1) rr(1) l1_ppn(20) req_id(4)`，每客户端 `pending inflight resp_valid fault level vpn(20) root_ppn(20) leaf_ppn(20) perm(8)` ≈ 2×(3+2+20+20+20+8)；总共约 170 位（C++ 约 185 位 + `walk_req_id(32)`）。
+| 文件 | 行数 | 职责 |
+| --- | --- | --- |
+| `ptw_walk.sv` | 80 | 顶层：连线 |
+| `ptw_walk_client.sv` | 108 | 客户侧 |
+| `ptw_walk_engine.sv` | 159 | 状态机 |
+| `ptw_walk_pte.sv` | 59 | PTE 判断（纯组合） |
 
-## 3. 一拍内的数据流（**同拍 select→issue 组合路径**）
-1. 客户端（`apply_port_inputs`）：`resp_valid_a = resp_valid & !consumed & !req_valid`（任何 `req_valid`——哪怕客户端忙——都清掉陈旧响应）；`latch = req_valid & !(pending|inflight)`，`pending_a = pending | latch`，`vpn_a/root_a` = latch ? 输入 : 寄存器。
-2. 选择（引擎，仅 IDLE）：`rr` 优先，另一个其次；选中者 `pending→inflight`，`state_b=L1_REQ`，`rr<=!owner`。**本拍新锁存的请求可以当拍被选中**。
-3. 读请求（组合）：`state_b=L1_REQ` → `{root_ppn[19:0], vpn[19:10], 00}`；`L2_REQ` → `{l1_ppn[19:0], vpn[9:0], 00}`（`(ppn<<12)+(vpn<<2)` 在 32 位里没有进位，ppn[21:20] 被移出）。
-4. grant（路由块上一步算出）：`REQ→WAIT`，记 `req_id`。
-5. PTE 事件：`event_hit = valid & 在 WAIT & event.id == req_id`（否则是被冲刷的旧 walk 的陈旧响应，忽略）；L1：无效/`!R&W`→fault，`R|X`→叶（`ppn[9:0]≠0` → fault，否则 level=1），否则 pointer（`l1_ppn<=pte.ppn`，→`L2_REQ`）；L2：无效/`!R&W`/`!(R|X)`→fault，否则叶（level=0）。发布到 owner 客户端（`inflight→resp_valid`，fault 时 ppn/perm/level 清 0）。
-6. wakeup：对活着的 walk 的 `WAIT→REQ`（重新发读）；发生在事件之后，所以"grant 后同拍 wakeup"也回到 REQ。
-7. flush（时钟沿上，叠在最后）：客户端 `pending/inflight/resp_valid` 清零；若该客户端是活着的 walk 的 owner → `IDLE`。
-TLB 在下一周期读到的 `req_ready/resp_*` 是步骤 1–7 之后的寄存器值（= C++ `seq` 里 `refresh_outputs` 的投影）。
+状态：每个客户的 `pending_q`、`inflight_q`、`resp_valid_q`、`vpn_q`（27 位）、`root_q`（20 位）、响应的 `fault_q`/`leaf_ppn_q`/`perm_q`/`level_q`；引擎的 `state_q`（5 个状态）、`owner_q`、`rr_q`（下次优先的客户）、`l1_ppn_q`（上一级指针项的页号 = 下一级页表的基址，20 位）、`req_id_q`（已授权读请求的 id）、`level_q`（后续读的级别）。
 
-## 4. 与 C++ 的差异点、放宽、不复刻
-### 4.1 删除 / 简化
-| 项 | 理由 |
-| --- | --- |
-| `walk_drop_resp_credit`（无界 uint32）| **写后无人读**：它只在 `on_walk_mem_resp` 里决定返回 `DROPPED` 还是 `IGNORED`，两者对状态没有任何别的影响（`apply_events` 丢弃返回值）。删除；打包版的 2 位饱和计数器与活代码不等价，更没有意义 |
-| `walk_active` / `walk_req_id_valid` | 与 `state≠IDLE` / `state∈{L1_WAIT,L2_WAIT}` 恒等（每次置位/清零都成对出现，已逐处核对 `select_walk_owner`、`on_walk_read_granted`、`publish_*`、pointer 分支、`retry_active_walk`、`flush`），由状态派生 |
-| `walk_req_id`（size_t）→ 4 位 | 只做相等比较；陈旧事件的 id 是上一拍请求的 id，与现行 id 差 ≤1（`mem_route.md` §4.3）|
-| `satp` 高 2 位、PTE 的 ppn[21:20]/RSW | 被 `(ppn<<12)` 移出 32 位地址，不影响任何输出（TLB 只用 `leaf_ppn[19:0]`，`tlb_mmu.io` 同）。输入端口保留 22 位（与 `tlb_mmu.io/icache.io` 一致），`lint_off UNUSEDSIGNAL` 局部豁免并注明 |
-| `resp.vaddr[11:0]`、`resp.leaf_pte` 的高位 | TLB/ICache 只读 vpn、`leaf_ppn`、`perm`、`level` |
-| `resp.vaddr` 单独存储 | `resp_valid` 为真期间请求寄存器不会变（新请求会同时清 `resp_valid`）→ 直接用请求 vpn |
-### 4.2 放宽（`when`）与消费者核对
-`client_resp_{fault,vpn,leaf_ppn,leaf_perm,leaf_level}` 限定 `client_resp_valid`：TLB（`TlbMmu.cpp:1307-1322`）与 ICache（`icache_itlb`）都先看 `resp_valid` 再读负载。`walk_read_addr` 限定 `issue_walk_read`（`MemRouteBlock.comb_request` 只在 `ptw_walk_req.valid` 时读 `addr`）。`resp_fault=1` 时 ppn/perm/level 严格为 0（TLB 不 `when fault`，RTL 清零）。
-### 4.3 不可达（C++ 行为不复刻，取最简）
-`grant` 到达时 walk 不在 `*_REQ`（grant 只在 `issue_walk_read` 为真的同拍产生）；`on_walk_mem_resp` 里 `else publish_fault()`（`active_req` 蕴含 WAIT 状态）。trace 与随机都未出现。
-### 4.4 登记的疑点
-- `send_walk_req` 在客户端忙时仍执行 `resp_valid=false`（先清响应再检查忙）——TLB 只在 `req_ready` 时发请求，不可达；RTL 复刻（`resp_valid_a` 里 `!req_valid`）。
-- `flush` 对"本拍刚发布的结果"也清零 `resp_valid`（冲刷叠在最后）——复刻。
-- 陈旧 L1 事件 / wakeup 作用于已被冲刷再重新发起的新 walk（wakeup 不带 id）：新 walk 会被多余的 wakeup 打回 `REQ`、重发读（行为正确但多一次读）——复刻，随机覆盖 `wake_idle`/`wake_wait`。
+引擎的五个状态（`ptw_state_e`）：`IDLE`、`L1_REQ`（要发第一次读）、`L1_WAIT`（第一次读已授权，等 PTE）、`L2_REQ`（要发第二或第三次读）、`L2_WAIT`。注意"L1 / L2"在这里**不是页表的级别**：`L1_*` 是第一次读（Sv39 的最高级，级别 2），`L2_*` 是之后所有的读（先级别 1，再级别 0）；真正的级别在 `level_q`。模型 `WalkState` 的命名也是这样。引擎里的 `go_level0` 其实是"遇到指针、去读下一级"，不一定是 0 级。
 
-## 5. 验证
-- spec：`spec/ptw_walk.io`（21 字段）。
-- 整程序实时锁步：68 个程序 **68/68 PASS**；但只有 4 个 vm 程序会走页表，共 **20 次 walk 授权**（L1 无效 2、L1 指针 9、L2 叶 9、1 次故障）——**真实程序覆盖极薄**（见 `docs/analysis/data/memcpu_coverage_68prog_200kcyc.txt`）。
-- 随机生成器（`-DMOD_PTW`，驱动**真实** `MemPtwBlock`，TLB 客户端按 `PtwWalkPortAdapter` 语义行为：只在 `req_ready` 时发请求、只在 `resp_valid` 时消费、冲刷随机；路由反馈按真实时序：授权后下一拍事件，id 与相邻请求交错；PTE 含全部 V/R/W/X 组合、超级页对齐/错位）：6 个 profile × 6 万拍全 PASS。覆盖（profile 0）：授权 23751、事件 19015（其中 walk 空闲 2780、id 不匹配 833）、L1 指针 4987、故障发布 5593、L1 叶 2335、L0 叶 2524、等待中 wakeup 6257、空闲 wakeup 464、冲刷活着的 walk 1362（其中等待中 789）。
-  **随机首先抓出的问题是生成器的**（陈旧 id 取了很久以前的授权，4 位 id 恰好与现行 id 相差 16，产生别名）——说明 4 位 id 的前提（陈旧事件只来自上一拍请求）是必要的，已改成真实时序并在 §4.1 与 `mem_route.md` §4.3 写明。
-- 变异：见下表（`tests/memcpu/ptw_walk_mutants.py`）。
-  **29 个变异体，28 个被杀**（11 个真实程序锁步也杀：地址切片 `vpn[19:10]/[9:0]`、ppn 切片、`l1_ppn` 移位、root 不锁存、指针后状态、grant 后状态、发布到错误客户端、`resp_consumed` 忽略、冲刷保留 `resp_valid`、fault 时保留 level）；17 个只有随机能杀（PTE 各类故障、超级页对齐检查（只有 `rand1` 第 43112 条记录才杀——对齐位 `ppn[10]` 偶发，较弱）、陈旧事件 id、事件在非等待态、wakeup 忽略、冲刷任意客户端、忙时选择、`rr` 不翻转、冲刷保留 pending/inflight、忙时锁存请求）。1 个存活 = `engine_cpu_en_ignored`（锁步里 `cpu_en` 恒 1，等价）。
-  **只靠随机才杀的变异：17/29**——真实程序对 PTW 的覆盖不足以证明这些规则（唯一来源是随机生成器，它驱动真实 `MemPtwBlock` C++ 类）。
+## 5. 一拍内的数据流
+
+顺序与模型一致：请求进 → 选客户 → 读请求 →（`mem_route` 处理）→ 授权 → PTE 事件 → 唤醒 → 冲刷。
+
+1. **请求锁存**（客户）：`latch = req_valid && !(pending || inflight)`；锁存后本拍就能被选中（`pending_a`）。任何 `req_valid`（即使没锁存进去）和 `resp_consumed` 都会让旧响应作废。
+2. **选客户**（引擎，只在 `IDLE`）：`rr_q` 指向的客户优先，它没有挂起请求再看另一个；选中后状态变 `L1_REQ`，`rr_q` 指向另一个客户，客户的 `pending` 变 `inflight`。
+3. **读请求**：`L1_REQ` 时地址 = `{根页号(20), VPN[2](9), 3'b0}`；`L2_REQ` 时地址 = `{l1_ppn_q, VPN[level_q], 3'b0}`。其他状态不发。
+4. **授权**：`grant_valid` 则 `*_REQ → *_WAIT`，记下 `req_id`。
+5. **PTE 事件**：只有在 `*_WAIT` 状态且 `event_req_id` 等于已授权的 id 才处理（否则是已被冲刷的遍历的陈旧答案，丢弃）。`ptw_walk_pte` 判断：
+   - 缺页（`!v`、`!r && w`、`pte[63:54]` 非 0、叶子但大页 PPN 低位非 0、级别 0 上还是指针）→ 给该客户发布"缺页"，回 `IDLE`；
+   - 叶子 → 发布 `ppn = pte[29:10]`、`perm = pte[7:0]`、级别 = 本次读的级别，回 `IDLE`；
+   - 指针 → `l1_ppn_q <= pte[29:10]`、`level_q <= 本级 - 1`、转 `L2_REQ`。
+   发布时，缺页响应的 ppn / perm / level 清零。
+6. **唤醒**：`wakeup_walk` 且处于 `*_WAIT`，退回对应的 `*_REQ` 重发同一个读。
+7. **冲刷**：当前遍历的所有者客户这拍冲刷，则遍历回 `IDLE`；客户自己的 `pending/inflight/resp_valid` 同拍清零（冲刷优先于所有其他更新）。
+
+## 6. 关键路径与深度
+
+单模块综合深度 **47 层**（ptw_walk；2026-11-18；`scripts/synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`，生成门代理，不是时序）。综合报告给出的最长路径：从 `\g_client[0].u_client.inflight_q` 到 `\u_engine.publish_any`。。从代码读出的，未综合验证：
+
+- 最长的是"**PTE 事件 → 判断 → 状态更新 / 发布**"：`event_data`（来自数据缓存第二级的响应，经 `mem_route`）→ `ptw_walk_pte`（保留位、大页对齐检查、叶子 / 指针判断）→ `publish` → 客户寄存器与引擎状态；其中 id 比较 `event_req_id == req_id_c` 要在授权更新之后（`req_id_c`）；
+- "**读请求**"：`state_q`、选客户 → 取 VPN 的 9 位段（按 `level_q` 选）→ `walk_read_addr` → `mem_route` → 数据缓存 bank 授权；
+- 选客户和请求锁存串在同一拍里（刚锁存的请求本拍就能被选中，并在同一拍发出读请求）。
+
+## 7. 与模型的差异和取舍
+
+- **陈旧响应的处理**：模型有"丢弃额度"`walk_drop_resp_credit`（冲刷时若正在等响应则加一，之后到达的 id 不匹配的响应被丢弃并减一），RTL 没有这个计数，只靠 id 比较（4 位）和状态（不在 `*_WAIT` 就忽略）；
+- **回放事件**：模型 `on_walk_mem_replay` 处理 `replay != 0` 的事件，但 `MemRouteBlock` 产生的事件 `replay` 恒为 0（见 mem_route.md），所以 RTL 没有这个分支；
+- **PTE 宽度与物理地址**：模型的叶子响应带完整 64 位 `leaf_pte`，物理地址超过 32 位时直接 `exit(2)` 报错；RTL 只带 20 位页号 + 8 位权限，超出 32 位的部分静默丢弃（TLB 侧看到的就是 `PT_PPN_W` 位的页号）；
+- **根页号**：模型取 satp 的 44 位页号，RTL 接口只有 22 位（`PT_PPN_IN_W`），内部取低 20 位；
+- **访问 / 脏位、Svnapot、Svpbmt**：模型和 RTL 的 PTE 判断里都没有用到 A / D 位，也不实现 Svnapot / Svpbmt（`pte[63:54]` 非 0 即缺页）；
+- 模型的 `WalkState`、`Client` 枚举、轮转指针 `walk_rr_next` 与 RTL 的 `ptw_state_e`、客户号、`rr_q` 一一对应；
+- 模型的"冲刷在输出之后生效"（TLB 的冲刷从下一拍才能在输出上看到）：RTL 里冲刷在时钟沿清寄存器，输出是寄存器，效果相同。
+
+代码里看起来不一致的地方（未改，仅记录）：`ptw_walk_engine.sv` 里的信号名 `go_level0`、`l1_ppn_q` 暗示"第 0 级 / 第 1 级"，实际含义是"遇到指针、去读下一级"和"最近一个指针项的页号"（见第 4 节）；`memcpu_pkg::ptw_state_e` 的注释写 "level-0 PTE read" 也是同一问题。
+
+未核对（继承自旧文档）：无，旧文档内容未带入。
+
+## 8. 验证
+
+- **门禁**：`scripts/fm_gate.sh` 67 个程序（周期对 `scripts/ref_cycles_memiq6_nr_int2_ev5.txt`）。这 67 个里哪些开了分页没有逐个核对；遍历器在开启分页的运行（Linux）里一定被使用。
+- **Linux 整核门禁**：`scripts/linux_gate.sh`（逐提交对拍功能模型 + PMU 序列对比）。PMU 探针读取 `ptw_walk_engine` 的 `event_data`、`event_hit`、`walk_read_addr`、`issue_walk_read`、`pub_fault`（`tb/soc/pmu_public.vlt`），所以遍历相关事件被逐区间与模型对比。
+- **Lint**：`scripts/lint_chip.sh`。
+- **没有 ptw_walk 的模块级测试**。**待补**：与模型 `MemPtwBlock` 并排的随机测试（随机请求 / 冲刷 / 授权 / 事件 / 唤醒序列、随机 PTE），重点是冲刷时机、陈旧事件、两个客户的轮转、各种缺页条件。
+
+## 9. 参数与开关速查
+
+`PT_LEVELS`、`PT_VPN_PART_W`、`PT_PTE_SHIFT`、`PT_NCLIENT`、`PT_PPN_IN_W`、`PT_PPN_W`、`PT_PERM_W`、`PT_LVL_W`、`PT_ID_W`（`memcpu_pkg`）；`XLEN_BITS`（`ttg_cfg_pkg`）。
+
+## 10. 变更记录
+
+本分支未改动（`git log 261bd67..HEAD -- rtl/memsys/ptw_walk` 为空），更早：`72f2cd9` rv64 step 3：Sv39 TLB 和页表遍历器；`8abb7ab` RTL 清理（删旧生成器和 spec/、折叠 rv32 分支）；`2d78026` 初次引入。

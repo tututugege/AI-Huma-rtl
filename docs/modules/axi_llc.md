@@ -1,174 +1,169 @@
-# axi_llc — AXI last-level cache (AXI_LLC.cpp + MemSubsystem.cpp AxiLlcTableRuntime)
+---
+module: axi_llc
+area: memsys
+rtl: rtl/memsys/axi_llc
+model: trace-model axi-interconnect-kit/axi_interconnect/AXI_LLC.cpp、include/AXI_LLC.h、include/AXI_LLC_Config.h；行表（数据 / 标签 / 脏 / 有效 / 替换指针）在 MemSubSystem/MemSubsystem.cpp 的 `AxiLlcTableRuntime`（调度单元 `axi`，类 `AxiSubsystem`；见 axi_subsys.md）
+status: 整核周期与模型逐个相等（最近一次提交 60ed422 的提交信息记 fm_gate 67/67、周期等于 scripts/ref_cycles_memiq6_nr_int2_ev5.txt；本次写文档没有重跑）
+depth: 238 层（axi_llc，单模块综合，2026-11-18，`SYNTH_ABC="strash;balance;map"`，生成门代理，见第 6 节）
+---
 
-Ref: `axi-interconnect-kit/axi_interconnect/AXI_LLC.cpp` (`AXI_LLC::comb/seq`), tables: `MemSubSystem/MemSubsystem.cpp:44-247`.
-Boundary / spec: `spec/axi_llc.io` (one record per tick, 16 per CPU cycle, `scripts/lockstep_ticks_axi.sh axi_llc`).
-Default geometry 4 MiB / 16 way / 64 B line / 4096 sets / 8 MSHR; geometry macros `AXI_LLC_SETS`, `AXI_LLC_WAYS`, `AXI_LLC_MSHR` (see section 6).
+# axi_llc 设计文档
 
-## 1. Boundary and what "one tick" means
-The C++ calls `llc.comb()` twice per tick (comb_outputs: ext_in with `read_resp.ready=0`; comb_inputs: final). Each call starts from
-`reg_write = regs`, so only the **final** call defines the next state. Measured over 23.8 M ticks (68 programs, incl. CPU cycle 1 after the tap was armed before the first cycle): ext_out of both calls is
-identical in every tick (an earlier tap version that armed itself only at the end of cycle 1 showed a spurious 16-tick difference per program). The RTL implements the final
-call only: inputs `llc_in2` (ext_in) -> outputs `llc_out2`; `ext_out.mem.read_resp_ready/write_resp_ready` are constant 1 and are not ports.
-Outputs `up_rd_resp_*`, `up_wr_resp_*` are plain functions of the registers; `up_*_req_ready` and `mem_*_req_*` come out of the unit chain of section 3.
-`hz_*` = registers the interconnect reads directly for its hazard / id-conflict checks (state before the tick's seq).
+## 1. 职责
 
-## 2. Dead / constant paths (evidence: gcov over 68 programs x {4 MiB, 32 KiB/16w, 8 KiB/4w, 16 KiB/2w}, stat plugin)
-Not implemented (assertions in the RTL flag them if they ever occur): prefetch (config off), invalidate_all/line (never requested), direct_mapped /
-mode2 (mode=1), noalloc, MMIO, epoch/stale refill (epoch never changes), read-resp-queue pop-on-idle (C++ 1358), the `try_commit` loop at C++ 1604,
-perf, debug, `dirty_line_count`, `mem_issue_cycle`, a memory write response without a write-back or a bypass write in flight, a memory read response
-for an unused MSHR slot.  The 68 programs never use the following, but they ARE implemented since the stretch step and verified with random traffic
-(section 5.2): **bypass writes** (peripheral write master: `b_wr_valid_m1` is 0 in all programs), **partial-line / partial-strobe writes** (DCache writes
-are always 64 B full strobe in the programs: `mshr_is_write` = 0) and the **MSHR-owned victim write response** (`victim_wb_mshr_slot` is always INVALID
-when the response arrives in the programs).  Depths: read_resp_q (C++ 32) max 1 in the programs, 3 in random traffic -> RQD 4; write_q observed 0 at tick end -> 2;
-read_victim_wb_q max 2 (programs) / 7 (random traffic) -> 8.
+最后一级缓存（LLC）：4 个读主口和 2 个写主口（与 axi_interconnect.md 同一套主口编号）共用的一块统一缓存，写回式。名词先定义：
 
-## 3. Units and the tick flow
-There is no global state record.  Each hardware unit owns its registers (`_q` registers, `_d` next-state wires, storage arrays written under
-an enable) and talks to the others through narrow typed signals.  `axi_llc.sv` only adapts the spec ports (unpacked arrays) to packed vectors;
-`axi_llc_core.sv` instantiates the units and is pure wiring plus the table-write select and the hazard lists.
+- **查表**（lookup）：用请求的组号读一次行表（数据 / 标签 / 脏位 / 有效位 / 替换指针），3 个 tick 后拿到一整组 16 路的内容，再判断命中还是缺失。查表引擎同一时刻只处理一个请求（读或写）。
+- **MSHR**（miss status holding register，缺失状态寄存器）：记一次在途缺失的表项，共 8 项（`NMSHR`）；它的槽号就是发给内存的读请求的 id。
+- **受害行**（victim）：缺失时被换出的行；脏的要先写回内存。
+- **bypass**：不缓存的请求（外设、ICache 的非缓存取指）。bypass 读可以命中已有的行，缺失时不分配行；bypass 写只在行已缓存时更新它（保持脏位），并总是写穿到内存。
 
-| unit (file) | instances | state | role |
-| --- | --- | --- | --- |
-| `axi_llc_rq` | 4 (one per read master) | 3-entry shift FIFO (response register = entry 0), fresh flag | read responses leave; up to 3 producers per tick, accepted in priority order (0 lookup hit, 1 bypass memory response, 2 MSHR completion) |
-| `axi_llc_wport` | 2 (one per write master) | request queue (2 entries, valid bits + pointers, passthrough when empty), write context (`valid lpend cpend vwait cdone`, bypass / `mem_issued` / `mem_done`, id/size/addr/data/strb, way/victim addr/merged line), response register with code | write request -> context -> lookup -> optional wait (victim write-back, or refill of a partial-line miss) -> table write -> response; bypass write: memory write -> response |
-| `axi_llc_wsched` | 1 | `rr_write` | accept one write per tick, launch pick, bypass write issue pick, victim hazard of the queue fronts |
-| `axi_llc_memwr` | 1 | none | memory write request mux: victim write-back (full line, id 0) or the picked bypass write (own addr / strobe / size / id) |
-| `axi_llc_victim` | 1 | write-back slot (`valid issued forw wm owner addr data`), read-victim queue (8 entries, valid bits, head/tail, addr/data memory) | one write-back at a time towards memory; parks dirty victims |
-| `axi_llc_mshr` + `axi_llc_mshr_ent` | 1 + 8 | per entry `valid bypass is_write issued rvalid rcomm vdirty vdone`, addr/way/size/master/id, victim snapshot, refill data | miss table, free / issue / refill picks, memory read response, owner of an answered write-back |
-| `axi_llc_lookup` | 1 | `valid issued is_write bypass`, addr/size/master/id | the single lookup in flight |
-| `axi_llc_resolve` | 1 | none (combinational) | stage 3: hit/miss (bypass / full / partial write, read), way pick, which unit gets which request |
-| `axi_llc_refill` | 1 | none | stage 4c: park victim, refill write (write entry: merged, dirty), answer / free, mark the write context done |
-| `axi_llc_rdacc` | 1 | `rr_read` | read accept (conflict checks) and table-read issue |
-| `axi_llc_tables` | 1 | data / tag / dirty / valid / repl arrays, 3-stage read index | the SRAM tables (section 4) |
-| `axi_llc_waypick`, `axi_llc_merge`, `axi_llc_rrpick`, `axi_llc_linecam` | | none | way selection with reservations, write merge, rotating-priority arbiter (all `for off in 0..N-1` scans), line-address CAM (all `find_*`/`*_pending` scans) |
+每个 tick 按固定顺序做五步（`axi_llc_core.sv` 文件头）：1 读响应离开；2 写路径（受害行写回、写请求接收、写上下文）；3 解析刚到的查表（命中 / 缺失，写行表、分配 MSHR、产生响应）；4 内存读路径（内存读响应、发内存读、重填）；5 接收新的读请求、发起行表读。每一步只看到前面步骤已经决定的状态。
 
-One tick, in the order the C++ evaluates it.  Every decision only sees what the earlier steps of the same tick produced; that dependency is
-expressed as dataflow between the units (no unit has a whole-state input).  Which version of a register each reader looks at:
+模型对应：`AXI_LLC` 类（LLC 在 `AxiSubsystem::interconnect` 里面，`CONFIG_AXI_LLC_ENABLE = 1`），行表在 `MemSubsystem` 里（`llc_comb_outputs` / `llc_seq`，`AxiSubsystem::comb_outputs` 先调前者，`seq` 先调后者）。RTL 把行表放进 LLC 模块（`axi_llc_tables`）。
 
-| step (C++) | decision | reads |
+## 2. 配置（`axi_llc_pkg`，现行默认）
+
+| 量 | 值 | 来源 |
 | --- | --- | --- |
-| 1 `drive_read_responses` | pop of the response register | `rq` regs, `up_rd_resp_ready` |
-| 2 `drive_write_path` | write-back response -> context commit + table write; load next victim; issue; accept a write; queue front -> context | victim regs, **start-of-tick** hazard lists (accept), lists after the response / commit (fill); `rr_write` |
-| 3 `try_complete_lookup` | `axi_llc_resolve` | **old** lookup regs, old MSHR / write-context state (way reservation, free entry, line in flight), the table row, `busy2` (table written by step 2), `victim busy` after step 2, response queue room |
-| 4 `drive_mem_read_path` | (a) memory response (b) memory read issue (c) refill | old MSHR (picks), MSHR fields **after** step 3 (victim snapshot), victim slot after step 3, response queue room, `busy3` (table written by step 2 or 3) |
-| 5 launch / accept / issue | write launch, read accept, table read issue | **end-of-tick** (`_d`) lists of every unit |
+| 组数 `SETS` | 4096 | 宏 `AXI_LLC_SETS`（默认 4096） |
+| 路数 `WAYS` | 16（必须是 2 的幂） | 宏 `AXI_LLC_WAYS` |
+| 行大小 | 64 字节 | `line_of` / `set_of` 用地址 `[31:6]` |
+| 容量 | 4096 × 16 × 64 = 4 MiB | 与模型 `CONFIG_AXI_LLC_SIZE_BYTES = 4 << 20`、`CONFIG_AXI_LLC_WAYS = 16`（`config.h`）一致 |
+| 标签位宽 `TAGW` | 32 − 6 − 12 = 14 | `axi_llc_pkg` |
+| MSHR 数 `NMSHR` | 8（只支持 8：槽号放在 4 位 AXI id 里、第 3 位恒 0） | 宏 `AXI_LLC_MSHR`；顶层有综合期检查（`axi_llc_core.sv` 的 `g_geometry`）；模型 `CONFIG_AXI_LLC_MSHR_NUM = 8` |
+| 查表延迟 | 3 tick | `axi_llc_tables` 的 3 级读索引流水；模型 `CONFIG_AXI_LLC_LOOKUP_LATENCY = 3` |
+| 读响应队列 `RQD` | 8 项 / 读主口，加 1 个响应寄存器（`RQC = 9`） | `axi_llc_pkg` |
+| 写请求队列 `WQD` | 2 项 / 写主口 | 同上 |
+| 受害行写回队列 `VQD` | 8 项 | 同上 |
+| 受害行持有者表 `NVL` | 1 + VQD + NW + NMSHR = 19 | 同上（写回槽、队列、写上下文、MSHR） |
+| 主口数 | 读 4、写 2 | `NR`、`NW` |
 
-The C++ launches a write lookup twice (steps 2 and 5); the RTL has one launch point (after step 3): the candidate set and the "engine free"
-condition of the two calls are identical, step 2 only differs by being skipped while the victim slot is busy, and the later call then does the
-launch.  Fills of the two write contexts are independent of each other, so their C++ order is not reproduced.
+模型的三个队列是 32 项（`AXI_LLC_READ_RESP_QUEUE_DEPTH`、`AXI_LLC_READ_VICTIM_WB_QUEUE_DEPTH` 等于 `MAX_OUTSTANDING`；写队列 `MAX_WRITE_OUTSTANDING`），RTL 取小，见第 7 节。
 
-Hazard lists (`axi_llc_core`): victim holders = write-back slot, queue entries, write contexts waiting for their victim, MSHRs whose refill data
-arrived and whose dirty snapshot is not yet written (`vl_*`, three versions: start of tick for the write accept, after step 2 for the fill, end of
-tick for read accept / table read issue); MSHR lines (`ml_*`, start and end of tick); pending writes (`wl_d`: queue entries and contexts not yet
-updated in the table).  Every list is compared with `axi_llc_linecam`.
+## 3. 接口
 
-### Simplifications against the C++ (all unobservable at the boundary)
-* `vmdone` of a write context is set and consumed in the same tick (the first table write of a tick is the victim commit, so it is never busy): dropped.
-  `cpend` (the C++ `cache_pending`) and `vwait` (pending AND `victim_dirty`) are separate since partial-line write misses wait for a refill, not a victim.
-* Read-victim queue entries have no owner field and no duplicate check: a snapshot that is already parked is never parked again (`park_needed`).
-  Queue entries are valid exactly in the head/count window, so the per-entry valid flag is the window.
-* `vaddr != 0` guards of the C++ (address 0 = "no victim"): not reproduced; DDR starts at 0x80000000, no dirty line at address 0 exists.
-* The merged line of a full-line write miss is the write data itself (the C++ merges into a zero line).
-* Read-response FIFO: the C++ keeps a response register and a 32-deep queue; one FIFO of RQD+1 = 5 entries is the same observable behaviour
-  (max depth seen 3; an assertion fires at more than RQD = 4 entries).
-* Reset: control bits and pointers only.  Payload registers and the table arrays are not reset (all their readers are qualified by a valid bit /
-  `when` in the spec); the valid array powers up as 0 as before.
-* Call structure: the C++ evaluates `comb()` twice and runs `try_launch_pending_write_lookup` twice; the RTL evaluates the function of one tick once.
+LLC 的"上游"端口（`up_*`）连互连的 `li_*` / `lo_*`，"内存"端口（`mem_*`）连互连的 `lo_mem_*` / `li_mem_*`：
 
-### Behaviour added by the stretch step (C++ line numbers)
-* Bypass write (peripheral write master, `bypass=1`): queued and filled like any write; its lookup is launched too but only updates a cached copy of the line
-  on a hit (merge, table write with the OLD dirty bit, no victim-snapshot update); a miss does nothing (2302-2312).  The write itself goes to memory
-  (1677-1693: oldest unissued context from the start-of-tick `rr_write`, only while the write path is not blocked by a victim write-back; byte address,
-  strobe, size and id of the context) and completes with the memory write response, whose code becomes `up_wr_resp_resp` (1614-1620).  While a bypass write is
-  outstanding no victim is loaded from the queue or issued (1625-1650).  The response goes to the lowest-index outstanding context (`find_bypass_write_mem_owner`).
-* Partial-line write miss (2343-2405 + 2929-2970): way pick, then an MSHR with `is_write` is allocated (retry if the line is already in an MSHR or none is free);
-  the context waits (`cpend`, no `vwait`).  When the refill data arrives the dirty victim is parked as for reads, then ONE tick writes the refill line with the write
-  data merged (dirty), frees the MSHR and marks the context done: no read response, no `refill_committed`, the owner slot of the write-back is NOT released.
-* MSHR-owned victim response (1547-1584): the response of a write-back parked with an owner slot does not pop the queue; the entry named by the slot (if it still
-  holds that victim) or else the first entry with that victim and `vdone`=0 gets `vdone`=1 (so `vdone` is real state again; a write hit clears it).
-* Quirk reproduced: the context is cleared by its response BEFORE stage 3 runs in the same tick, so a late bypass lookup merges with strobe 0 (writes nothing but still
-  rewrites the line with the old dirty bit); a lookup result may also set `cache_done` on a freshly refilled context (the fill resets the flags first).
+| 方向 | 信号组 | 含义 |
+| --- | --- | --- |
+| 入 | `up_rd_valid / addr / size / id / bypass / resp_ready [4]`、`up_wr_valid / addr / data(512) / strb(64) / size / id / bypass / resp_ready [2]` | 互连的台送来的请求（同一时刻最多一个读或写有效）和主口的响应 ready |
+| 入 | `mem_rd_req_ready`、`mem_rd_resp_valid / data / id`、`mem_wr_req_ready`、`mem_wr_resp_valid / resp` | 互连的 DDR 侧 |
+| 出 | `up_rd_req_ready [4]`、`up_rd_resp_valid / id / data [4]`、`up_wr_req_ready [2]`、`up_wr_resp_valid / id / resp [2]` | 对主口的 ready 和响应 |
+| 出 | `mem_rd_req_valid / addr / size / id`、`mem_wr_req_valid / addr / data / strb / size / id` | 内存侧读写请求（读 id = MSHR 槽号） |
+| 出 | `hz_lookup_*`、`hz_rresp_fresh / valid / id [4]`、`hz_mshr_valid / is_write / master / id / line [8]` | 给互连的冲突检查读 |
+| 出 | `hz_wctx_valid / line [2]`、`hz_wresp_valid / line [2]` | 写上下文和写响应的行地址；`axi_subsys` 没有用它们（`unused_hz`） |
 
-## 4. Tables (`axi_llc_tables.sv`)
-data[sets][ways] x 64 B, meta[sets][ways] = {tag, dirty}, valid[sets] x ways bits, repl[sets] next-way. Writes at the end of the tick; one op per tick
-(`table_busy` guards guarantee it). Read: S7 issues at tick t; three registered stages carry the set index; at tick t+3 the row is read
-**asynchronously** (sees all writes of ticks <= t+2, none of t+3) and a `lookup_in valid` pulse is raised. Same-set writes inside the window occur
-with small LLCs (stat: 27 ticks over 3 programs at 32 KiB) and are modelled automatically by this structure.
+## 4. 结构
 
-## 5. Verification (all with `scripts/lockstep_ticks_axi.sh axi_llc`, module-level, every tick compared, spec/axi_llc.io)
-Reference tree: `baseline-sim` copy patched with `memsys-record-hook.patch` + `axi-record-hook.patch` (`docs/analysis/axi-record-hook.md`); the axi patch
-applied cleanly to the shared `refsim_tap` copy.  `--assert` is on in every run (the clocked assertions of `axi_llc_core`, `axi_llc_rq`, `axi_llc_victim`
-flag any C++ path of section 2 that the RTL does not implement and the queue-depth bounds).  `bash scripts/lint.sh rtl/memsys/axi_llc` is clean
-(svlint S1-S12 + `verilator -Wall`).
+```
+ up_rd / up_wr ─► axi_llc_rdacc（读接收）  axi_llc_wsched ─► axi_llc_wport[w]（写队列 → 写上下文 → 写响应）
+                         │ launch                │ launch
+                         ▼                       ▼
+                    axi_llc_lookup（查表引擎，1 个请求）──► axi_llc_tables（行表，3 tick 读延迟）
+                         │ 行到达
+                         ▼
+                    axi_llc_resolve（命中 / 缺失判定）── axi_llc_waypick（选路）、axi_llc_merge（按字节合并写数据）
+        ├─► axi_llc_rq[m]（读响应队列）   ├─► axi_llc_mshr（8 项 MSHR，含 axi_llc_mshr_ent）──► mem_rd_req
+        └─► axi_llc_victim（受害行写回槽 + 队列）  axi_llc_refill（重填：存受害行、写行表、应答）
+                    axi_llc_memwr（内存写请求多路选择）──► mem_wr_req
+```
 
-Rewrite (hardware-style units, this note), then the stretch step (bypass writes, partial-line write miss, owner answer), run on the final RTL:
-| check | result |
+| 文件 | 行数 | 职责 |
+| --- | --- | --- |
+| `axi_llc_pkg.sv` | 78 | 几何常量、类型 `tw_t`（行表写请求）、地址函数、`is_full_write` |
+| `axi_llc.sv` | 156 | 顶层：端口（数组）与压缩向量互转，`hz_*` 导出 |
+| `axi_llc_core.sv` | 397 | 实例化各单元，连窄接口，行表写源选择，仿真断言 |
+| `axi_llc_tables.sv` | 71 | 行表：数据 / 标签 / 脏 / 有效 / 替换指针；每个数组 1 个同步写口，3 级读索引流水后异步读 |
+| `axi_llc_lookup.sv` | 77 | 查表引擎：launch → 下一拍发行表读 → 3 拍后行到达，解析完成（done）或重试（retry） |
+| `axi_llc_resolve.sv` | 145 | 解析：命中 / 缺失 × 读 / 写的各种情况 |
+| `axi_llc_rdacc.sv` | 100 | 读接收（轮询）、行表读的发射条件 |
+| `axi_llc_wsched.sv`、`axi_llc_wport.sv` | 71、252 | 写接收的轮询、写上下文的推进、bypass 写的发射 |
+| `axi_llc_mshr.sv`、`axi_llc_mshr_ent.sv` | 258、140 | MSHR 表与选择逻辑；单个表项 |
+| `axi_llc_refill.sv` | 88 | 重填引擎 |
+| `axi_llc_victim.sv` | 192 | 受害行写回槽和读受害行队列 |
+| `axi_llc_rq.sv` | 99 | 每读主口的读响应队列 |
+| `axi_llc_memwr.sv` | 48 | 内存写请求：受害行写回优先，否则 bypass 写 |
+| `axi_llc_waypick.sv`、`axi_llc_rrpick.sv` | 30、38 | 缺失选路；旋转优先级仲裁 |
+| `axi_llc_linecam.sv`、`axi_llc_merge.sv` | 19、27 | N 项行地址比较；按字节合并 |
+
+状态：行表 `data_q[4096][16]`（512 位）、`tag_q`、`dirty_q`、`valid_q`、`repl_q`（每组一个替换指针）；MSHR 8 项（每项含 512 位重填数据和 512 位受害行快照）；受害行写回槽和队列（8 项 × 512 位）；每写主口的请求队列（2 项）和写上下文；每读主口的响应队列；轮询指针；查表引擎的 valid / issued 等。存储阵列没有复位，有效位靠上电值 0（测试平台用 `--x-initial 0`，见 `axi_llc_tables.sv` 头注释）。
+
+## 5. 一拍内的数据流
+
+### 5.1 读接收与行表读（`axi_llc_rdacc`、`axi_llc_lookup`、`axi_llc_tables`）
+
+每 tick 最多接收一个读请求：对每个读主口算 `ok = 请求有效 & 本主口的响应槽空 & 查表引擎空闲 & 没有同行的写（本拍到达的、写队列里的、受害行在途的、MSHR 里的）& 没有"非 DCache 主口的第二个整行取行"（非 bypass 读、主口不是 1，且该主口已有在途的行，`has_master_d`）& 有空闲 MSHR`，再按轮询指针选第一个。"本拍末状态"的各列表（`vl_*_d`、`wl_*_d`、`ml_*_d`，即各单元的次态）用于这些检查。接收后进入查表引擎（`valid`），下一拍起发行表读（条件：没有行表写在进行、该行不是在途受害行、不是在被重填的行），3 个 tick 后拿到整组内容，进入解析。行表读在 `t` 请求，读到的是 `t+2` 的写之后的内容。
+
+### 5.2 解析（`axi_llc_resolve`）
+
+用 16 路的 `valid & 标签相等` 求命中路（`ttg_first_set`），无命中时由 `axi_llc_waypick` 选路：第一个无效且未被在途重填 / 写回占用的路，否则从替换指针起第一个未被占用的路；全被占用则本拍不能处理（`retry`，行表读重新发）。情形：
+
+| 情形 | 动作 |
 | --- | --- |
-| `scripts/progs_smoke.txt` (62 programs, 4 MiB / 16 way default geometry, cap 60000 CPU cycles, `tests/axi_llc/run_all.sh`) | 62 / 62 PASS |
-| dcache-conflict-writeback, dcache-mshr-pressure, memory-stress-small, bubble-sort, quick-sort, crc32 at 32 KiB/16w, 8 KiB/4w, 16 KiB/2w (cap 150000) | 6 / 6 PASS in each of the 3 geometries |
-| `rand_run.sh axi_llc <seed> 30000`, `RAND_PWR=1 RAND_PARTIAL=1`, seeds 1-8 x {32 KiB/16w, 8 KiB/4w, 16 KiB/2w} | 24 / 24 PASS (all 480000 ticks compared) |
-| `rand_run.sh axi_subsys <seed> 30000`, `RAND_PWR=1 RAND_PARTIAL=1`, same seeds and geometries | 24 / 24 PASS |
-| `rand_run.sh axi_llc`, `RAND_PWR=0 RAND_PARTIAL=0` (the former gate), seeds 1-8 x the 3 geometries | 24 / 24 PASS |
-| `rand_run.sh axi_subsys`, `RAND_PWR=0 RAND_PARTIAL=0`, seeds 1-4 x the 3 geometries | 12 / 12 PASS |
-| whole SoC closed loop (`bash tb/soc/build.sh`, `JOBS=3 bash scripts/soc_smoke.sh 3000`, `MINC=3001 ... 250000`) | 50 / 50 and 15 / 15 PASS |
-| mutants (`tests/axi_llc/mut_llc.py`, rewritten patterns), 7 run on dcache-conflict-writeback + memory-stress-small, 32 KiB/16w (before the stretch step) | 1, 2, 5, 6, 7, 12 killed; the first formulation of 7 (pop ignores `fresh`) survived on those 2 programs and was replaced by "fresh never set" (killed at tick 148) |
+| 命中 + 写 | 把写数据按字节合并进该行，写行表（置脏；bypass 写保持原脏位），更新在途重填的受害行快照（bypass 写不更新） |
+| 命中 + 读 | 响应队列有空位才完成：把该行按字偏移右移送响应队列；非 bypass 更新替换指针 |
+| 缺失 + 写 + bypass | 无操作（内存写由写上下文发起） |
+| 缺失 + 写 + 整行写 | 受害行脏则先写回（写上下文等待），否则直接写行表 |
+| 缺失 + 写 + 部分行写 | 分配一个写 MSHR：重填后合并、写行表 |
+| 缺失 + 读 | 分配 MSHR（bypass 读也分配） |
 
-Not re-run on the final RTL: the 68-program 4 MiB run with cap 300000, the 12-program x 3-geometry run of the previous table, mutants 3, 4, 8, 9, 10, 13-16 and
-all mutants after the stretch step.  Bugs found by random traffic that the programs did not show: (1) the end-of-tick hazard list used the old victim address of a
-write context that becomes pending in the same tick; (2) the response queue depth RQD=2 was exceeded by writes/bypass traffic (now 4); (3) a bypass write whose
-memory response arrives in the tick its lookup resolves must see the context already cleared (strobe 0).
+任何前提不满足（行表忙、无可选路、MSHR 满、响应队列满、写回忙）都是 `retry`。整行写 = `addr[5:0] == 0 & size == 63 & strb 全 1`（`is_full_write`）。
 
-Results of the pre-rewrite RTL (C++-shaped, one 25 kbit state record), kept for the record; they are NOT evidence for the rewrite:
-* 4 MiB 68 programs 68/68, 32 KiB/16w, 8 KiB/4w, 16 KiB/2w 12 programs each 12/12 (dcache-conflict-writeback, dcache-mshr-pressure, memory-stress-small,
-  memory-stress, bubble-sort, quick-sort, matrix-mul, crc32, shuixianhua, vm_pagefault_test, coremark, dhrystone); random traffic 12/12; 13 of 16 mutants
-  killed (survivors: 11 equivalent, 13/14 need partial / bypass writes, 9 on programs).
-* Measured maxima (stat plugin): read_resp_q count 1, read_victim_wb_q 2 (programs) / 7 (random traffic, hence VQD=8), write_q 0 at tick end, r_pending 8,
-  MSHR in use 8, lookup delivery latency always 3.
-Mutants (selector `TTG_MUT=K`, one build; ids as in `mut_llc.py`; 11 was an equivalent mutant of the old structure and no longer exists):
-1 replacement pointer, 2 write hit dirty, 3 refill dirty, 4 read-miss victim dirtiness, 5 victim slot in the write accept, 6 queue reload sees the
-popped queue (duplicate-issue quirk), 7 fresh flag, 8 table latency 2, 9 invalid-way preference, 10 reservation keeps committed refills,
-12 write-hit victim update ignores the way, 13 merge ignores the strobe, 14 write round robin, 15 per-master MSHR limit, 16 read hit word offset.
+### 5.3 内存读与重填（`axi_llc_mshr`、`axi_llc_mshr_ent`、`axi_llc_refill`）
 
-### Quirks of the C++ reproduced on purpose (C++ line numbers)
-* 1526-1537 vs 1626-1640: after a write response pops the read-victim queue head, the "load next victim" step reads the old count/head again and re-issues the same victim (mutant 6).
-* 1643-1675: while a victim write-back is active (valid), stage 2 returns early: no write is accepted, no context filled, no write lookup launched.
-* 1102/1724 vs 1807: write master pick and context fill use the old `rr_write`, the lookup launch the updated one.
-* 1561: `victim_writeback_done` (`vdone`) is set only by the owner-slot answer of a write-back (never reached in the tests: the owner is freed first), so `victim_line_pending` / the commit rely on `refill_valid` and the global slot.
-* 2622, 968: a bypass MSHR keeps the unaligned byte address as its line address; `find_mshr_by_line_addr` ignores bypass entries but bypass lookups are compared against them.
-* 2739-2755: bypass entries allocated in this very tick can issue their memory read in the same tick (reads reg_write.mshr).
-* 2908-3016: a refill takes two ticks (table write + `refill_committed`, then response + MSHR free); a dirty victim is parked (global slot / queue) before the table write.
-* 1088-1090: non-DCache masters may not have two MSHRs.
-* 2079-2105: a write hit on the way an in-flight refill is going to replace updates that MSHR's victim snapshot.
-* comb() #1 vs #2: identical ext_out in every tick (see section 1); nothing to reproduce.
+MSHR 分配给第一个空闲项。内存读按"第一个还没发过的项"发出（同拍新分配的 bypass 项在没有等待项时可立即发）。内存读响应（id = 槽号）把数据存进该项；bypass 读且主口响应队列有空位时直接应答。重填引擎处理第一个有重填数据的项，分两个 tick：先把脏受害行快照停放（写回槽或队列；若受害行上还有未解决的写则等待），再把重填行写进行表；第二个 tick 在响应队列有空位时应答主口、释放 MSHR。写 MSHR（部分行写缺失）在第一个 tick 就完成：合并写数据、写脏行、释放，不产生读响应。
 
-## 5.2 Random-traffic verification
-`tests/axi_llc/rand_axi.cpp` drives the reference AXI_Interconnect + LLC + sim_ddr with random DCache reads/writes, ICache reads (line and 4-byte
-bypass), peripheral bypass reads and peripheral (bypass) writes (`rand_run.sh axi_subsys|axi_llc <seed> <cycles>`, `rand_all.sh`).  `RAND_PWR=0` switches the
-peripheral write master off, `RAND_PARTIAL=0` forces full strobes; with `RAND_PARTIAL=1` DCache writes (25 %) use sizes 63..0 at aligned offsets and all
-writes use lane subsets / runs / single lanes (peripheral writes also at line offset 0).  The generator runs against a reference compiled WITHOUT `-DNDEBUG`
-(the reference's AXI sources contain no `assert` macros, only `static_assert` and two explicit abort paths: meta-tag overflow, consumed-read check): seeds 1-2 at 8 KiB/4w
-completed all 30000 cycles without any abort.
-Coverage (event counts over seeds 1-8 x {32 KiB/16w, 8 KiB/4w, 16 KiB/2w} x 30000 cycles, `RAND_PWR=1 RAND_PARTIAL=1`, `tests/axi_llc/cover_run.sh`, ticks on which the event
-held, summed over the 24 runs):
-| path | ticks |
-| --- | --- |
-| bypass write issued to memory / answered by the memory response | 70408 / 70408 |
-| bypass write lookup: hit / miss | 15476 / 43746 |
-| bypass lookup resolved after its context was already cleared by the response (strobe 0 quirk) | 17908 |
-| partial-strobe write hit (non-bypass) | 17835 |
-| partial-line write miss: MSHR allocated / with dirty victim / retried (line in MSHR or no free MSHR) | 55999 / 17164 / 9991 |
-| write refill completed (merge + table write + free) / with victim parked | 55992 / 17164 |
-| MSHR-owned victim answer arrived / owner entry already freed / owner entry found | 14873 / 14873 / **0** |
-The "owner entry found" branch (set `vdone` on a still-allocated entry) is implemented from the C++ but never reached: write entries are freed in the refill tick
-and read entries within two ticks, long before the memory answers.  It is unverified.  The generator does not drive writes racing a refill of the same line
-specially, but the 4 sets x 40 tags footprint produces them (the partial-miss retry count above is that race).
+### 5.4 写路径（`axi_llc_wsched`、`axi_llc_wport`、`axi_llc_victim`、`axi_llc_memwr`）
 
-## 5.1 Open issues / not verified
-Not implemented (the `bad` assertion fires if the reference takes the path): the items of section 2 first sentence, plus the owner-answer branch "entry found" is
-implemented but has zero coverage.  Not verified: read-response / victim queues deeper than 4 / 8, `stall_lookup_on_table_busy` (never triggered), way-pick
-failure paths, mutants 3, 4, 8-10, 13-16 on the rewritten RTL, the corner where a late lookup of a bypass write meets a context refilled in the same tick (the RTL models it,
-no run reached it with a distinguishable effect).
+两个写主口各有 2 项请求队列（空队列时请求直通）和 1 个写上下文（同时只有一个未完成的写）。写上下文依次：填充 → 等查表引擎（`LPEND`）→ 查表 →（可能）等受害行写回或部分行写缺失的重填（`CPEND`）→ 行表已更新（`CDONE`）→ 响应。bypass 写的上下文改为等内存写响应才结束，查表只用来更新已缓存的副本。接收与查表发起共用一个轮询指针；受害行写回占着写路径时不收新的写。受害行来源有三个：写缺失换出脏行、读受害行队列的队首、重填把 MSHR 的快照停进空闲的写回槽。`axi_llc_memwr` 的优先级：受害行写回（整行、使能全 1、id 0）高于 bypass 写。
 
-## 6. Geometry macros
-`rtl/memsys/axi_llc/axi_llc_pkg.sv`: `AXI_LLC_SETS` (default 4096), `AXI_LLC_WAYS` (16), `AXI_LLC_MSHR` (8, only 8 supported: slot id is 3 bits).
-Reference side: `TTG_LLC_KB` / `TTG_LLC_WAYS` env (sets = KB*1024/(64*ways)). Example 32 KiB/16 way: `VFLAGS="-DAXI_LLC_SETS=32 -DAXI_LLC_WAYS=16"`.
+### 5.5 读响应（`axi_llc_rq`）
+
+每个读主口一个移位 FIFO（`RQC` 项），第 0 项就是主口看到的响应寄存器；该项在出现后的一个 tick 内是"刚出现"（`fresh`，互连不能取）。一拍最多三个生产者按优先级入队：0 查表命中、1 bypass 的内存响应、2 MSHR 完成；生产者 k 在弹出后和更低编号生产者之后还有空位才被接受。
+
+## 6. 关键路径与深度
+
+单模块综合深度 **238 层**（axi_llc；2026-11-18；`scripts/synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`，生成门代理，不是时序）。综合报告给出的最长路径：从 `\mem_wr_resp_valid` 到 `\u_core.u_resolve.u_line.data [8191]`。。从代码读出的、未综合验证的长组合链：
+
+- **解析**：16 路 `valid & 标签相等` → `ttg_first_set` → 命中路号 → 16 选 1 的 512 位行选择（`ttg_onehot_mux`）→ 按字节合并（`axi_llc_merge`，512 位，字节偏移移位）→ 行表写数据；同时 `done` 依赖响应队列接收（`acc_a`）、`retry` 依赖 `done`；`axi_llc_waypick` 在缺失路径上多一级旋转优先级。
+- **读接收**：对每个读主口做 3 组行 CAM（受害行持有者 19 项、写列表 6 项、MSHR 8 项），与响应槽、查表引擎、空闲 MSHR 等合成 `ok`，再旋转优先级选择；它的输出（`up_rd_req_ready`）又回到互连的台（见 axi_interconnect.md 第 6 节）。
+- **MSHR 选择**：第一个未发的项、第一个有重填数据的项，各是对 8 项的 `first_set`，后接 512 位数据选择。
+- **受害行写回**：三个来源的优先级和"队首再发一次"的怪行为（第 7 节）。
+
+## 7. 与模型的差异和取舍
+
+模型里有、RTL 里有意没有复刻的：
+
+- **预取、`invalidate_line` / `invalidate_all` 维护、`nine` / `unified` / `pipt` 开关**：`AXI_LLCConfig` 里有（`prefetch_enable = false` 默认），RTL 固定为现行配置，不实现。
+- **队列深度**：读响应队列、写请求队列、受害行写回队列在模型里是 32 项，RTL 是 8 / 2 / 8，溢出用断言守着（`axi_llc_rq` 的 `cnt_d <= RQD`、`axi_llc_victim` 的 `!(&rv_vld_d)`）；是否在所有程序下都不会超过，只在 fm_gate 的程序和 Linux 启动里被检验过，没有证明。
+- **不可达路径**：RTL 的 `axi_llc_core.sv` 在"内存写响应没有对应的写回或 bypass 写"和"读响应指向未使用的槽"两处置 `bad_any` 断言；行表写的三个来源互斥另有断言（`ifndef SYNTHESIS`）。
+- 行表读的写穿旁路：RTL 没有（读地址在 t 请求，t+3 异步读，天然看到 t+2 及之前的写）。
+
+RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
+
+- 队首受害行的响应弹出队首之后，"装载下一个受害行"一步仍看到旧队首，会把同一行再发一次（`axi_llc_victim.sv` 头注释）；
+- 读响应"刚出现"的 tick 内主口不能取；
+- 非 DCache 主口的非 bypass 读，该主口已有在途行时不接收；
+- bypass 写的上下文等内存写响应才结束。
+
+## 8. 验证
+
+- **门禁**：`scripts/fm_gate.sh` 67 个程序，每条提交对比函数模型，周期对 `scripts/ref_cycles_memiq6_nr_int2_ev5.txt`（模型同配置生成）。
+- **Lint**：`scripts/lint_chip.sh`。
+- **Linux 启动门禁**：`scripts/build_soc64_linux.sh`、`scripts/linux_gate.sh`、`scripts/linux_segments_cmp.sh`。
+- **仿真断言**：见第 7 节。
+- **没有模块级的独立测试**：`tests/`、`tb/` 下没有 LLC 的测试。旧体系的锁步 spec（`axi_llc.io`）和变异表随 `spec/` 退役。**待补**：LLC 的随机并排测试（随机请求流，对比模型的 `AXI_LLC` 每 tick 的上游 / 内存侧输出）；缩小的几何（组数、路数）下的测试，以便更容易走到替换、受害行写回和"同组写在查表窗口内"的路径（4 MiB 下这些路径很少被走到，见"未核对"）。
+- **未核对（继承自旧文档）**：
+  - 各队列的实测最大深度（读响应队列 Linux 启动峰值 5，受害行写回队列程序里 2、随机测试里 7，写队列 0）——这是 RQD / WQD / VQD 取值的依据；
+  - 覆盖率分析认为"不可达"的模型路径（`bad_any` 对应的两处）；
+  - 4 MiB LLC 下查表窗口内同组写 0 次，缩小的 LLC 下才出现；
+  - 旧文档里的"变异存活表"。
+
+## 9. 参数与开关速查
+
+`AXI_LLC_SETS`（4096）、`AXI_LLC_WAYS`（16）、`AXI_LLC_MSHR`（8，与 `axi_ic_pkg` 一致）；`RQD`、`WQD`、`VQD`（`axi_llc_pkg` 内常量，不是宏）；模型侧 `CONFIG_AXI_LLC_ENABLE`、`CONFIG_AXI_LLC_SIZE_BYTES`、`CONFIG_AXI_LLC_WAYS`、`CONFIG_AXI_LLC_MSHR_NUM`、`CONFIG_AXI_LLC_LOOKUP_LATENCY`（`config.h`）。
+
+## 10. 变更记录
+
+- 本分支（`261bd67..HEAD`）未改动本目录；更早：见 git 历史。

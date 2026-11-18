@@ -2,40 +2,81 @@
 module: axi_cpu_port_adapter
 area: memsys
 rtl: rtl/memsys/axi_cpu_port_adapter
-spec: axi_cpu_port_adapter
-status: green
-lockstep: 68/68（16 tick）
-mutants: 20/20
-note: 
+model: 无对应的类。作用最接近 SimCpu.cpp 的 `icache_port_regs_seq`（把 `axi.interconnect.read_ports[MASTER_ICACHE]` 在周期开头拷成寄存的 `icache_axi_q`）；原 16 tick 方案里的 `capture / accumulate / restore_axi_cpu_boundary_state` 在 trace-model-tlbports 里已不存在
+status: 整核周期与模型逐个相等（最近一次提交 60ed422 的提交信息记 fm_gate 67/67、周期等于 scripts/ref_cycles_memiq6_nr_int2_ev5.txt；本次写文档没有重跑）
+depth: 9 层（axi_cpu_port_adapter，单模块综合，2026-11-18，`SYNTH_ABC="strash;balance;map"`，生成门代理，见第 6 节）
 ---
 
-# axi_cpu_port_adapter 设计笔记（非 DCache AXI 主口的 CPU 边界适配）
+# axi_cpu_port_adapter 设计文档
 
-分析见 `docs/analysis/memsys-boundary.md` §2.5“CPU 侧视图”；录制点 `docs/analysis/memcpu-record-hook.md`。
+## 1. 职责
 
-## 1. 对应的 C++
-`rv_simu_mmu_v2.cpp`（约 495–646）：`AxiCpuBoundaryState`、`capture_axi_cpu_boundary_state`（tick 0 的 seq 之后）、`accumulate_axi_cpu_boundary_state`（tick 1..15 每 tick 的 seq 之后）、`restore_axi_cpu_boundary_state`（tick 15 之后）、`mask_axi_cpu_boundary_for_internal_tick`（tick 1..15 把非 DCache 主口的请求/`resp.ready` 清零）。
-**CPU 只在 tick 0 驱动主口，互连每 tick 前进**，适配器把 16 个 tick 的接口值折叠成 CPU 在**下一个周期**看到的视图：ICache 在 `front_comb_before_back`（周期开头，早于互连 tick-0 的 `comb_outputs`）直接读口字段（`ExternalReadPortAdapter::comb_view`）；互连的 `read_req_accepted[_id]`/`write_req_accepted` **状态数组也被写回**，所以外设在 tick-0 的 `comb_outputs` 之后读到的 `accepted` 也是粘滞值；`resp.ready` 被写回口字段并在下一周期 tick-0 的互连 `comb_outputs` 里被消费（`clear_axi_master_inputs` 刻意不清它）。
+三个"非 DCache"的 AXI 主口通道（0 = ICache 读，1 = 外设读，2 = 外设写）从互连（跑快时钟，每 tick 一个 `clk` 沿）到 CPU（每个 CPU 周期的第 0 个 tick 才动作）的**折叠与寄存**：互连每个 tick 都有这些口的 `ready`、`accepted`、响应，CPU 只在下一个 CPU 周期看到一个"整周期的视图"。规则（`axi_cpu_port_chan.sv` 头注释）：
 
-## 2. 硬件结构
-快时钟域（每 tick 一个沿），3 个通道（0 = ICache 读、1 = 外设读、2 = 外设写；NUM_*_MASTERS 里的 DCache 口和未用的 UNCORE_LSU_R 不经适配器）。`axi_cpu_port_chan` 一个通道，`axi_cpu_port_adapter` 例化 3 份。
-| 状态 | 含义 |
-| --- | --- |
-| `ready_acc, acc, acc_id` | 本周期各 tick 的 `ready`(OR) / `accepted`(粘滞) / 最近一次 accepted 的 id（C++ 在 tick 0 无条件取 id，但 id 只在 accepted 时可观察——互连在非 accepted 时 id 恒 0——所以 RTL 只在 accepted 的 tick 装载 id，**简化，等价**）|
-| `resp0_valid, resp0_id, resp0_ready` | tick 0 的响应有效/id、主设备 `resp.ready` |
-| `view_*`（6 个寄存器）| 周期末（`phase_last`）装载的 CPU 视图，整个下一周期保持 |
-`phase0`/`phase_last`（tick 0 / tick 15）由 SoC 顶层相位计数器给出。装载公式（tick 15 的组合值）：`ready = ready_acc|raw_ready`；`accepted = acc|raw_accepted`，`id` 同；`hide = accepted & raw_resp_valid & (raw_resp_id == id)`（同 id 的响应在 accepted 首次出现的那个周期被抑制）；`resp_valid = raw_resp_valid & !hide`；`resp_id = raw_resp_id`；`resp_ready = resp0_ready & !(resp_is_new | hide)`，`resp_is_new = raw_resp_valid & !(resp0_valid & resp0_id==raw_resp_id)`（响应是在额外 tick 里才出现的）。
+- `ready`：整周期所有 tick 的 OR；
+- `accepted`：整周期粘滞（任一 tick 接收过就算），`id` 取最后一次接收的 tick 的 id（只有 `accepted` 为真时可观察）；
+- 响应 `valid / id`：取周期最后一个 tick 的响应；如果它属于本周期内刚接收的请求（同 id），则隐藏；
+- 响应 `resp_ready`：取 tick 0 时主口给的 ready，在"响应在后面的 tick 里才出现"或"响应被隐藏"时撤回。
 
-## 3. 与 C++ 的差异点、放宽、不复刻
-- 通道 2（写）的 `accepted_id` 取口的 `req.id`（额外 tick 被掩成 0）——C++ 只在适配器内部用（`matches_new_accept`），**从不写回**，所以不导出（RTL 通道 2 输出 0，tap 记 0）。**登记疑点**：写通道在 tick≥1 被接受时 `accepted_id` 是 0 而不是真实 id，与读通道不对称；外设写 id 恒 0，无影响。
-- 放宽：`cpu_resp_id` 限定 `cpu_resp_valid`（ICache `icache_txn` 只在 `mem_resp_valid` 时用 `mem_resp_id`）；`cpu_accepted_id` 限定 `cpu_accepted`。
-- 删除：`state.*` 的中间拷贝、`restore` 里对 DCache 口的跳过（DCache 口根本不进适配器）、`from_extra_tick` 之外的临时变量。
-- 响应数据 `resp.data[16]` 不经适配器（C++ 不改写，取最后一个 tick 的值）：直通。
-- **8 位 id → 4 位**：口 id 是 `wire<4>`，C++ 的 `uint8_t` 拷贝没有额外位。
+视图在周期最后一个 tick（`phase_last`）寄存，整个下一周期保持。
 
-## 4. 验证
-- spec：`spec/axi_cpu_port_adapter.io`（14 字段，数组 [3]），**每 tick 一条记录**（16/周期）。16-tick 外壳 `tb/memcpu/axi_shell.cpp`（`-Dttg_rec_cycle=ttg_rec_cycle_gen` 改名 + 导出真入口）使其用已有的 `lockstep.sh/lockstep_multi.sh` 在整程序里实时锁步。
-- 整程序：68/68 PASS（真实流量：ICache accepted 总在 tick 0 的 seq 里；同 id 抑制 1238 次，`ready` 混合 5169 次；外设两个通道从不 ready/accepted）。
-- 随机：`gen_rand`（`-DMOD_AXI`）直接调用**从 `rv_simu_mmu_v2.cpp` 逐字抽出**的 `capture/accumulate/restore_axi_cpu_boundary_state` 与 `mask_axi_cpu_boundary_for_internal_tick`（`build_gen.sh` 用 python 切片），在假的互连口结构上驱动每 tick 的 ready/accepted/id/resp：6 个 profile × 8000 周期（12.8 万 tick 记录）全 PASS。覆盖（profile 0，8000 周期）：通道 0/1/2 各 ~1550 次 accepted（tick 0 仅 ~90，其余晚到）、`resp` 被隐藏 213/200/107 次、`resp.ready` 被扣留 ~680 次、额外 tick 才出现的响应 ~1100 次、accepted id 非零。
-- 变异（`tests/memcpu/axi_cpu_port_adapter_mutants.py`）：**20 个，20 个全被杀**（13 个真实程序锁步也杀：ready 不 OR / 不每周期复位、accepted 不粘滞 / 不复位、accepted id 不更新、同 id 抑制丢失或缺 accept 条件或比 tick-0 id、`resp.ready` 取最后 tick、视图每 tick 更新 / 在 tick 0 更新、通道串线）；7 个只有随机杀：最后一次 accepted 的 id（"后者赢"，需要同周期两个 accepted tick）、同 id 抑制不比较 id、`resp.ready` 的"额外 tick 才出现的响应"扣留和"被隐藏的响应"扣留两条、tick-0 响应有效取最后 tick、写通道 accepted id 误导出。
-  **随机首先暴露的是我自己的变异体的等价性**：`acc_id` 在 tick 0 无条件装载（C++）不可观察——存活后简化了 RTL 并补了"同周期两个 accepted tick"和"第二个响应换 id"两类随机激励（真实程序里这两种都不出现：`resp_id_changed_t0_t15 = 0`）。
+注意：现行配置 `AXI_SUBSYSTEM_FREQ_DIV = 1`（`ttg_cfg_pkg`），一个周期只有一个 tick，`mem_top` 里 `phase0 = phase_last = 1`（`mem_top.sv`），上面的"整周期折叠"退化成"把互连这一拍的值寄存一拍"。16 tick 的情形在 RTL 里保留着，但模型和测试平台的默认都不再用它（`tb/soc/soc_tb.cpp` 的 `kTicks` 从 `CONFIG_AXI_SUBSYSTEM_FREQ_DIV` 取）。
+
+## 2. 配置
+
+| 量 | 值 | 来源 |
+| --- | --- | --- |
+| 通道数 `AX_NCH` | 3（读 ICache、读外设、写外设） | `memcpu_pkg.sv` |
+| id 位宽 `AX_ID_W` | 4（ICache 4 位；外设的 id 恒 0，写通道的 accepted id 不导出，`EXPORT_ID = (c != 2)`） | `memcpu_pkg.sv`、`axi_cpu_port_adapter.sv` |
+| tick 数 | 由 `mem_top` 的 `TICKS = AXI_SUBSYSTEM_FREQ_DIV` 决定，现为 1 | `mem_top.sv`、`ttg_cfg_pkg.sv` |
+
+## 3. 接口
+
+| 方向 | 信号 | 含义 |
+| --- | --- | --- |
+| 入 | `phase0`、`phase_last` | CPU 周期的第一个 / 最后一个 tick |
+| 入 | `raw_ready / raw_accepted / raw_accepted_id / raw_resp_valid / raw_resp_id / raw_resp_ready [3]` | 互连当拍的值（`mem_axi.sv` 里：`raw_ready` 来自互连的 `m_rd0_req_ready`、`m_rd3_req_ready`、`m_wr1_req_ready`；`raw_accepted` 来自"本 tick 接收"`m_rd_acc_new`、`m_wr_acc_new`；`raw_resp_ready` 是主口自己给的 `resp_ready`） |
+| 出 | `cpu_ready / cpu_accepted / cpu_accepted_id / cpu_resp_valid / cpu_resp_id / cpu_resp_ready [3]` | 寄存后的视图，给 ICache 和外设口 |
+
+## 4. 结构
+
+| 文件 | 行数 | 职责 |
+| --- | --- | --- |
+| `axi_cpu_port_adapter.sv` | 47 | 实例化 3 个通道 |
+| `axi_cpu_port_chan.sv` | 102 | 一个通道：整周期累加器 + 周期末寄存的视图 |
+
+状态（每通道）：累加器 `ready_acc_q`、`acc_q`、`acc_id_q`、`resp0_valid_q`、`resp0_id_q`、`resp0_ready_q`（tick 0 的响应与 ready）；视图寄存器 `view_*_q`（6 组，只在 `phase_last` 更新）。
+
+## 5. 一拍内的数据流
+
+1. 累加：`phase0` 时累加器装当拍的原始值，否则与前面的 tick 合并（`ready` 取 OR，`accepted` 取 OR，`acc_id` 在有接收的 tick 更新）；
+2. 视图的两个判断：`hide_resp = acc_n & raw_resp_valid & (raw_resp_id == acc_id_n)`（响应属于本周期刚接收的请求）；`resp_is_new = raw_resp_valid & 非(tick 0 时已是同 id 的有效响应)`；
+3. `phase_last` 时寄存视图：`view_resp_valid = raw_resp_valid & !hide_resp`，`view_resp_ready = tick 0 的 resp_ready & !(resp_is_new | hide_resp)`，其他取累加值。
+
+在 tick 数为 1 时：累加器每拍被装成当拍原始值，`resp_is_new` 恒为假，视图 = 原始值寄存一拍，只在"当拍接收的请求的 id 与当拍响应的 id 相同"时隐藏响应。互连的 id 冲突检查（`axi_ic_rd`）阻止了同 id 的请求在响应还没取走时被接收，所以该隐藏条件在 1 tick 下不会触发（从代码推断，未验证）。
+
+## 6. 关键路径与深度
+
+单模块综合深度 **9 层**（axi_cpu_port_adapter；2026-11-18；`scripts/synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`，生成门代理，不是时序）。综合报告给出的最长路径：从 `\g_chan[0].u_chan.resp0_id_q [2]` 到 `\g_chan[0].u_chan.view_resp_ready_q`。。从代码读出的：全是 1 位或 4 位的比较和选择，没有长链；`hide_resp` 的 4 位 id 比较是最长的一段。未综合验证。
+
+## 7. 与模型的差异和取舍
+
+- 模型里没有这个模块。现行配置（1 tick）下，它对应 `SimCpu::cycle` 开头的 `icache_port_regs_seq`（`icache_axi_q = axi.interconnect.read_ports[MASTER_ICACHE]`，周期开头拷一份寄存的端口）和 ICache 读这份拷贝；**外设两个口在模型里是否也读寄存的拷贝，本次没有核对**。
+- `hide_resp` / `resp_is_new` 的整周期逻辑是原 16 tick 方案（模型当时的 `restore_axi_cpu_boundary_state` 等）的复刻，在 `FREQ_DIV = 1` 下没有作用。
+- `phase0` / `phase_last` 是端口，由 `mem_top` 在 tick 数为 1 时接常量 1；综合时整周期累加逻辑被常量折掉（`mem_top.sv` 里的 generate）。
+
+未核对（继承自旧文档）：16 tick 时各规则（OR、粘滞、最后一个 tick 的响应、隐藏）与旧模型 `capture / accumulate / restore_axi_cpu_boundary_state` 的逐项对应，只读了 RTL 注释，没有对着旧模型源码。
+
+## 8. 验证
+
+- **门禁**：`scripts/fm_gate.sh` 67 个程序（周期对 `scripts/ref_cycles_memiq6_nr_int2_ev5.txt`）。ICache 的每一次取行都经过这个模块，周期逐个相等说明 1 tick 下的行为与模型一致。
+- **Lint**：`scripts/lint_chip.sh`。
+- **没有模块级的测试**。16 tick 配置（`AXI_SUBSYSTEM_FREQ_DIV = 16`）现在没有任何门禁在跑；**待补**：要么删掉 16 tick 的逻辑，要么补一个 tick 数 > 1 的回归（模型 `CONFIG_AXI_SUBSYSTEM_FREQ_DIV` 能改，但 RTL 的 `mem_top` 相位计数器是 4 位，`soc_tb.cpp` 有 `kTicks <= 16` 的静态断言）。
+
+## 9. 参数与开关速查
+
+`AXI_SUBSYSTEM_FREQ_DIV`（`ttg_cfg_pkg`，模型 `CONFIG_AXI_SUBSYSTEM_FREQ_DIV`）；`AX_NCH`、`AX_ID_W`（`memcpu_pkg`）；通道参数 `EXPORT_ID`。
+
+## 10. 变更记录
+
+- 本分支（`261bd67..HEAD`）未改动本目录；更早：见 git 历史。

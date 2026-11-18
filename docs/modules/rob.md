@@ -2,146 +2,180 @@
 module: rob
 area: backend
 rtl: rtl/backend/rob
-spec: rob*
-status: green
-lockstep: trace 回放 + back_top 整程序 68/68
-mutants: 10/11（1 等价）
-note: 默认是紧凑 ROB（ROB_COMPACT=1，rob_core_cpt）；行式 ROB（rob_core）保留为 ROB_COMPACT=0
+model: trace-model back-end/Rob.cpp、back-end/include/Rob.h（调度单元 `back.rob`，类 `Rob`，阶段 `comb_commit`；`comb_redirect` 在 RTL 里不属于 ROB，见第 7 节）
+status: 整核周期与模型逐个相等（fm_gate 67/67，参考 scripts/ref_cycles_memiq6_nr_int2_ev5.txt）
+depth: 62 层（协调者给出的单模块综合数，通用门代理；本文作者未复测，见第 6 节）
 ---
 
-# rob 设计笔记
+# rob 设计文档
 
-> **更新（2026-11-12）**：默认配置是**紧凑 ROB**（EXP-028，`ROB_COMPACT = 1`，`rob_core_cpt.sv`，见下面的 2.1 节），下文第 2、3、4 节描述的结构（按行分配、`rob_ptr` / `rob_commit_ctrl` / `rob_head_info` / `rob_store` / `rob_branch_recovery`）是 `ROB_COMPACT = 0` 的行式 ROB（`rob_core.sv`）。第 5 节验证数据是旧体系（trace 回放、变异）的历史结果。rv64：`rob_pkg` 的 `ROB_XLEN = XLEN_BITS`（原名 `XLEN`，与 `-DXLEN` 宏重名而改），`bcast_pc` / `bcast_trap_val` / `diag_val` / `imm` 随 XLEN 加宽；写回口数是 `ISSUE_WIDTH`（18，不是下文旧文写的 22）。`TTG_EBREAK_TRAP`（Linux 需要）把 ebreak 变成断点异常（`rob_pkg::EBREAK_TRAP`）。
+## 1. 职责
 
-## 1. 对应的 C++
-- 文件/类：`back-end/Rob.cpp`、`back-end/include/Rob.h`，`class Rob`（`comb_begin/ready/ftq_pc_req/commit/complete/branch/fire/flush` + `seq`）。
-- BackTop 调用顺序（决定 RTL 里"后写者赢"的优先级）：
-  `comb_begin → comb_ready → comb_ftq_pc_req → comb_commit → comb_complete → comb_branch → comb_fire → comb_flush → seq`。
-- 输入（spec `in`）：
-  - `dec_bcast.{mispred,redirect_rob_idx}`；`csr2rob.interrupt_req`；`lsu2rob.committed_store_pending`；`in.front_stall`；
-  - `ftq_rob_pc_resp.resp[0].{valid,pc}`；
-  - `dis2rob.dis_fire[8]` 与 `dis2rob.uop[8].*`（23 个字段，见 spec）；
-  - `exu2rob.entry[ISSUE_WIDTH].{valid,uop.{diag_val,result,rob_idx,mispred,br_taken,page_fault_*,op,flush_pipe}}`。
-- 输出（spec `out`）：`rob2dis.{stall,empty,ready,enq_idx,rob_flag}`、`rob2csr.{commit,interrupt_resp}`、
-  `rob_commit.commit_entry[8].{valid,uop.*}`、`commit_extra[8].{src1_areg,imm}`（前端 BPU 训练用，`rv_simu_mmu_v2.cpp:1407`）、
-  `rob_bcast.*`、`ftq_rob_pc_req.req[0].*`。
-- 不翻译（已从 spec 删除）：`dbg.*`、`rob2dis.tma.*` 与 `lsu2rob.tma.miss_mask`（仅 Dispatch 的 TMA 性能归因使用）、`tma.is_cache_miss`（全仓库只被清零，从不置位）、
-  `is_atomic/func3`（只用于 Assert 对齐检查）、`dis2rob.valid/br_mask/ldq_idx/cplt_mask`（Rob 不读）、deadlock 计数 `stall_cycle`、所有 `Assert`/日志。
+重排序缓冲（ROB）：按程序顺序保存所有已分派、尚未退休的指令，每拍做五件事：
 
-## 2. 硬件结构
+1. 入队：分派来的指令（`dis2rob`，最多 8 条）依次放进尾部，`rob_idx` 是环上的位置；
+2. 写回：EXU 的写回口（`exu2rob`，21 个口）把完成位、缺页 / 非法指令标志、分支结果、`diag_val`（访存地址或分支 pc 之类的诊断值）写进对应的槽；
+3. 退休（commit）：从队头取"已全部完成的最长前缀"，每拍最多 8 条；冲刷类指令、fence、WFI 和被中断打断的那一条单独退休；
+4. 分支误预测恢复：误预测的分支之后的槽全部作废，尾指针退回到该分支的下一条；
+5. 全局冲刷：异常、xRET、CSR 写、sfence.vma、fence.i、访存顺序违例、中断由队头那条单独退休的指令触发，ROB 在同一拍清空自己，广播（`rob_bcast`）给其他模块。
+
+现行默认是**紧凑 ROB**（`ROB_COMPACT = 1`，`rob_core_cpt.sv`，EXP-028）：指令一条接一条占槽，不再每个分派组占一整行。模型里只有这一种（`Rob.h` 的注释写明 compact），行式 ROB 在 RTL 里还保留着（见 4 和 7）。
+
+模型对应一个调度单元 `back.rob`（`Rob::comb_commit`）；另一个阶段 `comb_redirect`（前端重定向、向后端输出提交结果）在 RTL 里在 `back_top_glue`，不在 ROB 里。
+
+## 2. 配置（`ttg_cfg_pkg`，现行默认）
+
+| 项 | 值 | 常量 |
+| --- | --- | --- |
+| ROB 槽数 | 128 | `ROB_NUM` |
+| 存储组织 | 8 个 bank × 16 行；`rob_idx` 的低 3 位是 bank，高 4 位是行 | `ROB_BANK_NUM = 8`、`ROB_LINE_NUM = 16`、`ROB_IDX_WIDTH = 7` |
+| 入队宽度 | 8 | `DECODE_WIDTH` |
+| 退休宽度 | 8 | `COMMIT_WIDTH` |
+| 写回口 | 21（口号 0..20，口号见 isu.md） | `ISSUE_WIDTH` |
+| 完成组 | 3 位，一个组一位：G0 = 整数 / load / FP，G1 = 分支 / STA，G2 = STD | `rob_pkg::CPLT_G0/1/2`、`CPLT_W = 3` |
+| 数据宽度 | 64 | `XLEN_BITS`（`ROB_XLEN`） |
+| 默认模式 | 紧凑 ROB | `ROB_COMPACT = 1` |
+
+写回口到完成组的映射（`rob_pkg::rob_port_cplt_bit`，用 `IQ_*_PORT_BASE`）：口 0..5（ALU）和 6..9（load）、18..20（FP）→ G0；口 10..12（STA）和 16、17（BR）→ G1；口 13..15（STD）→ G2。共用 AGU 的两个口在写回侧是分开的口号：load 的写回用 8、9，STA 的写回用 11、12，所以 ROB 看到的是 21 个独立的口。
+
+一条指令要等哪几个完成组由分派算出（`dis2rob_uop_expect_mask`，见 dispatch.md）；槽里存的是"还没完成的组"`pend_mask = expect & ~已完成`，`pend_mask == 0` 就是完成。
+
+## 3. 接口
+
+信号组按模型的 `in` / `out` 命名；顶层 `rob.sv` 只做平铺端口和结构体的互转。
+
+| 方向 | 信号组 | 含义 |
+| --- | --- | --- |
+| 入 | `dec_bcast_mispred`、`dec_bcast_redirect_rob_idx`、`flush_pend` | 分支误预测和被预测错的分支的 `rob_idx`；`flush_pend` 是上一拍的全局冲刷（`FLUSH_REG`），它为 1 的那一拍屏蔽陈旧的误预测恢复（`dec_mispred_eff = mispred & !flush_pend`） |
+| 入 | `csr2rob_interrupt_req`、`csr2rob_fs_off` | 中断请求；mstatus.FS 是否为 Off（F/D） |
+| 入 | `lsu2rob_committed_store_pending` | 已提交但没写出去的 store 还有（fence 要等它清空） |
+| 入 | `front_stall`、`bpu_upd_free[3:0]`、`bpu_tq_free[3:0]` | 退休信用：BPU 更新队列和 uBTB 训练队列的空闲项（寄存值），见 5.2 |
+| 入 | `ftq_rob_pc_resp_resp_pc` | 队头指令的 pc（FTQ 读口，1 个） |
+| 入 | `dis2rob_dis_fire[8]`、`dis2rob_uop_*[8]` | 分派的指令（23 个字段，含 `rob_idx`、`expect_mask`） |
+| 入 | `exu2rob_entry_*[21]` | 写回：`valid`、`rob_idx`、`diag_val`、`result`、`mispred`、`br_taken`、缺页标志、`rob_defer`、`flush_pipe`、`illegal`、`fflags`、`op` |
+| 出 | `rob2dis_{stall, empty, ready, enq_idx, free, rob_flag}` | 给分派：队头 8 个槽里有冲刷类指令（`stall`）、空、不满、尾部位置、空闲项数、尾部的环绕标志 |
+| 出 | `rob2csr_{commit, fflags, fs_dirty, interrupt_resp}` | CSR 指令退休、本拍正常退休指令的浮点异常标志累加、FS 变脏、中断被接受 |
+| 出 | `rob_commit_commit_entry_*[8]`、`commit_extra_{src1_areg, imm}[8]` | 本拍退休的指令（槽 k 是第 k 老的），`commit_extra` 给前端 BPU 训练 |
+| 出 | `rob_bcast_*` | 冲刷和原因（flush、mret、sret、ecall、breakpoint、exception、fence、fence_i、三种缺页、illegal、interrupt）、`trap_val`、`pc`、队头的 `rob_idx` 与最老未完成项的 `rob_idx` |
+| 出 | `ftq_rob_pc_req_*` | 向 FTQ 要队头指令的 pc |
+
+`rob_bcast_flush` 是 ROB 这一拍自己的决定；其他模块拿到的是 `back_top` 里寄存一拍之后的 `rob_flush_q`（docs/FLUSH_REG.md）。限定"本拍提交"的信号（`rob_bcast_interrupt`）不晚一拍。
+
+## 4. 结构
 
 ```
- dis2rob ─┐                                   ┌────────────── rob_store ───────────────┐
- exu2rob ─┼─ rob_wb_decode ─ wb_ev[ISSUE_WIDTH] ──────▶│ 8 bank x 16 line  rob_entry (valid+uop) │── head line (8 bank)
- dec_bcast┼─ rob_branch_recovery ─ clr/mark ─▶│  每个 entry: 事件按端口升序折叠          │      │
- flush ───┘                                   └────────────────────────────────────────┘      ▼
-        ▲                                                      rob_head_info ── stall / ftq_pc_req / head_*
-        │ deq_adv / enq / recover / flush                      rob_commit_ctrl ─ commit valid、single/group、interrupt_fire、deq_adv
-     rob_ptr (enq/deq ptr + flag, empty/full)                   rob_trap_ctrl  ─ rob_bcast.{flush,exception,...}、rob2csr.commit、pc/trap_val hold
+ dis2rob ─► bank_we / bank_line（按 rob_idx 低 3 位分到 bank）─► rob_entry[bank][line]（8 × 16 个槽）
+ exu2rob ─► rob_wb_decode（每口一个事件 rob_event_t）─► 每个 rob_entry 比较 rob_idx，按口序应用
+ rob_entry 读出：每个 bank 用一热的 head_oh_q / use_next_q 从 16 行里选一行 ─► 再按 hb_oh_q 旋转成"窗口槽 0..7"（第 k 老）
+ 窗口 ─► ok[k]（完成、非冲刷类、信用够）─► prefix（热码）─► commit_valid
+        └► rob_trap_ctrl（队头单独退休时：原因优先级、trap_val、flush）
+ rob_core_cpt : head_q / hflag_q / count_q、prev_ctl_q / prev_blk_q；次态 = flush > 误预测恢复 > 退休 + 入队
 ```
 
-子模块（`rtl/backend/rob/`）：
-| 文件 | 职责 |
+| 文件 | 行数 | 职责 |
+| --- | --- | --- |
+| `rob.sv` | 289 | 顶层：平铺端口 <-> 结构体；`ROB_COMPACT` 选核；F/D 的 fflags / fs_dirty 累加 |
+| `rob_core_cpt.sv` | 351 | 紧凑 ROB 的核心（默认）：窗口读出、退休判决、入队、误预测恢复、指针次态 |
+| `rob_entry.sv` | 62 | 一个槽（valid + `rob_entry_t`）的次态：写回、标记最后一条、入队、清除；两种核共用 |
+| `rob_wb_decode.sv` | 20 | 每个写回口翻成事件 `rob_event_t`（写哪个字段、置哪个完成位） |
+| `rob_trap_ctrl.sv` | 84 | 队头单独退休时的冲刷、异常原因（12 个候选里取最先的）、`trap_val`、`pc` |
+| `pkg/rob_pkg.sv` | 227 | 槽结构 `rob_entry_t`、写回结构、指令分类函数、完成组、事件应用函数 |
+| `rob_core.sv` | 162 | 行式 ROB 的核心（`ROB_COMPACT = 0`，见下） |
+| `rob_ptr.sv`、`rob_commit_ctrl.sv`、`rob_head_info.sv`、`rob_head_class.sv`、`rob_store.sv`、`rob_branch_recovery.sv` | 103、69、66、24、65、44 | 行式 ROB 的子块；紧凑核不用它们 |
+
+紧凑核的几点：
+
+- **窗口**：最老的 8 条（`count_q` 条里的前 8 个）组成提交窗口。第 b 个 bank 存的是窗口槽 `(b - head) mod 8`，在队头所在行或下一行，所以先用 `head_oh_q`（队头所在行的一热）/ `use_next_q`（该 bank 读下一行）从 16 行里选，再用 `hb_oh_q`（队头所在 bank 的一热）旋转成"第 k 老"的顺序。这三个一热量是寄存的，随 `head_d` 同拍更新，下一拍直接用，不再对 `head_q` 译码。
+- **退休判决**（5.2）：队头是冲刷类（`rob_is_flush_inst`）、fence、WFI，或者有中断，就只退这一条；否则取窗口里"完成、不是上述三类、信用够"的最长前缀。
+- **入队**：分派已经把 `rob_idx` 编成 `尾 + 有效项的序号`；第 b 个 bank 接收 `rob_idx[2:0] == b` 的那条（8 个连续位置里每个 bank 至多一条）。
+- **误预测恢复**：`keep = 被预测错的分支相对队头的偏移 + 1`；偏移大于这个的槽 `valid` 清零，分支那一条的 `ftq_is_last` 置 1（同一取指块里它后面的指令都已作废）；`count` 变成 `keep`。
+- **行式 ROB**（`rob_core.sv`）：一个分派组占一整行，`rob2dis_enq_idx` 是行号。它在 RTL 里还保留着，`ROB_COMPACT = 0` 时 `rob.sv` 会实例化它；分派侧同样有 `ROB_COMPACT == 0` 的分支（`dispatch_core`、`dispatch_fire_ctl`）。模型里已经没有这个模式，RTL 的整核门禁也只跑 `ROB_COMPACT = 1`，所以行式路径目前没有任何验证（见第 7、8 节）。
+
+状态：`head_q`（7 位）、`hflag_q`（队头环绕标志）、`count_q`（8 位，0..128）、`prev_ctl_q` / `prev_blk_q`（上一拍退休的控制流指令数 / 取指块尾数，各 4 位）、三个寄存的一热视图；槽存储 128 个，每槽 `1 + ROB_ENTRY_W` 位（`rob_entry_t` 的各字段见 `rob_pkg.sv`）。槽的 `valid` 有复位，其余内容复位为 0。
+
+## 5. 一拍内的数据流
+
+### 5.1 写回（`rob_entry`，所有槽并行）
+
+每个槽拿 21 个写回口的事件逐个比较 `rob_idx == 本槽编号`，命中则按口序（0 到 20）依次应用，后面的口覆盖前面的（对应模型 `for i < ISSUE_WIDTH`）：
+
+- 完成位：`pend_mask &= ~cplt_bit`；`rob_defer` 的写回（LSU 推测 load 的第一次写回）不改任何内容，完成位由第二次写回置；
+- 访存口（load 口和 STA 口）：`diag_val` 写成地址；有缺页则 `diag_val` 改成 `result`（缺页时 `result` 里放的是 tval），并累计 `pf_load` / `pf_store`；STA 口缺页而槽里已有 `pf_store` 时撤销 `pf_load`（AMO）；
+- 分支（`op` 是 JUMP 或 BR）：写 `mispred`、`br_taken`、`diag_val`；
+- 其他标志只累积：`flush_pipe`（访存顺序违例，退休时冲刷更年轻的）、`illegal_inst`（含 F/D：写回时 mstatus.FS 为 Off 而这条指令需要 FP）、`fflags`。
+
+`valid` 的次态按"退休清除 → 分支清除 → 入队置位 → 冲刷清除"，后者覆盖前者（`rob_entry` 里的写法）。
+
+### 5.2 退休（`rob_core_cpt`，只读寄存器）
+
+1. 窗口槽 k 的"在窗口内" `w_in[k] = count_q > k`；`w_complete`、`w_flush`、`w_fence`、`w_wfi` 由 `rob_pkg` 的分类函数得到。
+2. 单独退休：`h_alone = 队头是冲刷类 | fence | WFI`；`interrupt_fire = !误预测 & 非空 & 有中断请求`；`single_commit = 中断 | (!误预测 & 非空 & 无中断 & h_alone & 队头已完成 & !(fence 且还有已提交 store 未写出))`。
+3. 成组退休：`ok[k] = w_in & w_complete & 非冲刷类 & 非 fence & 非 WFI & !(front_stall 且 k > 0)`；对 k > 0，如果它是控制流指令（BR / JAL / JALR），且比它老的控制流条数 ≥ `upd_free`，则 `ok[k] = 0`；如果它是取指块的最后一条（`ftq_is_last`），且比它老的块尾条数 ≥ `tq_free`，也为 0。其中 `upd_free = bpu_upd_free - prev_ctl_q`、`tq_free = bpu_tq_free - prev_blk_q`（BPU 队列的寄存占用，减去上一拍退休、这拍才到队列的条数），每个槽自己并行数"比我老的有几条"，不串行累加。最老的一条不受信用限制（保证前进）。`prefix[k]` = `ok[0..k]` 全 1，`commit_valid = single_commit ? 只有槽 0 : (group_go ? prefix : 0)`。
+4. 冲刷：`rob_trap_ctrl` 在 `single_commit` 时判断队头是否冲刷类（含中断），在 12 个候选原因（中断、ecall、mret、sret、store 缺页、load 缺页、取指缺页、非法指令、CSR、sfence、fence.i、断点）里取优先级最高的一个，产生 `flush`、`exception`、各原因位、`trap_val`（取指缺页和断点用队头 pc，其余用 `diag_val`）、`rob2csr_commit`（CSR 指令）。
+5. 其他输出：`rob2dis_stall = 窗口里有冲刷类`；`bcast_head_incomplete_*` = 窗口里最老的未完成项；`ftq_req` 用槽 0 的 `ftq_idx / ftq_offset`。
+
+### 5.3 次态
+
+优先级：冲刷 > 误预测恢复 > 退休 + 入队。`commit_valid` 是热码（前缀），所以退休条数用"一热的 n"从 `head + j`、`count - j`（j = 0..8，由寄存值预先算好）里选，不做加法；`count_d = (恢复 ? keep : count - n) + m_fire`，`m_fire` 是本拍入队条数（`dis_fire & rob2dis_ready`）。冲刷时 `head`、`count`、环绕标志清零。
+
+`rob2dis_enq_idx = (head + count) 的低 7 位`，`rob2dis_free = ROB_NUM - count`，用的都是寄存值：这一拍退休腾出的槽下一拍才能分配。
+
+## 6. 关键路径与深度
+
+协调者给出的单模块综合数：`rob` **62 层**（通用门代理；本文作者未复测，也不知道最长路径的逐段分布：**待测**，由协调者补）。
+
+从代码读出的长组合链（未综合验证）：
+
+| 链 | 经过 |
 | --- | --- |
-| `pkg/rob_pkg.sv` | 类型（`rob_entry_t`、`rob_wb_t`、`rob_event_t`）、InstType/UopType 编码、分类函数 |
-| `rob.sv` | 顶层，仅端口适配（平铺端口 ↔ 内部 struct 数组） |
-| `rob_core.sv` | 行式 ROB（`ROB_COMPACT=0`）：连接各子模块 |
-| `rob_core_cpt.sv` | **紧凑 ROB（默认）**：单文件实现指针、提交窗口、额度、分支回退，复用 `rob_entry`/`rob_wb_decode`/`rob_trap_ctrl` |
-| `rob_ptr.sv`（仅行式） | 头尾指针 + 回绕 flag，空/满；flush/误预测回退/入队/出队的次态 |
-| `rob_wb_decode.sv` | 每个 EXU 写回口 → 事件（完成位、diag_val 来源、page fault 置位、flush_pipe、分支结果） |
-| `rob_entry.sv` | 单个 ROB 槽：valid + uop；次态优先级 flush > 入队 > 分支回退清除 > 提交清除；uop 为 入队覆盖 > ftq_is_last > 写回事件 |
-| `rob_store.sv`（仅行式） | 8x16 槽阵列（generate）+ 队头行读出（one-hot mux） |
-| `rob_branch_recovery.sv`（仅行式） | 由 `redirect_rob_idx` 与旧 enq_ptr 得到"重定向点之后到旧尾"的清除掩码 |
-| `rob_head_info.sv`（仅行式） | 队头行的 stall、FTQ PC 请求、head_valid/incomplete 广播 |
-| `rob_commit_ctrl.sv`（仅行式） | 提交仲裁：组提交 / 单提交 / 进度单提交 / 中断触发，出队推进 |
-| `rob_trap_ctrl.sv` | 单提交指令的 flush/异常/ecall/mret/… 译码（优先级为 one-hot），无寄存器 |
+| 退休判决 | 寄存的一热视图 → 每 bank 16 选 1 → 旋转 8 选 1 → 取出的槽译码（`itype` 比较、`pend_mask == 0`）→ `ok[k]`（含"比我老的控制流条数"与 `upd_free` 的比较）→ `prefix` 与链 → `commit_valid` |
+| 退休之后 | `commit_valid` → ① `bank_clr` → 各槽 `valid_d`；② 一热 n → `head_d` / `count_d` → 下一拍的三个一热视图；③ `ctl_c / blk_c` → `prev_ctl_q` |
+| 冲刷 | 窗口槽 0 的分类 → `single_commit` → `rob_trap_ctrl` 的优先级选择 → `flush_w` → 清所有槽的 `valid`、`head`、`count`，同时出 `rob_bcast_flush`（docs/FLUSH_REG.md 记录过这条是整核最长路径之一，约 29 层，该数是 FLUSH_REG 时的整核测量，不是本模块的） |
+| 写回 | 21 个口的 `rob_idx` 与槽号比较 → 按口序应用（`rob_apply_event` 逐口覆盖）→ `uop_d`；每个槽都有一份 |
+| 最老未完成项 | 窗口 8 槽上一条 `found` 优先链 → `head_q + k` |
 
-### 2.1 紧凑 ROB（`rob_core_cpt`，默认）
+已经做过的降深度改动：退休信用的"比我老的几条"并行计数（不串行）；`commit_valid` 热码 → 退休条数一热选择；队头的三个一热视图寄存；`FLUSH_REG` 让其他模块晚一拍看到冲刷（见变更记录）。
 
-`rob.sv` 里按 `ROB_COMPACT` generate 选 `rob_core_cpt`（`g_cpt`）或 `rob_core`（`g_line`）。紧凑 ROB 的存储不变（`ROB_BANK_NUM = 8` 个 bank × `ROB_LINE_NUM = 16` 行，共 `ROB_NUM = 128` 项，`rob_entry`、`rob_wb_decode`、`rob_trap_ctrl` 复用），区别在分配和提交：
+## 7. 与模型的差异和取舍
 
-- **按项分配**：`rob_idx` 是环形位置（`ROB_IDX_WIDTH = 7`），项 `e` 在 bank `e % 8`、行 `e / 8`；一个分发组不再占一整行，一个分发组的各条指令占连续的项。状态只有 `head_q`、`hflag_q`（队头回绕标志）、`count_q`（有效项数）。`rob2dis_enq_idx` 是队尾**项号**（行式是行号），`rob2dis_free`（新增输出）是空闲项数，`rob2dis_ready = count != ROB_NUM`。
-- **提交窗口**：最老的 8 项（bank 经 `hb_oh_q` 旋转成窗口槽序，窗口可跨 head 行和下一行）。队头是 flush 类 / fence / WFI 指令或有中断时，队头**单独**提交（`single_commit`，`rob_trap_ctrl` 译码 flush/异常）；否则提交窗口里"已完成、不含上述指令"的**最长前缀**（`prefix`），并受 BPU 提交额度限制：窗口里的控制流指令数不能超过 BPU 更新队列的空闲项（`bpu_upd_free` 减去上一拍已提交的），取指块结尾数不能超过 uBTB 训练队列的空闲项（`bpu_tq_free`）；队头那一条不受额度限制。`front_stall` 只拦队头以外的槽。
-- **分支回退**：`keep = (redirect_rob_idx - head) + 1`，保留到分支为止的项，队尾移到分支之后一项（`mark_last` 标记分支项）。
-- `rob` 新增输入 `bpu_upd_free[3:0]`、`bpu_tq_free[3:0]`（行式下接入但不用）和输出 `rob2dis_free`（行式下为 `ROB_NUM`）。关闭紧凑模式：`bash scripts/gen_cfg.sh -DCFG_ROB_COMPACT=0`（RTL 周期随之要换成行式的参考表）。
-- 已知问题（总仓库 `docs/TODO.md`）：分支密集短循环被额度卡住；PMU 把 ROB 空闲项数挡住记成 `SLOT_BE_SERIAL`；`rob` 最长路径比行式深约 5 级（53 对 46）。
+模型里有、RTL 里有意没有复刻的：
 
-下面的"状态"是行式 ROB 的：
-- `valid_q[8][16]`、`uop_q[8][16]`（`rob_entry_t`；完成状态存成 `pend_mask = expect & ~cplt`，为 0 即完成）：每个槽 1 个写端口（次态逻辑见 rob_entry），读：队头行 8 槽 16:1 mux。
-- `enq_ptr_q/deq_ptr_q[4]`、`enq_flag_q/deq_flag_q`。
+- `dbg` 调试元数据、`ROBTR` 调试输出、`Assert` 检查（完成位重复、溢出、`rob_idx` 编号不一致等）、`stall_cycle` 的死锁看门狗、`is_mmio`、PMU 取最老未完成项（`pmu_head_incomplete`）、`tma.*` 归因；
+- `Rob::comb_redirect`（前端重定向 pc、`pend_` 寄存、`report_commit`）：在 `back_top_glue`；
+- `rob_bcast_d`（模型里为 `FLUSH_REG` 另备的一份延迟广播）：RTL 里由 `back_top` 的 `rob_flush_q` 等寄存器承担，ROB 自己只输出这一拍的决定。
 
-C++ → 硬件对应：
-| C++ | 硬件 |
-| --- | --- |
-| `entry[bank][line]` / `entry_1` | `rob_entry` 的 `_q` / `_d` |
-| `group_commit_mask[]` + `group_has_head` | `hv`（队头行 valid 向量），`has_head = |hv` |
-| "第一个 valid 的 bank"（`for + break`） | `ttg_first_set(hv)` one-hot |
-| `single_idx` | 上述 one-hot（单提交总是对第一个 valid 槽） |
-| `while (ptr != enq_ptr)` 清除多行 | 环形距离比较：`dist(start,L) < dist(start,enq_ptr)` |
-| 逐端口 `for (i<ISSUE_WIDTH)` 顺序写 entry_1 | `rob_wb_decode` 先生成每口事件，槽内按端口升序折叠（后口覆盖前口，与 C++ 顺序一致） |
-| `if-else if` 链（ecall/mret/…） | one-hot 优先级向量 `ttg_first_set` |
+RTL 里有、模型里没有的（模型从 trace / 函数模型取得这些，RTL 得自己算）：
 
-## 3. 一拍内的数据流
-1. `rob_ptr`/`rob_store` 给出当前状态；`rob_store` 读出队头行（valid、uop）。
-2. 组合输出（只依赖状态）：`rob2dis.{ready,empty,enq_idx,rob_flag}`、`stall`、`ftq_pc_req`、`head_*`。
-3. `rob_commit_ctrl`（输入：队头行、`dec_bcast.mispred`、`front_stall`、`interrupt_req`、`committed_store_pending`、empty）
-   → `commit_valid[8]`、`single_commit`、`interrupt_fire`、`deq_advance`。
-   - `commit = !empty && !mispred && !(has_head && front_stall) && 所有 valid 槽 complete`，再被 fence 门控（`!int && 首 valid 是 fence 类 && committed_store_pending`）清零；
-   - `single = !mispred && has_head && (int || (有特殊指令 && 首 valid complete)) && !fence门控`；
-   - 进度单提交（`!commit && !single && !int && !mispred`，首 valid 已 complete 且不是 flush 类）。
-   - 组提交清掉整行并推进 deq；单提交只清首 valid 槽，当该行再无 valid 才推进 deq。
-4. `rob_trap_ctrl`：单提交的 uop + `ftq_pc_resp.pc` → `flush/exception/ecall/...`；优先级链 `interrupt > ecall > mret > sret > pf_store > pf_load > pf_inst > illegal > ebreak > wfi > csr > sfence > fence_i > flush_pipe`。
-5. `rob_wb_decode` + `rob_branch_recovery` + 入队：写进各槽次态。同一槽优先级（对应 C++ 调用顺序）：
-   valid：`flush(清) > 入队(置) > 分支回退(清) > 提交(清)`；uop：`入队(整体覆盖) > ftq_is_last(分支) > 写回事件 > 保持`。
-6. 指针次态：`flush(全 0) > 入队推进（基于分支回退后的 tail） > 分支回退 > 保持`；deq：`flush(0) > advance`。
+- F/D 的 FS 状态：`fs_need`（分派给出，浮点指令 / 浮点访存 / fflags、frm、fcsr 的 CSR）和写回时的 `fs_off` 合成 `illegal_inst`；本拍正常退休指令的 `fflags` 累加和 `fs_dirty`（`rob.sv` 末尾）。模型的 `Rob.cpp` 里只有 `tbhook::fs_dirty_at_commit`（来自函数模型的事实）。
 
-## 4. 与 C++ 的差异点、消费者核对、放宽/删除/不复刻（依 docs/06）
+已发现、未改动的点：
 
-### 4.1 放宽为 `when`（消费者核对）
-- `rob_commit.commit_entry[i].uop.*`、`commit_extra.*`：读取点 Ren.cpp:270、Lsu RealLsu.cpp:1064、PreIduQueue.cpp:256/294、rv_simu_mmu_v2.cpp commit_sync/1369 均先判 `commit_entry[i].valid` → `when commit_entry_valid`。
-- `rob_bcast.pc`：Csr.cpp:179/236（mepc/sepc，仅 MTrap/STrap）、BackTop.cpp:354（仅 `rob_bcast.flush`）→ `when rob_bcast_flush`。RTL 直接输出 `ftq_resp.pc`，**不再建保持寄存器**。
-- `rob_bcast.trap_val`：Csr.cpp:228/230/290 仅在 page fault / illegal 时读 → `when rob_bcast_trap_val_valid`（新增的 RTL 输出，= 四个 cause 之一；spec 里用等价 C++ 表达式录制，因为 `when` 只能挂单个 1 位字段）。
-- `rob_bcast.head_rob_idx` / `head_incomplete_rob_idx`：MemUtils.h:125-128 仅在对应 `_valid` 为真时读 → `when`。
-- `ftq_rob_pc_req.req[0].ftq_idx/ftq_offset`：PreIduQueue 的 ftq_lookup_rob 只在 `req.valid` 时用 → `when req_valid`。
+- `rob.sv` 把写回的 `pf_inst` 固定为 0（"后端没有写它的口，取指缺页来自前端"），`rob_make_event` 里 `ev.pf_inst` 因此恒为 0，是死路径；模型 `Rob::complete` 里还有 `page_fault_inst |= wb.page_fault_inst`；
+- `rob_pkg` 里 `UOP_TYPE_COUNT = 17` 的注释写着"F/D 还不在 RTL 里"，已过时（`dis_pkg` 的 `uop_op_e` 有 21 个值，宽度同为 5 位）；
+- `rob.sv` 的端口注释、`rob_trap_ctrl` 的 `single_uop` 注释还写"head line"，是行式 ROB 的说法；
+- 行式 ROB 整套（`rob_core` 和 6 个子块）仅在 `ROB_COMPACT = 0` 用，模型已没有对应模式，也没有验证：是否删除待定。
 
-### 4.2 从 spec/RTL 删除
-- 输入 `ftq_rob_pc_resp.resp[0].valid`：只出现在 `Assert`；`dis2rob.uop.tma.is_ret`、`tma.mem_commit_is_load`、输出 `commit.uop.tma.is_ret/is_load`：只被 perf 统计（rv_simu commit_sync 的 ret 统计）和对齐 Assert 使用；
-  输出 `commit.uop.flush_pipe`：commit 路径无消费者（Ren/LSU/Pre/TB 均不读）。
-- `rob2dis.tma.*`、`lsu2rob.tma.miss_mask`（Dispatch 的 TMA 性能归因）、`dbg.*`、`is_atomic/func3`（仅 Assert）、`tma.is_cache_miss`（全仓库从不置位）、`dis2rob.valid/br_mask/ldq_idx/cplt_mask`（Rob 不读）。
-- 内部：`expect_mask/cplt_mask` 两个 3 位寄存器合并成一个 `pend_mask`（`cplt_mask==expect_mask` ⇔ `pend==0`，cplt 超出 expect 的情形只会触发 C++ Assert）。
-- 保留 `tma.mem_commit_is_store`：TB `commit_sync` 用它决定是否把 store 写进内存子系统（功能性）。
+与模型保持一致的细节（读模型时容易误判）：
 
-### 4.3 选择不复刻
-- `rob_bcast.pc/trap_val` 的"跨拍保持"（C++ 因 `rob_bcast` 整拍不清而残留）：消费者都受 flush/cause 保护（见 4.1），不是真状态。
-- 写回到无效槽、重复完成位、完成位越界、`stall_cycle` 死锁计数、对齐 Assert：均为 Assert/调试路径，不建逻辑。
-- `comb_fire` 在同拍 `comb_branch` 回退后再 `LOOP_INC(enq_ptr_1)` 时 `enq_flag_1 = !enq_flag`（旧 flag）的覆盖：RTL 用回退后的 flag（`!enq_flag_rec`）。仅在"同拍 mispred 回退且入队且回绕"时才有差别；Dispatch 在 mispred 拍不会入队（真实 trace 4252 次 mispred 无一次同拍入队），随机 trace 也不构造该情形，不可达。
-- `rob_idx/rob_flag` 仍按 Dispatch 给的值存储（C++ 并未保证它们等于槽位置），不做"由位置推导"。
+- 退休信用用的是寄存值减上一拍退休数，不是组合地看 BPU 队列；
+- 队头为 fence 时要等已提交 store 写完（`committed_store_pending`）才退休；
+- 带中断退休的指令也出现在 `rob_commit` 里，但 `rob_bcast_interrupt` 为 1，rename 据此不把它提交进架构映射；
+- `FLUSH_REG` 下，冲刷挂起的那一拍 ROB 已空，陈旧的误预测不能再去恢复（`flush_pend`）。
 
-### 4.4 隐含依赖与保留的怪异行为
-1. **exu2rob 不是 stale 读**：`Exu::comb_begin` 清 valid，`comb_fu2exu_collect`（经 `comb_exec`）在 `Rob::comb_complete` 之前写入，之后不再改；录制值即 Rob 所见，无需 `_hold_q`。BackTop 注释里的 "Known issue" 只在诊断开关 `CONFIG_BE_IO_CLEAR_AT_COMB_BEGIN=1` 下存在。
-2. **BackTop 在 Rob 之后覆盖 `rob_commit.commit_entry[i].uop.diag_val`**（BackTop.cpp:368，flush 时写 `redirect_pc`）：不是 Rob 行为，Rob 边界取 Rob 自己的值（spec 的 `@` 读 `bt.rob->entry[i][deq_ptr].uop.diag_val`）。闭环时该覆盖要放在 Rob 之外。
-3. `rob2dis.enq_idx` 是行号（`enq_ptr`，0..15），7 位高位补 0（Rob.cpp:488）。
-4. `comb_branch` 的 flag 翻转按字面实现：`if (enq_ptr_1 > enq_ptr) enq_flag_1 = !enq_flag`（Rob.cpp:643），这是真状态（影响 empty/full）。
-5. STA 写回带 fault 时：`if (page_fault_store) page_fault_load = false`（Rob.cpp:611）按字面保留（AMO 的 LD 口报 load fault、STA 口报 store fault 时可达；随机 trace 命中，去掉该行会被 `commit.uop.page_fault_load` 抓到）。
-6. 单提交总是作用于队头行第一个有效槽；中断（`csr2rob.interrupt_req`）在队头行有有效槽时无条件走单提交。
-7. 写回端口→完成位映射 `rob_port_cplt_bit`：ALU/LD → G0，STA/BR → G1，STD → G2（util.h:88）。
-8. 同拍多个端口写同一槽时按端口升序"后者覆盖"（diag_val、br 结果），与 C++ 顺序一致（槽内 for 折叠，无 break）。
+**未核对（继承自旧文档）**：无（旧文档的内容全部没有采用）。
 
-## 5. 验证
-- spec：`spec/rob.io`（94 个字段；简化前 99）。
-- 简化前后：RTL 约 1142 行 → 1112 行（含 220 行纯端口适配的顶层和 190 行 package）；去掉的是 2 个 32 位保持寄存器、tma/flush_pipe 三个输出、cplt/expect 拆分。与 C++ 的 921 行相比，逻辑部分（不含顶层端口适配与 package）约 700 行，且无 break/while/stale 状态。
-- trace：61 个 gate 测试（≤30000 拍）、dhrystone、coremark（各 100000 拍）+ 6 条受约束随机 `rand0-5`（`tb/rob/gen_rand.cpp`，直接驱动参考 Rob 类，`bash tb/rob/build_gen.sh run`，每条 40000 拍），共 69 条、641,732 条记录，全部 PASS。
-- 覆盖（输入统计，真实程序+随机）：flush、exception、interrupt、ecall/mret/sret、fence_i（真实）、sfence_vma、page_fault_inst/load/store、illegal、flush_pipe 写回、front_stall、committed_store_pending、满/空/回绕、mispred（含 redirect 行为 15 与 flag 翻转）、组提交 8 路、单提交、fence 门控等均出现。
-  **未覆盖**：mispred 与入队同拍（Dispatch 不会这样做）、mispred 与 flush 同拍（真实与随机均不构造）、写回命中无效槽、重复完成位（均为 C++ Assert 路径）。
-- 变异（均由严格比较字段抓到，首个失败）：
-  - `rob_ptr` 回退 flag 条件 `>` 改 `>=` → dhrystone cycle 60 `rob2dis_rob_flag`
-  - 去掉 front_stall 背压 → rand0 cycle 129 `rob_commit_commit_entry_valid[6]`
-  - cause 优先级 illegal 与 csr 互换 → rand0 cycle 8552 `rob2csr_commit`
-  - STD 端口完成组改 G1 → dhrystone cycle 83 `rob_commit_commit_entry_valid[1]`
-  - 去掉 STA fault 清 pf_load → rand0 cycle 11514 `..._page_fault_load[5]`
-  - 去掉 fence 门控 → rand0 cycle 58 `rob_commit_commit_entry_valid[4]`
-  - 清除范围 `<` 改 `<=` → dhrystone cycle 887 `rob_commit_commit_entry_valid[2]`
-  - 中断/特殊指令单提交不等首槽完成 → dhrystone cycle 15 `rob2csr_commit`
-  - flush 不清 valid → rand0 cycle 36 `rob2dis_stall`
-  - trap_val 不区分 pf_inst（用 diag_val）→ rand0 cycle 476 `rob_bcast_trap_val`
-  - 存活（等价于不可达）：入队与分支回退对 valid 的优先级互换（mispred 与入队不同拍，见上）。
+## 8. 验证
+
+- **门禁**：`scripts/fm_gate.sh` 67 个程序，每条提交对比函数模型，周期对 `scripts/ref_cycles_memiq6_nr_int2_ev5.txt`（模型同配置生成）：67/67 通过，周期逐个相等。测试台从 `u_rob` 的提交端口取提交（`tb/soc/soc_tb.cpp` 里读 `u_rob` 的 `rob_commit_*`）。
+- **PMU**：`scripts/pmu_parity.sh` 比较 RTL 与模型的一级事件总数（含 `COMMIT_*`、`CYC_COMMIT_*`、`BR_MISPRED`、`FLUSH_*`），与 ROB 的提交行为直接相关。
+- **Lint**：`scripts/lint_chip.sh` 0 告警。
+- **没有模块级的独立测试**：旧体系的 trace 回放和变异检查已随 `spec/` 退役，目前 ROB 靠整核逐拍周期相等和 Linux 启动保证。**待补**：（1）给紧凑核的退休判决（信用、前缀、单独退休）补一个新旧并排的随机测试，改深度时用；（2）行式 ROB 要么删除，要么补一次门禁。
+
+## 9. 参数与开关速查
+
+`ROB_NUM`、`ROB_BANK_NUM`、`ROB_LINE_NUM`、`ROB_COMPACT`、`COMMIT_WIDTH`、`DECODE_WIDTH`、`ISSUE_WIDTH`、`IQ_*_PORT_BASE`（写回口到完成组）、`TTG_EBREAK_TRAP`（编译宏：ebreak 变成断点异常，Linux 需要；`rob_pkg::EBREAK_TRAP`）。`ttg_cfg_pkg.sv` 目前是手工编辑的，与 `make cfg` 生成的不同步（待统一，见 docs/TODO.md）。
+
+## 10. 变更记录
+
+- 2026-11-17/18（exp/agu-share）：`803692f` FLUSH_REG：ROB 在决定冲刷的那一拍清空自己，不等其他模块；新增输入 `flush_pend` 屏蔽陈旧的误预测恢复；限定本拍提交的信号（中断）不晚一拍。
+- 更早（`git log -- rtl/backend/rob`）：`4e954d7`（2026-11-11）紧凑 ROB（EXP-028，当时默认 `ROB_COMPACT = 0`，现为 1）；`a2657ea`（2026-11-12）`ROB_XLEN`；`a946972`、`3791f11`（2026-11-12）F/D（FP 写回口、fflags、FS 脏、FS = Off 非法）。

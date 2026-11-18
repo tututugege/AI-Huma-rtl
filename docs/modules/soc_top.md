@@ -1,118 +1,93 @@
 ---
 module: soc_top
 area: core
-rtl: rtl/core/soc_top rtl/memsys/mem_top
-spec: core_top
-status: green
-lockstep: 闭环（RTL 整核）周期数与参考一致：65 个程序（≤23 万周期）全部相等
-mutants: 未跑
-note: core_top + mem_top；测试平台 tb/soc（Verilator）+ 参考的 SimDDR/PhysMemory/PeripheralModel
+rtl: rtl/core/soc_top/soc_top.sv
+model: trace-model SimCpu.cpp / include/SimCpu.h（`SimCpu::cycle`：核 + `MemSubsystem` + `AxiSubsystem` 的整体调度；不是单个调度单元）
+status: 整核周期与模型逐个相等（最近一次提交 60ed422 的提交信息记 fm_gate 67/67、周期等于 scripts/ref_cycles_memiq6_nr_int2_ev5.txt；本次写文档没有重跑）
+depth: 待测（由协调者补）
 ---
 
-# soc_top / mem_top 设计笔记（整核闭环）
+# soc_top 设计文档
 
-> **2026-11-16**：生成器 `tools/gen_backtop.py` / `gen_soc_top.py` 和 `spec/*.io`（`core_top.io` 除外）已删除，本文件对应的 `.sv` 现在直接手改；下面凡提到“生成文件 / 重新生成”的地方都是历史说明。
+## 1. 职责
 
-> **更新（2026-11-12，rv64 / 现状）**：1) `soc_top.sv` 是**生成文件**（`tools/gen_soc_top.py`），为 rv64 手改过位宽，重新生成会丢（见根 README）。2) 测试平台：`SOC_XLEN=64` 用 `XLEN_BITS=64` 的 `rtl/` 副本构建，`-DXLEN=64` 传给 C++；`tb/soc/fm_check.h` 每提交一条指令让 function-model 执行并比较 PC 和目的寄存器（`tb_xlen_t` 宽度随 XLEN），`FMLIB` 必须指向同位宽的 `librefcpu.a`；rv32 用 `SOC_FM=1`。3) 测试平台环境变量：`SOC_TB_FM=1`（逐条对比）、`SOC_TB_SEMIHOST=1`（OpenSBI/Linux 的 semihosting）、`SOC_TB_LOG=<n>`（每 n 周期一行进度）、`SOC_TB_STLOG=<物理地址>`（打印提交到该 8 字节字的 store）、`SOC_TB_PMU=1`（打印 PMU 事件总数）。Linux 需要构建时加 `SOC_VOPT="--threads 4 -DTTG_EBREAK_TRAP"`。4) 8 字节 MMIO（`ld`/`sd`）经 `peripheral_axi` 本地设备路径，测试平台的 `PeripheralModel` 按 8 字节读写。
+整核闭环的最外层：一个 `core_top`（核，见 core_top.md）加一个 `mem_top`（访存子系统：`mem_route`、`ptw_walk`、`dcache`、`peripheral_axi`、`axi_subsys`、`axi_cpu_port_adapter`），两者按端口名连接。`mem_top` 的端口名与 `core_top` 的存储侧端口同名、方向相反，所以 `soc_top` 只写了 `core_top u_core (.clk(clk_cpu), .*)` 和 `mem_top #(.PF_EN(PF_EN)) u_mem (.clk, .*)` 两个实例，其余全是为 `.*` 声明的同名连线。
 
-> 默认配置是**不分频**（`AXI_SUBSYSTEM_FREQ_DIV = 1`，每 CPU 周期 1 个 tick，DRAMsim3 作 DDR 后端）。下面第 2 节的 16 tick 规则、第 3 节的“每周期 16 个 tick”、“空闲 tick 跳过”一节描述原分频配置，**该配置不再支持**（空闲跳过只在 16 tick 时启用）；第 4 节和 Linux 表是 2026-11-04 的历史结果，最新结果见下面“当前验证状态”。
+边界之外（留在测试平台 `tb/soc`）：DDR 从设备（`d_*` 端口，AXI AR / R / AW / W / B）、外设模型（`env_*` 端口：`env_modeled`、`env_rdata` 入，`env_rd_en / addr / func3` 出）、物理内存、中断源（`interrupt_inject_*` 输入）、时钟与复位。逐条退休流（`rob_commit_*`、`rob_bcast_*`、`out_mispred`、`out_redirect_pc`、`ftq_commit_info_resp_pc`、`out_commit_entry_uop_diag_val`）从 `core_top` 直接导出，给测试平台的函数模型逐条对比。
 
-## 1. 结构
-- `mem_top`：访存子系统顶层，端口名与 `core_top` 的存储侧端口同名、方向相反。内部：`mem_route`、`ptw_walk`（客户端 0=DTLB、1=ITLB）、`dcache`、`peripheral_axi`、`mem_axi`（四个 AXI 主口胶水 + `axi_subsys` + `axi_cpu_port_adapter`）。
-- `soc_top`：由 `tools/gen_soc_top.py` 生成，`core_top`（时钟 `clk_cpu`）加 `mem_top`（快时钟 `clk`）按端口名连接。
-- 时钟：快时钟每 tick 一个沿；`clk_cpu` 在 tick 0 结束的那个快时钟沿同时给一个沿（测试平台生成）。`mem_top` 里的相位计数器 `phase_q` 由复位清零，`phase0` 即 tick 0。
+模型对应：`SimCpu::cycle` 同时驱动核、`MemSubsystem` 和 `AxiSubsystem`；RTL 把"核"和"访存 + AXI"分成两个子树，由 `soc_top` 拼起来。`DDR`、`MMIO`、`PhysMemory`、`PeripheralModel` 在模型里是 `SimCpu` 的成员，在 RTL 里是测试平台（用的是模型同源的源码，`tb/soc/platform`）。
 
-## 2. 集成时的非显然规则（均来自参考模型的求值顺序，已被闭环对照验证）
-1. DCache 的 LSU 请求只在 tick 0 进入，其余 tick 是空请求（`dcache_fast_comb(false)`），在 `mem_top` 门控；探针编码 `icache_req = probe ? NLD-1 : NLD`。
-2. ICache 在周期开头（早于 `MemSubsystem::comb_outputs`）读探针响应，所以拿到的是路由块**上一周期**的响应：`mem_top` 对 `icache_resp_*` 加一级 `cpu_en` 寄存器。后端的 DCache 响应在 `comb_outputs` 之后读，是同周期的，不加寄存。
-3. 外设响应有一个顶层保持寄存器（`peripheral_resp_hold`），核下一个周期才看到。
-4. 非 DCache 主口（ICache、外设）只在 tick 0 驱动：`valid/地址/大小/id/bypass/resp_ready` 在 tick 1..15 清零。
-5. `axi_cpu_port_adapter` 的 `raw_accepted` 是"该 tick seq 之后的 accepted 状态"，即该 tick 的"本 tick 接受"值；互连因此多导出 `m_rd_acc_new / m_rd_acc_new_id / m_wr_acc_new`（`axi_ic_stage` 的 `rd_new / wr_acc`）。互连输出的 `m_rd_accepted` 是另一个量（tick 0 上是整周期的粘滞值）。
-6. 读口 1（MSHR）、写口 0（写缓冲）直连，常量：读大小 63、写大小 63、写 strb 全 1、写响应 ready 恒 1、bypass 0。
+## 2. 配置
 
-## 3. 测试平台 `tb/soc`
-- `soc_tb.cpp`：每个 CPU 周期 16 个 tick：DDR 从口输出 → RTL → RTL 主口输出 → DDR 输入 → DDR seq → 时钟沿。程序结束 = 提交 `type == 10`（`ITYPE_EBREAK`）。
-- 平台模型直接用参考的源码：`SimDDR`（时序由 config.h 决定）、`PhysMemory`、`PeripheralModel`（UART/中断控制器/定时器；`tick()` 每周期一次，驱动中断注入输入）。
-- 设备写（modeled MMIO）在 store **提交**时生效（参考的 `commit_sync` → `on_commit_store`）：测试平台在提交周期从 LSU 的 `st_fld_q[stq_idx]` 读 paddr/data/func3（依赖 `lsu_pkg::stq_fld_t` 的布局；字段位宽取自 `soc_probe.inc` 里的 `kCfg_*`，由 `tools/gen_soc_probe.py` 从配置包生成，配置变化时自动跟上，字段顺序变化要手工改 `soc_tb.cpp`）。
-- `SOC_TB_TRACE=<core_top trace>`：旧体系的逐周期边界比较（录制脚本 `scripts/record.sh` 已退役），现不使用。
-- 构建：`bash tb/soc/build.sh`（`DEBUG=1` 打开内部信号调试打印）；运行：`bash scripts/soc_smoke.sh [最大参考周期]`，参考周期表 `scripts/ref_cycles.txt`。速度约 350 周期/秒。
-
-## 当前验证状态（2026-11-12）
-- rv32：`fm_gate.sh` 69/69 逐条对比通过、周期与 `ref_cycles.txt` 0 处不同；`memory-stress`（230.8 万周期）逐条对比 0 不一致。
-- rv64（`SOC_XLEN=64`）：53 个 cpu-tests 逐条对比通过，周期与 trace-model（`LSU_PIPE_NOWD=1`）53/53 相同；`rv64-sv39`、`mmio64` 通过。
-- Linux 从复位到登录，逐条对比 0 不一致：rv32 约 1.6 亿周期、rv64 约 1.3 亿周期（仿真约 3.5 万周期/秒，数小时）。需要 `SOC_VOPT="--threads 4 -DTTG_EBREAK_TRAP"` 构建、`SOC_TB_SEMIHOST=1 SOC_TB_FM=1` 运行。
-- 没做：RTL 上的 SPEC；store 数据 / CSR 写值 / 内存内容的对比。
-
-## 4. 验证结果（2026-11-04 历史）
-- 65 个程序（gate 61 个、vm 4 个、dhrystone（64 次迭代）、coremark（2 次迭代）、memory-stress-small）周期数与参考逐一相等；提交条数与 trace 逐周期比较一致。
-- 未覆盖：`memory-stress`（约 154 万周期，仿真约 70 分钟）、`float_test`、`load-store`（参考周期数我这边 200 秒内没测出来）。
-
-## 5. 已知问题 / 待办
-- LLC 的 bypass 写与部分行写 miss 未实现（断言会触发）；本批程序和默认配置不出现。
-- `axi_subsys` 内互连↔LLC 经结构体有一个粒度上的 UNOPTFLAT，装配顶 lint 对其放宽。
-- 外设 AXI 路径（`env_modeled=0` 且 MMIO）仍只被随机验证；测试平台没有 SD 卡/DMA 模型。
-- 12 位以内的外设 `resp.ready` 在 tick 0 的"陈旧值"细节（适配器通道 1、2 的写回）没有在 `mem_axi` 复刻，外设 AXI 路径不被触发所以不可观察。
-
-## Linux 启动（RTL 闭环）
-
-```bash
-SOC_OUT=$PWD/build/soc_linux SOC_VOPT=-DTTG_EBREAK_TRAP bash tb/soc/build.sh          # 打开 ebreak 断点异常的构建（默认构建不变）
-MEM=0x10000000 bash ../function-model/linux/mkimage.sh <linux_rv32 目录> /tmp/linux.bin    # 平铺镜像
-SOC_TB_SEMIHOST=1 build/soc_linux/obj/soc_tb /tmp/linux.bin <周期数>
-```
-
-镜像按程序加载（测试平台自带地址 0 的启动桩，`a1` = 设备树）。**与 trace-model（运行模式、同一镜像）逐周期对照**（2026-11-04）：
-
-| trace-model 提交数 | 周期 | RTL 在该周期的提交数 |
+| 量 | 值 | 来源 |
 | --- | --- | --- |
-| 205,443（旧行为：在 OpenSBI 的 semihosting 探测处退出） | 62,061 | 205,443 |
-| 400,002（打开断点异常后继续） | 107,585 | 400,002 |
-| 1,000,007 | 247,399 | 1,000,007 |
+| 参数 `PF_EN` | 1（L1D 数据预取器 h1，EXP-009） | `soc_top.sv` 参数，传给 `mem_top` → `dcache` |
+| 时钟 | `clk`（访存域的 tick 时钟）、`clk_cpu`（核时钟） | 端口；测试平台在每个 CPU 周期的 tick 0 给 `clk_cpu` 一个脉冲（`tb/soc/soc_tb.cpp`），现行 `AXI_SUBSYSTEM_FREQ_DIV = 1`，即每个 `clk` 沿都同时给 `clk_cpu` 脉冲 |
+| 数据宽度 | `XLEN_BITS = 64` | `ttg_cfg_pkg` |
+| 提交宽度 | `COMMIT_WIDTH = 8` | `ttg_cfg_pkg` |
+| DDR 数据拍 | 256 位，AXI id 6 位 | `d_rdata`、`d_rid` 位宽 |
 
-限制（2026-11-04 当时）：RTL 约每秒 4–5 千周期，只对照了前 100 万条；**现在已整段跑完**（见“当前验证状态”）。
+## 3. 接口
 
-## 空闲 tick 跳过（测试平台加速）
+| 方向 | 信号组 | 含义 |
+| --- | --- | --- |
+| 入 | `clk`、`clk_cpu`、`rst_n` | 时钟与复位 |
+| 入 | `interrupt_inject_{external, supervisor_external, timer}_irq_pending` 与 `_valid` | 外部注入的中断（测试平台的外设模型给） |
+| 入 | `env_modeled`、`env_rdata` | 外设模型：该 MMIO 地址是否被模型承接、读数据 |
+| 入 | `d_arready`、`d_rvalid / d_rid / d_rdata`、`d_awready`、`d_wready`、`d_bvalid / d_bid / d_bresp` | DDR 从口输出 |
+| 出 | `env_rd_en / env_rd_addr / env_rd_func3` | 对外设模型的读请求 |
+| 出 | `d_arvalid / id / addr / len`、`d_awvalid / id / addr / len`、`d_wvalid / data / strb / last`、`d_rready`、`d_bready` | DDR 主口 |
+| 出 | `phase0` | 访存域的"CPU 周期第 0 个 tick"（现行恒为 1） |
+| 出 | 退休流和重定向 | 见上；给测试平台逐条对比 |
 
-16 倍频访存域里大多数 fast tick 无事发生。`tb/soc/soc_tb.cpp` 在每个 CPU 周期的 tick 1 之后给 Verilated 状态做快照，tick 2 之后若
-(a) 状态逐字节相同（忽略 Verilator 临时变量 `__Vdfg*/__Vtemp*/__Vdly*`、≥1 MiB 的 RAM 数组即 LLC 数据，以及 `phase_q`）且
-(b) SimDDR 空闲（队列空、各 cooldown 为 0），则 tick 3–14 不可能改变任何东西，在 tick 3 的沿前把 `phase_q` 写为 14，使该沿装载 15，再跑 tick 15。
-`SOC_TB_NOSKIP=1` 关闭。掩码由 `tools/gen_skipmask.py` 在 `tb/soc/build.sh` 中从 clang 布局生成。
+PMU 事件总线（`core_top` 里的 `pmu_ev_inc`）**没有**出现在 `soc_top` 的端口上，测试平台通过 `tb/soc/pmu_public.vlt` 声明的 public 变量按层次名读（`soc_top__DOT__u_core__DOT__pmu_ev_inc`，`tb/soc/soc_tb.cpp`）。
 
-多线程：`SOC_VOPT="--threads 4" SOC_OUT=build/soc_mt4 bash tb/soc/build.sh` 构建 4 线程版本（Verilator 调度器状态 `__Vm_mtaskstate_*` 已进掩码，空闲跳过照常生效）。dhrystone 20000 周期：单线程+跳过 5.8 s，4 线程+跳过 2.9 s（周期、指令数不变，跳过 17032 周期）。
+## 4. 结构
 
-## 与 function-model 逐条对比（新的参考）
-
-`SOC_FM=1 bash tb/soc/build.sh`（可配 `SOC_OUT`）构建带 librefcpu 的版本，运行时 `SOC_TB_FM=1`：RTL 每提交一条指令，function-model 执行一条，比较提交 PC 和目的寄存器的值（值取自提交后一拍的物理寄存器堆）；设备/CSR 读值以 RTL 为准；中断由 RTL 的 mcause/特权级强制注入（`refcpu_take_forced_interrupt`）。代码在 `tb/soc/fm_check.h`。尚未比较：store 的地址/数据、CSR 写值、内存内容。结果：gate 与 vm 的 64 个程序全部一致（`load-store` 参考侧本身会退出，`memory-stress` 超过 90 秒上限未跑完）。
-结果：dhrystone 前 2 万周期 59 s → 23 s（约 2.5×，85% 的周期被跳过）；65 个程序周期数仍全部与参考相等。
-注意：LLC 数据数组不参与比较，假设它只在控制状态变化时写入；若将来 LLC 出现读改写类的原地更新需重新评估。
-
-### 每 tick 的 eval 次数（profile，SOC_TB_PROF=1）
-
-`eval()` 占仿真时间 92%，测试平台自身可忽略。原来每 tick 4 次 eval：无时钟沿的 3 次各约 27 µs，时钟沿那次约 67 µs；
-空闲 tick（147 µs）与 tick 0（212 µs）相差不大，说明核的时钟沿只贡献约 65 µs，大头是访存域每次 eval 的固定开销。
-因此“核只跑一个 tick”本来就基本成立，拆成两个模型收益很小。已做的改动：tick 末尾的 eval 与下一 tick 的第一次合并（下降沿与新输入一起求值）、
-外设环境输入未变时不再多 eval 一次。dhrystone 前 2 万周期（不跳 tick）59 s → 31 s；开启空闲跳过后 19 s。65 个程序周期数仍全部相等。
-
-### 根因：`public_flat_rw` 让每次 eval 都重算（重要）
-
-对一个 `public_flat_rw` 信号，Verilator 假定外部随时会写它，于是**每次 `eval()` 都重算所有依赖它的逻辑**。`mem_top.phase_q` 曾被标成 rw
-（为了让测试平台直接写），而 `phase0` 门控几乎整个访存域，结果输入完全不变的 `eval()` 也要约 27 µs（采样显示时间全在 `ico_sequent`）。
-改成 `public_flat_rd` 后，无变化的 eval 降到 0.2 µs。
-**规则：不要用 `public_flat_rw`；测试平台只读的信号用 `public_flat_rd`。把相位做成每 tick 都变的顶层输入口也不行（每 tick 的输入变化都会触发全部输入相关逻辑重算，实测慢回 2 倍）。**
-RTL 里不带任何 Verilator 公开属性：测试平台可见的信号由 `tb/soc/soc_public.vlt`（`tools/gen_soc_top.py` 生成）声明；
-跳 tick 时测试平台在 tick 3 的时钟沿之前把 `phase_q` 写成 14（只读公开变量，C++ 仍可写），该沿即装载 15。
-空闲跳过的比较点同时改为“每个 tick 输入施加、eval 之后、时钟沿之前”的 tick 2 与 tick 3 状态，两次状态相等且 SimDDR 空闲时，tick 3 的边沿装载 phase 15。
-结果：dhrystone 前 2 万周期 59 s → 7.4 s（不跳 tick 14 s）；15 个长程序 6:52 → 1:56（4 并行）；65 个程序周期数仍全部相等。
-
-## 从检查点启动 Linux（不用每次从头跑）
-
-function-model 在指定指令数处做检查点，`tools/ckpt2image.py` 把 DDR 前 256 MiB 转成平铺镜像，`ckpt2stub.py` 生成 84 条左右的恢复程序，测试平台用 `SOC_TB_STUB` 把它放在地址 0 取代启动程序（功能模型的启动窗口也同步），CPU 从复位开始执行它，最后 `mret` 进入检查点的 PC 和特权级：
-
-```bash
-a.out.nospike --image linux.bin --mode special-ckpt --points points.txt --ckpt-dir ckpts      # points.txt: "<指令数> <标签>"
-python3 tools/ckpt2image.py ckpts/<ckpt>.gz /tmp/k.img ; python3 ../function-model/tools/ckpt2stub.py ckpts/<ckpt>.gz /tmp/k.stub
-SOC_TB_STUB=/tmp/k.stub SOC_TB_FM=1 SOC_TB_SEMIHOST=1 build/soc_fm4/obj/soc_tb /tmp/k.img <周期上限>
+```
+ clk_cpu ─► core_top (u_core) ◄──── 同名端口（.*）────► mem_top (u_mem) ◄── clk
+                │ 退休流 / 重定向                           │ env_* ↔ 外设模型      │ d_* ↔ DDR 从口
+                ▼                                           ▼                       ▼
+            测试平台：逐条对比、外设 / 物理内存 / DDR / 中断
 ```
 
-速度（4 线程 + 空闲跳过 + 逐条对比）约 5700 周期/秒。
+| 文件 | 行数 | 职责 |
+| --- | --- | --- |
+| `soc_top.sv` | 147 | 端口、为 `.*` 声明的 71 根同名连线、两个实例 |
 
+`soc_top.sv` 是手工维护的（文件头：2026-11 以前由 `tools/gen_soc_top.py` 生成，生成器和规格已删除）。没有寄存器和逻辑。
+
+## 5. 一拍内的数据流
+
+没有自己的逻辑。测试平台每个 CPU 周期做的事（`tb/soc/soc_tb.cpp`）：DDR 从口输出 → RTL → RTL 主口输出 → DDR 输入 → DDR `seq` → 时钟沿（`clk = 1`，tick 0 时 `clk_cpu = 1`）→ tick 0 之后外设模型 `tick()` 并更新下一周期的中断输入。外设读（`env_*`）的 `env_modeled` 变化后会再求值一次，让 `env_rd_en` 稳定（`soc_tb.cpp` 的注释）。与模型的顺序对应：`SimCpu::cycle` 先 `icache_port_regs_seq`，随后组合各阶段，最后各部件 `seq`。
+
+## 6. 关键路径与深度
+
+depth 待测（由协调者补）。本模块只有连线，没有逻辑；整芯片的关键路径在 `core_top` 与 `mem_top` 的子模块里（见各自文档）。跨 `core_top` / `mem_top` 的组合路径（核的 LSU 请求 → `mem_route` → `dcache`，DCache 响应 → LSU）具体深度没有读到，留给 mem_top 一侧的文档。未综合验证。
+
+## 7. 与模型的差异和取舍
+
+- 双时钟：RTL 有 `clk` 和 `clk_cpu`，原 16 倍频方案遗留；现行 1 tick / 周期时两者同沿。模型没有时钟的概念，一个 `SimCpu::cycle` 就是一个 CPU 周期（`AxiSubsystem` 的 tick 数 = `CONFIG_AXI_SUBSYSTEM_FREQ_DIV` = 1）。
+- 外设：模型的 `PeripheralModel` 在 `MemSubsystem` 里；RTL 的 `peripheral_axi` 只管请求侧，设备在测试平台（`env_*`）。
+- 没有 `restore_pc`（从快速模式切回）和检查点恢复入口：测试平台用 `ckpt2image.py` / `ckpt2stub.py` 把检查点变成镜像和启动桩（见 `scripts/linux_segments_cmp.sh`）。
+- `mem_top.sv`、`mem_axi.sv`、适配器的文件头注释仍写"16 倍频 / 16 tick"，现行配置不是（`TICKS = AXI_SUBSYSTEM_FREQ_DIV = 1`，`phase0` 恒 1），只记录，没有改。
+
+未核对（继承自旧文档）：旧文档里的"集成时的非显然规则"（DCache 的 LSU 请求只在 tick 0 进入、ICache 响应加一级 `cpu_en` 寄存器、外设响应有保持寄存器、读口 1 / 写口 0 直连常量等）是 16 tick 时代的结论，本次只对着 `mem_top.sv` / `mem_axi.sv` 看到了其中一部分的代码（`cpu_en(phase0)`、`m_rd_size[1] = 8'd63`、`m_wr_strb[0] = '1`、`m_wr_resp_ready[0] = 1'b1`），没有逐条核对；"空闲 tick 跳过"（测试平台加速）在 16 tick 下才有意义，现行配置下没有用到。
+
+## 8. 验证
+
+- **门禁**：`scripts/fm_gate.sh <soc_tb> <outdir>`：67 个程序，每条提交对比函数模型（`SOC_FM=1` 构建）；周期对 `scripts/ref_cycles_memiq6_nr_int2_ev5.txt`（模型同配置生成）。构建：`SOC_FM=1 SOC_OUT=<绝对路径> bash tb/soc/build.sh`。
+- **Lint**：`scripts/lint_chip.sh`（以 `soc_top` 为顶，整芯片 Verilator `-Wall`）。
+- **冒烟**：`scripts/soc_smoke.sh`（周期对 `scripts/ref_cycles.txt`）、`scripts/cmp_trace_model.sh`（整程序周期与提交数对模型）。
+- **Linux 启动门禁**：`scripts/build_soc64_linux.sh`（rv64 测试平台，逐条对比，默认 4 个仿真线程）、`scripts/linux_gate.sh`（全程）、`scripts/linux_segments_cmp.sh`（并行窗口）。
+- **与模型对齐诊断**：`scripts/align_check.sh`、`scripts/pmu_parity.sh`（见 pmu.md）。
+- 没有 `soc_top` 自己的模块级测试：它没有逻辑。
+
+## 9. 参数与开关速查
+
+`PF_EN`（`soc_top` 参数，默认 1）；测试平台环境变量 `SOC_TB_FM`、`SOC_TB_SEMIHOST`、`SOC_TB_PMU`、`SOC_TB_LOG` 等（见 `tb/soc/soc_tb.cpp`）；构建开关 `SOC_FM`、`SOC_XLEN`、`SOC_VOPT`（`tb/soc/build.sh`）。
+
+## 10. 变更记录
+
+- 本分支（`261bd67..HEAD`）未改动 `rtl/core`；更早：见 git 历史。
+- 旧版文档（第 1~5 节的"锁步 / mutants / 16 tick 规则"）按 16 倍频方案写成，已按现行配置重写。

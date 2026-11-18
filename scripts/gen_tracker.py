@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
-"""Generate docs/05-module-tracker.md from the front-matter of docs/modules/*.md.
+"""Generate docs/05-module-tracker.md (the module index) from the front-matter of docs/modules/*.md.
 
-Hand-maintained fields (module notes): area, rtl, spec, status, lockstep, mutants, note.
-Measured by this script: RTL line count/file count (rtl dirs), spec existence and field count.
-Never edit 05-module-tracker.md by hand: change the module note and rerun `make tracker`.
+Front-matter fields read: area, rtl, depth.  Measured by this script: the number of RTL files and lines of the module's directories.
+The index is generated: change the module doc and rerun `make tracker`; do not edit 05-module-tracker.md by hand.
 """
 import glob, os, re, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-AREAS = [('backend', '后端'), ('frontend', '前端'), ('memsys', '访存子系统'), ('core', '整核（前后端 + 访存）'), ('uncore', 'uncore（AXI 互连 / LLC）')]
+AREAS = [('backend', '后端'), ('frontend', '前端'), ('memsys', '访存子系统'), ('core', '整核、PMU 与公共代码'), ('uncore', 'uncore')]
 
 
 def front_matter(path):
@@ -20,51 +19,45 @@ def front_matter(path):
 
 
 def rtl_stats(rtl):
-    files = []
-    for pat in rtl.split():
-        if pat.endswith('.sv'):
-            files += glob.glob(os.path.join(ROOT, pat))
+    """Files and lines of the paths named in the `rtl:` field (directories or .sv files; text in brackets is ignored)."""
+    files = set()
+    for pat in re.findall(r'rtl/[A-Za-z0-9_./]+', rtl):
+        full = os.path.join(ROOT, pat.rstrip('./'))
+        if full.endswith('.sv'):
+            files.update(glob.glob(full))
         else:
-            for dp, _, fs in os.walk(os.path.join(ROOT, pat)):
-                files += [os.path.join(dp, f) for f in fs if f.endswith('.sv')]
-    n = sum(sum(1 for _ in open(f)) for f in files)
-    return len(files), n
+            for dp, _, fs in os.walk(full):
+                files.update(os.path.join(dp, f) for f in fs if f.endswith('.sv'))
+    return len(files), sum(sum(1 for _ in open(f)) for f in files)
 
 
-def spec_stats(pats):
-    fields, cnt = 0, 0
-    for p in pats.split():
-        for f in glob.glob(os.path.join(ROOT, 'spec', p if p.endswith('.io') else p + '.io')):
-            cnt += 1
-            fields += sum(1 for l in open(f) if re.match(r'\s*(in|out)\s', l))
-    return cnt, fields
+def depth_of(text):
+    """The depth in generic-gate levels written at the start of the `depth:` field, or the word that says it was not measured."""
+    m = re.match(r'(\d+)\s*层', text)
+    return f'{m.group(1)} 层' if m else ('待测' if '待测' in text else text.split('（')[0] or '-')
 
 
 def main():
     rows = {}
     for p in sorted(glob.glob(os.path.join(ROOT, 'docs/modules/*.md'))):
         fm = front_matter(p)
-        if fm:
+        if fm and 'area' in fm:
             rows.setdefault(fm['area'], []).append((os.path.basename(p)[:-3], fm))
-    out = ['# 05 模块清单与进度', '',
-           '> **本文件由 `scripts/gen_tracker.py`（`make tracker`）生成，不要手改。** 改对应的 `docs/modules/<模块>.md` 的头部（front-matter），再重新生成。',
-           '> RTL 行数、文件数、spec 数/字段数是脚本实测值；状态、锁步、变异是模块笔记里人工填写并经协调者复核的值。',
-           '> **“整程序锁步”“变异”两列是 2026-11-04 之前旧体系的历史值，现行验证见 06 和总仓库 LOG；`-` 表示该模块笔记没填。行数、文件数是实测值。**',
-           '> 状态：`green` = lint 干净 + 整程序锁步全部通过 + 变异被抓到（存活者已判定）+ 独立复核；`partial` = 有已知缺口，见备注。',
-           '> 待办见总仓库 [docs/TODO.md](../../docs/TODO.md)。参考模型提交：`2f31e8d`。', '']
+    out = ['# 05 模块清单', '',
+           '> **本文件由 `scripts/gen_tracker.py`（`make tracker`）生成，不要手改。** 每个原子模块一份设计文档 `docs/modules/<模块>.md`，格式见 [modules/TEMPLATE.md](modules/TEMPLATE.md)，开发流程见总仓库 [docs/WORKFLOW.md](../../docs/WORKFLOW.md) 第 7 节（先写文档再改 RTL，提交前核对）。',
+           '> 文件数、行数是实测值；深度来自各文档头部的 `depth:`（单模块综合的结构深度，生成门代理，不是时序；`待测` = 还没量过）。待办见总仓库 [docs/TODO.md](../../docs/TODO.md)。', '']
     tot_f = tot_l = 0
     for key, title in AREAS:
         if key not in rows:
             continue
-        out += [f'## {title}', '', '| 模块 | 状态 | RTL（文件/行） | spec（个/字段） | 整程序锁步 | 变异 | 备注 |', '| --- | --- | --- | --- | --- | --- | --- |']
+        out += [f'## {title}', '', '| 模块 | RTL（文件/行） | 深度 |', '| --- | --- | --- |']
         for name, fm in rows[key]:
-            nf, nl = rtl_stats(fm['rtl'])
-            ns, nfld = spec_stats(fm.get('spec', ''))
+            nf, nl = rtl_stats(fm.get('rtl', ''))
             tot_f += nf
             tot_l += nl
-            out.append(f"| [{name}](modules/{name}.md) | {fm.get('status', '-')} | {nf}/{nl} | {ns}/{nfld} | {fm.get('lockstep', '-')} | {fm.get('mutants', '-')} | {fm.get('note', '')} |")
+            out.append(f"| [{name}](modules/{name}.md) | {nf}/{nl} | {depth_of(fm.get('depth', '-'))} |")
         out.append('')
-    out += [f'合计：{tot_f} 个 RTL 文件，{tot_l} 行（不含 `rtl/common` 与 `ttg_cfg_pkg`）。', '']
+    out += [f'合计（各文档的目录有重叠时会重复计数）：{tot_f} 个文件，{tot_l} 行。', '']
     open(os.path.join(ROOT, 'docs/05-module-tracker.md'), 'w').write('\n'.join(out))
     print(f'wrote docs/05-module-tracker.md ({tot_f} files, {tot_l} lines)')
 
