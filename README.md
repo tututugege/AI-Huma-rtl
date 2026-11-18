@@ -2,7 +2,7 @@
 
 AI-Huma 乱序 RISC-V 核的 SystemVerilog 实现。起点是把 tututugege 模拟器逐模块翻译过来（2026-11-04 完成，前端、后端、访存子系统、整核）；现在随项目自己的优化迭代，核参数来自 trace-model 的 `config.h`（`make cfg`）。可以在 Verilator 里整核闭环运行（核 + 访存子系统 + DDR/外设模型）。
 
-**当前状态（2026-11-16）**：main 只维护 rv64gc（`XLEN_BITS = 64`、F/D、`RVC_ENABLE = 1`）；rv32 已从 main 删除，整套保留在分支 `rv32-legacy`。Linux 5.15 在 RTL 上从复位启动到登录提示：rv32 约 1.6 亿周期、rv64 约 1.3 亿周期，逐条对比 0 不一致。
+**当前状态（2026-11-19）**：main 只维护 rv64gc（`XLEN_BITS = 64`、F/D、`RVC_ENABLE = 1`）；rv32 已从 main 删除，整套保留在分支 `rv32-legacy`。Linux 5.15 在 RTL 上从复位启动到登录提示：rv64 约 1.3 亿周期，逐条对比 0 不一致（2026-11-16 的 RTL；最新的 RTL 用 12 个检查点窗口 s00–s11 与 trace-model 对齐，全部 PASS，没有从复位整段重跑）。**配置**（2026-11-19，EXP-044）：两个 INT 发射队列、合并的访存队列（load + STA）、5 个 AGU、全局 flush 晚一拍（`FLUSH_REG`）等，与 trace-model 的 `config.h` 默认值一致；每个原子模块一份设计文档在 `docs/modules/`（索引 `docs/05-module-tracker.md`），RTL 开发流程（文档先行、提交前核对）见总仓库 `docs/WORKFLOW.md` 第 7 节。
 
 - 文档入口：[docs/README.md](docs/README.md)（范围、编码规范、模块设计笔记、风险登记簿）；子系统笔记 `RTL_FE_NOTES.md`、`RTL_MEMSPEC_NOTES.md`、`RTL_WBUF_NOTES.md`、`RTL_INTEG_NOTES.md`
 - 目录布局：`rtl/`（全部 RTL，见 [rtl/README.md](rtl/README.md)）、`docs/`、`scripts/`（[索引](scripts/README.md)）、`tb/soc/`（整核测试平台）、`spec/` 与 `tools/`（生成器，见下）、`harness/tools/`（配置包生成器）、`programs/`、`tests/`
