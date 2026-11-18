@@ -17,7 +17,7 @@ depth: 待测（由协调者补）
 
 1. **装配 12 个实例**：`pre_idu_queue`（`u_pre`）、`idu`（`u_idu`）、`ren`（`u_ren`）、`dispatch`（`u_dis`）、`isu`（`u_isu`）、`prf`（`u_prf`）、`exu`（`u_exu`）、`csr`（`u_csr`）、`rob`（`u_rob`）、`tlb_mmu`（DTLB，`u_dtlb`）、`lsu`（`u_lsu`）、`back_top_glue`（`u_glue`）；后端和前端、DCache、MMIO、PTW 的边界就是这个模块的端口；
 2. **全局 flush 晚一拍到达**（FLUSH_REG）：ROB 在第 t 拍决定一次全局 flush 并同拍清自己，三个寄存器 `rob_flush_q`、`rob_fence_q`、`rob_fence_i_q` 把它推迟一拍，再送给其余模块、前端重定向和 fence 广播（docs/FLUSH_REG.md）；
-3. **胶水**（`back_top_glue`）：前端看到的 `out_mispred / out_stall / out_redirect_pc / out_rf_*`、flush 时提交项的 `diag_val` 覆盖、DTLB 要的四个 `mstatus` 位、LSU 要的 AMO 子操作码；
+3. **胶水**（`back_top_glue`）：前端看到的 `out_mispred / out_stall / out_redirect_pc / out_rf_*`、DTLB 要的四个 `mstatus` 位、LSU 要的 AMO 子操作码；
 4. **执行单元装配**（`exu.sv`）：`exu_ctrl` 与 FU 的连线和合同；
 5. **LSU 写回作旁路源**（`lsu_byp_valid`，见 5.5）。
 
@@ -59,7 +59,7 @@ depth: 待测（由协调者补）
    │                                                                                    └─► isu、dis    exe2csr ─► csr ─(csr2exe)─► exu
  rob ─(rob_bcast_flush)─► rob_flush_q ─► pre idu ren dis isu prf exu dtlb lsu；rob ─(mret / exception / pc …)─► csr、glue
  lsu ◄─► dtlb（按物理 AGU 的请求 / 响应）；lsu ─(lsu2iss_wake / cancel)─► isu、dis
- glue：out_mispred / out_redirect_pc / out_rf_*、diag_val 覆盖、mstatus 位、amo_op
+ glue：out_mispred / out_redirect_pc / out_rf_*、mstatus 位、amo_op
 ```
 
 | 文件 | 行数 | 职责 |
@@ -119,9 +119,9 @@ depth: 待测（由协调者补）
 - `out_rf_valid = dec_bcast_mispred & ~rob_bcast_flush & ~flush_q`：只有分支误预测的重定向才做 BPU 历史修复，`out_rf_pc`、`out_rf_is_rvc` 取 IDU 的分支锁存。
 - `out_stall = ~pre2front_ready`；`out_no_mispred = ~out_mispred`（边界规范里用它限定 `out_stall`）。
 
-### 5.4 提交项的 `diag_val` 覆盖
+### 5.4 提交项的 `diag_val`（不覆盖）
 
-`out_commit_entry_uop_diag_val[i] = rob_bcast_flush ? flush_redirect_pc : rob_commit 的 diag_val[i]`：用的是 t 拍的 flush，只作用于离开后端的那份副本；在 `back_top.sv` 里 `rob_commit_commit_entry_uop_diag_val` 只接到 ROB（输出）和胶水（输入），没有其他模块读它。
+`out_commit_entry_uop_diag_val[i]` 就是 ROB 提交项的 `diag_val[i]`，flush 时也不改。原来的实现在 flush 决定拍把它覆盖成重定向目标（模型 `Rob::report_commit` 同），前端训练用它当分支目标，结果是 flush 那一拍恰好提交的跳转 / 调用用陷入地址训练 BTB；加了 FLUSH_REG 之后模型的覆盖落在没有有效提交的推迟拍，等于不覆盖，RTL 仍在决定拍覆盖，Linux 窗口 s08 周期 2856352 出现训练目标不同（RTL `0x80000408` 是 mtvec，模型是调用的真目标）。现在 RTL 不覆盖，与模型一致。
 
 ### 5.5 其他胶水和装配层逻辑
 
@@ -146,7 +146,7 @@ depth: 待测（由协调者补）。已知的数字：整个 `back_top` 最近�
 | --- | --- |
 | ISU 选择 → 授予 → PRF 读 → 槽 | `isu` 授予 → `iss2prf` → `prf` 读口和旁路比较 → `prf2exe` → `exu_ctrl` 槽的寄存器；同时授予 → 唤醒 → 下一拍的就绪（isu.md 的 88 层环路）。这条路径跨三个模块 |
 | 分支解析 → kill | `bru` 比较 → `exu_ctrl_br_arb` → `exu2id_mispred` → `idu` → `dec_bcast_*` → 扇出到 `ren`、`dispatch`、`isu`、`prf`、`exu`、`rob`、`dtlb`、`lsu` 的杀死逻辑 |
-| ROB 提交 → flush → 陷入目标 | `rob` 提交 → `rob_bcast_*` → `csr` 陷入目标 → `back_top_glue` 的 `flush_redirect_pc` → `redirect_pc_q` 和 `out_commit_entry_uop_diag_val`（组合输出）；docs/FLUSH_REG.md 记录原来最长路径的头是这条（约 29 层）再经 AGU 使能、LSU 请求被接受进 DTLB，FLUSH_REG 把后半段切在寄存器上 |
+| ROB 提交 → flush → 陷入目标 | `rob` 提交 → `rob_bcast_*` → `csr` 陷入目标 → `back_top_glue` 的 `flush_redirect_pc` → `redirect_pc_q`；docs/FLUSH_REG.md 记录原来最长路径的头是这条（约 29 层）再经 AGU 使能、LSU 请求被接受进 DTLB，FLUSH_REG 把后半段切在寄存器上 |
 
 本分支和深度有关的改动：
 
@@ -165,12 +165,11 @@ depth: 待测（由协调者补）。已知的数字：整个 `back_top` 最近�
 - **`br_type`、`rf_pc`**：模型在 `Rob::redirect` 里从 FTQ 取 `rf_pc`、`rf_is_rvc`、`rf_type`；RTL 的 `out_rf_pc`、`out_rf_is_rvc` 取 IDU 的分支锁存（`br_latch_*`），`out_rf_type` 在 `pre_idu_queue` 里读出；
 - **`tbhook::on_flush`、`run_interrupt_hook`、统计**：RTL 不带；
 - **没有 trace bridge**：模型 `Rob::redirect` 在 flush 决定那一拍通知 trace bridge 倒回，RTL 没有对应物。
-- **`diag_val` 覆盖发生在哪一拍**：模型在 `CFG_FLUSH_REG = 1` 时 `o.flush` 在决定拍为假、在推迟拍为真（`Rob::redirect`），覆盖发生在推迟拍；RTL 在决定拍用 `rob_bcast_flush` 覆盖（5.4）。所以决定拍离开后端的提交项的 `diag_val`，RTL 是重定向目标、模型是 ROB 原值。周期逐个相等，对前端训练有无影响本文没有核对。
+- **`diag_val` 不覆盖**：模型 `Rob::report_commit` 的覆盖 `if (o.flush) ... = o.redirect_pc` 在 `CFG_FLUSH_REG = 1` 时落在推迟拍，那一拍没有有效提交，所以对前端训练无效；RTL 也不覆盖（5.4）。
 
 RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 
 - flush 决定那一拍分支误预测被丢弃，`out_rf_valid` 为 0；推迟的下一拍 `out_mispred` 为 1、`out_rf_valid` 为 0（模型 `pend_` 分支同）；
-- flush 时提交项的 `diag_val` 被覆盖成重定向目标（模型 `Rob::report_commit`：`if (o.flush) ... diag_val = o.redirect_pc`）；
 
 死线网和过时注释（没有改）：`back_top.sv` 有 12 条输出接到 `nc_*` 线（`csr2exe_rdata_vld`、`csr2front_epc_vld`、`csr2front_trap_pc_vld`、`dis2lsu_func3`、`dis2lsu_stq_flag`、`dis2rob_uop_func3`、`dis2rob_uop_is_atomic`、`ftq_prf_pc_resp_resp_valid`、`ftq_rob_pc_resp_resp_valid`、`mmu2lsu_resp_hit`、`rob_bcast_trap_val_valid`、`rob_commit_commit_entry_uop_mispred`）；`exu.sv` 文件头写"27 个功能单元"（实际实例化 30 个）、"boundary = spec/exu.io"（spec 已删除）、"MC 序是 `{MUL(0), DIV(3), MUL(5), DIV(7)}`"（现在是 FU 号 `{0, 3, 5, 8}`，下标 `{MUL 0, DIV 1, MUL 2, DIV 3}`）；`back_top.sv` 里注释"intentionally unread: listed in docs/modules/back_top.md"现在由本文第 7 节代替；`isu_wake_src.sv`（不属于本模块）的头注释写"14 个唤醒通道"，现在是 `WAKE_NUM = 22`。
 

@@ -68,12 +68,11 @@ module back_top_glue
   assign out_rf_pc       = br_latch_br_pc;
   assign out_rf_is_rvc   = br_latch_is_rvc;
 
-  // Ref: BackTop::comb, loop over COMMIT_WIDTH: valid slots get diag_val = redirect_pc while flushing
+  // The committed slots leave the back end as they are: the diag_val of a branch is the target the front end trains with, also in
+  // the cycle a flush is decided (the model overrides it only in the cycle the flush is delivered, which has no valid commit).
   for (genvar i = 0; i < COMMIT_WIDTH; i++) begin : g_commit
-    assign out_commit_entry_uop_diag_val[i] =
-        rob_bcast_flush ? flush_redirect_pc : rob_commit_commit_entry_uop_diag_val[i];   // (this cycle's commit: the redirect target of the flush decided now)
+    assign out_commit_entry_uop_diag_val[i] = rob_commit_commit_entry_uop_diag_val[i];
   end
-  // (rob_commit_commit_entry_valid only qualifies the diag_val in the boundary spec; the override itself is per slot)
   logic commit_valid_unused;  // lint: kept as a port so the glue's interface documents the qualification
   assign commit_valid_unused = |rob_commit_commit_entry_valid;
 
