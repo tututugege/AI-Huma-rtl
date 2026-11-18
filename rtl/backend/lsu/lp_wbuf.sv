@@ -214,12 +214,12 @@ module lp_wbuf
     if (k == 0) begin : g_first
       lp_wbstep u_step (
         .ent_i(ent_0), .lt_i(lt_0), .b_i(b_0), .ent_o(ent_o), .lt_o(lt_o), .b_o(b_o),
-        .v_reg(v_w), .st_reg(st_w), .issue(issue), .pick_v(i_v[k]), .jk(jk[k]), .s(sk[k]), .mark(mk[k]));
+        .v_reg(v_w), .pick_v(i_v[k]), .jk(jk[k]), .s(sk[k]), .mark(mk[k]));
     end else begin : g_next
       lp_wbstep u_step (
         .ent_i(g_ins[k - 1].ent_o), .lt_i(g_ins[k - 1].lt_o), .b_i(g_ins[k - 1].b_o),
         .ent_o(ent_o), .lt_o(lt_o), .b_o(b_o),
-        .v_reg(v_w), .st_reg(st_w), .issue(issue), .pick_v(i_v[k]), .jk(jk[k]), .s(sk[k]), .mark(mk[k]));
+        .v_reg(v_w), .pick_v(i_v[k]), .jk(jk[k]), .s(sk[k]), .mark(mk[k]));
     end
   end
   assign ent_n = g_ins[NINS - 1].ent_o;

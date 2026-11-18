@@ -14,8 +14,6 @@ module lp_wbstep
   output ltm_t            lt_o,
   output wbb_t            b_o,
   input  logic [NWB-1:0]  v_reg,         // registered occupancy
-  input  logic [NWB-1:0]  st_reg,        // registered "sent"
-  input  logic [NWB-1:0]  issue,         // entries sent in this cycle
   input  logic            pick_v,
   input  logic [SQW-1:0]  jk,
   input  wbi_t            s,
@@ -35,7 +33,7 @@ module lp_wbstep
         mark = 1'b1;
       end else begin
         merge_ok = b_i.tail_v && !s.lrsc && b_i.t_mg && !b_i.t_two && b_i.t_line == s.paddr[31:6] &&
-                   (b_i.tail_new || (!st_reg[b_i.tail] && !issue[b_i.tail]));
+                   b_i.tail_new;     // only an entry started in this cycle takes more stores (whether the registered tail is sent now is late)
         if (merge_ok) begin
           ent_o[b_i.tail].two = 1'b1;
           ent_o[b_i.tail].m1 = jk;
