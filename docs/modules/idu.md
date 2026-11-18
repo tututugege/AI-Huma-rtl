@@ -116,7 +116,7 @@ depth: 67 层（idu，单模块综合，2026-11-18，`SYNTH_ABC="strash;balance;
 
 ## 6. 关键路径与深度
 
-单模块综合深度 **67 层**（idu；2026-11-18；`scripts/synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`，生成门代理，不是时序）。综合报告给出的最长路径：从 `\u_state.tag_free_q [0]` 到 `\u_state.now_mask_q [8]`。。
+单模块综合深度 **67 层**（idu；2026-11-18；`scripts/synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`，生成门代理，不是时序）。综合报告给出的最长路径：从 `\u_state.tag_free_q [0]` 到 `\u_state.now_mask_q [8]`。
 
 从代码读出的长组合链（未综合验证）：
 

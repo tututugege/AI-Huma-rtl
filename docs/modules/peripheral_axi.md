@@ -77,7 +77,7 @@ depth: 10 层（peripheral_axi，单模块综合，2026-11-18，`SYNTH_ABC="stra
 
 ## 6. 关键路径与深度
 
-单模块综合深度 **10 层**（peripheral_axi；2026-11-18；`scripts/synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`，生成门代理，不是时序）。综合报告给出的最长路径：从 `\u_ctl.func3_q [1]` 到 `\u_ctl.rdata_q [40]`。。从代码读出的，未综合验证：很浅。最长的链是 `env_modeled`（来自环境）→ `local_serve` / `axi_issue` → 状态次态；`req_is_mmio` → `accept`；读数据格式化是 6 选 1 的扩展。AXI 的 `accepted` / `resp_valid` 输入直接进状态次态。
+单模块综合深度 **10 层**（peripheral_axi；2026-11-18；`scripts/synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`，生成门代理，不是时序）。综合报告给出的最长路径：从 `\u_ctl.func3_q [1]` 到 `\u_ctl.rdata_q [40]`。从代码读出的，未综合验证：很浅。最长的链是 `env_modeled`（来自环境）→ `local_serve` / `axi_issue` → 状态次态；`req_is_mmio` → `accept`；读数据格式化是 6 选 1 的扩展。AXI 的 `accepted` / `resp_valid` 输入直接进状态次态。
 
 ## 7. 与模型的差异和取舍
 

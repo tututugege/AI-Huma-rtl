@@ -124,7 +124,7 @@ MSHR 分配给第一个空闲项。内存读按"第一个还没发过的项"发�
 
 ## 6. 关键路径与深度
 
-单模块综合深度 **238 层**（axi_llc；2026-11-18；`scripts/synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`，生成门代理，不是时序）。综合报告给出的最长路径：从 `\mem_wr_resp_valid` 到 `\u_core.u_resolve.u_line.data [8191]`。。从代码读出的、未综合验证的长组合链：
+单模块综合深度 **238 层**（axi_llc；2026-11-18；`scripts/synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`，生成门代理，不是时序）。综合报告给出的最长路径：从 `\mem_wr_resp_valid` 到 `\u_core.u_resolve.u_line.data [8191]`。从代码读出的、未综合验证的长组合链：
 
 - **解析**：16 路 `valid & 标签相等` → `ttg_first_set` → 命中路号 → 16 选 1 的 512 位行选择（`ttg_onehot_mux`）→ 按字节合并（`axi_llc_merge`，512 位，字节偏移移位）→ 行表写数据；同时 `done` 依赖响应队列接收（`acc_a`）、`retry` 依赖 `done`；`axi_llc_waypick` 在缺失路径上多一级旋转优先级。
 - **读接收**：对每个读主口做 3 组行 CAM（受害行持有者 19 项、写列表 6 项、MSHR 8 项），与响应槽、查表引擎、空闲 MSHR 等合成 `ok`，再旋转优先级选择；它的输出（`up_rd_req_ready`）又回到互连的台（见 axi_interconnect.md 第 6 节）。

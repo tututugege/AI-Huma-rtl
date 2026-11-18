@@ -86,7 +86,7 @@ depth: 47 层（ptw_walk，单模块综合，2026-11-18，`SYNTH_ABC="strash;bal
 
 ## 6. 关键路径与深度
 
-单模块综合深度 **47 层**（ptw_walk；2026-11-18；`scripts/synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`，生成门代理，不是时序）。综合报告给出的最长路径：从 `\g_client[0].u_client.inflight_q` 到 `\u_engine.publish_any`。。从代码读出的，未综合验证：
+单模块综合深度 **47 层**（ptw_walk；2026-11-18；`scripts/synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`，生成门代理，不是时序）。综合报告给出的最长路径：从 `\g_client[0].u_client.inflight_q` 到 `\u_engine.publish_any`。从代码读出的，未综合验证：
 
 - 最长的是"**PTE 事件 → 判断 → 状态更新 / 发布**"：`event_data`（来自数据缓存第二级的响应，经 `mem_route`）→ `ptw_walk_pte`（保留位、大页对齐检查、叶子 / 指针判断）→ `publish` → 客户寄存器与引擎状态；其中 id 比较 `event_req_id == req_id_c` 要在授权更新之后（`req_id_c`）；
 - "**读请求**"：`state_q`、选客户 → 取 VPN 的 9 位段（按 `level_q` 选）→ `walk_read_addr` → `mem_route` → 数据缓存 bank 授权；

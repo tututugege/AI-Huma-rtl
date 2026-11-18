@@ -91,7 +91,7 @@ depth: 90 层（pmu，单模块综合，2026-11-18，`SYNTH_ABC="strash;balance;
 
 ## 6. 关键路径与深度
 
-单模块综合深度 **90 层**（pmu；2026-11-18；`scripts/synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`，生成门代理，不是时序）。。从代码读出的、未综合验证的链：
+单模块综合深度 **90 层**（pmu；2026-11-18；`scripts/synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`，生成门代理，不是时序）。从代码读出的、未综合验证的链：
 
 - `pmu_ev_core`：`blocked` 是 8 槽的串行 OR 链（`blocked[i]` 依赖 `blocked[i-1]`），之后 `ttg_popcount`（8 位串行加法）→ `ev_inc`；这是纯 PMU 逻辑，起点是分派和 ROB 的输出；
 - `pmu`：每个可编程计数器是 66 选 1（用 `==` 比较生成的 AND-OR，66 项）+ 64 位加法；CSR 读口是对计数器的多路选择。因为没有接进核，当前不在任何关键路径上。

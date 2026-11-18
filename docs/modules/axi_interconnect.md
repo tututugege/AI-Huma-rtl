@@ -119,7 +119,7 @@ LLC 的内存读请求 `lo_*` 在以下条件下发出 AR（`fresh`）：没有 
 
 ## 6. 关键路径与深度
 
-单模块综合深度 **37 层**（axi_interconnect；2026-11-18；`scripts/synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`，生成门代理，不是时序）。综合报告给出的最长路径：从 `\u_rd.rp_v [0]` 到 `\u_ar.pend_d [2557]`。。下面是从代码读出的、未综合验证的长组合链：
+单模块综合深度 **37 层**（axi_interconnect；2026-11-18；`scripts/synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`，生成门代理，不是时序）。综合报告给出的最长路径：从 `\u_rd.rp_v [0]` 到 `\u_ar.pend_d [2557]`。下面是从代码读出的、未综合验证的长组合链：
 
 - **台的弹出 / 抢占 / 派发 / 捕获环**：`lo_rd_ready` 来自 LLC 的 `axi_llc_rdacc`（它对四个读口各做 3 组行 CAM 比较，再轮询选择，见 axi_llc.md），之后在 `axi_ic_stage` 里依次经过弹出、抢占判断、两次 `ttg_first_set`（派发）、捕获槽选择，最后写 512 位数据槽的次态。这是跨 LLC 和互连的一条链。
 - **写捕获**：`axi_ic_haz` 对每个写主口约 28 个 26 位相等比较再 OR → `axi_ic_wr` 的 `ttg_first_set` → 接收 → 捕获槽。

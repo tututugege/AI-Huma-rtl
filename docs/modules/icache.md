@@ -108,7 +108,7 @@ depth: 69 层（icache，单模块综合，2026-11-18，`SYNTH_ABC="strash;balan
 
 ## 6. 关键路径与深度
 
-单模块综合深度 **69 层**（icache；2026-11-18；`scripts/synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`，生成门代理，不是时序）。综合报告给出的最长路径：从 `\u_ctl.r_q [136]` 到 `\u_ctl.r_q [44]`。。从代码读出的，未综合验证：快速通路把几件事放在了同一拍里——取指地址（来自取指地址队列的寄存器，经 `fa_rd_en` 选通）→ ITLB 查找（64 项的全相联比较，`tlb_mmu_core`）→ `ppn` → 阵列 8 路标签比较（阵列读是异步的）→ 命中路选择（8 选 1，512 位）→ `icache_resp` 的 16 路按偏移切片 → 取指侧的展开 / 预译码 / 起点扫描 → 指令队列写数据（`front_fetch_buf`）。这是前端里"从地址到指令队列"的一整条链，I-Cache 的响应在同一拍就进了指令队列。`icache_ctl` 里 `invalidate`、`kill1` 只影响次态和存储侧输出，不在这条链上。
+单模块综合深度 **69 层**（icache；2026-11-18；`scripts/synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`，生成门代理，不是时序）。综合报告给出的最长路径：从 `\u_ctl.r_q [136]` 到 `\u_ctl.r_q [44]`。从代码读出的，未综合验证：快速通路把几件事放在了同一拍里——取指地址（来自取指地址队列的寄存器，经 `fa_rd_en` 选通）→ ITLB 查找（64 项的全相联比较，`tlb_mmu_core`）→ `ppn` → 阵列 8 路标签比较（阵列读是异步的）→ 命中路选择（8 选 1，512 位）→ `icache_resp` 的 16 路按偏移切片 → 取指侧的展开 / 预译码 / 起点扫描 → 指令队列写数据（`front_fetch_buf`）。这是前端里"从地址到指令队列"的一整条链，I-Cache 的响应在同一拍就进了指令队列。`icache_ctl` 里 `invalidate`、`kill1` 只影响次态和存储侧输出，不在这条链上。
 
 本轮没有改 I-Cache 的深度。
 

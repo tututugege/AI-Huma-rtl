@@ -104,7 +104,7 @@ I-Cache 回来的一个取指组（16 个 2 字节的槽）在进入后端之前
 
 ## 6. 关键路径与深度
 
-单模块综合深度 **29 层**（predecode；predecode_checker 22 层；2026-11-18；`scripts/synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`，生成门代理，不是时序）。综合报告给出的最长路径：从 `\inst_valid [15]` 到 `\predecode_target_address [63]`。。从代码读出的，未综合验证：这几个模块没有单独测过。最长的链在检查侧：指令队列读口 → `front_head_fix`（64 位 `lh_pc == base_pc` 比较 → `carry` → 槽 0 重预译码里的 pc + 立即数加法 → 选择）→ `predecode_checker`（16 路 `first_set` → 独热选 64 位目标 → 与 PTAB 的 64 位地址比较）→ `do_predecode_flush`；另有 `seq_next_o` 里 `complete_pc + 4` 的 64 位加法再进 checker 的 `seq_next_pc` 选项。`front_pd_info` 的第一个 taken 槽选择与检查器并行。
+单模块综合深度 **29 层**（predecode；predecode_checker 22 层；2026-11-18；`scripts/synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`，生成门代理，不是时序）。综合报告给出的最长路径：从 `\inst_valid [15]` 到 `\predecode_target_address [63]`。从代码读出的，未综合验证：这几个模块没有单独测过。最长的链在检查侧：指令队列读口 → `front_head_fix`（64 位 `lh_pc == base_pc` 比较 → `carry` → 槽 0 重预译码里的 pc + 立即数加法 → 选择）→ `predecode_checker`（16 路 `first_set` → 独热选 64 位目标 → 与 PTAB 的 64 位地址比较）→ `do_predecode_flush`；另有 `seq_next_o` 里 `complete_pc + 4` 的 64 位加法再进 checker 的 `seq_next_pc` 选项。`front_pd_info` 的第一个 taken 槽选择与检查器并行。
 
 深度相关的改动：无（本轮没有动这些模块；指令起点扫描在 `front_fetch_buf`，见 [front_top.md](front_top.md)）。
 

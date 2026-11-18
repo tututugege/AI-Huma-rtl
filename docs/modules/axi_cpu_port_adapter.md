@@ -57,7 +57,7 @@ depth: 9 层（axi_cpu_port_adapter，单模块综合，2026-11-18，`SYNTH_ABC=
 
 ## 6. 关键路径与深度
 
-单模块综合深度 **9 层**（axi_cpu_port_adapter；2026-11-18；`scripts/synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`，生成门代理，不是时序）。综合报告给出的最长路径：从 `\g_chan[0].u_chan.resp0_id_q [2]` 到 `\g_chan[0].u_chan.view_resp_ready_q`。。从代码读出的：全是 1 位或 4 位的比较和选择，没有长链；`hide_resp` 的 4 位 id 比较是最长的一段。未综合验证。
+单模块综合深度 **9 层**（axi_cpu_port_adapter；2026-11-18；`scripts/synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`，生成门代理，不是时序）。综合报告给出的最长路径：从 `\g_chan[0].u_chan.resp0_id_q [2]` 到 `\g_chan[0].u_chan.view_resp_ready_q`。从代码读出的：全是 1 位或 4 位的比较和选择，没有长链；`hide_resp` 的 4 位 id 比较是最长的一段。未综合验证。
 
 ## 7. 与模型的差异和取舍
 

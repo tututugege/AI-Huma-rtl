@@ -111,7 +111,7 @@ depth: 39 层（pre_idu_queue，单模块综合，2026-11-18，`SYNTH_ABC="stras
 
 ## 6. 关键路径与深度
 
-单模块综合深度 **39 层**（pre_idu_queue；2026-11-18；`scripts/synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`，生成门代理，不是时序）。综合报告给出的最长路径：从 `\front2pre_valid [1]` 到 `\u_ibuf.buf_entry [351]`。。
+单模块综合深度 **39 层**（pre_idu_queue；2026-11-18；`scripts/synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`，生成门代理，不是时序）。综合报告给出的最长路径：从 `\front2pre_valid [1]` 到 `\u_ibuf.buf_entry [351]`。
 
 从代码读出的长组合链（未综合验证）：
 

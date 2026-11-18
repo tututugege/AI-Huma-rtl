@@ -132,7 +132,7 @@ lane i 可以分派的条件（`dispatch_fire_ctl`）：寄存器里有指令、
 
 ## 6. 关键路径与深度
 
-单模块综合深度 **56 层**（dispatch；2026-11-18；`scripts/synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`，生成门代理，不是时序）。综合报告给出的最长路径：从 `\u_core.u_inst_stage.inst_q [1863]` 到 `\u_core.u_busy_table.busy_q [222]`。。
+单模块综合深度 **56 层**（dispatch；2026-11-18；`scripts/synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`，生成门代理，不是时序）。综合报告给出的最长路径：从 `\u_core.u_inst_stage.inst_q [1863]` 到 `\u_core.u_busy_table.busy_q [222]`。
 
 从代码读出的长组合链（未综合验证）：
 

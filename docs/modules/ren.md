@@ -118,7 +118,7 @@ AMO 暂存寄存器：IDU 把"丢弃结果的读改写 AMO"的目的寄存器号
 
 ## 6. 关键路径与深度
 
-单模块综合深度 **110 层**（ren；2026-11-18；`scripts/synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`，生成门代理，不是时序）。综合报告给出的最长路径：从 `\u_core.u_pipe.inst_q [771]` 到 `\u_core.g_fp.u_fp.u_ckpt.entry_q [8182]`。。
+单模块综合深度 **110 层**（ren；2026-11-18；`scripts/synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`，生成门代理，不是时序）。综合报告给出的最长路径：从 `\u_core.u_pipe.inst_q [771]` 到 `\u_core.g_fp.u_fp.u_ckpt.entry_q [8182]`。
 
 从代码读出的长组合链（未综合验证）：
 

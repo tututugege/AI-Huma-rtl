@@ -115,7 +115,7 @@ flush 是 `exu_ctrl` 送来的 `exu2fu_flush = rob_bcast_flush || dec_bcast_misp
 
 ## 6. 关键路径与深度
 
-单模块综合深度 **73 层**（exu（含 exu_ctrl 和全部功能单元）；2026-11-18；`scripts/synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`，生成门代理，不是时序）。综合报告给出的最长路径：从 `\u_ctrl.u_slot.g_slot[1].slot_q [107]` 到 `\exe2prf_entry_uop_result [1343]`。。已知的一个数字：提交 `48d547e` 的说明记录 `mul_unit` 单模块综合从 209 层降到 90 层（那次提交时测的，本文没有复测）。其余 FU 没有单独测过。以下是从代码读出的，未综合验证：
+单模块综合深度 **73 层**（exu（含 exu_ctrl 和全部功能单元）；2026-11-18；`scripts/synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`，生成门代理，不是时序）。综合报告给出的最长路径：从 `\u_ctrl.u_slot.g_slot[1].slot_q [107]` 到 `\exe2prf_entry_uop_result [1343]`。已知的一个数字：提交 `48d547e` 的说明记录 `mul_unit` 单模块综合从 209 层降到 90 层（那次提交时测的，本文没有复测）。其余 FU 没有单独测过。以下是从代码读出的，未综合验证：
 
 | 路径 | 内容 |
 | --- | --- |

@@ -95,7 +95,7 @@ RTL 把它拆成三个文件，装配在 `front_ctrl.sv`：
 
 ## 6. 关键路径与深度
 
-单模块综合深度 **5 层**（front_ctrl；2026-11-18；`scripts/synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`，生成门代理，不是时序）。综合报告给出的最长路径：从 `\inst_empty` 到 `\front_out_valid`。。这三个文件的逻辑本身很浅（一级与或）；从代码读出的，未综合验证：值得看的是进出它们的路径而不是它们自己——`checker_flush_enable`（检查链末端）→ `do_predecode_flush` → `predecode_refetch_q` 次态、I-Cache `invalidate`、`front_pd_info`；以及 `bpu_ptab_write_enable`（BPU 的 `d_valid`，来自 S2 阶段寄存器）→ `predecode_can_run` → 两个队列的读使能和 `front2back` 写使能。EXP-FEOVR 去掉的是 `bpu_override_*` → `fa_rd_en`，使 BPU 末级到 I-Cache 请求的路径断开。
+单模块综合深度 **5 层**（front_ctrl；2026-11-18；`scripts/synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`，生成门代理，不是时序）。综合报告给出的最长路径：从 `\inst_empty` 到 `\front_out_valid`。这三个文件的逻辑本身很浅（一级与或）；从代码读出的，未综合验证：值得看的是进出它们的路径而不是它们自己——`checker_flush_enable`（检查链末端）→ `do_predecode_flush` → `predecode_refetch_q` 次态、I-Cache `invalidate`、`front_pd_info`；以及 `bpu_ptab_write_enable`（BPU 的 `d_valid`，来自 S2 阶段寄存器）→ `predecode_can_run` → 两个队列的读使能和 `front2back` 写使能。EXP-FEOVR 去掉的是 `bpu_override_*` → `fa_rd_en`，使 BPU 末级到 I-Cache 请求的路径断开。
 
 | 改动 | 提交 | 作用 |
 | --- | --- | --- |

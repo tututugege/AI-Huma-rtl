@@ -53,7 +53,7 @@ depth: 238 层（axi_subsys（含互连和 LLC），单模块综合，2026-11-18
 
 ## 6. 关键路径与深度
 
-单模块综合深度 **238 层**（axi_subsys（含互连和 LLC）；2026-11-18；`scripts/synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`，生成门代理，不是时序）。综合报告给出的最长路径：从 `\u_llc.u_core.u_mshr.g_ent[6].u_ent.bypass_q` 到 `\u_llc.u_core.u_resolve.u_line.data [8191]`。。本模块自己没有逻辑；跨两个子模块的最长链是"互连台 → LLC 读接收 → `up_rd_req_ready` → 互连台的弹出 / 抢占 / 派发 / 捕获"（见 axi_interconnect.md、axi_llc.md 第 6 节），综合时需要把两个模块放在一起才能量到。未综合验证。
+单模块综合深度 **238 层**（axi_subsys（含互连和 LLC）；2026-11-18；`scripts/synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`，生成门代理，不是时序）。综合报告给出的最长路径：从 `\u_llc.u_core.u_mshr.g_ent[6].u_ent.bypass_q` 到 `\u_llc.u_core.u_resolve.u_line.data [8191]`。本模块自己没有逻辑；跨两个子模块的最长链是"互连台 → LLC 读接收 → `up_rd_req_ready` → 互连台的弹出 / 抢占 / 派发 / 捕获"（见 axi_interconnect.md、axi_llc.md 第 6 节），综合时需要把两个模块放在一起才能量到。未综合验证。
 
 ## 7. 与模型的差异和取舍
 

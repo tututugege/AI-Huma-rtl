@@ -98,7 +98,7 @@ BPU 的 S2 在检查一个块时发现它与 S0 / S1 的猜测不一致，就要
 
 ## 6. 关键路径与深度
 
-单模块综合深度 **13 层**（fetch_addr_fifo；ptab、inst_fifo、front2back_fifo 更浅；2026-11-18；`scripts/synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`，生成门代理，不是时序）。综合报告给出的最长路径：从 `\u_fifo.count_q [2]` 到 `\u_fifo.count_q [4]`。。队列本身是存储器读 + 指针加法，很浅。从代码读出的，未综合验证：值得看的是（1）`rdata = mem_q[rd_ptr_q]`（16 项 × 1729 位的读口选择）后面接着 `front_head_fix` 和检查器，见 [predecode.md](predecode.md)；（2）PTAB 开旁路后读口多了一级 `empty ? wdata : mem_q[...]`，而 `wdata` 来自 BPU 的 S2 选择结果（`bpu_main_sel`），所以 BPU 的 S2 → PTAB 旁路 → 检查器 → 冲刷是一条跨模块的长路径（这是 `FE_RFAST` 位 1 的代价）；（3）取指地址队列的 `head_fresh` 比较是 4 位槽号相等，很浅。
+单模块综合深度 **13 层**（fetch_addr_fifo；ptab、inst_fifo、front2back_fifo 更浅；2026-11-18；`scripts/synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`，生成门代理，不是时序）。综合报告给出的最长路径：从 `\u_fifo.count_q [2]` 到 `\u_fifo.count_q [4]`。队列本身是存储器读 + 指针加法，很浅。从代码读出的，未综合验证：值得看的是（1）`rdata = mem_q[rd_ptr_q]`（16 项 × 1729 位的读口选择）后面接着 `front_head_fix` 和检查器，见 [predecode.md](predecode.md)；（2）PTAB 开旁路后读口多了一级 `empty ? wdata : mem_q[...]`，而 `wdata` 来自 BPU 的 S2 选择结果（`bpu_main_sel`），所以 BPU 的 S2 → PTAB 旁路 → 检查器 → 冲刷是一条跨模块的长路径（这是 `FE_RFAST` 位 1 的代价）；（3）取指地址队列的 `head_fresh` 比较是 4 位槽号相等，很浅。
 
 | 改动 | 提交 | 作用 |
 | --- | --- | --- |

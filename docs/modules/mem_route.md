@@ -88,7 +88,7 @@ depth: 9 层（mem_route，单模块综合，2026-11-18，`SYNTH_ABC="strash;bal
 
 ## 6. 关键路径与深度
 
-单模块综合深度 **9 层**（mem_route；2026-11-18；`scripts/synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`，生成门代理，不是时序）。综合报告给出的最长路径：从 `\dcache_resp_load_valid [0]` 到 `\ptw_wakeup_walk`。。从代码读出的，未综合验证：
+单模块综合深度 **9 层**（mem_route；2026-11-18；`scripts/synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`，生成门代理，不是时序）。综合报告给出的最长路径：从 `\dcache_resp_load_valid [0]` 到 `\ptw_wakeup_walk`。从代码读出的，未综合验证：
 
 - **请求侧**：`issued_owner_q`（寄存器）和 ICache / 遍历器的请求有效 → 主人 → 地址二选一 → P3 的 `dcache_req_load_*`，然后进入数据缓存的 bank 授权，这是整个路由块进入数据缓存关键路径的入口；
 - **响应侧**：数据缓存第二级的响应（组合）→ id 比较、`own_resp` → LSU 的 `lsu_resp_load_*`（P3 要多一层二选一）；同时 → 遍历器的 PTE 事件，进入 `ptw_walk` 的 PTE 解析（见 ptw_walk.md）；
