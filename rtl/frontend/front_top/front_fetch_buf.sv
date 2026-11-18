@@ -69,15 +69,45 @@ module front_fetch_buf import ttg_cfg_pkg::*; import front_pkg::*; (
       rvc_expand u_expand (.h(ic_fetch_group[i][15:0]), .inst(ex));
       assign is_rvc[i]  = ic_inst_valid[i] && (ic_fetch_group[i][1:0] != 2'b11);
       assign ex_inst[i] = is_rvc[i] ? ex : ic_fetch_group[i];
+    end
+    // Instruction starts of the group.  Every instruction is 2 or 4 bytes, so a slot begins one iff the slot before does
+    // not begin a 32-bit one: start[i] = valid[i] && (!start[i-1] || is_rvc[i-1]), which toggles along a run of 32-bit
+    // instructions and is set right after a 16-bit one.  Slot i therefore begins an instruction iff the distance from the
+    // last 16-bit instruction before it is even (the parity of that lane's index): a 4-round prefix scan of "the last
+    // set lane and its index parity" instead of a chain over the lanes (checked against the chain by random test).
+    //   start_a: slot 0 begins an instruction (no 16-bit one before it counts as an odd lane: parity 1)
+    //   start_b: slot 0 is the second half of the previous group's last instruction (slot 1 begins one: lane 0 counts as a
+    //            16-bit instruction at an even lane)
+    /* verilator lint_off UNUSEDSIGNAL */  // the scan result of the last lane is not used (slot i reads the scan at i-1)
+    logic [FETCH_WIDTH-1:0] sc_any_a, sc_par_a, sc_par_b;
+    /* verilator lint_on UNUSEDSIGNAL */
+    always_comb begin
+      logic [FETCH_WIDTH-1:0] ca, cb, pa, pb;
+      for (int i = 0; i < FETCH_WIDTH; i++) begin
+        ca[i] = is_rvc[i];
+        cb[i] = (i == 0) ? 1'b1 : is_rvc[i];
+        pa[i] = (i % 2) == 1;        // parity of the lane's index
+        pb[i] = (i % 2) == 1;
+      end
+      for (int d = 1; d < FETCH_WIDTH; d = d * 2) begin   // inclusive scan: the last set lane at or below i and its parity
+        logic [FETCH_WIDTH-1:0] ca_n, cb_n, pa_n, pb_n;
+        ca_n = ca; cb_n = cb; pa_n = pa; pb_n = pb;
+        for (int i = d; i < FETCH_WIDTH; i++) begin
+          if (!ca[i]) begin ca_n[i] = ca[i-d]; pa_n[i] = pa[i-d]; end
+          if (!cb[i]) begin cb_n[i] = cb[i-d]; pb_n[i] = pb[i-d]; end
+        end
+        ca = ca_n; cb = cb_n; pa = pa_n; pb = pb_n;
+      end
+      sc_any_a = ca; sc_par_a = pa; sc_par_b = pb;
+    end
+    for (genvar i = 0; i < FETCH_WIDTH; i++) begin : g_start
       if (i == 0) begin : g_first
         assign start_a[i] = ic_inst_valid[i];
         assign start_b[i] = 1'b0;
-      end else if (i == 1) begin : g_second
-        assign start_a[i] = ic_inst_valid[i] && start_a[0] && is_rvc[0];
-        assign start_b[i] = ic_inst_valid[i];
       end else begin : g_rest
-        assign start_a[i] = ic_inst_valid[i] && ((start_a[i-1] && is_rvc[i-1]) || (start_a[i-2] && !is_rvc[i-2]));
-        assign start_b[i] = ic_inst_valid[i] && ((start_b[i-1] && is_rvc[i-1]) || (start_b[i-2] && !is_rvc[i-2]));
+        // the last 16-bit instruction before slot i (inclusive scan at i-1), none: the virtual one at lane -1 (odd)
+        assign start_a[i] = ic_inst_valid[i] && ((sc_any_a[i-1] ? sc_par_a[i-1] : 1'b1) == (((i + 1) % 2) == 1));
+        assign start_b[i] = ic_inst_valid[i] && (sc_par_b[i-1] == (((i + 1) % 2) == 1));
       end
     end
   end else begin : g_word
