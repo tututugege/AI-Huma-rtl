@@ -9,10 +9,10 @@ module dispatch_iq_req
   import dis_pkg::*;
 (
   input  logic [NUM_SLOTS-1:0] fire,
-  input  logic [IQ_NUM-1:0]    has_iq   [NUM_SLOTS],
   input  logic [1:0]           cnt_iq   [NUM_SLOTS][IQ_NUM],
   input  logic [IQ_PORT_W-1:0] port_idx [NUM_SLOTS][IQ_NUM],
   input  dis_iss_uop_t         uop_iq   [NUM_SLOTS][IQ_NUM],
+  input  dis_iss_uop_t         uop_mem2 [NUM_SLOTS],            // the second memory-queue uop (the STA of an AMO's LD + STA)
   output logic                 req_valid [IQ_NUM][IQ_PORTS],
   output dis_iss_uop_t         req_uop   [IQ_NUM][IQ_PORTS]
 );
@@ -25,11 +25,7 @@ module dispatch_iq_req
     always_comb begin
       for (int i = 0; i < NUM_SLOTS; i++) begin
         lane_uop[i]  = uop_iq[i][q];
-        lane_uop2[i] = uop_iq[i][q];
-        if (MEM_MERGE != 0 && q == IQ_LD) begin
-          lane_uop[i]  = has_iq[i][IQ_LD] ? uop_iq[i][IQ_LD] : uop_iq[i][IQ_STA];   // a load, else a store address
-          lane_uop2[i] = uop_iq[i][IQ_STA];
-        end
+        lane_uop2[i] = (q == IQ_MEM) ? uop_mem2[i] : uop_iq[i][q];
       end
     end
 

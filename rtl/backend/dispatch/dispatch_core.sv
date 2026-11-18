@@ -151,15 +151,17 @@ module dispatch_core
     .woken1(woken1), .woken2(woken2), .woken3(woken3), .busy1(busy1), .busy2(busy2), .busy3(busy3));
 
   // ---- comb_dispatch: uop split and IQ port allocation ----
-  logic [IQ_NUM-1:0]       has_iq [NUM_SLOTS];
-  dis_iss_uop_t            uop_iq [NUM_SLOTS][IQ_NUM];
+  logic [IQ_NUM-1:0]       has_iq [NUM_SLOTS];          // the lane has a uop for queue q
+  dis_iss_uop_t            uop_iq [NUM_SLOTS][IQ_NUM];  // its (first) uop for queue q
+  dis_iss_uop_t            uop_mem2 [NUM_SLOTS];        // its second memory-queue uop (the STA of an AMO's LD + STA)
+  logic [1:0]              cnt_mem [NUM_SLOTS];         // memory-queue uops of the lane: the load and / or the store address
   logic [CPLT_MASK_W-1:0]  expect_mask [NUM_SLOTS];
   logic [IQ_PORT_W-1:0]    port_idx [NUM_SLOTS][IQ_NUM];
   logic [NUM_SLOTS-1:0] fit;
 
   for (genvar i = 0; i < NUM_SLOTS; i++) begin : g_decompose
-    dis_iss_uop_t lane_uop [IQ_NUM];
-    logic [IQ_NUM-1:0] lane_has_iq;
+    dis_iss_uop_t lane_uop [K_NUM];
+    logic [K_NUM-1:0] lane_has;
     dis_iss_uop_t base_uop;
     // Ref: Dispatch::make_dis_iss_uop
     always_comb begin
@@ -182,35 +184,42 @@ module dispatch_core
     dispatch_decompose u_decompose (
       .base(base_uop), .itype(alloc_inst[i].itype), .cls(cls[i]), .fp_cls(alloc_inst[i].fp_cls),
       .me_elim(alloc_inst[i].me_elim), .is_rvc(alloc_inst[i].is_rvc),
-      .has_iq(lane_has_iq), .uop_iq(lane_uop), .expect_mask(expect_mask[i]));
-    // INT_CLUSTERS = 2: an integer uop goes to the queue of its position: CSR to IQ_INT, I2F to IQ_INT1, the others by the
-    // parity of the ROB index (Ref: route_iq in back-end/include/util.h)
+      .has_k(lane_has), .uop_k(lane_uop), .expect_mask(expect_mask[i]));
+    // The uops of the lane go to the queues: INT_CLUSTERS = 2: an integer uop goes to the queue of its position: CSR to IQ_INT,
+    // I2F to IQ_INT1, the others by the parity of the ROB index (Ref: route_iq in back-end/include/util.h); the load and the
+    // store address both go to the memory queue (an AMO sends two uops there); STD, BR and FP to their own queues.
     logic to_int1;
     always_comb begin
       to_int1 = 1'b0;
       if (INT_CLUSTERS == 2) begin
-        if (lane_uop[IQ_INT].op == UOP_CSR)      to_int1 = 1'b0;
-        else if (lane_uop[IQ_INT].op == UOP_I2F) to_int1 = 1'b1;
-        else                                            to_int1 = res[i].rob_idx[0];
+        if (lane_uop[K_INT].op == UOP_CSR)      to_int1 = 1'b0;
+        else if (lane_uop[K_INT].op == UOP_I2F) to_int1 = 1'b1;
+        else                                    to_int1 = res[i].rob_idx[0];
       end
-      has_iq[i] = lane_has_iq;
-      has_iq[i][IQ_INT]  = lane_has_iq[IQ_INT] && !to_int1;
-      has_iq[i][IQ_INT1] = lane_has_iq[IQ_INT] && to_int1;
-      for (int q = 0; q < IQ_NUM; q++) uop_iq[i][q] = lane_uop[q];
-      uop_iq[i][IQ_INT1] = lane_uop[IQ_INT];
+      has_iq[i] = '0;
+      has_iq[i][IQ_INT]  = lane_has[K_INT] && !to_int1;
+      has_iq[i][IQ_INT1] = lane_has[K_INT] && to_int1;
+      has_iq[i][IQ_MEM]  = lane_has[K_LD] || lane_has[K_STA];
+      has_iq[i][IQ_STD]  = lane_has[K_STD];
+      has_iq[i][IQ_BR]   = lane_has[K_BR];
+      if (FP_EN) has_iq[i][IQ_FP] = lane_has[K_FP];
+      uop_iq[i][IQ_INT]  = lane_uop[K_INT];
+      uop_iq[i][IQ_INT1] = lane_uop[K_INT];
+      uop_iq[i][IQ_MEM]  = lane_has[K_LD] ? lane_uop[K_LD] : lane_uop[K_STA];   // a load, else a store address
+      uop_iq[i][IQ_STD]  = lane_uop[K_STD];
+      uop_iq[i][IQ_BR]   = lane_uop[K_BR];
+      uop_iq[i][IQ_FP]   = lane_uop[K_FP];
+      uop_mem2[i]        = lane_uop[K_STA];
+      cnt_mem[i]         = 2'(lane_has[K_LD]) + 2'(lane_has[K_STA]);
     end
   end
 
-  // uops a lane sends to each queue. MEM_MERGE: the store addresses go to the memory queue (the load queue), so an AMO (LD + STA)
-  // sends two uops there; the STA queue gets none
+  // uops a lane sends to each queue: the memory queue takes the load and the store address (an AMO sends two)
   logic [1:0] cnt_iq [NUM_SLOTS][IQ_NUM];
   always_comb begin
     for (int i = 0; i < NUM_SLOTS; i++) begin
       for (int q = 0; q < IQ_NUM; q++) cnt_iq[i][q] = 2'(has_iq[i][q]);
-      if (MEM_MERGE != 0) begin
-        cnt_iq[i][IQ_LD]  = 2'(has_iq[i][IQ_LD]) + 2'(has_iq[i][IQ_STA]);
-        cnt_iq[i][IQ_STA] = 2'd0;
-      end
+      cnt_iq[i][IQ_MEM] = cnt_mem[i];
     end
   end
 
@@ -226,7 +235,7 @@ module dispatch_core
     .dis_fire(dis_fire), .dis2ren_ready(dis2ren_ready));
 
   dispatch_iq_req u_iq_req (
-    .fire(dis_fire), .has_iq(has_iq), .cnt_iq(cnt_iq), .port_idx(port_idx), .uop_iq(uop_iq),
+    .fire(dis_fire), .cnt_iq(cnt_iq), .port_idx(port_idx), .uop_iq(uop_iq), .uop_mem2(uop_mem2),
     .req_valid(req_valid), .req_uop(req_uop));
 
   logic [LSU_MDP_BITS-1:0] inst_mdp [NUM_SLOTS];

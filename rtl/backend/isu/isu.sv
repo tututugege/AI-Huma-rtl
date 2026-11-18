@@ -171,15 +171,8 @@ module isu
   end
   isu_wb_gate u_wb_gate (.clk(clk), .rst_n(rst_n), .flush_all(rob_bcast_flush), .cls(wb_cls), .reserve(grant_valid),
                          .port_ok(wb_ok));
-  // shared AGUs (LSU_AGU_SHARED): the last LSU_AGU_SHARED STA ports use the AGU of the last LSU_AGU_SHARED load ports; a load that
-  // was granted keeps it (the load queue wins), the STA port is not granted then (its slot stays in the queue)
-  logic [ISSUE_WIDTH-1:0] agu_ok;
-  always_comb begin
-    agu_ok = '1;   // (MEM_MERGE: the memory queue applies it itself, isu_iq SH_*)
-    for (int j = 0; j < (MEM_MERGE != 0 ? 0 : LSU_AGU_SHARED); j++)
-      agu_ok[IQ_STA_PORT_BASE + (LSU_STA_COUNT - LSU_AGU_SHARED) + j] = !grant_valid[IQ_LD_PORT_BASE + (LSU_LDU_COUNT - LSU_AGU_SHARED) + j];
-  end
-  assign gate_ok_all = fp_ok_all & wb_ok & agu_ok;
+  // shared AGUs (LSU_AGU_SHARED): the memory queue applies the sharing itself (isu_iq SH_*)
+  assign gate_ok_all = fp_ok_all & wb_ok;
 
   if (FP_EN) begin : g_gate
     logic [FP_REQ_UNITS-1:0]   c_valid, c_fpw, c_ok;
@@ -209,10 +202,6 @@ module isu
     localparam int SIZE = iq_size(q);
     localparam int NP   = iq_port_num(q);
     localparam int EW   = iq_enq_width(q);   // enqueue lanes actually present (<= IQ_DISPATCH_WIDTH)
-
-    if (NP == 0) begin : g_empty   // MEM_MERGE: the STA queue does not exist (its uops are in the memory queue)
-      assign iss2dis_ready_num[q] = '0;
-    end else begin : g_q
 
     logic [EW-1:0]                enq_valid;
     isu_enq_t                     enq [EW];
@@ -274,16 +263,15 @@ module isu
     assign iss2dis_ready_num[q] = (free_slots > READY_NUM_W'(EW)) ? READY_NUM_W'(EW) : free_slots;
 
     isu_iq #(.SIZE(SIZE), .DW(EW), .NP(NP), .QID(q),
-             .SH_N((MEM_MERGE != 0 && q == 1) ? LSU_AGU_SHARED : 0),   // q = 1: the load / memory queue
+             .SH_N((q == IQ_MEM) ? LSU_AGU_SHARED : 0),
              .SH_LD_LO(LSU_LDU_COUNT - LSU_AGU_SHARED), .SH_STA_LO(LSU_LDU_COUNT + LSU_STA_COUNT - LSU_AGU_SHARED),
-             .AGE_EN(MEM_AGE != 0 && q == 1)) u_iq (   // the memory queue selects the oldest on the first port of each capability
+             .AGE_EN(MEM_AGE != 0 && q == IQ_MEM)) u_iq (   // the memory queue selects the oldest on the first port of each capability
       .clk(clk), .rst_n(rst_n), .enq_valid(enq_valid), .enq(enq), .woken(woken), .fu_ready(fu_ready),
       .gate_ok(g_gate_ok),
       .issue_block(issue_block), .flush_all(rob_bcast_flush), .flush_br(flush_br),
       .flush_br_mask(dec_bcast_br_mask), .clear_mask(dec_bcast_clear_mask),
       .cancel_v(cancel_v), .free_slots(free_slots), .cand_valid(g_cand), .grant_valid(g_valid),
       .grant_uop(g_uop));
-    end
   end
 
   // ---- issue ports to the PRF ----
