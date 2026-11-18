@@ -49,8 +49,8 @@ module bpu_ub_look import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
   always_comb begin
     for (int w = 0; w < WAYS; w++) begin
       w_bpc[w]  = base + XLEN_BITS'(ent[w].slot) * XLEN_BITS'(SB);
-      // the uBTB keeps the low 32 bits of the target slot address: the upper bits come from the block base (model ub_expand), not zero
-      w_next[w] = (ent[w].ty == BR_RET && ras_nonempty) ? ras_top : ((base & ~XLEN_BITS'(32'hffffffff)) | XLEN_BITS'(32'(ent[w].tgt) << SLOT_SHIFT));
+      // the uBTB keeps the full target slot address (model ub_expand)
+      w_next[w] = (ent[w].ty == BR_RET && ras_nonempty) ? ras_top : (XLEN_BITS'(ent[w].tgt) << SLOT_SHIFT);
       w_hb[w]   = hsym_of(w_bpc[w], w_next[w]);
       w_rv[w]   = w_bpc[w] + (ent[w].rvc ? XLEN_BITS'(2) : XLEN_BITS'(4));
       w_op[w]   = (ent[w].ty == BR_CALL || ent[w].ty == BR_ICALL) ? 2'd1 : (ent[w].ty == BR_RET) ? 2'd2 : 2'd0;

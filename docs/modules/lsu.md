@@ -137,7 +137,7 @@ depth: 100 层（单模块综合，通用门代理，提交 312e6f8 的说明里
 | `lp_l3.sv` | 58 | L3 寄存器：L2 的直接完成晚一拍写回 |
 | `lp_wake.sv` | 77 | 对 load 消费者的唤醒和（推测唤醒的）取消 |
 | `lp_wk.sv` | 92 | 一个停车 load 的唤醒判断（事件 + STLF 确认） |
-| `lp_ldq.sv` | 214 | LDQ 阵列：把各口事件译码成每项事件；MMIO load 挑选；MSHR_FULL 唤醒限额；各种向量视图 |
+| `lp_ldq.sv` | 214 | LDQ 阵列：把各口事件译码成每项事件；MMIO load 挑选；MSHR_FULL 唤醒限额；各种向量视图；DCache 响应按（项号, epoch）匹配，同项旧请求的过期响应不会遮住当前请求的响应 |
 | `lp_ldq_ent.sv` | 369 | 一个 LDQ 项：状态链（按模型阶段顺序施加事件）和字段 |
 | `lp_ent_ms.sv` | 78 | 一个 LDQ 项的推测逻辑：SPD 推迟 / 释放、STA 到达时的违例检查 |
 | `lp_ms.sv` | 66 | 推测用的 STQ 视图：最老的地址未知 store、本拍 STA 到达视图、每个 L1 槽能否越过未知 store、分派的等待表位 |
