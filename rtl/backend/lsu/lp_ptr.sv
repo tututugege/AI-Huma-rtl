@@ -58,18 +58,24 @@ module lp_ptr
   assign commit_ptr = head_q + SQW'(ccount_q);
   if ((LP_CUT & 64) != 0) begin : g_cm_par
     // parallel form: store i must hit commit_ptr + (stores before it); all stores before it must be accepted
-    logic [NCM-1:0] wb_ok;
-    logic [CNTW-1:0] n_st [NCM+1];
+    // The stores of a commit group are consecutive in program order, hence consecutive in the STQ: all of them hit
+    // commit_ptr + (stores before them) as soon as the first one hits commit_ptr.  They are accepted as a prefix while
+    // their data / address is written back.
+    logic [NCM-1:0] first_st;
+    logic           first_ok;
+    logic           wb_pre;
     always_comb begin
-      n_st[0] = '0;
+      first_ok = 1'b0;
+      wb_pre   = 1'b1;
       for (int i = 0; i < NCM; i++) begin
         cm_store[i] = cm_valid[i] && (cm_type[i] == 5'd6 || (cm_type[i] == 5'd18 && cm_amo_op[i] != AMO_LR));
-        n_st[i+1] = n_st[i] + CNTW'(cm_store[i]);
-        wb_ok[i] = !cm_store[i] || wbd_vec[cm_stq_idx[i]];
-        cm_match[i] = cm_store[i] && cm_stq_idx[i] == commit_ptr + SQW'(n_st[i]) &&
-                      wbd_vec[cm_stq_idx[i]];
-        for (int k = 0; k < i; k++)
-          cm_match[i] = cm_match[i] && wb_ok[k] && (!cm_store[k] || cm_stq_idx[k] == commit_ptr + SQW'(n_st[k]));
+        first_st[i] = cm_store[i];
+        for (int k = 0; k < i; k++) first_st[i] = first_st[i] && !cm_store[k];
+        first_ok = first_ok || (first_st[i] && cm_stq_idx[i] == commit_ptr);
+      end
+      for (int i = 0; i < NCM; i++) begin
+        wb_pre = wb_pre && (!cm_store[i] || wbd_vec[cm_stq_idx[i]]);
+        cm_match[i] = cm_store[i] && first_ok && wb_pre;
       end
     end
     // number accepted = leading run of matches among the stores (matches are a prefix of the group's stores)

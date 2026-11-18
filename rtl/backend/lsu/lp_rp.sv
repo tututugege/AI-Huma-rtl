@@ -76,19 +76,24 @@ module lp_rp
   // STA replay register: store with a pending DTLB retry (after retire), taken when the register is free.  The pick
   // rotates over the STQ index (srp_ptr, like rp_ptr for the loads): the DTLB walk is shared between pages, and always
   // taking the oldest store starves a younger walk owner (Linux boot, ROB deadlock).
-  logic [SQ-1:0] trp_vec, trp_rot, trp_oh;
+  // first set bit at or after srp_ptr, else the first set bit overall (no rotation of the late request vector)
+  logic [SQ-1:0] trp_vec, trp_hi, trp_oh_hi, trp_oh_lo, trp_oh, trp_ge;
   logic [SQW-1:0] trp_ix, srp_new, srp_ptr_q;
-  logic trp_any, srp_v_c, srp_take_any;
+  logic trp_any, trp_any_hi, trp_any_lo, srp_v_c, srp_take_any;
   always_comb begin
     srp_v_c = srp_v_q && !srp_cons && alive_fl[srp_stq_q];
     trp_vec = trp_v & alive_post;
-    trp_rot = SQ'(rotr64(64'(trp_vec), srp_ptr_q));
-    srp_new = trp_ix + srp_ptr_q;
+    trp_ge  = SQ'(64'(-1) << srp_ptr_q);
+    trp_hi  = trp_vec & trp_ge;
+    trp_any = trp_any_hi || trp_any_lo;
+    trp_oh  = trp_any_hi ? trp_oh_hi : trp_oh_lo;
+    srp_new = trp_ix;
     srp_take_any = !srp_v_c && trp_any;
   end
-  lp_ffs #(.N(SQ)) u_trp (.req(trp_rot), .onehot(trp_oh), .any(trp_any));
+  lp_ffs #(.N(SQ)) u_trp_hi (.req(trp_hi),  .onehot(trp_oh_hi), .any(trp_any_hi));
+  lp_ffs #(.N(SQ)) u_trp_lo (.req(trp_vec), .onehot(trp_oh_lo), .any(trp_any_lo));
   ttg_onehot_to_idx #(.N(SQ)) u_trpi (.onehot(trp_oh), .idx(trp_ix));
-  assign srp_take = srp_take_any ? SQ'(rotl64(64'(trp_oh), srp_ptr_q)) : '0;
+  assign srp_take = srp_take_any ? trp_oh : '0;
 
   always_ff @(posedge clk) begin
     if (!rst_n) begin
