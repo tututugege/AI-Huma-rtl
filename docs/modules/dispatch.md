@@ -157,8 +157,7 @@ lane i 可以分派的条件（`dispatch_fire_ctl`）：寄存器里有指令、
 
 - 上一条的重复唤醒口（4 路）可以去掉；
 - `dispatch_lsu_alloc` 的输入 `ldq_alloc_valid` 不被使用（注释写明：授予只看 `ldq_free`），模型里是 `lsu.ldq_alloc_valid[loads]` 参与判断；两者在现行 LSU 下等价，但 RTL 没有检查；
-- `ROB_COMPACT == 0` 的分支（`dispatch_core` 的 `rob_idx` 按行编号、`dispatch_fire_ctl` 的 `rob_fit` 恒真）仍在，对应行式 ROB（见 rob.md），没有验证；
-- `dispatch.sv` 里 `rob2dis_enq_idx` 的注释写"4 位行指针"，是行式 ROB 的说法，紧凑 ROB 下它是 7 位的尾位置；
+- `dispatch.sv` 里 `rob2dis_enq_idx` 的注释写"4 位行指针"，是已删除的行式 ROB 的说法，现在它是 7 位的尾位置；
 - `dis_pkg` 里 `UOP_TYPE_W` 的注释写"18 个 UopType 值"，`uop_op_e` 实际有 21 个值（宽度同为 5 位）。
 
 RTL 与模型保持一致的细节（读模型时容易误判）：
@@ -179,7 +178,7 @@ RTL 与模型保持一致的细节（读模型时容易误判）：
 
 ## 9. 参数与开关速查
 
-`DECODE_WIDTH`、`INT_CLUSTERS`、`MAX_IQ_DISPATCH_WIDTH`、`MAX_STQ_DISPATCH_WIDTH`、`MAX_LDQ_DISPATCH_WIDTH`、`STQ_SIZE`、`LDQ_SIZE`、`TAG_NUM`、`FPRF_NUM`（FP 队列和 FP uop 是否存在）、`ROB_COMPACT`、`LSU_MEMSPEC` / `LSU_MDP_BITS`（`mdp`）、`LP_L2[3]`（取消向量）。`ttg_cfg_pkg.sv` 目前是手工编辑的，与 `make cfg` 生成的不同步（待统一，见 docs/TODO.md）。
+`DECODE_WIDTH`、`INT_CLUSTERS`、`MAX_IQ_DISPATCH_WIDTH`、`MAX_STQ_DISPATCH_WIDTH`、`MAX_LDQ_DISPATCH_WIDTH`、`STQ_SIZE`、`LDQ_SIZE`、`TAG_NUM`、`FPRF_NUM`（FP 队列和 FP uop 是否存在）、`LSU_MEMSPEC` / `LSU_MDP_BITS`（`mdp`）、`LP_L2[3]`（取消向量）。`ttg_cfg_pkg.sv` 目前是手工编辑的，与 `make cfg` 生成的不同步（待统一，见 docs/TODO.md）。
 
 ## 10. 变更记录
 
@@ -190,3 +189,4 @@ RTL 与模型保持一致的细节（读模型时容易误判）：
 - `6d7ed85`：两个 INT 队列（`INT_CLUSTERS = 2`，CSR 进 0、I2F 进 1、其余按 `rob_idx` 奇偶）。
 - `237738c`：load 和 STA 合并进一个内存队列（`dispatch_iq_alloc`、`dispatch_iq_req` 按队列计数和放置，AMO 向内存队列送两个）。
 - 更早：见 git 历史。
+- 2026-11-18：删除 `ROB_COMPACT == 0`（行式 ROB）的分支：`dispatch_core` 里 `rob_idx` 按行编号的写法、`dispatch_fire_ctl` 里 `rob_fit` 恒真的写法，以及 `dis_pkg` 里只给它们用的 `ROB_BANK_W`、`ROB_LINE_W`。

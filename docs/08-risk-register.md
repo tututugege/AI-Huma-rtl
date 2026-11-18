@@ -108,8 +108,8 @@
 | R-1 | **生成文件与 rv64 脱节**：`back_top.sv`、`exu.sv`、`soc_top.sv` 为 rv64 手改，`tools/gen_backtop.py`、`gen_soc_top.py`、`spec/*.io` 未同步；重新生成会丢位宽。改这些接口前必须先回写生成器 | **高** |
 | R-2 | rv64 只覆盖 RV64IMAB：**F/D（OP-FP 非法）、C、SPEC 都没做**；rv64 没有 `fm_gate.sh` 式的程序表（53 个 cpu-tests 手工跑，周期与模型 53/53 一致，需 `LSU_PIPE_NOWD=1`）；rv64 没有综合过、没有 `memory-stress` 之外的大数组回归 | 中 |
 | R-3 | rv64 位宽集中在数据通路；dcache 的行/AXI 侧仍是 32 位字，物理地址 32 位（Sv39 的 PTE 只有 `ppn[19:0]` 到达物理地址）。物理地址超过 4 GiB 的配置**不支持** | 低 |
-| R-4 | 紧凑 ROB（`ROB_COMPACT=1`，EXP-028）：行式 ROB 保留为 `ROB_COMPACT=0` 但**默认配置外没有回归**（周期表已换成紧凑 ROB 的）；`rob` 最长路径比行式深约 5 级；BPU 提交额度会卡住分支密集短循环（TODO） | 中 |
-| R-5 | 分级 LSU（`LSU_PIPE=1`）是默认；旧 LSU（`LSU_PIPE=0`）原样保留，但**没有 `LSU_PIPE=0` 的周期表回归**（`ref_cycles_legacy_lsu*.txt` 是旧配置、没再生成），上面第 2 节 LSU 变异数据只对旧 LSU | 中 |
+| R-4 | 紧凑 ROB（EXP-028）：行式 ROB 已于 2026-11-18 删除（`ROB_COMPACT` 不再存在），原来的"默认配置外没有回归"风险消除；`rob` 最长路径比行式深约 5 级；BPU 提交额度会卡住分支密集短循环（TODO） | 中 |
+| R-5 | 分级 LSU 是唯一的 LSU：旧 LSU（`LSU_PIPE = 0`，30 个 `lsu_*` 文件）和 `LSU_PIPE` 常量已于 2026-11-18 删除，原来的"旧 LSU 没有周期表回归"风险消除；第 2 节 LSU 变异数据只对已删除的旧 LSU，仅作历史记录 | 低 |
 | R-6 | RTL 没有 LDQ/STQ 看门狗，trace-model 有 63 周期看门狗，所以对比周期时模型必须设 `LSU_PIPE_NOWD=1`；否则 store 重发会造成几十周期的假差异（`crc32`、`memory-stress` 的教训） | 低 |
 | R-7 | store 写缓冲（EXP-024）：第一版有一次 Linux 段 s04 的 `sc.w` 不一致，原因没找到（现版本通过）；没有写缓冲的 PMU 事件 | 低 |
 | R-8 | 0x87f00000 uncached 窗口已删（EXP-027）：老程序/老基线里依赖该窗口的数据作废；`peripheral_axi` 现在只服务 MMIO | 低 |

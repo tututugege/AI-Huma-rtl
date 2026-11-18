@@ -99,7 +99,7 @@ module dispatch_core
     .stq_idx(stq_idx), .stq_flag(stq_flag), .ldq_idx(ldq_idx),
     .st_port_sel(st_port_sel), .ld_port_sel(ld_port_sel));
 
-  // Ref: Dispatch::comb_alloc make_rob_idx(enq_idx, i): {ROB line, lane within line}; compact ROB: tail + rank of
+  // Ref: Dispatch::comb_alloc make_rob_idx(enq_idx, i): the ROB tail + rank of
   // the lane among the valid lanes (the lanes that fire are the first valid ones), the flag flips past the ring end
   always_comb begin
     int unsigned rank;
@@ -107,13 +107,8 @@ module dispatch_core
     rank = 0;
     for (int i = 0; i < NUM_SLOTS; i++) begin
       pos = {1'b0, rob_enq_idx} + (ROB_IDX_WIDTH+1)'(rank);
-      if (ROB_COMPACT != 0) begin
-        res[i].rob_idx  = pos[ROB_IDX_WIDTH-1:0];
-        res[i].rob_flag = rob_enq_flag ^ pos[ROB_IDX_WIDTH];
-      end else begin
-        res[i].rob_idx  = {rob_enq_idx[ROB_LINE_W-1:0], SLOT_IDX_W'(i)};
-        res[i].rob_flag = rob_enq_flag;
-      end
+      res[i].rob_idx  = pos[ROB_IDX_WIDTH-1:0];
+      res[i].rob_flag = rob_enq_flag ^ pos[ROB_IDX_WIDTH];
       rank = rank + (inst_valid[i] ? 1 : 0);
       res[i].stq_idx  = stq_idx[i];
       res[i].stq_flag = stq_flag[i];

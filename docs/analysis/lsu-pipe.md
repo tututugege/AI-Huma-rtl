@@ -1,5 +1,7 @@
 # LSU_PIPE（分级流水 LSU）RTL 行为清单
 
+> **2026-11-18：`LSU_PIPE` 开关、旧 LSU（`LSU_PIPE=0`，30 个 `lsu_*` 文件）已从 RTL 删除，分级 LSU 是唯一的 LSU。** 下文里关于 `LSU_PIPE`、`lsu_core`、`LSU_PIPE=0` 的内容都是历史记录，不再对应现在的代码；现行设计见 [modules/lsu.md](../modules/lsu.md)。
+
 > **更新（2026-11-12）**：分级 LSU 已合入 main 并且是默认（`LSU_PIPE = 1`）；本文是它的行为清单和验证记录，写于合入前后，之后又加了访存推测（`LSU_MEMSPEC`，`lp_ms`/`lp_mdp`，`RTL_MEMSPEC_NOTES.md`）、store 写缓冲（`lp_wbuf`，`RTL_WBUF_NOTES.md`）和 rv64（表里“`vaddr`(32)、`result`(32)、`data`(32)”等 32 位字段在 rv64 为 `XLEN_BITS`，`lp_pkg`）。文中提到的 `scripts/ref_cycles_lsupipe*.txt` 等周期表已被 `scripts/ref_cycles.txt` 取代；各节的周期、门禁数字是写作当时的值。
 
 规格来源：trace-model-lsupipe 的 `docs/LSU_PIPE.md`（第 2 节）和 `back-end/Lsu/RealLsuPipe.cpp`、`include/RealLsuPipe.h`（开关 `LSU_PIPE=1`）。

@@ -62,7 +62,6 @@ package ttg_cfg_pkg;
   localparam int ROB_BANK_NUM = 8;
   localparam int ROB_NUM = 128;
   localparam int ROB_LINE_NUM = 16;
-  localparam int ROB_COMPACT = 1;
   localparam int IDU_INST_BUFFER_SIZE = 64;
   localparam int FTQ_SIZE = 64;
   localparam int OP_MASK_ALU = 81794;
@@ -179,7 +178,6 @@ package ttg_cfg_pkg;
   localparam int FP_FSQRT_D_LAT = 23;
   localparam int FP_IQ_SIZE = 32;
   localparam int FP_IQ_ENQ_WIDTH = 4;
-  localparam int LSU_PIPE = 1;
   // fixed design constants (harness/tools/gen_cfg_pkg.py FIXED), not exported from the model
   localparam int LSU_MDP_BITS = 6;
   localparam int LSU_MDP_CLR = 2000;

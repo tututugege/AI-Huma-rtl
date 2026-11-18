@@ -260,7 +260,7 @@ module lp_stq_ent
       if (sa_any) ent_q.dest_preg <= sta_s.dest;
       if (alive_w) ent_q.br_mask <= ent_q.br_mask & ~clear_mask;
       ent_q.rtype <= rt4;
-      ent_q.rwait <= dr_pick ? rw13 : rw13;
+      ent_q.rwait <= rw13;
     end
   end
 

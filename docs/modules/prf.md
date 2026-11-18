@@ -45,7 +45,7 @@ depth: 36 层（prf，单模块综合，2026-11-18，`SYNTH_ABC="strash;balance;
 | 入 | `iss2prf_iss_entry_valid / _uop_*  [ISSUE_WIDTH]` | ISU 本拍的发射结果，读口用其中的 `src*_preg`、`src*_en`、`src1_fp / src2_fp`、`src3_*`、`ftq_idx`、`ftq_offset` 等 |
 | 入 | `exe2prf_entry_valid / _uop_{dest_preg, result, fresult, br_mask, dest_en, op} [ISSUE_WIDTH]` | 执行单元的写回，进写回级 |
 | 入 | `exe2prf_bypass_valid / _uop_{dest_preg, result, fresult, dest_en} [TOTAL_FU_COUNT]` | 每个完成的执行单元一路，只作旁路源 |
-| 入 | `lsu_byp_valid / dest_preg / result / is_w [LSU_LOAD_WB_WIDTH]` | LSU 的 load 写回请求作旁路源；只在 `LSU_PIPE != 0` 且 `LP_L2` 的位 0 和位 3 同时打开时有效（`back_top.sv` 里生成），否则全 0；现行 `LP_L2 = 1907`（`rtl/backend/lsu/lp_pkg.sv`）的位 3 为 0，所以现行配置下这四路恒为 0，旁路源实际只有写回级和 31 个执行单元 |
+| 入 | `lsu_byp_valid / dest_preg / result / is_w [LSU_LOAD_WB_WIDTH]` | LSU 的 load 写回请求作旁路源；只在 `LP_L2` 的位 0 和位 3 同时打开时有效（`back_top.sv` 里生成），否则全 0；现行 `LP_L2 = 1907`（`rtl/backend/lsu/lp_pkg.sv`）的位 3 为 0，所以现行配置下这四路恒为 0，旁路源实际只有写回级和 31 个执行单元 |
 | 入 | `ftq_prf_pc_resp_resp_{pc, pred_taken, is_rvc, next_pc} [8]` | FTQ 的回答 |
 | 入 | `dec_bcast_{mispred, br_mask, clear_mask}`、`rob_bcast_flush` | 误预测、分支号清除、全局 flush（经 `rob_flush_q` 晚一拍，docs/FLUSH_REG.md） |
 | 出 | `prf2exe_iss_entry_valid / _uop_*  [ISSUE_WIDTH]` | 发射结果原样透传，加上读出的 `src1_rdata`、`src2_rdata`、`fsrc1..3`，以及口 0..5、16、17 的 `pc`、`ftq_pred_taken`、`ftq_is_rvc`、`ftq_next_pc`（其他口为 0） |
@@ -135,7 +135,7 @@ RTL 与模型保持一致的细节：
 
 ## 9. 参数与开关速查
 
-`PRF_NUM`、`FPRF_NUM`、`FP_TAG_BASE`、`TAG_NUM`、`PRF_IDX_WIDTH`、`ISSUE_WIDTH`、`TOTAL_FU_COUNT`、`LSU_LOAD_WB_WIDTH`、`LSU_SDU_COUNT`、`FTQ_PRF_PC_PORT_NUM`、`LSU_AGU_SHARED`、`IQ_*_PORT_BASE`、`ALU_NUM`、`BRU_NUM`（`ttg_cfg_pkg`）；`FP_EN`、`FW`、`FLEN`（`fp_pkg`）；`LSU_PIPE`、`lp_pkg::LP_L2`（决定 `lsu_byp_valid` 是否有效，在 `back_top.sv`）。
+`PRF_NUM`、`FPRF_NUM`、`FP_TAG_BASE`、`TAG_NUM`、`PRF_IDX_WIDTH`、`ISSUE_WIDTH`、`TOTAL_FU_COUNT`、`LSU_LOAD_WB_WIDTH`、`LSU_SDU_COUNT`、`FTQ_PRF_PC_PORT_NUM`、`LSU_AGU_SHARED`、`IQ_*_PORT_BASE`、`ALU_NUM`、`BRU_NUM`（`ttg_cfg_pkg`）；`FP_EN`、`FW`、`FLEN`（`fp_pkg`）；`lp_pkg::LP_L2`（决定 `lsu_byp_valid` 是否有效，在 `back_top.sv`）。
 
 ## 10. 变更记录
 

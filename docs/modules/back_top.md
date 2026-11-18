@@ -127,7 +127,7 @@ depth: 待测（由协调者补）
 
 - `csr_status_mstatus_{mxr, sum, mprv, mpp}`：取自 `mstatus` 的第 19、18、17、12:11 位，送 DTLB；
 - `rob_commit_commit_entry_uop_amo_op[i] = func7[6:2]`，给 LSU 提交 store 时用；
-- `lsu_byp_valid[k] = (LSU_PIPE != 0) && ((lp_pkg::LP_L2 & 9) == 9) && lsu2exe_wb_req_valid[k] && lsu2exe_wb_req_uop_dest_en[k]`：LSU 的写回请求作为 PRF 读口的旁路源（只在 `LP_L2` 的位 0 和位 3 都开时有效）。现行 `LP_L2 = 1907`（`lp_pkg.sv`）位 3 为 0，所以现行配置下这四路恒为 0；
+- `lsu_byp_valid[k] = ((lp_pkg::LP_L2 & 9) == 9) && lsu2exe_wb_req_valid[k] && lsu2exe_wb_req_uop_dest_en[k]`：LSU 的写回请求作为 PRF 读口的旁路源（只在 `LP_L2` 的位 0 和位 3 都开时有效）。现行 `LP_L2 = 1907`（`lp_pkg.sv`）位 3 为 0，所以现行配置下这四路恒为 0；
 - `unused_fp_issue`：把 `iss2prf_iss_entry_uop_dest_fp` 归约成一根无人读的线，消除未使用告警（目的寄存器是浮点还是整数由编号判断）。
 
 ### 5.6 `exu.sv` 与 FU 的合同
@@ -188,7 +188,7 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 
 ## 9. 参数与开关速查
 
-`ISSUE_WIDTH`、`TOTAL_FU_COUNT`、`DECODE_WIDTH`、`COMMIT_WIDTH`、`BACKEND_FETCH_WIDTH`、`LSU_*_COUNT`、`LSU_AGU_SHARED`、`LSU_AGU_PHYS`、`FPRF_NUM`（决定 `FP_EN`）、`MAX_WAKEUP_PORTS`（`ttg_cfg_pkg`）；`LSU_PIPE`、`lp_pkg::LP_L2`（决定 `lsu_byp_valid`）；`SYNTHESIS`（`exu.sv` 里的断言只在仿真）。FLUSH_REG 在 RTL 里没有开关（总是推迟一拍），模型对应 `CFG_FLUSH_REG`。
+`ISSUE_WIDTH`、`TOTAL_FU_COUNT`、`DECODE_WIDTH`、`COMMIT_WIDTH`、`BACKEND_FETCH_WIDTH`、`LSU_*_COUNT`、`LSU_AGU_SHARED`、`LSU_AGU_PHYS`、`FPRF_NUM`（决定 `FP_EN`）、`MAX_WAKEUP_PORTS`（`ttg_cfg_pkg`）；`lp_pkg::LP_L2`（决定 `lsu_byp_valid`）；`SYNTHESIS`（`exu.sv` 里的断言只在仿真）。FLUSH_REG 在 RTL 里没有开关（总是推迟一拍），模型对应 `CFG_FLUSH_REG`。
 
 ## 10. 变更记录
 

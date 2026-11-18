@@ -23,7 +23,7 @@ depth: 100 层（单模块综合，通用门代理，提交 312e6f8 的说明里
 
 模型对应一个调度单元 `back.lsu`（`RealLsu`），阶段 `comb_outputs → comb_writeback → comb_translate → comb_requests`，另有 `comb_commit_store`（给外设模型看已提交 store，只在模型里有）。DTLB 在模型里是 LSU 的子模块（`dtlb`，在 `comb_translate` 里调用），RTL 里是独立模块 `tlb_mmu`，见 [tlb_mmu.md](tlb_mmu.md)。
 
-**哪一套是现行设计。** `lsu.sv` 用 `ttg_cfg_pkg::LSU_PIPE` 选择（现行配置 `LSU_PIPE = 1`）：`LSU_PIPE != 0` 实例化 `lsu_pipe`（里面是 `lp_core` 和 `lp_*`，这就是本文描述的设计，称"分级流水 LSU"）；`LSU_PIPE = 0` 实例化旧 LSU（`lsu_core` 和 30 个 `lsu_*` 子模块）。旧 LSU 在现行配置下不会被综合，而且已经不能用：`lsu.sv` 里旧路径的分支在 `LSU_AGU_PHYS != LSU_LDU_COUNT + LSU_STA_COUNT`（有共用 AGU）时 `$error`。本文只写分级流水 LSU，旧 LSU 的文件只在第 4 节的文件表里列出。
+**现行设计。** `lsu.sv` 只实例化 `lsu_pipe`（里面是 `lp_core` 和 `lp_*`，称"分级流水 LSU"，就是本文描述的设计）。原来的旧 LSU（`lsu_core` 和 30 个 `lsu_*` 子模块，由 `LSU_PIPE = 0` 选择）在共用 AGU 的配置下已经不能编译，2026-11-18 连同 `LSU_PIPE` 常量一起删除（见第 10 节）。
 
 ## 2. 配置（`ttg_cfg_pkg` / `lp_pkg`，现行默认）
 
@@ -123,11 +123,11 @@ depth: 100 层（单模块综合，通用门代理，提交 312e6f8 的说明里
                                               └ lp_out：给分派 / ROB 的视图
 ```
 
-文件表（63 个文件，行数为 `wc -l`）。**现行设计用到的**：`lsu.sv`、`lsu_pipe.sv`、全部 29 个 `lp_*.sv`、`lsu_lrsc.sv`、`lsu_pkg.sv`（只用到其中的 `OW`、`SW`、`extract_data`、`store_strb`、`align_store_data`、`is_mmio_addr`，其余是旧 LSU 的类型和函数）。**现行配置下不用的**：30 个旧 LSU 文件（表的最后一块，共 2688 行），它们只在 `lsu.sv` 的 `LSU_PIPE == 0` 分支里被实例化。
+文件表（33 个文件，行数为 `wc -l`）：`lsu.sv`、`lsu_pipe.sv`、29 个 `lp_*.sv`、`lsu_lrsc.sv`、`lsu_pkg.sv`（现在只用到其中的 `OW`、`SW`、`extract_data`、`store_strb`、`align_store_data`、`is_mmio_addr`，其余是旧 LSU 留下的类型和函数，已没人用）。
 
 | 文件 | 行数 | 职责 |
 | --- | --- | --- |
-| `lsu.sv` | 341 | 顶层：`LSU_PIPE` 选择；`LSU_PIPE = 0` 分支里是旧 LSU 的端口适配（约 240 行） |
+| `lsu.sv` | 136 | 顶层：只有端口和一个 `lsu_pipe` 实例 |
 | `lsu_pipe.sv` | 248 | 平铺端口 ↔ `lp_*_t` 结构，实例化 `lp_core` |
 | `lp_pkg.sv` | 395 | 常量（`NLD`…、`LP_CUT`、`LP_L2`）、LDQ 状态和各种结构类型、范围关系函数（`rel12 / rel32`）、STLF 确认函数 `stlf_confirm`、环旋转函数 |
 | `lp_core.sv` | 433 | 连线：把下面各模块接起来；L2 / DCache 响应的写回选择；STA / STD 事件寄存（STAEV_REG） |
@@ -157,19 +157,9 @@ depth: 100 层（单模块综合，通用门代理，提交 312e6f8 的说明里
 | `lp_rsv.sv` | 52 | LR / SC 预约的更新次序（LR 直接写回 → SC 清 → LR 由 WBP 写回），实例化 `lsu_lrsc` |
 | `lp_ffs.sv`、`lp_ffs_p.sv`、`lp_pickn.sv` | 30、23、28 | 基元：find-first-set（`lp_ffs` 与 `LP_L2[9]` 相关）、带前缀或输出的 find-first、取最低 K 个置位 |
 | `lsu_lrsc.sv` | 33 | LR / SC 预约寄存器（有效位、32 位地址、br_mask） |
-| `lsu_pkg.sv` | 282 | 旧 LSU 的类型和函数；现行设计只用上面列出的几个 |
-| 旧 LSU：`lsu_core.sv` | 390 | 旧 LSU 顶层（LDQ / STQ 项、索引队列） |
-| 旧 LSU：`lsu_alloc.sv`、`lsu_cur_info.sv` | 73、88 | 分配、拍首视图 |
-| 旧 LSU：`lsu_exe_in_ld.sv`、`lsu_exe_in_st.sv` | 66、91 | EXU 的 load / store 请求入口 |
-| 旧 LSU：`lsu_tlb_sel.sv`、`lsu_tlb_resp_ld.sv`、`lsu_tlb_resp_st.sv` | 47、109、76 | 选 DTLB 请求、DTLB 响应落表 |
-| 旧 LSU：`lsu_stlf.sv`、`lsu_stlf_chain.sv`、`lsu_stlf_match.sv` | 128、76、68 | STLF 窗口扫描 |
-| 旧 LSU：`lsu_dc_req_ld.sv`、`lsu_dc_req_st.sv`、`lsu_dc_resp_ld.sv`、`lsu_dc_resp_st.sv` | 84、126、128、82 | DCache 请求与响应 |
-| 旧 LSU：`lsu_wb_ldq.sv`、`lsu_wb_stq.sv` | 111、120 | 写回 |
-| 旧 LSU：`lsu_ldq_ent.sv`、`lsu_stq_ent.sv`、`lsu_stq_ptr.sv`、`lsu_stq_commit.sv` | 158、172、92、46 | 表项、STQ 指针、提交 |
-| 旧 LSU：`lsu_ring.sv`、`lsu_ring_win.sv`、`lsu_rank.sv`、`lsu_wd_slot.sv`、`lsu_flush_ring_ld.sv`、`lsu_flush_ring_st.sv` | 64、19、20、43、26、27 | 六个索引环队列及窗口、前缀计数、等待槽、flush 后的环处理 |
-| 旧 LSU：`lsu_mmio_in.sv`、`lsu_mmio_out.sv`、`lsu_unc.sv` | 45、28、85 | MMIO 入口、出口、未缓存单元 |
+| `lsu_pkg.sv` | 282 | 类型和函数；现在只用上面列出的几个，其余是旧 LSU 留下的 |
 
-现行 29 个 `lp_*` 共 4099 行，`lsu.sv` + `lsu_pipe.sv` 589 行，`lsu_lrsc` + `lsu_pkg` 315 行，旧 LSU 30 个文件 2688 行，合计 7691 行。
+29 个 `lp_*` 共 4098 行，`lsu.sv` + `lsu_pipe.sv` 384 行，`lsu_lrsc` + `lsu_pkg` 315 行，合计 4797 行。
 
 状态：LDQ 每项一个状态（4 位）和 `lp_ldq_t` 的字段（`rob_idx / rob_flag / br_mask / dest_preg / func3 / vaddr / pa_v / paddr / mmio / pf / lrsc / result / snap_idx / snap_flag / rcause / blk / rwait / rtype / epoch / spec / vio / second / wait_b / mdp`，其中 `snap_idx / snap_flag` 是分派时 STQ 的尾，即"比这个 load 老的 store 到哪里为止"）；STQ 每项 `lp_stq_t`（`va_v / pa_v / data_v / pf / mmio / lrsc / sc_pass / suppress / trp / wbp / wbd / cmt / iss / mmw / done` 各 1 位，加 `vaddr / paddr / data / func3 / dest_preg / rob_idx / rob_flag / br_mask / rtype / rwait`）；STQ 指针 `head_q / head_flag_q / count_q / ccount_q`；`pl12_q [4]`（L1/L2 寄存器）；L3 寄存器；`rp_v_q / rp_ldq_q [4]` 与 `rp_ptr_q`（轮转指针）；`srp_v_q / srp_stq_q` 与 `srp_ptr_q`；STA / STD 事件寄存（`LP_STAEV_REG`）；写缓冲 `ent_q [4]` 和年龄矩阵 `lt_q`；未缓存单元；LR / SC 预约；等待表 `tab_q [64]`、`trn_q [64]`、清零计时器。
 
@@ -306,7 +296,6 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 - `lp_mdp.sv` 只有一个训练口，而 `RTL_MEMSPEC_NOTES.md` 写的是两个（该文件是分支记录，已过时）；
 - `lsu_pipe.sv` 里端口列表中间的 `/* verilator lint_on UNUSEDSIGNAL */` 没有对应的 `lint_off`（在 `lsu.sv` 里 off / on 成对）；
 - 模型里 `PLdq.illegal`（F/D 的非法 load）和写回的 `illegal_inst`、`is_mmio`：RTL 的 LSU 没有对应字段，F/D 非法指令在 RTL 里的处理在别处（`ren` / `dispatch` / `csr` 里有 `illegal`），本文没有核对 LSU 是否需要这一位；
-- 旧 LSU 的 `lsu.sv` 分支在有共用 AGU 时 `$error`，`scripts/ref_cycles_legacy_lsu*.txt` 对应的路径已不能运行。
 
 未核对（继承自旧文档，或来自旧分析文档、本次没有在代码里验证）：
 
@@ -324,7 +313,7 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 
 ## 9. 参数与开关速查
 
-`LSU_PIPE`、`LSU_MEMSPEC`、`LSU_MDP_BITS`、`LSU_MDP_CLR`、`LSU_AGU_SHARED`、`LSU_AGU_PHYS`、`LSU_PEPLAY_WAIT_CYCLES`、`LSU_WAIT_MSHR_FILL`、`LDQ_SIZE`、`STQ_SIZE`（`ttg_cfg_pkg`）；`LP_STAEV_REG`、`LP_CUT`、`LP_L2`、`NRP`、`NDR`、`NDC`（未使用）、`NRET`、`NWB`（`lp_pkg`）；`NINS`（`lp_wbuf`）。
+`LSU_MEMSPEC`、`LSU_MDP_BITS`、`LSU_MDP_CLR`、`LSU_AGU_SHARED`、`LSU_AGU_PHYS`、`LSU_PEPLAY_WAIT_CYCLES`、`LSU_WAIT_MSHR_FILL`、`LDQ_SIZE`、`STQ_SIZE`（`ttg_cfg_pkg`）；`LP_STAEV_REG`、`LP_CUT`、`LP_L2`、`NRP`、`NDR`、`NRET`、`NWB`（`lp_pkg`）；`NINS`（`lp_wbuf`）。
 
 **`LP_CUT`（262143 = 0 到 17 位全 1）**：18 个关键路径切点。名字取自 `lp_pkg.sv` 的注释和代码位置；模型把其中七个改变周期的切点冻结成固定行为（B、R、D、F、G、H、FM，模型的位号与 RTL 的位号不同），其余为 RTL 单独的切点。
 
@@ -371,3 +360,5 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 - 2026-11-18：`312e6f8` `lp_ovl` 高位比较改为与 store 及其邻居比较（`lsu` 106 → 100）；`ed53054` `lp_wbstep` 只并入本拍新开的项；`7ddf8df` `lp_ptr / lp_rp` 提交接受和 STA 重放挑选；`0a522a6` `lp_l1b` 的 CAM 读 `paddr_reg`；`803692f` FLUSH_REG（全局 flush 晚一拍到 LSU、DTLB 等，`rob_flush_now` 限定本拍的 store 提交，docs/FLUSH_REG.md）；`64a908e` 分派 / `lp_ptr` 的 load 授权按空闲数；`e49618c` 重放按 AGU 占用分配。
 - 2026-11-17：`c24861f` STAEV_REG；`1597a66` L1 槽 k = AGU 口 k；`5433a62` `lp_l1` 的 DTLB 请求按物理口建、温度计码；`16de223` DTLB 每个物理 AGU 一个口（5 个），`lsu / lsu_pipe / lp_core / lp_l1` 带 `LSU_AGU_PHYS` 宽的请求 / 响应数组；`b9ae0d5` 共用 AGU（`LSU_AGU_SHARED = 2`）在发射级和 `lp_l1`。
 - 更早：见 git 历史（分级 LSU 合入 2026-11-07，store 写缓冲 EXP-024，访存推测 EXP-018 / 019，rv64 等）。
+
+- 2026-11-18：删除旧 LSU 和没用的东西：30 个 `lsu_*` 文件（2688 行）、`lsu.sv` 里 `LSU_PIPE = 0` 的分支和 `LSU_PIPE` 常量（`dcache_s1`、`back_top`、`tb/soc/build.sh` 里依赖它的地方改为无条件）、`lp_pkg::NDC`；`lp_stq_ent` 里 `dr_pick ? rw13 : rw13` 两边相同，简化成 `rw13`。整核周期不变（见提交说明）。

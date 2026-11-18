@@ -21,7 +21,7 @@ depth: 73 层（exu（含 exu_ctrl 和全部功能单元），单模块综合，
 
 槽、口内仲裁、写回、flush / 分支号清除的分发都在 `exu_ctrl`；本模块只在两个地方自己处理 flush 和分支掩码：MUL / DIV / 浮点这些会把指令留在单元里若干拍的 FU，要自己杀掉被 flush 或被误预测杀死的指令，并清掉在飞指令 `br_mask` 里已解析的位。
 
-CSR 单元（模型 `FuKind::CSR`）没有运算也没有 FU 侧状态：CSR 指令在槽里被 `exu_ctrl` 当作单周期 FU 处理，读数据由 CSR 文件给，`exu_fu/csr_fu.sv` 目前没有被任何地方实例化（见第 7 节）。
+CSR 单元（模型 `FuKind::CSR`）没有运算也没有 FU 侧状态：CSR 指令在槽里被 `exu_ctrl` 当作单周期 FU 处理，读数据由 CSR 文件给（原来有一个只有握手的 `csr_fu.sv`，没有被任何地方实例化，2026-11-18 已删除）。
 
 模型里 FU 没有运算：地址、存储数据、分支结果取自 trace 的事实，只建模"何时能收、何时完成、flush 对在飞指令做什么"。RTL 真算，由逐条提交的函数模型检查（`scripts/fm_gate.sh`）对账。
 
@@ -78,7 +78,6 @@ AGU 的 7 个实例是 7 个独立的加法器：共用 AGU 的两对口（load 
 | `bru.sv`、`bru_bank.sv` | 68、45 | 分支：条件、目标、误预测判定 |
 | `agu.sv`、`agu_bank.sv` | 22、33 | 地址加法 |
 | `sdu.sv`、`sdu_bank.sv` | 52、37 | 存储数据 / AMO |
-| `csr_fu.sv` | 21 | 只有握手，**没有被实例化**（见第 7 节） |
 | `mul_unit.sv`、`mul_bank.sv` | 66、48 | 乘法 FU：乘法器 + 在飞队列 |
 | `mul_core.sv` | 145 | 乘法器，跨 3 拍：仿真用 `a * b`，综合用 Wallace 树 + Kogge-Stone 加法器 |
 | `mul_pipe.sv` | 147 | 定延迟 FU 的在飞指令队列（MUL 和浮点流水 FU 共用，载荷类型是参数） |
@@ -147,7 +146,6 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 配置相关的有意取舍：
 
 - **`fp_core` 综合时是占位**：仿真时通过 DPI 调 Berkeley softfloat（`tb/fp_dpi/fp_dpi.cpp`），与函数模型逐位一致（`tests/fp_dpi`）；综合时（`SYNTHESIS`）结果恒为 0、`fflags` 恒为 0、`illegal` 恒为 0，等可综合的浮点数据通路（代码里称 S7，未做）。所以任何含浮点 FU 的综合深度和面积都不含真正的浮点运算；
-- **`csr_fu.sv` 是死代码**：没有任何文件实例化它（`exu.sv` 的注释说明 CSR FU 的握手由 `exu_ctrl` 内化）；单周期 FU 的 `exu_fu_sc_ctl` 在整核里也只剩断言在读；
 - **AGU 7 个实例各自一个加法器**：共用 AGU 的两对口没有合并成同一个加法器；
 - `exu_fu_pkg.sv` 的注释里引用的 `config.h:371-398` 行号和 `alu_decode.sv` 头注释里的 `docs/modules/exu_int.md` 都是过时引用；`alu_decode.sv` 说"ALU 口见不到 UOP_JUMP，所以模型里 JUMP 时 `operand2 = 4` 的分支不翻译"，该模型分支现在已不存在（Fu.h 里没有运算）。
 
@@ -173,3 +171,4 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 - 2026-11-18（exp/agu-share，`261bd67..HEAD`）：`48d547e` 乘法器摊在 3 拍延迟上（见第 6 节表），新增 `scripts/mul_check.sh`、`tb/mul`。
 - 2026-11-12：rv64（`is_word`、*W 运算、`div_core` 每拍 2 步、`MUL_MAX_LATENCY = 3`、`DIV_MAX_LATENCY = 32`）；F/D（浮点 FU）。
 - 更早：见 git 历史。
+- 2026-11-18：删除没有被任何文件实例化的 `csr_fu.sv`（21 行，只有握手；CSR 指令的握手在 `exu_ctrl` 里做）。

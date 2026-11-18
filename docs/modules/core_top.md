@@ -110,7 +110,6 @@ depth 待测（由协调者补）。从代码读出的、未综合验证的链�
 RTL 里注释和代码不一致、值得清理的地方（只记录，没有改）：
 
 - `core_front2back.sv`、`core_top.sv` 的文件头仍写"8 → 16 lane 加宽"。现行 `FETCH_WIDTH = BACKEND_FETCH_WIDTH = 16`，没有加宽，那段 `for (j < BACKEND_FETCH_WIDTH)` 先清零再整体覆盖是多余的；
-- `core_top.sv` 里有一个空的 `always_comb begin end`（注释说 SC-L / 循环预测器元数据常量 0）；
 - `core_top.sv` 文件头"the pmu counters are not on a CSR yet"：现状见 pmu.md。
 
 ## 8. 验证
@@ -129,3 +128,4 @@ RTL 里注释和代码不一致、值得清理的地方（只记录，没有改�
 
 - 本分支（`261bd67..HEAD`）未改动 `rtl/core`；更早：见 git 历史。
 - PMU 事件包 `rtl/pmu/pmu_ev_pkg.sv` 已提交为 60ed422：发射队列事件 LD / STA 换成 MEM，新增 FP 队列事件，总数仍 66，id 52..65 重新排布（详见 pmu.md 第 10 节）；`core_top.sv` 只写 tier 1 的 18 个事件（id 0..34 之内），不受影响。
+- 2026-11-18：删除 `core_top.sv` 里一个空的 `always_comb begin end` 及其注释。

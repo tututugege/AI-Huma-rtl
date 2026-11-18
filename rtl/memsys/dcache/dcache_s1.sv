@@ -6,7 +6,6 @@
 // and the hidden retry latches.  The payload of an invalid slot is don't-care, so it is rewritten every tick.
 module dcache_s1
   import dcache_pkg::*;
-  import ttg_cfg_pkg::LSU_PIPE;
 (
   input  logic                 clk,
   input  logic                 rst_n,
@@ -58,7 +57,7 @@ module dcache_s1
   output logic [NLD-1:0]       slot_perf_replay,          // LSU re-issue or hidden retry (not trained on)
   // replayed bank-conflict LSU request whose retry latch is free: no response
   output logic [NSLOT-1:0]     retry_issue,
-  // hidden retry latch valid per port (registered): the staged LSU (LSU_PIPE) leaves such a port idle
+  // hidden retry latch valid per port (registered): the staged LSU leaves such a port idle
   output logic [NSLOT-1:0]     retry_busy,
   output logic                 s2f_valid,
   output logic [MSHR_IDW-1:0]  s2f_id,
@@ -159,14 +158,14 @@ module dcache_s1
   assign fill_bank          = fr_line[BANK_W-1:0];
 
   // ------------------------------------------------------------------ bank grant
-  // Order: fill snapshot, loads, stores; port order inside a class.  With LSU_PIPE the ports that issue a hidden retry
+  // Order: fill snapshot, loads, stores; port order inside a class.  The ports that issue a hidden retry
   // this cycle (use_pend | use_new) are granted first inside their class (a retry cannot be starved by a lower port).
   logic [NSLOT-1:0] grant, retry_first;
   logic [BANK_W-1:0] req_bank [NSLOT];
   logic [1:0] key [NSLOT];
   for (genvar i = 0; i < NSLOT; i++) begin : g_bank
     assign req_bank[i] = req_addr[i][OFF_W +: BANK_W];
-    assign retry_first[i] = (LSU_PIPE != 0) && (use_pend[i] || use_new[i]);
+    assign retry_first[i] = use_pend[i] || use_new[i];
     assign key[i] = {i >= NLD, !retry_first[i]};
   end
   for (genvar i = 0; i < NSLOT; i++) begin : g_grant

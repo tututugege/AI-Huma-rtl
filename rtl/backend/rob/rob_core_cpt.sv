@@ -1,4 +1,4 @@
-// Ref: back-end/Rob.cpp  class Rob, compact mode (ROB_COMPACT): comb_ready, comb_ftq_pc_req, comb_commit_compact,
+// Ref: back-end/Rob.cpp  class Rob (compact ROB, EXP-028): comb_ready, comb_ftq_pc_req, comb_commit_compact,
 //      comb_branch, comb_fire, comb_flush, seq
 `default_nettype none
 

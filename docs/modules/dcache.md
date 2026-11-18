@@ -36,7 +36,7 @@ L1 数据缓存，加上它旁边的两个小结构：缺失状态寄存器 MSHR
 | WB | 8 项，环形队列（`DCACHE_WB_ENTRIES`） | |
 | 端口 | 4 个 load 口（`NLD`）、3 个 store 口（`NST`），7 个请求槽（`NSLOT`）；最后一个 load 口（`P3 = NLD - 1`）被 ICache 探测和页表遍历共用 | `LSU_LDU_COUNT`、`LSU_STA_COUNT`、`memcpu_pkg` |
 | 合并的第二个 store 字 | 每个 store 口一拍可带第二个字（`st2_t`，strb 为 0 表示没有） | EXP-024，模型 `LSU_PIPE_MERGE` |
-| 隐藏重试 | `LSU_PIPE = 1` | `ttg_cfg_pkg` |
+| 隐藏重试 | 总是开（分级 LSU 是唯一的 LSU） | `dcache_s1` |
 | 预取开关 | 参数 `PF_EN`（默认 1，`soc_top` 传入） | |
 | 时钟节拍 | `AXI_SUBSYSTEM_FREQ_DIV = 1`：存储域和 CPU 同频，`cpu_phase0` 恒为 1（见 mem_top.md） | |
 
@@ -98,7 +98,7 @@ L1 数据缓存，加上它旁边的两个小结构：缺失状态寄存器 MSHR
 
 几个非平凡文件的说明：
 
-- **dcache_s1**：每个口先选"这拍谁来占用"：真实请求优先；没有真实请求时，用隐藏重试寄存器里的请求，再没有就重发第二级刚判成 bank 冲突的那个请求。然后按 bank 授权：优先级是 填充快照 > load 0..3 > store 0..3（`LSU_PIPE` 开时，正在重试的口在自己的类内先授权）；同一个 bank 的后来者不被授权，记为"replayed"。被授权的请求下一拍在第二级读阵列。未被授权且是 LSU 来的请求，自己重发（隐藏重试），LSU 看不到冲突；路由块的请求（id 第 31 位为 1）或重试寄存器已占用时则返回 CONFLICT + retry。预取探测取第一个空闲的 load 口，条件是它的 bank 这拍没人用。
+- **dcache_s1**：每个口先选"这拍谁来占用"：真实请求优先；没有真实请求时，用隐藏重试寄存器里的请求，再没有就重发第二级刚判成 bank 冲突的那个请求。然后按 bank 授权：优先级是 填充快照 > load 0..3 > store 0..3（正在重试的口在自己的类内先授权）；同一个 bank 的后来者不被授权，记为"replayed"。被授权的请求下一拍在第二级读阵列。未被授权且是 LSU 来的请求，自己重发（隐藏重试），LSU 看不到冲突；路由块的请求（id 第 31 位为 1）或重试寄存器已占用时则返回 CONFLICT + retry。预取探测取第一个空闲的 load 口，条件是它的 bank 这拍没人用。
 - **dcache_arr / dcache_bank**：阵列以 bank 为单位，bank 授权保证每拍每个 bank 只有一个读请求者，所以每个 bank 只有一个读口，读地址是各请求者行号按位或。代码里是普通寄存器阵列（`logic data_q[WAYS][ROWS]`），没有 SRAM 宏。写口：填充 1 个、store 字写 `NST` 个、PLRU 写 `NSLOT + 1` 个。
 - **dcache_mshr**：每项存 `valid`、`issued`（读请求已被 AXI 接受）、行地址、已合并的 store 数据 / 字节使能 / dirty、`pf`（预取项）、`nofill`（只进 LLC 的预取项）；另有一个 AXI 响应暂存槽（`hold_*`，只有一个）。每拍先处理 AXI 侧（接受标记、响应入暂存槽），再处理填充确认（释放项）、分配 / 合并，最后从最终状态选下一个要发的读请求（demand 优先于预取，`send_pass`）。
 - **dcache_wb**：8 项环（`head`、`count`），`send` 表示有写请求在途；B 响应弹出队头；load 转发取同行的最年轻项（`dcache_wb_find`），store 合并到同行最年轻项（若它是队头且有写在途则报 busy）；被驱逐的脏行追加到队尾；AXI 写请求就是队头（含这拍的合并和追加）。
@@ -177,7 +177,7 @@ depth: 待测（由协调者补）。从代码读出的，未综合验证，最�
 
 ## 9. 参数与开关速查
 
-`DCACHE_SETS_NUM`、`DCACHE_WAYS_NUM`、`DCACHE_LINE_SIZE`、`DCACHE_WORD_NUM`、`DCACHE_*_BITS`、`DCACHE_BANK_NUM`、`DCACHE_MSHR_ENTRIES`、`DCACHE_WB_ENTRIES`、`LSU_LDU_COUNT`、`LSU_STA_COUNT`、`XLEN_BITS`、`LSU_PIPE`（`ttg_cfg_pkg`）；`PF_EN`（`dcache` 参数）；`AXI_SUBSYSTEM_FREQ_DIV`（决定 `cpu_phase0`）。`ttg_cfg_pkg.sv` 目前是手工编辑的，与 `make cfg` 生成的不同步（待统一，见 docs/TODO.md）。
+`DCACHE_SETS_NUM`、`DCACHE_WAYS_NUM`、`DCACHE_LINE_SIZE`、`DCACHE_WORD_NUM`、`DCACHE_*_BITS`、`DCACHE_BANK_NUM`、`DCACHE_MSHR_ENTRIES`、`DCACHE_WB_ENTRIES`、`LSU_LDU_COUNT`、`LSU_STA_COUNT`、`XLEN_BITS`（`ttg_cfg_pkg`）；`PF_EN`（`dcache` 参数）；`AXI_SUBSYSTEM_FREQ_DIV`（决定 `cpu_phase0`）。`ttg_cfg_pkg.sv` 目前是手工编辑的，与 `make cfg` 生成的不同步（待统一，见 docs/TODO.md）。
 
 ## 10. 变更记录
 

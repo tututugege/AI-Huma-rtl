@@ -26,7 +26,6 @@ if [ "${DS3:-1}" != 0 ]; then
   DS3FLAGS="$DS3FLAGS -DSIM_DDR_DS3 -I$DS3_DIR/src -DDS3_CFG_PATH=$DS3_DIR/configs/DDR4_8Gb_x16_3200.ini"
   DS3LD="$DS3_LIB"
 fi
-LSUPFLAG=""; grep -q "LSU_PIPE = 1;" "$ROOT/rtl/common/ttg_cfg_pkg.sv" && LSUPFLAG="-DSOC_LSU_PIPE"   # staged LSU: the testbench reads its STQ entry
 # F/D (FPRF_NUM > 0 in the config): the FP units compute through DPI-C (tb/fp_dpi/fp_dpi.cpp, Berkeley softfloat of the function model)
 FPDPI=(); FPINC=""; FPLD=""
 FP_ON=1; grep -q "FPRF_NUM = 0;" "$ROOT/rtl/common/ttg_cfg_pkg.sv" && FP_ON=0   # (the committed package is rv64gc; a package generated with -DFP=0 builds without the FP units)
@@ -51,7 +50,7 @@ done
 wait
 JOBS=${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 6)}
 verilator --cc --exe --build -j "$JOBS" --output-split 5000 --output-split-cfuncs 5000 -Wno-fatal -Wno-lint -Wno-style -Wno-UNOPTFLAT ${DEBUG:+--public-flat-rw} $VOPT --x-assign 0 --x-initial 0 \
-  --top-module soc_top -Mdir obj -CFLAGS "$COPT $DS3FLAGS $LSUPFLAG $XLENFLAG ${FMOPT[*]:-} ${DEBUG:+-DSOC_TB_DEBUG} -std=c++2a -w $INC $FPINC -I$ROOT/harness/include -I$ROOT/tb/soc" \
+  --top-module soc_top -Mdir obj -CFLAGS "$COPT $DS3FLAGS $XLENFLAG ${FMOPT[*]:-} ${DEBUG:+-DSOC_TB_DEBUG} -std=c++2a -w $INC $FPINC -I$ROOT/harness/include -I$ROOT/tb/soc" \
   -LDFLAGS "$OUT/SimDDR.o $OUT/PhysMemory.o $FMLD $DS3LD $FPLD" \
   "$ROOT/tb/soc/soc_public.vlt" "$ROOT/tb/soc/pmu_public.vlt" "$ROOT/tb/soc/soc_tb.cpp" ${FPDPI[@]+"${FPDPI[@]}"} "${FILES[@]}" -o soc_tb > build.log 2>&1 || { grep -E "error:|%Error" build.log | grep -v "Command Failed" | head -12 | cut -c1-200; echo "BUILD FAILED, see $OUT/build.log"; exit 1; }
 # idle-tick skip: byte ranges of Verilator scratch temporaries (ignored by the fixed-point compare)

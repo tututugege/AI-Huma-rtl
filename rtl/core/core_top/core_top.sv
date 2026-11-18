@@ -163,10 +163,6 @@ module core_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; i
   logic [7:0] ftq_commit_info_resp_tage_tag [COMMIT_WIDTH][4];
   logic out_stall;
 
-  // SC-L / loop predictor metadata of the front-to-back path and the update-queue stall are constant 0 (see front_top)
-  always_comb begin
-  end
-
   pmu_ev_core #(.COMMIT_W(COMMIT_WIDTH)) u_pmu_ev (
     .commit_valid(rob_commit_commit_entry_valid), .commit_type(rob_commit_commit_entry_uop_type),
     .interrupt(rob_bcast_interrupt), .flush(rob_bcast_flush), .exception(rob_bcast_exception),

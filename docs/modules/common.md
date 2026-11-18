@@ -32,7 +32,7 @@ depth: 待测（由协调者补）
 - 用 `gen_cfg.sh` 的默认 `-D` 生成：173 个常量，与检入文件相比有 5 个值不同——`LSU_AGU_SHARED`（0 对 2）、`LSU_AGU_PHYS`（7 对 5）、`IQ_INT_ENQ_WIDTH`（7 对 4）、`IQ_MEM_ENQ_WIDTH`（8 对 6）、`IQ_INT_SIZE`（64 对 32）。这是因为现行 RTL 配置不是模型的默认配置；
 - 再加 `-DCFG_AGU_SHARED=2 -DCFG_INT_CLUSTERS=2 -DCFG_INT_IQ_SIZE=32 -DCFG_INT_IQ_ENQ_WIDTH=4 -DCFG_MEM_IQ_ENQ_WIDTH=6`，生成的值与检入文件逐个相同；
 - 检入文件里有 10 个生成器不会输出的常量：`INT_CLUSTERS`、`MEM_AGE`、`IQ_SAME_CYCLE_REUSE`（手工加，RTL 在用：`INT_CLUSTERS` 3 个文件，`MEM_AGE`、`IQ_SAME_CYCLE_REUSE` 各 1 个文件，它们在模型里是 `CFG_INT_CLUSTERS`、`CFG_ISSUE_OLDEST_FIRST/QUEUES`、`CFG_IQ_SAME_CYCLE_REUSE` 宏，不是 `constexpr`）；另 7 个（`VIRTUAL_MEMORY_LENGTH`、`DCACHE_WORDS_PER_BANK`、`DCACHE_MISS_NUM`、`LDQ_WAIT_MMU_UPPER_BOUND`、`STQ_WIAT_MMU_UPPER_BOUND`、`STQ_MMU_DONE_UPPER_BOUND`、`UART_ADDR_MASK`）是模型里已经没有的旧常量，RTL 里也没有任何文件用它们；
-- 文件里的顺序与生成器的输出也不同（例如 `XLEN_BITS`、`ROB_COMPACT` 等生成器放在最后）。
+- 文件里的顺序与生成器的输出也不同（例如 `XLEN_BITS` 等生成器放在最后）。
 
 所以：数值上，检入文件 = "模型 + 上面那组 `-D`" 再加上几个手工常量；但没有机器同步，`make cfg` 会改掉手工加的内容并回到模型默认值，不能直接用。待办（`isu.md` 第 9 节也提到）：把现行配置固化成生成器的输入（一个固定的 `-D` 列表），把 `INT_CLUSTERS`、`MEM_AGE`、`IQ_SAME_CYCLE_REUSE` 放进生成器，删掉 7 个无用常量。
 

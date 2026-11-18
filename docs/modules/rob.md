@@ -19,7 +19,7 @@ depth: 62 层（协调者给出的单模块综合数，通用门代理；本文�
 4. 分支误预测恢复：误预测的分支之后的槽全部作废，尾指针退回到该分支的下一条；
 5. 全局冲刷：异常、xRET、CSR 写、sfence.vma、fence.i、访存顺序违例、中断由队头那条单独退休的指令触发，ROB 在同一拍清空自己，广播（`rob_bcast`）给其他模块。
 
-现行默认是**紧凑 ROB**（`ROB_COMPACT = 1`，`rob_core_cpt.sv`，EXP-028）：指令一条接一条占槽，不再每个分派组占一整行。模型里只有这一种（`Rob.h` 的注释写明 compact），行式 ROB 在 RTL 里还保留着（见 4 和 7）。
+现行的 ROB 是**紧凑 ROB**（`rob_core_cpt.sv`，EXP-028）：指令一条接一条占槽，不再每个分派组占一整行。模型里也只有这一种（`Rob.h` 的注释写明 compact）。原来的行式 ROB（一个分派组占一整行，`ROB_COMPACT = 0`）已在 2026-11-18 删除（见第 10 节）。
 
 模型对应一个调度单元 `back.rob`（`Rob::comb_commit`）；另一个阶段 `comb_redirect`（前端重定向、向后端输出提交结果）在 RTL 里在 `back_top_glue`，不在 ROB 里。
 
@@ -34,7 +34,6 @@ depth: 62 层（协调者给出的单模块综合数，通用门代理；本文�
 | 写回口 | 21（口号 0..20，口号见 isu.md） | `ISSUE_WIDTH` |
 | 完成组 | 3 位，一个组一位：G0 = 整数 / load / FP，G1 = 分支 / STA，G2 = STD | `rob_pkg::CPLT_G0/1/2`、`CPLT_W = 3` |
 | 数据宽度 | 64 | `XLEN_BITS`（`ROB_XLEN`） |
-| 默认模式 | 紧凑 ROB | `ROB_COMPACT = 1` |
 
 写回口到完成组的映射（`rob_pkg::rob_port_cplt_bit`，用 `IQ_*_PORT_BASE`）：口 0..5（ALU）和 6..9（load）、18..20（FP）→ G0；口 10..12（STA）和 16、17（BR）→ G1；口 13..15（STD）→ G2。共用 AGU 的两个口在写回侧是分开的口号：load 的写回用 8、9，STA 的写回用 11、12，所以 ROB 看到的是 21 个独立的口。
 
@@ -74,14 +73,12 @@ depth: 62 层（协调者给出的单模块综合数，通用门代理；本文�
 
 | 文件 | 行数 | 职责 |
 | --- | --- | --- |
-| `rob.sv` | 289 | 顶层：平铺端口 <-> 结构体；`ROB_COMPACT` 选核；F/D 的 fflags / fs_dirty 累加 |
+| `rob.sv` | 254 | 顶层：平铺端口 <-> 结构体，实例化 `rob_core_cpt`；F/D 的 fflags / fs_dirty 累加 |
 | `rob_core_cpt.sv` | 351 | 紧凑 ROB 的核心（默认）：窗口读出、退休判决、入队、误预测恢复、指针次态 |
 | `rob_entry.sv` | 62 | 一个槽（valid + `rob_entry_t`）的次态：写回、标记最后一条、入队、清除；两种核共用 |
 | `rob_wb_decode.sv` | 20 | 每个写回口翻成事件 `rob_event_t`（写哪个字段、置哪个完成位） |
 | `rob_trap_ctrl.sv` | 84 | 队头单独退休时的冲刷、异常原因（12 个候选里取最先的）、`trap_val`、`pc` |
 | `pkg/rob_pkg.sv` | 227 | 槽结构 `rob_entry_t`、写回结构、指令分类函数、完成组、事件应用函数 |
-| `rob_core.sv` | 162 | 行式 ROB 的核心（`ROB_COMPACT = 0`，见下） |
-| `rob_ptr.sv`、`rob_commit_ctrl.sv`、`rob_head_info.sv`、`rob_head_class.sv`、`rob_store.sv`、`rob_branch_recovery.sv` | 103、69、66、24、65、44 | 行式 ROB 的子块；紧凑核不用它们 |
 
 紧凑核的几点：
 
@@ -89,7 +86,6 @@ depth: 62 层（协调者给出的单模块综合数，通用门代理；本文�
 - **退休判决**（5.2）：队头是冲刷类（`rob_is_flush_inst`）、fence、WFI，或者有中断，就只退这一条；否则取窗口里"完成、不是上述三类、信用够"的最长前缀。
 - **入队**：分派已经把 `rob_idx` 编成 `尾 + 有效项的序号`；第 b 个 bank 接收 `rob_idx[2:0] == b` 的那条（8 个连续位置里每个 bank 至多一条）。
 - **误预测恢复**：`keep = 被预测错的分支相对队头的偏移 + 1`；偏移大于这个的槽 `valid` 清零，分支那一条的 `ftq_is_last` 置 1（同一取指块里它后面的指令都已作废）；`count` 变成 `keep`。
-- **行式 ROB**（`rob_core.sv`）：一个分派组占一整行，`rob2dis_enq_idx` 是行号。它在 RTL 里还保留着，`ROB_COMPACT = 0` 时 `rob.sv` 会实例化它；分派侧同样有 `ROB_COMPACT == 0` 的分支（`dispatch_core`、`dispatch_fire_ctl`）。模型里已经没有这个模式，RTL 的整核门禁也只跑 `ROB_COMPACT = 1`，所以行式路径目前没有任何验证（见第 7、8 节）。
 
 状态：`head_q`（7 位）、`hflag_q`（队头环绕标志）、`count_q`（8 位，0..128）、`prev_ctl_q` / `prev_blk_q`（上一拍退休的控制流指令数 / 取指块尾数，各 4 位）、三个寄存的一热视图；槽存储 128 个，每槽 `1 + ROB_ENTRY_W` 位（`rob_entry_t` 的各字段见 `rob_pkg.sv`）。槽的 `valid` 有复位，其余内容复位为 0。
 
@@ -152,8 +148,7 @@ RTL 里有、模型里没有的（模型从 trace / 函数模型取得这些，R
 
 - `rob.sv` 把写回的 `pf_inst` 固定为 0（"后端没有写它的口，取指缺页来自前端"），`rob_make_event` 里 `ev.pf_inst` 因此恒为 0，是死路径；模型 `Rob::complete` 里还有 `page_fault_inst |= wb.page_fault_inst`；
 - `rob_pkg` 里 `UOP_TYPE_COUNT = 17` 的注释写着"F/D 还不在 RTL 里"，已过时（`dis_pkg` 的 `uop_op_e` 有 21 个值，宽度同为 5 位）；
-- `rob.sv` 的端口注释、`rob_trap_ctrl` 的 `single_uop` 注释还写"head line"，是行式 ROB 的说法；
-- 行式 ROB 整套（`rob_core` 和 6 个子块）仅在 `ROB_COMPACT = 0` 用，模型已没有对应模式，也没有验证：是否删除待定。
+- `rob.sv` 的端口注释、`rob_trap_ctrl` 的 `single_uop` 注释还写"head line"，是已删除的行式 ROB 的说法；
 
 与模型保持一致的细节（读模型时容易误判）：
 
@@ -173,9 +168,10 @@ RTL 里有、模型里没有的（模型从 trace / 函数模型取得这些，R
 
 ## 9. 参数与开关速查
 
-`ROB_NUM`、`ROB_BANK_NUM`、`ROB_LINE_NUM`、`ROB_COMPACT`、`COMMIT_WIDTH`、`DECODE_WIDTH`、`ISSUE_WIDTH`、`IQ_*_PORT_BASE`（写回口到完成组）、`TTG_EBREAK_TRAP`（编译宏：ebreak 变成断点异常，Linux 需要；`rob_pkg::EBREAK_TRAP`）。`ttg_cfg_pkg.sv` 目前是手工编辑的，与 `make cfg` 生成的不同步（待统一，见 docs/TODO.md）。
+`ROB_NUM`、`ROB_BANK_NUM`、`ROB_LINE_NUM`、`COMMIT_WIDTH`、`DECODE_WIDTH`、`ISSUE_WIDTH`、`IQ_*_PORT_BASE`（写回口到完成组）、`TTG_EBREAK_TRAP`（编译宏：ebreak 变成断点异常，Linux 需要；`rob_pkg::EBREAK_TRAP`）。`ttg_cfg_pkg.sv` 目前是手工编辑的，与 `make cfg` 生成的不同步（待统一，见 docs/TODO.md）。
 
 ## 10. 变更记录
 
 - 2026-11-17/18（exp/agu-share）：`803692f` FLUSH_REG：ROB 在决定冲刷的那一拍清空自己，不等其他模块；新增输入 `flush_pend` 屏蔽陈旧的误预测恢复；限定本拍提交的信号（中断）不晚一拍。
 - 更早（`git log -- rtl/backend/rob`）：`4e954d7`（2026-11-11）紧凑 ROB（EXP-028，当时默认 `ROB_COMPACT = 0`，现为 1）；`a2657ea`（2026-11-12）`ROB_XLEN`；`a946972`、`3791f11`（2026-11-12）F/D（FP 写回口、fflags、FS 脏、FS = Off 非法）。
+- 2026-11-18：删除行式 ROB：`rob_core`、`rob_ptr`、`rob_commit_ctrl`、`rob_head_info`、`rob_head_class`、`rob_store`、`rob_branch_recovery`（7 个文件，688 行）、`rob.sv` 里 `ROB_COMPACT` 选核的分支、分派里 `ROB_COMPACT == 0` 的分支（`dispatch_core`、`dispatch_fire_ctl`）、`ROB_COMPACT` 常量。整核周期不变（见提交说明）。

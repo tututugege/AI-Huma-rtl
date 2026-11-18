@@ -364,7 +364,7 @@ long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
 #if defined(SOC_TB_DEBUG) && defined(SOC_LSU_PIPE)
     if (phase == 0 && top->rst_n && std::getenv("SOC_TB_LSUEVT")) {   // per-cycle LSU boundary events (same format as the model's LSU_PIPE_EVT)
       auto *R = top->rootp;
-#define LSUP(n) R->soc_top__DOT__u_core__DOT__u_back__DOT__u_lsu__DOT__g_pipe__DOT__u_pipe__DOT__##n
+#define LSUP(n) R->soc_top__DOT__u_core__DOT__u_back__DOT__u_lsu__DOT__u_pipe__DOT__##n
       std::fprintf(stderr, "E t=%llu wb:", (unsigned long long)cycles + 1);
       for (int p = 0; p < LSU_LDU_COUNT; ++p) if (LSUP(lsu2exe_wb_req_valid) >> p & 1) std::fprintf(stderr, " %d=r%d/p%d/e%d/b%llx", p, (int)LSUP(lsu2exe_wb_req_uop_rob_idx)[p], (int)LSUP(lsu2exe_wb_req_uop_dest_preg)[p], (int)(LSUP(lsu2exe_wb_req_uop_dest_en) >> p & 1), (unsigned long long)LSUP(lsu2exe_wb_req_uop_br_mask)[p]),
         std::fprintf(stderr, "/v%x/d%x/f%d%d", (unsigned)LSUP(lsu2exe_wb_req_uop_result)[p], (unsigned)LSUP(lsu2exe_wb_req_uop_diag_val)[p],
@@ -397,12 +397,12 @@ long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
       std::fprintf(stderr, " ai:");
       for (int p = 0; p < 8; ++p) if (LSUP(lsu2dis_ldq_alloc_valid) >> p & 1) std::fprintf(stderr, " %d", (int)LSUP(lsu2dis_ldq_alloc_idx)[p]);
       std::fprintf(stderr, " x:");
-      for (int p = 0; p < LSU_SDU_COUNT; ++p) if (top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__u_lsu__DOT__g_pipe__DOT__u_pipe__DOT__exe2lsu_sdu_req_valid >> p & 1)
+      for (int p = 0; p < LSU_SDU_COUNT; ++p) if (top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__u_lsu__DOT__u_pipe__DOT__exe2lsu_sdu_req_valid >> p & 1)
         std::fprintf(stderr, " D%d=%d", p, (int)LSUP(exe2lsu_sdu_req_uop_stq_idx)[p]);
       for (int p = 0; p < LSU_STA_COUNT; ++p) if (LSUP(exe2lsu_sta_req_valid) >> p & 1) std::fprintf(stderr, " A%d=%d", p, (int)LSUP(exe2lsu_sta_req_uop_stq_idx)[p]);
       for (int p = 0; p < LSU_LDU_COUNT; ++p) if (LSUP(exe2lsu_ldu_req_valid) >> p & 1) std::fprintf(stderr, " G%d=%d", p, (int)LSUP(exe2lsu_ldu_req_uop_ldq_idx)[p]);
       if (const char *si = std::getenv("SOC_TB_STQ")) {
-        const auto &fld = R->soc_top__DOT__u_core__DOT__u_back__DOT__u_lsu__DOT__g_pipe__DOT__u_pipe__DOT__u_core__DOT__sq[std::atoi(si)];
+        const auto &fld = R->soc_top__DOT__u_core__DOT__u_back__DOT__u_lsu__DOT__u_pipe__DOT__u_core__DOT__sq[std::atoi(si)];
         auto bit = [&](int k) { return (int)((fld[k / 32] >> (k % 32)) & 1u); };
         constexpr int kBase = 3 + 2 + 64 + 1 + 7 + 7 + 3 + 32 + 32 + 32;  // = done bit (LSB first: rwait rtype br rob_flag rob_idx dest func3 data paddr vaddr)
         std::fprintf(stderr, " Q[%s]: va=%d pa=%d dv=%d pf=%d wbp=%d wbd=%d cmt=%d iss=%d done=%d", si, bit(kBase + 14), bit(kBase + 13), bit(kBase + 12), bit(kBase + 11), bit(kBase + 5), bit(kBase + 4), bit(kBase + 3), bit(kBase + 2), bit(kBase));
@@ -487,10 +487,9 @@ long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
           }
           // SimCpu::commit_sync: a committing store applies its device effect (PeripheralModel::on_commit_store) from the STQ entry
           if (top->rob_commit_commit_entry_uop_type[i] == kInstStore && !ttg_getbit(top->rob_commit_commit_entry_uop_page_fault_store, i)) {
-#ifdef SOC_LSU_PIPE
             // lp_pkg::lp_stq_t (packed, first field = MSB): va_v pa_v data_v pf mmio lrsc sc_pass suppress trp wbp wbd cmt iss mmw done
             // vaddr paddr data func3 dest_preg rob_idx rob_flag br_mask rtype[2] rwait[3]
-            const auto &fld = top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__u_lsu__DOT__g_pipe__DOT__u_pipe__DOT__u_core__DOT__sq[top->rob_commit_commit_entry_uop_stq_idx[i]];
+            const auto &fld = top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__u_lsu__DOT__u_pipe__DOT__u_core__DOT__sq[top->rob_commit_commit_entry_uop_stq_idx[i]];
             auto bits = [&](int lo, int w) { uint64_t v = 0; for (int b = 0; b < w; ++b) { int k = lo + b; v |= uint64_t((fld[k / 32] >> (k % 32)) & 1u) << b; } return v; };
             constexpr int kRtype = 3, kBr = kRtype + 2, kRobFlag = kBr + kCfg_BR_MASK_WIDTH, kRobIdx = kRobFlag + 1, kDest = kRobIdx + kCfg_ROB_IDX_WIDTH,
                           kFunc3 = kDest + kCfg_PRF_IDX_WIDTH, kData = kFunc3 + 3, kPaddr = kData + kXlen, kVaddr = kPaddr + 32, kDone = kVaddr + kXlen;
@@ -512,13 +511,6 @@ long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
               }
 #endif
             }
-#else
-            const auto &fld = top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__u_lsu__DOT__g_legacy__DOT__u_core__DOT__st_fld_q[top->rob_commit_commit_entry_uop_stq_idx[i]];
-            auto bits = [&](int lo, int w) { uint64_t v = 0; for (int b = 0; b < w; ++b) { int k = lo + b; v |= uint64_t((fld[k / 32] >> (k % 32)) & 1u) << b; } return uint32_t(v); };
-            // lsu_pkg::stq_fld_t from the LSB: sc_pass lrsc mmio suppress pf paddr_valid data_valid replay[2] br_mask rob_flag rob_idx dest func3[3] paddr vaddr data
-            constexpr int kFunc3 = 9 + kCfg_BR_MASK_WIDTH + 1 + kCfg_ROB_IDX_WIDTH + kCfg_PRF_IDX_WIDTH, kPaddr = kFunc3 + 3, kData = kPaddr + 64;
-            if (!bits(3, 1) && bits(5, 1) && bits(6, 1)) periph.on_commit_store(bits(kPaddr, 32), bits(kData, 32), uint8_t(bits(kFunc3, 3)));
-#endif
           }
         }
     }

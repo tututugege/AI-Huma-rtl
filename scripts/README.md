@@ -12,7 +12,7 @@
 | Linux 整机 | `build_soc64_linux.sh [目录]`、`linux_gate.sh <soc_tb> <模型> <镜像> [周期] [输出]` | **全程 Linux 回归**：`build_soc64_linux.sh` 构建 rv64 测试平台（逐条 function-model 检查、`TTG_EBREAK_TRAP`、**默认 4 个仿真线程**，`THREADS` 可改，需 `FMLIB`）；`linux_gate.sh` 同镜像同周期数跑 RTL 和 trace-model，三项全过才算通过：逐条检查无不一致、每区间 PMU 一级事件完全相同（`align_check.py`）、控制台到 `login:`。不带 `--threads` 的单线程构建跑全程要慢 2~3 倍，只用于几百万周期以内的检查点复现 |
 | Linux | `linux_segments_cmp.sh <soc_tb> <模型> <检查点目录> <输出目录> [每段周期]` | **Linux 检查点窗口并行，RTL 对 trace-model**：每个检查点两边都冷启动，跑同样的周期数，PASS = 逐条检查无不一致且 PT/UP 指纹相同（PMU 区间不比，`PMU_CMP=1` 打开）；`JOBS` 并行数、`SEGS` 选窗口、`TM_ENV` 给模型加环境变量。比 140M 周期的完整 gate 快得多，完整 gate 留作最终确认 |
 | Linux | `linux_segments.sh <soc_tb> <检查点目录> <输出目录> [每段周期]` | Linux 检查点段并行逐条对比（冷启动微结构，周期不比）；整机从复位启动见仓库根 `README.md`（`SOC_TB_SEMIHOST=1`，构建加 `SOC_VOPT="--threads 4 -DTTG_EBREAK_TRAP"`） |
-| 其他 | `build_dcache_tests.sh`、`pmu_parity.sh`、`fe_refs/` | 定向 DCache 覆盖程序的构建（`tests/dcache` 需要 Homebrew LLVM riscv64）；PMU 一级事件 RTL 对 trace-model 的逐事件总数对比；前端参考数据 |
+| 其他 | `build_dcache_tests.sh`、`pmu_parity.sh` | 定向 DCache 覆盖程序的构建（`tests/dcache` 需要 Homebrew LLVM riscv64）；PMU 一级事件 RTL 对 trace-model 的逐事件总数对比；前端参考数据 |
 
 **rv64**：main 上只有 rv64gc；`fm_gate.sh`、`soc_smoke.sh` 直接用默认测试平台（`SOC_FM=1 FMLIB=<XLEN=64 FP=1 RVC=1 的 librefcpu.a> bash tb/soc/build.sh`）。rv32 在分支 `rv32-legacy`。
 

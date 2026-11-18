@@ -37,13 +37,13 @@ module dispatch_fire_ctl
   end
 
   logic [NUM_SLOTS-1:0] fire_ideal;   // lane fires provided no older lane stalled
-  logic [NUM_SLOTS-1:0] rob_fit;      // Ref: Dispatch::comb_fire rob_used < rob2dis.free_cnt (compact ROB)
+  logic [NUM_SLOTS-1:0] rob_fit;      // Ref: Dispatch::comb_fire rob_used < rob2dis.free_cnt
 
   always_comb begin
     int unsigned used;
     used = 0;
     for (int i = 0; i < NUM_SLOTS; i++) begin
-      rob_fit[i] = (ROB_COMPACT == 0) || ((ROB_IDX_WIDTH+1)'(used) < rob_free);
+      rob_fit[i] = (ROB_IDX_WIDTH+1)'(used) < rob_free;
       used = used + (inst_valid[i] ? 1 : 0);
     end
   end

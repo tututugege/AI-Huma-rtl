@@ -78,8 +78,6 @@ def main():
         else:
             lines.append(f'  localparam int {n} = {x};')
     # RTL-only switch (not a trace-model constant): 1 = staged LSU (rtl/backend/lsu/lp_*.sv, docs/analysis/lsu-pipe.md), 0 = legacy LSU.
-    # Default 1 (staged LSU); pass -DLSU_PIPE=0 to select the legacy LSU (trace-model counterpart: CFG_LSU_PIPE, default 1; env LSU_PIPE=0 there is the legacy LSU).
-    lines.append('  localparam int LSU_PIPE = %d;' % (0 if '-DLSU_PIPE=0' in defs else 1))
     lines.append('  // fixed design constants (harness/tools/gen_cfg_pkg.py FIXED), not exported from the model')
     lines += ['  localparam int %s = %d;' % (k, v) for k, v in FIXED.items()]
     lines.append('  // core <-> dcache data word: XLEN bits; a store request carries a strobe of XLEN/8 + 1 bits (the extra one: the\n  // next data word, conflict checks only) and a second data word {strb, word index, data}')

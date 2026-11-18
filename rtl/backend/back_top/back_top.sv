@@ -523,7 +523,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
   logic [LSU_LOAD_WB_WIDTH-1:0] lsu_byp_valid;
   always_comb begin
     for (int k = 0; k < LSU_LOAD_WB_WIDTH; k++)
-      lsu_byp_valid[k] = (LSU_PIPE != 0) && ((lp_pkg::LP_L2 & 9) == 9) && lsu2exe_wb_req_valid[k] &&
+      lsu_byp_valid[k] = ((lp_pkg::LP_L2 & 9) == 9) && lsu2exe_wb_req_valid[k] &&
                          lsu2exe_wb_req_uop_dest_en[k];
   end
   logic [2*LSU_LDU_COUNT-1:0] lsu2iss_wake_valid;
