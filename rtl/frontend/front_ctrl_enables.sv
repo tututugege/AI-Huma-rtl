@@ -22,9 +22,8 @@ module front_ctrl_enables import ttg_cfg_pkg::*; import front_pkg::*; (
   input  logic bpu_icache_read_valid,
   input  logic bpu_ptab_write_enable,
   input  logic checker_flush_enable,
-  input  logic bpu_override_valid,     // S2 override of the younger block this cycle
+  input  logic fa_head_fresh,          // the fetch-address queue's head was pushed in the previous cycle
   input  logic bpu_override_squash,    // ... and that block is in flight (its fetch address is the youngest entry)
-  input  logic [$clog2(FETCH_ADDR_FIFO_DEPTH + 1)-1:0] fa_size,
   output logic fa_rd_en,
   output logic predecode_can_run,
   output logic bpu_can_run,
@@ -39,15 +38,14 @@ module front_ctrl_enables import ttg_cfg_pkg::*; import front_pkg::*; (
 );
 
   logic bpu_stall;
-  logic [$clog2(FETCH_ADDR_FIFO_DEPTH + 1)-1:0] squash_n;   // entries the override drops (0 or 1)
   logic f2b_head_valid;   // front2back FIFO read port shows a stored entry (its refetch is the backend's only)
 
   // Ref: front_read_enable_comb (fetch_addr read, predecode_can_run_old = inst FIFO / PTAB read enable)
   always_comb begin
-    squash_n          = {{($bits(squash_n) - 1){1'b0}}, bpu_override_squash};
-    // an override takes the youngest fetch-address entry away: do not pop it (the queue holds only that entry)
-    fa_rd_en          = icache_ready && !fa_empty && !global_refetch &&
-                        !(bpu_override_valid && fa_size <= squash_n);
+    // The BPU's last-stage override may take the youngest fetch-address entry away, so an entry is only read once it has
+    // been in the queue for a full cycle (every override that can squash it was decided and applied before): the pop
+    // does not depend on the decision of the same cycle (EXP-FEOVR, model CFG_FE_OVR_REG)
+    fa_rd_en          = icache_ready && !fa_empty && !global_refetch && !fa_head_fresh;
     // FE_RFAST bit1: the block leaving the BPU's last stage is written into the PTAB and may be read by the checker in the same cycle
     predecode_can_run = !inst_empty && (!ptab_empty || ((FE_RFAST & 2) != 0 && bpu_ptab_write_enable)) && !f2b_full &&
                         !global_refetch;

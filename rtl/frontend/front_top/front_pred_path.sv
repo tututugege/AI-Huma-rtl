@@ -56,7 +56,6 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
   output logic                bpu_icache_read_valid,
   output logic [XLEN_BITS-1:0]         bpu_fetch_address,
   output logic                bpu_ptab_write_enable,
-  output logic                bpu_override_valid,
   output logic                bpu_override_squash,
   output logic                ptab_empty,
   output logic                f2b_full,
@@ -105,6 +104,10 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
   assign ptab_size8 = 8'(ptab_size);
   assign bpu_bck    = {bpu_out_epoch, bpu_out_ck};
 
+  /* verilator lint_off UNUSEDSIGNAL */
+  logic bpu_override_valid_unused;   // the BPU's override decision no longer gates the fetch-address pop (EXP-FEOVR)
+  /* verilator lint_on UNUSEDSIGNAL */
+
   bpu u_bpu (
     .clk, .rst_n,
     .refetch                    (global_refetch),
@@ -117,7 +120,7 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
     .upd_valid, .base_pc, .actual_dir, .upd_is_rvc, .br_type, .target, .pred_dir, .alt_pred, .pcpn, .tags, .idxs,
     .icache_read_valid          (bpu_icache_read_valid),
     .fetch_address              (bpu_fetch_address),
-    .override_valid             (bpu_override_valid),
+    .override_valid             (bpu_override_valid_unused),
     .override_squash            (bpu_override_squash),
     .ptab_write_enable          (bpu_ptab_write_enable),
     .ptab_base_pc               (bpu_ptab_base_pc),

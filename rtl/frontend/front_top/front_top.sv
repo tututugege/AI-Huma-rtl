@@ -99,8 +99,8 @@ module front_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; 
   logic        fa_rd_en, predecode_can_run, bpu_can_run, bpu_icache_read_ready;
   logic        fa_wr_en, ptab_wr_en, f2b_wr_en, f2b_use_bypass, front_out_valid, do_predecode_flush;
   logic        fa_full, fa_empty, inst_empty, ptab_empty, f2b_full, f2b_empty;
-  logic        fa_drop_tail, bpu_override_valid, bpu_override_squash, refetch_pd;
-  logic [$clog2(FETCH_ADDR_FIFO_DEPTH + 1)-1:0] fa_size;
+  logic        fa_drop_tail, bpu_override_squash, refetch_pd;
+  logic        fa_head_fresh;
   logic        bpu_icache_read_valid, bpu_ptab_write_enable;
   logic        checker_flush_enable;
   logic [XLEN_BITS-1:0] checker_flush_address;
@@ -114,7 +114,7 @@ module front_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; 
     .bpu_icache_read_valid,
     .bpu_ptab_write_enable,
     .checker_flush_enable, .checker_flush_address,
-    .bpu_override_valid, .bpu_override_squash, .fa_size,
+    .fa_head_fresh, .bpu_override_squash,
     .global_refetch, .refetch_address, .fa_rd_en, .predecode_can_run, .bpu_can_run, .bpu_icache_read_ready,
     .fa_wr_en, .fa_drop_tail, .ptab_wr_en, .f2b_wr_en, .f2b_use_bypass, .front_out_valid, .do_predecode_flush
   );
@@ -170,7 +170,7 @@ module front_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; 
     .clk, .rst_n, .global_refetch,
     .fa_rd_en, .fa_wr_en, .fa_drop_tail,
     .fa_wr_address   (bpu_fetch_address),
-    .fa_rd_valid, .fa_rd_address, .fa_full, .fa_empty, .fa_size,
+    .fa_rd_valid, .fa_rd_address, .fa_full, .fa_empty, .fa_head_fresh,
     .ic_read_complete, .ic_fetch_pc, .ic_inst_valid, .ic_page_fault_inst, .ic_fetch_group, .ic_upper_ok,
     .inst_rd_en      (predecode_can_run),
     .inst_empty,
@@ -195,7 +195,7 @@ module front_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; 
     .inst_rd_predecode_target_address, .inst_rd_seq_next_pc,
     .inst_rd_raw0, .inst_rd_up_ok, .inst_rd_is_rvc, .inst_rd_start_a, .inst_rd_start_b,
     .bpu_icache_read_valid, .bpu_fetch_address, .bpu_ptab_write_enable,
-    .bpu_override_valid, .bpu_override_squash, .ptab_empty, .f2b_full, .f2b_empty,
+    .bpu_override_squash, .ptab_empty, .f2b_full, .f2b_empty,
     .checker_flush_enable, .checker_flush_address,
     .out_inst_valid, .out_instructions, .out_page_fault_inst, .out_predict_dir, .out_pc, .out_alt_pred,
     .out_pcpn, .out_tage_idx, .out_tage_tag, .out_predict_next_fetch_address,

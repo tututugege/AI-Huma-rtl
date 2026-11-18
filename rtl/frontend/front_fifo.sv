@@ -29,7 +29,8 @@ module front_fifo #(
   output logic [W-1:0] rdata,
   output logic         full,
   output logic         empty,
-  output logic [$clog2(DEPTH + 1)-1:0] size     // START-of-cycle occupancy
+  output logic [$clog2(DEPTH + 1)-1:0] size,    // START-of-cycle occupancy
+  output logic         head_fresh   // the head was pushed in the previous cycle (it has not been in the queue for a full cycle yet)
 );
 
   localparam int PTR_W = $clog2(DEPTH);
@@ -76,6 +77,16 @@ module front_fifo #(
       count_q  <= count_d;
     end
   end
+
+  // The entry pushed in the previous cycle (its slot); the head is fresh when it is that entry
+  logic             fresh_v_q;
+  logic [PTR_W-1:0] fresh_slot_q;
+  always_ff @(posedge clk) begin
+    if (!rst_n) fresh_v_q <= 1'b0;
+    else        fresh_v_q <= wr_en;
+    fresh_slot_q <= WR_AFTER_DROP ? wr_ptr_q - PTR_W'(drop_eff) : wr_ptr_q;
+  end
+  assign head_fresh = fresh_v_q && !empty && (fresh_slot_q == rd_ptr_q);
 
   // Storage: written like a memory (no reset: only entries between rd_ptr and wr_ptr are ever read as valid data)
   logic [PTR_W-1:0] wr_slot;

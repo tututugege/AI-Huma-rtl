@@ -87,6 +87,10 @@ module front2back_fifo import ttg_cfg_pkg::*; import front_pkg::*; (
   logic [$clog2(F2B_FIFO_DEPTH + 1)-1:0] size_unused;   // occupancy: only the fetch-address queue and PTAB need it
   /* verilator lint_on UNUSEDSIGNAL */
 
+  /* verilator lint_off UNUSEDSIGNAL */
+  logic head_fresh_unused;   // only the fetch-address queue needs it
+  /* verilator lint_on UNUSEDSIGNAL */
+
   front_fifo #(.DEPTH(F2B_FIFO_DEPTH), .W($bits(f2b_fifo_entry_t)), .FULL_AT(F2B_FIFO_FULL_AT)) u_fifo (
     .clk, .rst_n,
     .clear   (refetch),
@@ -94,7 +98,7 @@ module front2back_fifo import ttg_cfg_pkg::*; import front_pkg::*; (
     .wdata   (wr_entry),
     .rd_valid,
     .rdata   (rd_entry),
-    .full, .empty, .size(size_unused)
+    .full, .empty, .size(size_unused), .head_fresh(head_fresh_unused)
   );
 
 endmodule

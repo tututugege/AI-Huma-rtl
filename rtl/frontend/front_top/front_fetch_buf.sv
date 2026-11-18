@@ -19,7 +19,7 @@ module front_fetch_buf import ttg_cfg_pkg::*; import front_pkg::*; (
   output logic [XLEN_BITS-1:0] fa_rd_address,
   output logic        fa_full,
   output logic        fa_empty,
-  output logic [$clog2(FETCH_ADDR_FIFO_DEPTH + 1)-1:0] fa_size,
+  output logic        fa_head_fresh,
   // icache response
   input  logic        ic_read_complete,
   input  logic [XLEN_BITS-1:0] ic_fetch_pc,
@@ -119,6 +119,10 @@ module front_fetch_buf import ttg_cfg_pkg::*; import front_pkg::*; (
     assign start_b = '0;
   end
 
+  /* verilator lint_off UNUSEDSIGNAL */
+  logic [$clog2(FETCH_ADDR_FIFO_DEPTH + 1)-1:0] fa_size_unused;   // occupancy: only the pop rule (head_fresh) is needed outside
+  /* verilator lint_on UNUSEDSIGNAL */
+
   fetch_addr_fifo u_fa_fifo (
     .clk, .rst_n,
     .refetch          (global_refetch),
@@ -130,7 +134,8 @@ module front_fetch_buf import ttg_cfg_pkg::*; import front_pkg::*; (
     .rd_fetch_address (fa_rd_address),
     .full             (fa_full),
     .empty            (fa_empty),
-    .size             (fa_size)
+    .size             (fa_size_unused),
+    .head_fresh       (fa_head_fresh)
   );
 
   predecode u_predecode (

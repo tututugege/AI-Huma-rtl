@@ -60,6 +60,10 @@ module ptab import ttg_cfg_pkg::*; import front_pkg::*; (
     rd_predict_next_fetch_address         = rd_entry.predict_next_fetch_address;
   end
 
+  /* verilator lint_off UNUSEDSIGNAL */
+  logic head_fresh_unused;   // only the fetch-address queue needs it
+  /* verilator lint_on UNUSEDSIGNAL */
+
   front_fifo #(.DEPTH(PTAB_DEPTH), .W($bits(ptab_entry_t)), .FULL_AT(PTAB_FULL_AT),
                   .BYPASS((FE_RFAST & 2) != 0)) u_fifo (
     .clk, .rst_n,
@@ -68,7 +72,7 @@ module ptab import ttg_cfg_pkg::*; import front_pkg::*; (
     .wdata   (wr_entry),
     .rd_valid,
     .rdata   (rd_entry),
-    .full, .empty, .size
+    .full, .empty, .size, .head_fresh(head_fresh_unused)
   );
 
 endmodule
