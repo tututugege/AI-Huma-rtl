@@ -3,9 +3,13 @@
 
 // Completion-cycle reservation of the issue ports. A port completes one uop per cycle (one ROB / write-back
 // entry), and the cycle in which a granted uop completes is known at issue (issue cycle + offset), so a grant
-// reserves (port, cycle) in a ring of busy bits indexed by the cycle number (like XiangShan's WbFuBusyTable).
-// A pick that finds its cycle taken is refused and stays in its queue. A port grants at most one uop per cycle,
-// so the picks of different ports never share a reservation and each port's check depends on the table only.
+// reserves (port, cycle) (like XiangShan's WbFuBusyTable). A port grants at most one uop per cycle, so the picks
+// of different ports never share a reservation and each port's check depends on its own table only.
+// Table (EXP-046): per port a shift register indexed by "cycles from now": bit k = the cycle now + k is taken. It
+// shifts down by one every cycle, a grant of offset k sets bit k - 1 of the next cycle. Only a uop of a longer
+// offset issued earlier can take a cycle, so a port needs bits 1 .. port_max_off - 1 and the classes that cannot be
+// blocked (isu_pkg cls_blockable: the longest one of the port, every class of a one-class port) are constant free.
+// Same behaviour as the reference's 64-entry ring (WbBusy).
 module isu_wb_gate
   import ttg_cfg_pkg::*;
   import isu_pkg::*;
@@ -14,45 +18,45 @@ module isu_wb_gate
   input  logic                  rst_n,
   input  logic                  flush_all,        // every reservation is cleared on a global flush
   input  logic [WB_CLS_W-1:0]   cls [ISSUE_WIDTH],  // completion class of the port's pick (its offset is a constant of the class)
+  /* verilator lint_off UNUSEDSIGNAL */   // waiver: a port whose classes all have offset 1 keeps no table
   input  logic [ISSUE_WIDTH-1:0] reserve,         // the port's pick is granted (after every gate)
-  output logic [ISSUE_WIDTH-1:0] port_ok          // the pick's completion cycle is free
+  /* verilator lint_on UNUSEDSIGNAL */
+  output logic [ISSUE_WIDTH-1:0] port_ok,         // the pick's completion cycle is free
+  output logic [WB_NCLS-1:0]    cls_free [ISSUE_WIDTH]   // per port and class: that class's completion cycle is free (registered only)
 );
 
-  localparam int RB = WB_OFF_W;
-  localparam int RING = 1 << RB;
-
-  logic [RB-1:0] now_q;
-  logic [RING-1:0] busy_q [ISSUE_WIDTH];
-
   for (genvar p = 0; p < ISSUE_WIDTH; p++) begin : g_port
-    logic [RB-1:0] slot;
-    logic [RB-1:0] off_sel;
-    logic          ok_c [WB_NCLS];            // the class's completion cycle is free, from the registered table only
-    always_comb begin
-      off_sel = '0;
-      for (int c = 0; c < WB_NCLS; c++) if (cls[p] == WB_CLS_W'(c)) off_sel = RB'(wb_cls_off(c));
-    end
+    localparam int M = port_max_off(p);       // the table holds offsets 1 .. M - 1
+    /* verilator lint_off UNUSEDSIGNAL */   // waiver: bit 0 (and the whole vector on a port without blockable classes) is not read
+    logic [M:0] busy;                         // busy[k]: the cycle now + k is taken (bits 0 and M are always 0)
+    /* verilator lint_on UNUSEDSIGNAL */
     for (genvar c = 0; c < WB_NCLS; c++) begin : g_cls
-      if (port_serves_cls(p, c)) begin : g_ok
-        assign ok_c[c] = !busy_q[p][now_q + RB'(wb_cls_off(c))];
-      end else begin : g_na
-        assign ok_c[c] = 1'b1;
+      if (cls_blockable(p, c)) begin : g_tab
+        assign cls_free[p][c] = !busy[wb_cls_off(c)];   // offset < M: a longer class exists
+      end else begin : g_free
+        assign cls_free[p][c] = 1'b1;
       end
     end
-    assign slot = now_q + off_sel;
-    assign port_ok[p] = ok_c[cls[p]];
-    for (genvar s = 0; s < RING; s++) begin : g_slot
+    always_comb begin
+      port_ok[p] = 1'b1;
+      for (int c = 0; c < WB_NCLS; c++) if (cls[p] == WB_CLS_W'(c)) port_ok[p] = cls_free[p][c];
+    end
+    assign busy[0] = 1'b0;
+    assign busy[M] = 1'b0;
+    if (M >= 2) begin : g_q
+      logic [M-1:1] busy_q;
+      logic [M-1:1] set_d;                      // bit k of the next cycle: a grant of offset k + 1 now
+      always_comb begin
+        set_d = '0;
+        for (int c = 0; c < WB_NCLS; c++)
+          if (port_serves_cls(p, c) && wb_cls_off(c) >= 2 && cls[p] == WB_CLS_W'(c)) set_d[wb_cls_off(c) - 1] = reserve[p];
+      end
       always_ff @(posedge clk) begin
-        if (!rst_n || flush_all)  busy_q[p][s] <= 1'b0;
-        else if (now_q == RB'(s)) busy_q[p][s] <= 1'b0;   // the slot of the current cycle is consumed at its end
-        else if (reserve[p] && slot == RB'(s)) busy_q[p][s] <= 1'b1;
+        if (!rst_n || flush_all) busy_q <= '0;
+        else                     busy_q <= busy[M:2] | set_d;   // shift down by one, plus this cycle's grant
       end
+      assign busy[M-1:1] = busy_q;
     end
-  end
-
-  always_ff @(posedge clk) begin
-    if (!rst_n) now_q <= '0;
-    else        now_q <= now_q + RB'(1);
   end
 
 endmodule

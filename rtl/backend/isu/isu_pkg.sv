@@ -16,6 +16,9 @@ package isu_pkg;
   localparam int UOP_I2F = 20;
   // The FP write-port limit of the reference model (EXP-032, FP_WB_PORTS default): FP-unit writes per cycle
   localparam int FP_WB_PORTS = 2;
+  // EXP-046 (model CFG_WB_PRESEL): the select skips a slot whose port cannot take it this cycle (its unit does not accept the op, or
+  // its completion cycle on the port is reserved), so the next ready slot gets the port; 0: those checks refuse the pick after the select
+  localparam bit WB_PRESEL = 1'b1;
   localparam int FP_COUNT_MAX = FP_FSQRT_D_LAT;              // longest FP latency (the countdown starts at latency - 1)
   localparam int FP_COUNT_W = $clog2(FP_COUNT_MAX);
   typedef logic [OP_NUM-1:0] op_set_t;                      // one bit per UopType (capability / ready masks)
@@ -209,6 +212,38 @@ package isu_pkg;
       default: return 1'b0;
     endcase
   endfunction
+  // longest completion offset of the classes port p serves (its reservation table holds offsets 1 .. this - 1)
+  function automatic int port_max_off(input int p);
+    int m = 1;
+    for (int c = 0; c < WB_NCLS; c++) if (port_serves_cls(p, c) && wb_cls_off(c) > m) m = wb_cls_off(c);
+    return m;
+  endfunction
+  // can the completion cycle of class c on port p be taken: only by a uop of a longer-offset class issued earlier on the same port (a
+  // port issues one uop per cycle), so the class with the longest offset of a port (and every class of a one-class port) is always free
+  function automatic bit cls_blockable(input int p, input int c);
+    bit b = 1'b0;
+    if (!port_serves_cls(p, c)) return 1'b0;
+    for (int k = 0; k < WB_NCLS; k++) if (port_serves_cls(p, k) && wb_cls_off(k) > wb_cls_off(c)) b = 1'b1;
+    return b;
+  endfunction
+  // op classes that complete later than one cycle (completion classes 1 .. 10)
+  localparam op_set_t MASK_MULTI_CYC = MASK_MUL | MASK_DIV | (FP_EN ? (MASK_FDIV | MASK_FMA | MASK_FMISC | MASK_I2F) : op_set_t'(0));
+  // the uop (one-hot op class, is_word, func7) belongs to completion class c (the one-hot form of wb_class)
+  /* verilator lint_off UNUSEDSIGNAL */   // waiver: only func7[6:2] / func7[0] are read
+  function automatic logic cls_hit(input op_set_t op1h, input logic is_word, input logic [6:0] func7, input int c);
+    case (c)
+      0: return (op1h & MASK_MULTI_CYC) == '0;
+      1: return (op1h & MASK_MUL) != '0;
+      2: return (op1h & MASK_DIV) != '0 && is_word;
+      3: return (op1h & MASK_DIV) != '0 && !is_word;
+      4, 5, 6, 7: return FP_EN && (op1h & MASK_FDIV) != '0 && ({(func7[6:2] == 5'h0b), func7[0]} == 2'(c - 4));
+      8: return FP_EN && (op1h & MASK_FMA) != '0;
+      9: return FP_EN && (op1h & MASK_FMISC) != '0;
+      10: return FP_EN && (op1h & MASK_I2F) != '0;
+      default: return 1'b0;
+    endcase
+  endfunction
+  /* verilator lint_on UNUSEDSIGNAL */
 
   // ---- uop as stored in an issue queue and as sent to the PRF (IqStoredUop minus dbg, minus src busy) ----
   typedef struct packed {

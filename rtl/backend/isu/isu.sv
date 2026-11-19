@@ -166,11 +166,16 @@ module isu
 
   // ---- completion-cycle reservation of every issue port (EXP-035) ----
   logic [WB_CLS_W-1:0] wb_cls [ISSUE_WIDTH];
+  logic [WB_NCLS-1:0]  wb_cls_free [ISSUE_WIDTH];
+  /* verilator lint_off UNUSEDSIGNAL */   // waiver: with WB_PRESEL the select already guarantees a free completion cycle
+  logic [ISSUE_WIDTH-1:0] wb_port_ok;
+  /* verilator lint_on UNUSEDSIGNAL */
   for (genvar p = 0; p < ISSUE_WIDTH; p++) begin : g_wb_cls
     assign wb_cls[p] = wb_class(grant_uop[p].op, grant_uop[p].func7, grant_uop[p].is_word);
   end
   isu_wb_gate u_wb_gate (.clk(clk), .rst_n(rst_n), .flush_all(rob_bcast_flush), .cls(wb_cls), .reserve(grant_valid),
-                         .port_ok(wb_ok));
+                         .port_ok(wb_port_ok), .cls_free(wb_cls_free));
+  assign wb_ok = WB_PRESEL ? '1 : wb_port_ok;
   // shared AGUs (LSU_AGU_SHARED): the memory queue applies the sharing itself (isu_iq SH_*)
   assign gate_ok_all = fp_ok_all & wb_ok;
 
@@ -208,6 +213,7 @@ module isu
     logic [READY_NUM_W-1:0]       free_slots;
     op_set_t                      fu_ready [NP];
     logic [NP-1:0]                g_valid, g_cand, g_gate_ok;
+    logic [WB_NCLS-1:0]           g_cls_free [NP];
     isu_uop_t                     g_uop [NP];
 
     for (genvar w = 0; w < EW; w++) begin : g_enq
@@ -254,6 +260,7 @@ module isu
       localparam int PP = iq_port(q, p);   // physical issue port
       assign fu_ready[p]          = exe2iss_fu_ready_mask[PP];
       assign g_gate_ok[p]         = gate_ok_all[PP];
+      assign g_cls_free[p]        = wb_cls_free[PP];
       assign grant_valid[PP]      = g_valid[p];
       assign cand_valid_all[PP]   = g_cand[p];
       assign grant_uop[PP]        = g_uop[p];
@@ -267,7 +274,7 @@ module isu
              .SH_LD_LO(LSU_LDU_COUNT - LSU_AGU_SHARED), .SH_STA_LO(LSU_LDU_COUNT + LSU_STA_COUNT - LSU_AGU_SHARED),
              .AGE_EN(q == IQ_MEM)) u_iq (   // the memory queue selects the oldest on the first port of each capability
       .clk(clk), .rst_n(rst_n), .enq_valid(enq_valid), .enq(enq), .woken(woken), .fu_ready(fu_ready),
-      .gate_ok(g_gate_ok),
+      .gate_ok(g_gate_ok), .cls_free(g_cls_free),
       .issue_block(issue_block), .flush_all(rob_bcast_flush), .flush_br(flush_br),
       .flush_br_mask(dec_bcast_br_mask), .clear_mask(dec_bcast_clear_mask),
       .cancel_v(cancel_v), .free_slots(free_slots), .cand_valid(g_cand), .grant_valid(g_valid),

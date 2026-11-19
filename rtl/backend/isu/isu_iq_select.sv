@@ -18,6 +18,7 @@ module isu_iq_select
   /* verilator lint_off UNUSEDSIGNAL */   // waiver: read only by a queue with AGE_EN
   input  logic [SIZE-1:0] older [SIZE],         // age matrix: older[i][j] = slot j is older than slot i
   /* verilator lint_on UNUSEDSIGNAL */
+  input  logic [SIZE-1:0] port_ok [NP],         // slots port p may take this cycle (isu_pkg WB_PRESEL; all ones otherwise)
   output logic [SIZE-1:0] sel_onehot [NP],      // slot chosen by each port (all zero when none)
   output logic [NP-1:0]   sel_valid             // port found a slot
 );
@@ -45,7 +46,7 @@ module isu_iq_select
     for (genvar i = 0; i < SIZE; i++) begin : g_slot
       assign cap_match[i] = |(entry_op[i] & CAP);
     end
-    assign candidate = ready & cap_match & ~taken[p];
+    assign candidate = ready & cap_match & port_ok[p] & ~taken[p];
     // first port of its capability: no earlier port could take any slot this port can
     localparam bit FIRST = first_of_cap(QID, p);
     if (AGE_EN && FIRST) begin : g_age
