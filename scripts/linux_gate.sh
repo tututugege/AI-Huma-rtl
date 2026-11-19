@@ -5,7 +5,7 @@
 #   1. the function-model check: no [FM] mismatch / reject line (register values, store address and data, device reads, interrupts);
 #   2. the PMU numbers printed every IV cycles are identical, trace-model against RTL (scripts/align_check.py, tier-1 events, every interval);
 #   3. the console shows "login:" (NEED_LOGIN=0 skips it for a short run).
-# env IV (PMU interval in cycles, default 500000), NEED_LOGIN (default 1), TM_ENV (extra environment of the trace-model, default LSU_PIPE_NOWD=1).
+# env IV (PMU interval in cycles, default 500000), NEED_LOGIN (default 1), TM_ENV (extra environment of the trace-model, default empty: the model default = the RTL configuration).
 # The model needs SIM_MAX_CYCLES to stop; the trace-model is built with the same XLEN/RVC/FP as the RTL image.
 # Build the rv64 testbench for this gate with scripts/build_soc64_linux.sh (4 simulation threads by default: a single-threaded build needs 2-3x the time
 # for the 140M cycles).  The trace-model must have the rv64 stale-value path (MsData, EXP-040) and the RTL the MDP / history-symbol fixes, else the PMU series differ.
@@ -13,7 +13,7 @@ set -uo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd); . "$ROOT/scripts/env.sh"
 SOC=$1; TMS=$2; IMG=$3; CYC=${4:-140000000}; OUT=${5:-$(mktemp -d)}; IV=${IV:-500000}; mkdir -p "$OUT"
 DEF=${PMU_EVENTS_DEF:-$(dirname "$(dirname "$TMS")")/include/pmu_events.def}
-env ${TM_ENV:-LSU_PIPE_NOWD=1} SIM_MAX_CYCLES=$CYC PMU=1 PMU_OUT="$OUT/p" PMU_INTERVAL=$IV PMU_PCPROF=0 "$TMS" "$IMG" > "$OUT/tm.out" 2> "$OUT/tm.err" &
+env ${TM_ENV:-} SIM_MAX_CYCLES=$CYC PMU=1 PMU_OUT="$OUT/p" PMU_INTERVAL=$IV PMU_PCPROF=0 "$TMS" "$IMG" > "$OUT/tm.out" 2> "$OUT/tm.err" &
 TMPID=$!
 SOC_TB_FM=1 SOC_TB_SEMIHOST=1 SOC_TB_PMU=1 SOC_TB_PMU_IV=$IV "$SOC" "$IMG" "$CYC" > "$OUT/rtl.out" 2> "$OUT/rtl.err"
 wait $TMPID

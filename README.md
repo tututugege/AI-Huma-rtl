@@ -13,15 +13,19 @@ AI-Huma 乱序 RISC-V 核的 SystemVerilog 实现。起点是把 tututugege 模�
 make cfg                                    # 由 trace-model/include/config.h 生成 rtl/common/ttg_cfg_pkg.sv（不要手改；默认 -DXLEN=64 -DRVC=1 -DFP=1，额外的 -D 参数追加在后面）
 bash scripts/lint.sh                        # 编码规范 + verilator -Wall，按目录
 bash scripts/lint_chip.sh                   # 整芯片 -Wall（soc_top 为顶），输出 0 warnings 为通过；CFG=<包> 用别的配置包
-# 测试平台（FMLIB 必须是 function-model 的 XLEN=64 FP=1 RVC=1 构建：make RVC=1 librefcpu.a）
-SOC_FM=1 FMLIB=<function-model librefcpu.a> SOC_OUT=$PWD/build/soc_fm bash tb/soc/build.sh
+# 一次性准备：门禁程序（rv64ima，用 trace-model 的 build_tests.sh，TM_SRC 指向一棵 trace-model 树）
+TM_SRC=../trace-model bash scripts/build_progs.sh       # -> build/progs（env.sh 的 TTG_PROGS 默认值）
+# 测试平台；function-model 由 scripts/fm_lib.sh 按固定版本 FM_REV（env.sh）以 XLEN=64 FP=1 RVC=1 自动构建，不再需要 FMLIB
+SOC_FM=1 SOC_OUT=$PWD/build/soc_fm bash tb/soc/build.sh
+# 模型默认配置改了（= RTL 配置改了）之后重新生成参考周期：
+bash scripts/regen_refs.sh <trace-model 的 simulator> "说明"
 # 门禁：ref_cycles.txt 里 67 个程序逐条提交对比 function-model
 bash scripts/fm_gate.sh $PWD/build/soc_fm/obj/soc_tb $PWD/build/gate
 ```
 
 - **测试平台构建时间**（2026-11-17，14 核）：`tb/soc/build.sh` 默认用全部核编译 C++（`JOBS` 可改），并按 5000 条语句拆分生成的 C++（`--output-split` / `--output-split-cfuncs`，否则单个 7.4 MB 文件决定编译时间）。rv64 Linux 测试平台 111 s → 89 s，fm_gate 测试平台 82 s；其中约 60 s 是 Verilator 单线程的展开 + 转换，是下限。仿真速度和输出不变（Linux 窗口 50 万周期逐字节相同，fm_gate 67/67 周期 0 差异）。测试平台自带 `tb/soc/fpr.h`（对齐指纹，哈希与 trace-model 相同），不再 include trace-model 的源码。
 - **正确性门禁**：逐条提交对比 function-model（`tb/soc/fm_check.h`），`fm_gate.sh` 跑 `scripts/ref_cycles.txt` 的 67 个 rv64 程序（见 `docs/RV32_REMOVAL.md` 的结果）。（以下为旧 rv32/rv64 时期的说明，保留作参考：个测试平台跑的（见总仓库 `docs/MAIN_RECORDS.md` 2026-11-12 行）。
-- **周期**是性能指标：`ref_cycles.txt` 是 trace-model 在当前配置下（并设 `LSU_PIPE_NOWD=1`，RTL 没有 LDQ/STQ 看门狗）的周期，合入 main 时 RTL 与它逐个相等。
+- **周期**是性能指标：`ref_cycles.txt` 是 trace-model 默认配置下的周期（`scripts/regen_refs.sh` 生成；2026-11-19 起模型没有 RTL 没有的 LDQ/STQ 看门狗，不再需要 `LSU_PIPE_NOWD=1`），合入 main 时 RTL 与它逐个相等。
 - **跑 Linux**（数小时）：测试平台要用 `SOC_VOPT="--threads 4 -DTTG_EBREAK_TRAP"` 构建（ebreak 当断点异常，内核需要），运行时设 `SOC_TB_SEMIHOST=1 SOC_TB_FM=1 SOC_TB_LOG=2000000`，例如
   `SOC_TB_LOG=2000000 SOC_TB_SEMIHOST=1 SOC_TB_FM=1 build/soc_fm/obj/soc_tb ~/personal/AI-Huma-data/linux/linux.bin 400000000`（rv64 用 `linux_rv64/linux.bin`，镜像生成见 function-model `linux/README.md`）。分段并行检查见 `scripts/linux_segments.sh`。
 - 测试平台调试开关：`SOC_TB_LOG=<n>`（每 n 周期一行进度）、`SOC_TB_STLOG=<物理地址>`（打印提交到该 8 字节字的 store）、`SOC_TB_COMMIT`、`DEBUG=1`（`--public-flat-rw`）。

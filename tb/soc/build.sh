@@ -12,8 +12,10 @@ OUT=${SOC_OUT:-$ROOT/build/soc}; mkdir -p "$OUT"   # SOC_OUT: build a variant ne
 VOPT=${SOC_VOPT:-}   # extra verilator options, e.g. -O3
 COPT=${SOC_COPT:--O2}   # C++ optimisation flags
 FMOPT=(); FMLD=""
-if [ -n "${SOC_FM:-}" ]; then   # per-commit check against the function model (librefcpu, built in ../function-model)
-  FMOPT=(-DSOC_TB_FM -I"$AI_HUMA_ROOT/function-model/include/api"); FMLD="$AI_HUMA_ROOT/function-model/librefcpu.a $AI_HUMA_ROOT/function-model/lib/softfloat/softfloat.a -lz"
+# the function model (pinned revision, XLEN=64 FP=1 RVC=1): scripts/fm_lib.sh builds it once into build/fm-<rev>-x64c1; FMLIB overrides
+FMDIR=$(bash "$ROOT/scripts/fm_lib.sh")
+if [ -n "${SOC_FM:-}" ]; then   # per-commit check against the function model (librefcpu)
+  FMOPT=(-DSOC_TB_FM -I"$FMDIR/include/api"); FMLD="${FMLIB:-$FMDIR/librefcpu.a} $FMDIR/lib/softfloat/softfloat.a -lz"
 fi
 # DRAMsim3 behind SimDDR (EXP-006), on by default; DS3=0 builds the fixed-latency SimDDR.  DRAMsim3 is the pinned submodule of
 # the trace-model repository (TM_DIR, default $AI_HUMA_ROOT/trace-model); its static library is built there by `gmake dramsim3`.
@@ -30,17 +32,16 @@ fi
 FPDPI=(); FPINC=""; FPLD=""
 FP_ON=1; grep -q "FPRF_NUM = 0;" "$ROOT/rtl/common/ttg_cfg_pkg.sv" && FP_ON=0   # (the committed package is rv64gc; a package generated with -DFP=0 builds without the FP units)
 if [ "$FP_ON" = 1 ]; then
-  FPDPI=("$ROOT/tb/fp_dpi/fp_dpi.cpp"); FPINC="-DSOC_FP -I$AI_HUMA_ROOT/function-model/lib/softfloat/include"
-  FPLD="$AI_HUMA_ROOT/function-model/lib/softfloat/softfloat.a"
+  FPDPI=("$ROOT/tb/fp_dpi/fp_dpi.cpp"); FPINC="-DSOC_FP -I$FMDIR/lib/softfloat/include"
+  FPLD="$FMDIR/lib/softfloat/softfloat.a"
 fi
 INC=""
 for d in include libs/include back-end back-end/include axi-interconnect-kit/include axi-interconnect-kit/sim_ddr/include \
          axi-interconnect-kit/axi_interconnect/include axi-interconnect-kit/mmio/include MemSubSystem/include diff/include front-end back-end/Exu/include back-end/Lsu/include back-end/tools/include function-model/include/api legacy/mmu/include; do INC="$INC -I$REF/$d"; done
 FILES=(); while IFS= read -r f; do FILES+=("$ROOT/$f"); done < <(bash "$ROOT/scripts/rtl_files.sh" "$ROOT")
 # the core is rv64 (XLEN_BITS = 64 in the committed configuration package, see scripts/gen_cfg.sh); the function-model library must be the matching
-# build: XLEN=64 FP=1 RVC=1 (FMLIB, default $AI_HUMA_ROOT/function-model/librefcpu.a)
+# build: XLEN=64 FP=1 RVC=1 (scripts/fm_lib.sh; FMLIB overrides the library)
 XLENFLAG="-DXLEN=64"
-[ -n "${FMLIB:-}" ] && FMLD="$FMLIB $AI_HUMA_ROOT/function-model/lib/softfloat/softfloat.a -lz"
 python3 "$ROOT/tools/gen_soc_probe.py" >/dev/null   # the probe needs the widths of the configuration that is built
 cd "$OUT"
 # reference platform models (not RTL)

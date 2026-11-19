@@ -4,7 +4,8 @@
 #
 #   RTL_ROOT         this repository                                   (derived)
 #   AI_HUMA_ROOT     the AI-Huma checkout that contains rtl/ and trace-model/   (default: parent of RTL_ROOT)
-#   TTG_PROGS        built test programs: $TTG_PROGS/tests/<t>/<t>.bin   (default: trace-model/build)
+#   TTG_PROGS        built gate programs: $TTG_PROGS/tests/<t>/<t>.bin   (default: build/progs, made by scripts/build_progs.sh)
+#   FM_GIT / FM_REV  function-model repository and the pinned revision the testbenches link (scripts/fm_lib.sh; = trace-model Makefile)
 #   TTG_BIG          shortened dhrystone(64) / coremark(2)             (default: $RTL_ROOT/programs/big)
 #   TM               trace-model simulator binary                      (default: trace-model/build/simulator)
 # Program lists (scripts/progs*.txt, ...): one program per line; a relative entry is resolved by `ttg_resolve_list`:
@@ -14,10 +15,12 @@
 _env_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 RTL_ROOT=${RTL_ROOT:-$(cd "$_env_dir/.." && pwd)}
 AI_HUMA_ROOT=${AI_HUMA_ROOT:-$(cd "$RTL_ROOT/.." && pwd)}
-TTG_PROGS=${TTG_PROGS:-$AI_HUMA_ROOT/trace-model/build}
+TTG_PROGS=${TTG_PROGS:-$RTL_ROOT/build/progs}
+FM_GIT=${FM_GIT:-$AI_HUMA_ROOT/function-model}
+FM_REV=${FM_REV:-55affa0}
 TTG_BIG=${TTG_BIG:-$RTL_ROOT/programs/big}
 TM=${TM:-$AI_HUMA_ROOT/trace-model/build/simulator}
-export RTL_ROOT AI_HUMA_ROOT TTG_PROGS TTG_BIG TM
+export RTL_ROOT AI_HUMA_ROOT TTG_PROGS TTG_BIG TM FM_GIT FM_REV
 
 # ttg_resolve_list <file>: print the program paths of a list, absolute
 ttg_resolve_list() {
