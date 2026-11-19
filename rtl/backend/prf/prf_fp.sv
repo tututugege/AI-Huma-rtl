@@ -4,20 +4,22 @@
 // FP register file with its write ports, write-back staging and operand read ports with bypass. The tag space is shared
 // with the integer registers (the tag says which file); an FP write-back is a lane whose destination tag lies in the FP
 // range. Read ports: NRD ports given by the caller (the FP issue ports' three sources and the store-data ports' data).
+// Write lanes (EXP-046): only the lanes that can write the FP file, already in the write-back stage: the load lanes and the
+// FP_WB_PORTS lanes the caller compacts the FP-unit / I2F writes into (prf.sv).
 module prf_fp
   import ttg_cfg_pkg::*;
   import fp_pkg::*;
 #(
-  parameter int LANES   = ISSUE_WIDTH,
+  parameter int LANES   = 6,
   parameter int BYP_NUM = TOTAL_FU_COUNT + LSU_LOAD_WB_WIDTH,
   parameter int NRD     = 1
 ) (
   input  logic                     clk,
   input  logic                     rst_n,
-  // write-back stage of the integer side (same timing): lane writes this cycle with destination tag
+  // write-back stage (same timing as the integer side): lane writes this cycle with destination tag and FP result
   input  logic [LANES-1:0]         wb_wen,
   input  logic [PRF_IDX_WIDTH-1:0] wb_dest_preg [LANES],
-  input  logic [FW-1:0]            exe_fresult [LANES],    // FP result of this cycle's execution entries (staged here)
+  input  logic [FW-1:0]            wb_fres_q [LANES],
   // bypass sources of this cycle: execution-unit results and LSU write-back requests
   input  logic [BYP_NUM-1:0]       byp_wen,
   input  logic [PRF_IDX_WIDTH-1:0] byp_dest_preg [BYP_NUM],
@@ -28,15 +30,7 @@ module prf_fp
   output logic [FW-1:0]            rd_data [NRD]
 );
 
-  logic [FW-1:0] wb_fres_q [LANES];     // write-back stage payload (like wb_result_q of the integer side)
   logic [FW-1:0] reg_file_q [FPRF_NUM];
-
-  always_ff @(posedge clk) begin
-    for (int i = 0; i < LANES; i++) begin
-      if (!rst_n) wb_fres_q[i] <= '0;
-      else        wb_fres_q[i] <= exe_fresult[i];
-    end
-  end
 
   // ---- write ports: a register has a single producer in flight, so at most one lane targets it per cycle ----
   for (genvar p = 0; p < FPRF_NUM; p++) begin : g_reg

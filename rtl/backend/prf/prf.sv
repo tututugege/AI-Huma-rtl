@@ -311,8 +311,63 @@ module prf import ttg_cfg_pkg::*; import fp_pkg::*; #(
       assign fp_byp_wen[TOTAL_FU_COUNT + k]  = byp_wen_vec[TOTAL_FU_COUNT + k];
       assign fp_byp_fres[TOTAL_FU_COUNT + k] = fp_load_data(lsu_byp_result[k], lsu_byp_is_w[k]);   // flw: NaN-boxed
     end
-    prf_fp #(.LANES(LANES), .BYP_NUM(BYP_NUM), .NRD(NRD)) u_fp (
-      .clk, .rst_n, .wb_wen(wb_wen_q), .wb_dest_preg(wb_dest_preg_q), .exe_fresult(exe_fres),
+`ifndef SYNTHESIS
+    // EXP-046 check: FP-register writes of the FP units and I2F in the write-back stage never exceed the issue-time limit
+    // isu_pkg::FP_WB_PORTS (isu_fp_gate); loads write through their own lanes and are not counted
+    int fpu_writes;
+    always_comb begin
+      fpu_writes = 0;
+      for (int i = 0; i < LANES; i++)
+        if (isu_pkg::port_has(isu_pkg::MASK_FPD, i) && wb_wen_q[i] && wb_dest_preg_q[i] >= PRF_IDX_WIDTH'(FP_TAG_BASE)) fpu_writes++;
+    end
+    always_ff @(posedge clk)
+      if (rst_n && fpu_writes > isu_pkg::FP_WB_PORTS) $display("[FPWB] %0d FP-unit register writes in one cycle (t=%0t)", fpu_writes, $time);
+`endif
+    // ---- FP write lanes (EXP-046): the load lanes, plus the FP-unit / I2F writes compacted into FP_WB_PORTS lanes. The issue stage
+    // lets at most FP_WB_PORTS of these write the FP file per cycle (isu_fp_gate), so the first FP_WB_PORTS of them in lane order
+    // are all of them (checked above in simulation). Results are staged only for these lanes. ----
+    localparam int NLD = LSU_LOAD_WB_WIDTH;
+    localparam int NU  = isu_pkg::port_count(isu_pkg::MASK_FPD);                        // FP-unit / I2F lanes
+    localparam int NC  = (isu_pkg::FP_WB_PORTS == 0 || isu_pkg::FP_WB_PORTS > NU) ? NU : isu_pkg::FP_WB_PORTS;
+    localparam int FPL = NLD + NC;
+    logic [FW-1:0]            ld_fres_q [NLD];
+    logic [FW-1:0]            u_fres_q  [NU];
+    logic [NU-1:0]            u_w;                 // FP-unit lane writes an FP register this cycle
+    logic [PRF_IDX_WIDTH-1:0] u_dest [NU];
+    for (genvar k = 0; k < NLD; k++) begin : g_ldq
+      always_ff @(posedge clk) ld_fres_q[k] <= !rst_n ? '0 : exe_fres[IQ_LD_PORT_BASE + k];
+    end
+    for (genvar i = 0; i < LANES; i++) begin : g_u
+      if (isu_pkg::port_has(isu_pkg::MASK_FPD, i)) begin : g_is
+        localparam int K = isu_pkg::port_rank(isu_pkg::MASK_FPD, i);
+        always_ff @(posedge clk) u_fres_q[K] <= !rst_n ? '0 : exe_fres[i];
+        assign u_w[K]    = wb_wen_q[i] && (wb_dest_preg_q[i] >= PRF_IDX_WIDTH'(FP_TAG_BASE));
+        assign u_dest[K] = wb_dest_preg_q[i];
+      end
+    end
+    logic [FPL-1:0]           fw_wen;
+    logic [PRF_IDX_WIDTH-1:0] fw_dest [FPL];
+    logic [FW-1:0]            fw_fres [FPL];
+    for (genvar k = 0; k < NLD; k++) begin : g_ldw
+      assign fw_wen[k]  = wb_wen_q[IQ_LD_PORT_BASE + k];
+      assign fw_dest[k] = wb_dest_preg_q[IQ_LD_PORT_BASE + k];
+      assign fw_fres[k] = ld_fres_q[k];
+    end
+    logic [NU-1:0] u_left [NC+1];               // FP-unit writes not yet given a compacted lane
+    assign u_left[0] = u_w;
+    for (genvar j = 0; j < NC; j++) begin : g_cw
+      logic [NU-1:0] sel;
+      ttg_first_set #(.N(NU)) u_pick (.req(u_left[j]), .onehot(sel), .any(fw_wen[NLD + j]));
+      assign u_left[j+1] = u_left[j] & ~sel;
+      ttg_onehot_mux #(.N(NU), .W(PRF_IDX_WIDTH)) u_md (.sel(sel), .data(u_dest), .out(fw_dest[NLD + j]));
+      ttg_onehot_mux #(.N(NU), .W(FW)) u_mf (.sel(sel), .data(u_fres_q), .out(fw_fres[NLD + j]));
+    end
+    /* verilator lint_off UNUSEDSIGNAL */   // waiver: what is left after the last compacted lane is empty (issue-time limit)
+    logic unused_u_left;
+    assign unused_u_left = |u_left[NC];
+    /* verilator lint_on UNUSEDSIGNAL */
+    prf_fp #(.LANES(FPL), .BYP_NUM(BYP_NUM), .NRD(NRD)) u_fp (
+      .clk, .rst_n, .wb_wen(fw_wen), .wb_dest_preg(fw_dest), .wb_fres_q(fw_fres),
       .byp_wen(fp_byp_wen), .byp_dest_preg(byp_dest_preg), .byp_fresult(fp_byp_fres),
       .rd_en(fp_rd_en), .rd_preg(fp_rd_preg), .rd_data(fp_rd_data)
     );
