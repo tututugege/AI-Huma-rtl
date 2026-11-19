@@ -8,7 +8,7 @@
 # Replaces the 140M-cycle run from reset as the quick Linux gate (each window needs a few minutes, windows run in parallel); the from-reset run stays the final gate.
 # The model stops at SIM_MAX_CYCLES (its `-c` is an instruction count in the ckpt mode, set high), so both sides run the same number of cycles.
 # env JOBS (default 2: the RTL testbench of build_soc64_linux.sh runs 4 threads), SEGS (list like "s03 s07", default all), IV (PMU interval, default 500000), BIN (fingerprint bin, default 1000),
-#     TM_ENV (trace-model environment, default LSU_PIPE_NOWD=1).
+#     TM_ENV (extra trace-model environment, default empty: the model default = the RTL configuration).
 set -uo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd); . "$ROOT/scripts/env.sh"
 TB=$1; TMS=$2; CK=$3; OUT=$4; CYC=${5:-4000000}; IV=${IV:-500000}; BIN=${BIN:-1000}; mkdir -p "$OUT"
@@ -18,7 +18,7 @@ one() {
   ck=$1; n=$(basename "$ck" .gz | sed 's/ckpt_special_//'); d=$OUT/$n; mkdir -p "$d"
   python3 "$ROOT/tools/ckpt2image.py" "$ck" "$d/ck.img" > /dev/null 2>&1 && python3 "$FM/tools/ckpt2stub.py" "$ck" "$d/ck.stub" > "$d/stub.log" 2>&1 \
     || { echo "FAIL $n (restore files)"; return; }
-  env ${TM_ENV:-LSU_PIPE_NOWD=1} SIM_MAX_CYCLES=$CYC FPR=$BIN PMU=1 PMU_OUT="$d/p" PMU_INTERVAL=$IV PMU_PCPROF=0 "$TMS" --mode ckpt -w 0 --restore-stub "$d/ck.stub" -c 1000000000 "$ck" > "$d/tm.out" 2> "$d/tm.err"
+  env ${TM_ENV:-} SIM_MAX_CYCLES=$CYC FPR=$BIN PMU=1 PMU_OUT="$d/p" PMU_INTERVAL=$IV PMU_PCPROF=0 "$TMS" --mode ckpt -w 0 --restore-stub "$d/ck.stub" -c 1000000000 "$ck" > "$d/tm.out" 2> "$d/tm.err"
   SOC_TB_STUB="$d/ck.stub" SOC_TB_FM=1 SOC_TB_SEMIHOST=1 SOC_TB_PMU=1 SOC_TB_PMU_IV=$IV FPR=$BIN perl -e 'alarm 14400; exec @ARGV' "$TB" "$d/ck.img" "$CYC" > "$d/rtl.out" 2> "$d/rtl.err"
   chk=$(grep -a -o '\[FM\] [0-9]* instructions checked' "$d/rtl.err" | grep -o '[0-9]*' | head -1); bad=$(grep -aE "^\[FM\].*(rtl=|rejects)" "$d/rtl.err" | wc -l | tr -d ' ')
   if [ "${PMU_CMP:-0}" = 1 ]; then csv="$d/p_series.csv"; else csv=-; fi

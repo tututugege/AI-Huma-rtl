@@ -2,7 +2,7 @@
 # align_check.sh <prog.bin> [soc_tb] [trace-model simulator]   env: BIN (fingerprint bin, cycles, default 256), IV (PMU series interval, default 1024),
 #   MAXCYC (RTL cycle limit), DRILL=1 (on a difference, rerun both with FPR_DUMP on the first differing bin and print the raw events of both sides)
 # Runs the RTL testbench and the trace-model on one program and reports the first interval / bin where they differ (see align_check.py).
-# The model must be run with the same configuration as the RTL (LSU_PIPE_NOWD=1 etc. from the caller's environment).
+# The model runs in its default configuration (= the RTL configuration; no environment needed since 2026-11-19).
 set -uo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd); . "$ROOT/scripts/env.sh"
 P=$1; SOC=${2:-$ROOT/build/soc/obj/soc_tb}; TMS=${3:-$TM}; BIN=${BIN:-256}; IV=${IV:-1024}; MAXCYC=${MAXCYC:-20000000}
