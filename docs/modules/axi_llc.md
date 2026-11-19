@@ -17,6 +17,7 @@ depth: 238 层（axi_llc，单模块综合，2026-11-18；2026-11-19 SRRIP 后�
 - **MSHR**（miss status holding register，缺失状态寄存器）：记一次在途缺失的表项，共 16 项（`NMSHR`）；它的槽号就是发给内存的读请求的 id。
 - **受害行**（victim）：缺失时被换出的行；脏的要先写回内存。
 - **替换状态**（SRRIP，EXP-045）：每组 16 路各 2 位的"再访问预测值"（RRPV，re-reference prediction value；0 = 预计很快再用，3 = 预计很久不用），一组 32 位。命中把该路置 0；缺失要换出时选 RRPV 最大的路；新装入的行先把整组"变老"到最大值为 3，再把新行置 2（不是 0：新行只有再被命中才算"常用"，一次性扫过的行会先被换掉）。
+- **LLC 预取（BOP，EXP-048）**：Best-Offset Prefetcher（`axi_llc_bop`），由 L1D 读缺失（`master == 1`）以及对预取行（`pf_q` 置位）的首次 L1D 需求命中触发学习与候选生成。偏移表为 4 KiB 页内 26 个 5-平滑正偏移（1..60），最近请求表 RR 为 256 项直映表（重填时写入），8 项去重候选队列；仅在互连无可见上游请求（`pf_allow`）、查表引擎空闲、空 MSHR > 2（`BOP_RES = 2`）且在途预取 MSHR < 4（`BOP_INF = 4`）时发起预取查表。发往内存时需求缺失严格优先于预取；预取命中或无法分配 MSHR 时静默放弃，预取重填写入缓存并置 `pf_q` 后直接释放 MSHR（不回上游响应）。
 - **bypass**：不缓存的请求（外设、ICache 的非缓存取指）。bypass 读可以命中已有的行，缺失时不分配行；bypass 写只在行已缓存时更新它（保持脏位），并总是写穿到内存。
 
 每个 tick 按固定顺序做五步（`axi_llc_core.sv` 文件头）：1 读响应离开；2 写路径（受害行写回、写请求接收、写上下文）；3 解析刚到的查表（命中 / 缺失，写行表、分配 MSHR、产生响应）；4 内存读路径（内存读响应、发内存读、重填）；5 接收新的读请求、发起行表读。每一步只看到前面步骤已经决定的状态。
@@ -39,6 +40,7 @@ depth: 238 层（axi_llc，单模块综合，2026-11-18；2026-11-19 SRRIP 后�
 | 写请求队列 `WQD` | 2 项 / 写主口 | 同上 |
 | 受害行写回队列 `VQD` | 8 项 | 同上 |
 | 受害行持有者表 `NVL` | 1 + VQD + NW + NMSHR = 27 | 同上（写回槽、队列、写上下文、MSHR） |
+| BOP 预取参数 | 26 偏移、RR 256 项、候选队列 `BOP_Q = 8`、`ROUNDS = 100`、`SCORE_MAX = 31`、`BAD = 1`、`DEG = 1`、`BOP_RES = 2`、`BOP_INF = 4` | `axi_llc_pkg`、`axi_llc_bop.sv`；模型 `LLC_BOP=1`（`Bop.h`） |
 | 主口数 | 读 4、写 2 | `NR`、`NW` |
 
 模型的三个队列是 32 项（`AXI_LLC_READ_RESP_QUEUE_DEPTH`、`AXI_LLC_READ_VICTIM_WB_QUEUE_DEPTH` 等于 `MAX_OUTSTANDING`；写队列 `MAX_WRITE_OUTSTANDING`），RTL 取小，见第 7 节。

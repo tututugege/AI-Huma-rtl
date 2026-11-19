@@ -34,6 +34,7 @@ module axi_llc_rdacc
   // table read issue
   input  logic lk_valid_q,
   input  logic lk_issued_q,
+  input  logic lk_is_pf_q,
   input  addr_t lk_addr_q,
   input  logic tbl_busy,
   output logic issue,
@@ -94,7 +95,7 @@ module axi_llc_rdacc
   axi_llc_linecam #(.N(NVL)) u_lk_vp (.vld(vl_vld_d), .addr(vl_addr_d), .line(line_of(lk_addr_q)), .hit(lk_vp_hit));
   axi_llc_linecam #(.N(NMSHR)) u_lk_ms (.vld(ml_vld_d), .addr(ml_line_d), .line(line_of(lk_addr_q)),
                                         .hit(lk_mshr_hit));
-  assign issue = lk_valid_q && !lk_issued_q && !lk_vp_hit && !tbl_busy && !lk_mshr_hit;
+  assign issue = lk_valid_q && !lk_issued_q && !lk_vp_hit && !tbl_busy && (lk_is_pf_q || !lk_mshr_hit);
 endmodule
 
 `default_nettype wire

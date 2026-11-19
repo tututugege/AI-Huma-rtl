@@ -34,6 +34,7 @@ module axi_llc_core
   input  logic mwr_ready,
   input  logic mwr_resp_v,
   input  logic [1:0] mwr_resp_code,
+  input  logic pf_allow,
   output logic [NR-1:0] rd_rdy,
   output logic [NR-1:0] rr_valid,
   output logic [NR-1:0][3:0] rr_id,
@@ -55,12 +56,14 @@ module axi_llc_core
   // registers read by the interconnect (hazard / id-conflict checks)
   output logic hz_lk_valid,
   output logic hz_lk_is_write,
+  output logic hz_lk_is_pf,
   output logic [31:0] hz_lk_addr,
   output logic [1:0] hz_lk_master,
   output logic [3:0] hz_lk_id,
   output logic [NR-1:0] hz_rr_fresh,
   output logic [NMSHR-1:0] hz_ms_valid,
   output logic [NMSHR-1:0] hz_ms_is_write,
+  output logic [NMSHR-1:0] hz_ms_is_pf,
   output logic [NMSHR-1:0][1:0] hz_ms_master,
   output logic [NMSHR-1:0][3:0] hz_ms_id,
   output logic [NMSHR-1:0][31:0] hz_ms_line,
@@ -71,20 +74,20 @@ module axi_llc_core
   // ---------------- signals between the units ----------------
   // tables: one write per tick, from stage 2 (victim write-back done), 3 (lookup) or 4 (refill)
   logic t_ok;
-  logic [WAYS-1:0] t_v, t_d;
+  logic [WAYS-1:0] t_v, t_d, t_pf;
   logic [WAYS-1:0][TAGW-1:0] t_t;
   logic [WAYS-1:0][511:0] t_line;
   logic [RB-1:0] t_repl;
   tw_t tw, tw_commit, tw_lookup, tw_refill;
   logic busy2, busy3;                          // a table write happened in stage 2 / up to stage 3
   // lookup engine
-  logic lk_valid, lk_issued, lk_is_write, lk_bypass, lk_free, lk_ms_hit, issue, act;
+  logic lk_valid, lk_issued, lk_is_write, lk_is_pf, lk_bypass, lk_free, lk_ms_hit, issue, act;
   addr_t lk_addr;
   logic [7:0] lk_size;
   logic [1:0] lk_master;
   logic [3:0] lk_id;
   // lookup resolution
-  logic rs_done, rs_retry, rs_enq_v, rs_vu_go, rs_cdone, rs_cpend, rs_vwait, rs_forw, rs_alloc, rs_alloc_w, rs_vdirty;
+  logic rs_done, rs_retry, rs_enq_v, rs_vu_go, rs_cdone, rs_cpend, rs_vwait, rs_forw, rs_alloc, rs_alloc_w, rs_alloc_pf, rs_vdirty;
   line_t rs_enq_data, rs_vu_data, rs_vict_data;
   addr_t rs_vict_addr;
   logic [WB-1:0] rs_vu_way, rs_way;
@@ -120,10 +123,12 @@ module axi_llc_core
   logic [VQD:0] v_vld_q, v_vld_d, v_pr_vld;
   logic [VQD:0][31:0] v_addr_q, v_addr_d, v_pr_addr;
   // MSHR table
-  logic ms_free_q, ms_free_d, ms_resp_want, ms_resp_acc, ms_bad_resp, cs_v, e_bypass, e_rcomm, e_is_write, e_vdirty,
-      e_vdone;
+  logic ms_free_q, ms_free_d, ms_pf_ok_q, ms_pf_ok_d, ms_resp_want, ms_resp_acc, ms_bad_resp, cs_v, e_bypass, e_rcomm, e_is_write, e_is_pf, e_vdirty, e_vdone;
   line_t e_merged;
   logic [NMSHR-1:0] ms_hz_is_write;
+  logic bop_trig, bop_fill, bop_fill_pf, bop_launch;
+  logic [25:0] bop_trig_line, bop_fill_line;
+  addr_t bop_addr;
   logic [1:0] ms_resp_master, e_master;
   logic [3:0] ms_resp_eid, e_id;
   logic [MIDW-1:0] cs_idx;
@@ -187,7 +192,7 @@ module axi_llc_core
 
   axi_llc_tables u_tables (
     .clk(clk), .rst_n(rst_n), .rd_req(issue), .rd_set(set_of(lk_addr)), .tw(tw),
-    .lk_ok(t_ok), .lk_v(t_v), .lk_d(t_d), .lk_t(t_t), .lk_line(t_line), .lk_repl(t_repl)
+    .lk_ok(t_ok), .lk_v(t_v), .lk_d(t_d), .lk_pf(t_pf), .lk_t(t_t), .lk_line(t_line), .lk_repl(t_repl)
   );
 
   // ---------------- lookup engine ----------------
@@ -196,8 +201,8 @@ module axi_llc_core
     .w_launch(launch_any), .w_addr(wp_l_addr[launch_idx]), .w_size(wp_l_size[launch_idx]),
     .w_id(wp_l_id[launch_idx]), .w_master(2'(launch_idx)), .w_bypass(wp_l_bypass[launch_idx]),
     .r_launch(acc_r_any), .r_addr(acc_r_addr), .r_size(acc_r_size), .r_id(acc_r_id), .r_master(acc_r_master),
-    .r_bypass(acc_r_byp),
-    .valid_q(lk_valid), .issued_q(lk_issued), .is_write_q(lk_is_write), .bypass_q(lk_bypass), .addr_q(lk_addr),
+    .r_bypass(acc_r_byp), .p_launch(bop_launch), .p_addr(bop_addr),
+    .valid_q(lk_valid), .issued_q(lk_issued), .is_write_q(lk_is_write), .is_pf_q(lk_is_pf), .bypass_q(lk_bypass), .addr_q(lk_addr),
     .size_q(lk_size), .master_q(lk_master), .id_q(lk_id), .free_s3(lk_free)
   );
 
@@ -211,15 +216,16 @@ module axi_llc_core
   axi_llc_linecam #(.N(NMSHR)) u_lk_ms (.vld(ml_vld_cur), .addr(ml_line_cur), .line(line_of(lk_addr)), .hit(lk_ms_hit));
 
   axi_llc_resolve u_resolve (
-    .act(act), .is_write(lk_is_write), .bypass(lk_bypass), .laddr(lk_addr),
-    .lk_v(t_v), .lk_d(t_d), .lk_t(t_t), .lk_line(t_line), .lk_repl(t_repl),
+    .act(act), .is_write(lk_is_write), .is_pf(lk_is_pf), .bypass(lk_bypass), .lk_master(lk_master), .laddr(lk_addr),
+    .lk_v(t_v), .lk_d(t_d), .lk_pf(t_pf), .lk_t(t_t), .lk_line(t_line), .lk_repl(t_repl),
     .wdata(wp_ctx_data[lk_master[0]]), .wstrb(wp_ctx_strb[lk_master[0]]), .wsize(wp_ctx_size[lk_master[0]]),
-    .tbl_busy2(busy2), .vwb_busy2(v_busy2), .acc_a(acc_a), .mshr_free(ms_free_q), .mshr_line_hit(lk_ms_hit),
-    .reserved(reserved),
+    .tbl_busy2(busy2), .vwb_busy2(v_busy2), .acc_a(acc_a), .mshr_free(ms_free_q), .pf_alloc_ok_q(ms_pf_ok_q),
+    .mshr_line_hit(lk_ms_hit), .reserved(reserved),
     .done(rs_done), .retry(rs_retry), .tw(tw_lookup), .enq_v(rs_enq_v), .enq_data(rs_enq_data),
     .vu_go(rs_vu_go), .vu_way(rs_vu_way), .vu_data(rs_vu_data), .cdone_set(rs_cdone), .cpend_set(rs_cpend),
     .cpend_vwait(rs_vwait), .vict_addr(rs_vict_addr), .pick_way(rs_way), .vict_data(rs_vict_data),
-    .forw_go(rs_forw), .alloc_go(rs_alloc), .alloc_is_write(rs_alloc_w), .alloc_vdirty(rs_vdirty)
+    .forw_go(rs_forw), .alloc_go(rs_alloc), .alloc_is_write(rs_alloc_w), .alloc_is_pf(rs_alloc_pf),
+    .alloc_vdirty(rs_vdirty), .bop_trig(bop_trig), .bop_trig_line(bop_trig_line)
   );
 
   // ---------------- read response units: producers 0 lookup hit, 1 bypass memory response, 2 MSHR completion ----
@@ -304,10 +310,10 @@ module axi_llc_core
   // ---------------- stage 4: memory read path ----------------
   axi_llc_mshr u_mshr (
     .clk(clk), .rst_n(rst_n),
-    .alloc_go(rs_alloc), .a_bypass(lk_bypass), .a_is_write(rs_alloc_w), .a_addr(lk_addr), .a_way(rs_way),
+    .alloc_go(rs_alloc), .a_bypass(lk_bypass), .a_is_write(rs_alloc_w), .a_is_pf(rs_alloc_pf), .a_addr(lk_addr), .a_way(rs_way),
       .a_size(lk_size),
     .a_master(lk_master), .a_id(lk_id), .a_vdirty(rs_vdirty), .a_vaddr(rs_vict_addr), .a_vdata(rs_vict_data),
-    .free_any_cur(ms_free_q),
+    .free_any_cur(ms_free_q), .pf_alloc_ok_q(ms_pf_ok_q), .pf_alloc_ok_d(ms_pf_ok_d),
     .lk_set(set_of(lk_addr)), .lk_line(line_of(lk_addr)), .vu_go(rs_vu_go), .vu_way(rs_vu_way),
     .vu_data(rs_vu_data), .rsv_mask(ms_rsv),
     .own_resp(v_own_resp), .own_idx(v_own_idx), .own_addr(v_own_addr),
@@ -315,26 +321,25 @@ module axi_llc_core
     .resp_master(ms_resp_master), .resp_eid(ms_resp_eid), .bad_resp(ms_bad_resp),
     .mrd_ready(mrd_ready), .mrd_v(mrd_v), .mrd_addr(mrd_addr), .mrd_size(mrd_size), .mrd_id(mrd_id),
     .rcomm_go(rf_rcomm), .free_go(rf_free), .cs_v(cs_v), .cs_idx(cs_idx), .e_bypass(e_bypass), .e_rcomm(e_rcomm),
-    .e_is_write(e_is_write), .e_vdone(e_vdone),
+    .e_is_write(e_is_write), .e_is_pf(e_is_pf), .e_vdone(e_vdone),
     .e_addr(e_addr), .e_way(e_way), .e_master(e_master), .e_id(e_id), .e_rdata(e_rdata), .e_vdirty(e_vdirty),
     .e_vaddr(e_vaddr), .e_vdata(e_vdata),
     .vh_cur(ms_vh_cur), .vh_addr_cur(ms_vh_addr_q), .vh_s2(ms_vh_s2), .vh_d(ms_vh_d), .vh_addr_d(ms_vh_addr_d),
     .ml_vld_cur(ml_vld_cur), .ml_line_cur(ml_line_cur), .ml_vld_d(ml_vld_d), .ml_line_d(ml_line_d),
     .free_any_d(ms_free_d), .has_master_d(ms_has_d),
-    .hz_valid(hz_ms_valid), .hz_is_write(ms_hz_is_write), .hz_master(hz_ms_master), .hz_id(hz_ms_id),
+    .hz_valid(hz_ms_valid), .hz_is_write(ms_hz_is_write), .hz_is_pf(hz_ms_is_pf), .hz_master(hz_ms_master), .hz_id(hz_ms_id),
       .hz_line(hz_ms_line)
   );
 
   axi_llc_refill u_refill (
-    .cs_v(cs_v), .e_bypass(e_bypass), .e_rcomm(e_rcomm), .e_is_write(e_is_write), .e_vdone(e_vdone),
+    .cs_v(cs_v), .e_bypass(e_bypass), .e_rcomm(e_rcomm), .e_is_write(e_is_write), .e_is_pf(e_is_pf), .e_vdone(e_vdone),
     .e_merged(e_merged), .e_addr(e_addr), .e_way(e_way), .e_rdata(e_rdata),
     .e_vdirty(e_vdirty), .e_vaddr(e_vaddr), .tbl_busy3(busy3), .vwb_busy3(v_busy3), .rvq_full_s2(v_full2),
     .pr_vld(v_pr_vld), .pr_addr(v_pr_addr),
     .lk_active_w(lk_valid && lk_is_write && lk_issued && !lk_bypass), .lk_line(line_of(lk_addr)),
     .wc_cpend(wp_cpend_q), .wc_line(wp_ctx_line), .acc_c(rf_acc),
     .park_go(rf_park), .rcomm_go(rf_rcomm), .free_go(rf_free), .own_clr(rf_own_clr), .wr_done(rf_wr_done),
-      .tw(tw_refill), .enq_v(rf_enq_v),
-    .enq_data(rf_enq_data)
+      .tw(tw_refill), .enq_v(rf_enq_v), .enq_data(rf_enq_data), .bop_fill(bop_fill), .bop_fill_pf(bop_fill_pf), .bop_fill_line(bop_fill_line)
   );
 
   // ---------------- stage 5: read accept and table read issue ----------------
@@ -343,21 +348,20 @@ module axi_llc_core
     .wr_v(wr_v), .wr_byp(wr_byp), .wr_addr(wr_addr), .slot_q(rq_valid_cur), .slot_d(rq_valid_d),
     .lookup_free(lk_free && !launch_any), .vl_vld_d(vl_vld_d), .vl_addr_d(vl_addr_d), .wl_vld_d(wl_vld_d),
     .wl_line_d(wl_line_d), .ml_vld_d(ml_vld_d), .ml_line_d(ml_line_d), .has_master_d(ms_has_d),
-    .free_any_d(ms_free_d), .lk_valid_q(lk_valid), .lk_issued_q(lk_issued), .lk_addr_q(lk_addr),
+    .free_any_d(ms_free_d), .lk_valid_q(lk_valid), .lk_issued_q(lk_issued), .lk_is_pf_q(lk_is_pf), .lk_addr_q(lk_addr),
     .tbl_busy(busy3 || tw_refill.line_en), .issue(issue), .acc_grant(rd_rdy), .acc_master(acc_r_master),
     .acc_any(acc_r_any), .acc_addr(acc_r_addr), .acc_size(acc_r_size), .acc_id(acc_r_id), .acc_bypass(acc_r_byp)
   );
 
-  // ---------------- registers read by the interconnect ----------------
+  axi_llc_bop u_bop (
+    .clk, .rst_n, .pf_allow, .lk_free_pf(lk_free && !launch_any && !acc_r_any), .pf_alloc_ok_d(ms_pf_ok_d),
+    .ml_vld_d, .ml_line_d, .fill_v(bop_fill), .fill_pf(bop_fill_pf), .fill_line(bop_fill_line),
+    .trig_v(bop_trig), .trig_line(bop_trig_line), .p_launch(bop_launch), .p_addr(bop_addr)
+  );
   always_comb begin
-    hz_lk_valid = lk_valid;
-    hz_lk_is_write = lk_is_write;
-    hz_lk_addr = lk_addr;
-    hz_lk_master = lk_master;
-    hz_lk_id = lk_id;
-    hz_wc_valid = wp_ctx_valid;
-    hz_wc_line = wp_ctx_line;
-    hz_wr_line = wp_resp_line;
+    hz_lk_valid = lk_valid; hz_lk_is_write = lk_is_write; hz_lk_is_pf = lk_is_pf;
+    hz_lk_addr = lk_addr; hz_lk_master = lk_master; hz_lk_id = lk_id;
+    hz_wc_valid = wp_ctx_valid; hz_wc_line = wp_ctx_line; hz_wr_line = wp_resp_line;
   end
 
   // memory write channel: a victim write-back, else the oldest unissued bypass write

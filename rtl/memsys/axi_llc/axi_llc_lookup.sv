@@ -24,9 +24,12 @@ module axi_llc_lookup
   input  logic [3:0] r_id,
   input  logic [1:0] r_master,
   input  logic r_bypass,
+  input  logic p_launch,
+  input  addr_t p_addr,
   output logic valid_q,
   output logic issued_q,
   output logic is_write_q,
+  output logic is_pf_q,
   output logic bypass_q,
   output addr_t addr_q,
   output logic [7:0] size_q,
@@ -34,14 +37,15 @@ module axi_llc_lookup
   output logic [3:0] id_q,
   output logic free_s3                         // no lookup in flight after stage 3 (a new one may start)
 );
-  logic valid_d, issued_d, is_write_d, bypass_d, new_lookup;
+  logic valid_d, issued_d, is_write_d, is_pf_d, bypass_d, new_lookup;
 
   always_comb begin
     free_s3 = !valid_q || done;
-    new_lookup = w_launch || r_launch;
+    new_lookup = w_launch || r_launch || p_launch;
     valid_d = (valid_q && !done) || new_lookup;
     issued_d = (issued_q && !retry && !done) || issue;
     is_write_d = (is_write_q && !done) || w_launch;
+    is_pf_d = (is_pf_q && !done) || p_launch;
     bypass_d = (bypass_q && !done) || (r_launch && r_bypass) || (w_launch && w_bypass);
   end
 
@@ -50,11 +54,13 @@ module axi_llc_lookup
       valid_q <= 1'b0;
       issued_q <= 1'b0;
       is_write_q <= 1'b0;
+      is_pf_q <= 1'b0;
       bypass_q <= 1'b0;
     end else begin
       valid_q <= valid_d;
       issued_q <= issued_d;
       is_write_q <= is_write_d;
+      is_pf_q <= is_pf_d;
       bypass_q <= bypass_d;
     end
   end
@@ -70,6 +76,11 @@ module axi_llc_lookup
       size_q <= r_size;
       master_q <= r_master;
       id_q <= r_id;
+    end else if (p_launch) begin
+      addr_q <= p_addr;
+      size_q <= 8'd63;
+      master_q <= 2'd0;
+      id_q <= 4'd0;
     end
   end
 endmodule

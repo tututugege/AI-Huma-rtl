@@ -86,6 +86,8 @@ AXI 互连：夹在"访存子系统的 4 个读主口、2 个写主口"和"LLC�
 
 `cand = 请求 valid & 捕获槽空 & 台里没有这个主口的读 & 没有 id 冲突`；`acc = cand & (主口是 DCache 读口 | ready 寄存器已置位)`；`ready_o2 = cand`；`ready_r' = cand & !acc`。即除 DCache 读口外，第一次看到请求只抬 ready，下一次请求还在才接收。ready 寄存器：DCache 读口每 tick 更新，其他口只在 `phase0` 更新（`FREQ_DIV = 1` 时没有区别）。
 
+上游空闲提示 `li_pf_allow`：当台、读/写捕获槽以及本拍所有上游主口均无可见请求时为 1，允许 LLC 发起 BOP 预取查表。同时 LLC 暴露 `hz_lookup_is_pf` 与 `hz_mshr_is_pf`，读 id 冲突检查忽略预取项，写行冒险检查保留预取项（与 `AXI_Interconnect.cpp` 一致）。
+
 id 冲突（`conflict`）：同一主口的同 id 请求已在台、捕获槽、本地响应寄存器、LLC 的读响应寄存器（`hz_rresp_*`）、LLC 的查表寄存器、任一 MSHR 里；另外**只有主口 0** 还会与在途 DDR 读表 `r_pend` 里"槽号等于该 id"的项冲突（`rp_conf`）。这是模型的行为：LLC 发的内存读在模型里 `master_id` 恒为 0、`orig_id` 是 MSHR 槽号（`AXI_Interconnect.cpp:1174-1175`），所以 ICache 的 id 0..7 会被同号的在途 DDR 读卡住，RTL 复刻它。
 
 ### 5.2 写捕获（`axi_ic_wr`、`axi_ic_haz`）

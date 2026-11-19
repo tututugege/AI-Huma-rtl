@@ -16,6 +16,7 @@ module axi_llc_tables
   output logic lk_ok,
   output logic [WAYS-1:0] lk_v,
   output logic [WAYS-1:0] lk_d,
+  output logic [WAYS-1:0] lk_pf,
   output logic [WAYS-1:0][TAGW-1:0] lk_t,
   output logic [WAYS-1:0][511:0] lk_line,
   output logic [RB-1:0] lk_repl
@@ -23,6 +24,7 @@ module axi_llc_tables
   line_t data_q [SETS][WAYS];
   logic [TAGW-1:0] tag_q [SETS][WAYS];
   logic [WAYS-1:0] dirty_q [SETS];
+  logic [WAYS-1:0] pf_q [SETS];
   logic [WAYS-1:0] valid_q [SETS];
   logic [RB-1:0] repl_q [SETS];
 
@@ -49,6 +51,10 @@ module axi_llc_tables
     if (tw.line_en) dirty_q[tw.set][tw.way] <= tw.dirty;
   end
   always_ff @(posedge clk) begin
+    if (tw.line_en)     pf_q[tw.set][tw.way] <= tw.pf;
+    else if (tw.pf_clr) pf_q[tw.set][tw.way] <= 1'b0;
+  end
+  always_ff @(posedge clk) begin
     if (tw.line_en) valid_q[tw.set][tw.way] <= 1'b1;
   end
   always_ff @(posedge clk) begin
@@ -59,6 +65,7 @@ module axi_llc_tables
   assign lk_ok   = pv_q[2];
   assign lk_v    = valid_q[p3_q];
   assign lk_d    = dirty_q[p3_q];
+  assign lk_pf   = pf_q[p3_q];
   assign lk_repl = repl_q[p3_q];
   always_comb begin
     for (int w = 0; w < WAYS; w++) begin

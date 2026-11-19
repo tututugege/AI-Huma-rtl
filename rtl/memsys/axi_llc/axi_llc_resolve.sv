@@ -17,11 +17,14 @@ module axi_llc_resolve
 (
   input  logic act,                            // lookup valid + issued + table row valid
   input  logic is_write,
+  input  logic is_pf,
   input  logic bypass,
+  input  logic [1:0] lk_master,
   input  addr_t laddr,
   // table row of the set
   input  logic [WAYS-1:0] lk_v,
   input  logic [WAYS-1:0] lk_d,
+  input  logic [WAYS-1:0] lk_pf,
   input  logic [WAYS-1:0][TAGW-1:0] lk_t,
   input  logic [WAYS-1:0][511:0] lk_line,
   input  logic [RB-1:0] lk_repl,
@@ -34,6 +37,7 @@ module axi_llc_resolve
   input  logic vwb_busy2,
   input  logic acc_a,                          // read response queue of the master can take the response
   input  logic mshr_free,
+  input  logic pf_alloc_ok_q,
   input  logic mshr_line_hit,                  // a refill of this line is already in flight
   input  logic [WAYS-1:0] reserved,
   // results
@@ -54,7 +58,10 @@ module axi_llc_resolve
   output logic forw_go,
   output logic alloc_go,
   output logic alloc_is_write,
-  output logic alloc_vdirty
+  output logic alloc_is_pf,
+  output logic alloc_vdirty,
+  output logic bop_trig,
+  output logic [25:0] bop_trig_line
 );
   logic [WAYS-1:0] tag_eq, hit_oh, inv_oh, sel_oh;
   logic hit_any, inv_any, pick_ok, vdirty;
@@ -62,7 +69,8 @@ module axi_llc_resolve
   logic [TAGW-1:0] vtag;
   line_t line_sel, merged;
   line_t way_line [WAYS];
-  logic hit_w_ok, hit_r_want, hit_r_ok, miss_w_pick, miss_w_fwd, miss_w_direct, miss_w_part, miss_w_byp, miss_r_ok;
+  logic hit_w_ok, hit_r_want, hit_r_ok, hit_pf_ok, miss_w_pick, miss_w_fwd, miss_w_direct, miss_w_part, miss_w_byp;
+  logic miss_r_ok, miss_pf_ok, miss_pf_giveup;
   logic full_write, mshr_ok;
 
   always_comb begin
@@ -94,19 +102,23 @@ module axi_llc_resolve
     full_write = is_full_write(laddr, wstrb, wsize);
     mshr_ok = !mshr_line_hit && mshr_free;
     hit_w_ok = act && hit_any && is_write && !tbl_busy2;
-    hit_r_want = act && hit_any && !is_write && (bypass || !tbl_busy2);
+    hit_pf_ok = act && hit_any && !is_write && is_pf;
+    hit_r_want = act && hit_any && !is_write && !is_pf && (bypass || !tbl_busy2);
     miss_w_byp = act && !hit_any && is_write && bypass;
     miss_w_pick = act && !hit_any && is_write && !bypass && pick_ok;
     miss_w_fwd = miss_w_pick && full_write && vdirty && !vwb_busy2;
     miss_w_direct = miss_w_pick && full_write && !vdirty && !tbl_busy2;
     miss_w_part = miss_w_pick && !full_write && mshr_ok;
-    miss_r_ok = act && !hit_any && !is_write && mshr_ok && pick_ok;
+    miss_r_ok = act && !hit_any && !is_write && !is_pf && mshr_ok && pick_ok;
+    miss_pf_giveup = act && !hit_any && !is_write && is_pf && (!mshr_ok || !pf_alloc_ok_q);
+    miss_pf_ok = act && !hit_any && !is_write && is_pf && mshr_ok && pf_alloc_ok_q && pick_ok;
   end
 
   // the response queue decides whether a read hit completes
   always_comb begin
     hit_r_ok = hit_r_want && acc_a;
-    done = hit_w_ok || hit_r_ok || miss_w_fwd || miss_w_direct || miss_w_part || miss_w_byp || miss_r_ok;
+    done = hit_w_ok || hit_r_ok || hit_pf_ok || miss_w_fwd || miss_w_direct || miss_w_part || miss_w_byp ||
+           miss_r_ok || miss_pf_giveup || miss_pf_ok;
     retry = act && !done;
   end
 
@@ -117,15 +129,17 @@ module axi_llc_resolve
   logic repl_hit, repl_alloc;
   always_comb begin
     repl_hit = (hit_w_ok || hit_r_ok) && !bypass;
-    repl_alloc = (miss_w_direct || miss_w_fwd || miss_w_part || (miss_r_ok && !bypass)) && !tbl_busy2;
+    repl_alloc = (miss_w_direct || miss_w_fwd || miss_w_part || (miss_r_ok && !bypass) || miss_pf_ok) && !tbl_busy2;
     tw = '0;
     tw.line_en = hit_w_ok || miss_w_direct;
     tw.repl_en = repl_hit || repl_alloc;
+    tw.pf_clr = hit_r_ok && !bypass && lk_pf[hit_way];
     tw.set = set_of(laddr);
     tw.way = sel_way;
     tw.data = hit_any ? merged : wdata;       // full-line write miss: the merge result is the write data
     tw.tag = tag_of(laddr);
     tw.dirty = (bypass && hit_any) ? lk_d[hit_way] : 1'b1;   // a bypass write keeps the dirty bit
+    tw.pf = 1'b0;
     tw.repl = hit_any ? rrip_hit(lk_repl, hit_way) : rrip_alloc(lk_repl, pick_way);
   end
 
@@ -142,9 +156,13 @@ module axi_llc_resolve
     forw_go = miss_w_fwd;
     vict_addr = addr_of(vtag, set_of(laddr));
     vict_data = line_sel;
-    alloc_go = miss_r_ok || miss_w_part;
+    alloc_go = miss_r_ok || miss_pf_ok || miss_w_part;
     alloc_is_write = is_write;
+    alloc_is_pf = miss_pf_ok;
     alloc_vdirty = vdirty;
+    bop_trig = (hit_r_ok && !bypass && lk_pf[hit_way] && (lk_master == 2'd1)) ||
+               (act && !hit_any && !is_write && !is_pf && !bypass && (lk_master == 2'd1));
+    bop_trig_line = laddr[31:6];
   end
 endmodule
 

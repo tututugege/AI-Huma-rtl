@@ -54,6 +54,7 @@ module axi_interconnect
   input  logic [3:0] lo_mem_wr_req_id,
   input  logic hz_lookup_valid,
   input  logic hz_lookup_is_write,
+  input  logic hz_lookup_is_pf,
   input  logic [31:0] hz_lookup_addr,
   input  logic [1:0] hz_lookup_master,
   input  logic [3:0] hz_lookup_id,
@@ -62,6 +63,7 @@ module axi_interconnect
   input  logic [3:0] hz_rresp_id [4],
   input  logic hz_mshr_valid [NM],
   input  logic hz_mshr_is_write [NM],
+  input  logic hz_mshr_is_pf [NM],
   input  logic [1:0] hz_mshr_master [NM],
   input  logic [3:0] hz_mshr_id [NM],
   input  logic [31:0] hz_mshr_line [NM],
@@ -114,6 +116,7 @@ module axi_interconnect
   output logic [3:0] li_mem_rd_resp_id,
   output logic li_mem_wr_req_ready,
   output logic li_mem_wr_resp_valid,
+  output logic li_pf_allow,
   output logic [1:0] li_mem_wr_resp
 );
   // ---------------- internal buses ----------------
@@ -125,6 +128,7 @@ module axi_interconnect
   logic          stg_rd_any;
   logic [31:0]   stg_rd_addr;
   logic          stg_wr_v [NW];
+  logic          up_wr_any;
   logic [31:0]   li_addr;
   logic [7:0]    li_size;
   logic [3:0]    li_id;
@@ -178,8 +182,8 @@ module axi_interconnect
     .up_v, .up_id, .stage_rd_v(stg_rd_v), .stage_rd_id(stg_rd_id),
     .rr_v, .rr_id, .rp_v,
     .hz_rresp_valid(hz_rresp_valid), .hz_rresp_id(hz_rresp_id),
-    .hz_lookup_valid, .hz_lookup_master, .hz_lookup_id,
-    .hz_mshr_valid, .hz_mshr_master, .hz_mshr_id,
+    .hz_lookup_valid, .hz_lookup_is_pf, .hz_lookup_master, .hz_lookup_id,
+    .hz_mshr_valid, .hz_mshr_is_pf, .hz_mshr_master, .hz_mshr_id,
     .acc(rd_acc), .cap_addr(rd_cap_addr), .cap_size(rd_cap_size), .cap_id(rd_cap_id), .cap_byp(rd_cap_byp),
     .ready_o2(rd_ready_o2)
   );
@@ -204,7 +208,7 @@ module axi_interconnect
     .wr_acc, .wr_addr(m_wr_addr), .wr_size(m_wr_size), .wr_id(m_wr_id), .wr_byp(m_wr_bypass),
     .wr_data(m_wr_data), .wr_strb(m_wr_strb),
     .lo_rd_ready(lo_rd_req_ready), .lo_wr_ready(lo_wr_req_ready),
-    .up_v, .up_addr, .up_id, .stg_rd_v, .stg_rd_id, .stg_rd_any, .stg_rd_addr, .stg_wr_v,
+    .up_v, .up_addr, .up_id, .stg_rd_v, .stg_rd_id, .stg_rd_any, .stg_rd_addr, .stg_wr_v, .up_wr_any,
     .li_addr, .li_size, .li_id, .li_byp, .li_wdata, .li_wstrb,
     .acc_o1_rd(acc_q_rd), .acc_o1_id(acc_id_q), .acc_o1_wr(acc_q_wr),
     .acc_new_rd(m_rd_acc_new), .acc_new_id(m_rd_acc_new_id), .acc_new_wr(m_wr_acc_new)
@@ -282,6 +286,16 @@ module axi_interconnect
     assign li_wr_bypass[w]     = li_byp;
     assign li_wr_resp_ready[w] = resp_wr_ready[w];
   end
+  logic [NR-1:0] pf_blk_rd;
+  logic [NW-1:0] pf_blk_wr;
+  for (genvar m = 0; m < NR; m++) begin : g_pfb_r
+    assign pf_blk_rd[m] = stg_rd_v[m] || up_v[m] || m_rd_valid[m];
+  end
+  for (genvar w = 0; w < NW; w++) begin : g_pfb_w
+    assign pf_blk_wr[w] = stg_wr_v[w] || m_wr_valid[w];
+  end
+  assign li_pf_allow = !(|pf_blk_rd) && !(|pf_blk_wr) && !up_wr_any;
+
   assign m_rd0_req_ready = rd_ready_o2[0];
   assign m_rd3_req_ready = rd_ready_o2[3];
   assign m_wr1_req_ready = wr_ready_o2[1];

@@ -81,6 +81,7 @@ module axi_subsys (
   logic [3:0] mem_wr_req_id;
   logic hz_lookup_valid;
   logic hz_lookup_is_write;
+  logic hz_lookup_is_pf;
   logic [31:0] hz_lookup_addr;
   logic [1:0] hz_lookup_master;
   logic [3:0] hz_lookup_id;
@@ -89,6 +90,7 @@ module axi_subsys (
   logic [3:0] hz_rresp_id [4];
   logic hz_mshr_valid [axi_llc_pkg::NMSHR];
   logic hz_mshr_is_write [axi_llc_pkg::NMSHR];
+  logic hz_mshr_is_pf [axi_llc_pkg::NMSHR];
   logic [1:0] hz_mshr_master [axi_llc_pkg::NMSHR];
   logic [3:0] hz_mshr_id [axi_llc_pkg::NMSHR];
   logic [31:0] hz_mshr_line [axi_llc_pkg::NMSHR];
@@ -113,6 +115,7 @@ module axi_subsys (
   logic mem_wr_req_ready;
   logic mem_wr_resp_valid;
   logic [1:0] mem_wr_resp;
+  logic mem_pf_allow;
   logic hz_wctx_valid [2];
   logic [31:0] hz_wctx_line [2];
   logic hz_wresp_valid [2];
@@ -164,6 +167,7 @@ module axi_subsys (
     .lo_mem_wr_req_id(mem_wr_req_id),
     .hz_lookup_valid(hz_lookup_valid),
     .hz_lookup_is_write(hz_lookup_is_write),
+    .hz_lookup_is_pf(hz_lookup_is_pf),
     .hz_lookup_addr(hz_lookup_addr),
     .hz_lookup_master(hz_lookup_master),
     .hz_lookup_id(hz_lookup_id),
@@ -172,6 +176,7 @@ module axi_subsys (
     .hz_rresp_id(hz_rresp_id),
     .hz_mshr_valid(hz_mshr_valid),
     .hz_mshr_is_write(hz_mshr_is_write),
+    .hz_mshr_is_pf(hz_mshr_is_pf),
     .hz_mshr_master(hz_mshr_master),
     .hz_mshr_id(hz_mshr_id),
     .hz_mshr_line(hz_mshr_line),
@@ -221,6 +226,7 @@ module axi_subsys (
     .li_mem_rd_resp_id(mem_rd_resp_id),
     .li_mem_wr_req_ready(mem_wr_req_ready),
     .li_mem_wr_resp_valid(mem_wr_resp_valid),
+    .li_pf_allow(mem_pf_allow),
     .li_mem_wr_resp(mem_wr_resp)
   );
 
@@ -247,6 +253,7 @@ module axi_subsys (
     .mem_wr_req_ready(mem_wr_req_ready),
     .mem_wr_resp_valid(mem_wr_resp_valid),
     .mem_wr_resp(mem_wr_resp),
+    .mem_pf_allow(mem_pf_allow),
     .up_rd_req_ready(up_rd_req_ready),
     .up_rd_resp_valid(up_rd_resp_valid),
     .up_rd_resp_id(up_rd_resp_id),
@@ -267,6 +274,7 @@ module axi_subsys (
     .mem_wr_req_id(mem_wr_req_id),
     .hz_lookup_valid(hz_lookup_valid),
     .hz_lookup_is_write(hz_lookup_is_write),
+    .hz_lookup_is_pf(hz_lookup_is_pf),
     .hz_lookup_addr(hz_lookup_addr),
     .hz_lookup_master(hz_lookup_master),
     .hz_lookup_id(hz_lookup_id),
@@ -275,6 +283,7 @@ module axi_subsys (
     .hz_rresp_id(hz_rresp_id),
     .hz_mshr_valid(hz_mshr_valid),
     .hz_mshr_is_write(hz_mshr_is_write),
+    .hz_mshr_is_pf(hz_mshr_is_pf),
     .hz_mshr_master(hz_mshr_master),
     .hz_mshr_id(hz_mshr_id),
     .hz_mshr_line(hz_mshr_line),

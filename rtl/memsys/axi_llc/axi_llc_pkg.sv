@@ -33,6 +33,16 @@ package axi_llc_pkg;
   localparam int VQD   = 8;               // read victim write-back queue depth (C++ 32; programs: 2, random: 7)
   localparam int VQW   = $clog2(VQD);
   localparam int NVL   = 1 + VQD + NW + NMSHR;  // victim-holder list: write-back slot, queue, write contexts, MSHRs
+  // EXP-048 LLC Best-Offset prefetcher (LLC_BOP=1)
+  localparam int BOP_Q         = 8;
+  localparam int BOP_RES       = 2;
+  localparam int BOP_INF       = 4;
+  localparam int BOP_OFFS      = 26;
+  localparam int BOP_RR_BITS   = 8;
+  localparam int BOP_RR_SZ     = 1 << BOP_RR_BITS;
+  localparam int BOP_ROUNDS    = 100;
+  localparam int BOP_SCORE_MAX = 31;
+  localparam int BOP_BAD       = 1;
   /* verilator lint_on UNUSEDPARAM */
 
   typedef logic [511:0] line_t;
@@ -40,13 +50,15 @@ package axi_llc_pkg;
 
   // table write request (one per tick at most; all fields are the new row contents)
   typedef struct packed {
-    logic line_en;                  // data + tag + dirty + valid of one way
+    logic line_en;                  // data + tag + dirty + pf + valid of one way
     logic repl_en;                  // replacement state of the set
+    logic pf_clr;                   // clear prefetch mark of one way on demand hit
     logic [SB-1:0] set;
     logic [WB-1:0] way;
     line_t data;
     logic [TAGW-1:0] tag;
     logic dirty;
+    logic pf;
     logic [RB-1:0] repl;
   } tw_t;
 

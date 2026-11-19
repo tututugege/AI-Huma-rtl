@@ -14,6 +14,7 @@ module axi_llc_refill
   input  logic e_bypass,
   input  logic e_rcomm,
   input  logic e_is_write,
+  input  logic e_is_pf,
   input  logic e_vdone,
   input  line_t e_merged,                      // refill line with the write data of the write context merged in
   input  addr_t e_addr,
@@ -39,22 +40,25 @@ module axi_llc_refill
   output logic wr_done,
   output tw_t tw,
   output logic enq_v,
-  output line_t enq_data
+  output line_t enq_data,
+  output logic bop_fill,
+  output logic bop_fill_pf,
+  output logic [25:0] bop_fill_line
 );
   logic table_go, needs_park, refill_path, parked, victim_waits, park_needed, park_blocked, ok;
   logic [NW-1:0] wc_hit;
 
   axi_llc_linecam #(.N(VQD + 1)) u_parked (.vld(pr_vld), .addr(pr_addr), .line(e_vaddr), .hit(parked));
 
-  // the response queue is only involved in the second tick
+  // the response queue is only involved in the second tick (prefetch releases directly without response)
   always_comb begin
     refill_path = cs_v && !e_rcomm && !e_bypass;
-    enq_v = cs_v && !refill_path;
+    enq_v = cs_v && !refill_path && !e_is_pf;
     enq_data = e_bypass ? e_rdata : resp_of(e_addr, e_rdata);
   end
 
   always_comb begin
-    own_clr = enq_v && acc_c;
+    own_clr = (enq_v && acc_c) || (cs_v && !refill_path && e_is_pf);
     free_go = own_clr || wr_done;
   end
 
@@ -81,6 +85,10 @@ module axi_llc_refill
     tw.data = e_is_write ? e_merged : e_rdata;
     tw.tag = tag_of(e_addr);
     tw.dirty = e_is_write;
+    tw.pf = e_is_pf && !e_is_write;
+    bop_fill = table_go && !e_is_write;
+    bop_fill_pf = e_is_pf;
+    bop_fill_line = e_addr[31:6];
   end
 endmodule
 

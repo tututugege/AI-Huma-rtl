@@ -36,6 +36,7 @@ module axi_ic_stage
   output logic          stg_rd_any,
   output logic [31:0]   stg_rd_addr,
   output logic          stg_wr_v [NW],
+  output logic          up_wr_any,
   // what the LLC sees
   output logic [31:0]   li_addr, output logic [7:0] li_size, output logic [3:0] li_id, output logic li_byp,
   output logic [511:0]  li_wdata, output logic [63:0] li_wstrb,
@@ -97,6 +98,7 @@ module axi_ic_stage
   end
   assign stg_rd_id   = stg_q.id;
   assign stg_rd_any  = stg_q.v && !stg_q.is_wr;
+  assign up_wr_any   = up_wr_q[0].v || up_wr_q[1].v;
   assign stg_rd_addr = stg_q.addr;
   assign li_addr  = stg_q.addr;
   assign li_size  = stg_q.size;

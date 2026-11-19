@@ -30,9 +30,11 @@ module axi_ic_rd
   input  logic        hz_rresp_valid [NR],
   input  logic [3:0]  hz_rresp_id    [NR],
   input  logic        hz_lookup_valid,
+  input  logic        hz_lookup_is_pf,
   input  logic [1:0]  hz_lookup_master,
   input  logic [3:0]  hz_lookup_id,
   input  logic        hz_mshr_valid  [NM],
+  input  logic        hz_mshr_is_pf  [NM],
   input  logic [1:0]  hz_mshr_master [NM],
   input  logic [3:0]  hz_mshr_id     [NM],
   // outputs
@@ -48,7 +50,7 @@ module axi_ic_rd
   for (genvar m = 0; m < NR; m++) begin : g_m
     logic [NM-1:0] ms_conf;
     for (genvar s = 0; s < NM; s++) begin : g_ms
-      assign ms_conf[s] = hz_mshr_valid[s] && (hz_mshr_master[s] == 2'(m)) && (hz_mshr_id[s] == m_id[m]);
+      assign ms_conf[s] = hz_mshr_valid[s] && !hz_mshr_is_pf[s] && (hz_mshr_master[s] == 2'(m)) && (hz_mshr_id[s] == m_id[m]);
     end
     // r_pending orig_id is the LLC mem id (< NM) and its master_id is always 0: only master 0 can collide (C++ quirk).
     logic rp_conf, conflict, cand, take_now;
@@ -58,7 +60,7 @@ module axi_ic_rd
                    || (up_v[m] && up_id[m] == m_id[m])
                    || (rr_v[m] && rr_id[m] == m_id[m])
                    || (hz_rresp_valid[m] && hz_rresp_id[m] == m_id[m])
-                   || (hz_lookup_valid && hz_lookup_master == 2'(m) && hz_lookup_id == m_id[m])
+                   || (hz_lookup_valid && !hz_lookup_is_pf && hz_lookup_master == 2'(m) && hz_lookup_id == m_id[m])
                    || (|ms_conf);
     assign cand     = m_valid[m] && !up_v[m] && !stage_rd_v[m] && !conflict;
     assign take_now = (m == MASTER_DCACHE_R) || ready_q[m];

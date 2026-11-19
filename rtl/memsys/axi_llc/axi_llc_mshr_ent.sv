@@ -16,6 +16,7 @@ module axi_llc_mshr_ent
   input  logic alloc,
   input  logic a_bypass,
   input  logic a_is_write,
+  input  logic a_is_pf,
   input  addr_t a_addr,
   input  logic [WB-1:0] a_way,
   input  logic [7:0] a_size,
@@ -45,6 +46,8 @@ module axi_llc_mshr_ent
   output logic bypass_q,
   output logic bypass_d,
   output logic is_write_q,
+  output logic is_pf_q,
+  output logic is_pf_d,
   output logic issued_q,
   output logic rvalid_q,
   output logic rcomm_q,
@@ -90,6 +93,7 @@ module axi_llc_mshr_ent
     vdata_d = alloc ? a_vdata : vu_hit ? vu_data : vdata_q;
     addr_d = alloc ? a_addr : addr_q;
     bypass_d = alloc ? a_bypass : bypass_q;
+    is_pf_d = alloc ? a_is_pf : is_pf_q;
     master_d = alloc ? a_master : master_q;
     vdone_s2 = vdone_q || own_set;
     vdone_d = alloc ? !a_vdirty : (vu_hit ? 1'b0 : vdone_s2);
@@ -104,6 +108,7 @@ module axi_llc_mshr_ent
   always_ff @(posedge clk) begin
     if (!rst_n) begin
       valid_q <= 1'b0;
+      is_pf_q <= 1'b0;
       issued_q <= 1'b0;
       rvalid_q <= 1'b0;
       rcomm_q <= 1'b0;
@@ -111,6 +116,7 @@ module axi_llc_mshr_ent
       vdone_q <= 1'b0;
     end else begin
       valid_q <= valid_d;
+      is_pf_q <= is_pf_d;
       issued_q <= issued_d;
       rvalid_q <= rvalid_d;
       rcomm_q <= rcomm_d;
@@ -127,7 +133,7 @@ module axi_llc_mshr_ent
       way_q <= a_way;
       size_q <= a_size;
       master_q <= a_master;
-      id_q <= a_id;
+      id_q <= a_is_pf ? 4'd0 : a_id;
     end
     if (alloc || vu_hit) begin
       vaddr_q <= vaddr_d;
