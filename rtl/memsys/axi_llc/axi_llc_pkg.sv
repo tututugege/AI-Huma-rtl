@@ -25,6 +25,7 @@ package axi_llc_pkg;
   localparam int NW    = 2;               // write masters
   localparam int SB    = $clog2(SETS);
   localparam int WB    = $clog2(WAYS);
+  localparam int RB    = 2 * WAYS;        // replacement state of a set: a 2-bit RRPV per way (SRRIP)
   localparam int TAGW  = 32 - 6 - SB;
   localparam int RQD   = 8;               // read response queue depth (C++ 32; Linux boot peak 5)
   localparam int RQC   = RQD + 1;         // response register + queue = capacity of one read response unit
@@ -40,13 +41,13 @@ package axi_llc_pkg;
   // table write request (one per tick at most; all fields are the new row contents)
   typedef struct packed {
     logic line_en;                  // data + tag + dirty + valid of one way
-    logic repl_en;                  // replacement pointer of the set
+    logic repl_en;                  // replacement state of the set
     logic [SB-1:0] set;
     logic [WB-1:0] way;
     line_t data;
     logic [TAGW-1:0] tag;
     logic dirty;
-    logic [WB-1:0] repl;
+    logic [RB-1:0] repl;
   } tw_t;
 
   // ---------------- address helpers ----------------
@@ -62,8 +63,23 @@ package axi_llc_pkg;
   function automatic addr_t addr_of(input logic [TAGW-1:0] t, input logic [SB-1:0] s);
     return {t, s, 6'b0};
   endfunction
-  function automatic logic [WB-1:0] next_way(input logic [WB-1:0] w);
-    return w + WB'(1);               // WAYS is a power of two (checked in axi_llc)
+  // SRRIP (docs/modules/axi_llc.md section 5.2): a hit sets the way's RRPV to 0; an allocation first ages the set so
+  // that its largest RRPV is 3, then gives the new line 2.
+  function automatic logic [RB-1:0] rrip_hit(input logic [RB-1:0] r, input logic [WB-1:0] w);
+    logic [RB-1:0] o;
+    o = r;
+    o[2 * w +: 2] = 2'd0;
+    return o;
+  endfunction
+  function automatic logic [RB-1:0] rrip_alloc(input logic [RB-1:0] r, input logic [WB-1:0] w);
+    logic [RB-1:0] o;
+    logic [1:0] mx, add;
+    mx = 2'd0;
+    for (int i = 0; i < WAYS; i++) if (r[2 * i +: 2] > mx) mx = r[2 * i +: 2];
+    add = 2'd3 - mx;
+    for (int i = 0; i < WAYS; i++) o[2 * i +: 2] = r[2 * i +: 2] + add;
+    o[2 * w +: 2] = 2'd2;
+    return o;
   endfunction
   // extract_line_response: words start at the word offset of the address
   function automatic line_t resp_of(input addr_t a, input line_t line);

@@ -27,6 +27,8 @@ module icache_swap import icache_pkg::*; (
   // set status (meta of the request's set)
   input  logic                    has_invalid,
   input  logic [IC_WAY_W-1:0]     first_invalid,
+  input  logic                    rd_valid,         // the array read of this cycle is valid (C++ meta_resp_valid)
+  input  logic [IC_WAY_W-1:0]     repl_way,         // SRRIP victim of the read set
   output ic_regs_t                r_n,
   output logic                    req_ready,
   output logic                    mem_req_valid,
@@ -69,7 +71,9 @@ module icache_swap import icache_pkg::*; (
     mem_line_w = '0;
     if (unc) mem_line_w[IC_WORD_W * r.req_pc[IC_OFF_W-1:2] +: IC_WORD_W] = mem_resp_data[IC_WORD_W-1:0];
     else     mem_line_w = mem_resp_data;
-    replace_next = unc ? r.replace_idx : (has_invalid ? first_invalid : r.replace_idx + IC_WAY_W'(1));
+    replace_next = unc ? r.replace_idx :
+                   has_invalid ? first_invalid :
+                   rd_valid ? repl_way : r.replace_idx + IC_WAY_W'(1);
     resp_line_we = gnt;
     resp_line_d  = mem_line_w;
     resp_valid       = finish;
