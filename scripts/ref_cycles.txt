@@ -4,11 +4,12 @@
 # Program set: scripts/fm_gate.sh (67 programs). The previous main table was 1.92 % faster (geomean over the 67 programs).
 # EXP-045 (trace-model exp/llc-plru 429172d): LLC and L1I replacement SRRIP; 3 programs changed (dcache-conflict-writeback, memory-stress-small,
 # pf-stress). The table before it (rr replacement) is scripts/ref_cycles_repl_rr.txt.
+# EXP-046 (trace-model exp/wb-llc 006dee0, RVC=1, LSU_PIPE_NOWD=1: completion-cycle check before the select, write-back bus by lane, + EXP-045 SRRIP): regenerated with scripts/tm_cycles.sh.
 1441 add-longlong/add-longlong.bin
 1515 add/add.bin
 2420 atomic-boundary/atomic-boundary.bin
-294895 big/coremark.bin
-108732 big/dhrystone.bin
+290676 big/coremark.bin
+108907 big/dhrystone.bin
 1809 bit/bit.bin
 2934 bitmanip-boundary/bitmanip-boundary.bin
 4984 bubble-sort/bubble-sort.bin
@@ -16,29 +17,29 @@
 2244 csr-alias-boundary/csr-alias-boundary.bin
 6018 dcache-conflict-writeback/dcache-conflict-writeback.bin
 1567 dcache-mshr-pressure/dcache-mshr-pressure.bin
-3377 directed/memspec_addr.bin
-7522 directed/memspec_data.bin
-2847 directed/memspec_pf.bin
+3378 directed/memspec_addr.bin
+7518 directed/memspec_data.bin
+2815 directed/memspec_pf.bin
 3784 directed/memspec_vio.bin
 2430 div/div.bin
 841 dummy/dummy.bin
-1407 fact/fact.bin
+1392 fact/fact.bin
 1178 fd-basic/fd-basic.bin
 1475 fd-cold/fd-cold.bin
 2004 fd-fcvt/fd-fcvt.bin
 2024 fd-fdiv/fd-fdiv.bin
 1690 fd-fsqrt/fd-fsqrt.bin
-27419 fd-matmul/fd-matmul.bin
+27194 fd-matmul/fd-matmul.bin
 1621 fence-i-self-modify/fence-i-self-modify.bin
 1296 fib/fib.bin
-3725 goldbach/goldbach.bin
+3722 goldbach/goldbach.bin
 1460 if-else/if-else.bin
 1410 illegal-instruction-trap/illegal-instruction-trap.bin
 3881 interrupt-vectored/interrupt-vectored.bin
 215401 itt-dispatch/itt-dispatch.bin
-1799 leap-year/leap-year.bin
+1797 leap-year/leap-year.bin
 2149 load-store-aligned/load-store-aligned.bin
-2871 matrix-mul/matrix-mul.bin
+2801 matrix-mul/matrix-mul.bin
 1893 max/max.bin
 1701 memory-boundary/memory-boundary.bin
 343459 memory-stress-small/memory-stress-small.bin
@@ -48,13 +49,13 @@
 1381 movsx/movsx.bin
 1964 mul-longlong/mul-longlong.bin
 2052 pascal/pascal.bin
-580756 pf-stress/pf-stress.bin
+580095 pf-stress/pf-stress.bin
 12121 prime/prime.bin
 4984 quick-sort/quick-sort.bin
-3094 recursion/recursion.bin
+3093 recursion/recursion.bin
 5127 select-sort/select-sort.bin
 1907 shift/shift.bin
-6102 shuixianhua/shuixianhua.bin
+4690 shuixianhua/shuixianhua.bin
 2479 software-interrupt-vectored/software-interrupt-vectored.bin
 1276 stlf-overlap-boundary/stlf-overlap-boundary.bin
 1441 sub-longlong/sub-longlong.bin

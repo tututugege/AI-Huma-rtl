@@ -16,9 +16,6 @@ package isu_pkg;
   localparam int UOP_I2F = 20;
   // The FP write-port limit of the reference model (EXP-032, FP_WB_PORTS default): FP-unit writes per cycle
   localparam int FP_WB_PORTS = 2;
-  // EXP-046 (model CFG_WB_PRESEL): the select skips a slot whose port cannot take it this cycle (its unit does not accept the op, or
-  // its completion cycle on the port is reserved), so the next ready slot gets the port; 0: those checks refuse the pick after the select
-  localparam bit WB_PRESEL = 1'b1;
   localparam int FP_COUNT_MAX = FP_FSQRT_D_LAT;              // longest FP latency (the countdown starts at latency - 1)
   localparam int FP_COUNT_W = $clog2(FP_COUNT_MAX);
   typedef logic [OP_NUM-1:0] op_set_t;                      // one bit per UopType (capability / ready masks)

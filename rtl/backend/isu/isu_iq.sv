@@ -26,7 +26,7 @@ module isu_iq
   input  op_set_t                  fu_ready [NP],   // per port: op classes the functional unit accepts now
   input  logic [NP-1:0]            gate_ok,         // FP write-port gate (isu_fp_gate); 1 for ports without one
   /* verilator lint_off UNUSEDSIGNAL */   // waiver: a queue whose ports have no blockable class (memory, STD, BR) does not read it
-  input  logic [WB_NCLS-1:0]       cls_free [NP],   // WB_PRESEL: per port and completion class, the completion cycle is free
+  input  logic [WB_NCLS-1:0]       cls_free [NP],   // per port and completion class: the completion cycle is free (EXP-046)
   /* verilator lint_on UNUSEDSIGNAL */
   input  logic                     issue_block,     // rob flush or misprediction this cycle
   input  logic                     flush_all,
@@ -62,7 +62,7 @@ module isu_iq
       assign older[i] = '0;
     end
   end
-  // WB_PRESEL (EXP-046): the slots each port may take this cycle: the slot's completion cycle on the port is free. Only the classes that
+  // EXP-046: the slots each port may take this cycle: the slot's completion cycle on the port is free. Only the classes that
   // can be blocked on the port (isu_pkg cls_blockable) are looked at; the class of a slot comes from its one-hot op (plus is_word / func7
   // for the divides). Both inputs are registered (the stored uop, the reservation table).
   // the classes that can be blocked on some port of this queue; each slot keeps those class bits in a register written at enqueue,
@@ -72,7 +72,7 @@ module isu_iq
     for (int p = 0; p < NP; p++) for (int c = 0; c < WB_NCLS; c++) if (cls_blockable(iq_port(QID, p), c)) m[c] = 1'b1;
     return m;
   endfunction
-  localparam logic [WB_NCLS-1:0] QBLK = WB_PRESEL ? q_blockable() : '0;
+  localparam logic [WB_NCLS-1:0] QBLK = q_blockable();
   /* verilator lint_off UNUSEDSIGNAL */   // waiver: all zero (not read) in a queue without blockable classes (memory, STD, BR)
   logic [WB_NCLS-1:0] slot_cls_q [SIZE];       // slot's completion class, one-hot, only the QBLK bits (read only while the slot is valid)
   /* verilator lint_on UNUSEDSIGNAL */
@@ -96,7 +96,7 @@ module isu_iq
     localparam int PP = iq_port(QID, p);
     logic [SIZE-1:0] blocked [WB_NCLS];       // per class: slots of that class whose completion cycle on the port is taken
     for (genvar c = 0; c < WB_NCLS; c++) begin : g_c
-      if (WB_PRESEL && cls_blockable(PP, c)) begin : g_b
+      if (cls_blockable(PP, c)) begin : g_b
         for (genvar i = 0; i < SIZE; i++) begin : g_s
           assign blocked[c][i] = !cls_free[p][c] && slot_cls_q[i][c];
         end

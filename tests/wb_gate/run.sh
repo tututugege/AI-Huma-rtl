@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Verilate isu_wb_gate (FP=1 config, through wrap.sv) and compare it with the reference's per-port completion-cycle reservation (WbBusy),
-# including the per-class free bits read by the select (WB_PRESEL).  usage: run.sh <work-dir>
+# including the per-class free bits read by the select (EXP-046).  usage: run.sh <work-dir>
 set -euo pipefail
 R=$(cd "$(dirname "$0")/../.." && pwd); W=${1:?work dir}; mkdir -p "$W"
 . "$R/scripts/env.sh"

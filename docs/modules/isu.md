@@ -80,8 +80,8 @@ depth: 89 层（单模块综合，去掉 dc2 的结构深度；见第 6 节；ex
 
 | 文件 | 行数 | 职责 |
 | --- | --- | --- |
-| `isu_pkg.sv` | 317 | 队列、口、能力表；uop 结构；完成类（`wb_class` / 独热形式 `cls_hit`，11 类）与完成偏移；每口的忙表长度 `port_max_off`、会被占的类 `cls_blockable`；`WB_PRESEL`；唤醒通道布局 |
-| `isu.sv` | 320 | 顶层：端口适配，闸（`wb_ok & fp_ok`，`WB_PRESEL` 时 `wb_ok` 恒 1）合成 `gate_ok`，把忙表的 `cls_free` 发给各队列，实例化各队列和唤醒网络 |
+| `isu_pkg.sv` | 314 | 队列、口、能力表；uop 结构；完成类（`wb_class` / 独热形式 `cls_hit`，11 类）与完成偏移；每口的忙表长度 `port_max_off`、会被占的类 `cls_blockable`；唤醒通道布局 |
+| `isu.sv` | 319 | 顶层：端口适配，闸（`fp_ok`；完成周期在选择里已经查过）合成 `gate_ok`，把忙表的 `cls_free` 发给各队列，实例化各队列和唤醒网络 |
 | `isu_iq.sv` | 177 | 一个发射队列（含入队时寄存的完成类位 `slot_cls_q` 和选择前的完成周期掩码 `port_ok`） |
 | `isu_iq_store.sv` | 98 | 槽存储与次态 |
 | `isu_iq_select.sv` | 65 | 每口的选择 |
@@ -97,12 +97,12 @@ depth: 89 层（单模块综合，去掉 dc2 的结构深度；见第 6 节；ex
 ### 5.1 选择与发射（只读寄存器）
 
 1. `slot_ready = valid & !wait1 & !wait2 & !wait3`（取消的唤醒 `cancel_v` 先让槽重新变成"在等"）。
-2. 每口 p 的候选 = `slot_ready & 能力匹配(p) & port_ok(p) & ~已被前面且能力重叠的口选走的槽`。`port_ok(p)[i]`（EXP-046，`WB_PRESEL`）：槽 i 的 uop 在口 p 上的完成周期还空着。只看口 p 上"会被占"的完成类（`cls_blockable`：口上存在偏移更长的类；一个口按拍发射，完成周期只能被更早发射、偏移更长的 uop 占住，所以每个口偏移最长的类、单类口的所有类永远空着，编译期恒 1）；槽的类在入队时算好（`cls_hit`），只存本队列各口上会被占的那几类（`QBLK`：INT 队列、FP 队列各几位，内存 / STD / BR 队列没有），选择时 `blocked = slot_cls_q[i][类] & ~cls_free[p][类]`，两边都是寄存器；第一版每拍从 `uop_q.op` 解码，深度多 5 层。被挡的槽不进候选，下一个就绪槽拿到这个口（原来是选中后再被闸拒绝，这个口这拍空着）。只有"能力重叠"的口之间才串联（load 口和 STA 口互相独立，同类口成一条链）。
+2. 每口 p 的候选 = `slot_ready & 能力匹配(p) & port_ok(p) & ~已被前面且能力重叠的口选走的槽`。`port_ok(p)[i]`（EXP-046）：槽 i 的 uop 在口 p 上的完成周期还空着。只看口 p 上"会被占"的完成类（`cls_blockable`：口上存在偏移更长的类；一个口按拍发射，完成周期只能被更早发射、偏移更长的 uop 占住，所以每个口偏移最长的类、单类口的所有类永远空着，编译期恒 1）；槽的类在入队时算好（`cls_hit`），只存本队列各口上会被占的那几类（`QBLK`：INT 队列、FP 队列各几位，内存 / STD / BR 队列没有），选择时 `blocked = slot_cls_q[i][类] & ~cls_free[p][类]`，两边都是寄存器；第一版每拍从 `uop_q.op` 解码，深度多 5 层。被挡的槽不进候选，下一个就绪槽拿到这个口（原来是选中后再被闸拒绝，这个口这拍空着）。只有"能力重叠"的口之间才串联（load 口和 STA 口互相独立，同类口成一条链）。
 3. 取法：普通口取候选里最低的槽（`ttg_first_set`）；内存队列里"每种能力的第一个口"（`first_of_cap`）取最老的候选，即没有更老候选的那个槽（用年龄矩阵 `older[i][j]`）。
 4. `cand_valid[p] = 有选中 & !issue_block & (fu_ready[p] 含该 uop 的操作类)`；`grant_valid[p] = cand_valid & gate_ok[p]`，共享 AGU 的 STA 口还要求对应 load 口这拍没有发。
 5. 选中的槽即使没被授予（FU 忙、被闸挡住）也算被占用，下游口不再选它。
 
-闸（`isu.sv`）：`wb_ok`（该口的完成周期还空着；`WB_PRESEL` 时选择已经保证，恒 1）、`fp_ok`（FP 写口数没超 `FP_WB_PORTS`，只对会写 FP 寄存器的候选）、共享 AGU（合并配置下由内存队列自己处理）。授予后按完成类预留：忙表 `busy_q[k]` 表示"距今 k 拍"的完成周期已被占，每拍整体下移一位，偏移为 o 的授予在下一拍置位 `o - 1`；flush 清空。行为与模型的 64 项环（`WbBusy`）相同。
+闸（`isu.sv`）：完成周期由选择保证（`isu_wb_gate` 的 `port_ok` 只给单元测试用）；`fp_ok`（FP 写口数没超 `FP_WB_PORTS`，只对会写 FP 寄存器的候选）、共享 AGU（合并配置下由内存队列自己处理）。授予后按完成类预留：忙表 `busy_q[k]` 表示"距今 k 拍"的完成周期已被占，每拍整体下移一位，偏移为 o 的授予在下一拍置位 `o - 1`；flush 清空。行为与模型的 64 项环（`WbBusy`）相同。
 
 ### 5.2 唤醒
 
@@ -155,7 +155,7 @@ depth: 89 层（单模块综合，去掉 dc2 的结构深度；见第 6 节；ex
 - 调度策略：模型有三种（`CFG_ISSUE_OLDEST_FIRST`：0 最低槽优先、1 所有队列最老优先（`ROB_OLDEST_FIRST`）、2 每种能力的第一个口取最老，其余最低槽；`CFG_ISSUE_OLDEST_QUEUES` 选适用的队列）。RTL 只实现 0 和 2，且 2 只用于内存队列（`MEM_AGE`，对应模型 `CFG_ISSUE_OLDEST_FIRST=2`、`CFG_ISSUE_OLDEST_QUEUES=2`）；策略 1 不实现；
 - 快速唤醒里的 `op != UOP_LOAD && op != UOP_STA`（模型 `Isu.cpp:242`）：RTL 不判。每个口只选自己能力范围内的槽，而有快速通道的口 0..5 的能力掩码里没有 `UOP_LOAD`（第 3 位）和 `UOP_STA`（第 4 位），这两种 uop 不可能在这些口被授予。
 
-- EXP-046：模型的 `CFG_WB_PRESEL=2`（选择前再查执行单元是否收）RTL 不实现（与 1 周期相同）；模型的 `ISS_REF_*` / `ISS_LOST_*` PMU 事件只在模型里。模型的忙表仍是 64 项环（`WbBusy`），RTL 是按口长度的移位寄存器，行为相同（`tests/wb_gate` 对照）。
+- EXP-046：模型的 `ISS_REF_*` / `ISS_LOST_*` PMU 事件只在模型里。模型的忙表仍是 64 项环（`WbBusy`），RTL 是按口长度的移位寄存器，行为相同（`tests/wb_gate` 对照）。
 
 RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 
@@ -167,7 +167,7 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 
 ## 8. 验证
 
-- **EXP-046（`exp/wb-presel`）**：`tests/wb_gate`（`run.sh <工作目录>`）：`wrap.sv` 把忙表和 `isu_pkg` 的类表（偏移、每口服务的类）一起导出，`check.py` 随机 3 万拍对照模型的 `WbBusy`，同时检查 `port_ok` 和每口每类的 `cls_free`：0 不一致；植入错误（类 0 的 `cls_free` 恒 1）后 24140 拍不一致。原来的测试驱动的是已删除的 `off` 输入，在 main 上编译不过，这次一并改写。整核：`fm_gate` 67/67 逐条对函数模型无不一致，周期对模型 `CFG_WB_PRESEL=1`（trace-model `exp/wb-port` `60aa7e8`，RVC=1 构建，程序用 `build_tests.sh` 的 rv64ima 版）66/67 相等；crc32 RTL 2196、模型 2199，与本改动无关（main 的 RTL 参考就是 2196，同一个二进制上模型 `CFG_WB_PRESEL=0` 也是 2199）。
+- **EXP-046（`exp/wb-presel`）**：`tests/wb_gate`（`run.sh <工作目录>`）：`wrap.sv` 把忙表和 `isu_pkg` 的类表（偏移、每口服务的类）一起导出，`check.py` 随机 3 万拍对照模型的 `WbBusy`，同时检查 `port_ok` 和每口每类的 `cls_free`：0 不一致；植入错误（类 0 的 `cls_free` 恒 1）后 24140 拍不一致。原来的测试驱动的是已删除的 `off` 输入，在 main 上编译不过，这次一并改写。整核：`fm_gate` 67/67 逐条对函数模型无不一致，周期对模型（trace-model `exp/wb-port` `60aa7e8` 的 `CFG_WB_PRESEL=1`，合入版里这是唯一行为，RVC=1 构建，程序用 `build_tests.sh` 的 rv64ima 版）67/67 相等（合入 `exp/llc-plru` 后的集成分支，参考周期 `scripts/ref_cycles.txt` 用 `LSU_PIPE_NOWD=1` 生成；早先记录的"crc32 RTL 2196 / 模型 2199"是生成参考时没关模型的 LDQ / STQ 看门狗造成的误判，`tm_cycles.sh` 现在默认关掉它）。
 
 - **门禁**：`scripts/fm_gate.sh` 67 个程序，每条提交对比函数模型，周期对 `scripts/ref_cycles_memiq6_nr_int2_ev5.txt`（模型同配置生成）：67/67 通过，周期逐个相等。
 - **Lint**：`scripts/lint_chip.sh` 0 告警。
@@ -175,11 +175,11 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 
 ## 9. 参数与开关速查
 
-`IQ_INT_SIZE`、`IQ_INT_ENQ_WIDTH`、`IQ_MEM_SIZE`、`IQ_MEM_ENQ_WIDTH`、`LSU_AGU_SHARED`、`IQ_STD_*`、`IQ_BR_*`、`FP_IQ_*`、`FP_WB_PORTS`（`isu_pkg`，EXP-032）；`WB_PRESEL`（`isu_pkg`，EXP-046，探索分支上的开关，对应模型 `CFG_WB_PRESEL`：1 选择前查完成周期，0 选择后由 `wb_ok` 拒绝；忙表的移位写法与开关无关）；`LP_L2[3]`（LSU 推测唤醒）。`ttg_cfg_pkg.sv` 目前是手工编辑的，与 `make cfg` 生成的不同步（待统一，见 docs/TODO.md）。
+`IQ_INT_SIZE`、`IQ_INT_ENQ_WIDTH`、`IQ_MEM_SIZE`、`IQ_MEM_ENQ_WIDTH`、`LSU_AGU_SHARED`、`IQ_STD_*`、`IQ_BR_*`、`FP_IQ_*`、`FP_WB_PORTS`（`isu_pkg`，EXP-032）；`LP_L2[3]`（LSU 推测唤醒）。`ttg_cfg_pkg.sv` 目前是手工编辑的，与 `make cfg` 生成的不同步（待统一，见 docs/TODO.md）。
 
 ## 10. 变更记录
 
-- 2026-11-19（`exp/wb-presel`，EXP-046）：完成周期的检查移到选择之前（`WB_PRESEL`）；`isu_wb_gate` 的忙表从 21 × 64 位环 + 拍号改成每口按需长度的移位寄存器，偏移最长的类编译期恒空；`tests/wb_gate` 改为按完成类驱动并检查 `cls_free`。
+- 2026-11-19（`exp/wb-presel`，EXP-046）：完成周期的检查移到选择之前（合入时删掉了探索用的开关 `WB_PRESEL`，模型的 `CFG_WB_PRESEL` 同时删掉）；`isu_wb_gate` 的忙表从 21 × 64 位环 + 拍号改成每口按需长度的移位寄存器，偏移最长的类编译期恒空；`tests/wb_gate` 改为按完成类驱动并检查 `cls_free`。
 
 - 2026-11-17/18（exp/agu-share）：两个 INT 队列、合并内存队列与年龄选择、共享 AGU、并行分配、完成类闸、FP 闸去链、不等本拍发射的槽分配（见第 6 节表）；全局 flush 晚一拍到达（docs/FLUSH_REG.md）。
 - 2026-11-12：rv64（`is_word`、*W 除法延迟减半）；F/D（FP 队列、延迟唤醒槽、FP 写口闸，EXP-031..036）。

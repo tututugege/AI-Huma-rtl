@@ -1,6 +1,6 @@
 """Random check of isu_wb_gate against the reference's WbBusy (Isu.cpp): one busy bit per (port, cycle) in a ring of 64, a pick reserves
 the completion cycle of its class (offset = isu_pkg wb_cls_off) when it is free, the slot of the current cycle is consumed, a flush clears
-everything. Also checks the per-class free bits (cls_free, read by the select with WB_PRESEL): free = the class's completion cycle on the
+everything. Also checks the per-class free bits (cls_free, read by the select (EXP-046)): free = the class's completion cycle on the
 port is not reserved, 1 for a class the port does not serve."""
 import random, subprocess, sys
 random.seed(5)

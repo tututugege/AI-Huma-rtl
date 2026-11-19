@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # tm_cycles.sh <trace-model-simulator> [outfile]: run every program of scripts/ref_cycles.txt on the trace-model and print
 # "<cycles> <path>" lines (the format of ref_cycles.txt), e.g. to regenerate it after a configuration change.
+# The model runs with LSU_PIPE_NOWD=1 (the RTL has no LDQ / STQ watchdog; without it crc32 and memory-stress-small differ from the RTL).
 #   env JOBS (default 8), TTG_PROGS / TTG_BIG (see env.sh)
 set -uo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd); . "$ROOT/scripts/env.sh"
@@ -16,5 +17,6 @@ one() {
   c=$(cd "$(dirname "$(dirname "$SIMB")")" && perl -e 'alarm 900; exec @ARGV' "$SIMB" "$p" 2>&1 | grep -a -o 'sim-time(cycle)= *[0-9]*' | tail -1 | grep -o '[0-9]*$')
   echo "${c:-FAIL} $rel"
 }
+export LSU_PIPE_NOWD=1
 export -f one; export SIMB TTG_PROGS TTG_BIG ROOT  # ROOT: directed/* programs (was missing: they ran with an empty path and hung)
 grep -v '^#' "$ROOT/scripts/ref_cycles.txt" | awk 'NF{print $2}' | xargs -P "${JOBS:-8}" -I{} bash -c 'one {}' | sort -k2 > "$OUTF"

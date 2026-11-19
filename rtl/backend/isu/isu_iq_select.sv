@@ -18,7 +18,7 @@ module isu_iq_select
   /* verilator lint_off UNUSEDSIGNAL */   // waiver: read only by a queue with AGE_EN
   input  logic [SIZE-1:0] older [SIZE],         // age matrix: older[i][j] = slot j is older than slot i
   /* verilator lint_on UNUSEDSIGNAL */
-  input  logic [SIZE-1:0] port_ok [NP],         // slots port p may take this cycle (isu_pkg WB_PRESEL; all ones otherwise)
+  input  logic [SIZE-1:0] port_ok [NP],         // slots port p may take this cycle (their completion cycle on the port is free, EXP-046)
   output logic [SIZE-1:0] sel_onehot [NP],      // slot chosen by each port (all zero when none)
   output logic [NP-1:0]   sel_valid             // port found a slot
 );

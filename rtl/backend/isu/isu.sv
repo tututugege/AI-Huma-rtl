@@ -162,12 +162,12 @@ module isu
   /* verilator lint_off UNUSEDSIGNAL */   // waiver: only the FP-write candidate ports are read, and only with F/D
   logic [ISSUE_WIDTH-1:0] cand_valid_all;
   /* verilator lint_on UNUSEDSIGNAL */
-  logic [ISSUE_WIDTH-1:0] gate_ok_all, fp_ok_all, wb_ok;
+  logic [ISSUE_WIDTH-1:0] gate_ok_all, fp_ok_all;
 
   // ---- completion-cycle reservation of every issue port (EXP-035) ----
   logic [WB_CLS_W-1:0] wb_cls [ISSUE_WIDTH];
   logic [WB_NCLS-1:0]  wb_cls_free [ISSUE_WIDTH];
-  /* verilator lint_off UNUSEDSIGNAL */   // waiver: with WB_PRESEL the select already guarantees a free completion cycle
+  /* verilator lint_off UNUSEDSIGNAL */   // waiver: the select already guarantees a free completion cycle (EXP-046); port_ok is for tests/wb_gate
   logic [ISSUE_WIDTH-1:0] wb_port_ok;
   /* verilator lint_on UNUSEDSIGNAL */
   for (genvar p = 0; p < ISSUE_WIDTH; p++) begin : g_wb_cls
@@ -175,9 +175,8 @@ module isu
   end
   isu_wb_gate u_wb_gate (.clk(clk), .rst_n(rst_n), .flush_all(rob_bcast_flush), .cls(wb_cls), .reserve(grant_valid),
                          .port_ok(wb_port_ok), .cls_free(wb_cls_free));
-  assign wb_ok = WB_PRESEL ? '1 : wb_port_ok;
   // shared AGUs (LSU_AGU_SHARED): the memory queue applies the sharing itself (isu_iq SH_*)
-  assign gate_ok_all = fp_ok_all & wb_ok;
+  assign gate_ok_all = fp_ok_all;   // the completion cycle is checked in the select (EXP-046)
 
   if (FP_EN) begin : g_gate
     logic [FP_REQ_UNITS-1:0]   c_valid, c_fpw, c_ok;
@@ -185,7 +184,7 @@ module isu
     for (genvar p = 0; p < ISSUE_WIDTH; p++) begin : g_port
       if (port_has(MASK_FPD, p)) begin : g_cand
         localparam int R = port_rank(MASK_FPD, p);
-        assign c_valid[R] = cand_valid_all[p] && wb_ok[p];   // a pick refused by the port gate takes no FP write port
+        assign c_valid[R] = cand_valid_all[p];
         assign c_fpw[R]   = grant_uop[p].dest_en && grant_uop[p].dest_fp &&
                             ((grant_uop[p].op == op_t'(UOP_FMA)) || (grant_uop[p].op == op_t'(UOP_FMISC)) ||
                              (grant_uop[p].op == op_t'(UOP_FDIV)) || (grant_uop[p].op == op_t'(UOP_I2F)));
