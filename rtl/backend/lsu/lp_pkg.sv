@@ -180,6 +180,7 @@ package lp_pkg;
     logic            rob_flag;
     logic [BRW-1:0]  br_mask;
     logic [MDPW-1:0] mdp;          // wait-table index of the load PC (memory speculation)
+    logic [31:0]     pc;
     logic            wait_b;       // wait-table bit read at dispatch: this load does not pass unknown-address stores
   } lp_dis_ld_t;
 
@@ -271,6 +272,7 @@ package lp_pkg;
     logic            second;       // second pass: completion write-back / re-execution after a violation
     logic            wait_b;       // predictor: does not pass unknown-address stores
     logic [MDPW-1:0] mdp;          // wait-table index
+    logic [31:0]     pc;
   } lp_ldq_t;
 
   // ---- helpers ----

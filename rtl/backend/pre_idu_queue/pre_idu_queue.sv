@@ -45,6 +45,7 @@ module pre_idu_queue import ttg_cfg_pkg::*; import pre_idu_pkg::*; import front_
   input  logic [FTQ_OFFSET_WIDTH-1:0] ftq_dis_req_ftq_offset [DECODE_WIDTH],
   /* verilator lint_on UNUSEDSIGNAL */
   output logic [LSU_MDP_BITS-1:0] ftq_dis_resp_mdp [DECODE_WIDTH],
+  output logic [31:0] ftq_dis_resp_pc [DECODE_WIDTH],
   output logic [DECODE_WIDTH-1:0] ftq_dis_resp_is_rvc,
   output logic [HCK_W-1:0] out_rf_ck,
   output logic [EPOCH_W-1:0] out_rf_epoch,
@@ -157,7 +158,7 @@ module pre_idu_queue import ttg_cfg_pkg::*; import pre_idu_pkg::*; import front_
   end
   logic [XLEN_BITS-1:0] dis_pc [DECODE_WIDTH];
   logic                 dis_is_rvc [DECODE_WIDTH];
-  always_comb for (int p = 0; p < DECODE_WIDTH; p++) ftq_dis_resp_is_rvc[p] = dis_is_rvc[p];
+  always_comb for (int p = 0; p < DECODE_WIDTH; p++) begin ftq_dis_resp_is_rvc[p] = dis_is_rvc[p]; ftq_dis_resp_pc[p] = dis_pc[p][31:0]; end
   for (genvar p = 0; p < DECODE_WIDTH; p++) begin : g_dis_pc
     if (LSU_MEMSPEC != 0) begin : g_on
       // wait-table index of the load PC: pc[S+B-1:S] ^ pc[S+2B-1:S+B], S = SLOT_SHIFT (2-byte aligned instructions with RVC), as the model's mdp_idx

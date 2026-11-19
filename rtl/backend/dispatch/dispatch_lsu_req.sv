@@ -13,6 +13,7 @@ module dispatch_lsu_req
   input  dis_inst_t                 inst        [NUM_SLOTS],   // for br_mask, func3
   input  dis_res_t                  res         [NUM_SLOTS],
   input  logic [LSU_MDP_BITS-1:0]   mdp         [NUM_SLOTS],
+  input  logic [31:0]               pc          [NUM_SLOTS],
   output logic [STQ_PORTS-1:0] st_req,
   output logic [BR_MASK_WIDTH-1:0]  st_br_mask  [STQ_PORTS],
   output logic [2:0]                st_func3    [STQ_PORTS],
@@ -24,7 +25,8 @@ module dispatch_lsu_req
   output logic [BR_MASK_WIDTH-1:0]  ld_br_mask  [LDQ_PORTS],
   output logic [ROB_IDX_WIDTH-1:0]  ld_rob_idx  [LDQ_PORTS],
   output logic [LDQ_PORTS-1:0] ld_rob_flag,
-  output logic [LSU_MDP_BITS-1:0]   ld_mdp      [LDQ_PORTS]
+  output logic [LSU_MDP_BITS-1:0]   ld_mdp      [LDQ_PORTS],
+  output logic [31:0]               ld_pc       [LDQ_PORTS]
 );
 
   // Ref: Dispatch::comb_fire step 3 (STQ ports)
@@ -52,22 +54,22 @@ module dispatch_lsu_req
   for (genvar k = 0; k < LDQ_PORTS; k++) begin : g_ldq_port
     logic [NUM_SLOTS-1:0] owner;
     logic [BR_MASK_WIDTH-1:0] sel_br_mask [NUM_SLOTS];
-    // {ldq_idx, rob_idx, rob_flag, mdp}
-    logic [LDQ_IDX_WIDTH + ROB_IDX_WIDTH + 1 + LSU_MDP_BITS - 1:0] sel_meta [NUM_SLOTS];
-    logic [LDQ_IDX_WIDTH + ROB_IDX_WIDTH + 1 + LSU_MDP_BITS - 1:0] meta;
+    // {ldq_idx, rob_idx, rob_flag, mdp, pc}
+    logic [LDQ_IDX_WIDTH + ROB_IDX_WIDTH + 1 + LSU_MDP_BITS + 32 - 1:0] sel_meta [NUM_SLOTS];
+    logic [LDQ_IDX_WIDTH + ROB_IDX_WIDTH + 1 + LSU_MDP_BITS + 32 - 1:0] meta;
     always_comb begin
       for (int i = 0; i < NUM_SLOTS; i++) begin
         owner[i]       = fire[i] && ld_port_sel[i][k];
         sel_br_mask[i] = inst[i].br_mask;
-        sel_meta[i]    = {res[i].ldq_idx, res[i].rob_idx, res[i].rob_flag, mdp[i]};
+        sel_meta[i]    = {res[i].ldq_idx, res[i].rob_idx, res[i].rob_flag, mdp[i], pc[i]};
       end
       ld_req[k] = |owner;
     end
     ttg_onehot_mux #(.N(NUM_SLOTS), .W(BR_MASK_WIDTH)) u_br (.sel(owner), .data(sel_br_mask), .out(ld_br_mask[k]));
-    ttg_onehot_mux #(.N(NUM_SLOTS), .W(LDQ_IDX_WIDTH + ROB_IDX_WIDTH + 1 + LSU_MDP_BITS)) u_meta (
+    ttg_onehot_mux #(.N(NUM_SLOTS), .W(LDQ_IDX_WIDTH + ROB_IDX_WIDTH + 1 + LSU_MDP_BITS + 32)) u_meta (
       .sel(owner), .data(sel_meta), .out(meta));
     always_comb begin
-      {ld_idx[k], ld_rob_idx[k], ld_rob_flag[k], ld_mdp[k]} = meta;
+      {ld_idx[k], ld_rob_idx[k], ld_rob_flag[k], ld_mdp[k], ld_pc[k]} = meta;
     end
   end
 

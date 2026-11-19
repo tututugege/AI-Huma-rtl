@@ -160,3 +160,7 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 - 2026-11-17：`1d8688e` EXP-042：口并行、`ttg_first_set` 对数深度，深度代理 163 → 67（在 261bd67 之前）。
 - 2026-11-16：`8abb7ab` RTL 清理（删旧生成器和 spec/，折叠部分 rv32 条件）；2026-11-11：`72f2cd9` rv64 第 3 步：Sv39 TLB 和页表遍历器。
 - 更早：见 git 历史。
+
+## EXP-048 M3 补充：预取跨页页表遍历丢弃
+
+DTLB（`FETCH=0`）新增 `pf_page_set` / `pf_page_vpn` 与 `walk_next_v` / `walk_next_vpn`。当 LSU 在空闲 load 口上为预取跨页候选触发新的页表遍历时记录 `pf_page_q`；若该遍历以页故障结束，下拍由 `early_pf_drop` 直接静默回收该遍历状态而不向任何指令报错（对应 `TlbMmu.cpp:287`）。

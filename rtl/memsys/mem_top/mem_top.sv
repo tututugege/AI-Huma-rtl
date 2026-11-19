@@ -40,6 +40,10 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
   input  logic [31:0] lsu2dcache_load_ports_addr [LSU_LDU_COUNT],
   input  logic [30:0] lsu2dcache_load_ports_req_id [LSU_LDU_COUNT],
   input  logic lsu2dcache_load_ports_replay [LSU_LDU_COUNT],
+  input  logic [31:0] lsu2dcache_load_ports_pc [LSU_LDU_COUNT],
+  input  logic [38:0] lsu2dcache_load_ports_va [LSU_LDU_COUNT],
+  output logic [LSU_LDU_COUNT-1:0] pf_xq_v, output logic [38:0] pf_xq_va [LSU_LDU_COUNT], output logic [LSU_LDU_COUNT-1:0] pf_xq_llc,
+  input  logic [2:0] pf_xq_pop, input logic [LSU_LDU_COUNT-1:0] pf_xans_v, input logic [25:0] pf_xans_line [LSU_LDU_COUNT], input logic [LSU_LDU_COUNT-1:0] pf_xans_llc,
   input  logic lsu2dcache_load_ports_valid [LSU_LDU_COUNT],
   input  logic [31:0] lsu2dcache_store_ports_addr [LSU_STA_COUNT],
   input  logic [XLEN_BITS-1:0] lsu2dcache_store_ports_data [LSU_STA_COUNT],
@@ -152,7 +156,7 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
   logic [PT_ID_W-1:0] rt_ptw_event_req_id, rt_ptw_grant_req_id;
   logic        rt_dc_ld_valid [NLD_];
   logic [31:0] rt_dc_ld_addr [NLD_], rt_dc_ld_id [NLD_];
-  logic        rt_dc_ld_replay [NLD_];
+  logic        rt_dc_ld_replay [NLD_]; logic [31:0] rt_dc_ld_pc [NLD_]; logic [38:0] rt_dc_ld_va [NLD_];
   logic        rt_dc_st_valid [NST_];
   logic [31:0] rt_dc_st_addr [NST_];
   logic [XLEN_BITS-1:0] rt_dc_st_data [NST_];
@@ -184,7 +188,7 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
     .dcache_resp_store_replay(dc_st_resp_replay),
     .dcache_resp_mshr_fill(dc_mshr_fill), .dcache_resp_mshr_fill_line(dc_mshr_fill_addr[31:6]),
     .lsu_req_load_valid(lsu2dcache_load_ports_valid), .lsu_req_load_addr(lsu2dcache_load_ports_addr),
-    .lsu_req_load_req_id(lsu2dcache_load_ports_req_id), .lsu_req_load_replay(lsu2dcache_load_ports_replay),
+    .lsu_req_load_req_id(lsu2dcache_load_ports_req_id), .lsu_req_load_replay(lsu2dcache_load_ports_replay), .lsu_req_load_pc(lsu2dcache_load_ports_pc), .lsu_req_load_va(lsu2dcache_load_ports_va),
     .lsu_req_store_valid(lsu2dcache_store_ports_valid), .lsu_req_store_addr(lsu2dcache_store_ports_addr),
     .lsu_req_store_data(lsu2dcache_store_ports_data), .lsu_req_store_strb(lsu2dcache_store_ports_strb),
     .lsu_req_store_l2(lsu2dcache_store_ports_l2), .lsu_req_store_req_id(lsu2dcache_store_ports_req_id),
@@ -200,7 +204,7 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
     .ptw_event_valid(rt_ptw_event_valid), .ptw_event_data(rt_ptw_event_data), .ptw_event_req_id(rt_ptw_event_req_id),
     .ptw_wakeup_walk(rt_ptw_wakeup_walk),
     .dcache_req_load_valid(rt_dc_ld_valid), .dcache_req_load_addr(rt_dc_ld_addr), .dcache_req_load_req_id(rt_dc_ld_id),
-    .dcache_req_load_replay(rt_dc_ld_replay),
+    .dcache_req_load_replay(rt_dc_ld_replay), .dcache_req_load_pc(rt_dc_ld_pc), .dcache_req_load_va(rt_dc_ld_va),
     .dcache_req_store_valid(rt_dc_st_valid), .dcache_req_store_addr(rt_dc_st_addr),
     .dcache_req_store_data(rt_dc_st_data), .dcache_req_store_strb(rt_dc_st_strb),
     .dcache_req_store_l2(rt_dc_st_l2), .dcache_req_store_req_id(rt_dc_st_id),
@@ -314,7 +318,7 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
   dcache #(.PF_EN(PF_EN)) u_dcache (
     .clk, .rst_n, .cpu_phase0(phase0),
     .ld_req_valid(dc_ld_valid_in), .ld_req_addr(rt_dc_ld_addr), .ld_req_id(rt_dc_ld_id),
-    .ld_req_replay(rt_dc_ld_replay),
+    .ld_req_replay(rt_dc_ld_replay), .ld_req_pc(rt_dc_ld_pc), .ld_req_va(rt_dc_ld_va), .pf_xq_v, .pf_xq_va, .pf_xq_llc, .pf_xq_pop, .pf_xans_v, .pf_xans_line, .pf_xans_llc,
     .st_req_valid(dc_st_valid_in), .st_req_addr(rt_dc_st_addr), .st_req_data(rt_dc_st_data),
     .st_req_strb(rt_dc_st_strb4), .st_req_l2(rt_dc_st_l2c), .st_req_id(rt_dc_st_id32),
     .icache_req(dc_icache_req),

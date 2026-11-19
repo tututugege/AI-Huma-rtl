@@ -101,7 +101,8 @@ package dis_pkg;
     logic [CSR_IDX_WIDTH-1:0]  csr_idx;
     logic                      page_fault_inst;
     logic                      illegal_inst;
-    logic [LSU_MDP_BITS-1:0]   mdp;           // wait-table index of the PC (LSU_MEMSPEC; loads only use it)
+    logic [LSU_MDP_BITS-1:0]   mdp;
+    logic [31:0]               pc;           // wait-table index of the PC (LSU_MEMSPEC; loads only use it)
     logic                      is_rvc;        // 16-bit instruction (RVC=1): the link value of JAL/JALR is 2
   } dis_inst_t;
 

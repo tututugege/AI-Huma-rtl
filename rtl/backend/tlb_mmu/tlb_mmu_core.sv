@@ -27,6 +27,8 @@ module tlb_mmu_core import tlb_mmu_pkg::*; import ttg_cfg_pkg::*; #(
   input  logic        ptw_req_ready,
   input  logic        ptw_resp_valid,
   input  tlb_mmu_ptw_resp_t ptw_resp,
+  input  logic pf_page_set,
+  input  logic [VPN_W-1:0] pf_page_vpn,
   output logic        resp_valid [LANES],
   output logic [1:0]  resp_result [LANES],
   output logic [31:0] resp_paddr [LANES],
@@ -34,7 +36,9 @@ module tlb_mmu_core import tlb_mmu_pkg::*; import ttg_cfg_pkg::*; #(
   output logic [VPN_W-1:0] ptw_req_vpn,
   output logic [21:0] ptw_req_root_ppn,
   output logic        ptw_resp_consumed,
-  output logic        ptw_flush
+  output logic        ptw_flush,
+  output logic        walk_next_v,
+  output logic [VPN_W-1:0] walk_next_vpn
 );
 
 
@@ -67,8 +71,11 @@ module tlb_mmu_core import tlb_mmu_pkg::*; import ttg_cfg_pkg::*; #(
   // The ITLB (FETCH) path of the reference has no early retirement in translate mode (TlbMmu::translate goes
   // straight into top_comb; only translate_lsu_ports calls consume_completed_walk_refill first), so a completed
   // walk is retired by the fetch lane that asks for its page, or by a cancel.
+  logic             pf_page_v_q, early_pf_drop;
+  logic [VPN_W-1:0] pf_page_q;
   logic early_in_translate;
-  assign early_in_translate = FETCH ? 1'b0 : early_refill_ok;
+  assign early_pf_drop = !FETCH && pf_page_v_q && early_done && (walk_q.vpn == pf_page_q);
+  assign early_in_translate = FETCH ? 1'b0 : (early_refill_ok || early_pf_drop);
   assign early_consume = fence ? 1'b0 : (cancel ? early_done : early_in_translate);
 
   // ---- cycle-start state (what lane 0 of the reference sees) ----
@@ -174,9 +181,23 @@ module tlb_mmu_core import tlb_mmu_pkg::*; import ttg_cfg_pkg::*; #(
     ptw_flush = fence || cancel;
   end
 
+  assign walk_next_v   = walk_d.active;
+  assign walk_next_vpn = walk_d.vpn;
+
   always_ff @(posedge clk) begin
-    if (!rst_n) walk_q <= '0;
-    else        walk_q <= walk_d;
+    if (!rst_n) begin
+      walk_q      <= '0;
+      pf_page_v_q <= 1'b0;
+      pf_page_q   <= '0;
+    end else begin
+      walk_q <= walk_d;
+      if (pf_page_set) begin
+        pf_page_v_q <= 1'b1;
+        pf_page_q   <= pf_page_vpn;
+      end else if (early_pf_drop) begin
+        pf_page_v_q <= 1'b0;
+      end
+    end
   end
 
 endmodule

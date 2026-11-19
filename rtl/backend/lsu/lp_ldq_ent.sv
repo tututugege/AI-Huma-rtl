@@ -324,6 +324,7 @@ module lp_ldq_ent
       f_q.spec     <= 1'b0;
       f_q.wait_b   <= al_d.wait_b;
       f_q.mdp      <= al_d.mdp;
+      f_q.pc       <= al_d.pc;
       f_q.rob_idx  <= al_d.rob_idx;
       f_q.rob_flag <= al_d.rob_flag;
       f_q.dest_preg <= '0;

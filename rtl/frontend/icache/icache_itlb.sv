@@ -53,14 +53,20 @@ module icache_itlb import ttg_cfg_pkg::*; import icache_pkg::*; import tlb_mmu_p
   assign lane_req_valid[0] = mmu_req_valid;
   assign lane_req_vaddr[0] = {mmu_req_vtag, 12'b0};
 
+  /* verilator lint_off UNUSEDSIGNAL */
+  logic             nc_walk_v;
+  logic [VPN_W-1:0] nc_walk_vpn;
+  /* verilator lint_on UNUSEDSIGNAL */
+
   tlb_mmu_core #(.LANES(1), .FETCH(1'b1), .ENTRIES(ENTRIES)) u_core (
     .req_is_store('{default: 1'b0}),
     .clk, .rst_n, .fence(itlb_flush), .cancel(refetch),
     .satp(csr_satp), .privilege(csr_privilege), .mxr(csr_mxr), .sum(csr_sum), .mprv(csr_mprv), .mpp(csr_mpp),
     .req_valid(lane_req_valid), .req_vaddr(lane_req_vaddr),
-    .ptw_req_ready, .ptw_resp_valid, .ptw_resp,
+    .ptw_req_ready, .ptw_resp_valid, .ptw_resp, .pf_page_set(1'b0), .pf_page_vpn('0),
     .resp_valid(lane_resp_valid), .resp_result(lane_resp_result), .resp_paddr(lane_resp_paddr),
-    .ptw_req_valid, .ptw_req_vpn, .ptw_req_root_ppn, .ptw_resp_consumed, .ptw_flush
+    .ptw_req_valid, .ptw_req_vpn, .ptw_req_root_ppn, .ptw_resp_consumed, .ptw_flush,
+    .walk_next_v(nc_walk_v), .walk_next_vpn(nc_walk_vpn)
   );
 
   always_comb begin

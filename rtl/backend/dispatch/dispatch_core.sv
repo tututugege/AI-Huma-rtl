@@ -50,6 +50,7 @@ module dispatch_core
   output logic [ROB_IDX_WIDTH-1:0]      ld_rob_idx  [LDQ_PORTS],
   output logic [LDQ_PORTS-1:0] ld_rob_flag,
   output logic [LSU_MDP_BITS-1:0]       ld_mdp      [LDQ_PORTS],
+  output logic [31:0]                   ld_pc       [LDQ_PORTS],
   // wakeups (prf_awake ports first, then iss_awake ports) and branch / flush broadcasts
   input  logic [TAG_NUM-1:0] cancel_v,
   input  logic [NUM_WAKE-1:0] wake_valid,
@@ -231,14 +232,15 @@ module dispatch_core
     .req_valid(req_valid), .req_uop(req_uop));
 
   logic [LSU_MDP_BITS-1:0] inst_mdp [NUM_SLOTS];
+  logic [31:0]             inst_pc  [NUM_SLOTS];
   always_comb begin
-    for (int i = 0; i < NUM_SLOTS; i++) inst_mdp[i] = inst_q[i].mdp;
+    for (int i = 0; i < NUM_SLOTS; i++) begin inst_mdp[i] = inst_q[i].mdp; inst_pc[i] = inst_q[i].pc; end
   end
   dispatch_lsu_req u_lsu_req (
-    .fire(dis_fire), .st_port_sel(st_port_sel), .ld_port_sel(ld_port_sel), .inst(alloc_inst), .res(res), .mdp(inst_mdp),
+    .fire(dis_fire), .st_port_sel(st_port_sel), .ld_port_sel(ld_port_sel), .inst(alloc_inst), .res(res), .mdp(inst_mdp), .pc(inst_pc),
     .st_req(st_req), .st_br_mask(st_br_mask), .st_func3(st_func3), .st_rob_idx(st_rob_idx),
     .st_rob_flag(st_rob_flag), .st_stq_flag(st_stq_flag), .ld_req(ld_req), .ld_idx(ld_idx),
-    .ld_br_mask(ld_br_mask), .ld_rob_idx(ld_rob_idx), .ld_rob_flag(ld_rob_flag), .ld_mdp(ld_mdp));
+    .ld_br_mask(ld_br_mask), .ld_rob_idx(ld_rob_idx), .ld_rob_flag(ld_rob_flag), .ld_mdp(ld_mdp), .ld_pc(ld_pc));
 
   logic [NUM_SLOTS-1:0] busy_set_valid;
   logic [PRF_IDX_WIDTH-1:0] busy_set_preg  [NUM_SLOTS];

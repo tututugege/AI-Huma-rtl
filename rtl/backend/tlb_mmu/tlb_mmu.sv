@@ -29,6 +29,8 @@ module tlb_mmu import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; #(
   input  logic [PPN_W-1:0] ptw_walk_resp_leaf_ppn,
   input  logic [PERM_W-1:0] ptw_walk_resp_leaf_perm,
   input  logic [LVL_W-1:0] ptw_walk_resp_leaf_level,
+  input  logic pf_page_set,
+  input  logic [VPN_W-1:0] pf_page_vpn,
   output logic [LSU_AGU_PHYS-1:0] resp_valid,
   output logic [1:0] resp_result [LSU_AGU_PHYS],
   output logic [LSU_AGU_PHYS-1:0] resp_hit,
@@ -38,7 +40,9 @@ module tlb_mmu import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; #(
   output logic [VPN_W-1:0] ptw_walk_req_vpn,
   output logic [21:0] ptw_walk_req_root_ppn,
   output logic ptw_walk_resp_consumed,
-  output logic ptw_walk_flush
+  output logic ptw_walk_flush,
+  output logic walk_next_v,
+  output logic [VPN_W-1:0] walk_next_vpn
 );
 
   localparam int LANES = LSU_AGU_PHYS;
@@ -61,9 +65,11 @@ module tlb_mmu import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; #(
     .sum(csr_status_mstatus_sum), .mprv(csr_status_mstatus_mprv), .mpp(csr_status_mstatus_mpp),
     .req_valid(lane_req_valid), .req_vaddr(lane_req_vaddr), .req_is_store(lane_req_is_store),
     .ptw_req_ready(ptw_walk_req_ready), .ptw_resp_valid(ptw_walk_resp_valid), .ptw_resp,
+    .pf_page_set, .pf_page_vpn,
     .resp_valid(lane_resp_valid), .resp_result(lane_resp_result), .resp_paddr(lane_resp_paddr),
     .ptw_req_valid(ptw_walk_req_valid), .ptw_req_vpn(ptw_walk_req_vpn), .ptw_req_root_ppn(ptw_walk_req_root_ppn),
-    .ptw_resp_consumed(ptw_walk_resp_consumed), .ptw_flush(ptw_walk_flush)
+    .ptw_resp_consumed(ptw_walk_resp_consumed), .ptw_flush(ptw_walk_flush),
+    .walk_next_v, .walk_next_vpn
   );
 
   for (genvar i = 0; i < LANES; i++) begin : g_port

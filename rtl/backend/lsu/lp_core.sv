@@ -86,6 +86,8 @@ module lp_core
   output logic [NLD-1:0]      dcl_req_valid,
   output logic [NLD-1:0]      dcl_req_replay,
   output logic [31:0]         dcl_req_addr [NLD],
+  output logic [31:0]         dcl_req_pc   [NLD],
+  output logic [38:0]         dcl_req_va   [NLD],
   output logic [30:0]         dcl_req_id_o [NLD],
   output logic [NST-1:0]      dcs_req_valid,
   output logic [31:0]         dcs_req_addr [NST],
@@ -96,7 +98,18 @@ module lp_core
   output logic [LSU_AGU_PHYS-1:0] mmu_req_valid,
   output logic [XLEN_BITS-1:0] mmu_req_vaddr [LSU_AGU_PHYS],
   output logic [5:0]          mmu_req_idx [LSU_AGU_PHYS],
-  output logic [LSU_AGU_PHYS-1:0] mmu_req_st
+  output logic [LSU_AGU_PHYS-1:0] mmu_req_st,
+  input  logic [NLD-1:0]      pf_xq_v,
+  input  logic [38:0]         pf_xq_va [NLD],
+  input  logic [NLD-1:0]      pf_xq_llc,
+  input  logic                dtlb_walk_next_v,
+  input  logic [26:0]         dtlb_walk_next_vpn,
+  output logic [2:0]          pf_xq_pop,
+  output logic [NLD-1:0]      pf_xans_v,
+  output logic [25:0]         pf_xans_line [NLD],
+  output logic [NLD-1:0]      pf_xans_llc,
+  output logic                dtlb_pf_page_set,
+  output logic [26:0]         dtlb_pf_page_vpn
 );
   // ------------------------------------------------------------------ registers outside the queues
   lp_pl12_t        pl12_q [NLD];
@@ -220,7 +233,8 @@ module lp_core
     .mmu_req_valid(mmu_req_valid), .mmu_req_vaddr(mmu_req_vaddr), .mmu_req_idx(mmu_req_idx), .mmu_req_st(mmu_req_st),
     .l1(l1), .tl_l(tl_l), .l_tlb(l_tlb), .l_hit(l_hit), .l_paddr(l_paddr), .l_mmio(l_mmio), .rp_cons(rp_cons),
     .s1_v(s1_v), .s1_replay(s1_replay), .s1_stq(s1_stq), .tl_s(tl_s), .tl_s_miss(tl_s_miss),
-    .srp_cons(srp_cons), .pf_any(pf_any));
+    .srp_cons(srp_cons), .pf_any(pf_any), .pf_xq_v, .pf_xq_va, .pf_xq_llc, .dtlb_walk_next_v, .dtlb_walk_next_vpn,
+    .pf_xq_pop, .pf_xans_v, .pf_xans_line, .pf_xans_llc, .dtlb_pf_page_set, .dtlb_pf_page_vpn);
 
   // memory speculation (LSU_MEMSPEC): store-queue views, wait table, per-slot permission to pass unknown stores
   logic [NLD-1:0]  l1_launch, cam_en, cam_unk, spec_ok;
@@ -240,8 +254,10 @@ module lp_core
                 .dcl_req_valid(dcl_req_valid), .dcl_req_addr(dcl_req_addr),
                 .dcl_req_id_o(dcl_req_id_o), .pl12_q(pl12_q));
 
-  for (genvar k = 0; k < NLD; k++) begin : g_rpl  // EXP-009 filter: last DCache response of the entry was not HIT
-    assign dcl_req_replay[k] = dcl_req_valid[k] && (ldq_q[l1[k].ldq].rtype != RT_HIT); end
+  for (genvar k = 0; k < NLD; k++) begin : g_rpl  // EXP-009/048: replay flag, load PC, and Sv39 VA for Berti
+    assign dcl_req_replay[k] = dcl_req_valid[k] && (ldq_q[l1[k].ldq].rtype != RT_HIT);
+    assign dcl_req_pc[k]     = ldq_q[l1[k].ldq].pc;
+    assign dcl_req_va[k]     = l1[k].vaddr[38:0]; end
 
   // ------------------------------------------------------------------ STA events broadcast to the wake-up (P13)
   lp_sta_info_t sta_info [NST];

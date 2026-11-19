@@ -87,6 +87,15 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
   // ---- out: LSU -> MemSubsystem (Back_out.lsu2dcache / peripheral_req)
   output logic [31:0] lsu2dcache_load_ports_addr [LSU_LDU_COUNT],
   output logic lsu2dcache_load_ports_replay [LSU_LDU_COUNT],
+  output logic [31:0] lsu2dcache_load_ports_pc [LSU_LDU_COUNT],
+  output logic [38:0] lsu2dcache_load_ports_va [LSU_LDU_COUNT],
+  input  logic [LSU_LDU_COUNT-1:0] pf_xq_v,
+  input  logic [38:0] pf_xq_va [LSU_LDU_COUNT],
+  input  logic [LSU_LDU_COUNT-1:0] pf_xq_llc,
+  output logic [2:0] pf_xq_pop,
+  output logic [LSU_LDU_COUNT-1:0] pf_xans_v,
+  output logic [25:0] pf_xans_line [LSU_LDU_COUNT],
+  output logic [LSU_LDU_COUNT-1:0] pf_xans_llc,
   output logic [30:0] lsu2dcache_load_ports_req_id [LSU_LDU_COUNT],
   output logic lsu2dcache_load_ports_valid [LSU_LDU_COUNT],
   output logic [31:0] lsu2dcache_store_ports_addr [LSU_STA_COUNT],
@@ -271,6 +280,10 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
   logic [DECODE_WIDTH-1:0] dis2lsu_ldq_rob_flag;
   logic [LSU_MDP_BITS-1:0] dis2lsu_ldq_mdp [DECODE_WIDTH];
   logic [LSU_MDP_BITS-1:0] ren2dis_uop_mdp [DECODE_WIDTH];
+  logic [31:0] dis2lsu_ldq_pc [DECODE_WIDTH];
+  logic [31:0] ren2dis_uop_pc [DECODE_WIDTH];
+  logic dtlb_walk_next_v, dtlb_pf_page_set;
+  logic [26:0] dtlb_walk_next_vpn, dtlb_pf_page_vpn;
   logic [DECODE_WIDTH-1:0] ren2dis_uop_is_rvc;
   logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_rob_defer;
   logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_flush_pipe;
@@ -571,6 +584,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .ftq_dis_req_ftq_idx(ren2dis_uop_ftq_idx),
     .ftq_dis_req_ftq_offset(ren2dis_uop_ftq_offset),
     .ftq_dis_resp_mdp(ren2dis_uop_mdp),
+    .ftq_dis_resp_pc(ren2dis_uop_pc),
     .ftq_dis_resp_is_rvc(ren2dis_uop_is_rvc),
     // inputs from rob
     .ftq_rob_pc_req_req_ftq_idx(ftq_rob_pc_req_req_ftq_idx),
@@ -824,6 +838,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .ren2dis_uop_ftq_is_last(ren2dis_uop_ftq_is_last),
     .ren2dis_uop_ftq_offset(ren2dis_uop_ftq_offset),
     .ren2dis_uop_mdp(ren2dis_uop_mdp),
+    .ren2dis_uop_pc(ren2dis_uop_pc),
     .ren2dis_uop_is_rvc(ren2dis_uop_is_rvc),
     .ren2dis_uop_func3(ren2dis_uop_func3),
     .ren2dis_uop_func7(ren2dis_uop_func7),
@@ -929,7 +944,8 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .dis2lsu_ldq_idx(dis2lsu_ldq_idx),
     .dis2lsu_ldq_rob_idx(dis2lsu_ldq_rob_idx),
     .dis2lsu_ldq_rob_flag(dis2lsu_ldq_rob_flag),
-    .dis2lsu_ldq_mdp(dis2lsu_ldq_mdp)
+    .dis2lsu_ldq_mdp(dis2lsu_ldq_mdp),
+    .dis2lsu_ldq_pc(dis2lsu_ldq_pc)
   );
 
   // ================= isu: Isu + IssueQueue (back-end/Isu.cpp)
@@ -1478,7 +1494,9 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .ptw_walk_req_vpn(ptw_walk_req_vpn),
     .ptw_walk_req_root_ppn(ptw_walk_req_root_ppn),
     .ptw_walk_resp_consumed(ptw_walk_resp_consumed),
-    .ptw_walk_flush(ptw_walk_flush)
+    .ptw_walk_flush(ptw_walk_flush),
+    .pf_page_set(dtlb_pf_page_set), .pf_page_vpn(dtlb_pf_page_vpn),
+    .walk_next_v(dtlb_walk_next_v), .walk_next_vpn(dtlb_walk_next_vpn)
   );
 
   // ================= lsu: RealLsu (back-end/Lsu/RealLsu.cpp)
@@ -1493,6 +1511,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .dis2lsu_ldq_idx(dis2lsu_ldq_idx),
     .dis2lsu_ldq_rob_flag(dis2lsu_ldq_rob_flag),
     .dis2lsu_ldq_mdp(dis2lsu_ldq_mdp),
+    .dis2lsu_ldq_pc(dis2lsu_ldq_pc),
     .dis2lsu_ldq_rob_idx(dis2lsu_ldq_rob_idx),
     .dis2lsu_rob_flag(dis2lsu_rob_flag),
     .dis2lsu_rob_idx(dis2lsu_rob_idx),
@@ -1596,6 +1615,10 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .peripheral_req_mmio_fun3(peripheral_req_mmio_fun3),
     .lsu2dcache_load_ports_valid(lsu2dcache_load_ports_valid),
     .lsu2dcache_load_ports_replay(lsu2dcache_load_ports_replay),
+    .lsu2dcache_load_ports_pc(lsu2dcache_load_ports_pc),
+    .lsu2dcache_load_ports_va(lsu2dcache_load_ports_va),
+    .pf_xq_v, .pf_xq_va, .pf_xq_llc, .dtlb_walk_next_v, .dtlb_walk_next_vpn,
+    .pf_xq_pop, .pf_xans_v, .pf_xans_line, .pf_xans_llc, .dtlb_pf_page_set, .dtlb_pf_page_vpn,
     .lsu2dcache_load_ports_addr(lsu2dcache_load_ports_addr),
     .lsu2dcache_load_ports_req_id(lsu2dcache_load_ports_req_id),
     .lsu2dcache_store_ports_valid(lsu2dcache_store_ports_valid),

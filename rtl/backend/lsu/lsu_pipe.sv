@@ -29,7 +29,8 @@ module lsu_pipe
   input  logic [BR_MASK_WIDTH-1:0] dis2lsu_ldq_br_mask [DECODE_WIDTH],
   input  logic [6:0] dis2lsu_ldq_rob_idx [DECODE_WIDTH],
   input  logic [DECODE_WIDTH-1:0] dis2lsu_ldq_rob_flag,
-  input  logic [LSU_MDP_BITS-1:0] dis2lsu_ldq_mdp [DECODE_WIDTH],   // wait-table index of the load PC (LSU_MEMSPEC)
+  input  logic [LSU_MDP_BITS-1:0] dis2lsu_ldq_mdp [DECODE_WIDTH],
+  input  logic [31:0] dis2lsu_ldq_pc [DECODE_WIDTH],   // wait-table index of the load PC (LSU_MEMSPEC)
   input  logic [LSU_SDU_COUNT-1:0] exe2lsu_sdu_req_valid,
   input  logic [XLEN_BITS-1:0] exe2lsu_sdu_req_uop_result [LSU_SDU_COUNT],
   input  logic [6:0] exe2lsu_sdu_req_uop_rob_idx [LSU_SDU_COUNT],
@@ -112,6 +113,8 @@ module lsu_pipe
   output logic [2:0] peripheral_req_mmio_fun3,
   output logic lsu2dcache_load_ports_valid [LSU_LDU_COUNT],
   output logic lsu2dcache_load_ports_replay [LSU_LDU_COUNT],
+  output logic [31:0] lsu2dcache_load_ports_pc [LSU_LDU_COUNT],
+  output logic [38:0] lsu2dcache_load_ports_va [LSU_LDU_COUNT],
   output logic [31:0] lsu2dcache_load_ports_addr [LSU_LDU_COUNT],
   output logic [30:0] lsu2dcache_load_ports_req_id [LSU_LDU_COUNT],
   output logic lsu2dcache_store_ports_valid [LSU_STA_COUNT],
@@ -123,7 +126,18 @@ module lsu_pipe
   output logic [LSU_AGU_PHYS-1:0] lsu2mmu_req_valid,
   output logic [XLEN_BITS-1:0] lsu2mmu_req_vaddr [LSU_AGU_PHYS],
   output logic [5:0] lsu2mmu_req_entry_idx [LSU_AGU_PHYS],
-  output logic [LSU_AGU_PHYS-1:0] lsu2mmu_req_is_store
+  output logic [LSU_AGU_PHYS-1:0] lsu2mmu_req_is_store,
+  input  logic [LSU_LDU_COUNT-1:0] pf_xq_v,
+  input  logic [38:0] pf_xq_va [LSU_LDU_COUNT],
+  input  logic [LSU_LDU_COUNT-1:0] pf_xq_llc,
+  input  logic dtlb_walk_next_v,
+  input  logic [26:0] dtlb_walk_next_vpn,
+  output logic [2:0] pf_xq_pop,
+  output logic [LSU_LDU_COUNT-1:0] pf_xans_v,
+  output logic [25:0] pf_xans_line [LSU_LDU_COUNT],
+  output logic [LSU_LDU_COUNT-1:0] pf_xans_llc,
+  output logic dtlb_pf_page_set,
+  output logic [26:0] dtlb_pf_page_vpn
 );
 
   // ---- struct packing of the spec ports ----
@@ -144,6 +158,7 @@ module lsu_pipe
       dis_ld[i].rob_flag = dis2lsu_ldq_rob_flag[i];
       dis_ld[i].br_mask = dis2lsu_ldq_br_mask[i];
       dis_ld[i].mdp = dis2lsu_ldq_mdp[i];
+      dis_ld[i].pc  = dis2lsu_ldq_pc[i];
       dis_ld[i].wait_b = 1'b0;
       dis_st[i].v = dis2lsu_alloc_req[i];
       dis_st[i].rob_idx = dis2lsu_rob_idx[i];
@@ -224,14 +239,14 @@ module lsu_pipe
     .sta_rob(lsu2exe_sta_wb_req_uop_rob_idx), .sta_pf(lsu2exe_sta_wb_req_uop_page_fault_store),
     .per_is_mmio(peripheral_req_is_mmio), .per_wen(peripheral_req_wen), .per_addr(peripheral_req_mmio_addr),
     .per_wdata(peripheral_req_mmio_wdata), .per_func3(peripheral_req_mmio_fun3),
-    .dcl_req_valid(dcl_req_valid_w), .dcl_req_replay(dcl_req_replay_w), .dcl_req_addr(lsu2dcache_load_ports_addr),
+    .dcl_req_valid(dcl_req_valid_w), .dcl_req_replay(dcl_req_replay_w), .dcl_req_addr(lsu2dcache_load_ports_addr), .dcl_req_pc(lsu2dcache_load_ports_pc), .dcl_req_va(lsu2dcache_load_ports_va),
     .dcl_req_id_o(lsu2dcache_load_ports_req_id),
     .dcs_req_valid(dcs_req_valid_w), .dcs_req_addr(lsu2dcache_store_ports_addr),
     .dcs_req_data(lsu2dcache_store_ports_data),
     .dcs_req_strb(lsu2dcache_store_ports_strb), .dcs_req_l2(lsu2dcache_store_ports_l2),
     .dcs_req_id_o(lsu2dcache_store_ports_req_id),
     .mmu_req_valid(lsu2mmu_req_valid), .mmu_req_vaddr(lsu2mmu_req_vaddr), .mmu_req_idx(lsu2mmu_req_entry_idx),
-    .mmu_req_st(lsu2mmu_req_is_store));
+    .mmu_req_st(lsu2mmu_req_is_store), .pf_xq_v, .pf_xq_va, .pf_xq_llc, .dtlb_walk_next_v, .dtlb_walk_next_vpn, .pf_xq_pop, .pf_xans_v, .pf_xans_line, .pf_xans_llc, .dtlb_pf_page_set, .dtlb_pf_page_vpn);
 
   for (genvar i = 0; i < NLD; i++) begin : g_dcl
     assign lsu2dcache_load_ports_valid[i] = dcl_req_valid_w[i];

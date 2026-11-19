@@ -17,6 +17,8 @@ module dcache
   input  logic [31:0]          ld_req_addr   [NLD],
   input  logic [31:0]          ld_req_id     [NLD],
   input  logic                 ld_req_replay [NLD],
+  input  logic [31:0]          ld_req_pc     [NLD],
+  input  logic [38:0]          ld_req_va     [NLD],
   input  logic                 st_req_valid  [NST],
   input  logic [31:0]          st_req_addr   [NST],
   input  logic [DW-1:0]          st_req_data   [NST],
@@ -50,6 +52,13 @@ module dcache
   output logic [31:0]          mshr_req_addr,
   output logic [MSHR_IDW-1:0]  mshr_req_id,
   output logic                 mshr_resp_ready,
+  output logic [NLD-1:0]       pf_xq_v,
+  output logic [38:0]          pf_xq_va      [NLD],
+  output logic [NLD-1:0]       pf_xq_llc,
+  input  logic [2:0]           pf_xq_pop,
+  input  logic [NLD-1:0]       pf_xans_v,
+  input  logic [LINE_W-1:0]    pf_xans_line  [NLD],
+  input  logic [NLD-1:0]       pf_xans_llc,
   output logic                 wb_req_valid,
   output logic [31:0]          wb_req_addr,
   output logic [31:0]          wb_req_data    [WORDS]
@@ -81,6 +90,8 @@ module dcache
   logic [2:0]           icache_req_s2;
   logic                 s2f_valid, s2f_dirty, s2f_pf, same_fill;
   logic [NLD-1:0]       slot_pf, slot_pf_llc, slot_perf_replay, slot_lsu;
+  logic [31:0]          slot_pc [NLD];
+  logic [38:0]          slot_va [NLD];
   // verilator lint_off UNUSEDSIGNAL
   logic                 pf_head_valid, pf_head_llc, pf_taken, fr_pf, rel_event;   // unused with PF_EN = 0
   // verilator lint_on UNUSEDSIGNAL
@@ -173,12 +184,12 @@ module dcache
 
   dcache_s1 u_s1 (
     .clk(clk), .rst_n(rst_n),
-    .ld_req_valid(ld_req_v), .ld_req_addr(ld_req_addr), .ld_req_id(ld_req_id),
+    .ld_req_valid(ld_req_v), .ld_req_addr(ld_req_addr), .ld_req_id(ld_req_id), .ld_req_pc(ld_req_pc), .ld_req_va(ld_req_va),
     .st_req_valid(st_req_v), .st_req_addr(st_req_addr), .st_req_data(st_req_data),
     .st_req_strb(st_req_strb), .st_req_l2(st_req_l2), .st_req_id(st_req_id), .icache_req(icache_req),
     .ld_req_replay(ld_req_replay),
     .pf_head_valid(pf_head_valid), .pf_head_line(pf_head_line), .pf_head_llc(pf_head_llc), .pf_taken(pf_taken),
-    .slot_pf(slot_pf), .slot_pf_llc(slot_pf_llc), .slot_perf_replay(slot_perf_replay),
+    .slot_pf(slot_pf), .slot_pf_llc(slot_pf_llc), .slot_pc(slot_pc), .slot_va(slot_va), .slot_perf_replay(slot_perf_replay),
     .fr_pf(fr_pf), .s2f_pf(s2f_pf),
     .blocked(pend_valid),
     .fr_valid(fr_valid), .fr_line(fr_line), .fr_id(fr_id), .fr_dirty(frf_dirty), .fr_data(frf_data),
@@ -246,12 +257,19 @@ module dcache
     dcache_pf u_pf (
       .clk(clk), .rst_n(rst_n),
       .head_valid(pf_head_valid), .head_line(pf_head_line), .head_llc(pf_head_llc), .head_taken(pf_taken),
-      .acc_valid(acc_valid), .acc_line(acc_line), .acc_miss(acc_miss), .acc_pf_hit(acc_pf_hit)
+      .fill_valid(fill_valid), .fill_line(s2f_line), .fill_is_pf(s2f_pf),
+      .acc_valid(acc_valid), .acc_line(acc_line), .acc_pc(slot_pc), .acc_va(slot_va), .acc_miss(acc_miss), .acc_pf_hit(acc_pf_hit),
+      .pf_xq_v, .pf_xq_va, .pf_xq_llc, .pf_xq_pop, .pf_xans_v, .pf_xans_line, .pf_xans_llc
     );
   end else begin : g_nopf
     assign pf_head_valid = 1'b0;
     assign pf_head_line  = '0;
     assign pf_head_llc   = 1'b0;
+    assign pf_xq_v       = '0;
+    assign pf_xq_llc     = '0;
+    for (genvar i = 0; i < NLD; i++) begin : g_noxq
+      assign pf_xq_va[i] = '0;
+    end
   end
 
   // ------------------------------------------------------------ MSHR

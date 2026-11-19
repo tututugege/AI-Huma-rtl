@@ -14,6 +14,8 @@ module dcache_s1
   input  logic [31:0]          ld_req_addr  [NLD],
   input  logic [31:0]          ld_req_id    [NLD],
   input  logic                 ld_req_replay [NLD],
+  input  logic [31:0]          ld_req_pc     [NLD],
+  input  logic [38:0]          ld_req_va     [NLD],
   input  logic [NST-1:0]       st_req_valid,
   input  logic [31:0]          st_req_addr  [NST],
   input  logic [DW-1:0]          st_req_data  [NST],
@@ -54,6 +56,8 @@ module dcache_s1
   output logic [2:0]           icache_req_s2,
   output logic [NLD-1:0]       slot_pf,                   // slot is a prefetch tag probe
   output logic [NLD-1:0]       slot_pf_llc,               // ... whose line only goes to the LLC
+  output logic [31:0]          slot_pc          [NLD],
+  output logic [38:0]          slot_va          [NLD],
   output logic [NLD-1:0]       slot_perf_replay,          // LSU re-issue or hidden retry (not trained on)
   // replayed bank-conflict LSU request whose retry latch is free: no response
   output logic [NSLOT-1:0]     retry_issue,
@@ -78,6 +82,8 @@ module dcache_s1
   logic [2:0]       icache_req_r_q;
   logic             s2f_valid_q, s2f_dirty_q, s2f_pf_q;
   logic [NLD-1:0]   slot_pf_q, slot_pfllc_q, slot_prep_q;
+  logic [31:0]      slot_pc_q [NLD];
+  logic [38:0]      slot_va_q [NLD];
   logic [MSHR_IDW-1:0]  s2f_id_q;
   logic [LINE_W-1:0]    s2f_line_q;
   logic [LINE_BITS-1:0] s2f_data_q;
@@ -105,6 +111,8 @@ module dcache_s1
   assign slot_pf          = slot_pf_q;
   assign slot_pf_llc      = slot_pfllc_q;
   assign slot_perf_replay = slot_prep_q;
+  assign slot_pc = slot_pc_q;
+  assign slot_va = slot_va_q;
   assign s2f_line      = s2f_line_q;
   assign s2f_data      = s2f_data_q;
 
@@ -276,6 +284,8 @@ module dcache_s1
         end
         slot_pfllc_q[i < NLD ? i : 0] <= pf_head_llc;
         slot_prep_q[i < NLD ? i : 0]  <= pf_sel[i < NLD ? i : 0] ? 1'b1 : perf_rep_d[i < NLD ? i : 0];
+        slot_pc_q[i < NLD ? i : 0]    <= ld_req_pc[i < NLD ? i : 0];
+        slot_va_q[i < NLD ? i : 0]    <= ld_req_va[i < NLD ? i : 0];
       end
       if (rty_set[i]) begin
         rty_addr_q[i] <= slot_addr_q[i];

@@ -46,7 +46,9 @@ L1 数据缓存，加上它旁边的两个小结构：缺失状态寄存器 MSHR
 
 | 方向 | 信号组 | 含义 |
 | --- | --- | --- |
-| 入 | `ld_req_valid/addr/id/replay [NLD]` | load 请求：地址、32 位请求 id（第 31 位是"路由块的请求"标记，见 mem_route.md）、`replay` 为 LSU 重发标志（重发的请求和隐藏重试不参与预取训练，`slot_perf_replay`，见 dcache_pf.md） |
+| 入 | `ld_req_valid/addr/pc/va/id/replay [NLD]` | load 请求（EXP-048 M3 新增 32 位 `pc` 与 39 位 Sv39 `va` 供 Berti 训练）
+| 双向 | `pf_xq_*` / `pf_xq_pop` / `pf_xans_*` | EXP-048 M3：Berti 跨页虚拟地址候选送 LSU 空闲 DTLB 口翻译，命中物理行回填预取器
+| 入 | `ld_req_valid/addr/id/replay [NLD]` | （旧端口名对照）load 请求：地址、32 位请求 id（第 31 位是"路由块的请求"标记，见 mem_route.md）、`replay` 为 LSU 重发标志（重发的请求和隐藏重试不参与预取训练，`slot_perf_replay`，见 dcache_pf.md） |
 | 入 | `st_req_valid/addr/data/strb/l2/id [NST]` | store 请求：数据、字节使能、第二个字 `st_req_l2`、id |
 | 入 | `icache_req [2:0]` | 本拍哪个 load 口上是 ICache 的探测（`NLD` 表示没有） |
 | 入 | `mshr_req_accepted/_id`、`mshr_resp_valid/_id/_data[16]` | AXI 读主口：请求被接受、整行返回 |

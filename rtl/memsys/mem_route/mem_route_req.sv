@@ -9,6 +9,8 @@ module mem_route_req import ttg_cfg_pkg::*; import memcpu_pkg::*; (
   input  logic [31:0]               lsu_load_addr    [NLD],
   input  logic [LD_ID_W-1:0]        lsu_load_req_id  [NLD],
   input  logic                      lsu_load_replay  [NLD],
+  input  logic [31:0]               lsu_load_pc      [NLD],
+  input  logic [38:0]               lsu_load_va      [NLD],
   input  logic                      icache_req_valid,
   input  logic [31:0]               icache_req_addr,
   input  logic                      walk_req_valid,
@@ -19,6 +21,8 @@ module mem_route_req import ttg_cfg_pkg::*; import memcpu_pkg::*; (
   output logic [31:0]               dcache_load_addr   [NLD],
   output logic [31:0]               dcache_load_req_id [NLD],  // {route flag, 0.., id}
   output logic                      dcache_load_replay [NLD],
+  output logic [31:0]               dcache_load_pc     [NLD],
+  output logic [38:0]               dcache_load_va     [NLD],
   output logic                      dcache_icache_probe,
   output logic                      route_hi_d,       // address bit 2 of the granted route request
   output logic                      grant_valid,               // walk grant (ICache learns from the response)
@@ -49,11 +53,15 @@ module mem_route_req import ttg_cfg_pkg::*; import memcpu_pkg::*; (
       assign dcache_load_addr[p]   = granted ? route_addr : lsu_load_addr[p];
       assign dcache_load_req_id[p] = granted ? {1'b1, {(31 - RT_ID_W){1'b0}}, next_id_q} : {1'b0, lsu_load_req_id[p]};
       assign dcache_load_replay[p] = granted ? 1'b0 : lsu_load_replay[p];
+      assign dcache_load_pc[p]     = granted ? 32'd0 : lsu_load_pc[p];
+      assign dcache_load_va[p]     = granted ? 39'd0 : lsu_load_va[p];
     end else begin : g_lsu_only
       assign dcache_load_valid[p]  = lsu_load_valid[p];
       assign dcache_load_addr[p]   = lsu_load_addr[p];
       assign dcache_load_req_id[p] = {1'b0, lsu_load_req_id[p]};
       assign dcache_load_replay[p] = lsu_load_replay[p];
+      assign dcache_load_pc[p]     = lsu_load_pc[p];
+      assign dcache_load_va[p]     = lsu_load_va[p];
     end
   end
 

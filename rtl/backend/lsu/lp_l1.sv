@@ -46,7 +46,19 @@ module lp_l1
   output lp_tl_t              tl_s [NST],
   output logic [NST-1:0]      tl_s_miss,
   output logic                srp_cons,
-  output logic                pf_any            // a load or store page fault (clears the LR/SC reservation)
+  output logic                pf_any,           // a load or store page fault (clears the LR/SC reservation)
+  // EXP-048 M3: Berti cross-page VA translation on free load-capable DTLB ports
+  input  logic [NLD-1:0]      pf_xq_v,
+  input  logic [38:0]         pf_xq_va [NLD],
+  input  logic [NLD-1:0]      pf_xq_llc,
+  input  logic                dtlb_walk_next_v,
+  input  logic [26:0]         dtlb_walk_next_vpn,
+  output logic [2:0]          pf_xq_pop,
+  output logic [NLD-1:0]      pf_xans_v,
+  output logic [25:0]         pf_xans_line [NLD],
+  output logic [NLD-1:0]      pf_xans_llc,
+  output logic                dtlb_pf_page_set,
+  output logic [26:0]         dtlb_pf_page_vpn
 );
 
   // Slot-level view of the DTLB responses: slot k reads the response of its DTLB port (its tag).  The requests are built per
@@ -251,34 +263,72 @@ module lp_l1
     end
   end
 
-  // ---- DTLB requests, built per port: the new request of the port's AGU, or the replay that took the port ----
+  // ---- DTLB requests, built per port: new AGU / replay, then free load ports serve Berti cross-page xq ----
+  logic [NPH-1:0]           lsu_mmu_v;
+  logic [XLEN_BITS-1:0]     lsu_mmu_va  [NPH];
+  logic [5:0]               lsu_mmu_idx [NPH];
+  logic [NPH-1:0]           lsu_mmu_st;
+  logic [NLD-1:0]           pf_p_en, pf_p_llc;
+  logic [38:0]              pf_p_va [NLD];
+
   always_comb begin
     for (int q = 0; q < NPH; q++) begin
-      mmu_req_valid[q] = 1'b0;
-      mmu_req_vaddr[q] = '0;
-      mmu_req_idx[q] = '0;
-      mmu_req_st[q] = 1'b0;
-      if (q < NLD && ag_acc[q]) begin   // new load
-        mmu_req_valid[q] = 1'b1;
-        mmu_req_vaddr[q] = mmu_req_vaddr[q] | ag[q].vaddr;
-        mmu_req_idx[q] = mmu_req_idx[q] | 6'(ag[q].ldq);
+      lsu_mmu_v[q] = 1'b0; lsu_mmu_va[q] = '0; lsu_mmu_idx[q] = '0; lsu_mmu_st[q] = 1'b0;
+      if (q < NLD && ag_acc[q]) begin
+        lsu_mmu_v[q] = 1'b1; lsu_mmu_va[q] = lsu_mmu_va[q] | ag[q].vaddr; lsu_mmu_idx[q] = lsu_mmu_idx[q] | 6'(ag[q].ldq);
       end
-      for (int k = 0; k < NST; k++) if (sa_acc[k] && st_phys(k) == q) begin   // new STA
-        mmu_req_valid[q] = 1'b1;
-        mmu_req_st[q] = 1'b1;
-        mmu_req_vaddr[q] = mmu_req_vaddr[q] | sa[k].vaddr;
-        mmu_req_idx[q] = mmu_req_idx[q] | 6'(sa[k].stq);
+      for (int k = 0; k < NST; k++) if (sa_acc[k] && st_phys(k) == q) begin
+        lsu_mmu_v[q] = 1'b1; lsu_mmu_st[q] = 1'b1; lsu_mmu_va[q] = lsu_mmu_va[q] | sa[k].vaddr; lsu_mmu_idx[q] = lsu_mmu_idx[q] | 6'(sa[k].stq);
       end
-      for (int r = 0; r < NRP; r++) if (rp_ok[r] && rp_need[r] && rp_phys[r] == 3'(q)) begin   // load replay
-        mmu_req_valid[q] = 1'b1;
-        mmu_req_vaddr[q] = mmu_req_vaddr[q] | rp_f[r].vaddr;
-        mmu_req_idx[q] = mmu_req_idx[q] | 6'(rp_ldq[r]);
+      for (int r = 0; r < NRP; r++) if (rp_ok[r] && rp_need[r] && rp_phys[r] == 3'(q)) begin
+        lsu_mmu_v[q] = 1'b1; lsu_mmu_va[q] = lsu_mmu_va[q] | rp_f[r].vaddr; lsu_mmu_idx[q] = lsu_mmu_idx[q] | 6'(rp_ldq[r]);
       end
-      if (srp_req && srp_phys == 3'(q)) begin   // STA replay
+      if (srp_req && srp_phys == 3'(q)) begin
+        lsu_mmu_v[q] = 1'b1; lsu_mmu_st[q] = 1'b1; lsu_mmu_va[q] = lsu_mmu_va[q] | srp_vaddr; lsu_mmu_idx[q] = lsu_mmu_idx[q] | 6'(srp_stq);
+      end
+    end
+  end
+
+  always_comb begin
+    logic [2:0] j;
+    j = 3'd0;
+    pf_p_en = '0; pf_p_llc = '0;
+    for (int q = 0; q < NLD; q++) pf_p_va[q] = '0;
+    for (int q = 0; q < NLD; q++) begin
+      if (!used_new[q] && !lsu_mmu_v[q] && (j < 3'(NLD)) && pf_xq_v[j[1:0]]) begin
+        pf_p_en[q]  = 1'b1;
+        pf_p_va[q]  = pf_xq_va[j[1:0]];
+        pf_p_llc[q] = pf_xq_llc[j[1:0]];
+        j = j + 3'd1;
+      end
+    end
+    pf_xq_pop = j;
+    for (int q = 0; q < NPH; q++) begin
+      if (q < NLD && pf_p_en[q]) begin
         mmu_req_valid[q] = 1'b1;
-        mmu_req_st[q] = 1'b1;
-        mmu_req_vaddr[q] = mmu_req_vaddr[q] | srp_vaddr;
-        mmu_req_idx[q] = mmu_req_idx[q] | 6'(srp_stq);
+        mmu_req_vaddr[q] = {{(XLEN_BITS-39){pf_p_va[q][38]}}, pf_p_va[q]};
+        mmu_req_idx[q]   = 6'd0;
+        mmu_req_st[q]    = 1'b0;
+      end else begin
+        mmu_req_valid[q] = lsu_mmu_v[q];
+        mmu_req_vaddr[q] = lsu_mmu_va[q];
+        mmu_req_idx[q]   = lsu_mmu_idx[q];
+        mmu_req_st[q]    = lsu_mmu_st[q];
+      end
+    end
+  end
+
+  always_comb begin
+    dtlb_pf_page_set = 1'b0;
+    dtlb_pf_page_vpn = '0;
+    for (int q = 0; q < NLD; q++) begin
+      pf_xans_v[q]    = pf_p_en[q] && mmu_valid[q] && (mmu_result[q] == MMU_HIT);
+      pf_xans_line[q] = mmu_paddr[q][31:6];
+      pf_xans_llc[q]  = pf_p_llc[q];
+      if (pf_p_en[q] && mmu_valid[q] && (mmu_result[q] == MMU_MISS) &&
+          dtlb_walk_next_v && (dtlb_walk_next_vpn == pf_p_va[q][38:12])) begin
+        dtlb_pf_page_set = 1'b1;
+        dtlb_pf_page_vpn = pf_p_va[q][38:12];
       end
     end
   end

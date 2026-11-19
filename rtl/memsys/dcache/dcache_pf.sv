@@ -1,214 +1,169 @@
 `default_nettype none
-// Ref: MemSubSystem/include/DataPrefetcher.h  DataPrefetcher (trace-model exp/prefetch-h1), docs/modules/dcache_pf.md
-// L1D data prefetcher h1: single global stride entry, stride burst generator (degree 8, distance 2, in-page), LLC-only
-// next-line generator, 8-entry request FIFO.  Everything is registered; the FIFO head is the tag-probe candidate of
-// dcache_s1.  One DataPrefetcher::seq() per clock: pop, stride generator, LLC generator, training of last cycle's
-// events, selection of this cycle's events.
+// Ref: MemSubSystem/include/DataPrefetcher.h  BertiHw (PF_KIND=4, EXP-048 M3), docs/modules/dcache_pf.md
+// L1D data prefetcher: hardware Berti (16-way dedup history, 16x16 PC delta table, VA + LSU DTLB-port cross-page
+// translation, 8-entry deduplicated request FIFO).
 module dcache_pf
   import dcache_pkg::*;
 (
   input  logic                 clk,
   input  logic                 rst_n,
-  // FIFO head (probe candidate)
+  // FIFO head (probe candidate -> dcache_s1)
   output logic                 head_valid,
   output logic [LINE_W-1:0]    head_line,
   output logic                 head_llc,
   input  logic                 head_taken,
-  // access events of this cycle (stage 2 of the load ports)
+  // cache fill event (dcache_s2_fill)
+  input  logic                 fill_valid,
+  input  logic [LINE_W-1:0]    fill_line,
+  input  logic                 fill_is_pf,
+  // access events of this cycle (dcache_s2_ld)
   input  logic [NLD-1:0]       acc_valid,
   input  logic [LINE_W-1:0]    acc_line  [NLD],
+  input  logic [31:0]          acc_pc    [NLD],
+  input  logic [38:0]          acc_va    [NLD],
   input  logic [NLD-1:0]       acc_miss,
-  input  logic [NLD-1:0]       acc_pf_hit
+  input  logic [NLD-1:0]       acc_pf_hit,
+  // cross-page DTLB translation interface (<-> LSU lp_l1)
+  output logic [NLD-1:0]       pf_xq_v,
+  output logic [38:0]          pf_xq_va   [NLD],
+  output logic [NLD-1:0]       pf_xq_llc,
+  input  logic [2:0]           pf_xq_pop,
+  input  logic [NLD-1:0]       pf_xans_v,
+  input  logic [LINE_W-1:0]    pf_xans_line [NLD],
+  input  logic [NLD-1:0]       pf_xans_llc
 );
+  localparam int QD     = 8;
+  localparam int QW     = 3;
+  localparam int TRNQ_N = 4;
 
-  localparam int QD      = 8;
-  localparam int QW      = 3;
-  localparam int SB      = 8;     // stride bits
-  localparam int DEGREE  = 8;
-  localparam int NTR     = 2;     // training events per cycle
+  typedef struct packed {
+    logic [31:0]       pc;
+    logic [31:0]       vline;
+    logic [LINE_W-1:0] pline;
+    logic              vaneg;
+    logic              miss;
+  } trn_e_t;
 
-  // ---------------------------------------------------------------- state
+  // ---------------- state: cycle counter, reqq FIFO, train FIFO ----------------
+  logic [19:0]       cyc_q;
   logic [LINE_W-1:0] q_line_q [QD];
   logic [QD-1:0]     q_llc_q;
   logic [QW-1:0]     q_head_q;
   logic [QW:0]       q_cnt_q;
+  trn_e_t            trnq_q [TRNQ_N];
+  logic [2:0]        trnq_n_q;
 
-  logic              st_valid_q;
-  logic [LINE_W-1:0] st_last_q;
-  logic [SB-1:0]     st_stride_q;
-  logic [1:0]        st_conf_q;
-
-  logic              g_valid_q;
-  logic [LINE_W-1:0] g_next_q, g_base_q;
-  logic [SB-1:0]     g_stride_q;
-  logic [3:0]        g_left_q;
-
-  logic              g2_valid_q;
-  logic [LINE_W-1:0] g2_next_q, g2_base_q;     // one line per trigger: left is implicitly 1
-
-  logic [NTR-1:0]    in_valid_q, in_miss_q;
-  logic [LINE_W-1:0] in_line_q [NTR];
-
-  assign head_valid = q_cnt_q != '0;
+  assign head_valid = (q_cnt_q != '0);
   assign head_line  = q_line_q[q_head_q];
   assign head_llc   = q_llc_q[q_head_q];
 
-  function automatic logic [LINE_W-1:0] sx(input logic [SB-1:0] s);
-    return {{(LINE_W - SB){s[SB-1]}}, s};
-  endfunction
+  // ---------------- Berti submodules ----------------
+  logic               srch_v, trig_go, push_en, push_llc;
+  logic [31:0]        srch_pc;
+  logic [15:0]        srch_uniq, trig_mask;
+  logic signed [6:0]  srch_d [16], trig_d [16];
+  logic [1:0]         trig_st [16];
+  logic [4:0]         trig_cov [16];
+  logic [LINE_W-1:0]  push_line;
+  logic               trn_pop;
 
-  // ---------------------------------------------------------------- next state
-  logic [QW:0]       cnt_a;       // after the pop
-  logic [QW-1:0]     head_a;
-  logic              push_en, push_llc;
-  logic [LINE_W-1:0] push_line;
-  logic              dup;
+  assign trn_pop = (trnq_n_q != 3'd0);
 
-  logic              g_valid_d, g2_valid_d, st_valid_d;
-  logic [LINE_W-1:0] g_next_d, g_base_d, g2_next_d, g2_base_d, st_last_d;
-  logic [SB-1:0]     g_stride_d, st_stride_d;
-  logic [3:0]        g_left_d;
-  logic [1:0]        st_conf_d;
-  logic              port_used;
-  logic              g_valid_s, g2_valid_s;
-  logic [LINE_W-1:0] g_next_s, g_base_s, g2_next_s, g2_base_s;
-  logic [SB-1:0]     g_stride_s;
-  logic [3:0]        g_left_s;
+  dcache_pf_berti_hist u_hist (
+    .clk, .rst_n, .cyc_q,
+    .pfi_en(head_taken && !head_llc), .pfi_pline(head_line),
+    .fill_valid, .fill_pline(fill_line), .fill_is_pf,
+    .trn_v(trn_pop), .trn_miss(trnq_q[0].miss), .trn_pc(trnq_q[0].pc),
+    .trn_vline(trnq_q[0].vline), .trn_pline(trnq_q[0].pline),
+    .srch_v, .srch_pc, .srch_uniq, .srch_d
+  );
+
+  dcache_pf_berti_tab u_tab (
+    .clk, .rst_n, .srch_v, .srch_pc, .srch_uniq, .srch_d,
+    .trig_v(trn_pop), .trig_pc(trnq_q[0].pc),
+    .trig_go, .trig_mask, .trig_d, .trig_st, .trig_cov
+  );
+
+  dcache_pf_berti_gen u_gen (
+    .clk, .rst_n,
+    .trig_go, .trig_mask, .trig_d, .trig_st, .trig_cov,
+    .trig_vline(trnq_q[0].vline), .trig_ppn(trnq_q[0].pline[LINE_W-1:6]), .trig_vaneg(trnq_q[0].vaneg),
+    .xq_v(pf_xq_v), .xq_va(pf_xq_va), .xq_llc(pf_xq_llc), .xq_pop(pf_xq_pop),
+    .xans_in_v(pf_xans_v), .xans_in_line(pf_xans_line), .xans_in_llc(pf_xans_llc),
+    .push_en, .push_line, .push_llc
+  );
+
+  // ---------------- reqq dedup + next state ----------------
+  logic [QW:0]   cnt_a;
+  logic [QW-1:0] head_a;
+  logic          dup, do_push;
 
   always_comb begin
     cnt_a  = q_cnt_q - (QW+1)'(head_taken);
     head_a = q_head_q + QW'(head_taken);
-    g_valid_s = g_valid_q;  g_next_s = g_next_q;  g_base_s = g_base_q;  g_stride_s = g_stride_q;  g_left_s = g_left_q;
-    g2_valid_s = g2_valid_q; g2_next_s = g2_next_q; g2_base_s = g2_base_q;
-    push_en = 1'b0; push_line = '0; push_llc = 1'b0;
-    port_used = 1'b0;
-
-    // 1. stride generator: one candidate per cycle, in the page of its base, de-duplicated against the FIFO
-    if (g_valid_q) begin
-      port_used = 1'b1;
-      if (g_next_q[LINE_W-1:6] != g_base_q[LINE_W-1:6]) begin
-        g_valid_s = 1'b0;
-      end else begin
-        push_en   = 1'b1;
-        push_line = g_next_q;
-        push_llc  = 1'b0;
-        g_next_s  = g_next_q + sx(g_stride_q);
-        g_left_s  = g_left_q - 4'd1;
-        if (g_left_q == 4'd1) g_valid_s = 1'b0;
-      end
-    end
-    // 2. LLC next-line generator uses the FIFO write port only when the stride generator did not
-    if (!port_used && g2_valid_q) begin
-      if (g2_next_q[LINE_W-1:6] != g2_base_q[LINE_W-1:6]) begin
-        g2_valid_s = 1'b0;
-      end else begin
-        push_en    = 1'b1;
-        push_line  = g2_next_q;
-        push_llc   = 1'b1;
-        g2_valid_s = 1'b0;                   // left was 1
-      end
-    end
-  end
-
-  always_comb begin
-    // duplicate: line already in the FIFO (entries after the pop)
-    dup = 1'b0;
+    dup    = 1'b0;
     for (int e = 0; e < QD; e++) begin
       logic [QW-1:0] pos;
       pos = QW'(e) - head_a;
-      if ((QW+1)'(pos) < cnt_a && q_line_q[e] == push_line) dup = 1'b1;
+      if (((QW+1)'(pos) < cnt_a) && (q_line_q[e] == push_line)) dup = 1'b1;
     end
-
+    do_push = push_en && !dup && (cnt_a != (QW+1)'(QD));
   end
 
-  // 3. training of the events registered last cycle (sequential over the NTR events, after the generator steps)
+  // ---------------- train FIFO next state: pop 1, push up to 2 load events ----------------
+  logic [NLD-1:0] ev_cand, ev0_oh, ev1_oh;
+  logic           ev0_any, ev1_any;
+  logic [1:0]     ev0_idx, ev1_idx;
+  trn_e_t         trnq_d [TRNQ_N];
+  logic [2:0]     trnq_n_d;
+
+  assign ev_cand = acc_valid & (acc_miss | acc_pf_hit);
+  ttg_first_set #(.N(NLD)) u_ev0 (.req(ev_cand), .onehot(ev0_oh), .any(ev0_any));
+  ttg_first_set #(.N(NLD)) u_ev1 (.req(ev_cand & ~ev0_oh), .onehot(ev1_oh), .any(ev1_any));
+  ttg_onehot_to_idx #(.N(NLD), .IDXW(2)) u_ev0_i (.onehot(ev0_oh), .idx(ev0_idx));
+  ttg_onehot_to_idx #(.N(NLD), .IDXW(2)) u_ev1_i (.onehot(ev1_oh), .idx(ev1_idx));
+
   always_comb begin
-    logic [LINE_W-1:0] line, d;
-    logic              in_range;
-    logic signed [LINE_W-1:0] ds;
-    logic [SB-1:0]     cur;
-    g_valid_d = g_valid_s; g_next_d = g_next_s; g_base_d = g_base_s; g_stride_d = g_stride_s; g_left_d = g_left_s;
-    g2_valid_d = g2_valid_s; g2_next_d = g2_next_s; g2_base_d = g2_base_s;
-    st_valid_d = st_valid_q; st_last_d = st_last_q; st_stride_d = st_stride_q; st_conf_d = st_conf_q;
-    for (int k = 0; k < NTR; k++) begin
-      d = '0; ds = '0; in_range = 1'b0; cur = '0; line = in_line_q[k];
-      if (in_valid_q[k]) begin
-        if (in_miss_q[k]) begin
-          g2_valid_d = 1'b1; g2_base_d = line; g2_next_d = line + LINE_W'(1);
-        end
-        if (!st_valid_d) begin
-          st_valid_d = 1'b1; st_last_d = line; st_stride_d = '0; st_conf_d = '0;
-        end else begin
-          d  = line - st_last_d;
-          ds = $signed(d);
-          if (d != '0) begin
-            in_range = (ds >= -(1 <<< (SB-1))) && (ds < (1 <<< (SB-1)));
-            cur = st_stride_d;
-            if (in_range && d[SB-1:0] == cur) begin
-              if (st_conf_d != 2'd3) st_conf_d = st_conf_d + 2'd1;
-            end else if (st_conf_d != 2'd0) begin
-              st_conf_d = st_conf_d - 2'd1;
-              if (st_conf_d == 2'd0 && in_range) st_stride_d = d[SB-1:0];
-            end else begin
-              st_stride_d = in_range ? d[SB-1:0] : '0;
-            end
-            st_last_d = line;
-            if (st_conf_d >= 2'd2 && st_stride_d != '0) begin
-              g_valid_d  = 1'b1;
-              g_base_d   = line;
-              g_stride_d = st_stride_d;
-              g_next_d   = line + {sx(st_stride_d)[LINE_W-2:0], 1'b0};   // DIST = 2
-              g_left_d   = 4'(DEGREE);
-            end
-          end
-        end
-      end
+    logic [2:0] n;
+    for (int i = 0; i < TRNQ_N; i++) trnq_d[i] = trnq_q[i];
+    n = trnq_n_q;
+    if (n != 3'd0) begin
+      for (int i = 0; i < TRNQ_N - 1; i++) trnq_d[i] = trnq_q[i + 1];
+      n = n - 3'd1;
     end
+    if (ev0_any && (n < 3'(TRNQ_N))) begin
+      trnq_d[n[1:0]] = '{pc: acc_pc[ev0_idx], vline: acc_va[ev0_idx][37:6], pline: acc_line[ev0_idx],
+                         vaneg: acc_va[ev0_idx][38], miss: acc_miss[ev0_idx]};
+      n = n + 3'd1;
+    end
+    if (ev1_any && (n < 3'(TRNQ_N))) begin
+      trnq_d[n[1:0]] = '{pc: acc_pc[ev1_idx], vline: acc_va[ev1_idx][37:6], pline: acc_line[ev1_idx],
+                         vaneg: acc_va[ev1_idx][38], miss: acc_miss[ev1_idx]};
+      n = n + 3'd1;
+    end
+    trnq_n_d = n;
   end
 
-  // 4. event selection: the first NTR load ports whose access is a miss or the first use of a prefetched line
-  logic [NTR-1:0]    sel_valid, sel_miss;
-  logic [LINE_W-1:0] sel_line [NTR];
-  always_comb begin
-    int n;
-    n = 0;
-    sel_valid = '0; sel_miss = '0;
-    for (int k = 0; k < NTR; k++) sel_line[k] = '0;
-    for (int i = 0; i < NLD; i++) begin
-      if (acc_valid[i] && (acc_miss[i] || acc_pf_hit[i]) && n < NTR) begin
-        sel_valid[n] = 1'b1;
-        sel_miss[n]  = acc_miss[i];
-        sel_line[n]  = acc_line[i];
-        n++;
-      end
-    end
-  end
-
-  // ---------------------------------------------------------------- registers
-  logic do_push;
-  assign do_push = push_en && !dup && cnt_a != (QW+1)'(QD);
+  // ---------------- registers ----------------
   always_ff @(posedge clk) begin
     if (!rst_n) begin
-      q_head_q <= '0; q_cnt_q <= '0; q_llc_q <= '0;
-      st_valid_q <= 1'b0; g_valid_q <= 1'b0; g2_valid_q <= 1'b0; in_valid_q <= '0;
+      cyc_q    <= '0;
+      q_head_q <= '0;
+      q_cnt_q  <= '0;
+      q_llc_q  <= '0;
+      trnq_n_q <= '0;
     end else begin
-      q_head_q   <= head_a;
-      q_cnt_q    <= cnt_a + (QW+1)'(do_push);
-      st_valid_q <= st_valid_d;
-      g_valid_q  <= g_valid_d;
-      g2_valid_q <= g2_valid_d;
-      in_valid_q <= sel_valid;
+      cyc_q    <= cyc_q + 20'd1;
+      q_head_q <= head_a;
+      q_cnt_q  <= cnt_a + (QW+1)'(do_push);
+      trnq_n_q <= trnq_n_d;
+      for (int i = 0; i < TRNQ_N; i++) trnq_q[i] <= trnq_d[i];
     end
     if (do_push) begin
       q_line_q[QW'(head_a + QW'(cnt_a))] <= push_line;
       q_llc_q[QW'(head_a + QW'(cnt_a))]  <= push_llc;
     end
-    st_last_q <= st_last_d; st_stride_q <= st_stride_d; st_conf_q <= st_conf_d;
-    g_next_q <= g_next_d; g_base_q <= g_base_d; g_stride_q <= g_stride_d; g_left_q <= g_left_d;
-    g2_next_q <= g2_next_d; g2_base_q <= g2_base_d;
-    in_miss_q <= sel_miss;
-    for (int k = 0; k < NTR; k++) in_line_q[k] <= sel_line[k];
   end
-
 endmodule
+
 `default_nettype wire
