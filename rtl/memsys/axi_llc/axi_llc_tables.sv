@@ -1,5 +1,5 @@
 `default_nettype none
-// Ref: MemSubSystem/MemSubsystem.cpp  AxiLlcTableRuntime (data/meta/valid/repl tables, lookup_latency = 3)
+// Ref: MemSubSystem/MemSubsystem.cpp  AxiLlcTableRuntime (data/meta/valid/repl tables, lookup_latency = 3); repl = SRRIP state
 // Hardware memories: synchronous write (end of tick, one write port per array), registered read index carried
 // through two more stages, asynchronous read at the delivery tick.  A read requested in tick t returns the row as
 // it is after the writes of tick t+2 (writes of t+3 land after the read).  No array has a reset (storage written
@@ -18,13 +18,13 @@ module axi_llc_tables
   output logic [WAYS-1:0] lk_d,
   output logic [WAYS-1:0][TAGW-1:0] lk_t,
   output logic [WAYS-1:0][511:0] lk_line,
-  output logic [WB-1:0] lk_repl
+  output logic [RB-1:0] lk_repl
 );
   line_t data_q [SETS][WAYS];
   logic [TAGW-1:0] tag_q [SETS][WAYS];
   logic [WAYS-1:0] dirty_q [SETS];
   logic [WAYS-1:0] valid_q [SETS];
-  logic [WB-1:0] repl_q [SETS];
+  logic [RB-1:0] repl_q [SETS];
 
   // read index pipeline: p1 <- request (end of tick t), p2, p3 (valid during tick t+3)
   logic [2:0] pv_q;

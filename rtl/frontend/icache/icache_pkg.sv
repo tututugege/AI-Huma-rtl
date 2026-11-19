@@ -13,6 +13,7 @@ package icache_pkg;
   localparam int IC_LINE_W   = IC_WORDS * IC_WORD_W;
   localparam int IC_TAG_W    = ICACHE_TAG_BITS;     // 20 = ppn
   localparam int IC_WAY_W    = $clog2(IC_WAYS);
+  localparam int IC_RB       = 2 * IC_WAYS;          // SRRIP state of a set: a 2-bit RRPV per way (EXP-045)
   localparam int IC_WORD_IDX_W = $clog2(IC_WORDS);
   localparam int IC_TXID_N   = 16;                  // AXI transaction ids tracked
   localparam int IC_TXID_W   = 4;

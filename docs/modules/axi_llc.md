@@ -2,9 +2,9 @@
 module: axi_llc
 area: memsys
 rtl: rtl/memsys/axi_llc
-model: trace-model axi-interconnect-kit/axi_interconnect/AXI_LLC.cpp、include/AXI_LLC.h、include/AXI_LLC_Config.h；行表（数据 / 标签 / 脏 / 有效 / 替换指针）在 MemSubSystem/MemSubsystem.cpp 的 `AxiLlcTableRuntime`（调度单元 `axi`，类 `AxiSubsystem`；见 axi_subsys.md）
+model: trace-model axi-interconnect-kit/axi_interconnect/AXI_LLC.cpp、include/AXI_LLC.h、include/AXI_LLC_Config.h；行表（数据 / 标签 / 脏 / 有效 / 替换状态）在 MemSubSystem/MemSubsystem.cpp 的 `AxiLlcTableRuntime`（调度单元 `axi`，类 `AxiSubsystem`；见 axi_subsys.md）
 status: 整核周期与模型逐个相等（最近一次提交 60ed422 的提交信息记 fm_gate 67/67、周期等于 scripts/ref_cycles_memiq6_nr_int2_ev5.txt；本次写文档没有重跑）
-depth: 238 层（axi_llc，单模块综合，2026-11-18，`SYNTH_ABC="strash;balance;map"`，生成门代理，见第 6 节）
+depth: 238 层（axi_llc，单模块综合，2026-11-18；2026-11-19 SRRIP 后复测仍 238，`SYNTH_ABC="strash;balance;map"`，生成门代理，见第 6 节）
 ---
 
 # axi_llc 设计文档
@@ -13,9 +13,10 @@ depth: 238 层（axi_llc，单模块综合，2026-11-18，`SYNTH_ABC="strash;bal
 
 最后一级缓存（LLC）：4 个读主口和 2 个写主口（与 axi_interconnect.md 同一套主口编号）共用的一块统一缓存，写回式。名词先定义：
 
-- **查表**（lookup）：用请求的组号读一次行表（数据 / 标签 / 脏位 / 有效位 / 替换指针），3 个 tick 后拿到一整组 16 路的内容，再判断命中还是缺失。查表引擎同一时刻只处理一个请求（读或写）。
+- **查表**（lookup）：用请求的组号读一次行表（数据 / 标签 / 脏位 / 有效位 / 替换状态），3 个 tick 后拿到一整组 16 路的内容，再判断命中还是缺失。查表引擎同一时刻只处理一个请求（读或写）。
 - **MSHR**（miss status holding register，缺失状态寄存器）：记一次在途缺失的表项，共 8 项（`NMSHR`）；它的槽号就是发给内存的读请求的 id。
 - **受害行**（victim）：缺失时被换出的行；脏的要先写回内存。
+- **替换状态**（SRRIP，EXP-045）：每组 16 路各 2 位的"再访问预测值"（RRPV，re-reference prediction value；0 = 预计很快再用，3 = 预计很久不用），一组 32 位。命中把该路置 0；缺失要换出时选 RRPV 最大的路；新装入的行先把整组"变老"到最大值为 3，再把新行置 2（不是 0：新行只有再被命中才算"常用"，一次性扫过的行会先被换掉）。
 - **bypass**：不缓存的请求（外设、ICache 的非缓存取指）。bypass 读可以命中已有的行，缺失时不分配行；bypass 写只在行已缓存时更新它（保持脏位），并总是写穿到内存。
 
 每个 tick 按固定顺序做五步（`axi_llc_core.sv` 文件头）：1 读响应离开；2 写路径（受害行写回、写请求接收、写上下文）；3 解析刚到的查表（命中 / 缺失，写行表、分配 MSHR、产生响应）；4 内存读路径（内存读响应、发内存读、重填）；5 接收新的读请求、发起行表读。每一步只看到前面步骤已经决定的状态。
@@ -32,6 +33,7 @@ depth: 238 层（axi_llc，单模块综合，2026-11-18，`SYNTH_ABC="strash;bal
 | 容量 | 4096 × 16 × 64 = 4 MiB | 与模型 `CONFIG_AXI_LLC_SIZE_BYTES = 4 << 20`、`CONFIG_AXI_LLC_WAYS = 16`（`config.h`）一致 |
 | 标签位宽 `TAGW` | 32 − 6 − 12 = 14 | `axi_llc_pkg` |
 | MSHR 数 `NMSHR` | 8（只支持 8：槽号放在 4 位 AXI id 里、第 3 位恒 0） | 宏 `AXI_LLC_MSHR`；顶层有综合期检查（`axi_llc_core.sv` 的 `g_geometry`）；模型 `CONFIG_AXI_LLC_MSHR_NUM = 8` |
+| 替换状态 `RB` | 每组 2 × WAYS = 32 位（16 个 2 位 RRPV，第 w 路在 `[2w+1:2w]`） | `axi_llc_pkg`；模型 `LLC_REPL` 默认 `srrip`（`AXI_LLC.cpp`，行内容放在 8 字节的 `AXI_LLC_REPL_BYTES` 里） |
 | 查表延迟 | 3 tick | `axi_llc_tables` 的 3 级读索引流水；模型 `CONFIG_AXI_LLC_LOOKUP_LATENCY = 3` |
 | 读响应队列 `RQD` | 8 项 / 读主口，加 1 个响应寄存器（`RQC = 9`） | `axi_llc_pkg` |
 | 写请求队列 `WQD` | 2 项 / 写主口 | 同上 |
@@ -71,23 +73,23 @@ LLC 的"上游"端口（`up_*`）连互连的 `li_*` / `lo_*`，"内存"端口�
 
 | 文件 | 行数 | 职责 |
 | --- | --- | --- |
-| `axi_llc_pkg.sv` | 78 | 几何常量、类型 `tw_t`（行表写请求）、地址函数、`is_full_write` |
+| `axi_llc_pkg.sv` | 94 | 几何常量、类型 `tw_t`（行表写请求）、地址函数、`is_full_write`、替换状态函数 `rrip_hit` / `rrip_alloc` |
 | `axi_llc.sv` | 156 | 顶层：端口（数组）与压缩向量互转，`hz_*` 导出 |
-| `axi_llc_core.sv` | 397 | 实例化各单元，连窄接口，行表写源选择，仿真断言 |
-| `axi_llc_tables.sv` | 71 | 行表：数据 / 标签 / 脏 / 有效 / 替换指针；每个数组 1 个同步写口，3 级读索引流水后异步读 |
+| `axi_llc_core.sv` | 396 | 实例化各单元，连窄接口，行表写源选择，仿真断言 |
+| `axi_llc_tables.sv` | 71 | 行表：数据 / 标签 / 脏 / 有效 / 替换状态；每个数组 1 个同步写口，3 级读索引流水后异步读 |
 | `axi_llc_lookup.sv` | 77 | 查表引擎：launch → 下一拍发行表读 → 3 拍后行到达，解析完成（done）或重试（retry） |
-| `axi_llc_resolve.sv` | 145 | 解析：命中 / 缺失 × 读 / 写的各种情况 |
+| `axi_llc_resolve.sv` | 151 | 解析：命中 / 缺失 × 读 / 写的各种情况 |
 | `axi_llc_rdacc.sv` | 100 | 读接收（轮询）、行表读的发射条件 |
 | `axi_llc_wsched.sv`、`axi_llc_wport.sv` | 71、252 | 写接收的轮询、写上下文的推进、bypass 写的发射 |
 | `axi_llc_mshr.sv`、`axi_llc_mshr_ent.sv` | 258、140 | MSHR 表与选择逻辑；单个表项 |
-| `axi_llc_refill.sv` | 88 | 重填引擎 |
+| `axi_llc_refill.sv` | 87 | 重填引擎 |
 | `axi_llc_victim.sv` | 192 | 受害行写回槽和读受害行队列 |
 | `axi_llc_rq.sv` | 99 | 每读主口的读响应队列 |
 | `axi_llc_memwr.sv` | 48 | 内存写请求：受害行写回优先，否则 bypass 写 |
-| `axi_llc_waypick.sv`、`axi_llc_rrpick.sv` | 30、38 | 缺失选路；旋转优先级仲裁 |
+| `axi_llc_waypick.sv`、`axi_llc_rrpick.sv` | 41、38 | 缺失选路（无效路，否则 RRPV 最大的未占用路）；旋转优先级仲裁（读 / 写主口选择） |
 | `axi_llc_linecam.sv`、`axi_llc_merge.sv` | 19、27 | N 项行地址比较；按字节合并 |
 
-状态：行表 `data_q[4096][16]`（512 位）、`tag_q`、`dirty_q`、`valid_q`、`repl_q`（每组一个替换指针）；MSHR 8 项（每项含 512 位重填数据和 512 位受害行快照）；受害行写回槽和队列（8 项 × 512 位）；每写主口的请求队列（2 项）和写上下文；每读主口的响应队列；轮询指针；查表引擎的 valid / issued 等。存储阵列没有复位，有效位靠上电值 0（测试平台用 `--x-initial 0`，见 `axi_llc_tables.sv` 头注释）。
+状态：行表 `data_q[4096][16]`（512 位）、`tag_q`、`dirty_q`、`valid_q`、`repl_q`（每组 32 位替换状态）；MSHR 8 项（每项含 512 位重填数据和 512 位受害行快照）；受害行写回槽和队列（8 项 × 512 位）；每写主口的请求队列（2 项）和写上下文；每读主口的响应队列；轮询指针；查表引擎的 valid / issued 等。存储阵列没有复位，有效位靠上电值 0（测试平台用 `--x-initial 0`，见 `axi_llc_tables.sv` 头注释）。
 
 ## 5. 一拍内的数据流
 
@@ -97,18 +99,25 @@ LLC 的"上游"端口（`up_*`）连互连的 `li_*` / `lo_*`，"内存"端口�
 
 ### 5.2 解析（`axi_llc_resolve`）
 
-用 16 路的 `valid & 标签相等` 求命中路（`ttg_first_set`），无命中时由 `axi_llc_waypick` 选路：第一个无效且未被在途重填 / 写回占用的路，否则从替换指针起第一个未被占用的路；全被占用则本拍不能处理（`retry`，行表读重新发）。情形：
+用 16 路的 `valid & 标签相等` 求命中路（`ttg_first_set`），无命中时由 `axi_llc_waypick` 选路：第一个无效且未被在途重填 / 写回占用的路，否则未被占用的路里 RRPV 最大的、同值取路号最小的；全被占用则本拍不能处理（`retry`，行表读重新发）。情形：
 
 | 情形 | 动作 |
 | --- | --- |
 | 命中 + 写 | 把写数据按字节合并进该行，写行表（置脏；bypass 写保持原脏位），更新在途重填的受害行快照（bypass 写不更新） |
-| 命中 + 读 | 响应队列有空位才完成：把该行按字偏移右移送响应队列；非 bypass 更新替换指针 |
+| 命中 + 读 | 响应队列有空位才完成：把该行按字偏移右移送响应队列；非 bypass 把该路 RRPV 置 0 |
 | 缺失 + 写 + bypass | 无操作（内存写由写上下文发起） |
 | 缺失 + 写 + 整行写 | 受害行脏则先写回（写上下文等待），否则直接写行表 |
 | 缺失 + 写 + 部分行写 | 分配一个写 MSHR：重填后合并、写行表 |
 | 缺失 + 读 | 分配 MSHR（bypass 读也分配） |
 
-任何前提不满足（行表忙、无可选路、MSHR 满、响应队列满、写回忙）都是 `retry`。整行写 = `addr[5:0] == 0 & size == 63 & strb 全 1`（`is_full_write`）。
+任何前提不满足（行表忙、无可选路、MSHR 满、响应队列满、写回忙）都是 `retry`。
+
+**替换状态的更新只在解析这一拍做**（读改写：用这次查表读到的那一行算新值，写回 `repl_q`）。查表引擎同一时刻只有一个请求，下一次查表一定读到写回后的值。
+
+- 命中（读、写，都不含 bypass）：命中路置 0（`rrip_hit`）。bypass 写命中只写行，不动替换状态。
+- 分配（缺失 + 读非 bypass、写缺失的三种：直接写、先写回受害行、部分行写分配 MSHR）：整组变老到最大值为 3，选中的路置 2（`rrip_alloc`）。是在**分配时**更新，不是在重填写进行表时更新：重填和"受害行写回后的写提交"都不再写替换状态。
+- 行表写口每 tick 只有一个（第 5.4 节 stage 2 的写提交优先）：分配那一拍若写提交占了写口（`tbl_busy2`），这次分配的替换状态更新**直接丢掉**，不重试（命中和直接写缺失本来就要求写口空闲，不受影响）。模型同样处理（`AXI_LLC.cpp` `lookup_tbl_busy_`）。
+- 解析写了替换状态的那一拍，重填写行表要等下一拍（`busy3` 含 `repl_en`，与原来命中读时一样）。整行写 = `addr[5:0] == 0 & size == 63 & strb 全 1`（`is_full_write`）。
 
 ### 5.3 内存读与重填（`axi_llc_mshr`、`axi_llc_mshr_ent`、`axi_llc_refill`）
 
@@ -124,7 +133,7 @@ MSHR 分配给第一个空闲项。内存读按"第一个还没发过的项"发�
 
 ## 6. 关键路径与深度
 
-单模块综合深度 **238 层**（axi_llc；2026-11-18；`scripts/synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`，生成门代理，不是时序）。综合报告给出的最长路径：从 `\mem_wr_resp_valid` 到 `\u_core.u_resolve.u_line.data [8191]`。从代码读出的、未综合验证的长组合链：
+单模块综合深度 **238 层**（axi_llc；2026-11-18，2026-11-19 换 SRRIP 后复测不变；`scripts/synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`，生成门代理，不是时序）。综合报告给出的最长路径：从 `\mem_wr_resp_valid` 到 `\u_core.u_resolve.u_line.data [8191]`。从代码读出的、未综合验证的长组合链：
 
 - **解析**：16 路 `valid & 标签相等` → `ttg_first_set` → 命中路号 → 16 选 1 的 512 位行选择（`ttg_onehot_mux`）→ 按字节合并（`axi_llc_merge`，512 位，字节偏移移位）→ 行表写数据；同时 `done` 依赖响应队列接收（`acc_a`）、`retry` 依赖 `done`；`axi_llc_waypick` 在缺失路径上多一级旋转优先级。
 - **读接收**：对每个读主口做 3 组行 CAM（受害行持有者 19 项、写列表 6 项、MSHR 8 项），与响应槽、查表引擎、空闲 MSHR 等合成 `ok`，再旋转优先级选择；它的输出（`up_rd_req_ready`）又回到互连的台（见 axi_interconnect.md 第 6 节）。
@@ -135,6 +144,7 @@ MSHR 分配给第一个空闲项。内存读按"第一个还没发过的项"发�
 
 模型里有、RTL 里有意没有复刻的：
 
+- **替换策略开关**：模型的 `LLC_REPL`（`rr` 旧轮转指针、`plru`、`lru`、`brrip`、`drrip`）和 `LLC_PF_LOW` 只用于 EXP-045 的比较，RTL 只实现默认的 `srrip`。
 - **预取、`invalidate_line` / `invalidate_all` 维护、`nine` / `unified` / `pipt` 开关**：`AXI_LLCConfig` 里有（`prefetch_enable = false` 默认），RTL 固定为现行配置，不实现。
 - **队列深度**：读响应队列、写请求队列、受害行写回队列在模型里是 32 项，RTL 是 8 / 2 / 8，溢出用断言守着（`axi_llc_rq` 的 `cnt_d <= RQD`、`axi_llc_victim` 的 `!(&rv_vld_d)`）；是否在所有程序下都不会超过，只在 fm_gate 的程序和 Linux 启动里被检验过，没有证明。
 - **不可达路径**：RTL 的 `axi_llc_core.sv` 在"内存写响应没有对应的写回或 bypass 写"和"读响应指向未使用的槽"两处置 `bad_any` 断言；行表写的三个来源互斥另有断言（`ifndef SYNTHESIS`）。
@@ -150,6 +160,7 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 ## 8. 验证
 
 - **门禁**：`scripts/fm_gate.sh` 67 个程序，每条提交对比函数模型，周期对 `scripts/ref_cycles_memiq6_nr_int2_ev5.txt`（模型同配置生成）。
+- **EXP-045（SRRIP，2026-11-19）**：`fm_gate.sh` 67/67，周期与模型（trace-model `exp/llc-plru` `429172d` 默认）逐个相等，对新的 `scripts/ref_cycles.txt`（相对旧表 3 个程序变化，旧表 `ref_cycles_repl_rr.txt`）；程序用 rv64 不带 C 的构建（`TTG_PROGS=trace-model-simplify/build`；`env.sh` 默认的 `trace-model/build` 里是旧的 rv32 程序）。Linux 检查点窗口 s00–s12（`linux_segments_cmp.sh`，各 400 万周期）13/13 PASS，逐条检查 0 不一致，PT / UP 指纹与模型相同。`lint_chip.sh` 0 告警。
 - **Lint**：`scripts/lint_chip.sh`。
 - **Linux 启动门禁**：`scripts/build_soc64_linux.sh`、`scripts/linux_gate.sh`、`scripts/linux_segments_cmp.sh`。
 - **仿真断言**：见第 7 节。
@@ -162,8 +173,9 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 
 ## 9. 参数与开关速查
 
-`AXI_LLC_SETS`（4096）、`AXI_LLC_WAYS`（16）、`AXI_LLC_MSHR`（8，与 `axi_ic_pkg` 一致）；`RQD`、`WQD`、`VQD`（`axi_llc_pkg` 内常量，不是宏）；模型侧 `CONFIG_AXI_LLC_ENABLE`、`CONFIG_AXI_LLC_SIZE_BYTES`、`CONFIG_AXI_LLC_WAYS`、`CONFIG_AXI_LLC_MSHR_NUM`、`CONFIG_AXI_LLC_LOOKUP_LATENCY`（`config.h`）。
+`AXI_LLC_SETS`（4096）、`AXI_LLC_WAYS`（16）、`AXI_LLC_MSHR`（8，与 `axi_ic_pkg` 一致）；替换策略固定为 SRRIP（RTL 无开关；模型 `LLC_REPL`，见第 7 节）；`RQD`、`WQD`、`VQD`（`axi_llc_pkg` 内常量，不是宏）；模型侧 `CONFIG_AXI_LLC_ENABLE`、`CONFIG_AXI_LLC_SIZE_BYTES`、`CONFIG_AXI_LLC_WAYS`、`CONFIG_AXI_LLC_MSHR_NUM`、`CONFIG_AXI_LLC_LOOKUP_LATENCY`（`config.h`）。
 
 ## 10. 变更记录
 
-- 本分支（`261bd67..HEAD`）未改动本目录；更早：见 git 历史。
+- 2026-11-19（`exp/llc-plru`，EXP-045）：替换从"每组一个下一受害路指针"改为 SRRIP（每路 2 位 RRPV，查表解析时读改写；分配时更新，重填 / 写提交不再写替换状态；写口被写提交占用时丢弃分配的更新）。29 个 SPEC06 高权重点几何平均 +1.23%（omnetpp +9.0%）。
+- 更早：见 git 历史。

@@ -5,7 +5,7 @@
 // write-back, response enqueue) are requests to the owning units.
 //   hit  + write : merge into the line, table write (dirty; a bypass write keeps the dirty bit), update victim
 //                  snapshots of in-flight refills (not for bypass writes)
-//   hit  + read  : response to the master (replacement pointer update unless bypass)
+//   hit  + read  : response to the master (RRPV of the way to 0 unless bypass)
 //   miss + write : bypass write: nothing to do (the memory write is the context's business);
 //                  full-line write: dirty victim -> write-back first (context waits), else table write;
 //                  partial-line write: allocate a write MSHR (refill, merge, table write)
@@ -24,7 +24,7 @@ module axi_llc_resolve
   input  logic [WAYS-1:0] lk_d,
   input  logic [WAYS-1:0][TAGW-1:0] lk_t,
   input  logic [WAYS-1:0][511:0] lk_line,
-  input  logic [WB-1:0] lk_repl,
+  input  logic [RB-1:0] lk_repl,
   // write data of the context (write lookups)
   input  line_t wdata,
   input  logic [63:0] wstrb,
@@ -110,17 +110,23 @@ module axi_llc_resolve
     retry = act && !done;
   end
 
-  // table write (hit write, direct write miss) / replacement-pointer update (hit read)
+  // table write (hit write, direct write miss) / replacement state (SRRIP, read-modify-write of the row just read):
+  // a non-bypass hit sets the way's RRPV to 0; an allocation (every write miss that is not bypass, a non-bypass read
+  // miss) ages the set and inserts the way at 2. An allocation does not wait for the table write port: when stage 2
+  // took it (tbl_busy2) the update is dropped (direct write misses and hits already require a free port).
+  logic repl_hit, repl_alloc;
   always_comb begin
+    repl_hit = (hit_w_ok || hit_r_ok) && !bypass;
+    repl_alloc = (miss_w_direct || miss_w_fwd || miss_w_part || (miss_r_ok && !bypass)) && !tbl_busy2;
     tw = '0;
     tw.line_en = hit_w_ok || miss_w_direct;
-    tw.repl_en = hit_w_ok || miss_w_direct || (hit_r_ok && !bypass);
+    tw.repl_en = repl_hit || repl_alloc;
     tw.set = set_of(laddr);
     tw.way = sel_way;
     tw.data = hit_any ? merged : wdata;       // full-line write miss: the merge result is the write data
     tw.tag = tag_of(laddr);
     tw.dirty = (bypass && hit_any) ? lk_d[hit_way] : 1'b1;   // a bypass write keeps the dirty bit
-    tw.repl = next_way(sel_way);
+    tw.repl = hit_any ? rrip_hit(lk_repl, hit_way) : rrip_alloc(lk_repl, pick_way);
   end
 
   // requests to the owning units

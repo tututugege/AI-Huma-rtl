@@ -75,13 +75,12 @@ module axi_llc_refill
   always_comb begin
     tw = '0;
     tw.line_en = table_go;
-    tw.repl_en = table_go;
+    tw.repl_en = 1'b0;                        // SRRIP: updated when the MSHR was allocated
     tw.set = set_of(e_addr);
     tw.way = e_way;
     tw.data = e_is_write ? e_merged : e_rdata;
     tw.tag = tag_of(e_addr);
     tw.dirty = e_is_write;
-    tw.repl = next_way(e_way);
   end
 endmodule
 

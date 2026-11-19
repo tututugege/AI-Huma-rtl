@@ -2,6 +2,8 @@
 # Configuration: two INT issue queues (32 slots, 4 enqueue lanes), merged load / STA queue (6 queues), 5 AGUs, FLUSH_REG, STAEV_REG, SLOT_FIXED,
 # WBMERGE_REG, FE_OVR_REG (the 13 CFG_* defaults of trace-model include/config.h). Same table as scripts/ref_cycles_memiq6_nr_int2_ev5.txt.
 # Program set: scripts/fm_gate.sh (67 programs). The previous main table was 1.92 % faster (geomean over the 67 programs).
+# EXP-045 (trace-model exp/llc-plru 429172d): LLC and L1I replacement SRRIP; 3 programs changed (dcache-conflict-writeback, memory-stress-small,
+# pf-stress). The table before it (rr replacement) is scripts/ref_cycles_repl_rr.txt.
 1441 add-longlong/add-longlong.bin
 1515 add/add.bin
 2420 atomic-boundary/atomic-boundary.bin
@@ -12,7 +14,7 @@
 4984 bubble-sort/bubble-sort.bin
 2196 crc32/crc32.bin
 2244 csr-alias-boundary/csr-alias-boundary.bin
-6030 dcache-conflict-writeback/dcache-conflict-writeback.bin
+6018 dcache-conflict-writeback/dcache-conflict-writeback.bin
 1567 dcache-mshr-pressure/dcache-mshr-pressure.bin
 3377 directed/memspec_addr.bin
 7522 directed/memspec_data.bin
@@ -39,14 +41,14 @@
 2871 matrix-mul/matrix-mul.bin
 1893 max/max.bin
 1701 memory-boundary/memory-boundary.bin
-343672 memory-stress-small/memory-stress-small.bin
+343459 memory-stress-small/memory-stress-small.bin
 2463 mersenne/mersenne.bin
 2780 min3/min3.bin
 1128 mov-c/mov-c.bin
 1381 movsx/movsx.bin
 1964 mul-longlong/mul-longlong.bin
 2052 pascal/pascal.bin
-618141 pf-stress/pf-stress.bin
+580756 pf-stress/pf-stress.bin
 12121 prime/prime.bin
 4984 quick-sort/quick-sort.bin
 3094 recursion/recursion.bin

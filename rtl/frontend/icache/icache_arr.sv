@@ -7,6 +7,9 @@
 // the line of the hit way is selected here so the FSM never sees the other seven.
 // Storage is written like a memory (01 section 3.1): one write port, one way per write; valid bits are a register
 // vector with a whole-cache clear (fence.i -> invalidate_all clears only valid, not tag/data).
+// Replacement (SRRIP, docs/modules/icache.md section 5.2): a 2-bit RRPV per way and set, read with the tags; a hit sets
+// the way to 0, a refill ages the set until its largest RRPV is 3 and gives the refilled way 2; the victim is the way
+// with the largest RRPV (lowest way among equals).  Reset clears it, fence.i does not.
 module icache_arr import icache_pkg::*; (
   input  logic                    clk,
   input  logic                    rst_n,
@@ -19,6 +22,7 @@ module icache_arr import icache_pkg::*; (
   output logic [IC_LINE_W-1:0]    hit_line,       // line of the hit way (meaningful when hit)
   output logic                    has_invalid,    // some way of the set is invalid (response valid only)
   output logic [IC_WAY_W-1:0]     first_invalid,  // lowest invalid way
+  output logic [IC_WAY_W-1:0]     repl_way,       // SRRIP victim of the read set
   // write port (refill)
   input  logic                    we,
   input  logic [IC_IDX_W-1:0]     w_index,
@@ -31,6 +35,7 @@ module icache_arr import icache_pkg::*; (
   logic [IC_LINE_W-1:0] data_q  [IC_WAYS][IC_SETS];
   logic [IC_TAG_W-1:0]  tag_q   [IC_WAYS][IC_SETS];
   logic [IC_SETS-1:0]   valid_q [IC_WAYS];
+  logic [IC_RB-1:0]     repl_q  [IC_SETS];
 
   logic [IC_WAYS-1:0]   way_valid, way_match, way_invalid, hit_onehot, invalid_onehot;
   logic [IC_LINE_W-1:0] way_line [IC_WAYS];
@@ -64,6 +69,56 @@ module icache_arr import icache_pkg::*; (
 
   logic [IC_WAY_W-1:0] first_invalid_idx;
   ttg_onehot_to_idx #(.N(IC_WAYS)) u_inv_idx (.onehot(invalid_onehot), .idx(first_invalid_idx));
+
+  // ---- SRRIP state ----
+  logic [IC_WAY_W-1:0] hit_idx;
+  logic [IC_RB-1:0]    rrow, wrow, nrow;
+  logic [1:0]          mx;
+  logic [3:0][IC_WAYS-1:0] at;
+  logic [3:0][IC_WAYS-1:0] at_oh;
+  /* verilator lint_off UNUSEDSIGNAL */   // level 0 is the fall-back: some way always has the largest RRPV
+  logic [3:0]          at_any;
+  /* verilator lint_on UNUSEDSIGNAL */
+  logic [3:0][IC_WAY_W-1:0] at_way;
+  ttg_onehot_to_idx #(.N(IC_WAYS)) u_hit_idx (.onehot(hit_onehot), .idx(hit_idx));
+  assign rrow = repl_q[rd_index];
+  assign wrow = repl_q[w_index];
+  always_comb begin
+    for (int v = 0; v < 4; v++)
+      for (int w = 0; w < IC_WAYS; w++) at[v][w] = rrow[2 * w +: 2] == 2'(v);
+  end
+  for (genvar v = 0; v < 4; v++) begin : g_lvl
+    ttg_first_set #(.N(IC_WAYS)) u_first (.req(at[v]), .onehot(at_oh[v]), .any(at_any[v]));
+    ttg_onehot_to_idx #(.N(IC_WAYS)) u_idx (.onehot(at_oh[v]), .idx(at_way[v]));
+  end
+  always_comb begin
+    repl_way = at_way[0];
+    if (at_any[3]) repl_way = at_way[3];
+    else if (at_any[2]) repl_way = at_way[2];
+    else if (at_any[1]) repl_way = at_way[1];
+  end
+  // new row: a refill (we) ages w_index's row and inserts at 2; a hit clears the hit way of rd_index's row (never
+  // in the same cycle: hits happen in IDLE, refills in the miss states)
+  always_comb begin
+    mx = 2'd0;
+    for (int w = 0; w < IC_WAYS; w++) if (wrow[2 * w +: 2] > mx) mx = wrow[2 * w +: 2];
+    nrow = rrow;
+    if (we) begin
+      for (int w = 0; w < IC_WAYS; w++) nrow[2 * w +: 2] = wrow[2 * w +: 2] + (2'd3 - mx);
+      nrow[2 * w_way +: 2] = 2'd2;
+    end else begin
+      nrow[2 * hit_idx +: 2] = 2'd0;
+    end
+  end
+  always_ff @(posedge clk) begin
+    if (!rst_n) begin
+      for (int i = 0; i < IC_SETS; i++) repl_q[i] <= '0;
+    end else if (we) begin
+      repl_q[w_index] <= nrow;
+    end else if (hit_any) begin
+      repl_q[rd_index] <= nrow;
+    end
+  end
 
   assign hit           = hit_any;
   assign has_invalid   = rd_en && invalid_any;

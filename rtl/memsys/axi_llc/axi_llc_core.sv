@@ -74,7 +74,7 @@ module axi_llc_core
   logic [WAYS-1:0] t_v, t_d;
   logic [WAYS-1:0][TAGW-1:0] t_t;
   logic [WAYS-1:0][511:0] t_line;
-  logic [WB-1:0] t_repl;
+  logic [RB-1:0] t_repl;
   tw_t tw, tw_commit, tw_lookup, tw_refill;
   logic busy2, busy3;                          // a table write happened in stage 2 / up to stage 3
   // lookup engine
@@ -172,13 +172,12 @@ module axi_llc_core
   always_comb begin
     tw_commit = '0;
     tw_commit.line_en = v_resp_forw;
-    tw_commit.repl_en = v_resp_forw;
+    tw_commit.repl_en = 1'b0;                 // SRRIP: the allocation already updated the replacement state
     tw_commit.set = set_of(wp_commit_addr[v_resp_wm]);
     tw_commit.way = wp_commit_way[v_resp_wm];
     tw_commit.data = wp_commit_line[v_resp_wm];
     tw_commit.tag = tag_of(wp_commit_addr[v_resp_wm]);
     tw_commit.dirty = 1'b1;
-    tw_commit.repl = next_way(wp_commit_way[v_resp_wm]);
     busy2 = tw_commit.line_en;
     busy3 = busy2 || tw_lookup.line_en || tw_lookup.repl_en;
     if (busy2) tw = tw_commit;

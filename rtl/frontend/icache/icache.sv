@@ -66,7 +66,7 @@ module icache import ttg_cfg_pkg::*; import icache_pkg::*; import tlb_mmu_pkg::*
   // ---- control FSM ----
   logic arr_rd_en, arr_cmp_valid, arr_hit, arr_has_invalid, tw_we, inv_all, mmu_req_valid;
   logic [IC_IDX_W-1:0] arr_rd_index, tw_index;
-  logic [IC_WAY_W-1:0] arr_first_invalid, tw_way;
+  logic [IC_WAY_W-1:0] arr_first_invalid, arr_repl_way, tw_way;
   logic [IC_TAG_W-1:0] tw_tag;
   logic [IC_LINE_W-1:0] arr_hit_line, tw_line, resp_line;
   logic [XLEN_BITS-13:0] mmu_req_vtag;
@@ -81,7 +81,7 @@ module icache import ttg_cfg_pkg::*; import icache_pkg::*; import tlb_mmu_pkg::*
     .mem_req_ready, .mem_req_accepted, .mem_req_accepted_id, .mem_resp_valid, .mem_resp_id,
     .mem_resp_data(mem_resp_line),
     .dc_resp_valid, .dc_resp_retry, .dc_resp_miss, .dc_resp_data,
-    .hit(arr_hit), .hit_line(arr_hit_line), .has_invalid(arr_has_invalid), .first_invalid(arr_first_invalid),
+    .hit(arr_hit), .hit_line(arr_hit_line), .has_invalid(arr_has_invalid), .first_invalid(arr_first_invalid), .repl_way(arr_repl_way),
     .arr_rd_en, .arr_rd_index, .arr_cmp_valid, .tw_we, .tw_index, .tw_way, .tw_tag, .tw_line, .inv_all,
     .mmu_req_valid, .mmu_req_vtag,
     .resp_valid, .resp_pc, .resp_page_fault, .resp_single_word, .resp_line, .icache_ready,
@@ -91,7 +91,7 @@ module icache import ttg_cfg_pkg::*; import icache_pkg::*; import tlb_mmu_pkg::*
 
   icache_arr u_arr (
     .clk, .rst_n, .rd_en(arr_rd_en), .rd_index(arr_rd_index), .cmp_valid(arr_cmp_valid), .cmp_tag(ppn),
-    .hit(arr_hit), .hit_line(arr_hit_line), .has_invalid(arr_has_invalid), .first_invalid(arr_first_invalid),
+    .hit(arr_hit), .hit_line(arr_hit_line), .has_invalid(arr_has_invalid), .first_invalid(arr_first_invalid), .repl_way(arr_repl_way),
     .we(tw_we), .w_index(tw_index), .w_way(tw_way), .w_tag(tw_tag), .w_line(tw_line), .inv_all
   );
 
