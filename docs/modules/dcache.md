@@ -32,7 +32,7 @@ L1 数据缓存，加上它旁边的两个小结构：缺失状态寄存器 MSHR
 | bank | 16 个，bank 号 = 组号低 4 位 = 地址 `[9:6]`；每个 bank 16 行（`ROW_W = SET_W - BANK_W = 4`） | `DCACHE_BANK_NUM`、`DCACHE_BANK_BITS`、`dcache_pkg` |
 | 数据字 | 与 LSU 交换的字宽 `DW = XLEN_BITS = 64`；行内按 `DWORDS = 512/64 = 8` 个 64 位字；AXI 一侧仍是 16 个 32 位字（`WORDS = DCACHE_WORD_NUM = 16`） | `dcache_pkg` |
 | 替换 | 每组 3 位树形 PLRU（4 路），牺牲路 = 第一个无效路，否则按 PLRU | `plru_touch`、`plru_victim`、`dcache_s2_fill.sv` |
-| MSHR | 8 项，id 3 位（`DCACHE_MSHR_ENTRIES`、`DCACHE_MSHR_BITS`），空闲计数 4 位（`CNT_W`，0..8） | |
+| MSHR | 16 项，id 4 位（`DCACHE_MSHR_ENTRIES`、`DCACHE_MSHR_BITS`），空闲计数 5 位（`CNT_W`，0..16） | EXP-048 |
 | WB | 8 项，环形队列（`DCACHE_WB_ENTRIES`） | |
 | 端口 | 4 个 load 口（`NLD`）、3 个 store 口（`NST`），7 个请求槽（`NSLOT`）；最后一个 load 口（`P3 = NLD - 1`）被 ICache 探测和页表遍历共用 | `LSU_LDU_COUNT`、`LSU_STA_COUNT`、`memcpu_pkg` |
 | 合并的第二个 store 字 | 每个 store 口一拍可带第二个字（`st2_t`，strb 为 0 表示没有） | EXP-024，模型 `LSU_PIPE_MERGE` |
@@ -69,7 +69,7 @@ L1 数据缓存，加上它旁边的两个小结构：缺失状态寄存器 MSHR
    │
    ├─► dcache_arr ─ 16 个 dcache_bank：tag / valid / dirty / pf / PLRU / 数据，读（组合）写（时钟沿）
    ├─► dcache_wb  ─ WB 8 项环：load 转发、store 合并、追加驱逐行、AXI 写请求
-   ├─► dcache_mshr ─ MSHR 8 项 + AXI 响应暂存：查找、分配 / 合并（dcache_mshr_alloc）、填充请求、AXI 读请求
+   ├─► dcache_mshr ─ MSHR 16 项 + AXI 响应暂存：查找、分配 / 合并（dcache_mshr_alloc）、填充请求、AXI 读请求
    │
    ├─► dcache_s2_ld / dcache_s2_st ─ 第二级：load 口 / store 口的命中、WB、MSHR 决策
    ├─► dcache_s2_fill ─ 第二级：填充快照选牺牲路、脏行驱逐、填充写
@@ -104,7 +104,7 @@ L1 数据缓存，加上它旁边的两个小结构：缺失状态寄存器 MSHR
 - **dcache_wb**：8 项环（`head`、`count`），`send` 表示有写请求在途；B 响应弹出队头；load 转发取同行的最年轻项（`dcache_wb_find`），store 合并到同行最年轻项（若它是队头且有写在途则报 busy）；被驱逐的脏行追加到队尾；AXI 写请求就是队头（含这拍的合并和追加）。
 - **dcache_resp**：每个口保存一个待发布响应（及它所答复的请求，store 还有数据）。TICKS = 1 时这层是纯组合直通（见 7）。当一个等填充的响应（MSHR_HIT / MSHR_FULL）遇到同一行的填充到达，响应当拍变 HIT：load 取填充行里的字，store 合并进填充行并使其变脏（`frf_data`/`frf_dirty` 再交给 s1 做快照）。
 
-状态：阵列（每 bank：valid/dirty/pf 各 4×16 位，tag 4×16×18 位，数据 4×16×512 位，PLRU 16×3 位）；s1 的 7 个槽寄存器、隐藏重试寄存器（每口一份）、填充快照 `s2f_*`（含 512 位数据）；MSHR 8 项（含每项 512 位 store 合并数据和 64 位字节使能）和一个 512 位暂存槽；WB 8 项（行地址 + 512 位数据）、`head`/`count`/`send`；响应暂存。
+状态：阵列（每 bank：valid/dirty/pf 各 4×16 位，tag 4×16×18 位，数据 4×16×512 位，PLRU 16×3 位）；s1 的 7 个槽寄存器、隐藏重试寄存器（每口一份）、填充快照 `s2f_*`（含 512 位数据）；MSHR 16 项（含每项 512 位 store 合并数据和 64 位字节使能）和一个 512 位暂存槽；WB 8 项（行地址 + 512 位数据）、`head`/`count`/`send`；响应暂存。
 
 ## 5. 一拍内的数据流
 

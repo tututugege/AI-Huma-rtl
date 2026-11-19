@@ -388,8 +388,8 @@ module axi_llc_core
     else $error("axi_llc: two table writes in one tick");
 `endif
   // elaboration-time geometry checks
-  if ((WAYS & (WAYS - 1)) != 0 || NMSHR != 8) begin : g_geometry
-    $error("axi_llc: WAYS must be a power of two and NMSHR must be 8");
+  if ((WAYS & (WAYS - 1)) != 0 || (NMSHR != 8 && NMSHR != 16)) begin : g_geometry
+    $error("axi_llc: WAYS must be a power of two and NMSHR must be 8 or 16");
   end
 endmodule
 

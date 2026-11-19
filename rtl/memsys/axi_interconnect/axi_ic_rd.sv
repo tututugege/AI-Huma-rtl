@@ -52,7 +52,7 @@ module axi_ic_rd
     end
     // r_pending orig_id is the LLC mem id (< NM) and its master_id is always 0: only master 0 can collide (C++ quirk).
     logic rp_conf, conflict, cand, take_now;
-    assign rp_conf = (m == 0) && (m_id[m][3] == 1'b0) && rp_v[m_id[m][MW-1:0]];
+    assign rp_conf = (m == 0) && ((NM == 16) || (m_id[m][3] == 1'b0)) && rp_v[m_id[m][MW-1:0]];
     assign conflict = rp_conf
                    || (stage_rd_v[m] && stage_rd_id == m_id[m])
                    || (up_v[m] && up_id[m] == m_id[m])

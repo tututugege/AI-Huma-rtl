@@ -4,7 +4,7 @@
 // Constants and helpers of the AXI interconnect (LLC-enabled live paths only, docs/modules/axi_interconnect.md).
 
 `ifndef AXI_LLC_MSHR
-`define AXI_LLC_MSHR 8
+`define AXI_LLC_MSHR 16
 `endif
 
 // lint: line64 / issue_* helpers use only part of their argument.

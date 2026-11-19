@@ -117,7 +117,7 @@ module axi_llc_mshr
     free_any_vec = ~valid_q;
     free_any_cur = |free_any_vec;
     for (int i = 0; i < NMSHR; i++) begin
-      resp_oh[i] = mrr_v && !mrr_id[3] && mrr_id[MIDW-1:0] == MIDW'(i) && valid_q[i];
+      resp_oh[i] = mrr_v && (mrr_id == 4'(i)) && valid_q[i];
       iss_cand[i] = valid_q[i] && !issued_q[i];
       cs_cand[i] = valid_q[i] && rvalid_q[i];
     end
@@ -217,7 +217,7 @@ module axi_llc_mshr
 
   // memory read request of the picked entry (line read for refills, byte address for bypass reads)
   always_comb begin
-    mrd_id = {1'b0, iss_idx};
+    mrd_id = 4'(iss_idx);
     mrd_addr = a_addr;
     mrd_size = a_size;
     if (iss_any_q) begin

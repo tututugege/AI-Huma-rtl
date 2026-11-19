@@ -28,7 +28,7 @@ AXI 互连：夹在"访存子系统的 4 个读主口、2 个写主口"和"LLC�
 | 量 | 值 | 来源 |
 | --- | --- | --- |
 | 读主口数 `NR` / 写主口数 `NW` | 4 / 2 | `axi_ic_pkg.sv`；模型 `NUM_READ_MASTERS` / `NUM_WRITE_MASTERS`（`AXI_Interconnect_IO.h`） |
-| 在途 DDR 读槽数 `NM` | 8 = LLC 的 MSHR 数 | 宏 `AXI_LLC_MSHR`（默认 8，`axi_ic_pkg.sv`、`axi_llc_pkg.sv` 各有一份默认）；模型 `CONFIG_AXI_LLC_MSHR_NUM = 8`（`config.h`） |
+| 在途 DDR 读槽数 `NM` | 16 = LLC 的 MSHR 数 | 宏 `AXI_LLC_MSHR`（默认 16，`axi_ic_pkg.sv`、`axi_llc_pkg.sv` 各有一份默认）；模型 `CONFIG_AXI_LLC_MSHR_NUM = 16`（`config.h`） |
 | 行大小 | 64 字节 | `line64()` 取地址 `[31:6]` |
 | DDR 数据拍宽 | 256 位（32 字节） | `d_rdata` / `d_wdata` 位宽；模型 `CONFIG_AXI_KIT_SIM_DDR_BEAT_BYTES = 32` |
 | AXI id 位宽 | 6（端口）；分配时只用低 4 位（0..15） | `d_arid` 位宽；`axi_ic_ar` 的 `used[15:0]`；模型 `CONFIG_AXI_KIT_AXI_ID_WIDTH = 6` |
@@ -90,7 +90,7 @@ id 冲突（`conflict`）：同一主口的同 id 请求已在台、捕获槽、
 
 ### 5.2 写捕获（`axi_ic_wr`、`axi_ic_haz`）
 
-`axi_ic_haz` 对每个写主口比较它的 64 字节行与：4 个读主口当前请求、4 个读捕获槽、台里的读、LLC 查表里的读、LLC 内存读请求、8 个 MSHR 里的读、`r_pend` 未完成项和 AR latch。有一个相等就是 `hazard`。`axi_ic_wr` 取 `valid & !hazard` 的第一个主口（固定优先级 0 → 1，`ttg_first_set`），它的 ready-first 寄存器已置位就接收，否则只抬起。
+`axi_ic_haz` 对每个写主口比较它的 64 字节行与：4 个读主口当前请求、4 个读捕获槽、台里的读、LLC 查表里的读、LLC 内存读请求、16 个 MSHR 里的读、`r_pend` 未完成项和 AR latch。有一个相等就是 `hazard`。`axi_ic_wr` 取 `valid & !hazard` 的第一个主口（固定优先级 0 → 1，`ttg_first_set`），它的 ready-first 寄存器已置位就接收，否则只抬起。
 
 ### 5.3 台与派发（`axi_ic_stage`）
 
@@ -123,7 +123,7 @@ LLC 的内存读请求 `lo_*` 在以下条件下发出 AR（`fresh`）：没有 
 
 - **台的弹出 / 抢占 / 派发 / 捕获环**：`lo_rd_ready` 来自 LLC 的 `axi_llc_rdacc`（它对四个读口各做 3 组行 CAM 比较，再轮询选择，见 axi_llc.md），之后在 `axi_ic_stage` 里依次经过弹出、抢占判断、两次 `ttg_first_set`（派发）、捕获槽选择，最后写 512 位数据槽的次态。这是跨 LLC 和互连的一条链。
 - **写捕获**：`axi_ic_haz` 对每个写主口约 28 个 26 位相等比较再 OR → `axi_ic_wr` 的 `ttg_first_set` → 接收 → 捕获槽。
-- **读捕获**：id 比较（含 8 个 MSHR）→ `cand` → `acc` → 捕获槽。
+- **读捕获**：id 比较（含 16 个 MSHR）→ `cand` → `acc` → 捕获槽。
 - **DDR 读**：`lo_addr` 与 `wp_line` / `seen` 比较 → `fresh` → `o_arvalid` → `ar_fire`（含 `d_arready`）→ `pend_p` 入表 → 同拍 R 拍的 id 匹配 → 数据半边写入。
 - **`li_resp_data`**：`comp_idx` 选出完成项 → 512 位数据按 `off` 右移。
 
@@ -133,7 +133,7 @@ LLC 的内存读请求 `lo_*` 在以下条件下发出 AR（`fresh`）：没有 
 
 - **MMIO 口和路由**：模型的 `AxiSubsystem` 里有 MMIO 总线和 UART，互连按地址分流到 DDR 或 MMIO；RTL 的互连只有 DDR 口，没有 MMIO 从口（`mem_axi.sv` 把外设读写接成互连的读 3 / 写 1，`bypass` 接 `phase0`，即当 bypass 请求送进 LLC 路径）。模型默认 DDR 基址为 0（`AXI_Interconnect.cpp:44`，`CONFIG_AXI_KIT_DDR_BASE` 可改）。
 - 非 LLC 路径、运行期模式切换、预取、`invalidate_*` 维护、`read_req_hold`、`w_pending`、`llc_upstream_write_q`、`w_resp_queue` 等：RTL 没有，对应的"不会发生"用时钟断言守着（`axi_ic_stage` 的写槽占用断言、`axi_ic_ar` 的"同一 LLC 内存 id 二次在途"和"无空闲 AXI id"断言，`ifndef SYNTHESIS`）。
-- 队列深度：模型是 32 项（`MAX_OUTSTANDING`），RTL 是 `r_pend` 8 项、读响应 1 项、写响应延迟线 2 项。依据是 LLC 的内存读在途数受 MSHR 数（8）限制；写响应延迟线深度来自旧文档里"实测最大 1"的记录，在第 8 节"未核对"里。
+- 队列深度：模型是 32 项（`MAX_OUTSTANDING`），RTL 是 `r_pend` 16 项、读响应 1 项、写响应延迟线 2 项。依据是 LLC 的内存读在途数受 MSHR 数（16）限制；写响应延迟线深度来自旧文档里"实测最大 1"的记录，在第 8 节"未核对"里。
 - 每 tick 的求值：模型 `AxiSubsystem` 对每个 tick 调 `comb_outputs` / `comb_inputs` / `seq`；RTL 把它们合成每个 `clk` 沿的一次次态函数。两次组合求值结果相同这一点没有在本次核对。
 - `tick` 数：RTL 的 `phase0` 在 `FREQ_DIV = 1` 时恒为 1，粘滞 accepted、"只在 tick 0 更新"的 ready 寄存器都退化为每拍更新。
 
@@ -163,7 +163,7 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 
 ## 9. 参数与开关速查
 
-`AXI_LLC_MSHR`（宏，默认 8，`axi_ic_pkg` 与 `axi_llc_pkg` 各有一份默认，两处必须一致）；`AXI_SUBSYSTEM_FREQ_DIV`（`ttg_cfg_pkg`，由 `mem_top` 的 `TICKS` 使用，当前 1）；模型侧 `CONFIG_AXI_LLC_ENABLE`、`CONFIG_AXI_LLC_MSHR_NUM`、`CONFIG_AXI_KIT_MAX_OUTSTANDING`、`CONFIG_AXI_KIT_AXI_ID_WIDTH`、`CONFIG_AXI_KIT_SIM_DDR_BEAT_BYTES`。
+`AXI_LLC_MSHR`（宏，默认 16，`axi_ic_pkg` 与 `axi_llc_pkg` 各有一份默认，两处必须一致）；`AXI_SUBSYSTEM_FREQ_DIV`（`ttg_cfg_pkg`，由 `mem_top` 的 `TICKS` 使用，当前 1）；模型侧 `CONFIG_AXI_LLC_ENABLE`、`CONFIG_AXI_LLC_MSHR_NUM`、`CONFIG_AXI_KIT_MAX_OUTSTANDING`、`CONFIG_AXI_KIT_AXI_ID_WIDTH`、`CONFIG_AXI_KIT_SIM_DDR_BEAT_BYTES`。
 
 ## 10. 变更记录
 

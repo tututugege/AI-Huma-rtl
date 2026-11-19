@@ -87,11 +87,11 @@ module axi_subsys (
   logic hz_rresp_fresh [4];
   logic hz_rresp_valid [4];
   logic [3:0] hz_rresp_id [4];
-  logic hz_mshr_valid [8];
-  logic hz_mshr_is_write [8];
-  logic [1:0] hz_mshr_master [8];
-  logic [3:0] hz_mshr_id [8];
-  logic [31:0] hz_mshr_line [8];
+  logic hz_mshr_valid [axi_llc_pkg::NMSHR];
+  logic hz_mshr_is_write [axi_llc_pkg::NMSHR];
+  logic [1:0] hz_mshr_master [axi_llc_pkg::NMSHR];
+  logic [3:0] hz_mshr_id [axi_llc_pkg::NMSHR];
+  logic [31:0] hz_mshr_line [axi_llc_pkg::NMSHR];
   logic up_rd_valid [4];
   logic [31:0] up_rd_addr [4];
   logic [7:0] up_rd_size [4];

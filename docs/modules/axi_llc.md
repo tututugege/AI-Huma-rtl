@@ -14,7 +14,7 @@ depth: 238 层（axi_llc，单模块综合，2026-11-18；2026-11-19 SRRIP 后�
 最后一级缓存（LLC）：4 个读主口和 2 个写主口（与 axi_interconnect.md 同一套主口编号）共用的一块统一缓存，写回式。名词先定义：
 
 - **查表**（lookup）：用请求的组号读一次行表（数据 / 标签 / 脏位 / 有效位 / 替换状态），3 个 tick 后拿到一整组 16 路的内容，再判断命中还是缺失。查表引擎同一时刻只处理一个请求（读或写）。
-- **MSHR**（miss status holding register，缺失状态寄存器）：记一次在途缺失的表项，共 8 项（`NMSHR`）；它的槽号就是发给内存的读请求的 id。
+- **MSHR**（miss status holding register，缺失状态寄存器）：记一次在途缺失的表项，共 16 项（`NMSHR`）；它的槽号就是发给内存的读请求的 id。
 - **受害行**（victim）：缺失时被换出的行；脏的要先写回内存。
 - **替换状态**（SRRIP，EXP-045）：每组 16 路各 2 位的"再访问预测值"（RRPV，re-reference prediction value；0 = 预计很快再用，3 = 预计很久不用），一组 32 位。命中把该路置 0；缺失要换出时选 RRPV 最大的路；新装入的行先把整组"变老"到最大值为 3，再把新行置 2（不是 0：新行只有再被命中才算"常用"，一次性扫过的行会先被换掉）。
 - **bypass**：不缓存的请求（外设、ICache 的非缓存取指）。bypass 读可以命中已有的行，缺失时不分配行；bypass 写只在行已缓存时更新它（保持脏位），并总是写穿到内存。
@@ -32,13 +32,13 @@ depth: 238 层（axi_llc，单模块综合，2026-11-18；2026-11-19 SRRIP 后�
 | 行大小 | 64 字节 | `line_of` / `set_of` 用地址 `[31:6]` |
 | 容量 | 4096 × 16 × 64 = 4 MiB | 与模型 `CONFIG_AXI_LLC_SIZE_BYTES = 4 << 20`、`CONFIG_AXI_LLC_WAYS = 16`（`config.h`）一致 |
 | 标签位宽 `TAGW` | 32 − 6 − 12 = 14 | `axi_llc_pkg` |
-| MSHR 数 `NMSHR` | 8（只支持 8：槽号放在 4 位 AXI id 里、第 3 位恒 0） | 宏 `AXI_LLC_MSHR`；顶层有综合期检查（`axi_llc_core.sv` 的 `g_geometry`）；模型 `CONFIG_AXI_LLC_MSHR_NUM = 8` |
+| MSHR 数 `NMSHR` | 16（支持 8 或 16：槽号放在 4 位 AXI id 里） | 宏 `AXI_LLC_MSHR`（默认 16）；顶层有综合期检查（`axi_llc_core.sv` 的 `g_geometry`）；模型 `CONFIG_AXI_LLC_MSHR_NUM = 16` |
 | 替换状态 `RB` | 每组 2 × WAYS = 32 位（16 个 2 位 RRPV，第 w 路在 `[2w+1:2w]`） | `axi_llc_pkg`；模型 `LLC_REPL` 默认 `srrip`（`AXI_LLC.cpp`，行内容放在 8 字节的 `AXI_LLC_REPL_BYTES` 里） |
 | 查表延迟 | 3 tick | `axi_llc_tables` 的 3 级读索引流水；模型 `CONFIG_AXI_LLC_LOOKUP_LATENCY = 3` |
-| 读响应队列 `RQD` | 8 项 / 读主口，加 1 个响应寄存器（`RQC = 9`） | `axi_llc_pkg` |
+| 读响应队列 `RQD` | 16 项 / 读主口，加 1 个响应寄存器（`RQC = 17`） | `axi_llc_pkg` |
 | 写请求队列 `WQD` | 2 项 / 写主口 | 同上 |
 | 受害行写回队列 `VQD` | 8 项 | 同上 |
-| 受害行持有者表 `NVL` | 1 + VQD + NW + NMSHR = 19 | 同上（写回槽、队列、写上下文、MSHR） |
+| 受害行持有者表 `NVL` | 1 + VQD + NW + NMSHR = 27 | 同上（写回槽、队列、写上下文、MSHR） |
 | 主口数 | 读 4、写 2 | `NR`、`NW` |
 
 模型的三个队列是 32 项（`AXI_LLC_READ_RESP_QUEUE_DEPTH`、`AXI_LLC_READ_VICTIM_WB_QUEUE_DEPTH` 等于 `MAX_OUTSTANDING`；写队列 `MAX_WRITE_OUTSTANDING`），RTL 取小，见第 7 节。
@@ -136,8 +136,8 @@ MSHR 分配给第一个空闲项。内存读按"第一个还没发过的项"发�
 单模块综合深度 **238 层**（axi_llc；2026-11-18，2026-11-19 换 SRRIP 后复测不变；`scripts/synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`，生成门代理，不是时序）。综合报告给出的最长路径：从 `\mem_wr_resp_valid` 到 `\u_core.u_resolve.u_line.data [8191]`。从代码读出的、未综合验证的长组合链：
 
 - **解析**：16 路 `valid & 标签相等` → `ttg_first_set` → 命中路号 → 16 选 1 的 512 位行选择（`ttg_onehot_mux`）→ 按字节合并（`axi_llc_merge`，512 位，字节偏移移位）→ 行表写数据；同时 `done` 依赖响应队列接收（`acc_a`）、`retry` 依赖 `done`；`axi_llc_waypick` 在缺失路径上多一级旋转优先级。
-- **读接收**：对每个读主口做 3 组行 CAM（受害行持有者 19 项、写列表 6 项、MSHR 8 项），与响应槽、查表引擎、空闲 MSHR 等合成 `ok`，再旋转优先级选择；它的输出（`up_rd_req_ready`）又回到互连的台（见 axi_interconnect.md 第 6 节）。
-- **MSHR 选择**：第一个未发的项、第一个有重填数据的项，各是对 8 项的 `first_set`，后接 512 位数据选择。
+- **读接收**：对每个读主口做 3 组行 CAM（受害行持有者 27 项、写列表 6 项、MSHR 16 项），与响应槽、查表引擎、空闲 MSHR 等合成 `ok`，再旋转优先级选择；它的输出（`up_rd_req_ready`）又回到互连的台（见 axi_interconnect.md 第 6 节）。
+- **MSHR 选择**：第一个未发的项、第一个有重填数据的项，各是对 16 项的 `first_set`，后接 512 位数据选择。
 - **受害行写回**：三个来源的优先级和"队首再发一次"的怪行为（第 7 节）。
 
 ## 7. 与模型的差异和取舍
@@ -146,7 +146,7 @@ MSHR 分配给第一个空闲项。内存读按"第一个还没发过的项"发�
 
 - **替换策略开关**：模型的 `LLC_REPL`（`rr` 旧轮转指针、`plru`、`lru`、`brrip`、`drrip`）和 `LLC_PF_LOW` 只用于 EXP-045 的比较，RTL 只实现默认的 `srrip`。
 - **预取、`invalidate_line` / `invalidate_all` 维护、`nine` / `unified` / `pipt` 开关**：`AXI_LLCConfig` 里有（`prefetch_enable = false` 默认），RTL 固定为现行配置，不实现。
-- **队列深度**：读响应队列、写请求队列、受害行写回队列在模型里是 32 项，RTL 是 8 / 2 / 8，溢出用断言守着（`axi_llc_rq` 的 `cnt_d <= RQD`、`axi_llc_victim` 的 `!(&rv_vld_d)`）；是否在所有程序下都不会超过，只在 fm_gate 的程序和 Linux 启动里被检验过，没有证明。
+- **队列深度**：读响应队列、写请求队列、受害行写回队列在模型里是 32 项，RTL 是 16 / 2 / 8，溢出用断言守着（`axi_llc_rq` 的 `cnt_d <= RQD`、`axi_llc_victim` 的 `!(&rv_vld_d)`）；是否在所有程序下都不会超过，只在 fm_gate 的程序和 Linux 启动里被检验过，没有证明。
 - **不可达路径**：RTL 的 `axi_llc_core.sv` 在"内存写响应没有对应的写回或 bypass 写"和"读响应指向未使用的槽"两处置 `bad_any` 断言；行表写的三个来源互斥另有断言（`ifndef SYNTHESIS`）。
 - 行表读的写穿旁路：RTL 没有（读地址在 t 请求，t+3 异步读，天然看到 t+2 及之前的写）。
 
@@ -173,7 +173,7 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 
 ## 9. 参数与开关速查
 
-`AXI_LLC_SETS`（4096）、`AXI_LLC_WAYS`（16）、`AXI_LLC_MSHR`（8，与 `axi_ic_pkg` 一致）；替换策略固定为 SRRIP（RTL 无开关；模型 `LLC_REPL`，见第 7 节）；`RQD`、`WQD`、`VQD`（`axi_llc_pkg` 内常量，不是宏）；模型侧 `CONFIG_AXI_LLC_ENABLE`、`CONFIG_AXI_LLC_SIZE_BYTES`、`CONFIG_AXI_LLC_WAYS`、`CONFIG_AXI_LLC_MSHR_NUM`、`CONFIG_AXI_LLC_LOOKUP_LATENCY`（`config.h`）。
+`AXI_LLC_SETS`（4096）、`AXI_LLC_WAYS`（16）、`AXI_LLC_MSHR`（16，与 `axi_ic_pkg` 一致）；替换策略固定为 SRRIP（RTL 无开关；模型 `LLC_REPL`，见第 7 节）；`RQD`、`WQD`、`VQD`（`axi_llc_pkg` 内常量，不是宏）；模型侧 `CONFIG_AXI_LLC_ENABLE`、`CONFIG_AXI_LLC_SIZE_BYTES`、`CONFIG_AXI_LLC_WAYS`、`CONFIG_AXI_LLC_MSHR_NUM`、`CONFIG_AXI_LLC_LOOKUP_LATENCY`（`config.h`）。
 
 ## 10. 变更记录
 

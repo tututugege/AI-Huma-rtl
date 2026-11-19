@@ -10,7 +10,7 @@
 `define AXI_LLC_WAYS 16
 `endif
 `ifndef AXI_LLC_MSHR
-`define AXI_LLC_MSHR 8
+`define AXI_LLC_MSHR 16
 `endif
 
 // lint: address helpers use only part of the address; constants are used by the units.
@@ -19,7 +19,7 @@ package axi_llc_pkg;
   /* verilator lint_off UNUSEDPARAM */
   localparam int SETS  = `AXI_LLC_SETS;
   localparam int WAYS  = `AXI_LLC_WAYS;
-  localparam int NMSHR = `AXI_LLC_MSHR;   // MSHR slot id travels in the 4-bit AXI id (bit 3 = 0): only 8 supported
+  localparam int NMSHR = `AXI_LLC_MSHR;   // MSHR slot id travels in the 4-bit AXI id (8 or 16 supported)
   localparam int MIDW  = $clog2(NMSHR);
   localparam int NR    = 4;               // read masters
   localparam int NW    = 2;               // write masters
@@ -27,7 +27,7 @@ package axi_llc_pkg;
   localparam int WB    = $clog2(WAYS);
   localparam int RB    = 2 * WAYS;        // replacement state of a set: a 2-bit RRPV per way (SRRIP)
   localparam int TAGW  = 32 - 6 - SB;
-  localparam int RQD   = 8;               // read response queue depth (C++ 32; Linux boot peak 5)
+  localparam int RQD   = 16;              // read response queue depth (C++ 32; sized for 16 MSHRs)
   localparam int RQC   = RQD + 1;         // response register + queue = capacity of one read response unit
   localparam int WQD   = 2;               // write request queue depth per master (C++ 32, observed 0 at tick end)
   localparam int VQD   = 8;               // read victim write-back queue depth (C++ 32; programs: 2, random: 7)
