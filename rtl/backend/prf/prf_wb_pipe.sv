@@ -5,7 +5,7 @@
 // (then written into the register file and forwarded to the operand read ports), unless a flush or a misprediction
 // of a branch it depends on kills it. Only results that actually write a register are kept (wen).
 module prf_wb_pipe import ttg_cfg_pkg::*; #(
-  parameter int LANES = ISSUE_WIDTH
+  parameter int LANES = WB_LANES
 ) (
   input  logic                     clk,
   input  logic                     rst_n,

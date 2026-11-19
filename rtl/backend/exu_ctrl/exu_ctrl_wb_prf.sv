@@ -1,30 +1,30 @@
 // Ref: back-end/Exu/Exu.cpp  Exu::comb_fu2exu_collect (bypass broadcast, INT write-back, LSU write-back to Prf)
 `default_nettype none
 
-// Write-back traffic to the Prf: the per-FU bypass bus and the 22 write-back entries
-// (INT ports: the port winner; load/store-address ports: the Lsu write-back request).
+// Write-back traffic to the Prf: the per-FU bypass bus and the register write-back bus of WB_LANES lanes (EXP-046, config.h WB_*):
+// lanes WB_ALU_BASE.. the ALU port winners, WB_LD_BASE.. the Lsu load write-back requests, WB_FP_BASE.. the F/D port winners.
+// The store-address / store-data / branch ports never write a register and have no lane (their completions go to the ROB only).
 module exu_ctrl_wb_prf
   import ttg_cfg_pkg::*;
   import exu_ctrl_pkg::*;
   import fp_pkg::*;
 (
   input  xc_done_t                  fu_done [N_FU],
-  /* verilator lint_off UNUSEDSIGNAL */   // waiver: only the INT ports and the F/D ports write the register file here
-  input  logic [ISSUE_WIDTH-1:0]    win_valid,       // INT ports 0..ALU_NUM-1 and the F/D ports
-  /* verilator lint_on UNUSEDSIGNAL */
+  /* verilator lint_off UNUSEDSIGNAL */   // waiver: only the ALU ports and the F/D ports have a write-back lane
+  input  logic [ISSUE_WIDTH-1:0]    win_valid,       // ALU ports and F/D ports
   input  xc_done_t                  win [ISSUE_WIDTH],
+  /* verilator lint_on UNUSEDSIGNAL */
   input  logic [ALU_NUM-1:0]        win_is_csr,
   input  logic                      csr_re,          // exe2csr.re: a CSR read is in flight in the CSR slot
   input  logic [XLEN_BITS-1:0]               csr_rdata,
   input  xc_lsu_wb_t                ld_wb  [LSU_LOAD_WB_WIDTH],
-  input  xc_lsu_wb_t                sta_wb [LSU_STA_COUNT],
-  output logic [ISSUE_WIDTH-1:0] entry_valid,
-  output logic [PRF_IDX_WIDTH-1:0]  entry_dest_preg [ISSUE_WIDTH],
-  output logic [XLEN_BITS-1:0]               entry_result    [ISSUE_WIDTH],
-  output logic [FW-1:0]             entry_fresult   [ISSUE_WIDTH],   // F/D: 64-bit result of an FP-register write
-  output logic [BR_MASK_WIDTH-1:0]  entry_br_mask   [ISSUE_WIDTH],
-  output logic [ISSUE_WIDTH-1:0] entry_dest_en,
-  output logic [XC_OP_W-1:0]        entry_op        [ISSUE_WIDTH],
+  output logic [WB_LANES-1:0]    entry_valid,
+  output logic [PRF_IDX_WIDTH-1:0]  entry_dest_preg [WB_LANES],
+  output logic [XLEN_BITS-1:0]               entry_result    [WB_LANES],
+  output logic [FW-1:0]             entry_fresult   [WB_LANES],   // F/D: 64-bit result of an FP-register write
+  output logic [BR_MASK_WIDTH-1:0]  entry_br_mask   [WB_LANES],
+  output logic [WB_LANES-1:0]    entry_dest_en,
+  output logic [XC_OP_W-1:0]        entry_op        [WB_LANES],
   output logic [N_FU-1:0] bypass_valid,
   output logic [PRF_IDX_WIDTH-1:0]  bypass_dest_preg [N_FU],
   output logic [XLEN_BITS-1:0]               bypass_result    [N_FU],
@@ -47,52 +47,35 @@ module exu_ctrl_wb_prf
     assign bypass_dest_en[f]   = fu_done[f].dest_en;
   end
 
-  for (genvar p = 0; p < ISSUE_WIDTH; p++) begin : g_port
-    localparam bit IS_INT = (p >= IQ_ALU_PORT_BASE) && (p < IQ_ALU_PORT_BASE + ALU_NUM);
-    localparam bit IS_FP  = FP_EN && (p >= IQ_FP_PORT_BASE);   // F/D ports: the port winner, like the integer ports
-    localparam bit IS_LD  = (p >= IQ_LD_PORT_BASE) && (p < IQ_LD_PORT_BASE + LSU_LOAD_WB_WIDTH);
-    localparam bit IS_STA = (p >= IQ_STA_PORT_BASE) && (p < IQ_STA_PORT_BASE + LSU_STA_COUNT);
-    if (IS_INT || IS_FP) begin : g_int
-      // Ref: int_res[] (valid only if dest_en); a CSR winner that reads takes the CSR read data
-      assign entry_valid[p]     = win_valid[p] && win[p].dest_en;
-      assign entry_dest_preg[p] = win[p].dest_preg;
-      if (IS_INT) begin : g_res_int
-        assign entry_result[p]  = (win_is_csr[p] && csr_re) ? csr_rdata : win[p].result;
-      end else begin : g_res_fp
-        assign entry_result[p]  = win[p].result;
-      end
-      assign entry_fresult[p]   = win[p].fresult;
-      assign entry_br_mask[p]   = win[p].br_mask;
-      assign entry_dest_en[p]   = win[p].dest_en;
-      assign entry_op[p]        = win[p].op;
-    end else if (IS_LD) begin : g_ld
+  for (genvar l = 0; l < WB_LANES; l++) begin : g_lane
+    localparam bit IS_LD = (l >= WB_LD_BASE) && (l < WB_FP_BASE);
+    localparam bit IS_FP = l >= WB_FP_BASE;
+    // issue port of an ALU / F/D lane (a load lane has none)
+    localparam int P = IS_FP ? IQ_FP_PORT_BASE + (l - WB_FP_BASE) : IQ_ALU_PORT_BASE + (l - WB_ALU_BASE);
+    if (IS_LD) begin : g_ld
       // Ref: lsu2exe.wb_req[i] (op is always LOAD: loads and SC)
-      assign entry_valid[p]     = ld_wb[p-IQ_LD_PORT_BASE].valid;
-      assign entry_dest_preg[p] = ld_wb[p-IQ_LD_PORT_BASE].dest_preg;
-      assign entry_result[p]    = ld_wb[p-IQ_LD_PORT_BASE].result;
+      localparam int K = l - WB_LD_BASE;
+      assign entry_valid[l]     = ld_wb[K].valid;
+      assign entry_dest_preg[l] = ld_wb[K].dest_preg;
+      assign entry_result[l]    = ld_wb[K].result;
       // flw: NaN-boxed (fld on rv64 returns the whole word)
-      assign entry_fresult[p]   = fp_load_data(ld_wb[p-IQ_LD_PORT_BASE].result,
-                                               ld_wb[p-IQ_LD_PORT_BASE].is_w);
-      assign entry_br_mask[p]   = ld_wb[p-IQ_LD_PORT_BASE].br_mask;
-      assign entry_dest_en[p]   = ld_wb[p-IQ_LD_PORT_BASE].dest_en;
-      assign entry_op[p]        = XC_OP_W'(XC_UOP_LOAD);
-    end else if (IS_STA) begin : g_sta
-      // Ref: lsu2exe.sta_wb_req[i] (op is always STA, never writes a register)
-      assign entry_valid[p]     = sta_wb[p-IQ_STA_PORT_BASE].valid;
-      assign entry_dest_preg[p] = '0;
-      assign entry_result[p]    = sta_wb[p-IQ_STA_PORT_BASE].result;
-      assign entry_fresult[p]   = '0;
-      assign entry_br_mask[p]   = sta_wb[p-IQ_STA_PORT_BASE].br_mask;
-      assign entry_dest_en[p]   = 1'b0;
-      assign entry_op[p]        = XC_OP_W'(XC_UOP_STA);
-    end else begin : g_none
-      assign entry_valid[p]     = 1'b0;
-      assign entry_dest_preg[p] = '0;
-      assign entry_result[p]    = '0;
-      assign entry_fresult[p]   = '0;
-      assign entry_br_mask[p]   = '0;
-      assign entry_dest_en[p]   = 1'b0;
-      assign entry_op[p]        = '0;
+      assign entry_fresult[l]   = fp_load_data(ld_wb[K].result, ld_wb[K].is_w);
+      assign entry_br_mask[l]   = ld_wb[K].br_mask;
+      assign entry_dest_en[l]   = ld_wb[K].dest_en;
+      assign entry_op[l]        = XC_OP_W'(XC_UOP_LOAD);
+    end else begin : g_win
+      // Ref: int_res[] (valid only if dest_en); a CSR winner that reads takes the CSR read data
+      assign entry_valid[l]     = win_valid[P] && win[P].dest_en;
+      assign entry_dest_preg[l] = win[P].dest_preg;
+      if (!IS_FP) begin : g_res_int
+        assign entry_result[l]  = (win_is_csr[P] && csr_re) ? csr_rdata : win[P].result;
+      end else begin : g_res_fp
+        assign entry_result[l]  = win[P].result;
+      end
+      assign entry_fresult[l]   = win[P].fresult;
+      assign entry_br_mask[l]   = win[P].br_mask;
+      assign entry_dest_en[l]   = win[P].dest_en;
+      assign entry_op[l]        = win[P].op;
     end
   end
 

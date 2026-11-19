@@ -79,7 +79,7 @@ depth: 待测（由协调者补）
 | `rob_bcast_{mret, sret, ecall, breakpoint, exception, page_fault_*, illegal_inst, trap_val, pc}` | `rob` | `csr`、`glue`（部分）和芯片端口；不推迟 |
 | `rob_bcast_interrupt` | `rob` | `ren`、芯片端口；不推迟 |
 | `iss2prf_*` / `prf2exe_*` | `isu` / `prf` | `prf` / `exu`；口 0 的 `csr_idx` 取 `prf2exe_iss_entry_uop_csr_idx[0]` 送 `exu`（CSR 固定在口 0） |
-| `exe2prf_entry_*`、`exe2prf_bypass_*` | `exu` | `prf` |
+| `exe2prf_entry_*`（`[WB_LANES]`，寄存器写回总线，EXP-046）、`exe2prf_bypass_*` | `exu` | `prf` |
 | `exe2iss_fu_ready_mask` | `exu` | `isu` |
 | `prf_awake_*`（load 晚唤醒） | `prf` | `isu`、`dispatch` |
 | `iss_awake_*`（唤醒广播） | `isu` | `dispatch` |

@@ -44,14 +44,14 @@ module prf import ttg_cfg_pkg::*; import fp_pkg::*; #(
   input  logic [LDQ_IDX_WIDTH-1:0] iss2prf_iss_entry_uop_ldq_idx [ISSUE_WIDTH],
   input  logic [ISSUE_WIDTH-1:0] iss2prf_iss_entry_uop_rob_flag,
   input  logic [UOP_TYPE_WIDTH-1:0] iss2prf_iss_entry_uop_op [ISSUE_WIDTH],
-  input  logic [ISSUE_WIDTH-1:0] exe2prf_entry_valid,
-  input  logic [PRF_IDX_WIDTH-1:0] exe2prf_entry_uop_dest_preg [ISSUE_WIDTH],
-  input  logic [XLEN_BITS-1:0] exe2prf_entry_uop_result [ISSUE_WIDTH],
+  input  logic [WB_LANES-1:0] exe2prf_entry_valid,
+  input  logic [PRF_IDX_WIDTH-1:0] exe2prf_entry_uop_dest_preg [WB_LANES],
+  input  logic [XLEN_BITS-1:0] exe2prf_entry_uop_result [WB_LANES],
   /* verilator lint_off UNUSEDSIGNAL */   // waiver: unused without F/D
-  input  logic [FW-1:0] exe2prf_entry_uop_fresult [ISSUE_WIDTH],
-  input  logic [BR_MASK_WIDTH-1:0] exe2prf_entry_uop_br_mask [ISSUE_WIDTH],
-  input  logic [ISSUE_WIDTH-1:0] exe2prf_entry_uop_dest_en,
-  input  logic [UOP_TYPE_WIDTH-1:0] exe2prf_entry_uop_op [ISSUE_WIDTH],
+  input  logic [FW-1:0] exe2prf_entry_uop_fresult [WB_LANES],
+  input  logic [BR_MASK_WIDTH-1:0] exe2prf_entry_uop_br_mask [WB_LANES],
+  input  logic [WB_LANES-1:0] exe2prf_entry_uop_dest_en,
+  input  logic [UOP_TYPE_WIDTH-1:0] exe2prf_entry_uop_op [WB_LANES],
   input  logic [TOTAL_FU_COUNT-1:0] exe2prf_bypass_valid,
   input  logic [PRF_IDX_WIDTH-1:0] exe2prf_bypass_uop_dest_preg [TOTAL_FU_COUNT],
   input  logic [XLEN_BITS-1:0] exe2prf_bypass_uop_result [TOTAL_FU_COUNT],
@@ -107,20 +107,21 @@ module prf import ttg_cfg_pkg::*; import fp_pkg::*; #(
   output logic [UOP_TYPE_WIDTH-1:0] prf2exe_iss_entry_uop_op [ISSUE_WIDTH]
 );
 
-  localparam int LANES = ISSUE_WIDTH;
+  localparam int NIP = ISSUE_WIDTH;   // issue lanes (operand read side: 2 integer read ports per issue lane)
+  localparam int WL  = WB_LANES;      // register write-back lanes (EXP-046, config.h WB_*): ALU, load, F/D lanes
   localparam logic [UOP_TYPE_WIDTH-1:0] UOP_LOAD = UOP_TYPE_WIDTH'(3);   // enum UopType: UOP_LOAD
 
   // ---- adaptation: per-lane vectors and [src][lane] arrays ----
-  logic [LANES-1:0]          exe_valid_vec, exe_dest_en_vec, exe_is_load_vec;
-  logic [LANES-1:0]          wb_wen_q, wb_is_load_q;
-  logic [PRF_IDX_WIDTH-1:0]  wb_dest_preg_q [LANES];
-  logic [XLEN_BITS-1:0]               wb_result_q    [LANES];
-  logic [BR_MASK_WIDTH-1:0]  wb_br_mask_q   [LANES];
+  logic [WL-1:0]             exe_valid_vec, exe_dest_en_vec, exe_is_load_vec;
+  logic [WL-1:0]             wb_wen_q, wb_is_load_q;
+  logic [PRF_IDX_WIDTH-1:0]  wb_dest_preg_q [WL];
+  logic [XLEN_BITS-1:0]               wb_result_q    [WL];
+  logic [BR_MASK_WIDTH-1:0]  wb_br_mask_q   [WL];
   logic [TOTAL_FU_COUNT-1:0] fu_wen_vec;
-  logic                      src_en_arr   [2][LANES];
-  logic [PRF_IDX_WIDTH-1:0]  src_preg_arr [2][LANES];
-  logic [XLEN_BITS-1:0]               rf_rdata     [2][LANES];
-  logic [XLEN_BITS-1:0]               src_rdata    [2][LANES];
+  logic                      src_en_arr   [2][NIP];
+  logic [PRF_IDX_WIDTH-1:0]  src_preg_arr [2][NIP];
+  logic [XLEN_BITS-1:0]               rf_rdata     [2][NIP];
+  logic [XLEN_BITS-1:0]               src_rdata    [2][NIP];
   logic [PRF_NUM-1:0]        reg_wr_en;
   logic [XLEN_BITS-1:0]               reg_wr_data  [PRF_NUM];
   logic [ALU_NUM-1:0]        alu_valid_vec, alu_src1_is_pc_vec;
@@ -143,10 +144,12 @@ module prf import ttg_cfg_pkg::*; import fp_pkg::*; #(
     return NSH > 0 && i >= SH_STA_LO && i < SH_STA_LO + NSH;
   endfunction
 
-  for (genvar i = 0; i < LANES; i++) begin : g_lane
-    assign exe_valid_vec[i]   = exe2prf_entry_valid[i];
-    assign exe_dest_en_vec[i] = exe2prf_entry_uop_dest_en[i];
-    assign exe_is_load_vec[i] = exe2prf_entry_uop_op[i] == UOP_LOAD;
+  for (genvar l = 0; l < WL; l++) begin : g_wl
+    assign exe_valid_vec[l]   = exe2prf_entry_valid[l];
+    assign exe_dest_en_vec[l] = exe2prf_entry_uop_dest_en[l];
+    assign exe_is_load_vec[l] = exe2prf_entry_uop_op[l] == UOP_LOAD;
+  end
+  for (genvar i = 0; i < NIP; i++) begin : g_lane
     if (lane_sh_ld(i)) begin : g_sh_ld
       localparam int S = SH_STA_LO + (i - SH_LD_LO);   // the STA lane that shares this port
       assign src_en_arr[0][i]   = iss2prf_iss_entry_valid[S] ? iss2prf_iss_entry_uop_src1_en[S] : iss2prf_iss_entry_uop_src1_en[i];
@@ -207,7 +210,7 @@ module prf import ttg_cfg_pkg::*; import fp_pkg::*; #(
   end
 
   // ---- write-back stage ----
-  prf_wb_pipe #(.LANES(LANES)) u_wb_pipe (
+  prf_wb_pipe #(.LANES(WL)) u_wb_pipe (
     .clk, .rst_n,
     .flush            (rob_bcast_flush),
     .bcast_mispred    (dec_bcast_mispred),
@@ -223,14 +226,14 @@ module prf import ttg_cfg_pkg::*; import fp_pkg::*; #(
   );
 
   // ---- register file + write ports ----
-  prf_write_arb #(.LANES(LANES), .NREG(PRF_NUM)) u_write_arb (
+  prf_write_arb #(.LANES(WL), .NREG(PRF_NUM)) u_write_arb (
     .wb_wen       (wb_wen_q),
     .wb_dest_preg (wb_dest_preg_q),
     .wb_result    (wb_result_q),
     .reg_wr_en, .reg_wr_data
   );
 
-  prf_regfile #(.NREG(PRF_NUM), .LANES(LANES)) u_regfile (
+  prf_regfile #(.NREG(PRF_NUM), .LANES(NIP)) u_regfile (
     .clk, .rst_n, .reg_wr_en, .reg_wr_data,
     .rd_addr (src_preg_arr),
     .rd_data (rf_rdata)
@@ -238,8 +241,8 @@ module prf import ttg_cfg_pkg::*; import fp_pkg::*; #(
 
   // ---- operand read ports with bypass: 2 per issue lane ----
   for (genvar s = 0; s < 2; s++) begin : g_src
-    for (genvar i = 0; i < LANES; i++) begin : g_rd
-      prf_bypass #(.WB_LANES(LANES), .FU_NUM(BYP_NUM)) u_bypass (
+    for (genvar i = 0; i < NIP; i++) begin : g_rd
+      prf_bypass #(.WBL(WL), .FU_NUM(BYP_NUM)) u_bypass (
         .src_en       (src_en_arr[s][i]),
         .src_preg     (src_preg_arr[s][i]),
         .rf_data      (rf_rdata[s][i]),
@@ -258,6 +261,15 @@ module prf import ttg_cfg_pkg::*; import fp_pkg::*; #(
   // store-data lane (fsw / fsd); the integer src2 of a store-data lane is replaced by the FP value when src2 is FP ----
   localparam int FP_LANES = FP_EN ? (ISSUE_WIDTH - IQ_FP_PORT_BASE) : 0;
   localparam int NRD = FP_EN ? (3 * FP_LANES + LSU_SDU_COUNT) : 1;
+  // write-back lanes that carry FP-unit / I2F results: the ALU lanes of the ports with I2F, and the F/D lanes
+  function automatic bit wl_fpu(int l);
+    return (l >= WB_FP_BASE) || (l < WB_LD_BASE && isu_pkg::port_has(isu_pkg::MASK_FPD, IQ_ALU_PORT_BASE + l));
+  endfunction
+  function automatic int wl_fpu_rank(int l);
+    int n = 0;
+    for (int k = 0; k < l; k++) n += int'(wl_fpu(k));
+    return n;
+  endfunction
   function automatic bit lane_is_fp(int i);
     return FP_EN && (i >= IQ_FP_PORT_BASE);
   endfunction
@@ -269,14 +281,12 @@ module prf import ttg_cfg_pkg::*; import fp_pkg::*; #(
     for (int q = 0; q < i; q++) n += lane_is_fp(q) ? 3 : (lane_is_std(q) ? 1 : 0);
     return n;
   endfunction
-  logic [FW-1:0] fsrc [3][LANES];
+  logic [FW-1:0] fsrc [3][NIP];
   if (FP_EN) begin : g_fp
     logic [NRD-1:0]           fp_rd_en;
     logic [PRF_IDX_WIDTH-1:0] fp_rd_preg [NRD];
     logic [FW-1:0]            fp_rd_data [NRD];
-    logic [FW-1:0]            exe_fres [LANES];
-    for (genvar i = 0; i < LANES; i++) begin : g_lane
-      assign exe_fres[i] = exe2prf_entry_uop_fresult[i];
+    for (genvar i = 0; i < NIP; i++) begin : g_lane
       if (lane_is_fp(i)) begin : g_fp_lane
         localparam int B = fp_rd_base(i);
         assign fp_rd_en[B]   = iss2prf_iss_entry_uop_src1_en[i] && iss2prf_iss_entry_uop_src1_fp[i];
@@ -317,8 +327,8 @@ module prf import ttg_cfg_pkg::*; import fp_pkg::*; #(
     int fpu_writes;
     always_comb begin
       fpu_writes = 0;
-      for (int i = 0; i < LANES; i++)
-        if (isu_pkg::port_has(isu_pkg::MASK_FPD, i) && wb_wen_q[i] && wb_dest_preg_q[i] >= PRF_IDX_WIDTH'(FP_TAG_BASE)) fpu_writes++;
+      for (int l = 0; l < WL; l++)
+        if (wl_fpu(l) && wb_wen_q[l] && wb_dest_preg_q[l] >= PRF_IDX_WIDTH'(FP_TAG_BASE)) fpu_writes++;
     end
     always_ff @(posedge clk)
       if (rst_n && fpu_writes > isu_pkg::FP_WB_PORTS) $display("[FPWB] %0d FP-unit register writes in one cycle (t=%0t)", fpu_writes, $time);
@@ -335,22 +345,22 @@ module prf import ttg_cfg_pkg::*; import fp_pkg::*; #(
     logic [NU-1:0]            u_w;                 // FP-unit lane writes an FP register this cycle
     logic [PRF_IDX_WIDTH-1:0] u_dest [NU];
     for (genvar k = 0; k < NLD; k++) begin : g_ldq
-      always_ff @(posedge clk) ld_fres_q[k] <= !rst_n ? '0 : exe_fres[IQ_LD_PORT_BASE + k];
+      always_ff @(posedge clk) ld_fres_q[k] <= !rst_n ? '0 : exe2prf_entry_uop_fresult[WB_LD_BASE + k];
     end
-    for (genvar i = 0; i < LANES; i++) begin : g_u
-      if (isu_pkg::port_has(isu_pkg::MASK_FPD, i)) begin : g_is
-        localparam int K = isu_pkg::port_rank(isu_pkg::MASK_FPD, i);
-        always_ff @(posedge clk) u_fres_q[K] <= !rst_n ? '0 : exe_fres[i];
-        assign u_w[K]    = wb_wen_q[i] && (wb_dest_preg_q[i] >= PRF_IDX_WIDTH'(FP_TAG_BASE));
-        assign u_dest[K] = wb_dest_preg_q[i];
+    for (genvar l = 0; l < WL; l++) begin : g_u
+      if (wl_fpu(l)) begin : g_is
+        localparam int K = wl_fpu_rank(l);
+        always_ff @(posedge clk) u_fres_q[K] <= !rst_n ? '0 : exe2prf_entry_uop_fresult[l];
+        assign u_w[K]    = wb_wen_q[l] && (wb_dest_preg_q[l] >= PRF_IDX_WIDTH'(FP_TAG_BASE));
+        assign u_dest[K] = wb_dest_preg_q[l];
       end
     end
     logic [FPL-1:0]           fw_wen;
     logic [PRF_IDX_WIDTH-1:0] fw_dest [FPL];
     logic [FW-1:0]            fw_fres [FPL];
     for (genvar k = 0; k < NLD; k++) begin : g_ldw
-      assign fw_wen[k]  = wb_wen_q[IQ_LD_PORT_BASE + k];
-      assign fw_dest[k] = wb_dest_preg_q[IQ_LD_PORT_BASE + k];
+      assign fw_wen[k]  = wb_wen_q[WB_LD_BASE + k];
+      assign fw_dest[k] = wb_dest_preg_q[WB_LD_BASE + k];
       assign fw_fres[k] = ld_fres_q[k];
     end
     logic [NU-1:0] u_left [NC+1];               // FP-unit writes not yet given a compacted lane
@@ -372,13 +382,13 @@ module prf import ttg_cfg_pkg::*; import fp_pkg::*; #(
       .rd_en(fp_rd_en), .rd_preg(fp_rd_preg), .rd_data(fp_rd_data)
     );
   end else begin : g_no_fp
-    for (genvar i = 0; i < LANES; i++) begin : g_zero
+    for (genvar i = 0; i < NIP; i++) begin : g_zero
       assign fsrc[0][i] = '0;
       assign fsrc[1][i] = '0;
       assign fsrc[2][i] = '0;
     end
   end
-  for (genvar i = 0; i < LANES; i++) begin : g_fsrc_out
+  for (genvar i = 0; i < NIP; i++) begin : g_fsrc_out
     assign prf2exe_iss_entry_uop_fsrc1[i] = fsrc[0][i];
     assign prf2exe_iss_entry_uop_fsrc2[i] = fsrc[1][i];
     assign prf2exe_iss_entry_uop_fsrc3[i] = fsrc[2][i];
@@ -419,7 +429,7 @@ module prf import ttg_cfg_pkg::*; import fp_pkg::*; #(
     assign prf2exe_iss_entry_uop_ftq_next_pc[LANE]    = ftq_prf_pc_resp_resp_next_pc[p];
   end
   // lanes without a PC port never receive a PC
-  for (genvar i = 0; i < LANES; i++) begin : g_nopc
+  for (genvar i = 0; i < NIP; i++) begin : g_nopc
     if (!((i >= IQ_ALU_PORT_BASE && i < IQ_ALU_PORT_BASE + ALU_NUM) ||
           (i >= IQ_BR_PORT_BASE && i < IQ_BR_PORT_BASE + BRU_NUM))) begin : g_tie
       assign prf2exe_iss_entry_uop_pc[i]             = '0;
@@ -430,7 +440,7 @@ module prf import ttg_cfg_pkg::*; import fp_pkg::*; #(
   end
 
   // ---- load wake-up ----
-  prf_awake #(.LANES(LANES), .WAKE_NUM(LSU_LOAD_WB_WIDTH)) u_awake (
+  prf_awake #(.LANES(WL), .WAKE_NUM(LSU_LOAD_WB_WIDTH)) u_awake (
     .wb_wen         (wb_wen_q),
     .wb_is_load     (wb_is_load_q),
     .wb_dest_preg   (wb_dest_preg_q),

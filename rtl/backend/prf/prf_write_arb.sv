@@ -5,7 +5,7 @@
 // one write-back lane targets a register per cycle (reference model: later lane would win; never happens, see notes).
 // Writes to p0 are harmless because every read of p0 returns 0.
 module prf_write_arb import ttg_cfg_pkg::*; #(
-  parameter int LANES = ISSUE_WIDTH,
+  parameter int LANES = WB_LANES,
   parameter int NREG  = PRF_NUM
 ) (
   input  logic [LANES-1:0]         wb_wen,

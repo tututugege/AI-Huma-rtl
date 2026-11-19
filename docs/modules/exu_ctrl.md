@@ -66,7 +66,7 @@ FU 分组数组（按 `fu_idx` 序排）：多周期 FU（MUL、DIV）`N_MC = 4`
 | 入 | `csr2exe_rdata` | CSR 读出的值 |
 | 出 | `exu2fu_*` | 交给 FU 的操作数，按 ALU / BRU / AGU / SDU / MC / FP 分组；`exu2fu_flush = rob_bcast_flush \| dec_bcast_mispred`，`exu2fu_flush_mask = rob_bcast_flush ? 全 1 : dec_bcast_br_mask`，`exu2fu_clear_mask` |
 | 出 | `exe2iss_fu_ready_mask [ISSUE_WIDTH]` | 每个口下一拍能收的操作类，一位对应一种 uop 类型 |
-| 出 | `exe2prf_entry_* [ISSUE_WIDTH]` | 写回 PRF 的 21 个口（见 5.4） |
+| 出 | `exe2prf_entry_* [WB_LANES]` | 寄存器写回总线，13 条通道（见 5.4） |
 | 出 | `exe2prf_bypass_* [TOTAL_FU_COUNT]` | 31 路旁路：每个完成的 FU 一路 |
 | 出 | `exu2rob_entry_* [ISSUE_WIDTH]` | 完成报告 |
 | 出 | `exe2lsu_ldu_req_*[4]`、`exe2lsu_sta_req_*[3]`、`exe2lsu_sdu_req_*[3]` | AGU / SDU 的结果；`exe2lsu_ldu_req_occ`、`exe2lsu_sta_req_occ` 表示 AGU 槽里有一条指令（不管它是否已被杀） |
@@ -97,7 +97,7 @@ FU 分组数组（按 `fu_idx` 序排）：多周期 FU（MUL、DIV）`N_MC = 4`
 | `exu_ctrl_fu_view.sv` | 67 | 把槽和 FU 结果合成统一的完成记录 `fu_done` |
 | `exu_ctrl_port_arb.sv` | 46 | 口内仲裁：`ttg_first_set` 选第一个完成的 FU，`ttg_onehot_mux` 取出赢家，产生 `consume` |
 | `exu_ctrl_ready.sv` | 49 | 每个 FU 的 `fu_ready` 和每口的 `fu_ready_mask` |
-| `exu_ctrl_wb_prf.sv` | 101 | 旁路和写回 PRF 的 21 个口 |
+| `exu_ctrl_wb_prf.sv` | 84 | 旁路和寄存器写回总线（`WB_LANES = 13` 条通道） |
 | `exu_ctrl_wb_rob.sv` | 80 | 完成报告 |
 | `exu_ctrl_br_arb.sv` | 67 | 分支号释放和最老误预测的选择 |
 | `exu_ctrl_csr_req.sv` | 41 | CSR 槽 → `exe2csr` |
@@ -127,7 +127,7 @@ FU 分组数组（按 `fu_idx` 序排）：多周期 FU（MUL、DIV）`N_MC = 4`
 ### 5.4 写回、完成报告、LSU 请求
 
 - **旁路**：每个 FU 一路，`valid = complete`，不管赢没赢口。CSR FU 的旁路值在 CSR 槽正在读时换成 `csr2exe_rdata`。
-- **`exe2prf_entry`**：整数口 0..5 和浮点口 18..20：`valid = 赢家完成且有目的寄存器`，结果取赢家（口 0..5 上赢家是 CSR 且 `exe2csr_re` 时换成 CSR 读数据）；load 口 6..9 和 STA 口 10..12：直接取 LSU 的写回请求（STA 的 `dest_preg = 0`、`dest_en = 0`）；其余口无效。load 的浮点结果按 `is_w` 做 NaN-boxing（`fp_load_data`）。
+- **`exe2prf_entry`**（寄存器写回总线，`WB_LANES = 13` 条通道，EXP-046）：通道 0..5 = ALU 口 0..5 的赢家、通道 10..12 = 浮点口 18..20 的赢家，`valid = 赢家完成且有目的寄存器`，结果取赢家（ALU 口上赢家是 CSR 且 `exe2csr_re` 时换成 CSR 读数据）；通道 6..9 = LSU 的 4 路 load 写回请求（含 SC），浮点结果按 `is_w` 做 NaN-boxing（`fp_load_data`）。STA / STD / BR 口不写寄存器，没有通道（STA 的完成只走 `exu2rob`）。
 - **`exu2rob_entry`**：load / STA 口取 LSU 写回，被 flush 或被误预测杀的丢掉；其余口直接取赢家的完成（FU 自己已经把被杀的项清掉，不会报被杀的完成）。分支口带 `diag_val`、`mispred`、`br_taken`，浮点口带 `fflags`、`illegal`。
 - **LSU 请求**：load AGU 的完成 → `exe2lsu_ldu_req`，STA AGU → `exe2lsu_sta_req`，SDU → `exe2lsu_sdu_req`；这三类 FU 各独占一个口，完成就是请求。
 
@@ -158,7 +158,7 @@ CSR 槽有效时：`we = csrrw 族 || imm != 0`，`re = !csrrw 族 || dest_preg 
 - **FU 的运算**：模型 `fu::compute` 里 AGU 地址、STD 数据、分支结果都取自 trace 的事实，RTL 真算（`exu_fu`），由逐条提交的函数模型检查（fm_gate）保证一致；
 - **`tbhook::on_exec`、`MSD_TRACE` 打印、`Assert`**：RTL 不带；模型 `Exu::seq` 里"没有空槽可装"的断言，RTL 靠操作类互不相交加 ISU 只发 ready 的类保证；
 - **`br_type`**：模型 `exu2id.br_type` 由 Exu 根据 JAL / JALR 和寄存器号算（call / ret / 间接）；RTL 的 `exu2id_*` 没有这一项，`out_rf_type` 在 `pre_idu_queue` 里读出（`pre_idu_queue.sv`），本文没有核对两者结果是否一致；RTL 另有 `exu2id_br_pc`、`exu2id_br_is_rvc`（取自 BRU 完成记录），模型里 `rf_pc` 在 `Rob::redirect` 里从 FTQ 取；
-- **PRF 写回**：模型没有寄存器堆，`exe2prf.entry` 只给整数口 0..5，RTL 额外给浮点口 18..20 写浮点寄存器堆；
+- **PRF 写回**：模型没有寄存器堆，`exe2prf.entry` 同样按通道编号但只填 ALU 和 load 通道，RTL 的浮点通道 10..12 写浮点寄存器堆；
 - **模型 `FuUnit` 的三种模式**（`SINGLE`、`PIPE` 环形队列、`ITER` 忙到 `done`）：RTL 的单周期 FU 没有状态，PIPE 对应 `exu_fu` 的 `mul_pipe`，ITER 对应 `exu_iter_ctl`，槽释放条件相同（单周期：被取走；PIPE：没满；ITER：不忙）。
 
 RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
@@ -172,7 +172,7 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 - 旧文档的真实程序覆盖统计和变异检查结果（trace 回放体系随 `spec/` 一起退役，没有重跑）；
 - 旧文档关于"MUL 在口内最高优先级才避免重复接收"的疑点：本文只核对了 `mul_pipe` 的接收条件在取走之前判满（`accept = en && !(&surv)`，与模型 `PIPE` 先推再弹一致），没有推演所有时序。
 
-代码里的小问题（没有改）：`exu_ctrl_wb_prf.sv`、`exu_ctrl_wb_rob.sv`、`exu_ctrl_lsu_*.sv`、`exu_ctrl_port_arb.sv` 的注释还写着"22 个写回口"、"口 6..13"、"agu 0..3 loads, 4..7 store-address"、"MUL > DIV > LD > STA > STD > BR > ALU > CSR > FP"（现在是 21 口、load 4 个、STA 3 个、优先级里还有 I2F）；`exu_ctrl_pkg.sv` 里 `N_AGU` 的注释同样过时；`exu_ctrl_br_arb.sv`、`exu_ctrl_wb_rob.sv` 注释里的"notes 4.2-1"指旧文档的一节，新文档没有这一节。
+代码里的小问题（没有改）：`exu_ctrl_wb_rob.sv`、`exu_ctrl_lsu_*.sv`、`exu_ctrl_port_arb.sv` 的注释还写着"22 个写回口"、"口 6..13"、"agu 0..3 loads, 4..7 store-address"、"MUL > DIV > LD > STA > STD > BR > ALU > CSR > FP"（现在是 21 口、load 4 个、STA 3 个、优先级里还有 I2F）；`exu_ctrl_pkg.sv` 里 `N_AGU` 的注释同样过时；`exu_ctrl_br_arb.sv`、`exu_ctrl_wb_rob.sv` 注释里的"notes 4.2-1"指旧文档的一节，新文档没有这一节。
 
 ## 8. 验证
 
@@ -187,6 +187,7 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 
 ## 10. 变更记录
 
+- 2026-11-19（`exp/wb-presel`，EXP-046）：`exu_ctrl_wb_prf` 输出按通道编号的写回总线（`WB_LANES = 13`：ALU 6、load 4、浮点口 3），不再按发射口输出 21 路；STA 写回不再进写回总线（`sta_wb` 只给 `exu_ctrl_wb_rob`）。周期不变。
 - 2026-11-18（exp/agu-share，`261bd67..HEAD`）：
   - `e49618c`：AGU 槽的占用 `exe2lsu_ldu_req_occ`、`exe2lsu_sta_req_occ`（`exu_ctrl_slot` 的 `fu_occ`，经 `exu_ctrl_lsu_out`）；LSU 重放口的分配看它（模型 `ExeLsuReqEntry::raw`），周期对 `ref_cycles_memiq6_nr_int2_ev2.txt`；
   - `803692f`：`rob_bcast_flush` 现在来自 `back_top` 的 `rob_flush_q`（晚一拍），本模块自身没改，见 docs/FLUSH_REG.md。

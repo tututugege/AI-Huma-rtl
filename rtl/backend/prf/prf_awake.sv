@@ -5,7 +5,7 @@
 // The announcements are packed in lane order into WAKE_NUM slots (the issue queues index them by slot).
 // More than WAKE_NUM loads in one cycle cannot happen (one load per LSU write-back port), so nothing is dropped.
 module prf_awake import ttg_cfg_pkg::*; #(
-  parameter int LANES    = ISSUE_WIDTH,
+  parameter int LANES = WB_LANES,
   parameter int WAKE_NUM = LSU_LOAD_WB_WIDTH
 ) (
   input  logic [LANES-1:0]         wb_wen,
