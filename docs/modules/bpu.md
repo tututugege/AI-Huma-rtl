@@ -2,197 +2,121 @@
 module: bpu
 area: frontend
 rtl: rtl/frontend/bpu
-model: trace-model front-end/BPU/BPU_pipe.h、BPU.h、BPU_configs.h（调度单元 `front.core.bpu_pipe`，类 `BpuPipe`，阶段 `comb_front`，决定函数 `decide` 在 `front.core.ctrl` 的 `control` 阶段里先算）
-status: 整核周期与模型逐个相等（fm_gate 67/67，参考 scripts/ref_cycles_memiq6_nr_int2_ev5.txt）
-depth: 134 层（bpu，单模块综合，2026-11-20，`SYNTH_ABC="strash;balance;map" SYNTH_NO_MEMPRIO=1`，生成门代理，见 09-synthesis-report 第 12 节）
+model: trace-model front-end/BPU/BpuFtb.h、BPU_pipe.h、BPU.h、BPU_configs.h（调度单元 `front.core.bpu_pipe`，类 `BpuPipe`，块级 1-ahead FTB + S2 Block-TAGE/ITT，`ah1_4k_a2k1k` + `FTB_BRQ=2`）
+status: 已验证（rtl/ftb-bpu 分支，里程碑 A：按块 1-ahead FTB 重构，替换 16-bank 逐槽预测器，待用户确认后合入 main）
+depth: 131 层 / 274,811 cells（Yosys 通用门代理 `SYNTH_ABC="strash;balance;map" SYNTH_NO_MEMPRIO=1`，对比 main `134 层 / 549,458 cells` 单元数 −50.0%；`front_top` 153 层 / 898,333 cells）
 ---
 
-# bpu 设计文档（流水化分支预测单元）
+# bpu 设计文档（块级 1-Ahead FTB 分支预测单元，EXP-050 里程碑 A）
 
-背景、模型侧设计和早期的综合 / 性能数字见 [../analysis/bpu-pipe-rtl.md](../analysis/bpu-pipe-rtl.md)（那份是分支时期的记录，其中的综合表和若干位宽已经过时，本文以现行代码为准）。
+本版替换了原 16-bank 逐指令槽预测器（Type + BTB + TAGE + ITT 共 16 份、约 325 KB、549K 单元 / 134 层），升级为单 bank **块级 1-Ahead FTB + S2 精确 PC Block-TAGE / Block-ITT 兜底** 架构（`ah1_4k_a2k1k`，无同拍 `of2` 组合环、无 `S1 mini-TAGE`、无提交侧块重建 FSM）。
 
 ## 1. 职责
 
-每拍预测一个取指块（从某个 pc 起、至多 16 个槽、不跨 64 字节缓存行，即 `block_bnd`），三级流水（S0、S1、S2）：
+每拍预测一个取指块（从 `base` 起、至多 16 个 2B 槽、不跨 64B 缓存行，即 `block_bnd(base)`），保持与 `front_pred_path` 外部接口完全兼容，内部三级流水（S0、S1、S2）：
 
-1. **S0**：用块的起点 pc 在 uBTB（小而快的表）里查，得到"猜测"：这个块里有没有预测跳的分支、跳到哪、往全局历史里推什么、对返回地址栈（RAS）做什么。按猜测更新投机历史和投机 RAS，下一拍从猜测的目标继续；块的起点地址同时写进取指地址队列，让 I-Cache 去取；
-2. **S1**：这个块的 16 个槽并行读主预测器的阵列（分支类型表、TAGE、BTB、间接目标表 ITT）；同时用更大的 L1 表再查一次，如果它命中且与 S0 的猜测不同，就用 L1 的结果覆盖（损失 1 拍）；
-3. **S2**：在读出的数据上比较、选择，得到最终预测（每槽方向、第一个预测跳的槽、目标、历史位、RAS 操作），写进 PTAB；与块带来的猜测不同就"覆盖"：作废 S1 里更年轻的块，从最终预测的目标重新开始（损失 2 拍）；
-4. **修复**：后端分支误预测、预译码冲刷时，把投机历史和 RAS 恢复到出错那个块之前的检查点，再推上那个块的正确结果；
-5. **训练**：提交流（每拍至多 8 条）训练 uBTB / L1（经块跟踪器和训练队列）、更新队列训练类型表 / TAGE / BTB / ITT，同时推进"提交态"的历史和 RAS（出错时作为恢复的后备）。
+1. **S0（0 气泡主力预测）**：
+   - 优先消费上一拍已提前读出并寄存的 **1-Ahead SRAM 数据**（`ah_pipe_q`，由上一拍块起点 `pc_{t-1}` 与历史 `H_{t-1}` 索引）：在 `aftb` 8 路中用 22 位组合标签 `(key_base, cur_base)` 匹配当前块 `s0_base`，结合 `atage`（4 表 × 1024 × 4 槽，复用 `aftb` 槽计数器作基表）与 `aitt`（3 表 × 256）及投机 RAS 给出 0 气泡强预测 `g0`；
+   - 若 1-ahead 冷启动（重定向首拍）或未命中，无缝回退到小型 **uFTB**（`ftb0`，256 项 × 4 路，20b 压缩目标，`BR_RET` 走 RAS 不受目标宽度限制）；
+   - 同时以已寄存的 `(s0_base, s0_fh)` 发起本拍的 1-ahead SRAM 读（结果寄存进 `ah_pipe_q` 供下一拍 S0 使用），并计算本块精确索引 `ftb_ix` 送入 S1；
+   - 按 `g0` 更新投机历史与投机 RAS，下一拍从 `g0.next` 继续，同时将 `s0_base` 写入取指地址队列。
+2. **S1（冷启动覆写与主阵列读）**：
+   - 用 S0 寄存的 `(r0.base, r0.ftb_ix)` 读精确 PC 主阵列：**Main FTB**（`ftb1`，4096 项 × 4 路，4 槽/项、不交换槽位）、**S2 Block-TAGE**（`s2_tage`，4096 × 4 槽 × 4 表 + 基表，10-bit tag）、**Single Block-ITT**（`s2_itt`，3 表 × 256）；
+   - 当且仅当 S0 未命中 1-ahead（`!r0.ah_hit`）且 `ftb1` 命中并与 `r0.g` 分歧时触发 S1 覆写（1 气泡），用 `ftb1` 猜测替换 `r0.g` 并从 `r0.ck` 修复投机历史/RAS；若 `r0.ah_hit == 1` 则跳过 S1 覆写（`FTB_AH_ONLY=1`）。
+3. **S2（精确历史兜底与 PTAB 写入）**：
+   - 用寄存的 `r1_raw_q`（Main FTB + 4-slot Block-TAGE + Single Block-ITT + RAS）算出最终预测 `fin`；
+   - 将预测结果写入 PTAB，并把单调递增的 10 位块号 `blk_id` 写入 `out_tage_idxs[*][0]`（沿既有 PTAB → F2B → FTQ → B2F 通道透传回提交侧），同时将本块精确预测态元数据 `(base, fh, ah_v, ah_key_base, ah_key_fh)` 写入 `ftb_rec_[512]`（1R1W）；
+   - 若 `fin` 与 `r1.g` 分歧则触发 S2 覆写（作废 S1 块，2 气泡），恢复 `r1.ck` 并推入 `fin`，且将 `ah_pipe_q` 恢复为 `r1`（若可用）或清零。
+4. **修复**：预译码冲刷从 `bpu_pdq` 队首检查点修复（并用 `pd_base` 清假分支槽）；后端分支误预测按 `rf_epoch == epoch_q` 从 FTQ 返回的检查点修复；其余冲刷退回提交态并递增 `epoch_q`。重定向时清零 `ah_pipe_q`（首拍走 uFTB，次拍起 1-ahead 自动恢复）。
+5. **训练**：提交侧 8 通道按序推进提交态历史与 RAS，并将有效控制指令（`br_type != BR_NONCTL`）压入 16 项 **1-branch/cycle 提交队列**（`bpu_ftb_brq`，永不反压 ROB：`commit_upd_free = commit_tq_free = 4'd15`）。每拍弹队首 1 条分支，用其透传回来的 `blk_id = idxs[i][0]` 经单读口读 `ftb_rec_[512]` 还原预测时刻 `(base, fh, ah_key_base, ah_key_fh)`，单次读改写更新 `ftb0` / `ftb1` / `s2_tage` / `s2_itt` / `aftb` / `atage` / `aitt`。
 
-模型里是一个调度单元 `front.core.bpu_pipe`（`BpuPipe::comb_front`），S2 的决定 `decide` 只读寄存器，由 `front.core.ctrl` 先算出（`pipe_dec`），再交给 BPU 和取指地址队列。RTL 的子模块边界是为综合和复用划的，模型里没有对应的类。
-
-## 2. 配置（`bpu_pkg` / `bpu_stage_pkg` / `ttg_cfg_pkg`，现行默认）
+## 2. 配置（`bpu_types_pkg` / `bpu_stage_pkg` / `bpu_pkg` / `ttg_cfg_pkg`）
 
 | 项 | 值 | 常量 |
 | --- | --- | --- |
-| 块 / 槽 | 16 个槽（2 字节），32 字节；bank = `pc[4:1]`，共 16 个 bank | `FETCH_WIDTH`、`NBANK`、`BANK_W = 4` |
-| uBTB（S0） | 32 组 × 4 路 = 128 项 | `UB_SET_W = 5`、`UB_WAYS = 4` |
-| L1 表（S1） | 256 组 × 2 路 = 512 项 | `L1_SET_W = 8`、`L1_WAYS = 2` |
-| uBTB / L1 项 | 83 位：有效 1、标签 10、类型 3、槽 4、计数器 2、目标槽地址 62、16 位标志 1 | `ub_ent_t`，`UB_TAG_W`、`UB_SLOT_W`、`UB_TGT_W = XLEN - 2` |
-| 类型表（每 bank） | 512 组 × 2 路；项 = 有效 1、标签 8、类型 3、年龄 2、16 位标志 1 | `TP_SET_W = 9`、`TP_WAYS`、`TP_TAG_W`、`tp_entry_t` |
-| TAGE（每 bank） | 基础表 1024 项 × 2 位；4 张带标签表各 1024 项（标签 8、计数 3、useful 2）；历史长度 8 / 13 / 32 / 119 | `T_BASE_W = 10`、`T_IDX_W = 10`、`T_TAG_W = 8`、`TN = 4`、`ghr_len()` |
-| BTB（每 bank） | 256 组 × 4 路；项 = useful 3、有效 1、标签 8、目标 `XLEN` | `B_IDX_W = 8`、`B_WAYS = 4`、`B_TAG_W = 8`、`btb_ent_t` |
-| ITT（每 bank，间接目标表） | 3 张表 × 64 项，复用 TAGE 第 1、2、3 张表（历史 13 / 32 / 119）的索引低 6 位和标签；项 = 有效 1、标签 8、置信 2、useful 1、目标 `XLEN` | `NITT = 3`、`ITT_IDX_W = 6`、`ITT_TBL`、`itt_ent_t` |
-| 全局历史 | 256 位环 + 8 位头指针 + 12 个折叠历史（3 种 × 4 张表，每个至多 11 位）；一个跳转推 3 位符号 | `HR_BITS = 256`、`HR_PTR_W`、`FH_K = 3`、`FH_W = 11`、`HSYM_W = 3` |
-| 历史检查点 | 140 位（头指针 8 + 折叠历史 132） | `HHCK_W` |
-| 提交态 RAS | 32 项环形栈 | `RAS_DEPTH = 32` |
-| 投机 RAS | 64 槽只追加队列（栈值 + 指向下一项的链接）+ 读 / 写指针（各 6 位）+ 深度（6 位） | `RASQ_N = 64`、`rptr_t` |
-| RAS 检查点 | 指针 18 位（`tosr`、`tosw`、`cnt`）随块走到后端；栈顶值只在 BPU 内（`ras_ck_t.top`，64 位） | `RCK_W = 18` |
-| 随块走的修复记录 | 纪元 8 位 + 检查点 158 位 = `BCK_W` 166 | `EPOCH_W = 8`、`HCK_W` |
-| 更新队列 | 8 项，每拍至多写 2 组（2 个"领头"），4 个块 bank（32 字节窗口） | `UQ_DEPTH = 8`、`UQ_PORTS = 2`、`NBB = 4` |
-| uBTB 训练队列 | 4 项 | `TQ_DEPTH = 4` |
-| PDCKPT 队列 | 32 项 | `PQ_DEPTH = 32` |
-| 提交口数 | 8 | `NCOMMIT = COMMIT_WIDTH` |
-| PTAB 信用 | `ptab_size + 在途块数 >= PTAB_SIZE - 1` 则 S0 不发射 | `PTAB_SIZE = 16`（`bpu_ctl`） |
-| 快速路径 | `FE_RFAST` 位 0 = 重定向那一拍 S0 就按新 pc 发射；`FE_BFAST = 0` | `ttg_cfg_pkg` |
+| 块 / 槽 | 16 个 2B 槽（32B 块，不跨 64B 行） | `FETCH_WIDTH = 16`、`SLOT_SHIFT = 1` |
+| FTB 每项分支槽 | 4 槽（不交换槽位，含 1b `carried` 标记支持 RVC 跨块 4B 分支/CALL） | `FTB_SLOTS = 4` |
+| S0 uFTB（`ftb0`） | 64 组 × 4 路 = 256 项，12b 标签，20b 目标压缩（`BR_RET` 例外） | `FTB_S0_SETS = 64`、`FTB_S0_W = 4`、`FTB_S0_TAG_W = 12`、`FTB_S0_TGTB = 20` |
+| S1/S2 Main FTB（`ftb1`） | 1024 组 × 4 路 = 4096 项，14b 标签，全宽目标 | `FTB_S1_SETS = 1024`、`FTB_S1_W = 4`、`FTB_S1_TAG_W = 14` |
+| S2 Block-TAGE（`s2_tage`） | 4096 项 × 4 槽 ×（2b 基表 + 4 表×(10b tag + 3b cnt + 2b u)）；1 个 `use_alt` 计数器（`ualt=1`）；每 `2^11` 次更新复位一行 useful | `FTB_TAGE_N = 4096`、`FTB_TAGE_IDX_W = 12`、`FTB_TAGE_TAG_W = 10`、`FTB_TAGE_URST = 11` |
+| S2 Single Block-ITT（`s2_itt`） | 3 表（历史表 1/2/3）× 256 项，10b 标签，2b conf，1b u，全宽目标 | `FTB_ITT_N = 256`、`FTB_ITT_IDX_W = 8`、`FTB_ITT_TAG_W = 10` |
+| 1-Ahead FTB（`aftb`） | 256 组 × 8 路 = 2048 项，由 `key_base` 索引，22b 组合标签 `{key_tag[9:0], cur_tag[11:0]}` | `FTB_AH_SETS = 256`、`FTB_AH_W = 8`、`FTB_AH_TAG_W = 22` |
+| 1-Ahead Block-TAGE（`atage`） | 1024 项 × 4 槽 × 4 表（无独立基表，复用 `aftb` 槽 2b 计数器作基表），10b 标签 | `FTB_AH_TAGE_N = 1024`、`FTB_AH_TAGE_IDX_W = 10` |
+| 1-Ahead Block-ITT（`aitt`） | 3 表 × 256 项，与 `s2_itt` 同结构 | `FTB_ITT_N = 256` |
+| 元数据记录表（`ftb_rec`） | 512 项 1R1W（索引 `blk_id[8:0]`，10b `id` 校验） | `FTB_REC_N = 512`、`FTB_REC_W = 9`、`FTB_BLKID_W = 10` |
+| 提交分支队列（`brq`） | 16 项 FIFO，8 写 1 弹，不反压 ROB | `FTB_BRQ_N = 16`、`FTB_BRQ_W = 4` |
+| 全局历史 / RAS / PDCKPT | 与旧版完全一致（256b 历史环、12 折叠历史、64 槽投机 RAS、32 项提交 RAS、32 项 PDCKPT 增存 `base`） | `HR_BITS = 256`、`RASQ_N = 64`、`RAS_DEPTH = 32`、`PQ_DEPTH = 32` |
 
 ## 3. 接口
 
-| 方向 | 信号组 | 含义 |
-| --- | --- | --- |
-| 入 | `refetch`、`refetch_address`、`refetch_pd` | 全局重取指及地址；`refetch_pd` = 这次重取指来自预译码检查器 |
-| 入 | `icache_read_ready`、`ptab_size` | 取指地址队列未满且 BPU 可走（`bpu_icache_read_ready`）；PTAB 当前占用 |
-| 入 | `rf_valid / rf_ck / rf_epoch / rf_type / rf_pc / rf_is_rvc` | 后端分支误预测带回的修复记录 |
-| 入 | `pd_valid / flush / hv / hbits / ras_op / ras_val / nb_valid / nb_pc` | 上一拍预译码检查的结果（`front_pd_info`，寄存一拍）：是否检查过一个块、是否冲刷、修正后的块推什么、"预测跳但不是分支"的 pc |
-| 入 | `upd_valid / base_pc / actual_dir / upd_is_rvc / br_type / target / pred_dir / alt_pred / pcpn / tags / idxs [NCOMMIT]` | 提交流训练包 |
-| 出 | `icache_read_valid`、`fetch_address` | S0 发射的块（`s0_go`、`s0_base`），写取指地址队列 |
-| 出 | `override_valid`、`override_squash` | S2 覆盖；`squash = ovr & S1 有块`，前端据此丢取指地址队列最年轻项 |
-| 出 | `ptab_write_enable`、`ptab_base_pc`、`predict_next_fetch_address`、`out_pred_dir / alt_pred / pcpn / tage_tags / tage_idxs [16]`、`out_ck`、`out_epoch` | S2 写 PTAB 的内容；`out_ck = {RAS 指针, 历史检查点}` |
-| 出 | `commit_upd_free`、`commit_tq_free` | 更新队列、训练队列的空闲项数（拍初），给紧凑 ROB 做提交信用 |
+`bpu.sv` 顶层端口**与旧版完全保持一致**（零外部端口改动）：
+- `out_tage_idxs[i][0]`（10 位）承载单调块号 `blk_id[9:0]` 随块流经 PTAB / F2B / FTQ / B2F，提交时由 `idxs[i][0]` 原样返回；
+- `out_tage_tags[i][0]` 承载预测时刻 `ftb_ix.tag[0][7:0]`（仅供一致性观测，训练以 `ftb_rec` 为准）；
+- `commit_upd_free`、`commit_tq_free` 恒输出 `4'd15`（与 `FTB_BRQ=2` 一致，不阻塞紧凑 ROB 提交）。
 
 ## 4. 结构
 
+```text
+  pc_q ─► [S0] ah_pipe_q 选择 (aftb 8路比对 + atage + aitt + RAS) / 未命中回退 uFTB (ftb0) ─► g0
+               同时用 (s0_base, s0_fh) 发起下一拍 1-ahead SRAM 读 (aftb/atage/aitt -> ah_pipe_q)
+               bpu_cmd + bpu_spec (投机/提交历史与 RAS)
+          r0 (base, g0, ck, ftb_ix, ah_hit/v/key) ─► [S1] 读 ftb1 + s2_tage + s2_itt；!ah_hit 时 ftb1 可 S1 覆写
+          r1 + r1_raw_q ─► [S2] s2_select (ftb1 + s2_tage + s2_itt + RAS) ─► fin -> PTAB + ftb_rec 写 + S2 覆写
+  提交侧：8 通道控制分支 ─► bpu_ftb_brq (16 项 FIFO, 1 弹/拍 + ftb_rec 1R1W) ─► 单分支 RMW 更新全部 7 张表
 ```
- pc_q ─► [S0] bpu_stage0（16 个 bank 的 TAGE 索引记录）、bpu_ubtb.s0（uBTB 查表 -> 猜测 g0）
-              bpu_cmd（下一 pc、投机历史 / RAS 命令）、bpu_spec（投机 + 提交态 历史 / RAS）
-        r0 (S1 块: base, g0, 检查点) + r0_tix ─► [S1] bpu_banks 读阵列（类型 / TAGE / BTB / ITT） + bpu_ubtb.s1（L1 查表 -> g1）
-        r1 (S2 块) + r1_raw ─► [S2] bpu_banks.TAGE 选择 -> bpu_main_sel（每槽类型 / 方向 / 目标、第一个 taken -> fin）
- bpu_ctl（refetch / ovr / l1_ov / issue 的优先级）   bpu_pdq（PDCKPT 记录）   bpu_updq + bpu_updq_sched（更新队列）
-```
 
-| 文件 | 行数 | 职责 |
-| --- | --- | --- |
-| `bpu.sv` | 276 | 顶层：阶段寄存器 `pc_q`、`r0_q`、`r1_q`、`r0_tix_q`、`r1_tix_q`、`r1_raw_q`、`epoch_q`，子模块连线；FAST 时 S0 看的是重定向后的 pc 和状态 |
-| `bpu_pkg.sv` / `bpu_stage_pkg.sv` / `bpu_btb_pkg.sv` | 108 / 289 / 35 | 常量、类型、历史环和 RAS 的推进函数、索引 / 哈希函数 |
-| `bpu_stage0.sv` | 30 | 对 16 个 bank 算 TAGE 索引记录（`tage_index`：索引 = 折叠历史0 ^ bank pc，标签 = 折叠历史1 ^ 折叠历史2 ^ bank pc） |
-| `bpu_ubtb.sv` | 95 | uBTB（S0）、L1（S1）、训练路径（块跟踪器 → 训练队列 → 一次读改写两个表） |
-| `bpu_ub_tab.sv` / `bpu_ub_look.sv` / `bpu_ub_rmw.sv` / `bpu_ub_tq.sv` | 39 / 83 / 83 / 54 | 表存储（一个查表口、一个训练读口、一个带路掩码的写口）；查表；读改写；训练队列 |
-| `bpu_ub_track_ser.sv` | 224 | 提交序块跟踪器（RVC=1 版，现行） |
-| `bpu_ub_track.sv` | 186 | 提交序块跟踪器的并行版，只在 `RVC_ENABLE == 0` 时例化，现行配置不用 |
-| `bpu_banks.sv` | 111 | 16 个 bank 的主预测器阵列：类型表、TAGE、BTB / ITT；S1 读、S2 TAGE 选择、更新写口 |
-| `bpu_type.sv` / `bpu_type_lane.sv` | 73 / 56 | 类型表（两路，每 bank 一条更新通道）；一个 bank 的命中 / 选择 / 替换 / 更新组合逻辑 |
-| `bpu_tage_bank.sv` / `bpu_tage_pred.sv` / `bpu_tage_upd.sv` | 180 / 49 / 157 | 一个 TAGE bank：阵列与 LSFR、复位计数器、use-alt 计数器；S2 选择（提供者 / 备选 / 弱提供者用备选）；更新决定 |
-| `bpu_btb_bank.sv` / `bpu_btb_sel.sv` / `bpu_btb_upd.sv` | 98 / 50 / 116 | 一个 bank 的 BTB + ITT 阵列；目标选择（间接跳转先 ITT 最长历史命中，再 BTB，否则顺序）；更新 |
-| `bpu_mem.sv` | 47 | 寄存器堆式阵列（异步读、同步写、多读口多写口），读到的是拍初内容 |
-| `bpu_main_sel.sv` / `bpu_main_lane.sv` | 109 / 44 | S2：逐槽的类型、方向、目标，第一个 taken 槽，下一 pc、历史位、RAS 操作 |
-| `bpu_ctl.sv` | 75 | 本拍的决定：`d_valid`、`ovr`、`squash`、`l1_ov`、`issue`、`fast`、`s0_go`、`pd_restore`、`rep_ok` |
-| `bpu_cmd.sv` | 164 | 本拍对投机历史 / RAS 的命令（保持 / 推 / 取检查点再推 / 取提交态再推）和下一 pc |
-| `bpu_spec.sv` / `bpu_hist_vec.sv` | 266 / 80 | 投机和提交态历史与 RAS；一次推入 n 位历史的并行网络 |
-| `bpu_pdq.sv` | 61 | PDCKPT 记录队列 |
-| `bpu_updq.sv` / `bpu_updq_sched.sv` | 139 / 87 | 更新队列；写调度 |
-
-状态：`pc_q`；S1、S2 的块寄存器（`valid`、`base`、猜测 `g`、检查点 `ck`）；S1 / S2 的索引记录（16 个 bank）；S2 的阵列读数据（16 个 bank 的类型 2 路、TAGE、BTB 4 路、ITT 3 张）；`epoch_q`；阵列（uBTB 128 项、L1 512 项、类型表 16 × 1024 项、TAGE 16 × (1024 + 4 × 1024) 项、BTB 16 × 1024 项、ITT 16 × 3 × 64 项）；投机 / 提交历史（各 256 位环 + 头 + 折叠历史）；投机 RAS 队列（64 槽 × (64 位 + 6 位链接)）和指针、提交态 RAS（32 × 64 位 + 指针）；更新队列 8 项；训练队列 4 项和块跟踪器的寄存器（`tr_v`、`tr_expect`、`tr_start`、一位表示余量的独热 `tr_rem`、`tr_cond`）；PDCKPT 队列 32 项（每项一个检查点：历史 140 位 + RAS 18 位指针 + 栈顶 64 位）。
-
-### uBTB / L1 的查表（`bpu_ub_look`）
-
-每路并行算：标签是否匹配（项有效、标签 = 块起点字地址 `>>5`（uBTB）或 `>>8`（L1））；"槽在块内"（槽偏移 × 2 < 块长，块长 = 块终点 - 起点，只取低 8 位比较）；是否预测跳（条件分支要计数器 ≥ 2，其余类型无条件）。候选里**槽最低**的路获胜，同槽取路号小的，成对比较，再一次选择。猜测：命中且有候选则 `taken`，下一 pc = 返回类型且 RAS 非空则 RAS 栈顶，否则项里存的完整目标槽地址 `<< 1`；历史位 = `hsym_of(分支 pc, 下一 pc)`（pc 与目标的 XOR 折叠成 3 位）；调用（CALL / ICALL）压栈，值 = 分支 pc + 指令长度；返回弹栈。没有候选则下一 pc = 块终点，不推历史。
-
-### 块跟踪器与训练（`bpu_ub_track_ser`、`bpu_ub_tq`、`bpu_ub_rmw`）
-
-提交流按提交序重建"每条指令属于哪个取指块"，每个提交口至多产生一个训练事件：taken（跳转，块在此结束，下一块从目标开始）、fall-through（块顺序走到终点，且块里有过条件分支）、预测 taken 实际 not taken（块在 pc + 指令长度重新开始）。RVC 下一个块终点可能落在一条 32 位指令中间，下一块仍从块终点开始，但后一提交口还是它的续接（`tr_expect` = 下一 pc），所以块起点依赖前一口的结果，只能按口串行；现行写法（`7551dd0`）把串行的状态改成"到块终点的余量"（一个小数，独热存），完整地址只放在寄存器里，每口的块起点是几个局部值的选择，口间传递的只剩 8 位量。
-
-事件进训练队列（4 项，每拍弹队首，满了丢新事件），队首事件对 uBTB 和 L1 各做一次读改写（`bpu_ub_rmw`）：块里槽号小于事件槽的条件分支路的计数器减 1（fall-through 事件是全部条件分支路，预测 taken 实际 not taken 的事件含事件槽本身；事件槽自己那一路不减）；taken 事件找槽相同的路更新（条件分支计数器加 1，其他类型置 3），没有就分配（先无效路，否则计数器最小的路），新项的计数器：条件分支 2、其他 3。
-
-### 更新队列（`bpu_updq`、`bpu_updq_sched`）
-
-提交口里的控制指令（类型非 `BR_NONCTL`）按序进更新队列（8 项，满了丢）。每拍调度两个"领头"写：领头 1 = 最老的、块 bank 不被 S1 正在读的块占用的项，同一个 32 字节窗口且 TAGE 索引相同、槽 bank 不冲突的更年轻项合并进同一次写；领头 2 = 剩下的最老的、块 bank 空闲且与领头 1 不同、槽 bank 不被组 1 用的项，同样合并。被调度的项离开队列，同拍出现在槽 bank 的写口上（每个 bank 一个写口）。保留的项保持顺序，新项接在后面；位置用"前缀计数"算（`47f4a7d`）：保留项的新位置 = 它前面的保留项个数。
-
-### 主预测器（`bpu_banks` 及其下）
-
-S1：每个 bank 用 S0 记录好的索引读自己的阵列，读出的原始数据寄存进 S2。S2：TAGE 每 bank 选提供者（命中的最高表）和备选（次高命中表），弱提供者按 use-alt 计数器用备选；类型表按标签选类型，未命中是 `BR_NONCTL`；某槽预测跳 = 类型非 NONCTL 且（RET / CALL / ICALL / IDIRECT / JAL，或 TAGE 预测跳）；目标：间接跳转用 ITT 最长历史命中的表，其余用 BTB 命中，未命中用顺序（该槽 pc + 指令长度）；RET 且检查点里 RAS 非空则用栈顶。第一个 taken 槽给出 `fin`：下一 pc、历史位、RAS 操作。更新：只有条件分支训练 TAGE；所有控制指令训练类型表和 BTB；间接跳转还训练 ITT。预译码发现"预测跳但不是分支"时，`nb_pc` 清类型表里对应项（该 bank 的更新通道必须空闲）。
+| 文件 | 职责 |
+| --- | --- |
+| `bpu.sv` | 顶层：S0/S1/S2 阶段寄存器、`ah_pipe_q[0..1]`、1-ahead 读与选路、S1/S2 覆写与 `blk_seq_q` 分配、子模块连线 |
+| `bpu_types_pkg.sv` | 块级 FTB / 1-ahead 常量、结构体与纯组合函数（索引哈希、`eval_ent`、`upsert_branch`、`tage_select`、`itt_select`）；命名排在 `bpu_stage_pkg.sv` 之后满足 `rtl_files.sh` 字典序编译 |
+| `bpu_ftb_arrays.sv` | 7 张预测阵列容器（`u_ftb0`、`u_ftb1`、`u_s2_tage`、`u_s2_itt`、`u_aftb`、`u_atage`、`u_aitt`） |
+| `bpu_ftb_tab.sv` | 参数化组相联 FTB 表（复用实现 `ftb0`、`ftb1`、`aftb`：1 读口 + 1 单分支 RMW 写口 + 可选预译码清槽） |
+| `bpu_ftb_tage.sv` | 参数化 4 槽 Block-TAGE（复用实现 `s2_tage` 与 `atage`：1 预测读口 + 可选训练读口 + 1 单槽更新写口 + LFSR / 周期复位 / `use_alt`） |
+| `bpu_ftb_itt.sv` | 单块 3 表 Block-ITT（复用实现 `s2_itt` 与 `aitt`：1 读口 + 1 更新写口） |
+| `bpu_ftb_brq.sv` | 16 项 1-branch/cycle 提交队列 + 512 项 1R1W `ftb_rec` 元数据表 |
+| `bpu_pkg.sv` / `bpu_stage_pkg.sv` | 共享常量与阶段类型（更新 `blk_t`，删除 16-bank `raw_all_t` / `tix_all_t`） |
+| `bpu_ctl.sv` / `bpu_cmd.sv` | 优先级控制（`l1_ov` 增 `!r0.ah_hit`）与投机历史/RAS 命令 |
+| `bpu_spec.sv` / `bpu_hist_vec.sv` | 投机与提交态历史环、折叠历史与 RAS（完全复用） |
+| `bpu_pdq.sv` | PDCKPT 队列（增存 `base` 供 `pd_nb_pc` 假分支清槽） |
 
 ## 5. 一拍内的数据流
 
-优先级 **refetch > S2 覆盖（ovr） > L1 覆盖（l1_ov） > S0 发射**（`bpu_ctl`）。
-
-1. **S2 决定**：`d_valid = r1.valid & !refetch`；`ovr = d_valid & pred_differs(fin, r1.g)`（比较下一 pc、是否 taken、历史位、RAS 操作和压栈值）；`squash = ovr & r0.valid`。`d_valid` 时块写 PTAB（`ptab_write_enable`），其检查点进 PDCKPT 队列。
-2. **S1 的 L1 比较**：`l1_ov = !refetch & !ovr & r0.valid & g1.hit & pred_differs(g1, r0.g)`；成立时 `r1_d.g = g1`，S0 本拍不发射，投机状态恢复到 S1 块的检查点再推 g1。
-3. **S0 发射**：`issue = !refetch & !ovr & !l1_ov & icache_read_ready & !ptab_stall`；`ptab_stall = icache_read_ready & (ptab_size + r0.valid + r1.valid >= PTAB_SIZE - 1)`（在途的块算占用，PTAB 不会溢出）。FAST（`FE_RFAST` 位 0）时重定向那一拍也发射：`fast = icache_read_ready & refetch`，不看 `ptab_stall`；这一拍 S0 查的是重定向后的 pc、用恢复之后的历史和 RAS（`s0_base = pc1`、`spec1_*`），所以重取指没有额外的一拍。
-4. **修复（refetch 时）**：`pd_restore = refetch & refetch_pd & pd_valid & pd_flush & pdq_have`：取 PDCKPT 队首的检查点，再推修正后块的历史符号 / RAS 操作；否则 `rep_ok = refetch & rf_valid & rf_epoch == epoch_q`：取后端带回的检查点（历史 + RAS 指针），再推这条分支自己的结果（条件分支：目标不是顺序下一 pc 才推，符号 `hsym_of(rf_pc, refetch_address)`；类型 CALL / ICALL 压栈 `rf_pc + 指令长度`，RET 弹栈）；否则（没有记录或纪元不符）装载提交态历史和由提交态栈重建的 RAS，纪元加 1。
-5. **投机状态命令**（`bpu_cmd` → `bpu_spec`）：一拍恰好一个命令，模式 HOLD / PUSH / CK / ARCH；FAST 时 S0 的推入是在命令之后的第二步（`h2_*`、`r2_*`）。下一 pc：refetch 取重定向地址，ovr 取 `fin.next`，l1_ov 取 `g1.next`，发射取 `g0.next`。
-6. **阶段寄存器**：`r0 ← {s0_go, s0_base, g0, s0_ck}`；`r1 ← r0`，有效位 `r0.valid & !refetch & !ovr`，`l1_ov` 时 `g ← g1`；`r1_raw ← S1 读数据`；索引记录随块移动。
-7. **提交侧**（与上面并行）：`bpu_spec` 把提交的跳转符号（每拍至多 8 个 × 3 位）一次压进提交态历史（`bpu_hist_vec`），提交的 CALL / ICALL / RET 推弹提交态 RAS；更新队列、块跟踪器如上。
+优先级保持 **refetch > S2 覆写（ovr） > S1 覆写（l1_ov，仅 `!r0.ah_hit`） > S0 发射**：
+1. **S0 发射（`s0_go`）**：
+   - 若 `refetch`：`ah_pipe_q[0..1].valid` 视作无效，S0 用 `ftb0` 查 `refetch_address`；随后向 `ah_pipe_q[0]` 写入以 `(refetch_address, spec1_fh)` 读出的 1-ahead 原始数据；
+   - 非 `refetch` 正常发射：若 `ah_pipe_q[0].valid` 且 `aftb` 8 路标签命中 `s0_base`，则 `g0` 来自 1-ahead（`ah_hit = 1`），否则回退 `ftb0`（`ah_hit = 0`）；同时 `ah_pipe_q[1] <= ah_pipe_q[0]`，`ah_pipe_q[0]` 装载本拍以 `(s0_base, s0_fh)` 读出的 1-ahead 原始数据。
+2. **S1（`r0_q`）**：读 `ftb1`、`s2_tage`、`s2_itt` 锁入 `r1_raw_q`；当 `!refetch && !ovr && r0_q.valid && !r0_q.ah_hit && s1_ftb_hit && pred_differs(g1, r0_q.g)` 时触发 `l1_ov`，保留 `ah_pipe_q` 不动（`ah_pipe_q[0]` 正好是 `r0_q` 本身的前驱数据，下一拍 `g1.next` 立即可命中 1-ahead！）。
+3. **S2（`r1_q`）**：用 `r1_raw_q` 选出 `fin` 写 PTAB 与 `ftb_rec[blk_seq_q[8:0]]`；若 `ovr`，作废 `r0_q`，并按 `ah_pipe_q[1].key_base == r1_q.base` 恢复 `ah_pipe_q[0] <= ah_pipe_q[1]`（否则清零无效）。
+4. **提交训练（并行）**：`brq` 队首 1 条控制分支查 `ftb_rec[blk_id[8:0]]`，若 `rc.valid && rc.id == blk_id` 且 PC 在块内（含 `pc + 2 == rc.base` 的 `carried` 槽 0），则同拍向全部预测表发起单分支 RMW 写（拍末生效）；预译码 `pd_nb_valid` 同拍在训练写之后（或独立组上）清除假分支槽。
 
 ## 6. 关键路径与深度
 
-`depth: 待测（由协调者补）`。已测的单模块数字（通用门级代理，层数）：
-
-| 模块 | 层数 | 说明 |
-| --- | --- | --- |
-| `bpu_ub_track_ser` | 97 | 改写前 528 |
-| `bpu_updq` | 90 | |
-| `bpu_ub_look` | 29 | 改写前 75 |
-| `bpu_spec` | 91 | 含 `bpu_hist_vec` |
-| `bpu_cmd` | 24 | |
-| `front_top`（整个前端） | 132 | **uBTB 查表改写之前**；路径在 BPU 内：S1 阶段寄存器 → uBTB 查表 → override / 发射判定 → 投机历史更新 |
-
-从代码读出的，未综合验证：BPU 里有两个"环"。一个是 S0 环：`pc_q`（或 FAST 时的 `pc1`，它本身是 `refetch / ovr / l1_ov` 的选择）→ `bpu_ub_look` → `g0` → `bpu_cmd`（`h2_*` 推入、`pc_d`）→ `bpu_spec` 的次态。另一个是 S1/S2 决定：`r0_q / r1_q`、阶段读数据 → `bpu_main_sel`（16 路并行的类型 / 方向 / 目标 + 第一个 taken 的 `first_set` + 64 位目标选择）→ `fin` → `pred_differs` → `ovr` → 回到 `r1_d`、`pc_d`、投机历史命令、取指地址队列的 `fa_drop_tail`。前端整体 132 层的那条路径属于第一个环的前身。`bpu_spec` 的 91 层主要是并行压入 24 位历史和两份 RAS 的读改写。
-
-深度相关的改动（均不改变周期，每次都有 fm_gate 67/67 周期相等和 lint 0）：
-
-| 改动 | 提交 | 作用 |
-| --- | --- | --- |
-| `bpu_ub_track_ser` 低深度改写 | `7551dd0` | 528 → 97；串行状态用"到块终点的余量"（独热）代替 64 位地址，地址比较只用车道输入和 `tr_expect`，块起点是局部值的选择 |
-| `bpu_updq` 用前缀计数压缩 | `47f4a7d` | 保留项新位置 = 前面的保留项数，不再用运行下标；深度 90 |
-| `bpu_ub_look` 低深度查表 | `2c76ba2` | 75 → 29；每路并行算候选和结果，槽最低者成对比较后一次选择 |
+在 `eda-06` 上按 `main` 同口径完成 Yosys 面积与逻辑级数代理综合（`SYNTH_LIGHT=1 SYNTH_MEM=1 SYNTH_LTP=1 SYNTH_NO_MEMPRIO=1 SYNTH_ABC="strash;balance;map"`，64 GB 内存上限）：
+- **`bpu`**：**`274,811 cells` / `131 layers`**（对比 `main` 16-bank BPU `549,458 cells` / `134 layers`：单元数 **−50.0%**，深度 **−3 层**，含 115 个 `$mem_v2` 存储块）；
+  - 最长拓扑路径为 `u_spec.aras_q[5] → u_spec.spec_d[49]`（131 层，原有 `FE_RFAST` 重定向刷新路径），新增的 1-ahead FTB / Block-TAGE / Block-ITT / BRQ 逻辑均不在关键路径上；
+- **`front_top`**：**`898,333 cells` / `153 layers`**。
 
 ## 7. 与模型的差异和取舍
 
-模型里有、RTL 里有意没有复刻的：
-
-- `FE_PAIR`（一拍取两块，默认关）整套：第二块的查表、`b2`、`pair` 字段、`rec2`；
-- uBTB / L1 项里的 `nd_t`、`nd_nt`、`taken` 字段（taken 路径历史下无用）：RTL 的项没有；
-- 类型表项里的 2 位置信计数器（只被从不使用的输出读）：RTL 不存；
-- SC-L / 循环预测器：没有，TAGE 的提供者恒"被使用"；
-- 模型的 `rec_[256]`（按块序号存修复记录）：RTL 把检查点随块带到后端 FTQ，块在途期间两者等价（序号与 pc 的校验在 RTL 里按构造恒成立）；
-- 调试输出（`hp`、`HP_TRACE`）、PMU 的 `pmu_l1_ovr / pmu_ptab_stall`、`warm_commit` 一族（快速预热回放）、`dump_hist`：RTL 不含；
-- PDCKPT 队列：模型 `PQ = 64`，RTL `PQ_DEPTH = 32`；溢出时 RTL 静默丢新记录（`bpu_pdq` 的 `do_push` 条件）。占用不会超过 PTAB 项数加在途块数（≤ 18）这一点是旧文档的说法，见下面的未核对。
-
-RTL 与模型保持一致的细节：
-
-- 投机 RAS 是只追加队列：压栈写新槽并记下它下面那项的链接，弹栈只移动读指针，所以检查点只需保存指针，恢复精确（环形栈在"弹出后错误路径压栈"时会覆盖栈顶下面的项）；
-- 纪元：每次把投机历史整体换成提交态（`refetch & !pd_restore & !rep_ok`）就加 1，之前发出的检查点因此失效（历史环被重新定基），修复记录的纪元不符就退回提交态；
-- 一个块的检查点是"这个块 S0 推入之前"的状态，覆盖 / 修复时先恢复到它再推新结果。
-
-两处需要注意（代码里看到的，没有改）：
-
-- `bpu_ub_look` 查表的目标：已改为完整宽度（项里存的目标槽地址直接 `<< SLOT_SHIFT`，与模型 `ub_expand` 一致；之前用低 32 位加块起点高 32 位，内核↔用户跨 4 GiB 的跳转会预测成错地址，Linux 窗口 s09/s11 对齐时发现，修复来自 `exp/ldq-resp-epoch` 的 `bfe8a1a`）。
-- `bpu_pkg.sv` 里 `NLANE` 的注释还写着 "(8)"，现值是 16（`FETCH_WIDTH`）；`bpu_pkg.sv` 头注释说"ttg_cfg_pkg 不导出 BPU 专用宏"，所以 `TN`、`T_IDX_W` 等是手工写的，与 `frontend_feature_config.h` 的一致性靠 `docs/analysis/tools/widths.cpp` 检查，本轮没有重跑。
-
-`FE_BFAST != 0` 的分支（`bpu_cmd`、`bpu_ctl`、`bpu_spec`、`fetch_addr_fifo` 的 `WR_AFTER_DROP`）在现行配置下不会被综合进来，模型里该开关也已删除（`BPU_pipe.h` 注释），这些代码没有被任何门禁覆盖。
-
-未核对（继承自旧文档 docs/analysis/bpu-pipe-rtl.md 与旧 bpu.md）：
-
-- PDCKPT 队列"实际占用不超过 PTAB 16 + 在途 2"；
-- 模型与零气泡设计的性能对比（coremark 慢 16–18 %、30 点 SPEC 几何平均 +1.9 % 等）和第 4 节的综合单元 / 层数表：是分支时期的数字，本轮没有复现，大部分已被后来的改写取代；
-- "没有跑 Linux"：当时的状态，现在 Linux 门禁在用，见下节。
+- 与 `trace-model` 默认配置（EXP-050 里程碑 A 已合入默认，无需任何环境变量；原实验参数为 `ah1_4k_a2k1k` + `FTB_BRQ=2`）逐拍逐位对齐；
+- `ftb_rec` 为 512 项（索引 `blk_id[8:0]`，10 位 `id` 校验），与模型 `FTB_BRQ=2` 一致；在途块数（PTAB 16 + F2B 8 + FTQ 64/128 + BRQ 16 ≤ 168）远小于 512，无覆盖风险；
+- `FTB_S1_DIR=0`（删 `S1 mini-TAGE`）、`FTB_OVR_FAST=0`（无同拍组合旁路），与选定的 `ah1_4k_a2k1k` 规格完全一致。
 
 ## 8. 验证
 
-- **门禁**：`scripts/fm_gate.sh` 67 个程序，周期对 `scripts/ref_cycles_memiq6_nr_int2_ev5.txt`：67/67 通过，周期逐个相等。预测错一次就会改变取指时序，所以周期逐个相等对 BPU 是很强的检验。`itt-dispatch`（间接跳转表，ITT 路径）、`coremark`、`dhrystone`、`recursion`、`quick-sort`、`switch` 等分支密集的程序在内。
-- **指纹**：`scripts/align_check.sh` / `align_check.py`：模型和 RTL 各自按 bin 记 PT（写 PTAB 的块：基址、预测下一地址、方向掩码）和 UP（更新队列写预测表的项）的计数和哈希，指出第一个分歧的区间和事件（RTL 侧 `tb/soc/fpr.h`，模型侧 `front-end/BPU/fpr.h`）。这是 BPU 的"逐事件"检查，比周期更早发现差异。
-- **Linux**：`scripts/linux_gate.sh`（整机，每区间 PMU 一级事件相同）、`scripts/linux_segments_cmp.sh`（检查点窗口，PT / UP 指纹相同）。
-- **Lint**：`scripts/lint_chip.sh` 0 告警。
-- **没有 BPU 的模块级独立测试**。深度改写的等价性用的是"新旧模块随机并排"：`bpu_ub_track_ser` 3000 万拍（含 150 万 fall-through、1000 万预测 taken 实际 not taken、8200 万 taken 事件）、`bpu_updq` 2000 万拍（故意在满队列截断里种一个错，3.8M 拍时被抓到）、`bpu_ub_look` 3000 万个用例（种的两个错：平局规则 1.1M、边界比较 0.67M 时被抓到），`front_fetch_buf` 的起点扫描对每个有效前缀穷举；**这些测试台在草稿目录里，不在仓库里**。**待补**：把它们收进 `tb/`（`bpu_ub_track_ser`、`bpu_updq`、`bpu_ub_look` 各一个"新旧并排"随机测试），后续改深度时直接用；`bpu_spec` / `bpu_hist_vec`（对逐位推入函数的随机对拍，旧文档说做过）也要补回来。
+全部在 `rtl/ftb-bpu` 分支实测通过（Verilator 5.052，`SOC_XLEN=64 SOC_FM=1`）：
+- **静态检查**：`scripts/lint.sh rtl/frontend/bpu`（15 文件）**0 warnings / 0 errors**；`scripts/lint_chip.sh` **0 warnings / 0 errors**；
+- **裸机逐条 + 逐周期等价（`scripts/fm_gate.sh`）**：**67/67 PASS，0 FAIL，0 SKIP，0 FM 不一致，0 周期偏差**（`coremark` `275,332 == 275,332`，较 `main` `290,676` **−5.28%**；`dhrystone` `102,229 == 102,229`，较 `main` `108,907` **−6.13%**；`itt-dispatch` `208,168 == 208,168`，**−3.36%**）；
+- **逐事件指纹验证（`FPR=1000`）**：`coremark` 上 `PT` 指纹 **276/276 bins 全等**、`UP` 指纹 **276/276 bins 全等**；
+- **`rv64gc` + `Sv39` Linux 26 段检查点对齐（`eda-08`/`eda-09`，`s01..s26`，每段 400 万周期，合计 1.04 亿周期）**：
+  - 累计验证 **132,473,668 条真实 Linux 指令**，**26/26 段全部 PASS、0 Function-Model 不一致**；
+  - **26/26 段全程 400 万周期 `PT`（103,974 / 103,974 bins）与 `UP`（103,144 / 103,144 bins）指纹 0 差异**（同步修复了 `trace-model` `LsuPipeInternal.h::ms_load_value` 未对 `m.atnt=1` 旧物理地址 store 做 STLF 前递的既有建模缺口，消除原 `s10`/`s15` 两处分叉）；
+- **Yosys 综合（`eda-06`）**：`bpu` `274,811 cells`（−50.0%）/ `131 layers`，`front_top` `898,333 cells` / `153 layers`。
 
 ## 9. 参数与开关速查
 
-`bpu_stage_pkg`：`UB_WAYS`、`UB_SET_W`、`L1_WAYS`、`L1_SET_W`、`UB_TAG_W`、`HSYM_W`、`HR_BITS`、`NBB`、`UQ_DEPTH`、`UQ_PORTS`、`TQ_DEPTH`、`PQ_DEPTH`、`NITT`、`ITT_IDX_W`、`ITT_TBL`、`EPOCH_W`；`bpu_pkg`：`TP_*`、`TN`、`T_IDX_W`、`T_TAG_W`、`T_BASE_W`、`B_*`、`RAS_DEPTH`、`RASQ_N`；`ttg_cfg_pkg`：`FE_RFAST`、`FE_BFAST`、`RVC_ENABLE`、`FETCH_WIDTH`、`COMMIT_WIDTH`、`PTAB_SIZE`、`XLEN_BITS`。模型侧这些是固定设计（`BPU_pipe.h` 的 `constexpr`），没有运行期开关。
+全部主参数集中在 `bpu_types_pkg.sv`（`FTB_SLOTS`、`FTB_S0_*`、`FTB_S1_*`、`FTB_S2_TAGE_*`、`FTB_ITT_*`、`FTB_AH_*`、`FTB_REC_*`、`FTB_BRQ_*`）与 `bpu_stage_pkg.sv`（历史/RAS/PDCKPT）。
 
 ## 10. 变更记录
 
-- 2026-11-17/18（exp/agu-share）：`7551dd0` 块跟踪器低深度重写；`47f4a7d` 更新队列压缩；`2c76ba2` uBTB 查表低深度；`4eb8f0e` 取指地址队列在 push 后一拍才弹出（与 BPU 末级覆盖解耦，见 front_fifos.md）。
-- 2026-11-12：流水化 BPU（S0 / S1 / S2）合入 main（旧文档的说法），ITT 改为每 bank 3 张表 × 64 项（EXP-025）；检查点加宽到 158 位（`docs/analysis/bpu-pipe-rtl.md` 第 5 节，2026-11-15）。
-- 更早：见 git 历史。
+- 2026-11-21（`rtl/ftb-bpu`，EXP-050 里程碑 A 完成）：按文档先行完成 7 个块级 1-Ahead FTB SV 模块实现并删除 22 个旧 16-bank 文件；通过 `lint_chip` 0 警告、`fm_gate` 67/67（0 周期偏差）、`rv64gc` Linux 26/26 全量检查点 1.325 亿指令 0 FM 错误且 100% PT/UP 指纹 0 差异与 Yosys 综合（`bpu` 单元数 549,458 → 274,811，−50.0%，深度 134 → 131）。

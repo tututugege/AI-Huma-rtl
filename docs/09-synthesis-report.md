@@ -234,8 +234,8 @@ rv32 配置包（改动时在旧基线 `15af4b4` 上测）：`tlb_mmu` 159 → 6
 | 前端 | `fetch_addr_fifo` | 122 | 13 | 1s | 与旧版 13 层一致 |
 | 前端 | `icache` | 312,314 | 70 | 66s | EXP-045 SRRIP 后 69 → 70 层 |
 | 前端 | `predecode` | 11,780 | 29 | 2s | 与旧版 29 层一致 |
-| 前端 | `bpu` | 549,458 | **134** | 3068s | 需开 `SYNTH_NO_MEMPRIO=1`；路径：`u_spec.aras_q[5]` → `u_spec.spec_d[49]` |
-| 前端 | `front_top` | **TIMEOUT** | **TIMEOUT** | 3600s | 开 `SYNTH_NO_MEMPRIO=1` 后绕过 `OPT_MEM_PRIORITY`，但含 `bpu`（51 min）整块超过 3600s |
+| 前端 | `bpu` | 274,811 | **131** | 514s | **EXP-050 块级 1-Ahead FTB**：较旧 16-bank（549,458 / 134 层 / 3068s）单元数 **−50.0%**，最长路径仍在既有 `u_spec.aras_q[5]` → `u_spec.spec_d[49]` |
+| 前端 | `front_top` | 898,333 | **153** | — | **EXP-050 后首次在 3600s 内顺利出数**（原 16-bank BPU 下超时） |
 | 访存 | `axi_cpu_port_adapter` | 222 | 9 | 1s | 与旧版 9 层一致 |
 | 访存 | `axi_interconnect` | 106,685 | 53 | 15s | EXP-048 MSHR/RQD 8→16 后 37 → 53 层 |
 | 访存 | `axi_llc_bop` | 5,608 | **291** | 2s | **EXP-048 新增**：`best_q` → `replace_alu` → `q_line_q` |

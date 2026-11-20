@@ -25,10 +25,10 @@
 
 | 模块 | RTL（文件/行） | 深度 |
 | --- | --- | --- |
-| [bpu](modules/bpu.md) | 31/3464 | 134 层 |
+| [bpu](modules/bpu.md) | 15/2626 | 131 层 |
 | [front_ctrl](modules/front_ctrl.md) | 1/59 | 5 层 |
 | [front_fifos](modules/front_fifos.md) | 1/108 | 13 层 |
-| [front_top](modules/front_top.md) | 3/760 | 待测 |
+| [front_top](modules/front_top.md) | 3/760 | 153 层 |
 | [icache](modules/icache.md) | 12/1184 | 70 层 |
 | [predecode](modules/predecode.md) | 1/30 | 29 层 |
 
@@ -56,4 +56,4 @@
 | [pmu](modules/pmu.md) | 3/364 | 90 层 |
 | [soc_top](modules/soc_top.md) | 1/153 | 待测 |
 
-合计（各文档的目录有重叠时会重复计数）：299 个文件，37198 行。
+合计（各文档的目录有重叠时会重复计数）：283 个文件，36360 行。

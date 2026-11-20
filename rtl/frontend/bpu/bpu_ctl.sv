@@ -44,12 +44,12 @@ module bpu_ctl import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*
   localparam bit BF_L1 = (FE_BFAST & 1) != 0;
   localparam bit BF_SD = (FE_BFAST & 2) != 0;
 
-  // Ref: decide / l1_override
+  // Ref: decide / l1_override (FTB_AH_ONLY=1: skip S1 override when S0 hit 1-ahead)
   always_comb begin
     d_valid = r1.valid && !refetch;
     ovr     = d_valid && pred_differs(fin, r1.g);
     squash  = ovr && r0.valid;
-    l1_ov   = !refetch && !ovr && r0.valid && g1.hit && pred_differs(g1, r0.g);
+    l1_ov   = !refetch && !ovr && r0.valid && !r0.ah_hit && g1.hit && pred_differs(g1, r0.g);
   end
 
   // Ref: comb, S0 credit: blocks in flight count against the PTAB

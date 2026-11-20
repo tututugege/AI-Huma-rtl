@@ -3,8 +3,8 @@ module: front_top
 area: frontend
 rtl: rtl/frontend/front_top（front_top.sv、front_fetch_buf.sv、front_pred_path.sv）
 model: trace-model front-end/front_core.h 的 `FrontCore`（各调度单元 `front.core.*` 的连线 `FrontCore::FrontCore` 和阶段顺序 `FrontCore::comb`）；指令起点扫描对应 front-end/front_top.cpp 的 `InstPort::comb_write`（调度单元 `front.core.inst_port`）
-status: 整核周期与模型逐个相等（fm_gate 67/67，参考 scripts/ref_cycles_memiq6_nr_int2_ev5.txt）
-depth: 待测（由协调者补）
+status: 整核周期与模型逐个相等（fm_gate 67/67，参考 scripts/ref_cycles.txt）
+depth: 153 层 / 898,333 cells（Yosys 通用门代理 `SYNTH_ABC="strash;balance;map" SYNTH_NO_MEMPRIO=1`，EXP-050 块级 1-Ahead FTB 后首次在 3600s 内完成）
 ---
 
 # front_top 设计文档

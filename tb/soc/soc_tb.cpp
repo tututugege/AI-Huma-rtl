@@ -424,16 +424,14 @@ long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
           fpr::pt(R->soc_top__DOT__u_core__DOT__u_front__DOT__u_front__DOT__u_pred_path__DOT__bpu_ptab_base_pc,
                   R->soc_top__DOT__u_core__DOT__u_front__DOT__u_front__DOT__u_pred_path__DOT__bpu_predict_next_fetch_address,
                   R->soc_top__DOT__u_core__DOT__u_front__DOT__u_front__DOT__u_pred_path__DOT__bpu_pred_dir);
-        const unsigned ap = R->soc_top__DOT__u_core__DOT__u_front__DOT__u_front__DOT__u_pred_path__DOT__u_bpu__DOT__u_updq__DOT__apply;
-        for (int i = 0; i < 8; ++i) {
-          if (!((ap >> i) & 1)) continue;
-          const auto &w = R->soc_top__DOT__u_core__DOT__u_front__DOT__u_front__DOT__u_pred_path__DOT__u_bpu__DOT__u_updq__DOT__uq_q[i];   // upd_ent_t, 146 bits for rv32 (see bpu_stage_pkg)
+        if (R->soc_top__DOT__u_core__DOT__u_front__DOT__u_front__DOT__u_pred_path__DOT__u_bpu__DOT__u_brq__DOT__upd_en) {
+          const auto &w = R->soc_top__DOT__u_core__DOT__u_front__DOT__u_front__DOT__u_pred_path__DOT__u_bpu__DOT__u_brq__DOT__upd_br;
           auto bits = [&](int lo, int n) { uint64_t v = 0; for (int b = 0; b < n; ++b) { const int k = lo + b; v |= uint64_t((w[k / 32] >> (k % 32)) & 1u) << b; } return uint32_t(v); };
-          // upd_ent_t, LSB first: rvc[0] idx[40] tag[32] pcpn[3] tgt[XLEN] ty[3] alt pred dir pc[XLEN]
-          constexpr int oTgt = 76, oTy = oTgt + kXlen, oAlt = oTy + 3, oPred = oAlt + 1, oDir = oPred + 1, oPc = oDir + 1;
-          uint64_t idxp = 0; uint32_t tagp = 0;   // the TAGE indices (bits 1..40, 10 each) and tags (41..72, 8 each): packed as the model does
-          for (int t = 0; t < 4; ++t) { idxp |= uint64_t(bits(1 + 10 * t, 10)) << (10 * t); tagp |= bits(41 + 8 * t, 8) << (8 * t); }
-          fpr::up(bits(oPc, 32), bits(oDir, 1), bits(oTy, 3), bits(oTgt, 32), bits(oPred, 1), bits(73, 3), bits(0, 1), idxp, tagp);   // pc / target: low 32 bits (the model hashes the same)
+          // ftb_br_upd_t, LSB first: target[kXlen] pcpn[3] alt[1] pred[1] dir[1] ty[3] rvc[1] carried[1] offset[4]
+          const uint32_t pc32    = uint32_t(R->soc_top__DOT__u_core__DOT__u_front__DOT__u_front__DOT__u_pred_path__DOT__u_bpu__DOT__u_brq__DOT__upd_pc);
+          const uint32_t start32 = uint32_t(R->soc_top__DOT__u_core__DOT__u_front__DOT__u_front__DOT__u_pred_path__DOT__u_bpu__DOT__u_brq__DOT__upd_start);
+          fpr::up(pc32, bits(kXlen + 5, 1), bits(kXlen + 6, 3), bits(0, 32), bits(kXlen + 4, 1), bits(kXlen, 3),
+                  bits(kXlen + 9, 1), uint64_t(start32), (bits(kXlen + 10, 1) << 4) | bits(kXlen + 11, 4));
         }
       }
       {  // PMU event bus (EXP-013 tier 1): sum every lane; printed at the end, compared with the trace-model's PMU=1 totals
