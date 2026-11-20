@@ -4,7 +4,7 @@ area: memsys
 rtl: rtl/memsys/dcache/dcache_pf.sv
 model: trace-model MemSubSystem/include/DataPrefetcher.h（类 `DataPrefetcher`，`RealDcache` 的成员 `pf`，没有自己的调度单元；它的 `seq()` 由 `RealDcache::seq()` 调用）
 status: 整核周期与模型逐个相等（fm_gate 67/67，参考 scripts/ref_cycles_memiq6_nr_int2_ev5.txt）
-depth: 74 层（dcache_pf，单模块综合，2026-11-18，`SYNTH_ABC="strash;balance;map"`，生成门代理，见第 6 节）
+depth: 384 层（dcache_pf，EXP-048 硬件 Berti，单模块综合，2026-11-20，`SYNTH_ABC="strash;balance;map"`，生成门代理，见 09-synthesis-report 第 12 节）
 ---
 
 # dcache_pf 设计文档

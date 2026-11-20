@@ -191,3 +191,85 @@ rv32 配置包（改动时在旧基线 `15af4b4` 上测）：`tlb_mmu` 159 → 6
 - TLB 剩下的最长路径：查表（约 33 级）→ A 选择 → `a_ok` → B 选择 → `walk_q` 的 D 端；A→B 是语义本身的依赖（B 要知道 A 有没有让 walk 退休）。再往下要靠改结构（例如查表结果打一拍、或者限制 walk 只由 load 口启动），会改变周期，不在本次范围。
 - first_set 的前缀或在宽向量上多用面积（`isu_alloc_chain` +1.5k、`isu_iq_select` +0.6k 单元/实例），换来深度下降。真实综合工具通常也会把 `req & -req` 映射成快速进位，所以这里的深度下降对 first_set 部分是**代理的偏差被修正**，对 TLB 的串行链部分是实打实的结构改进。
 - 仍然没有工艺库和时序约束（不是 WNS）。
+
+## 12. 2026-11-20 全模块综合基准（`main` `6e2d188`，含 EXP-048）与 Yosys 参数规范
+
+### 12.1 权威综合参数与避坑记录
+
+- **工具与路径（`eda-04` ~ `eda-10` 集群共享 NFS）**：
+  - `yosys`：`/nfs_global/S/houruyao/tools/oss-cad-suite/bin/yosys`（`Yosys 0.71+52`）
+  - `slang.so`：`/nfs_global/S/houruyao/tools/oss-cad-suite/share/yosys/plugins/slang.so`
+- **正式口径环境变量**：
+  ```bash
+  export SLANG_OPTS="--unroll-limit 100000 -Wno-error=index-oob"
+  export SYNTH_LIGHT=1 SYNTH_MEM=1 SYNTH_LTP=1
+  export SYNTH_ABC="strash;balance;map"
+  ```
+- **关键避坑（ABC `dc2` 级数虚高）**：
+  - `scripts/synth_depth.sh` 默认 `SYNTH_DEPTH=1` 对应的 ABC 脚本为 `strash;balance;dc2;balance;map`，其中 **`dc2` 会把加法器/比较器重写成长串行进位链，将算术路径深度虚高 2~4 倍**。
+  - 同日实测对照（`eda-04`）：
+    - `bru`：含 `dc2` 为 **98 层**（1,908 单元）→ 去掉 `dc2`（`SYNTH_ABC="strash;balance;map"`）为 **28 层**（1,872 单元）→ 再加 `SYNTH_ADDER=kogge-stone` 为 **25 层**（3,263 单元）。
+    - `mul_unit`：含 `dc2` 为 **90 层**（35,142 单元）→ 去掉 `dc2` 为 **31 层**（39,993 单元）。
+  - 因此后续全模块深度评估**一律强制传 `SYNTH_ABC="strash;balance;map"`**（与 `WORKFLOW.md` §7.2 和 `scripts/fill_depth.py` 口径一致）；不设 `SYNTH_ADDER` 以保持与既有模块文档直接可比。
+- **看门狗与运行隔离**：大模块放宽单进程看门狗至 `MAXMB=48000`、`TMO=3600`；各模块在计算节点本地 `/tmp` 独立工作目录执行，结果回传 NFS（`/nfs_global/S/houruyao/rtl_synth_work/res_20261120/`）。
+
+### 12.2 全模块综合结果（`rtl` `6e2d188`，rv64gc 默认配置）
+
+| 区域 | 模块 | 单元数 (`cells`) | 深度 (`depth`) | 耗时 | 备注 / 关键路径线索 |
+|---|---|---:|---:|---:|---|
+| 后端 | `csr` | 8,483 | 29 | 4s | 与旧版 29 层一致 |
+| 后端 | `dispatch` | 186,536 | 56 | 101s | 与旧版 56 层一致 |
+| 后端 | `exu_ctrl` | 20,133 | 17 | 22s | 与旧版 17 层一致 |
+| 后端 | `exu` | 219,040 | 73 | 132s | 含 `exu_ctrl` 及全部 FU，与旧版 73 层一致 |
+| 后端 | `idu` | 31,665 | 67 | 18s | 与旧版 67 层一致 |
+| 后端 | `isu` | 948,982 | 90 | 266s | 100 层内 |
+| 后端 | `lsu` | 1,227,891 | **101** | 475s | `pl12_q` → `u_ldq.g_e[30].u_ent.st_d` |
+| 后端 | `pre_idu_queue` | 123,508 | 39 | 35s | 与旧版 39 层一致 |
+| 后端 | `prf` | 679,466 | 27 | 157s | EXP-046 写口压缩后 36 → 27 层 |
+| 后端 | `ren` | 474,613 | **111** | 181s | `inst_q` → `u_fp.u_ckpt.entry_q`（超 100 层） |
+| 后端 | `rob` | 466,029 | 64 | 86s | 100 层内 |
+| 后端 | `tlb_mmu` | 46,624 | 61 | 12s | 100 层内 |
+| 后端 | `back_top` | 3,998,654 | **142** | 2516s | `u_lsu.u_pipe.u_core.u_ldq.g_e[17].u_ent.st_q` → `u_lsu...u_rp.srp_ptr_q` |
+| 前端 | `front_ctrl` | 151 | 5 | 1s | 与旧版 5 层一致 |
+| 前端 | `fetch_addr_fifo` | 122 | 13 | 1s | 与旧版 13 层一致 |
+| 前端 | `icache` | 312,314 | 70 | 66s | EXP-045 SRRIP 后 69 → 70 层 |
+| 前端 | `predecode` | 11,780 | 29 | 2s | 与旧版 29 层一致 |
+| 前端 | `bpu` | 549,458 | **134** | 3068s | 需开 `SYNTH_NO_MEMPRIO=1`；路径：`u_spec.aras_q[5]` → `u_spec.spec_d[49]` |
+| 前端 | `front_top` | **TIMEOUT** | **TIMEOUT** | 3600s | 开 `SYNTH_NO_MEMPRIO=1` 后绕过 `OPT_MEM_PRIORITY`，但含 `bpu`（51 min）整块超过 3600s |
+| 访存 | `axi_cpu_port_adapter` | 222 | 9 | 1s | 与旧版 9 层一致 |
+| 访存 | `axi_interconnect` | 106,685 | 53 | 15s | EXP-048 MSHR/RQD 8→16 后 37 → 53 层 |
+| 访存 | `axi_llc_bop` | 5,608 | **291** | 2s | **EXP-048 新增**：`best_q` → `replace_alu` → `q_line_q` |
+| 访存 | `axi_llc` | 601,377 | **350** | 146s | 旧版 238 → 350，最长路径落入 `u_core.u_bop.q_line_q` |
+| 访存 | `axi_subsys` | 689,367 | **353** | 184s | 受 `axi_llc`（`u_bop`）拉高（238 → 353） |
+| 访存 | `dcache_pf` | 67,431 | **384** | 12s | **EXP-048 硬件 Berti**：`replace_alu` → `trig_go` → `u_gen.gen_left_q` |
+| 访存 | `dcache` | **OOM (>64G)** | **OOM** | 421s | 整块触发 64 GB RSS 看门狗；**已按子模块全部拆测完成，见下表 12.2.1**（核心逻辑最深 `dcache_mshr` **123 层**） |
+| 访存 | `mem_top` | **OOM (>64G)** | **OOM** | — | 同上（包含 `dcache`，触发 64 GB RSS 看门狗 64.4 GB） |
+| 访存 | `mem_route` | 439 | 9 | 1s | 与旧版 9 层一致 |
+| 访存 | `peripheral_axi` | 555 | 10 | 1s | 与旧版 10 层一致 |
+| 访存 | `ptw_walk` | 807 | 47 | 1s | 与旧版 47 层一致 |
+| 整核 | `pmu` | 11,566 | 90 | 4s | 与旧版 90 层一致 |
+
+### 12.2.1 `dcache` 子模块拆测结果（2026-11-20，同口径 + `SYNTH_NO_MEMPRIO=1`）
+
+| 子模块 | 单元数 (`cells`) | 深度 (`depth`) | 耗时 | 备注 / 关键路径 |
+|---|---:|---:|---:|---|
+| `dcache_mshr` | 91,934 | **123** | 44s | MSHR 8→16 后超 100 层：`ax_req_accepted` → `ax_req_line[25]` |
+| `dcache_mshr_alloc` | 15,633 | 44 | 1s | 100 层内 |
+| `dcache_wb` | 23,334 | 49 | 23s | 100 层内 |
+| `dcache_wb_find` | 1,548 | 22 | 1s | 100 层内 |
+| `dcache_s1` | 9,795 | 23 | 2s | 100 层内 |
+| `dcache_s2_ld` | 5,074 | 37 | 1s | 100 层内 |
+| `dcache_s2_st` | 1,150 | 29 | 1s | 100 层内 |
+| `dcache_s2_fill` | 1,930 | 13 | 1s | 100 层内 |
+| `dcache_resp` | 7,293 | 19 | 1s | 100 层内 |
+| `dcache_pf_berti_hist` | 41,811 | 77 | 4s | 100 层内 |
+| `dcache_pf_berti_tab` | 14,236 | **362** | 2s | **`dcache_pf` 384 层主源头**：`srch_pc[26]` → `trig_go` |
+| `dcache_pf_berti_gen` | 5,385 | **172** | 1s | **`dcache_pf` 第二源头**：`gen_mask_q[0]` → `gen_mask_q[8]` |
+
+### 12.3 本次全模块综合发现的待修项
+
+1. **SV 规范问题（阻断 `dcache` / `mem_top` 综合）**：`rtl/memsys/dcache/dcache.sv` 第 76、79 行的 `retry_busy` 先用后声明，需将声明挪到使用前。
+2. **EXP-048 预取器组合深度过高**：
+   - `dcache_pf`（硬件 Berti）达到 **384 层**（路径经 `replace_alu` → `trig_go` → `u_gen.gen_left_q`）；
+   - `axi_llc_bop`（LLC BOP）达到 **291 层**（路径经 `best_q` → `replace_alu` → `q_line_q`），直接把 `axi_llc` 和 `axi_subsys` 从 238 层拉升至 **350 / 353 层**。
+3. **其余超 100 层模块**：`ren`（111 层，FP checkpoint 路径）、`lsu`（101 层，贴近 100 层红线）。

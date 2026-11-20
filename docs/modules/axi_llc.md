@@ -4,7 +4,7 @@ area: memsys
 rtl: rtl/memsys/axi_llc
 model: trace-model axi-interconnect-kit/axi_interconnect/AXI_LLC.cpp、include/AXI_LLC.h、include/AXI_LLC_Config.h；行表（数据 / 标签 / 脏 / 有效 / 替换状态）在 MemSubSystem/MemSubsystem.cpp 的 `AxiLlcTableRuntime`（调度单元 `axi`，类 `AxiSubsystem`；见 axi_subsys.md）
 status: 整核周期与模型逐个相等（最近一次提交 60ed422 的提交信息记 fm_gate 67/67、周期等于 scripts/ref_cycles_memiq6_nr_int2_ev5.txt；本次写文档没有重跑）
-depth: 238 层（axi_llc，单模块综合，2026-11-18；2026-11-19 SRRIP 后复测仍 238，`SYNTH_ABC="strash;balance;map"`，生成门代理，见第 6 节）
+depth: 350 层（axi_llc，含 EXP-048 BOP，单模块综合，2026-11-20，`SYNTH_ABC="strash;balance;map"`，生成门代理，见 09-synthesis-report 第 12 节）
 ---
 
 # axi_llc 设计文档

@@ -4,7 +4,7 @@ area: backend
 rtl: rtl/backend/rob
 model: trace-model back-end/Rob.cpp、back-end/include/Rob.h（调度单元 `back.rob`，类 `Rob`，阶段 `comb_commit`；`comb_redirect` 在 RTL 里不属于 ROB，见第 7 节）
 status: 整核周期与模型逐个相等（fm_gate 67/67，参考 scripts/ref_cycles_memiq6_nr_int2_ev5.txt）
-depth: 62 层（协调者给出的单模块综合数，通用门代理；本文作者未复测，见第 6 节）
+depth: 64 层（rob，单模块综合，2026-11-20，`SYNTH_ABC="strash;balance;map"`，生成门代理，见 09-synthesis-report 第 12 节）
 ---
 
 # rob 设计文档

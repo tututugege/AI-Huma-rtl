@@ -4,7 +4,7 @@ area: frontend
 rtl: rtl/frontend/bpu
 model: trace-model front-end/BPU/BPU_pipe.h、BPU.h、BPU_configs.h（调度单元 `front.core.bpu_pipe`，类 `BpuPipe`，阶段 `comb_front`，决定函数 `decide` 在 `front.core.ctrl` 的 `control` 阶段里先算）
 status: 整核周期与模型逐个相等（fm_gate 67/67，参考 scripts/ref_cycles_memiq6_nr_int2_ev5.txt）
-depth: 待测（由协调者补）；子块已测的数字见第 6 节
+depth: 134 层（bpu，单模块综合，2026-11-20，`SYNTH_ABC="strash;balance;map" SYNTH_NO_MEMPRIO=1`，生成门代理，见 09-synthesis-report 第 12 节）
 ---
 
 # bpu 设计文档（流水化分支预测单元）

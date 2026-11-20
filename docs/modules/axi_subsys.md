@@ -4,7 +4,7 @@ area: memsys
 rtl: rtl/memsys/axi_subsys
 model: trace-model AxiSubsystem.cpp、include/AxiSubsystem.h（调度单元 `axi`，类 `AxiSubsystem`；阶段 `comb_begin`、`comb_outputs`、`comb_inputs`、`seq`）
 status: 整核周期与模型逐个相等（最近一次提交 60ed422 的提交信息记 fm_gate 67/67、周期等于 scripts/ref_cycles_memiq6_nr_int2_ev5.txt；本次写文档没有重跑）
-depth: 238 层（axi_subsys（含互连和 LLC），单模块综合，2026-11-18，`SYNTH_ABC="strash;balance;map"`，生成门代理，见第 6 节）
+depth: 353 层（axi_subsys（含互连和 LLC），单模块综合，2026-11-20，`SYNTH_ABC="strash;balance;map"`，生成门代理，见 09-synthesis-report 第 12 节）
 ---
 
 # axi_subsys 设计文档

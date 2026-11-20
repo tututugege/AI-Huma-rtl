@@ -4,7 +4,7 @@ area: backend
 rtl: rtl/backend/back_top
 model: trace-model back-end/BackTop.cpp（`BackTop::init` 的接线、`BackTop::seq` 的顺序）；胶水的行为在模型里分散在 back-end/Rob.cpp（`Rob::redirect`、`Rob::report_commit`、`Rob::comb_commit` 里的 `rob_bcast_d`）。模型的 `BackTop` 本身没有 comb 阶段，不是调度单元
 status: 整核周期与模型逐个相等（fm_gate 67/67，参考 scripts/ref_cycles_memiq6_nr_int2_ev5.txt；沿用 isu.md 记录的验收结果，本文作者没有重跑）
-depth: 待测（由协调者补）
+depth: 142 层（back_top，单模块综合，2026-11-20，`SYNTH_ABC="strash;balance;map"`，生成门代理，见 09-synthesis-report 第 12 节）
 ---
 
 # back_top 设计文档
@@ -140,7 +140,7 @@ depth: 待测（由协调者补）
 
 ## 6. 关键路径与深度
 
-depth: 待测（由协调者补）。已知的数字：整个 `back_top` 最近一次测量是 135 层（在本分支若干改动之前，这些改动之后没有复测）。以下是从代码读出的，未综合验证：
+depth: 142 层（back_top，单模块综合，2026-11-20，`SYNTH_ABC="strash;balance;map"`，生成门代理，见 09-synthesis-report 第 12 节）。已知的数字：整个 `back_top` 最近一次测量是 135 层（在本分支若干改动之前，这些改动之后没有复测）。以下是从代码读出的，未综合验证：
 
 | 环路 | 内容 |
 | --- | --- |

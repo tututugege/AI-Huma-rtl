@@ -4,7 +4,7 @@ area: memsys
 rtl: rtl/memsys/dcache（除 dcache_pf.sv，它有自己的文档 dcache_pf.md）
 model: trace-model MemSubSystem/RealDcache.cpp、WriteBuffer.cpp、MSHR.cpp、DcacheConfig.cpp 及对应头文件（三个调度单元 `mem_subsystem.dcache_`（类 `RealDcache`，阶段 `comb_stage2`、`comb_stage1`）、`mem_subsystem.wb_`（`WriteBuffer`）、`mem_subsystem.mshr_`（`MSHR`），后两者各有 `comb_axi_to_dcache`、`comb_dcache_to_axi`）
 status: 整核周期与模型逐个相等（fm_gate 67/67，参考 scripts/ref_cycles_memiq6_nr_int2_ev5.txt）
-depth: 待测（由协调者补）
+depth: 123 层（子模块拆测最深 `dcache_mshr` 123 层，其余 `s1`/`s2_*`/`wb`/`resp` 为 13–49 层，整块超 64G RSS，2026-11-20，`SYNTH_ABC="strash;balance;map" SYNTH_NO_MEMPRIO=1`，见 09-synthesis-report 第 12.2.1 节）
 ---
 
 # dcache 设计文档
@@ -140,7 +140,7 @@ MSHR 的暂存槽里有一行（`fr_valid`）→ 与项里已合并的 store 字
 
 ## 6. 关键路径与深度
 
-depth: 待测（由协调者补）。从代码读出的，未综合验证，最长的组合链大致有：
+depth: 123 层（子模块拆测最深 `dcache_mshr` 123 层，其余 `s1`/`s2_*`/`wb`/`resp` 为 13–49 层，整块超 64G RSS，2026-11-20，`SYNTH_ABC="strash;balance;map" SYNTH_NO_MEMPRIO=1`，见 09-synthesis-report 第 12.2.1 节）。从代码读出的，未综合验证，最长的组合链大致有：
 
 - **第二级 load**：第一级寄存器的地址 → bank 号 → 16 选 1（4 路 tag 和数据）→ tag 比较 → `ttg_first_set` 选命中路 → 命中数据 → `dcache_resp` 转发 → `mem_route` 的响应分流 → LSU；
 - **MSHR 记账链**：8 项行地址与 7 个口的比较（`find_hit`）→ 各口 `alloc_ok`（沿 load 口、再沿 store 口、再到预取的 `used` 链）→ `mreq_en` → `dcache_mshr_alloc`（第 k 个请求拿第 k 个空闲项）→ 本拍 AXI 读请求（新项当拍就能发出，`dcache_mshr` 注释里写明）；

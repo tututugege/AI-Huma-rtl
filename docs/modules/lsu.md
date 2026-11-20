@@ -4,7 +4,7 @@ area: backend
 rtl: rtl/backend/lsu
 model: trace-model back-end/Lsu/RealLsuPipe.cpp、LsuPipeOutputs.cpp、LsuPipeWriteback.cpp、LsuPipeTranslate.cpp、LsuPipeRequests.cpp、LsuPipeInternal.h、include/RealLsu.h、include/RealLsuPipe.h（调度单元 `back.lsu`，类 `RealLsu`，阶段 `comb_outputs / comb_writeback / comb_translate / comb_requests / comb_commit_store`）
 status: 最近一次改 LSU 的提交（312e6f8）的说明写 fm_gate 67/67、周期等于参考表；本次写文档没有重跑（见第 8 节）
-depth: 100 层（单模块综合，通用门代理，提交 312e6f8 的说明里注明 no-dc2 代理；见第 6 节）
+depth: 101 层（lsu，单模块综合，2026-11-20，`SYNTH_ABC="strash;balance;map"`，生成门代理，见 09-synthesis-report 第 12 节）
 ---
 
 # lsu 设计文档

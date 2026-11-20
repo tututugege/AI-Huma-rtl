@@ -67,6 +67,7 @@ module dcache
   // boundary 1-bit arrays <-> packed vectors
   logic [NLD-1:0] ld_req_v, pub_ld_valid, pub_ld_retry;
   logic [NST-1:0] st_req_v, pub_st_valid;
+  logic [NSLOT-1:0] retry_busy;
   for (genvar i = 0; i < NLD; i++) begin : g_bnd_ld
     assign ld_req_v[i]       = ld_req_valid[i];
     assign ld_resp_valid[i]  = pub_ld_valid[i];
@@ -82,7 +83,7 @@ module dcache
   end
 
   // ------------------------------------------------------------ stage-1 registers
-  logic [NSLOT-1:0]     slot_valid, slot_replayed, slot_granted, retry_issue, pend_valid, retry_busy;
+  logic [NSLOT-1:0]     slot_valid, slot_replayed, slot_granted, retry_issue, pend_valid;
   logic [31:0]          slot_addr [NSLOT], slot_id [NSLOT];
   logic [DW-1:0]        slot_data [NST];
   logic [SBW-1:0]           slot_strb [NST];

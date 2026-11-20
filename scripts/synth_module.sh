@@ -35,6 +35,16 @@ ABC_CMD="abc"; [ -n "${SYNTH_LIGHT:-}" ] && ABC_CMD="abc -script +strash;map"
 TECHMAP_CMD="techmap"; [ -n "${SYNTH_ADDER:-}" ] && TECHMAP_CMD="techmap -map +/choices/$SYNTH_ADDER.v -map +/techmap.v"
 if [ -n "${SYNTH_MEM:-}${SYNTH_LIGHT:-}" ]; then
   MEMMAP="memory_map"; [ -n "${SYNTH_MEM:-}" ] && MEMMAP=""
+  MEM_CMD="memory -nomap"
+  # SYNTH_NO_MEMPRIO=1: skip opt_mem_priority (O(W^2) on multi-write-port BPU tables)
+  [ -n "${SYNTH_NO_MEMPRIO:-}" ] && MEM_CMD="opt_mem
+opt_mem_feedback
+memory_bmux2rom
+memory_dff
+opt_clean
+memory_share
+opt_mem_widen
+memory_collect"
   # coarse part of `synth` written out WITHOUT `check`: on very wide vectors (icache_arr: 850k wire bits, 421 cells) `check` never finishes
   SYNTH_CMD="proc
 flatten
@@ -48,7 +58,7 @@ peepopt
 opt_clean
 alumacc
 opt
-memory -nomap
+$MEM_CMD
 opt_clean
 opt -fast -full
 $MEMMAP

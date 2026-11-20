@@ -4,7 +4,7 @@ area: backend
 rtl: rtl/backend/tlb_mmu
 model: trace-model back-end/Lsu/TlbMmu.cpp、back-end/Lsu/include/TlbMmu.h（类 `TlbMmu`，`Kind::DTLB`；LSU 的子模块 `RealLsu::dtlb`，没有单独的调度单元，在 `back.lsu` 的 `comb_translate` 里被调用）
 status: 整核周期与模型逐个相等（最近一次改它的提交 16de223 的说明：fm_gate 67/67，周期等于当时的参考表）；模块级的等价测试 tests/tlb_par 已过时，不能构建（见第 8 节）
-depth: 51 层（tlb_mmu，单模块综合，2026-11-18，`SYNTH_ABC="strash;balance;map"`，生成门代理，见第 6 节）
+depth: 61 层（tlb_mmu，单模块综合，2026-11-20，`SYNTH_ABC="strash;balance;map"`，生成门代理，见 09-synthesis-report 第 12 节）
 ---
 
 # tlb_mmu 设计文档

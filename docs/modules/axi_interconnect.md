@@ -4,7 +4,7 @@ area: memsys
 rtl: rtl/memsys/axi_interconnect
 model: trace-model axi-interconnect-kit/axi_interconnect/AXI_Interconnect.cpp、include/AXI_Interconnect.h、include/AXI_Interconnect_IO.h（调度单元 `axi`，类 `AxiSubsystem` 的成员 `interconnect`；见 axi_subsys.md）
 status: 整核周期与模型逐个相等（最近一次提交 60ed422 的提交信息记 fm_gate 67/67、周期等于 scripts/ref_cycles_memiq6_nr_int2_ev5.txt；本次写文档没有重跑）
-depth: 37 层（axi_interconnect，单模块综合，2026-11-18，`SYNTH_ABC="strash;balance;map"`，生成门代理，见第 6 节）
+depth: 53 层（axi_interconnect，MSHR/RQD 16 后单模块综合，2026-11-20，`SYNTH_ABC="strash;balance;map"`，生成门代理，见 09-synthesis-report 第 12 节）
 ---
 
 # axi_interconnect 设计文档

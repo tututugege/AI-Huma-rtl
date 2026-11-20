@@ -4,7 +4,7 @@ area: backend
 rtl: rtl/backend/ren
 model: trace-model back-end/Ren.cpp、back-end/include/Ren.h（调度单元 `back.rename`，类 `Ren`，阶段 `comb_rename`、`comb_fire`）
 status: 整核周期与模型逐个相等（fm_gate 67/67，参考 scripts/ref_cycles_memiq6_nr_int2_ev5.txt）
-depth: 110 层（ren，单模块综合，2026-11-18，`SYNTH_ABC="strash;balance;map"`，生成门代理，见第 6 节）
+depth: 111 层（ren，单模块综合，2026-11-20，`SYNTH_ABC="strash;balance;map"`，生成门代理，见 09-synthesis-report 第 12 节）
 ---
 
 # ren 设计文档

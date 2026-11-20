@@ -4,7 +4,7 @@ area: backend
 rtl: rtl/backend/isu
 model: trace-model back-end/Isu.cpp、back-end/include/Isu.h、back-end/include/IssueQueue.h（调度单元 `back.isu`，类 `Isu`，阶段 `comb_issue`）
 status: 整核周期与模型逐个相等（fm_gate 67/67，参考 scripts/ref_cycles_memiq6_nr_int2_ev5.txt）
-depth: 89 层（单模块综合，去掉 dc2 的结构深度；见第 6 节；exp/wb-presel，main 88）
+depth: 90 层（isu，单模块综合，2026-11-20，`SYNTH_ABC="strash;balance;map"`，生成门代理，见 09-synthesis-report 第 12 节）
 ---
 
 # isu 设计文档
