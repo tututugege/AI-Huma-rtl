@@ -220,8 +220,14 @@ module idu_ctrl_decode import ttg_cfg_pkg::*; (
   // 32-bit ops in OP-IMM-32 / OP-32
   localparam bit RV64 = (XLEN_BITS == 64);
   assign cls[CLS_OPIMM32]  = RV64 & (opcode == OPC_OPIMM32);
-  assign cls[CLS_OP32_ALU] = RV64 & (opcode == OPC_OP32) & (funct7 != 7'd1);
-  assign cls[CLS_OP32_MUL] = RV64 & (opcode == OPC_OP32) & (funct7 == 7'd1) & ~funct3[2];
+  logic op32_alu_ok;
+  assign op32_alu_ok = ((funct7 == 7'h00) & ((funct3 == 3'd0) | (funct3 == 3'd1) | (funct3 == 3'd5))) |
+                       ((funct7 == 7'h20) & ((funct3 == 3'd0) | (funct3 == 3'd5))) |
+                       ((funct7 == 7'h04) & ((funct3 == 3'd0) | ((funct3 == 3'd4) & (inst[24:20] == 5'd0)))) |
+                       ((funct7 == 7'h10) & ((funct3 == 3'd2) | (funct3 == 3'd4) | (funct3 == 3'd6))) |
+                       ((funct7 == 7'h30) & ((funct3 == 3'd1) | (funct3 == 3'd5)));
+  assign cls[CLS_OP32_ALU] = RV64 & (opcode == OPC_OP32) & op32_alu_ok;
+  assign cls[CLS_OP32_MUL] = RV64 & (opcode == OPC_OP32) & (funct7 == 7'd1) & (funct3 == 3'd0);
   assign cls[CLS_OP32_DIV] = RV64 & (opcode == OPC_OP32) & (funct7 == 7'd1) & funct3[2];
   // F/D (Ref: Idu::decode): fmt = funct7[1:0] (0 = S, 1 = D, rest reserved); the class comes from funct5 = funct7[6:2]
   logic fmt_ok, fp_width_ok, op_fp;

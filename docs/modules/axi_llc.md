@@ -38,8 +38,8 @@ depth: 238 层（axi_llc，单模块综合，2026-11-18；2026-11-19 SRRIP 后�
 | 查表延迟 | 3 tick | `axi_llc_tables` 的 3 级读索引流水；模型 `CONFIG_AXI_LLC_LOOKUP_LATENCY = 3` |
 | 读响应队列 `RQD` | 16 项 / 读主口，加 1 个响应寄存器（`RQC = 17`） | `axi_llc_pkg` |
 | 写请求队列 `WQD` | 2 项 / 写主口 | 同上 |
-| 受害行写回队列 `VQD` | 8 项 | 同上 |
-| 受害行持有者表 `NVL` | 1 + VQD + NW + NMSHR = 27 | 同上（写回槽、队列、写上下文、MSHR） |
+| 受害行写回队列 `VQD` | 32 项 | 与模型 `AXI_LLC.h` 深度一致（16 MSHR + LLC BOP 下 Linux 启动峰值超过 8，由 8 扩至 32） |
+| 受害行持有者表 `NVL` | 1 + VQD + NW + NMSHR = 51 | 同上（写回槽、队列、写上下文、MSHR） |
 | BOP 预取参数 | 26 偏移、RR 256 项、候选队列 `BOP_Q = 8`、`ROUNDS = 100`、`SCORE_MAX = 31`、`BAD = 1`、`DEG = 1`、`BOP_RES = 2`、`BOP_INF = 4` | `axi_llc_pkg`、`axi_llc_bop.sv`；模型 `LLC_BOP=1`（`Bop.h`） |
 | 主口数 | 读 4、写 2 | `NR`、`NW` |
 

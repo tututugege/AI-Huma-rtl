@@ -91,6 +91,8 @@ module dcache_s1
   logic [NSLOT-1:0] rty_valid_q;
   logic [31:0]      rty_addr_q [NSLOT];
   logic [31:0]      rty_id_q   [NSLOT];
+  logic [31:0]      rty_pc_q   [NLD];
+  logic [38:0]      rty_va_q   [NLD];
   logic [DW-1:0]      rty_data_q [NST];
   logic [SBW-1:0]       rty_strb_q [NST];
   st2_t             rty_l2_q   [NST];
@@ -149,6 +151,12 @@ module dcache_s1
     assign req_v[i]    = real_v || use_pend[i] || use_new[i];
     assign req_addr[i] = real_v ? real_addr : (use_pend[i] ? rty_addr_q[i] : slot_addr_q[i]);
     assign req_id[i]   = real_v ? real_id   : (use_pend[i] ? rty_id_q[i]   : slot_id_q[i]);
+  end
+  logic [31:0] req_pc [NLD];
+  logic [38:0] req_va [NLD];
+  for (genvar i = 0; i < NLD; i++) begin : g_ldp
+    assign req_pc[i] = ld_req_valid[i] ? ld_req_pc[i] : (use_pend[i] ? rty_pc_q[i] : slot_pc_q[i]);
+    assign req_va[i] = ld_req_valid[i] ? ld_req_va[i] : (use_pend[i] ? rty_va_q[i] : slot_va_q[i]);
   end
   for (genvar i = 0; i < NST; i++) begin : g_stp
     assign req_data[i] = st_req_valid[i] ? st_req_data[i] : (use_pend[NLD+i] ? rty_data_q[i] : slot_data_q[i]);
@@ -284,12 +292,18 @@ module dcache_s1
         end
         slot_pfllc_q[i < NLD ? i : 0] <= pf_head_llc;
         slot_prep_q[i < NLD ? i : 0]  <= pf_sel[i < NLD ? i : 0] ? 1'b1 : perf_rep_d[i < NLD ? i : 0];
-        slot_pc_q[i < NLD ? i : 0]    <= ld_req_pc[i < NLD ? i : 0];
-        slot_va_q[i < NLD ? i : 0]    <= ld_req_va[i < NLD ? i : 0];
+        slot_pc_q[i < NLD ? i : 0]    <= req_pc[i < NLD ? i : 0];
+        slot_va_q[i < NLD ? i : 0]    <= req_va[i < NLD ? i : 0];
       end
       if (rty_set[i]) begin
         rty_addr_q[i] <= slot_addr_q[i];
         rty_id_q[i]   <= slot_id_q[i];
+      end
+    end
+    for (int i = 0; i < NLD; i++) begin
+      if (rty_set[i]) begin
+        rty_pc_q[i] <= slot_pc_q[i];
+        rty_va_q[i] <= slot_va_q[i];
       end
     end
     for (int p = 0; p < NST; p++) begin

@@ -92,7 +92,7 @@ depth: 67 层（idu，单模块综合，2026-11-18，`SYNTH_ABC="strash;balance;
 - 读改写 AMO（不是 LR 和 SC）且 rd = x0 时，目的寄存器号改成 32（整数 RAT 的第 33 项，见 ren.md），保持 `dest_en`；
 - `func7` 取指令字 [31:25]，`csr_idx` 取 [31:20]；
 - `src3` 只在 FP 融合乘加有，`src3_en` 同时表示"第三个源是浮点"；
-- rv64：OP-IMM-32、OP-32 类的 `is_word = 1`。
+- rv64：OP-IMM-32、OP-32 类的 `is_word = 1`；其中 `OP-32` 严格校验 RV64IM + Zba/Zbb 合法编码（`op32_alu_ok` 与 `MUL` 要求 `funct3 == 0`），非法编码落入 `CLS_ILLEGAL`（避免错误路径上被当作合法 ALU 改写目的寄存器）。
 
 ### 5.2 分支标签与掩码
 

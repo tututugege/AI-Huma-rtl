@@ -583,9 +583,10 @@ long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
   const bool trace_cyc = std::getenv("SOC_TB_CYC") != nullptr;
   // SOC_TB_LOG=<n>: every n cycles print the cycle, the committed instructions, the last committed pc, the speed and (with a cycle cap) the time left
   const uint64_t log_every = std::getenv("SOC_TB_LOG") ? std::strtoull(std::getenv("SOC_TB_LOG"), nullptr, 0) : 0;
+  const uint64_t max_insts = std::getenv("SOC_TB_MAX_INSTS") ? std::strtoull(std::getenv("SOC_TB_MAX_INSTS"), nullptr, 0) : 0;
   const auto t_start = std::chrono::steady_clock::now();
   auto t_last = t_start; uint64_t cyc_last = 0;
-  while (!done && cycles < max_cycles) {
+  while (!done && cycles < max_cycles && (!max_insts || committed < max_insts)) {
     sim_time = static_cast<long long>(cycles);
 #ifdef SOC_TB_TRACE
     tr_on = tfp && sim_time >= tr_from && sim_time <= tr_to;

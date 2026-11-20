@@ -30,7 +30,7 @@ package axi_llc_pkg;
   localparam int RQD   = 16;              // read response queue depth (C++ 32; sized for 16 MSHRs)
   localparam int RQC   = RQD + 1;         // response register + queue = capacity of one read response unit
   localparam int WQD   = 2;               // write request queue depth per master (C++ 32, observed 0 at tick end)
-  localparam int VQD   = 8;               // read victim write-back queue depth (C++ 32; programs: 2, random: 7)
+  localparam int VQD   = 32;              // read victim write-back queue depth (matches C++ 32; 16 MSHRs + BOP)
   localparam int VQW   = $clog2(VQD);
   localparam int NVL   = 1 + VQD + NW + NMSHR;  // victim-holder list: write-back slot, queue, write contexts, MSHRs
   // EXP-048 LLC Best-Offset prefetcher (LLC_BOP=1)
