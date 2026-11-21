@@ -20,7 +20,7 @@ module rob_trap_ctrl
   output logic              page_fault_load,
   output logic              page_fault_store,
   output logic              illegal_inst,
-  output logic              breakpoint,         // ebreak as a breakpoint exception (only with TTG_EBREAK_TRAP)
+  output logic              breakpoint,         // ebreak as a breakpoint exception (default on; disable via TTG_NO_EBREAK_TRAP)
   output logic              rob2csr_commit,
   output logic              trap_val_valid,     // trap_val is meaningful (page fault / illegal instruction)
   output logic [ROB_XLEN-1:0]   trap_val,

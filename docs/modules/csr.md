@@ -120,7 +120,7 @@ CSR 文件（控制和状态寄存器）、当前特权级、待处理中断的�
 - **浮点 CSR**：模型里 `fflags / frm / fcsr` "不含值"（只占一个寄存器，写读照常）；RTL 真实累积 `fflags`、保存 `frm`、维护 `FS`；
 - **未知 CSR 号**：模型遇到未知号或 `time / timeh` 直接中止；RTL 读 0、写没有命中项即无效；
 - **cause 优先级**：模型 M 级里 `ebreak` 断点在"非法指令"之前，RTL 的 `csr_trap_class` 把非法指令排在断点前面（S 级同样）；同一条指令不会同时带这两个标志，所以实际无差别，本文没有从 ROB 一侧证明不会同时出现；
-- **断点异常只在 ROB 侧定义 `TTG_EBREAK_TRAP` 时才产生**（`rob_pkg.sv`）；Linux 启动的构建带这个宏（`scripts/build_soc64_linux.sh` 的 `-DTTG_EBREAK_TRAP`），`scripts/fm_gate.sh` 的头注释没有要求这个宏，本文没有核对 fm_gate 的构建实际是否带它；
+- **断点异常由 ROB 侧 `rob_pkg::EBREAK_TRAP` 控制（默认开启）**（`rob_pkg.sv`）；Linux 启动与默认 `fm_gate` 构建均开启，仅在显式定义 `-DTTG_NO_EBREAK_TRAP` 时关闭；
 - **PMU**：`csr_pkg::ENT_ADDR` 里没有计数器 CSR；`core_top.sv` 的注释说 PMU 计数器还没有接到 CSR。
 
 RTL 与模型保持一致的细节（读模型时容易误判为 bug）：

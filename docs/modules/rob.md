@@ -168,7 +168,7 @@ RTL 里有、模型里没有的（模型从 trace / 函数模型取得这些，R
 
 ## 9. 参数与开关速查
 
-`ROB_NUM`、`ROB_BANK_NUM`、`ROB_LINE_NUM`、`COMMIT_WIDTH`、`DECODE_WIDTH`、`ISSUE_WIDTH`、`IQ_*_PORT_BASE`（写回口到完成组）、`TTG_EBREAK_TRAP`（编译宏：ebreak 变成断点异常，Linux 需要；`rob_pkg::EBREAK_TRAP`）。`ttg_cfg_pkg.sv` 目前是手工编辑的，与 `make cfg` 生成的不同步（待统一，见 docs/TODO.md）。
+`ROB_NUM`、`ROB_BANK_NUM`、`ROB_LINE_NUM`、`COMMIT_WIDTH`、`DECODE_WIDTH`、`ISSUE_WIDTH`、`IQ_*_PORT_BASE`（写回口到完成组）、`rob_pkg::EBREAK_TRAP`（默认 1，将 `ebreak` 变为断点异常；仅在定义 `-DTTG_NO_EBREAK_TRAP` 时回退为旧的仅冲刷行为）。
 
 ## 10. 变更记录
 
