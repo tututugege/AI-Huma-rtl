@@ -107,12 +107,20 @@ module isu
   logic                     issue_block;
   logic [ISSUE_WIDTH-1:0]   grant_valid;
   isu_uop_t [ISSUE_WIDTH-1:0] grant_uop;
+  /* verilator lint_off UNUSEDSIGNAL */   // waiver: non-ALU/non-FP ports of cand_valid_all are not read
+  logic [ISSUE_WIDTH-1:0]   cand_valid_all;
+  /* verilator lint_on UNUSEDSIGNAL */
   logic [ALU_NUM-1:0]       grant_src1_byp [ISSUE_WIDTH];
   logic [ALU_NUM-1:0]       grant_src2_byp [ISSUE_WIDTH];
   logic [WAKE_NUM-1:0]      wake_valid;
   logic [PRF_IDX_WIDTH-1:0] wake_preg [WAKE_NUM];
+  localparam int FP_RAW_N = FP_REQ_UNITS * 5;
   logic [ALU_NUM-1:0]       slow_exu_valid;
   logic [$clog2(PRF_NUM)-1:0] slow_exu_preg [ALU_NUM];
+  /* verilator lint_off UNUSEDSIGNAL */   // waiver: unused when FP_EN == 0
+  logic [FP_RAW_N-1:0]      fp_raw_valid;
+  logic [PRF_IDX_WIDTH-1:0] fp_raw_preg [FP_RAW_N];
+  /* verilator lint_on UNUSEDSIGNAL */
 
   logic [LSU_LOAD_WB_WIDTH-1:0] prf_wake_valid;
   for (genvar k = 0; k < LSU_LOAD_WB_WIDTH; k++) begin : g_prf_wake
@@ -125,19 +133,20 @@ module isu
   isu_wake_src u_wake_src (
     .clk(clk), .rst_n(rst_n),
     .prf_wake_valid(prf_wake_valid), .prf_wake_preg(prf_awake_wake_preg),
-    .grant_valid(grant_valid), .grant_uop(grant_uop),
+    .cand_valid(cand_valid_all), .grant_valid(grant_valid), .grant_uop(grant_uop),
     .flush_all(rob_bcast_flush), .flush_br(flush_br),
     .flush_br_mask(dec_bcast_br_mask), .clear_mask(dec_bcast_clear_mask),
     .wake_valid(wake_valid), .wake_preg(wake_preg),
-    .slow_exu_valid(slow_exu_valid), .slow_exu_preg(slow_exu_preg));
+    .slow_exu_valid(slow_exu_valid), .slow_exu_preg(slow_exu_preg),
+    .fp_raw_valid(fp_raw_valid), .fp_raw_preg(fp_raw_preg));
 
   // ---- Domain-split slow (registered) wake-up bitmaps + direct 7-bit fast ALU wake-ups ----
   localparam bit HAS_SPEC_WAKE = ((lp_pkg::LP_L2 & 8) != 0);
   localparam int LSU_W_N       = HAS_SPEC_WAKE ? (2 * LSU_LDU_COUNT) : LSU_LDU_COUNT;
   localparam int FP_TAGS       = FP_EN ? FPRF_NUM : 1;
   localparam int INT_W         = $clog2(PRF_NUM);
-  localparam int SLOW_INT_N    = LSU_LOAD_WB_WIDTH + MUL_UNITS + DIV_UNITS + (FP_EN ? FPW_CH : 0) + LSU_W_N;
-  localparam int SLOW_FP_N     = LSU_LOAD_WB_WIDTH + (FP_EN ? FPW_CH : 0) + LSU_W_N;
+  localparam int SLOW_INT_N    = LSU_LOAD_WB_WIDTH + MUL_UNITS + DIV_UNITS + (FP_EN ? FP_RAW_N : 0) + LSU_W_N;
+  localparam int SLOW_FP_N     = LSU_LOAD_WB_WIDTH + (FP_EN ? FP_RAW_N : 0) + LSU_W_N;
 
   logic [FAST_UNITS-1:0]    fast_wake_valid;
   logic [INT_W-1:0]         fast_wake_preg [FAST_UNITS];
@@ -185,13 +194,13 @@ module isu
   end
   if (FP_EN) begin : g_si_fp
     localparam int B = LSU_LOAD_WB_WIDTH + MUL_UNITS + DIV_UNITS;
-    for (genvar k = 0; k < FPW_CH; k++) begin : g_k
-      assign slow_int_valid[B + k] = wake_valid[FP_WAKE_BASE + k];
-      assign slow_int_preg[B + k]  = wake_preg[FP_WAKE_BASE + k];
+    for (genvar k = 0; k < FP_RAW_N; k++) begin : g_k
+      assign slow_int_valid[B + k] = fp_raw_valid[k];
+      assign slow_int_preg[B + k]  = fp_raw_preg[k];
     end
   end
   for (genvar k = 0; k < LSU_W_N; k++) begin : g_si_lsu
-    localparam int B = LSU_LOAD_WB_WIDTH + MUL_UNITS + DIV_UNITS + (FP_EN ? FPW_CH : 0);
+    localparam int B = LSU_LOAD_WB_WIDTH + MUL_UNITS + DIV_UNITS + (FP_EN ? FP_RAW_N : 0);
     localparam int S = HAS_SPEC_WAKE ? k : (LSU_LDU_COUNT + k);
     assign slow_int_valid[B + k] = lsu2iss_wake_valid[S];
     assign slow_int_preg[B + k]  = lsu2iss_wake_preg[S];
@@ -206,12 +215,12 @@ module isu
       assign slow_fp_valid[k] = wake_valid[LD_WAKE_BASE + k];
       assign slow_fp_preg[k]  = wake_preg[LD_WAKE_BASE + k];
     end
-    for (genvar k = 0; k < FPW_CH; k++) begin : g_sf_fp
-      assign slow_fp_valid[LSU_LOAD_WB_WIDTH + k] = wake_valid[FP_WAKE_BASE + k];
-      assign slow_fp_preg[LSU_LOAD_WB_WIDTH + k]  = wake_preg[FP_WAKE_BASE + k];
+    for (genvar k = 0; k < FP_RAW_N; k++) begin : g_sf_fp
+      assign slow_fp_valid[LSU_LOAD_WB_WIDTH + k] = fp_raw_valid[k];
+      assign slow_fp_preg[LSU_LOAD_WB_WIDTH + k]  = fp_raw_preg[k];
     end
     for (genvar k = 0; k < LSU_W_N; k++) begin : g_sf_lsu
-      localparam int B = LSU_LOAD_WB_WIDTH + FPW_CH;
+      localparam int B = LSU_LOAD_WB_WIDTH + FP_RAW_N;
       localparam int S = HAS_SPEC_WAKE ? k : (LSU_LDU_COUNT + k);
       assign slow_fp_valid[B + k] = lsu2iss_wake_valid[S];
       assign slow_fp_preg[B + k]  = lsu2iss_wake_preg[S];
@@ -252,9 +261,6 @@ module isu
   end
 
   // ---- F/D: FP register-file write-port gate over the candidates that write the FP file ----
-  /* verilator lint_off UNUSEDSIGNAL */   // waiver: only the FP-write candidate ports are read, and only with F/D
-  logic [ISSUE_WIDTH-1:0] cand_valid_all;
-  /* verilator lint_on UNUSEDSIGNAL */
   logic [ISSUE_WIDTH-1:0] gate_ok_all, fp_ok_all;
 
   // ---- completion-cycle reservation of every issue port (EXP-035) ----
@@ -271,17 +277,22 @@ module isu
   // shared AGUs (LSU_AGU_SHARED): the memory queue applies the sharing itself (isu_iq SH_*)
   assign gate_ok_all = fp_ok_all;   // the completion cycle is checked in the select (EXP-046)
 
+  /* verilator lint_off UNUSEDSIGNAL */   // waiver: only FP-capable ports of grant_fpw / grant_fp_cls1h / f1 / f2 are read
+  logic [ISSUE_WIDTH-1:0] grant_fpw_all, grant_fp_f1_all, grant_fp_f2_all;
+  logic [WB_NCLS-1:0]     grant_fp_cls1h_all [ISSUE_WIDTH];
+  logic [6:0]             fp_free1_cls, fp_free2_cls;
+  /* verilator lint_on UNUSEDSIGNAL */
   if (FP_EN) begin : g_gate
-    logic [FP_REQ_UNITS-1:0]   c_valid, c_fpw, c_ok;
-    logic [WB_CLS_W-1:0]       c_cls [FP_REQ_UNITS];
+    logic [FP_REQ_UNITS-1:0]   c_valid, c_fpw, c_f1, c_f2, c_ok;
+    logic [WB_NCLS-1:0]        c_cls_1h [FP_REQ_UNITS];
     for (genvar p = 0; p < ISSUE_WIDTH; p++) begin : g_port
       if (port_has(MASK_FPD, p)) begin : g_cand
         localparam int R = port_rank(MASK_FPD, p);
-        assign c_valid[R] = cand_valid_all[p];
-        assign c_fpw[R]   = grant_uop[p].dest_en && grant_uop[p].dest_fp &&
-                            ((grant_uop[p].op == op_t'(UOP_FMA)) || (grant_uop[p].op == op_t'(UOP_FMISC)) ||
-                             (grant_uop[p].op == op_t'(UOP_FDIV)) || (grant_uop[p].op == op_t'(UOP_I2F)));
-        assign c_cls[R]   = wb_cls[p];
+        assign c_valid[R]   = cand_valid_all[p];
+        assign c_fpw[R]     = grant_fpw_all[p];
+        assign c_f1[R]      = grant_fp_f1_all[p];
+        assign c_f2[R]      = grant_fp_f2_all[p];
+        assign c_cls_1h[R]  = grant_fp_cls1h_all[p];
         assign fp_ok_all[p] = c_ok[R];
       end else begin : g_free
         assign fp_ok_all[p] = 1'b1;
@@ -289,9 +300,12 @@ module isu
     end
     isu_fp_gate #(.NC(FP_REQ_UNITS)) u_gate (
       .clk(clk), .rst_n(rst_n), .flush_all(rob_bcast_flush), .cand_valid(c_valid), .cand_fpw(c_fpw),
-      .cand_cls(c_cls), .gate_ok(c_ok));
+      .cand_cls_1h(c_cls_1h), .cand_f1(c_f1), .cand_f2(c_f2),
+      .fp_free1_cls(fp_free1_cls), .fp_free2_cls(fp_free2_cls), .gate_ok(c_ok));
   end else begin : g_no_gate
-    assign fp_ok_all = '1;
+    assign fp_ok_all    = '1;
+    assign fp_free1_cls = '1;
+    assign fp_free2_cls = '1;
   end
 
   // ---- one instance per issue queue ----
@@ -309,6 +323,8 @@ module isu
     isu_uop_t                     g_uop [NP];
     logic [ALU_NUM-1:0]           g_byp1 [NP];
     logic [ALU_NUM-1:0]           g_byp2 [NP];
+    logic [NP-1:0]                g_fpw, g_fp_f1, g_fp_f2;
+    logic [WB_NCLS-1:0]           g_fp_cls1h [NP];
 
     for (genvar w = 0; w < EW; w++) begin : g_enq
       assign enq_valid[w] = dis2iss_req_valid[q][w];
@@ -358,8 +374,12 @@ module isu
       assign grant_valid[PP]      = g_valid[p];
       assign cand_valid_all[PP]   = g_cand[p];
       assign grant_uop[PP]        = g_uop[p];
-      assign grant_src1_byp[PP]   = g_byp1[p];
-      assign grant_src2_byp[PP]   = g_byp2[p];
+      assign grant_src1_byp[PP]     = g_byp1[p];
+      assign grant_src2_byp[PP]     = g_byp2[p];
+      assign grant_fpw_all[PP]      = g_fpw[p];
+      assign grant_fp_f1_all[PP]    = g_fp_f1[p];
+      assign grant_fp_f2_all[PP]    = g_fp_f2[p];
+      assign grant_fp_cls1h_all[PP] = g_fp_cls1h[p];
     end
 
     // dispatch may place at most EW uops per cycle: report min(free entries, EW) (the model checks both limits)
@@ -371,6 +391,7 @@ module isu
              .AGE_EN(q == IQ_MEM),
              .HAS_SRC2(q != IQ_MEM),
              .HAS_SRC3(FP_EN && (q == IQ_FP)),
+             .HAS_CANCEL(HAS_SPEC_WAKE),
              .SRC1_DOM((q == IQ_FP) ? 1 : 0),
              .SRC2_DOM((q == IQ_FP) ? 1 : ((q == 2 && FP_EN) ? 2 : 0)),
              .FP_TAGS(FP_TAGS), .INT_W(INT_W)) u_iq (
@@ -379,11 +400,13 @@ module isu
       .slow_exu_valid(slow_exu_v4), .slow_exu_preg(slow_exu_p4),
       .fast_valid(fast_wake_valid), .fast_preg(fast_wake_preg),
       .fu_ready(fu_ready), .gate_ok(g_gate_ok), .cls_free(g_cls_free),
+      .fp_free1_cls(fp_free1_cls), .fp_free2_cls(fp_free2_cls),
       .issue_block(issue_block), .flush_all(rob_bcast_flush), .flush_br(flush_br),
       .flush_br_mask(dec_bcast_br_mask), .clear_mask(dec_bcast_clear_mask),
       .cancel_int(cancel_int), .cancel_fp(cancel_fp),
       .free_slots(free_slots), .cand_valid(g_cand), .grant_valid(g_valid),
-      .grant_uop(g_uop), .grant_src1_byp(g_byp1), .grant_src2_byp(g_byp2));
+      .grant_uop(g_uop), .grant_src1_byp(g_byp1), .grant_src2_byp(g_byp2),
+      .grant_fpw(g_fpw), .grant_fp_cls1h(g_fp_cls1h), .grant_fp_f1(g_fp_f1), .grant_fp_f2(g_fp_f2));
   end
 
   // ---- issue ports to the PRF ----

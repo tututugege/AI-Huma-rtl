@@ -34,13 +34,24 @@ module isu_wake_iter
   logic [SLOTS-1:0] slot_free;
   logic [SLOTS-1:0] alloc_slot [NREQ];
   logic [DW-1:0]    req_bits [NREQ];
+  logic [NREQ-1:0]  req_killed;
 
   for (genvar r = 0; r < NREQ; r++) begin : g_req
-    assign req_bits[r] = {req_lane[r], req_preg[r], req_br_mask[r], req_countdown[r]};
+    assign req_bits[r]   = {req_lane[r], req_preg[r], req_br_mask[r], req_countdown[r]};
+    assign req_killed[r] = flush_br && ((req_br_mask[r] & flush_br_mask) != '0);
   end
 
-  isu_alloc_chain #(.NREQ(NREQ), .NSLOT(SLOTS)) u_alloc (
-    .clk(clk), .req(req_valid), .free(slot_free), .slot_onehot(alloc_slot));
+  if (NREQ == 1) begin : g_alloc1
+    logic [SLOTS-1:0] first_free;
+    /* verilator lint_off UNUSEDSIGNAL */
+    logic             any_free;
+    /* verilator lint_on UNUSEDSIGNAL */
+    ttg_first_set #(.N(SLOTS)) u_first (.req(slot_free), .onehot(first_free), .any(any_free));
+    assign alloc_slot[0] = req_valid[0] ? first_free : '0;
+  end else begin : g_allocn
+    isu_alloc_chain #(.NREQ(NREQ), .NSLOT(SLOTS)) u_alloc (
+      .clk(clk), .req(req_valid), .free(slot_free), .slot_onehot(alloc_slot));
+  end
 
   for (genvar j = 0; j < SLOTS; j++) begin : g_slot
     logic                     valid_q, valid_d;
@@ -51,26 +62,39 @@ module isu_wake_iter
     logic [NREQ-1:0]          hit;
     logic [DW-1:0]            new_bits;
     logic                     counting;      // still has cycles to go, keeps the slot
-    logic                     killed;
+    logic                     old_killed;
 
     for (genvar r = 0; r < NREQ; r++) begin : g_hit
       assign hit[r] = alloc_slot[r][j];
     end
-    ttg_onehot_mux #(.N(NREQ), .W(DW)) u_new (.sel(hit), .data(req_bits), .out(new_bits));
+    if (NREQ == 1) begin : g_new1
+      assign new_bits = req_bits[0];
+    end else begin : g_newn
+      ttg_onehot_mux #(.N(NREQ), .W(DW)) u_new (.sel(hit), .data(req_bits), .out(new_bits));
+    end
 
-    assign counting = valid_q && (count_q != '0);
+    assign counting   = valid_q && (count_q != '0);
     assign slot_free[j] = !counting;
+    assign old_killed = flush_br && ((mask_q & flush_br_mask) != '0);
 
-    // Ref: Isu::comb_calc_latency_next, Isu::comb_flush
+    // Ref: Isu::comb_calc_latency_next, Isu::comb_flush (kill check evaluated in parallel with req_valid).
+    // When NREQ == 1, a free slot (!counting) is dead if !req_valid[0], so payload regs can load on first_free[j]
+    // directly without waiting for req_valid[0]; only valid_d depends on req_valid[0].
     always_comb begin
-      valid_d = (|hit) || counting;
-      lane_d  = (|hit) ? new_bits[DW-1] : lane_q;
-      count_d = (|hit) ? new_bits[CW-1:0] : (count_q - CW'(1));
-      preg_d  = (|hit) ? new_bits[(CW + BR_MASK_WIDTH) +: PRF_IDX_WIDTH] : preg_q;
-      mask_d  = (|hit) ? new_bits[CW +: BR_MASK_WIDTH] : mask_q;
-      killed  = flush_br && ((mask_d & flush_br_mask) != '0);    // mask before the clear below
-      valid_d = valid_d && !flush_all && !killed;
-      mask_d  = mask_d & ~clear_mask;
+      if (NREQ == 1) begin
+        valid_d = (req_valid[0] && !req_killed[0] && !flush_all && alloc_slot[0][j]) ||
+                  (counting && !old_killed && !flush_all);
+        lane_d  = slot_free[j] ? new_bits[DW-1] : lane_q;
+        count_d = slot_free[j] ? new_bits[CW-1:0] : (count_q - CW'(1));
+        preg_d  = slot_free[j] ? new_bits[(CW + BR_MASK_WIDTH) +: PRF_IDX_WIDTH] : preg_q;
+        mask_d  = (slot_free[j] ? new_bits[CW +: BR_MASK_WIDTH] : mask_q) & ~clear_mask;
+      end else begin
+        valid_d = ((|(hit & ~req_killed)) || (counting && !old_killed)) && !flush_all;
+        lane_d  = (|hit) ? new_bits[DW-1] : lane_q;
+        count_d = (|hit) ? new_bits[CW-1:0] : (count_q - CW'(1));
+        preg_d  = (|hit) ? new_bits[(CW + BR_MASK_WIDTH) +: PRF_IDX_WIDTH] : preg_q;
+        mask_d  = ((|hit) ? new_bits[CW +: BR_MASK_WIDTH] : mask_q) & ~clear_mask;
+      end
     end
 
     always_ff @(posedge clk) begin

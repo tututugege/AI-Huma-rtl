@@ -13,6 +13,7 @@ module isu_iq_store
   parameter int DW       = IQ_DISPATCH_WIDTH,
   parameter bit HAS_SRC2 = 1'b1,
   parameter bit HAS_SRC3 = 1'b0,
+  parameter bit HAS_CANCEL = 1'b0,
   // 0 = integer domain only, 1 = FP domain only, 2 = both domains (STD src2)
   parameter int SRC1_DOM = 0,
   parameter int SRC2_DOM = 0,
@@ -48,7 +49,6 @@ module isu_iq_store
   output logic [SIZE-1:0]          slot_valid,
   output logic [SIZE-1:0]          slot_ready,
   output isu_uop_t                 slot_uop  [SIZE],
-  output op_set_t                  slot_op   [SIZE],
   output logic [ALU_NUM-1:0]       slot_byp1 [SIZE],
   output logic [ALU_NUM-1:0]       slot_byp2 [SIZE]
 );
@@ -68,8 +68,10 @@ module isu_iq_store
   endfunction
 
   logic [UW-1:0] enq_bits [DW];
+  logic [DW-1:0] enq_killed;
   for (genvar w = 0; w < DW; w++) begin : g_pack
-    assign enq_bits[w] = enq_uop[w];
+    assign enq_bits[w]   = enq_uop[w];
+    assign enq_killed[w] = flush_br && ((enq_uop[w].br_mask & flush_br_mask) != '0);
   end
 
   for (genvar i = 0; i < SIZE; i++) begin : g_slot
@@ -80,7 +82,7 @@ module isu_iq_store
     isu_uop_t      uop_q, uop_d;
     logic          wait1_q, wait1_d, wait1_c;
     logic          wait2_c, wait3_c;
-    logic          killed_by_branch;
+    logic          old_killed;
 
     for (genvar w = 0; w < DW; w++) begin : g_hit
       assign hit[w] = enq_slot[w][i];
@@ -91,13 +93,13 @@ module isu_iq_store
     // ---- src1 wait, wake, and EXU bypass mask ----
     logic s1_cancel, s1_slow, s1_fast, s1_after_slow;
     if (SRC1_DOM == 1) begin : g_s1_fp
-      assign s1_cancel    = lookup_fp_map(cancel_fp, uop_q.src1_preg);
+      assign s1_cancel    = HAS_CANCEL ? lookup_fp_map(cancel_fp, uop_q.src1_preg) : 1'b0;
       assign s1_slow      = lookup_fp_map(woken_slow_fp, uop_q.src1_preg);
       assign s1_fast      = 1'b0;
       assign slot_byp1[i] = '0;
     end else begin : g_s1_int
       logic [ALU_NUM-1:0] s1_fast_match, s1_slow_exu_match, enq_byp1_sel, byp1_q, byp1_d;
-      assign s1_cancel = lookup_int_map(cancel_int, uop_q.src1_preg);
+      assign s1_cancel = HAS_CANCEL ? lookup_int_map(cancel_int, uop_q.src1_preg) : 1'b0;
       assign s1_slow   = lookup_int_map(woken_slow_int, uop_q.src1_preg);
       always_comb begin
         s1_slow_exu_match = '0;
@@ -117,7 +119,7 @@ module isu_iq_store
       end
       assign slot_byp1[i] = byp1_q;
     end
-    assign wait1_c       = wait1_q || (uop_q.src1_en && s1_cancel);
+    assign wait1_c       = HAS_CANCEL ? (wait1_q || (uop_q.src1_en && s1_cancel)) : wait1_q;
     assign s1_after_slow = wait1_c & ~s1_slow;
     assign wait1_d       = write ? |(hit & enq_wait1) : (s1_after_slow & ~s1_fast);
 
@@ -126,7 +128,7 @@ module isu_iq_store
       logic wait2_q, wait2_d;
       logic s2_cancel, s2_slow, s2_fast, s2_after_slow;
       if (SRC2_DOM == 1) begin : g_s2_fp
-        assign s2_cancel    = lookup_fp_map(cancel_fp, uop_q.src2_preg);
+        assign s2_cancel    = HAS_CANCEL ? lookup_fp_map(cancel_fp, uop_q.src2_preg) : 1'b0;
         assign s2_slow      = lookup_fp_map(woken_slow_fp, uop_q.src2_preg);
         assign s2_fast      = 1'b0;
         assign slot_byp2[i] = '0;
@@ -134,8 +136,10 @@ module isu_iq_store
         logic s2_is_int;
         logic [ALU_NUM-1:0] s2_fast_match, s2_slow_exu_match, enq_byp2_sel, byp2_q, byp2_d;
         assign s2_is_int = uop_q.src2_preg < PRF_IDX_WIDTH'(PRF_NUM);
-        assign s2_cancel = s2_is_int ? lookup_int_map(cancel_int, uop_q.src2_preg)
-                                     : lookup_fp_map(cancel_fp, uop_q.src2_preg);
+        assign s2_cancel = HAS_CANCEL
+                           ? (s2_is_int ? lookup_int_map(cancel_int, uop_q.src2_preg)
+                                        : lookup_fp_map(cancel_fp, uop_q.src2_preg))
+                           : 1'b0;
         assign s2_slow   = s2_is_int ? lookup_int_map(woken_slow_int, uop_q.src2_preg)
                                      : lookup_fp_map(woken_slow_fp, uop_q.src2_preg);
         always_comb begin
@@ -157,7 +161,7 @@ module isu_iq_store
         assign slot_byp2[i] = byp2_q;
       end else begin : g_s2_int
         logic [ALU_NUM-1:0] s2_fast_match, s2_slow_exu_match, enq_byp2_sel, byp2_q, byp2_d;
-        assign s2_cancel = lookup_int_map(cancel_int, uop_q.src2_preg);
+        assign s2_cancel = HAS_CANCEL ? lookup_int_map(cancel_int, uop_q.src2_preg) : 1'b0;
         assign s2_slow   = lookup_int_map(woken_slow_int, uop_q.src2_preg);
         always_comb begin
           s2_slow_exu_match = '0;
@@ -177,7 +181,7 @@ module isu_iq_store
         end
         assign slot_byp2[i] = byp2_q;
       end
-      assign wait2_c       = wait2_q || (uop_q.src2_en && s2_cancel);
+      assign wait2_c       = HAS_CANCEL ? (wait2_q || (uop_q.src2_en && s2_cancel)) : wait2_q;
       assign s2_after_slow = wait2_c & ~s2_slow;
       assign wait2_d       = write ? |(hit & enq_wait2) : (s2_after_slow & ~s2_fast);
       always_ff @(posedge clk) begin
@@ -193,9 +197,9 @@ module isu_iq_store
     if (HAS_SRC3) begin : g_s3
       logic wait3_q, wait3_d;
       logic s3_cancel, s3_slow;
-      assign s3_cancel = lookup_fp_map(cancel_fp, uop_q.src3_preg);
+      assign s3_cancel = HAS_CANCEL ? lookup_fp_map(cancel_fp, uop_q.src3_preg) : 1'b0;
       assign s3_slow   = lookup_fp_map(woken_slow_fp, uop_q.src3_preg);
-      assign wait3_c   = wait3_q || (uop_q.src3_en && s3_cancel);
+      assign wait3_c   = HAS_CANCEL ? (wait3_q || (uop_q.src3_en && s3_cancel)) : wait3_q;
       assign wait3_d   = write ? |(hit & enq_wait3) : (wait3_c & ~s3_slow);
       always_ff @(posedge clk) begin
         if (!rst_n) wait3_q <= 1'b0;
@@ -206,11 +210,12 @@ module isu_iq_store
     end
 
     // Ref: IssueQueue::enqueue / comb_wakeup / commit_issue / flush_br / clear_br / flush_all
+    // Evaluate branch kill in parallel with u_alloc / u_new (enq_killed per lane, old_killed from uop_q)
     always_comb begin
-      uop_d            = write ? isu_uop_t'(new_bits) : uop_q;
-      killed_by_branch = flush_br && ((uop_d.br_mask & flush_br_mask) != '0);   // mask before the clear below
-      valid_d          = ((valid_q && !issue_clear[i]) || write) && !flush_all && !killed_by_branch;
-      uop_d.br_mask    = uop_d.br_mask & ~clear_mask;
+      old_killed    = flush_br && ((uop_q.br_mask & flush_br_mask) != '0);
+      uop_d         = write ? isu_uop_t'(new_bits) : uop_q;
+      valid_d       = ((|(hit & ~enq_killed)) || (valid_q && !issue_clear[i] && !old_killed)) && !flush_all;
+      uop_d.br_mask = uop_d.br_mask & ~clear_mask;
     end
 
     always_ff @(posedge clk) begin
@@ -228,7 +233,6 @@ module isu_iq_store
     assign slot_valid[i] = valid_q;
     assign slot_ready[i] = valid_q && !wait1_c && !wait2_c && !wait3_c;
     assign slot_uop[i]   = uop_q;
-    assign slot_op[i]    = op_onehot(uop_q.op);
   end
 
 endmodule

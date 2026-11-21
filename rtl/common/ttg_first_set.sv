@@ -9,6 +9,7 @@ module ttg_first_set #(
   output logic         any
 );
 
+`ifdef SYNTHESIS
   // isolate the lowest set bit with a log-depth prefix OR (Kogge-Stone): below[i] = |req[i-1:0].
   // (req & -req would be the same function, but a plain carry chain is N gate levels deep)
   localparam int STAGES = (N > 1) ? $clog2(N) : 1;
@@ -21,6 +22,13 @@ module ttg_first_set #(
     onehot = req & ~(pre[STAGES] << 1);
     any    = |req;
   end
+`else
+  // Fast simulation path (bit-identical to Kogge-Stone prefix-OR above, verified by tests/common_prims)
+  always_comb begin
+    onehot = req & (~req + N'(1));
+    any    = |req;
+  end
+`endif
 
 endmodule
 

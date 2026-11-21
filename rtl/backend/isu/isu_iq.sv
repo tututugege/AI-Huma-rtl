@@ -18,6 +18,7 @@ module isu_iq
   parameter bit AGE_EN    = 1'b0,   // the oldest-on-first-port select (isu_iq_select)
   parameter bit HAS_SRC2  = 1'b1,
   parameter bit HAS_SRC3  = 1'b0,
+  parameter bit HAS_CANCEL = 1'b0,
   parameter int SRC1_DOM  = 0,      // 0 = INT, 1 = FP
   parameter int SRC2_DOM  = 0,      // 0 = INT, 1 = FP, 2 = BOTH
   parameter int FP_TAGS   = FP_EN ? FPRF_NUM : 1,
@@ -41,6 +42,8 @@ module isu_iq
   input  logic [NP-1:0]            gate_ok,         // FP write-port gate (isu_fp_gate); 1 for ports without one
   /* verilator lint_off UNUSEDSIGNAL */   // waiver: a queue whose ports have no blockable class (memory, STD, BR) does not read it
   input  logic [WB_NCLS-1:0]       cls_free [NP],   // per port and completion class: the completion cycle is free (EXP-046)
+  input  logic [6:0]               fp_free1_cls,    // registered per-class (4..10) busy_q[lat-1] < 2 from isu_fp_gate
+  input  logic [6:0]               fp_free2_cls,    // registered per-class (4..10) busy_q[lat-1] == 0 from isu_fp_gate
   /* verilator lint_on UNUSEDSIGNAL */
   input  logic                     issue_block,     // rob flush or misprediction this cycle
   input  logic                     flush_all,
@@ -52,7 +55,11 @@ module isu_iq
   output logic [NP-1:0]            grant_valid,
   output isu_uop_t                 grant_uop [NP],
   output logic [ALU_NUM-1:0]       grant_src1_byp [NP],
-  output logic [ALU_NUM-1:0]       grant_src2_byp [NP]
+  output logic [ALU_NUM-1:0]       grant_src2_byp [NP],
+  output logic [NP-1:0]            grant_fpw,       // pre-decoded FP register-file write flag (parallel with u_read)
+  output logic [WB_NCLS-1:0]       grant_fp_cls1h [NP], // pre-decoded one-hot FP completion class (parallel with u_read)
+  output logic [NP-1:0]            grant_fp_f1,     // pre-evaluated free1 for the picked slot
+  output logic [NP-1:0]            grant_fp_f2      // pre-evaluated free2 for the picked slot
 );
 
   localparam int UW = $bits(isu_uop_t);
@@ -60,7 +67,6 @@ module isu_iq
 
   logic [SIZE-1:0] slot_valid, slot_ready;
   isu_uop_t        slot_uop  [SIZE];
-  op_set_t         slot_op   [SIZE];
   logic [ALU_NUM-1:0] slot_byp1 [SIZE];
   logic [ALU_NUM-1:0] slot_byp2 [SIZE];
   logic [SIZE-1:0] sel_onehot [NP];
@@ -111,9 +117,95 @@ module isu_iq
       end
     end
   end
+  // Queue-wide union of port capabilities: only these op bits can ever exist in this queue (1..5 bits per slot).
+  function automatic op_set_t q_cap_union();
+    op_set_t m = '0;
+    for (int p = 0; p < NP; p++) m = m | port_cap(iq_port(QID, p));
+    return m;
+  endfunction
+  localparam op_set_t QCAP = q_cap_union();
+
+  // Register active QCAP op bits per slot at enqueue (eliminates per-slot op_onehot decoders on both select and fu_ready paths)
+  op_set_t enq_op_oh [DW];
+  op_set_t slot_op_q [SIZE];
+  for (genvar w = 0; w < DW; w++) begin : g_eop
+    assign enq_op_oh[w] = op_onehot(enq_uop[w].op) & QCAP;
+  end
+  for (genvar i = 0; i < SIZE; i++) begin : g_sop
+    for (genvar b = 0; b < OP_NUM; b++) begin : g_b
+      if (QCAP[b]) begin : g_k
+        logic nxt;
+        always_comb begin
+          nxt = slot_op_q[i][b];
+          for (int w = 0; w < DW; w++) if (enq_slot[w][i]) nxt = enq_op_oh[w][b];
+        end
+        always_ff @(posedge clk) slot_op_q[i][b] <= nxt;
+      end else begin : g_z
+        assign slot_op_q[i][b] = 1'b0;
+      end
+    end
+  end
+
+  // Pre-decode per-slot FP write flag and one-hot FP completion class (c = 4..10) at enqueue for FP-capable queues
+  localparam bit HAS_FPD_Q = FP_EN && ((QCAP & MASK_FPD) != '0);
+  logic [SIZE-1:0]     slot_fpw_q;
+  logic [WB_NCLS-1:0]  slot_fp_cls_q [SIZE];
+  if (HAS_FPD_Q) begin : g_fpcls
+    logic [DW-1:0]      enq_fpw;
+    logic [WB_NCLS-1:0] enq_fp_cls [DW];
+    for (genvar w = 0; w < DW; w++) begin : g_ew
+      logic [WB_CLS_W-1:0] wc;
+      assign wc = wb_class(enq_uop[w].op, enq_uop[w].func7, enq_uop[w].is_word);
+      assign enq_fpw[w] = enq_uop[w].dest_en && enq_uop[w].dest_fp && ((enq_op_oh[w] & MASK_FPD) != '0);
+      for (genvar c = 0; c < WB_NCLS; c++) begin : g_ec
+        assign enq_fp_cls[w][c] = (fp_cls_lat(c) > 0) && (wc == WB_CLS_W'(c));
+      end
+    end
+    for (genvar i = 0; i < SIZE; i++) begin : g_si
+      logic nxt_fpw;
+      always_comb begin
+        nxt_fpw = slot_fpw_q[i];
+        for (int w = 0; w < DW; w++) if (enq_slot[w][i]) nxt_fpw = enq_fpw[w];
+      end
+      always_ff @(posedge clk) slot_fpw_q[i] <= nxt_fpw;
+      for (genvar c = 0; c < WB_NCLS; c++) begin : g_sc
+        if (fp_cls_lat(c) > 0) begin : g_k
+          logic nxt_c;
+          always_comb begin
+            nxt_c = slot_fp_cls_q[i][c];
+            for (int w = 0; w < DW; w++) if (enq_slot[w][i]) nxt_c = enq_fp_cls[w][c];
+          end
+          always_ff @(posedge clk) slot_fp_cls_q[i][c] <= nxt_c;
+        end else begin : g_z
+          assign slot_fp_cls_q[i][c] = 1'b0;
+        end
+      end
+    end
+  end else begin : g_nofpcls
+    assign slot_fpw_q = '0;
+    for (genvar i = 0; i < SIZE; i++) begin : g_zi
+      assign slot_fp_cls_q[i] = '0;
+    end
+  end
+
+  // Pre-decode per-port capability match at enqueue and register per slot (removes op_onehot + CAP mask from select path)
   logic [SIZE-1:0] port_ok [NP];
   for (genvar p = 0; p < NP; p++) begin : g_pok
     localparam int PP = iq_port(QID, p);
+    localparam op_set_t PCAP = port_cap(PP);
+    logic [DW-1:0]   enq_cap;
+    logic [SIZE-1:0] slot_cap_q;
+    for (genvar w = 0; w < DW; w++) begin : g_ecap
+      assign enq_cap[w] = |(enq_op_oh[w] & PCAP);
+    end
+    for (genvar i = 0; i < SIZE; i++) begin : g_scap
+      logic nxt;
+      always_comb begin
+        nxt = slot_cap_q[i];
+        for (int w = 0; w < DW; w++) if (enq_slot[w][i]) nxt = enq_cap[w];
+      end
+      always_ff @(posedge clk) slot_cap_q[i] <= nxt;
+    end
     logic [SIZE-1:0] blocked [WB_NCLS];       // per class: slots of that class whose completion cycle on the port is taken
     for (genvar c = 0; c < WB_NCLS; c++) begin : g_c
       if (cls_blockable(PP, c)) begin : g_b
@@ -125,33 +217,70 @@ module isu_iq
       end
     end
     always_comb begin
-      port_ok[p] = '1;
+      port_ok[p] = slot_cap_q;
       for (int c = 0; c < WB_NCLS; c++) port_ok[p] = port_ok[p] & ~blocked[c];
     end
   end
   isu_iq_select #(.SIZE(SIZE), .NP(NP), .QID(QID), .AGE_EN(AGE_EN)) u_select (
-    .ready(slot_ready), .entry_op(slot_op), .older(older), .port_ok(port_ok), .sel_onehot(sel_onehot), .sel_valid(sel_valid));
+    .ready(slot_ready), .older(older), .port_ok(port_ok), .sel_onehot(sel_onehot), .sel_valid(sel_valid));
 
   localparam int BYPW = 2 * ALU_NUM;
+  localparam int FPCW = 3 + WB_NCLS;
   logic [UW-1:0]   slot_bits [SIZE];
   logic [BYPW-1:0] slot_byp_bits [SIZE];
+  /* verilator lint_off UNUSEDSIGNAL */   // waiver: read only when HAS_FPD_Q == 1
+  logic [FPCW-1:0] slot_fpc_bits [SIZE];
+  /* verilator lint_on UNUSEDSIGNAL */
   for (genvar i = 0; i < SIZE; i++) begin : g_bits
+    logic sf1, sf2;
+    assign sf1              = |(slot_fp_cls_q[i][10:4] & fp_free1_cls);
+    assign sf2              = |(slot_fp_cls_q[i][10:4] & fp_free2_cls);
     assign slot_bits[i]     = slot_uop[i];
     assign slot_byp_bits[i] = {slot_byp2[i], slot_byp1[i]};
+    assign slot_fpc_bits[i] = {sf2, sf1, slot_fpw_q[i], slot_fp_cls_q[i]};
   end
 
   logic [SIZE-1:0] granted_by_port [NP];
   for (genvar p = 0; p < NP; p++) begin : g_port
+    localparam int PP = iq_port(QID, p);
+    localparam op_set_t PCAP = port_cap(PP);
+    localparam bit SINGLE_OP = ((PCAP & (PCAP - op_set_t'(1))) == '0);
     logic [UW-1:0]   sel_bits;
     logic [BYPW-1:0] sel_byp;
     isu_uop_t        sel_uop;
+    logic            sel_fu_ok;
     ttg_onehot_mux #(.N(SIZE), .W(UW))   u_read     (.sel(sel_onehot[p]), .data(slot_bits),     .out(sel_bits));
     ttg_onehot_mux #(.N(SIZE), .W(BYPW)) u_read_byp (.sel(sel_onehot[p]), .data(slot_byp_bits), .out(sel_byp));
+    if (SINGLE_OP) begin : g_fu1
+      // Single-op port (LD, STA, STD, plain ALU): FU readiness is independent of the chosen slot
+      assign sel_fu_ok = |(PCAP & fu_ready[p]);
+    end else begin : g_fum
+      logic [0:0] slot_fu_ok_arr [SIZE];
+      logic [0:0] sel_fu_ok_v;
+      for (genvar i = 0; i < SIZE; i++) begin : g_fuok
+        assign slot_fu_ok_arr[i] = |(slot_op_q[i] & fu_ready[p]);
+      end
+      ttg_onehot_mux #(.N(SIZE), .W(1)) u_read_fu (.sel(sel_onehot[p]), .data(slot_fu_ok_arr), .out(sel_fu_ok_v));
+      assign sel_fu_ok = sel_fu_ok_v[0];
+    end
+    if (HAS_FPD_Q) begin : g_rdfp
+      logic [FPCW-1:0] sel_fpc;
+      ttg_onehot_mux #(.N(SIZE), .W(FPCW)) u_read_fpc (.sel(sel_onehot[p]), .data(slot_fpc_bits), .out(sel_fpc));
+      assign grant_fp_f2[p]    = sel_fpc[WB_NCLS + 2];
+      assign grant_fp_f1[p]    = sel_fpc[WB_NCLS + 1];
+      assign grant_fpw[p]      = sel_fpc[WB_NCLS];
+      assign grant_fp_cls1h[p] = sel_fpc[WB_NCLS-1:0];
+    end else begin : g_nordfp
+      assign grant_fp_f2[p]    = 1'b1;
+      assign grant_fp_f1[p]    = 1'b1;
+      assign grant_fpw[p]      = 1'b0;
+      assign grant_fp_cls1h[p] = '0;
+    end
     assign sel_uop           = isu_uop_t'(sel_bits);
     assign grant_uop[p]      = sel_uop;
     assign grant_src1_byp[p] = sel_byp[ALU_NUM-1:0];
     assign grant_src2_byp[p] = sel_byp[BYPW-1:ALU_NUM];
-    assign cand_valid[p]  = sel_valid[p] && !issue_block && ((fu_ready[p] & op_onehot(sel_uop.op)) != '0);
+    assign cand_valid[p]     = sel_valid[p] && !issue_block && sel_fu_ok;
     if (SH_N > 0 && p >= SH_STA_LO && p < SH_STA_LO + SH_N) begin : g_shared
       assign grant_valid[p] = cand_valid[p] && gate_ok[p] && !grant_valid[SH_LD_LO + (p - SH_STA_LO)];
     end else begin : g_own
@@ -258,7 +387,7 @@ module isu_iq
     for (int w = 0; w < DW; w++) write_slot = write_slot | enq_slot[w];
   end
 
-  isu_iq_store #(.SIZE(SIZE), .DW(DW), .HAS_SRC2(HAS_SRC2), .HAS_SRC3(HAS_SRC3),
+  isu_iq_store #(.SIZE(SIZE), .DW(DW), .HAS_SRC2(HAS_SRC2), .HAS_SRC3(HAS_SRC3), .HAS_CANCEL(HAS_CANCEL),
                  .SRC1_DOM(SRC1_DOM), .SRC2_DOM(SRC2_DOM), .FP_TAGS(FP_TAGS), .INT_W(INT_W)) u_store (
     .clk(clk), .rst_n(rst_n),
     .enq_slot(enq_slot), .enq_uop(enq_uop), .enq_wait1(enq_wait1), .enq_wait2(enq_wait2), .enq_wait3(enq_wait3),
@@ -269,7 +398,7 @@ module isu_iq
     .cancel_int(cancel_int), .cancel_fp(cancel_fp),
     .issue_clear(granted_slot), .flush_all(flush_all), .flush_br(flush_br), .flush_br_mask(flush_br_mask),
     .clear_mask(clear_mask),
-    .slot_valid(slot_valid), .slot_ready(slot_ready), .slot_uop(slot_uop), .slot_op(slot_op),
+    .slot_valid(slot_valid), .slot_ready(slot_ready), .slot_uop(slot_uop),
     .slot_byp1(slot_byp1), .slot_byp2(slot_byp2));
 
   // ---- occupancy reported to dispatch (Isu::comb_ready) ----

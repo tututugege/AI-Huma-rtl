@@ -16,35 +16,23 @@ module isu_alloc_chain #(
   output logic [NSLOT-1:0] slot_onehot [NREQ]   // slot taken by each request (all zero when it gets none)
 );
 
-  localparam int SW     = $clog2(NREQ + 1);              // free-slot counts saturate at NREQ (no request has that rank)
-  localparam int STAGES = (NSLOT > 1) ? $clog2(NSLOT) : 1;
+  // Match the m-th asserted request to the m-th lowest free slot via two parallel ttg_pick_k trees.
+  logic [NSLOT-1:0] free_oh [NREQ];
+  logic [NREQ-1:0]  req_oh  [NREQ];
+  /* verilator lint_off UNUSEDSIGNAL */   // waiver: total free/req counts are checked by the producer and assertion below
+  logic [NREQ-1:0]  free_valid, req_valid;
+  /* verilator lint_on UNUSEDSIGNAL */
 
-  function automatic logic [SW-1:0] sat_add(input logic [SW-1:0] a, input logic [SW-1:0] b);
-    logic [SW:0] s;
-    s = {1'b0, a} + {1'b0, b};
-    return (s > (SW+1)'(NREQ)) ? SW'(NREQ) : s[SW-1:0];
-  endfunction
-
-  // pre[s][i]: free slots in i .. i-2^s+1 (saturated); pre[STAGES][i] = free slots in 0 .. i
-  logic [SW-1:0] pre [STAGES+1][NSLOT];
-  logic [SW-1:0] rank_free [NSLOT];     // free slots below slot i
-  logic [SW-1:0] rank_req  [NREQ];      // asserted requests below request r
-
-  always_comb begin
-    for (int i = 0; i < NSLOT; i++) pre[0][i] = SW'(free[i]);
-    for (int s = 0; s < STAGES; s++)
-      for (int i = 0; i < NSLOT; i++)
-        pre[s+1][i] = (i >= (1 << s)) ? sat_add(pre[s][i], pre[s][i - (1 << s)]) : pre[s][i];
-    for (int i = 0; i < NSLOT; i++) rank_free[i] = (i == 0) ? '0 : pre[STAGES][i-1];
-    for (int r = 0; r < NREQ; r++) begin
-      rank_req[r] = '0;
-      for (int q = 0; q < r; q++) rank_req[r] = rank_req[r] + SW'(req[q]);
-    end
-  end
+  ttg_pick_k #(.N(NSLOT), .K(NREQ)) u_free (.req(free), .pick_oh(free_oh), .valid(free_valid));
+  ttg_pick_k #(.N(NREQ),  .K(NREQ)) u_req  (.req(req),  .pick_oh(req_oh),  .valid(req_valid));
 
   for (genvar r = 0; r < NREQ; r++) begin : g_req
     for (genvar i = 0; i < NSLOT; i++) begin : g_slot
-      assign slot_onehot[r][i] = req[r] && free[i] && (rank_free[i] == rank_req[r]);
+      logic [NREQ-1:0] match_m;
+      for (genvar m = 0; m < NREQ; m++) begin : g_m
+        assign match_m[m] = req_oh[m][r] & free_oh[m][i];
+      end
+      assign slot_onehot[r][i] = |match_m;
     end
 `ifndef SYNTHESIS
     // C++ asserts on queue overflow / delayed wake-up slot shortage: unreachable when the producer obeys the free count

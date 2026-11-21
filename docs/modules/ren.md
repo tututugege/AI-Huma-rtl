@@ -162,4 +162,5 @@ RTL 与模型的实现差别（行为等价）：
 
 ## 10. 变更记录
 
-`git log --oneline 261bd67..HEAD -- rtl/backend/ren`：本分支没有对本模块的提交；FLUSH_REG（`803692f`）只改了 `back_top` 的连线，使 `rob_bcast_flush` 到本模块晚一拍。更早：见 git 历史。
+- 2026-11-21（`rtl/onehot-mux-tree`）：`ren_alloc_sel` 从 8 级串行 `ttg_first_set` 链改用公共并行原语 `ttg_pick_k`，配合 `ttg_onehot_mux`/`ttg_popcount` 平衡树，`eda-08` Yosys 深度从 **111 → 99 层**（跌破 100 层红线，单元 `474,613 → 474,699`），零周期变化。
+- `git log --oneline 261bd67..HEAD -- rtl/backend/ren`：本分支没有对本模块的提交；FLUSH_REG（`803692f`）只改了 `back_top` 的连线，使 `rob_bcast_flush` 到本模块晚一拍。更早：见 git 历史。

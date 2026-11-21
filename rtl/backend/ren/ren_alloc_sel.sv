@@ -16,20 +16,15 @@ module ren_alloc_sel
   output preg_t                    alloc_reg [N] // 0 when not allocated
 );
 
-  logic [N-1:0] remain [N];       // requesters not yet served by grant k
   logic [N-1:0] grant  [N];       // grant[k]: one-hot slot that receives window[k]
+  logic [N-1:0] grant_any;        // grant k exists
   logic [N-1:0] window_ok;        // grant k exists and window entry k exists (k < free_count)
   logic [N-1:0] pick   [N];       // pick[i][k]: slot i takes window entry k
 
-  assign remain[0] = req;
+  ttg_pick_k #(.N(N), .K(N)) u_pick (.req(req), .pick_oh(grant), .valid(grant_any));
 
   for (genvar k = 0; k < N; k++) begin : g_grant
-    logic grant_any;
-    ttg_first_set #(.N(N)) u_first (.req(remain[k]), .onehot(grant[k]), .any(grant_any));
-    if (k + 1 < N) begin : g_next
-      assign remain[k+1] = remain[k] & ~grant[k];
-    end
-    assign window_ok[k] = grant_any & (free_count > preg_t'(k));
+    assign window_ok[k] = grant_any[k] & (free_count > preg_t'(k));
   end
 
   for (genvar i = 0; i < N; i++) begin : g_slot

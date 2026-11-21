@@ -16,25 +16,16 @@ module isu_wake_compact
   output logic [PRF_IDX_WIDTH-1:0] out_preg [M]
 );
 
-  localparam int RW = $clog2(N + 1);
+  logic [N-1:0] pick [M];                        // pick[c]: one-hot slot that lands on channel c
 
-  logic [RW-1:0] rank [N];                       // number of asserted slots before slot i
-  for (genvar i = 0; i < N; i++) begin : g_rank
-    logic [N-1:0] before_mask;
-    assign before_mask = in_valid & ~({N{1'b1}} << i);
-    ttg_popcount #(.N(N)) u_rank (.bits(before_mask), .count(rank[i]));
-  end
+  ttg_pick_k #(.N(N), .K(M)) u_pick (.req(in_valid), .pick_oh(pick), .valid(out_valid));
 
   for (genvar c = 0; c < M; c++) begin : g_chan
-    logic [N-1:0] pick;                          // the slot that lands on channel c (one-hot or none)
-    for (genvar i = 0; i < N; i++) begin : g_pick
-      assign pick[i] = in_valid[i] & (rank[i] == RW'(c));
-    end
-    assign out_valid[c] = |pick;
-    ttg_onehot_mux #(.N(N), .W(PRF_IDX_WIDTH)) u_mux (.sel(pick), .data(in_preg), .out(out_preg[c]));
+    ttg_onehot_mux #(.N(N), .W(PRF_IDX_WIDTH)) u_mux (.sel(pick[c]), .data(in_preg), .out(out_preg[c]));
   end
 
 `ifndef SYNTHESIS
+  localparam int RW = $clog2(N + 1);
   logic [RW-1:0] total;
   ttg_popcount #(.N(N)) u_total (.bits(in_valid), .count(total));
   assert property (@(posedge clk) total <= RW'(M));

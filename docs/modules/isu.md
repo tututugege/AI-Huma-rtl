@@ -183,6 +183,7 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 
 ## 10. 变更记录
 
+- 2026-11-21（`rtl/onehot-mux-tree`，`isu` 深度 89 → **50 层**，零周期变化）：新增公共原语 `ttg_pick_k.sv`（温度计编码 Kogge-Stone 并行前 K 选口）并改写 `ttg_onehot_mux`/`ttg_popcount` 为堆式平衡树（4 个公共原语均带 `` `ifdef SYNTHESIS `` 仿真快速路径）；`isu_alloc_chain`、`isu_wake_compact`、`isu_iq_select`（`IQ_MEM` LD/STA 组）统一复用 `ttg_pick_k`；`isu_iq` 入队寄存 `slot_op_q`/`slot_cap_q`/`slot_fpw_q`/`slot_fp_cls_q`、并行评估 `fu_ready` 与 `isu_fp_gate` 的 `sf1/sf2`；`isu_wake_src` FP 延迟唤醒拆 5 组 `NREQ=1` 私有槽，内部位图直读未压缩 `fp_raw_*`，快速唤醒直连 `cand_valid`；`isu_fp_gate` `busy_q` 改 packed 并解耦次态更新、按类预结合 `cls_ok`；`isu_iq_store` 静态裁剪 `HAS_CANCEL=HAS_SPEC_WAKE` 并行化分支 kill。`eda-08` Yosys：`isu` **50 层 / 931,747 单元**（剩余唯一 50 层路径为 `IQ_INT1` 3 口选口 → `dest_preg` 读出 → 7-bit CAM 唤醒核心环路）。
 - 2026-11-21（`rtl/be-wake-byp-opt`，后端阶段一瘦身）：唤醒网络按数据域（Int 128b / FP 96b）与快慢路径拆分（慢速寄存唤醒经分域 `isu_wake_bus`，6 路 ALU 快速唤醒直连整数域槽位 7-bit CAM）；各队列按实际源操作数裁剪死 `wait` 位（非 FP 队列去 `wait3`，MEM 队列去 `wait2`）；零周期变化。
 - 2026-11-19（`exp/wb-presel`，EXP-046）：完成周期的检查移到选择之前（合入时删掉了探索用的开关 `WB_PRESEL`，模型的 `CFG_WB_PRESEL` 同时删掉）；`isu_wb_gate` 的忙表从 21 × 64 位环 + 拍号改成每口按需长度的移位寄存器，偏移最长的类编译期恒空；`tests/wb_gate` 改为按完成类驱动并检查 `cls_free`。
 
