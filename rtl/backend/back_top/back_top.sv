@@ -7,7 +7,6 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
   input  logic rst_n,
   // ---- in: front end -> back end (SimCpu: BackTop::in, FrontPreIO; held registers front2back_hold live in SimCpu)
   input  logic [BACKEND_FETCH_WIDTH-1:0] front2pre_alt_pred,
-  input  logic [165:0] front2pre_bpu_ck,
   input  logic [31:0] front2pre_inst [BACKEND_FETCH_WIDTH],
   input  logic [BACKEND_FETCH_WIDTH-1:0] front2pre_page_fault_inst,
   input  logic [XLEN_BITS-1:0] front2pre_pc [BACKEND_FETCH_WIDTH],
@@ -73,8 +72,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
   output logic out_mispred,
   output logic out_no_mispred,
   output logic [XLEN_BITS-1:0] out_redirect_pc,
-  output logic [157:0] out_rf_ck,
-  output logic [7:0] out_rf_epoch,
+  output logic [9:0] out_rf_blk,
   output logic [XLEN_BITS-1:0] out_rf_pc,
   output logic out_rf_is_rvc,
   output logic [2:0] out_rf_type,
@@ -162,6 +160,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
   logic [XLEN_BITS-1:0] br_latch_br_pc;
   logic br_latch_is_rvc;
   logic [5:0] br_latch_ftq_idx;
+  logic [FTQ_OFFSET_WIDTH-1:0] br_latch_ftq_offset;
   logic br_latch_mispred;
   logic [XLEN_BITS-1:0] br_latch_redirect_pc;
   logic [BR_TAG_WIDTH-1:0] dec2ren_uop_br_id [DECODE_WIDTH];
@@ -364,6 +363,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
   logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_dest_en;
   logic [PRF_IDX_WIDTH-1:0] prf2exe_iss_entry_uop_dest_preg [ISSUE_WIDTH];
   logic [5:0] prf2exe_iss_entry_uop_ftq_idx [ISSUE_WIDTH];
+  logic [FTQ_OFFSET_WIDTH-1:0] prf2exe_iss_entry_uop_ftq_offset [ISSUE_WIDTH];
   logic [XLEN_BITS-1:0] prf2exe_iss_entry_uop_ftq_next_pc [ISSUE_WIDTH];
   logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_ftq_pred_taken;
   logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_ftq_is_rvc;
@@ -442,6 +442,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
   logic exu2id_br_is_rvc;
   logic [BR_MASK_WIDTH-1:0] exu2id_clear_mask;
   logic [5:0] exu2id_ftq_idx;
+  logic [FTQ_OFFSET_WIDTH-1:0] exu2id_ftq_offset;
   logic exu2id_mispred;
   logic [XLEN_BITS-1:0] exu2id_redirect_pc;
   logic [6:0] exu2id_redirect_rob_idx;
@@ -572,8 +573,8 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .clk(clk),
     .rst_n(rst_n),
     // inputs from idu
-    .idu_br_latch_br_pc(br_latch_br_pc),
     .idu_br_latch_ftq_idx(br_latch_ftq_idx),
+    .idu_br_latch_ftq_offset(br_latch_ftq_offset),
     .idu_br_latch_mispred(br_latch_mispred),
     .idu_consume_fire(idu_consume_fire),
     // inputs from prf
@@ -597,7 +598,6 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .rob_commit_commit_entry_valid(rob_commit_commit_entry_valid),
     // inputs from top input
     .front2pre_alt_pred(front2pre_alt_pred),
-    .front2pre_bpu_ck(front2pre_bpu_ck),
     .front2pre_inst(front2pre_inst),
     .front2pre_page_fault_inst(front2pre_page_fault_inst),
     .front2pre_pc(front2pre_pc),
@@ -611,8 +611,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .front2pre_valid(front2pre_valid),
     // outputs
     .pre2front_ready(pre2front_ready),
-    .out_rf_ck(out_rf_ck),
-    .out_rf_epoch(out_rf_epoch),
+    .out_rf_blk(out_rf_blk),
     .out_rf_type(out_rf_type),
     .pre2front_fire(pre2front_fire),
     .pre_issue_entries_valid(pre_issue_entries_valid),
@@ -650,6 +649,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .exu2id_br_is_rvc(exu2id_br_is_rvc),
     .exu2id_clear_mask(exu2id_clear_mask),
     .exu2id_ftq_idx(exu2id_ftq_idx),
+    .exu2id_ftq_offset(exu2id_ftq_offset),
     .exu2id_mispred(exu2id_mispred),
     .exu2id_redirect_pc(exu2id_redirect_pc),
     .exu2id_redirect_rob_idx(exu2id_redirect_rob_idx),
@@ -704,6 +704,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .br_latch_mispred(br_latch_mispred),
     .br_latch_redirect_pc(br_latch_redirect_pc),
     .br_latch_ftq_idx(br_latch_ftq_idx),
+    .br_latch_ftq_offset(br_latch_ftq_offset),
     .br_latch_br_pc(br_latch_br_pc),
     .br_latch_is_rvc(br_latch_is_rvc)
   );
@@ -1119,6 +1120,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .prf2exe_iss_entry_uop_fsrc3(prf2exe_iss_entry_uop_fsrc3),
     .prf2exe_iss_entry_uop_dest_preg(prf2exe_iss_entry_uop_dest_preg),
     .prf2exe_iss_entry_uop_ftq_idx(prf2exe_iss_entry_uop_ftq_idx),
+    .prf2exe_iss_entry_uop_ftq_offset(prf2exe_iss_entry_uop_ftq_offset),
     .prf2exe_iss_entry_uop_is_atomic(prf2exe_iss_entry_uop_is_atomic),
     .prf2exe_iss_entry_uop_dest_en(prf2exe_iss_entry_uop_dest_en),
     .prf2exe_iss_entry_uop_src1_en(prf2exe_iss_entry_uop_src1_en),
@@ -1176,6 +1178,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .prf2exe_iss_entry_uop_dest_en(prf2exe_iss_entry_uop_dest_en),
     .prf2exe_iss_entry_uop_dest_preg(prf2exe_iss_entry_uop_dest_preg),
     .prf2exe_iss_entry_uop_ftq_idx(prf2exe_iss_entry_uop_ftq_idx),
+    .prf2exe_iss_entry_uop_ftq_offset(prf2exe_iss_entry_uop_ftq_offset),
     .prf2exe_iss_entry_uop_ftq_next_pc(prf2exe_iss_entry_uop_ftq_next_pc),
     .prf2exe_iss_entry_uop_ftq_pred_taken(prf2exe_iss_entry_uop_ftq_pred_taken),
     .prf2exe_iss_entry_uop_ftq_is_rvc(prf2exe_iss_entry_uop_ftq_is_rvc),
@@ -1266,6 +1269,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .exu2id_redirect_rob_idx(exu2id_redirect_rob_idx),
     .exu2id_br_id(exu2id_br_id),
     .exu2id_ftq_idx(exu2id_ftq_idx),
+    .exu2id_ftq_offset(exu2id_ftq_offset),
     .exu2id_br_pc(exu2id_br_pc),
     .exu2id_br_is_rvc(exu2id_br_is_rvc)
   );

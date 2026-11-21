@@ -38,7 +38,10 @@ module dcache_wb
   // AXI write master outputs (after the whole tick; write response ready is constant 1)
   output logic                 ax_req_valid,
   output logic [LINE_W-1:0]    ax_req_line,
-  output logic [LINE_BITS-1:0] ax_req_data
+  output logic [LINE_BITS-1:0] ax_req_data,
+  // Read-only snoop on cycle-start WB entries (ICache FDIP coherency)
+  input  logic [LINE_W-1:0]    snp_line,
+  output logic                 snp_hit
 );
 
   logic [LINE_W-1:0]    line_q [WB_N];
@@ -76,6 +79,13 @@ module dcache_wb
     assign mrg_busy[i] = mrg_en[i] && mrg_found[i] && mrg_idx[i] == head_a && send_a;
     assign mrg_ok[i]   = mrg_en[i] && mrg_found[i] && !mrg_busy[i];
   end
+
+  /* verilator lint_off UNUSEDSIGNAL */
+  logic [WB_IDW-1:0] snp_idx_unused;
+  /* verilator lint_on UNUSEDSIGNAL */
+  dcache_wb_find u_snp_find (
+    .ent_line(line_q), .head(head_q), .count(count_q), .line(snp_line), .hit(snp_hit), .idx(snp_idx_unused)
+  );
 
   // ---- B: append, AXI request ----
   logic              push_ok;

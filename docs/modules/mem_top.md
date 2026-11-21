@@ -129,4 +129,5 @@ depth: 待测（由协调者补）。`mem_top` 自己没有逻辑，深度完全
 
 ## 10. 变更记录
 
-本分支未改动（`git log 261bd67..HEAD -- rtl/memsys/mem_top rtl/memsys/memcpu_pkg` 为空）。更早：`8dbb7cd` 合入 rv64imab；`f0bd79d` rv64 step 6（8 字节 MMIO）；`72f2cd9` rv64 step 3（Sv39）；`fb05807` rv64 step 2（数据字 XLEN 位）；`4e954d7` ROB 紧凑的清理批次；`b1e0335` EXP-024。`memcpu_pkg` 另有 `8abb7ab`（RTL 清理）、`f21cebf`（前端 XLEN 位 PC）。
+- 2026-11-21（`rtl/fe-2fetch-2taken`，EXP-051 里程碑 B）：`mem_top.sv` 透传 `fdip_snoop_line` / `fdip_snoop_dirty` 连接 `core_top`（ICache FDIP）与 `dcache`；修复 `mem_axi.sv` 在 `AXI_SUBSYSTEM_FREQ_DIV == 1` 下 `raw_accepted[0]` / `raw_accepted_id[0]` 误接组合 `ax_rd_acc_new[0]` 导致 ICache 通道接受脉冲早到 1 拍的问题（改为使用已寄存 `ax_rd_accepted[0]`，严格对齐 `SimCpu` 的 `icache_axi_q` 语义），单拍消除 2-slot FDIP 在 7 个程序上的 1 拍偏差；通过 `lint_chip` 0、`fm_gate` 68/68（0 周期偏差）与 Linux 27 窗对齐。
+- 本分支未改动（`git log 261bd67..HEAD -- rtl/memsys/mem_top rtl/memsys/memcpu_pkg` 为空）。更早：`8dbb7cd` 合入 rv64imab；`f0bd79d` rv64 step 6（8 字节 MMIO）；`72f2cd9` rv64 step 3（Sv39）；`fb05807` rv64 step 2（数据字 XLEN 位）；`4e954d7` ROB 紧凑的清理批次；`b1e0335` EXP-024。`memcpu_pkg` 另有 `8abb7ab`（RTL 清理）、`f21cebf`（前端 XLEN 位 PC）。

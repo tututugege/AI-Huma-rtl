@@ -27,6 +27,7 @@ module exu_ctrl
   input  logic [FW-1:0] prf2exe_iss_entry_uop_fsrc2 [ISSUE_WIDTH],
   input  logic [FW-1:0] prf2exe_iss_entry_uop_fsrc3 [ISSUE_WIDTH],
   input  logic [FTQ_IDX_WIDTH-1:0] prf2exe_iss_entry_uop_ftq_idx [ISSUE_WIDTH],
+  input  logic [FTQ_OFFSET_WIDTH-1:0] prf2exe_iss_entry_uop_ftq_offset [ISSUE_WIDTH],
   input  logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_is_atomic,
   input  logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_dest_en,
   input  logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_src1_en,
@@ -150,6 +151,7 @@ module exu_ctrl
   output logic [ROB_IDX_WIDTH-1:0] exu2id_redirect_rob_idx,
   output logic [BR_TAG_WIDTH-1:0] exu2id_br_id,
   output logic [FTQ_IDX_WIDTH-1:0] exu2id_ftq_idx,
+  output logic [FTQ_OFFSET_WIDTH-1:0] exu2id_ftq_offset,
   output logic [XLEN_BITS-1:0] exu2id_br_pc, output logic exu2id_br_is_rvc,
   output logic exu2fu_flush,
   output logic [BR_MASK_WIDTH-1:0] exu2fu_flush_mask,
@@ -242,6 +244,7 @@ module exu_ctrl
       fsrc2:          prf2exe_iss_entry_uop_fsrc2[p],
       fsrc3:          prf2exe_iss_entry_uop_fsrc3[p],
       ftq_idx:        prf2exe_iss_entry_uop_ftq_idx[p],
+      ftq_offset:     prf2exe_iss_entry_uop_ftq_offset[p],
       is_atomic:      prf2exe_iss_entry_uop_is_atomic[p],
       dest_en:        prf2exe_iss_entry_uop_dest_en[p],
       src1_en:        prf2exe_iss_entry_uop_src1_en[p],
@@ -358,6 +361,7 @@ module exu_ctrl
   exu_ctrl_br_arb u_br (
     .fu_done, .clear_mask(exu2id_clear_mask), .mispred(exu2id_mispred), .redirect_pc(exu2id_redirect_pc),
     .redirect_rob_idx(exu2id_redirect_rob_idx), .br_id(exu2id_br_id), .ftq_idx(exu2id_ftq_idx),
+    .ftq_offset(exu2id_ftq_offset),
     .br_pc(exu2id_br_pc), .br_is_rvc(exu2id_br_is_rvc)
   );
   // ---- Lsu requests ----

@@ -7,8 +7,8 @@
 //   pre_idu_ftq_ptr  FTQ allocation pointer / occupancy
 //   pre_idu_ftq_pc   FTQ pc storage with Prf / Rob / commit lookup ports
 //   pre_idu_ftq_meta FTQ training-metadata storage with commit read ports
-module pre_idu_queue import ttg_cfg_pkg::*; import pre_idu_pkg::*; import front_pkg::BCK_W; import front_pkg::KIND_W;
-  import bpu_stage_pkg::HCK_W; import bpu_stage_pkg::EPOCH_W; (
+module pre_idu_queue import ttg_cfg_pkg::*; import pre_idu_pkg::*; import front_pkg::KIND_W;
+  import bpu_types_pkg::FTB_BLK_ID_W; (
   input  logic clk,
   input  logic rst_n,
   input  logic [BACKEND_FETCH_WIDTH-1:0] front2pre_valid,
@@ -22,12 +22,11 @@ module pre_idu_queue import ttg_cfg_pkg::*; import pre_idu_pkg::*; import front_
   input  logic [XLEN_BITS-1:0] front2pre_predict_next_fetch_address,
   input  logic [TAGE_IDX_W-1:0] front2pre_tage_idx [BACKEND_FETCH_WIDTH] [TAGE_N],
   input  logic [TAGE_TAG_W-1:0] front2pre_tage_tag [BACKEND_FETCH_WIDTH] [TAGE_N],
-  input  logic [BCK_W-1:0] front2pre_bpu_ck,
   input  logic [FETCH_WIDTH-1:0][KIND_W-1:0] front2pre_slot_kind,
-  input  logic [XLEN_BITS-1:0] idu_br_latch_br_pc,
   input  logic [DECODE_WIDTH-1:0] idu_consume_fire,
   input  logic idu_br_latch_mispred,
   input  logic [FTQ_IDX_WIDTH-1:0] idu_br_latch_ftq_idx,
+  input  logic [FTQ_OFFSET_WIDTH-1:0] idu_br_latch_ftq_offset,
   input  logic rob_bcast_flush,
   input  logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_valid,
   input  logic [FTQ_IDX_WIDTH-1:0] rob_commit_commit_entry_uop_ftq_idx [COMMIT_WIDTH],
@@ -47,8 +46,7 @@ module pre_idu_queue import ttg_cfg_pkg::*; import pre_idu_pkg::*; import front_
   output logic [LSU_MDP_BITS-1:0] ftq_dis_resp_mdp [DECODE_WIDTH],
   output logic [31:0] ftq_dis_resp_pc [DECODE_WIDTH],
   output logic [DECODE_WIDTH-1:0] ftq_dis_resp_is_rvc,
-  output logic [HCK_W-1:0] out_rf_ck,
-  output logic [EPOCH_W-1:0] out_rf_epoch,
+  output logic [FTB_BLK_ID_W-1:0] out_rf_blk,
   output logic [2:0] out_rf_type,
   output logic pre2front_ready,
   output logic [BACKEND_FETCH_WIDTH-1:0] pre2front_fire,
@@ -158,11 +156,17 @@ module pre_idu_queue import ttg_cfg_pkg::*; import pre_idu_pkg::*; import front_
   end
   logic [XLEN_BITS-1:0] dis_pc [DECODE_WIDTH];
   logic                 dis_is_rvc [DECODE_WIDTH];
-  always_comb for (int p = 0; p < DECODE_WIDTH; p++) begin ftq_dis_resp_is_rvc[p] = dis_is_rvc[p]; ftq_dis_resp_pc[p] = dis_pc[p][31:0]; end
+  always_comb begin
+    for (int p = 0; p < DECODE_WIDTH; p++) begin
+      ftq_dis_resp_is_rvc[p] = dis_is_rvc[p];
+      ftq_dis_resp_pc[p]     = dis_pc[p][31:0];
+    end
+  end
   for (genvar p = 0; p < DECODE_WIDTH; p++) begin : g_dis_pc
     if (LSU_MEMSPEC != 0) begin : g_on
-      // wait-table index of the load PC: pc[S+B-1:S] ^ pc[S+2B-1:S+B], S = SLOT_SHIFT (2-byte aligned instructions with RVC), as the model's mdp_idx
-      assign ftq_dis_resp_mdp[p] = dis_pc[p][SLOT_SHIFT +: LSU_MDP_BITS] ^ dis_pc[p][SLOT_SHIFT+LSU_MDP_BITS +: LSU_MDP_BITS];
+      // wait-table index of the load PC: pc[S+B-1:S] ^ pc[S+2B-1:S+B] (model mdp_idx)
+      assign ftq_dis_resp_mdp[p] = dis_pc[p][SLOT_SHIFT +: LSU_MDP_BITS] ^
+                                   dis_pc[p][SLOT_SHIFT + LSU_MDP_BITS +: LSU_MDP_BITS];
     end else begin : g_off
       /* verilator lint_off UNUSEDSIGNAL */
       logic unused;
@@ -189,14 +193,16 @@ module pre_idu_queue import ttg_cfg_pkg::*; import pre_idu_pkg::*; import front_
     .recover_idx(idu_br_latch_ftq_idx), .pop_cnt(ftq_pop_cnt), .tail(ftq_tail), .count(ftq_count)
   );
 
+  logic [FETCH_WIDTH-1:0][FTB_BLK_ID_W-1:0] front_blk_id;
+  always_comb for (int i = 0; i < FETCH_WIDTH; i++) front_blk_id[i] = front2pre_tage_idx[i][0];
+
   pre_idu_ftq_pc #(.NPORT(NPORT_PC)) u_pc (
-    .clk, .wr_en(alloc), .wr_idx(ftq_tail), .wr_slot_pc(front_slot_pc), .wr_pred_taken(front_pred_taken),
-    .wr_is_rvc(front_is_rvc),
+    .clk, .wr_en(alloc), .wr_idx(ftq_tail), .wr_valid(front_valid), .wr_slot_pc(front_slot_pc),
+    .wr_pred_taken(front_pred_taken), .wr_is_rvc(front_is_rvc),
     .wr_next_pc(front2pre_predict_next_fetch_address),
     .rd_idx(pc_rd_idx), .rd_offset(pc_rd_offset), .dis_idx(ftq_dis_req_ftq_idx), .dis_off(ftq_dis_req_ftq_offset),
     .dis_pc(dis_pc), .dis_is_rvc(dis_is_rvc), .rd_pc(pc_rd_pc), .rd_pred_taken(pc_rd_pred_taken),
-    .rd_is_rvc(pc_rd_is_rvc),
-    .rd_next_pc(pc_rd_next_pc)
+    .rd_is_rvc(pc_rd_is_rvc), .rd_next_pc(pc_rd_next_pc)
   );
 
   pre_idu_ftq_meta u_meta (
@@ -205,9 +211,9 @@ module pre_idu_queue import ttg_cfg_pkg::*; import pre_idu_pkg::*; import front_
   );
 
   pre_idu_ftq_bpu u_bpu (
-    .clk, .wr_en(alloc), .wr_idx(ftq_tail), .wr_bck(front2pre_bpu_ck), .wr_kind(front2pre_slot_kind),
-    .wr_pc1(front_slot_pc[1]), .rd_idx(idu_br_latch_ftq_idx), .rd_br_pc(idu_br_latch_br_pc), .rd_ck(out_rf_ck),
-    .rd_epoch(out_rf_epoch), .rd_type(out_rf_type)
+    .clk, .wr_en(alloc), .wr_idx(ftq_tail), .wr_blk_id(front_blk_id), .wr_kind(front2pre_slot_kind),
+    .rd_idx(idu_br_latch_ftq_idx), .rd_offset(idu_br_latch_ftq_offset),
+    .rd_blk(out_rf_blk), .rd_type(out_rf_type)
   );
 
   // ---- outputs ----

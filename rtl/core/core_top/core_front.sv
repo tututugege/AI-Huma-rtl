@@ -5,18 +5,16 @@
 // conversion with the stall hold register (core_front2back).  Inputs are what the back end produced this cycle, outputs
 // are the 16-lane group the back end sees (back.in) plus the front end's memory-side ports.
 module core_front import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*;
-  import icache_pkg::*; import tlb_mmu_pkg::*; (
+  import bpu_types_pkg::FTB_BLK_ID_W; import icache_pkg::*; import tlb_mmu_pkg::*; (
   input  logic clk,
   input  logic rst_n,
   // ---- from the back end (cycle t) ----
   input  logic        out_mispred,
   input  logic        out_rf_valid,
-  input  logic [HCK_W-1:0] out_rf_ck,
-  input  logic [EPOCH_W-1:0] out_rf_epoch,
+  input  logic [FTB_BLK_ID_W-1:0] out_rf_blk,
   input  logic [2:0]  out_rf_type,
   input  logic [XLEN_BITS-1:0] out_rf_pc,
   input  logic out_rf_is_rvc,
-  output logic [BCK_W-1:0] front2pre_bpu_ck,
   output logic [FETCH_WIDTH-1:0][KIND_W-1:0] front2pre_slot_kind,
   input  logic        out_stall,
   input  logic [XLEN_BITS-1:0] out_redirect_pc,
@@ -53,6 +51,7 @@ module core_front import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*;
   input  logic        dc_resp_retry,
   input  logic        dc_resp_miss,
   input  logic [31:0] dc_resp_data,
+  input  logic        fdip_snoop_dirty,
   input  logic        itlb_walk_req_ready,
   input  logic        itlb_walk_resp_valid,
   input  logic        itlb_walk_resp_fault,
@@ -68,6 +67,7 @@ module core_front import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*;
   output logic        mem_resp_ready,
   output logic        dc_req_valid,
   output logic [31:0] dc_req_addr,
+  output logic [25:0] fdip_snoop_line,
   output logic        itlb_walk_req_valid,
   output logic [VPN_W-1:0] itlb_walk_req_vpn,
   output logic [21:0] itlb_walk_req_root_ppn,
@@ -93,8 +93,7 @@ module core_front import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*;
   logic        b2f_refetch, b2f_itlb_flush, b2f_fence_i, b2f_stall;
   logic [XLEN_BITS-1:0] b2f_refetch_address;
   logic        b2f_rf_valid;
-  logic [HCK_W-1:0] b2f_rf_ck;
-  logic [EPOCH_W-1:0] b2f_rf_epoch;
+  logic [FTB_BLK_ID_W-1:0] b2f_rf_blk;
   logic [2:0]  b2f_rf_type;
   logic [XLEN_BITS-1:0] b2f_rf_pc;
   logic b2f_rf_is_rvc;
@@ -115,7 +114,7 @@ module core_front import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*;
     .out_mispred             (out_mispred),
     .out_stall               (out_stall),
     .out_redirect_pc         (out_redirect_pc),
-    .out_rf_valid, .out_rf_ck, .out_rf_epoch, .out_rf_type, .out_rf_pc, .out_rf_is_rvc,
+    .out_rf_valid, .out_rf_blk, .out_rf_type, .out_rf_pc, .out_rf_is_rvc,
     .rob_bcast_fence         (rob_bcast_fence),
     .rob_bcast_fence_i       (rob_bcast_fence_i),
     .commit_valid            (rob_commit_commit_entry_valid),
@@ -136,8 +135,7 @@ module core_front import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*;
     .refetch_q               (b2f_refetch),
     .refetch_address_q       (b2f_refetch_address),
     .rf_valid_q              (b2f_rf_valid),
-    .rf_ck_q                 (b2f_rf_ck),
-    .rf_epoch_q              (b2f_rf_epoch),
+    .rf_blk_q                (b2f_rf_blk),
     .rf_type_q               (b2f_rf_type),
     .rf_pc_q                 (b2f_rf_pc),
     .rf_is_rvc_q             (b2f_rf_is_rvc),
@@ -174,7 +172,6 @@ module core_front import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*;
   logic [TAGE_IDX_W-1:0] fe_tage_idx [FETCH_WIDTH][TN_MAX];
   logic [TAGE_TAG_W-1:0] fe_tage_tag [FETCH_WIDTH][TN_MAX];
   logic [XLEN_BITS-1:0] fe_predict_next_fetch_address;
-  logic [BCK_W-1:0] fe_bpu_ck;
   logic [FETCH_WIDTH-1:0][KIND_W-1:0] fe_slot_kind;
 
   front_top u_front (
@@ -182,8 +179,7 @@ module core_front import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*;
     .be_refetch                 (b2f_refetch),
     .be_refetch_address         (b2f_refetch_address),
     .be_rf_valid                (b2f_rf_valid),
-    .be_rf_ck                   (b2f_rf_ck),
-    .be_rf_epoch                (b2f_rf_epoch),
+    .be_rf_blk                  (b2f_rf_blk),
     .be_rf_type                 (b2f_rf_type),
     .be_rf_pc                   (b2f_rf_pc),
     .be_rf_is_rvc               (b2f_rf_is_rvc),
@@ -208,7 +204,7 @@ module core_front import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*;
     .tags                       (upd_tags),
     .idxs                       (upd_idxs),
     .mem_req_ready, .mem_req_accepted, .mem_req_accepted_id, .mem_resp_valid, .mem_resp_id, .mem_resp_data,
-    .dc_resp_valid, .dc_resp_retry, .dc_resp_miss, .dc_resp_data,
+    .dc_resp_valid, .dc_resp_retry, .dc_resp_miss, .dc_resp_data, .fdip_snoop_dirty,
     .ptw_walk_req_ready         (itlb_walk_req_ready),
     .ptw_walk_resp_valid        (itlb_walk_resp_valid),
     .ptw_walk_resp_fault        (itlb_walk_resp_fault),
@@ -227,11 +223,10 @@ module core_front import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*;
     .out_tage_idx               (fe_tage_idx),
     .out_tage_tag               (fe_tage_tag),
     .out_predict_next_fetch_address (fe_predict_next_fetch_address),
-    .out_bpu_ck                 (fe_bpu_ck),
     .out_slot_kind              (fe_slot_kind),
     .out_is_rvc                 (fe_is_rvc),
     .mem_req_valid, .mem_req_addr, .mem_req_total_size, .mem_req_bypass, .mem_req_id, .mem_resp_ready,
-    .dc_req_valid, .dc_req_addr,
+    .dc_req_valid, .dc_req_addr, .fdip_snoop_line,
     .ptw_walk_req_valid         (itlb_walk_req_valid),
     .ptw_walk_req_vpn           (itlb_walk_req_vpn),
     .ptw_walk_req_root_ppn      (itlb_walk_req_root_ppn),
@@ -255,7 +250,6 @@ module core_front import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*;
     .tage_idx                    (fe_tage_idx),
     .tage_tag                    (fe_tage_tag),
     .predict_next_fetch_address  (fe_predict_next_fetch_address),
-    .bpu_ck                      (fe_bpu_ck),
     .slot_kind                   (fe_slot_kind),
     .back_valid                  (front2pre_valid),
     .back_inst                   (front2pre_inst),
@@ -268,7 +262,6 @@ module core_front import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*;
     .back_tage_idx               (front2pre_tage_idx),
     .back_tage_tag               (front2pre_tage_tag),
     .back_predict_next_fetch_address (front2pre_predict_next_fetch_address),
-    .back_bpu_ck                 (front2pre_bpu_ck),
     .back_slot_kind              (front2pre_slot_kind)
   );
 

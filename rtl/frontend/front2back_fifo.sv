@@ -1,9 +1,7 @@
 // Ref: front-end/fifo/front2bank_FIFO.cpp  front2back_FIFO_comb + model
 `default_nettype none
 
-// front2back_FIFO: 32 x 2424b queue of checked fetch groups waiting for the back end.  Port adaptation only.
-// The entry keeps the lane-0 pc: lane i of the C++ entry is lane0 + SLOT_BYTES*i (a carried slot 0: base - SLOT_BYTES) (it is copied from the PTAB entry), so the
-// per-lane pc ports of the C++ interface are replaced by the single base pc.
+// front2back_FIFO: queue of checked fetch groups waiting for the back end (compact 2-taken {is_pair, base_b, a_len}).
 module front2back_fifo import ttg_cfg_pkg::*; import front_pkg::*; (
   input  logic                    clk,
   input  logic                    rst_n,
@@ -11,33 +9,37 @@ module front2back_fifo import ttg_cfg_pkg::*; import front_pkg::*; (
   input  logic                    rd_en,
   input  logic                    wr_en,
   input  logic [31:0]             wr_fetch_group [FETCH_WIDTH],
-  input  logic [FETCH_WIDTH-1:0] wr_page_fault_inst,
-  input  logic [FETCH_WIDTH-1:0] wr_inst_valid,
-  input  logic [FETCH_WIDTH-1:0] wr_predict_dir_corrected,
-  input  logic [XLEN_BITS-1:0]             wr_predict_base_pc,
-  input  logic [FETCH_WIDTH-1:0] wr_alt_pred,
+  input  logic [FETCH_WIDTH-1:0]  wr_page_fault_inst,
+  input  logic [FETCH_WIDTH-1:0]  wr_inst_valid,
+  input  logic [FETCH_WIDTH-1:0]  wr_predict_dir_corrected,
+  input  logic [XLEN_BITS-1:0]    wr_predict_base_pc,
+  input  logic                    wr_is_pair,
+  input  logic [XLEN_BITS-1:0]    wr_base_b,
+  input  logic [3:0]              wr_a_len,
+  input  logic [FETCH_WIDTH-1:0]  wr_alt_pred,
   input  logic [PCPN_W-1:0]       wr_pcpn        [FETCH_WIDTH],
   input  logic [TAGE_IDX_W-1:0]   wr_tage_idx    [FETCH_WIDTH][TN_MAX],
   input  logic [TAGE_TAG_W-1:0]   wr_tage_tag    [FETCH_WIDTH][TN_MAX],
-  input  logic [XLEN_BITS-1:0]             wr_predict_next_fetch_address_corrected,
-  input  logic [BCK_W-1:0]        wr_bpu_ck,
+  input  logic [XLEN_BITS-1:0]    wr_predict_next_fetch_address_corrected,
   input  logic [FETCH_WIDTH-1:0][KIND_W-1:0] wr_slot_kind,
-  input  logic [FETCH_WIDTH-1:0] wr_is_rvc,
+  input  logic [FETCH_WIDTH-1:0]  wr_is_rvc,
   input  logic                    wr_carry,
   output logic                    rd_valid,
   output logic [31:0]             rd_fetch_group [FETCH_WIDTH],
-  output logic [FETCH_WIDTH-1:0] rd_page_fault_inst,
-  output logic [FETCH_WIDTH-1:0] rd_inst_valid,
-  output logic [FETCH_WIDTH-1:0] rd_predict_dir_corrected,
-  output logic [XLEN_BITS-1:0]             rd_predict_base_pc,
-  output logic [FETCH_WIDTH-1:0] rd_alt_pred,
+  output logic [FETCH_WIDTH-1:0]  rd_page_fault_inst,
+  output logic [FETCH_WIDTH-1:0]  rd_inst_valid,
+  output logic [FETCH_WIDTH-1:0]  rd_predict_dir_corrected,
+  output logic [XLEN_BITS-1:0]    rd_predict_base_pc,
+  output logic                    rd_is_pair,
+  output logic [XLEN_BITS-1:0]    rd_base_b,
+  output logic [3:0]              rd_a_len,
+  output logic [FETCH_WIDTH-1:0]  rd_alt_pred,
   output logic [PCPN_W-1:0]       rd_pcpn        [FETCH_WIDTH],
   output logic [TAGE_IDX_W-1:0]   rd_tage_idx    [FETCH_WIDTH][TN_MAX],
   output logic [TAGE_TAG_W-1:0]   rd_tage_tag    [FETCH_WIDTH][TN_MAX],
-  output logic [XLEN_BITS-1:0]             rd_predict_next_fetch_address_corrected,
-  output logic [BCK_W-1:0]        rd_bpu_ck,
+  output logic [XLEN_BITS-1:0]    rd_predict_next_fetch_address_corrected,
   output logic [FETCH_WIDTH-1:0][KIND_W-1:0] rd_slot_kind,
-  output logic [FETCH_WIDTH-1:0] rd_is_rvc,
+  output logic [FETCH_WIDTH-1:0]  rd_is_rvc,
   output logic                    rd_carry,
   output logic                    full,
   output logic                    empty
@@ -48,47 +50,48 @@ module front2back_fifo import ttg_cfg_pkg::*; import front_pkg::*; (
 
   always_comb begin
     for (int i = 0; i < FETCH_WIDTH; i++) begin
-      wr_entry.fetch_group[i]            = wr_fetch_group[i];
-      wr_entry.page_fault_inst[i]        = wr_page_fault_inst[i];
-      wr_entry.inst_valid[i]             = wr_inst_valid[i];
-      wr_entry.predict_dir_corrected[i]  = wr_predict_dir_corrected[i];
-      wr_entry.is_rvc[i]                 = wr_is_rvc[i];
-      rd_is_rvc[i]                       = rd_entry.is_rvc[i];
-      wr_entry.meta.alt_pred[i]     = wr_alt_pred[i];
-      wr_entry.meta.pcpn[i]         = wr_pcpn[i];
+      wr_entry.fetch_group[i]           = wr_fetch_group[i];
+      wr_entry.page_fault_inst[i]       = wr_page_fault_inst[i];
+      wr_entry.inst_valid[i]            = wr_inst_valid[i];
+      wr_entry.predict_dir_corrected[i] = wr_predict_dir_corrected[i];
+      wr_entry.is_rvc[i]                = wr_is_rvc[i];
+      rd_is_rvc[i]                      = rd_entry.is_rvc[i];
+      wr_entry.meta.alt_pred[i]         = wr_alt_pred[i];
+      wr_entry.meta.pcpn[i]             = wr_pcpn[i];
       for (int j = 0; j < TN_MAX; j++) begin
         wr_entry.meta.tage_idx[i][j] = wr_tage_idx[i][j];
         wr_entry.meta.tage_tag[i][j] = wr_tage_tag[i][j];
       end
-      rd_fetch_group[i]            = rd_entry.fetch_group[i];
-      rd_page_fault_inst[i]        = rd_entry.page_fault_inst[i];
-      rd_inst_valid[i]             = rd_entry.inst_valid[i];
-      rd_predict_dir_corrected[i]  = rd_entry.predict_dir_corrected[i];
-      rd_alt_pred[i]          = rd_entry.meta.alt_pred[i];
-      rd_pcpn[i]              = rd_entry.meta.pcpn[i];
+      rd_fetch_group[i]           = rd_entry.fetch_group[i];
+      rd_page_fault_inst[i]       = rd_entry.page_fault_inst[i];
+      rd_inst_valid[i]            = rd_entry.inst_valid[i];
+      rd_predict_dir_corrected[i] = rd_entry.predict_dir_corrected[i];
+      rd_alt_pred[i]              = rd_entry.meta.alt_pred[i];
+      rd_pcpn[i]                  = rd_entry.meta.pcpn[i];
       for (int j = 0; j < TN_MAX; j++) begin
         rd_tage_idx[i][j] = rd_entry.meta.tage_idx[i][j];
         rd_tage_tag[i][j] = rd_entry.meta.tage_tag[i][j];
       end
     end
-    wr_entry.carry                                  = wr_carry;
-    rd_carry                                        = rd_entry.carry;
-    wr_entry.bpu_ck                                 = wr_bpu_ck;
-    wr_entry.slot_kind                              = wr_slot_kind;
-    rd_bpu_ck                                       = rd_entry.bpu_ck;
-    rd_slot_kind                                    = rd_entry.slot_kind;
-    wr_entry.meta.predict_base_pc                   = wr_predict_base_pc;
-    wr_entry.predict_next_fetch_address_corrected   = wr_predict_next_fetch_address_corrected;
-    rd_predict_base_pc                              = rd_entry.meta.predict_base_pc;
-    rd_predict_next_fetch_address_corrected         = rd_entry.predict_next_fetch_address_corrected;
+    wr_entry.carry                                = wr_carry;
+    rd_carry                                      = rd_entry.carry;
+    wr_entry.is_pair                              = wr_is_pair;
+    wr_entry.base_b                               = wr_base_b;
+    wr_entry.a_len                                = wr_a_len;
+    rd_is_pair                                    = rd_entry.is_pair;
+    rd_base_b                                     = rd_entry.base_b;
+    rd_a_len                                      = rd_entry.a_len;
+    wr_entry.slot_kind                            = wr_slot_kind;
+    rd_slot_kind                                  = rd_entry.slot_kind;
+    wr_entry.meta.predict_base_pc                 = wr_predict_base_pc;
+    wr_entry.predict_next_fetch_address_corrected = wr_predict_next_fetch_address_corrected;
+    rd_predict_base_pc                            = rd_entry.meta.predict_base_pc;
+    rd_predict_next_fetch_address_corrected       = rd_entry.predict_next_fetch_address_corrected;
   end
 
   /* verilator lint_off UNUSEDSIGNAL */
-  logic [$clog2(F2B_FIFO_DEPTH + 1)-1:0] size_unused;   // occupancy: only the fetch-address queue and PTAB need it
-  /* verilator lint_on UNUSEDSIGNAL */
-
-  /* verilator lint_off UNUSEDSIGNAL */
-  logic head_fresh_unused;   // only the fetch-address queue needs it
+  logic [$clog2(F2B_FIFO_DEPTH + 1)-1:0] size_unused;
+  logic head_fresh_unused;
   /* verilator lint_on UNUSEDSIGNAL */
 
   front_fifo #(.DEPTH(F2B_FIFO_DEPTH), .W($bits(f2b_fifo_entry_t)), .FULL_AT(F2B_FIFO_FULL_AT)) u_fifo (

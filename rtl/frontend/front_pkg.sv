@@ -1,8 +1,7 @@
 // Ref: front-end/config/frontend_feature_config.h, front-end/wire_types.h, front-end/predecode.h
 `default_nettype none
 /* verilator lint_off UNUSEDPARAM */
-// Front-end constants: FIFO depths (from ttg_cfg_pkg, generated from frontend_feature_config.h), prediction-metadata
-// widths and the predecode type encoding.  Values checked with docs/analysis/tools/widths.cpp (real configuration).
+// Front-end constants, 2-taken FetchPair descriptor, and FIFO entry structs.
 package front_pkg;
   import ttg_cfg_pkg::*;
 
@@ -11,7 +10,7 @@ package front_pkg;
   localparam int INST_FIFO_DEPTH       = INSTRUCTION_FIFO_SIZE;
   localparam int PTAB_DEPTH            = PTAB_SIZE;
   localparam int F2B_FIFO_DEPTH        = FRONT2BACK_FIFO_SIZE;
-  // "full" thresholds of the C++ latches (front_top.cpp:1841-1848): BPU back-pressure FIFOs go full one entry early
+  // "full" thresholds of the C++ latches: BPU back-pressure FIFOs go full one entry early
   localparam int FETCH_ADDR_FIFO_FULL_AT = FETCH_ADDR_FIFO_DEPTH - 1;
   localparam int INST_FIFO_FULL_AT       = INST_FIFO_DEPTH;
   localparam int PTAB_FULL_AT            = PTAB_DEPTH - 1;
@@ -23,9 +22,6 @@ package front_pkg;
   localparam int TAGE_IDX_W    = 10;
   localparam int TAGE_TAG_W    = 8;
   localparam int INST_BYTES    = 4;
-  // BPU repair record of a fetch group: history checkpoint of the block + history epoch (travels with the block to the
-  // back-end FTQ and is returned with a branch mispredict), and the BPU type of every slot (predecode)
-  localparam int BCK_W         = bpu_stage_pkg::HCK_W + bpu_stage_pkg::EPOCH_W;
   localparam int KIND_W        = 3;
 
   // predecode_type_t (predecode.h)
@@ -39,53 +35,93 @@ package front_pkg;
   localparam logic [6:0] OPCODE_JALR   = 7'b1100111;
   localparam logic [6:0] OPCODE_BRANCH = 7'b1100011;
 
-  // ---- FIFO entries (debug-only fields of the C++ entries are not stored) ----
-  // instruction_FIFO entry: one predecoded fetch group
+  // 2-taken fetch pair descriptor carried through fetch_addr_fifo & pend_pair_q
   typedef struct packed {
-    logic                                      up_ok;     // RVC=1: the last slot's window has its upper halfword
-    logic [15:0]                               raw0;      // RVC=1: first halfword of slot 0 as fetched (before expansion)
-    logic [FETCH_WIDTH-1:0]                    start_b;   // RVC=1: instruction starts when slot 0 is a carried second half
-    logic [FETCH_WIDTH-1:0]                    start_a;   // RVC=1: instruction starts when slot 0 begins an instruction
-    logic [FETCH_WIDTH-1:0]                    is_rvc;    // RVC=1: the slot holds a 16-bit instruction (expanded)
-    logic [XLEN_BITS-1:0]                               seq_next_pc;
-    logic [FETCH_WIDTH-1:0][XLEN_BITS-1:0]     predecode_target_address;
-    logic [FETCH_WIDTH-1:0][1:0]               predecode_type;
-    logic [FETCH_WIDTH-1:0]                    inst_valid;
-    logic [FETCH_WIDTH-1:0]                    page_fault_inst;
-    logic [FETCH_WIDTH-1:0][31:0]              instructions;
+    logic                 valid;
+    logic [XLEN_BITS-1:0] addr2;
+    logic [3:0]           a_len;
+    logic [3:0]           b_len;
+  } fetch_pair_t;
+
+  // ---- FIFO entries ----
+  // instruction_FIFO entry: one predecoded fetch group (fused A+B when paired, plus intact A fallback alt_a)
+  typedef struct packed {
+    logic                                  is_pair;
+    logic [3:0]                            a_len;
+    logic [XLEN_BITS-1:0]                  base_a;
+    logic [XLEN_BITS-1:0]                  base_b;
+    logic [15:0]                           up16;
+    logic                                  up_ok;
+    logic [15:0]                           raw0;
+    logic [FETCH_WIDTH-1:0]                start_b;
+    logic [FETCH_WIDTH-1:0]                start_a;
+    logic [FETCH_WIDTH-1:0]                is_rvc;
+    logic [XLEN_BITS-1:0]                  seq_next_pc;
+    logic [FETCH_WIDTH-1:0][XLEN_BITS-1:0] predecode_target_address;
+    logic [FETCH_WIDTH-1:0][1:0]           predecode_type;
+    logic [FETCH_WIDTH-1:0]                inst_valid;
+    logic [FETCH_WIDTH-1:0]                page_fault_inst;
+    logic [FETCH_WIDTH-1:0][31:0]          instructions;
+    // Intact Block A fallback (selected when has_alt_a && !ptab.is_pair, i.e. S2 overrode A)
+    logic                                  has_alt_a;
+    logic [15:0]                           alt_up16;
+    logic                                  alt_up_ok;
+    logic [FETCH_WIDTH-1:0]                alt_start_b;
+    logic [FETCH_WIDTH-1:0]                alt_start_a;
+    logic [FETCH_WIDTH-1:0]                alt_is_rvc;
+    logic [XLEN_BITS-1:0]                  alt_seq_next_pc;
+    logic [FETCH_WIDTH-1:0][XLEN_BITS-1:0] alt_predecode_target_address;
+    logic [FETCH_WIDTH-1:0][1:0]           alt_predecode_type;
+    logic [FETCH_WIDTH-1:0]                alt_inst_valid;
+    logic [FETCH_WIDTH-1:0]                alt_page_fault_inst;
+    logic [FETCH_WIDTH-1:0][31:0]          alt_instructions;
   } inst_fifo_entry_t;
 
-  // BPU prediction metadata of one fetch group, shared by the PTAB and front2back entries.
-  // predict_base_pc is the pc of lane 0; lane i is predict_base_pc + 4*i (front_top.cpp front_ptab_write_comb).
+  // BPU prediction metadata of one fetch group, shared by PTAB and front2back entries.
   typedef struct packed {
-    logic [FETCH_WIDTH-1:0][TN_MAX-1:0][TAGE_TAG_W-1:0]      tage_tag;
-    logic [FETCH_WIDTH-1:0][TN_MAX-1:0][TAGE_IDX_W-1:0]      tage_idx;
-    logic [FETCH_WIDTH-1:0][PCPN_W-1:0]                      pcpn;
-    logic [FETCH_WIDTH-1:0]                                  alt_pred;
-    logic [XLEN_BITS-1:0]                                             predict_base_pc;
+    logic [FETCH_WIDTH-1:0][TN_MAX-1:0][TAGE_TAG_W-1:0] tage_tag;
+    logic [FETCH_WIDTH-1:0][TN_MAX-1:0][TAGE_IDX_W-1:0] tage_idx;
+    logic [FETCH_WIDTH-1:0][PCPN_W-1:0]                 pcpn;
+    logic [FETCH_WIDTH-1:0]                             alt_pred;
+    logic [XLEN_BITS-1:0]                               predict_base_pc;
   } pred_meta_t;
 
-  // PTAB entry: BPU prediction of one fetch group
+  // PTAB entry: BPU prediction of one fetch group (compact {is_pair, base_b, a_len}, no bpu_ck)
   typedef struct packed {
-    pred_meta_t                    meta;
-    logic [BCK_W-1:0]              bpu_ck;
-    logic [FETCH_WIDTH-1:0]        predict_dir;
-    logic [XLEN_BITS-1:0]                   predict_next_fetch_address;
+    pred_meta_t             meta;
+    logic                   is_pair;
+    logic [XLEN_BITS-1:0]   base_b;
+    logic [3:0]             a_len;
+    logic [FETCH_WIDTH-1:0] predict_dir;
+    logic [XLEN_BITS-1:0]   predict_next_fetch_address;
   } ptab_entry_t;
 
   // front2back_FIFO entry: instructions + prediction metadata + checker-corrected direction / next address
   typedef struct packed {
-    logic [XLEN_BITS-1:0]                   predict_next_fetch_address_corrected;
-    pred_meta_t                    meta;
-    logic [BCK_W-1:0]              bpu_ck;
+    logic [XLEN_BITS-1:0]               predict_next_fetch_address_corrected;
+    pred_meta_t                         meta;
+    logic                               is_pair;
+    logic [XLEN_BITS-1:0]               base_b;
+    logic [3:0]                         a_len;
     logic [FETCH_WIDTH-1:0][KIND_W-1:0] slot_kind;
-    logic [FETCH_WIDTH-1:0]        predict_dir_corrected;
-    logic [FETCH_WIDTH-1:0]        inst_valid;
-    logic [FETCH_WIDTH-1:0]        page_fault_inst;
-    logic [FETCH_WIDTH-1:0]        is_rvc;
-    logic                          carry;      // RVC=1: slot 0 is an instruction assembled with the carried halfword (pc = base - SLOT_BYTES)
-    logic [FETCH_WIDTH-1:0][31:0]  fetch_group;
+    logic [FETCH_WIDTH-1:0]             predict_dir_corrected;
+    logic [FETCH_WIDTH-1:0]             inst_valid;
+    logic [FETCH_WIDTH-1:0]             page_fault_inst;
+    logic [FETCH_WIDTH-1:0]             is_rvc;
+    logic                               carry;
+    logic [FETCH_WIDTH-1:0][31:0]       fetch_group;
   } f2b_fifo_entry_t;
+
+  // Reconstruct lane i PC from compact {base_a, is_pair, a_len, base_b}
+  function automatic logic [XLEN_BITS-1:0] pair_slot_pc(
+    input logic [XLEN_BITS-1:0] base_a, input logic is_pair,
+    input logic [3:0] a_len, input logic [XLEN_BITS-1:0] base_b, input int idx
+  );
+    if (is_pair && (4'(idx) >= a_len))
+      return base_b + (XLEN_BITS'(4'(idx) - a_len) << SLOT_SHIFT);
+    else
+      return base_a + XLEN_BITS'(SLOT_BYTES * idx);
+  endfunction
 endpackage
 
 `default_nettype wire

@@ -22,6 +22,7 @@ module idu import ttg_cfg_pkg::*; (
   input  logic [ROB_IDX_WIDTH-1:0]    exu2id_redirect_rob_idx,
   input  logic [BR_TAG_WIDTH-1:0]     exu2id_br_id,
   input  logic [FTQ_IDX_WIDTH-1:0]    exu2id_ftq_idx,
+  input  logic [FTQ_OFFSET_WIDTH-1:0] exu2id_ftq_offset,
   input  logic [XLEN_BITS-1:0]                 exu2id_br_pc,
   input  logic                                 exu2id_br_is_rvc,
   input  logic [BR_MASK_WIDTH-1:0]    exu2id_clear_mask,
@@ -68,6 +69,7 @@ module idu import ttg_cfg_pkg::*; (
   output logic                        br_latch_mispred,
   output logic [XLEN_BITS-1:0]                 br_latch_redirect_pc,
   output logic [FTQ_IDX_WIDTH-1:0]    br_latch_ftq_idx,
+  output logic [FTQ_OFFSET_WIDTH-1:0] br_latch_ftq_offset,
   output logic [XLEN_BITS-1:0]                 br_latch_br_pc,
   output logic                                 br_latch_is_rvc
 );
@@ -141,10 +143,12 @@ module idu import ttg_cfg_pkg::*; (
   idu_br_latch u_latch (
     .clk(clk), .rst_n(rst_n), .rob_flush(rob_bcast_flush), .exu_mispred(exu2id_mispred),
     .exu_redirect_pc(exu2id_redirect_pc), .exu_redirect_rob_idx(exu2id_redirect_rob_idx),
-    .exu_br_id(exu2id_br_id), .exu_ftq_idx(exu2id_ftq_idx), .exu_br_pc(exu2id_br_pc), .exu_br_is_rvc(exu2id_br_is_rvc),
+    .exu_br_id(exu2id_br_id), .exu_ftq_idx(exu2id_ftq_idx), .exu_ftq_offset(exu2id_ftq_offset),
+    .exu_br_pc(exu2id_br_pc), .exu_br_is_rvc(exu2id_br_is_rvc),
     .exu_clear_mask(exu2id_clear_mask),
     .mispred(latch_mispred), .redirect_pc(br_latch_redirect_pc), .redirect_rob_idx(latch_rob_idx),
-    .br_id(latch_br_id), .ftq_idx(br_latch_ftq_idx), .br_pc(br_latch_br_pc), .br_is_rvc(br_latch_is_rvc),
+    .br_id(latch_br_id), .ftq_idx(br_latch_ftq_idx), .ftq_offset(br_latch_ftq_offset),
+    .br_pc(br_latch_br_pc), .br_is_rvc(br_latch_is_rvc),
     .clear_mask(latch_clear_mask)
   );
 

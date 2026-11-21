@@ -30,6 +30,13 @@ module icache_itlb import ttg_cfg_pkg::*; import icache_pkg::*; import tlb_mmu_p
   input  logic [LVL_W-1:0]        ptw_resp_leaf_level,
   input  logic [PPN_W-1:0] ptw_resp_leaf_ppn,
   input  logic [PERM_W-1:0] ptw_resp_leaf_perm,
+  // 2 read-only CAM peek ports (port 0: cross-page Block B, port 1: FDIP head)
+  input  logic [XLEN_BITS-1:0] peek_b_vaddr,
+  input  logic [XLEN_BITS-1:0] peek_fdip_vaddr,
+  output logic        peek_b_ok,
+  output logic [31:0] peek_b_paddr,
+  output logic        peek_fdip_ok,
+  output logic [31:0] peek_fdip_paddr,
   output logic        ppn_valid,
   output logic        page_fault,
   output logic [PPN_W-1:0] ppn,
@@ -49,21 +56,31 @@ module icache_itlb import ttg_cfg_pkg::*; import icache_pkg::*; import tlb_mmu_p
   logic        lane_resp_valid [1];
   logic [1:0]  lane_resp_result [1];
   logic [31:0] lane_resp_paddr [1];
+  logic [XLEN_BITS-1:0] peek_vaddr [2];
+  logic        peek_ok    [2];
+  logic [31:0] peek_paddr [2];
 
   assign lane_req_valid[0] = mmu_req_valid;
   assign lane_req_vaddr[0] = {mmu_req_vtag, 12'b0};
+  assign peek_vaddr[0]     = peek_b_vaddr;
+  assign peek_vaddr[1]     = peek_fdip_vaddr;
+  assign peek_b_ok         = peek_ok[0];
+  assign peek_b_paddr      = peek_paddr[0];
+  assign peek_fdip_ok      = peek_ok[1];
+  assign peek_fdip_paddr   = peek_paddr[1];
 
   /* verilator lint_off UNUSEDSIGNAL */
   logic             nc_walk_v;
   logic [VPN_W-1:0] nc_walk_vpn;
   /* verilator lint_on UNUSEDSIGNAL */
 
-  tlb_mmu_core #(.LANES(1), .FETCH(1'b1), .ENTRIES(ENTRIES)) u_core (
+  tlb_mmu_core #(.LANES(1), .FETCH(1'b1), .ENTRIES(ENTRIES), .NPEEK(2)) u_core (
     .req_is_store('{default: 1'b0}),
     .clk, .rst_n, .fence(itlb_flush), .cancel(refetch),
     .satp(csr_satp), .privilege(csr_privilege), .mxr(csr_mxr), .sum(csr_sum), .mprv(csr_mprv), .mpp(csr_mpp),
     .req_valid(lane_req_valid), .req_vaddr(lane_req_vaddr),
     .ptw_req_ready, .ptw_resp_valid, .ptw_resp, .pf_page_set(1'b0), .pf_page_vpn('0),
+    .peek_vaddr, .peek_ok, .peek_paddr,
     .resp_valid(lane_resp_valid), .resp_result(lane_resp_result), .resp_paddr(lane_resp_paddr),
     .ptw_req_valid, .ptw_req_vpn, .ptw_req_root_ppn, .ptw_resp_consumed, .ptw_flush,
     .walk_next_v(nc_walk_v), .walk_next_vpn(nc_walk_vpn)

@@ -2,14 +2,21 @@
 module: bpu
 area: frontend
 rtl: rtl/frontend/bpu
-model: trace-model front-end/BPU/BpuFtb.h、BPU_pipe.h、BPU.h、BPU_configs.h（调度单元 `front.core.bpu_pipe`，类 `BpuPipe`，块级 1-ahead FTB + S2 Block-TAGE/ITT，`ah1_4k_a2k1k` + `FTB_BRQ=2`）
-status: 已验证（rtl/ftb-bpu 分支，里程碑 A：按块 1-ahead FTB 重构，替换 16-bank 逐槽预测器，待用户确认后合入 main）
-depth: 131 层 / 274,811 cells（Yosys 通用门代理 `SYNTH_ABC="strash;balance;map" SYNTH_NO_MEMPRIO=1`，对比 main `134 层 / 549,458 cells` 单元数 −50.0%；`front_top` 153 层 / 898,333 cells）
+model: trace-model front-end/BPU/BpuFtb.h、BPU_pipe.h、BPU.h、BPU_configs.h（调度单元 `front.core.bpu_pipe`，类 `BpuPipe`，块级 1-Ahead A + 2-Ahead B 双跳预测 + S2 Block-TAGE/ITT，`fe2f_b4_it2_ah1k` + `BRQ_W=1`）
+status: 整核周期与模型逐个相等（EXP-051 里程碑 B：fm_gate 68/68 + Linux 27 窗，零环境变量）
+depth: 272 层 / 504,078 单元（bpu，单模块综合，2026-11-21，`SYNTH_ABC="strash;balance;map" SYNTH_NO_MEMPRIO=1`，2-taken + 1-Ahead A + 2-Ahead B + HistRing 1024b + rec_q[256]；较原 16-bank 549,458 仍少 8.3%，最长路径 `r1_q[1074] → u_spec.spec_d[99]`）
 ---
 
-# bpu 设计文档（块级 1-Ahead FTB 分支预测单元，EXP-050 里程碑 A）
+# bpu 设计文档（块级 2-Taken + 1-Ahead A / 2-Ahead B 分支预测单元，EXP-051 里程碑 B）
 
-本版替换了原 16-bank 逐指令槽预测器（Type + BTB + TAGE + ITT 共 16 份、约 325 KB、549K 单元 / 134 层），升级为单 bank **块级 1-Ahead FTB + S2 精确 PC Block-TAGE / Block-ITT 兜底** 架构（`ah1_4k_a2k1k`，无同拍 `of2` 组合环、无 `S1 mini-TAGE`、无提交侧块重建 FSM）。
+本版在里程碑 A（单块 1-ahead FTB `ah1_4k_a2k1k`）基础上，升级为 **每拍至多 2 个 taken 分支块（Block A + Block B）同拍预测** 的前端 BPU（Pareto 冠军 `fe2f_b4_it2_ah1k`）：
+- S0 并行读 **1-Ahead A**（`aftb 2K×8` + `atage 1K×4×4` + `aitt 256×3`）与 **2-Ahead B**（`aftb2 1K×8` + `atage2 512×4×4` + `aitt2 256×3`），共享同一已寄存前驱键 `(key_base, key_fh)`，S0 零串行 SRAM 读；未命中回退双读口 uFTB（`ftb0`）；
+- 严格 **No-Truncation（`NT=1`）** 与 **4-Bank 1R1W ICache 冲突过滤（`ic_pair_ok`）**：仅当 A 预测跳转、`a_len ∈ [1..15]`、`a_upper_ok`、PC 不连续、`lA == lB || (lA & 3) != (lB & 3)`、`b_len ≥ 2` 且 `(!b_truncated || gB.taken)` 时配对发射 Block B；
+- S1 对 Main FTB / S2 Block-TAGE / S2 Block-ITT 增加第 2 读口以同拍查 B（仅 `r0.has_b` 有效时消费）；
+- S2 先校验 A（`has_b` 时额外校 `taken`/`slot`）；若 `!ovr_a && has_b` 则校验 B 并输出 `ptab_is_pair / ptab_base_b / ptab_a_len`，向 `ftb_rec_[512]` 与内部 `rec_q[256]` 写入 2 条记录（`seq0` 标 `ah_kind=1`，`seq0+1` 标 `ah_kind=2`），`blk_seq += 2`；
+- 全局历史环由 256b 拓宽至 **1024b**（`HR_BITS=1024`、`HR_PTR_W=10`）以匹配双块发射速率；
+- 后端分支误预测修复改由 BPU 内部 256 项 `rec_q`（1R2W，按 `rf_blk[7:0]` 索引、`id`+`epoch` 校验）完成，彻底删除流经 PTAB / F2B / FTQ 的宽 `bpu_ck` 总线；
+- 提交侧保持 **1-branch/cycle（`BRQ_W=1`）** 单读改写写口（实测较 `BRQ_W=2` 仅差 +0.03%），按 `rc.ah_kind` 分发更新 `aftb/atage/aitt` 或 `aftb2/atage2/aitt2`。
 
 ## 1. 职责
 
@@ -119,4 +126,5 @@ depth: 131 层 / 274,811 cells（Yosys 通用门代理 `SYNTH_ABC="strash;balanc
 
 ## 10. 变更记录
 
+- 2026-11-21（`rtl/fe-2fetch-2taken`，EXP-051 里程碑 B 完成）：升级为 2-taken 双块融合 + 1-Ahead A（`2K×8 / 1K×4×4 / 256×3`）+ 2-Ahead B（`1K×8 / 512×4×4 / 256×3`）+ `NT=1` + 4-Bank `ic_pair_ok` + `HistRing 1024b` + 内部 `rec_q[256]`（删除流经 PTAB/F2B/FTQ 的 168 位 `bpu_ck`）+ `BRQ_W=1`；新增 `bpu_eval.sv`。Yosys 综合 `bpu` `504,078 cells` / `272 layers`（较旧 16-bank `549,458` 仍 −8.3%，最长路径 `r1_q[1074] → u_spec.spec_d[99]`，已登记至 TODO）；通过 `lint_chip` 0 警告、`fm_gate` 68/68（0 周期偏差，含 `directed/fe_2taken_fdip.bin`）与 `rv64gc` Linux 27 窗检查点对齐。
 - 2026-11-21（`rtl/ftb-bpu`，EXP-050 里程碑 A 完成）：按文档先行完成 7 个块级 1-Ahead FTB SV 模块实现并删除 22 个旧 16-bank 文件；通过 `lint_chip` 0 警告、`fm_gate` 67/67（0 周期偏差）、`rv64gc` Linux 26/26 全量检查点 1.325 亿指令 0 FM 错误且 100% PT/UP 指纹 0 差异与 Yosys 综合（`bpu` 单元数 549,458 → 274,811，−50.0%，深度 134 → 131）。

@@ -5,11 +5,8 @@
 //   mem_route (LSU/ICache-probe/PTW -> DCache routing) -> dcache -> axi_subsys (interconnect + LLC) -> DDR slave port,
 //   ptw_walk (page-table walker for the two TLBs), peripheral_axi (uncached / MMIO accesses) and the CPU-side view
 //   registers of the non-DCache AXI masters (axi_cpu_port_adapter).
-// `clk` is the fast tick clock (16 ticks per CPU cycle).  `phase0` is tick 0 of a CPU cycle; the CPU-domain
-// registers of
-// this block update only then, and the core (which has no enable) is clocked by a separate once-per-cycle clock
-// that the
-// testbench pulses together with the fast clock edge ending tick 0.
+// `clk` is the fast tick clock (16 ticks per CPU cycle); `phase0` is tick 0 of a CPU cycle.
+// CPU-domain registers update on `phase0`; the core is clocked once per cycle at the end of tick 0.
 // Port names are the core_top names with the direction flipped, so soc_top can connect the two with `.*`.
 module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::*;
 #(
@@ -27,6 +24,7 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
   input  logic mem_resp_ready,
   input  logic dc_req_valid,
   input  logic [31:0] dc_req_addr,
+  input  logic [25:0] fdip_snoop_line,
   input  logic itlb_walk_req_valid,
   input  logic [VPN_W-1:0] itlb_walk_req_vpn,
   input  logic [21:0] itlb_walk_req_root_ppn,
@@ -67,6 +65,7 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
   output logic dc_resp_retry,
   output logic dc_resp_miss,
   output logic [31:0] dc_resp_data,
+  output logic fdip_snoop_dirty,
   output logic itlb_walk_req_ready,
   output logic itlb_walk_resp_valid,
   output logic itlb_walk_resp_fault,
@@ -333,7 +332,8 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
     .mshr_fill(dc_mshr_fill), .mshr_fill_addr(dc_mshr_fill_addr),
     .mshr_req_valid(mshr_req_valid), .mshr_req_addr(mshr_req_addr), .mshr_req_id(mshr_req_id),
     .mshr_resp_ready(mshr_resp_ready),
-    .wb_req_valid(wb_req_valid), .wb_req_addr(wb_req_addr), .wb_req_data(wb_req_data)
+    .wb_req_valid(wb_req_valid), .wb_req_addr(wb_req_addr), .wb_req_data(wb_req_data),
+    .fdip_snoop_line(fdip_snoop_line), .fdip_snoop_dirty(fdip_snoop_dirty)
   );
 
   // ======================= peripheral_axi + hold register =======================

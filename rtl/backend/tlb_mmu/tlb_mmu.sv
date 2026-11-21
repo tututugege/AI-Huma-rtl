@@ -58,7 +58,12 @@ module tlb_mmu import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; #(
   assign ptw_resp = '{fault: ptw_walk_resp_fault, vpn: ptw_walk_resp_vpn, level: ptw_walk_resp_leaf_level,
                       ppn: ptw_walk_resp_leaf_ppn, perm: ptw_walk_resp_leaf_perm};
 
-  tlb_mmu_core #(.LANES(LANES), .FETCH(1'b0), .ENTRIES(DTLB_ENTRIES)) u_core (
+  /* verilator lint_off UNUSEDSIGNAL */
+  logic        nc_peek_ok    [1];
+  logic [31:0] nc_peek_paddr [1];
+  /* verilator lint_on UNUSEDSIGNAL */
+
+  tlb_mmu_core #(.LANES(LANES), .FETCH(1'b0), .ENTRIES(DTLB_ENTRIES), .NPEEK(0)) u_core (
     .clk, .rst_n,
     .fence(rob_bcast_fence), .cancel(rob_bcast_flush || dec_bcast_mispred),
     .satp(csr_status_satp), .privilege(csr_status_privilege), .mxr(csr_status_mstatus_mxr),
@@ -66,6 +71,7 @@ module tlb_mmu import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; #(
     .req_valid(lane_req_valid), .req_vaddr(lane_req_vaddr), .req_is_store(lane_req_is_store),
     .ptw_req_ready(ptw_walk_req_ready), .ptw_resp_valid(ptw_walk_resp_valid), .ptw_resp,
     .pf_page_set, .pf_page_vpn,
+    .peek_vaddr('{default: '0}), .peek_ok(nc_peek_ok), .peek_paddr(nc_peek_paddr),
     .resp_valid(lane_resp_valid), .resp_result(lane_resp_result), .resp_paddr(lane_resp_paddr),
     .ptw_req_valid(ptw_walk_req_valid), .ptw_req_vpn(ptw_walk_req_vpn), .ptw_req_root_ppn(ptw_walk_req_root_ppn),
     .ptw_resp_consumed(ptw_walk_resp_consumed), .ptw_flush(ptw_walk_flush),

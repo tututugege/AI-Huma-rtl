@@ -58,10 +58,15 @@ module icache_ctl import ttg_cfg_pkg::*; import icache_pkg::*; (
   // fetch response
   output logic                    resp_valid,
   output logic [XLEN_BITS-1:0]             resp_pc,
+  output logic [IC_TAG_W-1:0]     resp_ppn,
   output logic                    resp_page_fault,
   output logic                    resp_single_word,
   output logic [IC_LINE_W-1:0]    resp_line,
   output logic                    icache_ready,
+  // FDIP arbitration visibility (step-0 demand req & in-flight miss line)
+  output logic                    demand_mem_req_step0,
+  output logic                    demand_miss_txv,
+  output logic [25:0]             demand_miss_line,
   // memory-side outputs
   output logic                    mem_req_valid,
   output logic [31:0]             mem_req_addr,
@@ -209,10 +214,14 @@ module icache_ctl import ttg_cfg_pkg::*; import icache_pkg::*; (
     tw_line       = swap_tw_line;
     resp_valid       = !kill1 && (is_idle ? idle_resp_valid : swap_resp_valid);
     resp_pc          = is_idle ? idle_resp_pc : r_q.req_pc;
+    resp_ppn         = is_idle ? ppn : r_q.ppn;
     resp_page_fault  = is_idle && idle_resp_pf;
     resp_single_word = !is_idle && swap_single;
     resp_line        = is_idle ? idle_resp_line : swap_resp_line;
     icache_ready     = !(itlb_flush || fence_i) && r_q.ifu_ready && !r_q.req_valid && !r_q.miss_txv && is_idle;
+    demand_mem_req_step0 = !kill1 && swap_mem_req_valid;
+    demand_miss_txv      = r_q.miss_txv;
+    demand_miss_line     = {r_q.ppn, r_q.req_pc[11:IC_OFF_W]};
   end
 
   // memory side: the last step of the cycle wins
@@ -233,7 +242,7 @@ module icache_ctl import ttg_cfg_pkg::*; import icache_pkg::*; (
       dc_req_valid   = k0_dc_v;
       dc_req_addr    = k0_dc_a;
     end else begin
-      mem_resp_ready = drop_resp || (!is_idle && swap_mem_resp_ready) || r_q.state == IC_CANCEL_WAIT;
+      mem_resp_ready = drop_resp || (!is_idle && swap_mem_resp_ready);
       dc_req_valid   = n_dc_v;
       dc_req_addr    = p_dc_req_addr;
     end

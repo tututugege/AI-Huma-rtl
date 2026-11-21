@@ -3,11 +3,13 @@ module: tlb_mmu
 area: backend
 rtl: rtl/backend/tlb_mmu
 model: trace-model back-end/Lsu/TlbMmu.cpp、back-end/Lsu/include/TlbMmu.h（类 `TlbMmu`，`Kind::DTLB`；LSU 的子模块 `RealLsu::dtlb`，没有单独的调度单元，在 `back.lsu` 的 `comb_translate` 里被调用）
-status: 整核周期与模型逐个相等（最近一次改它的提交 16de223 的说明：fm_gate 67/67，周期等于当时的参考表）；模块级的等价测试 tests/tlb_par 已过时，不能构建（见第 8 节）
-depth: 61 层（tlb_mmu，单模块综合，2026-11-20，`SYNTH_ABC="strash;balance;map"`，生成门代理，见 09-synthesis-report 第 12 节）
+status: 整核周期与模型逐个相等（EXP-051 里程碑 B：fm_gate 68/68 + Linux 27 窗，零环境变量）
+depth: 61 层 / 46,624 单元（tlb_mmu，单模块综合，2026-11-21，`SYNTH_ABC="strash;balance;map"`，与 main 61 层 / 46,624 单元完全一致）
 ---
 
 # tlb_mmu 设计文档
+
+> **EXP-051 里程碑 B 升级**：`tlb_mmu_core` 新增参数 `NPEEK`（DTLB 保持 `NPEEK = 0` 零改动；ITLB 设 `NPEEK = 2`），提供纯只读组合翻译口（复用 `entry_valid/entry` 与同拍 `refill_end`，先查 `refill_end` 再查表，含直通 / 规范地址 / 权限检查，精确对齐 `TlbMmu::peek_translate`，零额外 PTW walker、不改替换状态）。
 
 ## 1. 职责
 
@@ -156,6 +158,7 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 
 ## 10. 变更记录
 
+- 2026-11-21（`rtl/fe-2fetch-2taken`，EXP-051 里程碑 B）：`tlb_mmu_core` 新增参数化只读 CAM peek 读口 `NPEEK`（DTLB `NPEEK=0` 零改动；ITLB `NPEEK=2` 服务双块 B 与 FDIP，先查同拍 `refill_end` 再查表，零额外 PTW walker）。Yosys 综合 `tlb_mmu` 46,624 单元 / 61 层（不变）；通过 `lint_chip` 0、`fm_gate` 68/68 与 Linux 27 窗对齐。
 - 2026-11-17（exp/agu-share）：`16de223` EXP-TLBPORTS 第 3 步：DTLB 每个物理 AGU 一个口（`LSU_AGU_PHYS = 5`），请求自带访问类型（`tlb_mmu / tlb_mmu_core / tlb_mmu_lane`：口类型由参数改为输入 `req_is_store`），响应按口回给 LSU；这是 261bd67 之后对本目录的唯一提交。
 - 2026-11-17：`1d8688e` EXP-042：口并行、`ttg_first_set` 对数深度，深度代理 163 → 67（在 261bd67 之前）。
 - 2026-11-16：`8abb7ab` RTL 清理（删旧生成器和 spec/，折叠部分 rv32 条件）；2026-11-11：`72f2cd9` rv64 第 3 步：Sv39 TLB 和页表遍历器。

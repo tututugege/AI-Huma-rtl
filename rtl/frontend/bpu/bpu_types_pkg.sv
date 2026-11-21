@@ -21,18 +21,24 @@ package bpu_types_pkg;
   localparam int FTB_S1_WAYS   = 4;
   localparam int FTB_S1_TAG_W  = 14;
 
-  localparam int FTB_AH_SETS   = 256;
-  localparam int FTB_AH_WAYS   = 8;
-  localparam int FTB_AH_TAG_W  = 22;
+  localparam int FTB_AH_SETS    = 256;
+  localparam int FTB_AH_WAYS    = 8;
+  localparam int FTB_AH_TAG_W   = 22;
 
-  localparam int FTB_S2_TAGE_N = 4096;
-  localparam int FTB_AH_TAGE_N = 1024;
-  localparam int FTB_ITT_N     = 256;
+  localparam int FTB_AH2_SETS   = 128;
+  localparam int FTB_AH2_WAYS   = 8;
+  localparam int FTB_AH2_TAGE_N = 512;
 
-  localparam int FTB_BRQ_N     = 16;
-  localparam int FTB_REC_N     = 512;
-  localparam int FTB_REC_W     = 9;
-  localparam int FTB_BLK_ID_W  = T_IDX_W;   // 10-bit blk_id carried via out_tage_idxs[i][0]
+  localparam int FTB_S2_TAGE_N  = 4096;
+  localparam int FTB_AH_TAGE_N  = 1024;
+  localparam int FTB_ITT_N      = 256;
+
+  localparam int FTB_BRQ_N      = 16;
+  localparam int FTB_REC_N      = 512;
+  localparam int FTB_REC_W      = 9;
+  localparam int FTB_RF_REC_N   = 256;
+  localparam int FTB_RF_REC_W   = 8;
+  localparam int FTB_BLK_ID_W   = T_IDX_W;   // 10-bit blk_id carried via out_tage_idxs[i][0]
 
   localparam logic [3:0] FTB_USE_ALT_INIT = 4'd7;
   localparam logic [3:0] FTB_USE_ALT_THR  = 4'd8;
@@ -111,9 +117,19 @@ package bpu_types_pkg;
     logic [XLEN_BITS-1:0]    base;
     fh_t                     fh;
     logic                    ah_v;
+    logic                    ah_kind; // 0 = 1-ahead A (aftb), 1 = 2-ahead B (aftb2)
     logic [XLEN_BITS-1:0]    ah_key_base;
     fh_t                     ah_key_fh;
   } ftb_rec_t;
+
+  // Prediction-time repair record for back-end branch mispredict (matches BpuPipe::rec_[256])
+  typedef struct packed {
+    logic                    valid;
+    logic [FTB_BLK_ID_W-1:0] id;
+    logic [EPOCH_W-1:0]      epoch;
+    logic [XLEN_BITS-1:0]    base;
+    ck_t                     ck;
+  } bpu_rf_rec_t;
 
   typedef struct packed {
     ftb_ent_t [FTB_AH_WAYS-1:0] ftb_ways;
@@ -164,11 +180,12 @@ package bpu_types_pkg;
   endfunction
 
   function automatic logic [FTB_AH_TAG_W-1:0] ftb_ah_tag(input logic [XLEN_BITS-1:0] key_base,
-                                                         input logic [XLEN_BITS-1:0] cur_base);
+                                                         input logic [XLEN_BITS-1:0] cur_base,
+                                                         input int set_bits = $clog2(FTB_AH_SETS));
     logic [31:0] wk, wc, tk, tc;
     wk = 32'(key_base >> SLOT_SHIFT);
     wc = 32'(cur_base >> SLOT_SHIFT);
-    tk = (wk >> $clog2(FTB_AH_SETS)) & 32'h3ff;
+    tk = (wk >> set_bits) & 32'h3ff;
     tc = (wc ^ (wc >> 12)) & 32'hfff;
     return FTB_AH_TAG_W'((tk << 12) | tc);
   endfunction
@@ -291,11 +308,12 @@ package bpu_types_pkg;
         tgt = sl.target;
         if (sl.br_type == BR_RET && ras_nonempty)     tgt = ras_top;
         else if (ftb_br_ind(sl.br_type) && itt_hit)   tgt = itt_tgt;
-        res.pred.taken = 1'b1;
-        res.pred.slot  = UB_SLOT_W'(sl.offset);
-        res.pred.ty    = sl.br_type;
-        res.pred.rvc   = sl.is_rvc;
-        res.pred.next  = tgt;
+        res.pred.taken   = 1'b1;
+        res.pred.slot    = UB_SLOT_W'(sl.offset);
+        res.pred.ty      = sl.br_type;
+        res.pred.rvc     = sl.is_rvc;
+        res.pred.carried = sl.carried;
+        res.pred.next    = tgt;
         res.pred.hbits = hsym_of(bpc, tgt);
         if (ftb_br_call(sl.br_type)) begin
           res.pred.ras_op  = 2'd1;
@@ -357,22 +375,13 @@ package bpu_types_pkg;
         min_c = 3'd7;
         for (int k = 0; k < FTB_SLOTS; k++) begin
           if (ent.s[k].br_type == BR_DIRECT && ({1'b0, ent.s[k].ctr} < min_c)) begin
-            min_c = {1'b0, ent.s[k].ctr};
-            pos   = FTB_SLOT_W'(k);
+            min_c = {1'b0, ent.s[k].ctr}; pos = FTB_SLOT_W'(k);
           end
         end
       end
-      ns.valid   = 1'b1;
-      ns.offset  = b.offset;
-      ns.carried = b.carried;
-      ns.is_rvc  = b.is_rvc;
-      ns.br_type = b.br_type;
-      ns.ctr     = (b.br_type == BR_DIRECT) ? (b.actual_dir ? 2'd2 : 2'd1) : 2'd3;
-      ns.target  = b.target;
-      res.ent.s[pos] = ns;
-      res.slot_found = 1'b1;
-      res.slot_idx   = pos;
-      res.slot_ctr   = ns.ctr;
+      ns = '{valid: 1'b1, offset: b.offset, carried: b.carried, is_rvc: b.is_rvc, br_type: b.br_type,
+             ctr: (b.br_type == BR_DIRECT) ? (b.actual_dir ? 2'd2 : 2'd1) : 2'd3, target: b.target};
+      res.ent.s[pos] = ns; res.slot_found = 1'b1; res.slot_idx = pos; res.slot_ctr = ns.ctr;
     end
     return res;
   endfunction

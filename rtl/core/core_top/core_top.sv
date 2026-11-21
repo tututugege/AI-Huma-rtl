@@ -8,7 +8,7 @@
 // DCache / MMIO / DTLB walk ports, interrupt injection; plus the retirement stream (rob_commit / rob_bcast).
 // Order of SimCpu::cycle(): registered back2front -> front comb -> back comb -> back2front / hold registers.
 module core_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*;
-  import icache_pkg::*; import tlb_mmu_pkg::*; (
+  import bpu_types_pkg::FTB_BLK_ID_W; import icache_pkg::*; import tlb_mmu_pkg::*; (
   input  logic clk,
   input  logic rst_n,
   // ---- icache memory side (AXI read master, DCache coherent probe) ----
@@ -22,6 +22,7 @@ module core_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; i
   input  logic dc_resp_retry,
   input  logic dc_resp_miss,
   input  logic [31:0] dc_resp_data,
+  input  logic fdip_snoop_dirty,
   // ---- walk clients of the page table walker: ITLB (front) and DTLB (back) ----
   input  logic itlb_walk_req_ready,
   input  logic itlb_walk_resp_valid,
@@ -67,6 +68,7 @@ module core_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; i
   output logic mem_resp_ready,
   output logic dc_req_valid,
   output logic [31:0] dc_req_addr,
+  output logic [25:0] fdip_snoop_line,
   output logic itlb_walk_req_valid,
   output logic [VPN_W-1:0] itlb_walk_req_vpn,
   output logic [21:0] itlb_walk_req_root_ppn,
@@ -139,11 +141,9 @@ module core_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; i
   /* verilator lint_on UNUSEDSIGNAL */
 
   // ---- nets between the glue blocks and the back end ----
-  logic [BCK_W-1:0] front2pre_bpu_ck;
   logic [FETCH_WIDTH-1:0][KIND_W-1:0] front2pre_slot_kind;
   logic        out_rf_valid;
-  logic [HCK_W-1:0] out_rf_ck;
-  logic [EPOCH_W-1:0] out_rf_epoch;
+  logic [FTB_BLK_ID_W-1:0] out_rf_blk;
   logic [2:0]  out_rf_type;
   logic [XLEN_BITS-1:0] out_rf_pc;
   logic out_rf_is_rvc;
@@ -182,11 +182,9 @@ module core_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; i
   /* verilator lint_off PINMISSING */
   back_top u_back (
     .clk, .rst_n,
-    .front2pre_bpu_ck(front2pre_bpu_ck),
     .front2pre_slot_kind(front2pre_slot_kind),
     .out_rf_valid(out_rf_valid),
-    .out_rf_ck(out_rf_ck),
-    .out_rf_epoch(out_rf_epoch),
+    .out_rf_blk(out_rf_blk),
     .out_rf_type(out_rf_type),
     .out_rf_pc(out_rf_pc),
     .out_rf_is_rvc(out_rf_is_rvc),
@@ -299,12 +297,10 @@ module core_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; i
     .clk, .rst_n,
     .out_mispred,
     .out_rf_valid,
-    .out_rf_ck,
-    .out_rf_epoch,
+    .out_rf_blk,
     .out_rf_type,
     .out_rf_pc,
     .out_rf_is_rvc,
-    .front2pre_bpu_ck,
     .front2pre_slot_kind,
     .out_stall,
     .out_redirect_pc,
@@ -338,6 +334,7 @@ module core_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; i
     .dc_resp_retry,
     .dc_resp_miss,
     .dc_resp_data,
+    .fdip_snoop_dirty,
     .itlb_walk_req_ready,
     .itlb_walk_resp_valid,
     .itlb_walk_resp_fault,
@@ -353,6 +350,7 @@ module core_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; i
     .mem_resp_ready,
     .dc_req_valid,
     .dc_req_addr,
+    .fdip_snoop_line,
     .itlb_walk_req_valid,
     .itlb_walk_req_vpn,
     .itlb_walk_req_root_ppn,

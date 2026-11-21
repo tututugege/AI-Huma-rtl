@@ -8,7 +8,8 @@
 //   update lane i = the i-th commit slot: type-derived actual direction / target / branch class + FTQ prediction info
 // The C++ keeps the update fields of an invalid commit slot at their previous value; every consumer (BPU update queue,
 // history, type predictor) is gated by upd_valid, so invalid slots are zeroed here instead (no hold registers).
-module core_back2front import ttg_cfg_pkg::*; import dis_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; (
+module core_back2front import ttg_cfg_pkg::*; import dis_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*;
+  import bpu_types_pkg::FTB_BLK_ID_W; (
   input  logic        clk,
   input  logic        rst_n,
   // back end outputs (cycle t)
@@ -16,8 +17,7 @@ module core_back2front import ttg_cfg_pkg::*; import dis_pkg::*; import bpu_pkg:
   input  logic        out_stall,
   input  logic [XLEN_BITS-1:0] out_redirect_pc,
   input  logic        out_rf_valid,
-  input  logic [HCK_W-1:0] out_rf_ck,
-  input  logic [EPOCH_W-1:0] out_rf_epoch,
+  input  logic [FTB_BLK_ID_W-1:0] out_rf_blk,
   input  logic [2:0]  out_rf_type,
   input  logic [XLEN_BITS-1:0] out_rf_pc,
   input  logic        out_rf_is_rvc,
@@ -42,8 +42,7 @@ module core_back2front import ttg_cfg_pkg::*; import dis_pkg::*; import bpu_pkg:
   output logic        refetch_q,
   output logic [XLEN_BITS-1:0] refetch_address_q,
   output logic        rf_valid_q,
-  output logic [HCK_W-1:0] rf_ck_q,
-  output logic [EPOCH_W-1:0] rf_epoch_q,
+  output logic [FTB_BLK_ID_W-1:0] rf_blk_q,
   output logic [2:0]  rf_type_q,
   output logic [XLEN_BITS-1:0] rf_pc_q,
   output logic        rf_is_rvc_q,
@@ -133,8 +132,7 @@ module core_back2front import ttg_cfg_pkg::*; import dis_pkg::*; import bpu_pkg:
       refetch_q         <= 1'b0;
       refetch_address_q <= '0;
       rf_valid_q        <= 1'b0;
-      rf_ck_q           <= '0;
-      rf_epoch_q        <= '0;
+      rf_blk_q          <= '0;
       rf_type_q         <= '0;
       rf_pc_q           <= '0;
       rf_is_rvc_q       <= 1'b0;
@@ -145,8 +143,7 @@ module core_back2front import ttg_cfg_pkg::*; import dis_pkg::*; import bpu_pkg:
       refetch_q         <= out_mispred;
       refetch_address_q <= out_redirect_pc;   // only read in refetch cycles
       rf_valid_q        <= out_rf_valid;
-      rf_ck_q           <= out_rf_ck;         // the repair record is only read in refetch cycles
-      rf_epoch_q        <= out_rf_epoch;
+      rf_blk_q          <= out_rf_blk;        // block ID for internal BPU rec_q[256] repair
       rf_type_q         <= out_rf_type;
       rf_pc_q           <= out_rf_pc;
       rf_is_rvc_q       <= out_rf_is_rvc;

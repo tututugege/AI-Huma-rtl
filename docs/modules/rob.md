@@ -107,7 +107,7 @@ depth: 64 层（rob，单模块综合，2026-11-20，`SYNTH_ABC="strash;balance;
 1. 窗口槽 k 的"在窗口内" `w_in[k] = count_q > k`；`w_complete`、`w_flush`、`w_fence`、`w_wfi` 由 `rob_pkg` 的分类函数得到。
 2. 单独退休：`h_alone = 队头是冲刷类 | fence | WFI`；`interrupt_fire = !误预测 & 非空 & 有中断请求`；`single_commit = 中断 | (!误预测 & 非空 & 无中断 & h_alone & 队头已完成 & !(fence 且还有已提交 store 未写出))`。
 3. 成组退休：`ok[k] = w_in & w_complete & 非冲刷类 & 非 fence & 非 WFI & !(front_stall 且 k > 0)`；对 k > 0，如果它是控制流指令（BR / JAL / JALR），且比它老的控制流条数 ≥ `upd_free`，则 `ok[k] = 0`；如果它是取指块的最后一条（`ftq_is_last`），且比它老的块尾条数 ≥ `tq_free`，也为 0。其中 `upd_free = bpu_upd_free - prev_ctl_q`、`tq_free = bpu_tq_free - prev_blk_q`（BPU 队列的寄存占用，减去上一拍退休、这拍才到队列的条数），每个槽自己并行数"比我老的有几条"，不串行累加。最老的一条不受信用限制（保证前进）。`prefix[k]` = `ok[0..k]` 全 1，`commit_valid = single_commit ? 只有槽 0 : (group_go ? prefix : 0)`。
-4. 冲刷：`rob_trap_ctrl` 在 `single_commit` 时判断队头是否冲刷类（含中断），在 12 个候选原因（中断、ecall、mret、sret、store 缺页、load 缺页、取指缺页、非法指令、CSR、sfence、fence.i、断点）里取优先级最高的一个，产生 `flush`、`exception`、各原因位、`trap_val`（取指缺页和断点用队头 pc，其余用 `diag_val`）、`rob2csr_commit`（CSR 指令）。
+4. 冲刷：`rob_trap_ctrl` 在 `single_commit` 时判断队头是否冲刷类（含中断），在 12 个候选原因（中断、ecall、mret、sret、store 缺页、load 缺页、取指缺页、非法指令、CSR、sfence、fence.i、断点）里取优先级最高的一个，产生 `flush`、`exception`、各原因位、`trap_val`（取指缺页用 `ftq_resp_pc + (diag_val[1] ? 2 : 0)` 以正确上报 RVC 跨 4KB 页 32 位指令第二半字的缺页 `stval`，断点用队头 pc，其余用 `diag_val`）、`rob2csr_commit`（CSR 指令）。
 5. 其他输出：`rob2dis_stall = 窗口里有冲刷类`；`bcast_head_incomplete_*` = 窗口里最老的未完成项；`ftq_req` 用槽 0 的 `ftq_idx / ftq_offset`。
 
 ### 5.3 次态

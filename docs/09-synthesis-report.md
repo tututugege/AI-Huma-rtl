@@ -273,3 +273,20 @@ rv32 配置包（改动时在旧基线 `15af4b4` 上测）：`tlb_mmu` 159 → 6
    - `dcache_pf`（硬件 Berti）达到 **384 层**（路径经 `replace_alu` → `trig_go` → `u_gen.gen_left_q`）；
    - `axi_llc_bop`（LLC BOP）达到 **291 层**（路径经 `best_q` → `replace_alu` → `q_line_q`），直接把 `axi_llc` 和 `axi_subsys` 从 238 层拉升至 **350 / 353 层**。
 3. **其余超 100 层模块**：`ren`（111 层，FP checkpoint 路径）、`lsu`（101 层，贴近 100 层红线）。
+
+## 13. EXP-051 里程碑 B（`2-taken` + `2-ahead B` + 4-Bank `icache` / FDIP）受影响模块综合（2026-11-21）
+
+在 `eda-04` / `eda-05` 按同口径（`SYNTH_LIGHT=1 SYNTH_MEM=1 SYNTH_LTP=1 SYNTH_NO_MEMPRIO=1 SYNTH_ABC="strash;balance;map"`，无 `dc2`，通用门代理、无工艺库/WNS）重测全部前端与 FTQ 受影响模块，结果存档于 `/nfs_global/S/houruyao/rtl_synth_work/res_fe2f/`：
+
+| 模块 | EXP-050 `main`（单元 / 深度） | EXP-051 里程碑 B（单元 / 深度） | 变化 | 耗时 / 最长路径线索 |
+|---|---:|---:|---:|---|
+| `predecode` | 11,780 / 29 | **10,144 / 27** | −13.9% / −2 层 | 2s；`inst_valid[15] → predecode_target_address[63]` |
+| `pre_idu_queue` | 123,508 / 39 | **137,578 / 38** | +11.4% / −1 层 | 32s；删 168b `bpu_ck` + 16×64b PC 比较，直接按 `ftq_offset` 索引；`front2pre_valid[1] → u_ibuf` |
+| `tlb_mmu` | 46,624 / 61 | **46,624 / 61** | 0.0% / 0 层 | 23s；DTLB `NPEEK=0` 零开销（ITLB `NPEEK=2` 计入 `icache`） |
+| `icache` | 312,314 / 70 | **916,659 / 106** | +193% / +36 层 | 139s；4-Bank 1R1W + 2 读口 ITLB peek + 2-slot FDIP；`u_ctl.r_q[136] → mmu_req_vtag[4]` |
+| `bpu` | 274,811 / 131（旧 16-bank 549,458 / 134） | **504,078 / 272** | +83.4%（较旧 16-bank **−8.3%**）/ +141 层 | 959s；`r1_q[1074] → u_spec.spec_d[99]`（S2 双块校验→投机历史更新链） |
+| `front_top` | 898,333 / 153 | **1,582,763 / 356** | +76.2% / +203 层 | 1123s；`u_pred_path.u_bpu.r1_q[1074] → PTAB 旁路 → u_pd.pd_ras_op2_q[1]` |
+
+> **关键发现与后续降深度方向**：
+> 1. `bpu` 在加入 2-taken + 2-Ahead B + 1024b `HistRing` + 内部 `rec_q[256]` 后单元数（504k）仍低于 EXP-050 前旧 16-bank BPU（549k，−8.3%），`predecode` / `pre_idu_queue` 深度均小幅下降（27 / 38 层）；
+> 2. `bpu`（272 层）与 `front_top`（356 层）的最长路径均起于 `r1_q[1074]`（S2 双块 `fin` → `fin_b` 串行校验），分别穿入 `u_spec.spec_d` 与 PTAB 旁路→`u_pd.pd_ras_op2_q`；`icache`（106 层）略超 100 层红线。上述三项均已登记至总仓库 `docs/TODO.md` 综合深度优化清单，作为下一阶段前端时序拆拍的精确切入点。

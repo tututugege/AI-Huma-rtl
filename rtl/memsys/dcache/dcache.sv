@@ -61,7 +61,10 @@ module dcache
   input  logic [NLD-1:0]       pf_xans_llc,
   output logic                 wb_req_valid,
   output logic [31:0]          wb_req_addr,
-  output logic [31:0]          wb_req_data    [WORDS]
+  output logic [31:0]          wb_req_data    [WORDS],
+  // ICache FDIP coherency snoop (cycle-start dirty L1D / WB check)
+  input  logic [LINE_W-1:0]    fdip_snoop_line,
+  output logic                 fdip_snoop_dirty
 );
 
   // boundary 1-bit arrays <-> packed vectors
@@ -185,12 +188,14 @@ module dcache
 
   dcache_s1 u_s1 (
     .clk(clk), .rst_n(rst_n),
-    .ld_req_valid(ld_req_v), .ld_req_addr(ld_req_addr), .ld_req_id(ld_req_id), .ld_req_pc(ld_req_pc), .ld_req_va(ld_req_va),
+    .ld_req_valid(ld_req_v), .ld_req_addr(ld_req_addr), .ld_req_id(ld_req_id),
+    .ld_req_pc(ld_req_pc), .ld_req_va(ld_req_va),
     .st_req_valid(st_req_v), .st_req_addr(st_req_addr), .st_req_data(st_req_data),
     .st_req_strb(st_req_strb), .st_req_l2(st_req_l2), .st_req_id(st_req_id), .icache_req(icache_req),
     .ld_req_replay(ld_req_replay),
     .pf_head_valid(pf_head_valid), .pf_head_line(pf_head_line), .pf_head_llc(pf_head_llc), .pf_taken(pf_taken),
-    .slot_pf(slot_pf), .slot_pf_llc(slot_pf_llc), .slot_pc(slot_pc), .slot_va(slot_va), .slot_perf_replay(slot_perf_replay),
+    .slot_pf(slot_pf), .slot_pf_llc(slot_pf_llc), .slot_pc(slot_pc), .slot_va(slot_va),
+    .slot_perf_replay(slot_perf_replay),
     .fr_pf(fr_pf), .s2f_pf(s2f_pf),
     .blocked(pend_valid),
     .fr_valid(fr_valid), .fr_line(fr_line), .fr_id(fr_id), .fr_dirty(frf_dirty), .fr_data(frf_data),
@@ -205,12 +210,16 @@ module dcache
     .same_fill(same_fill)
   );
 
+  logic arr_snp_dirty, wb_snp_hit;
+  assign fdip_snoop_dirty = arr_snp_dirty || wb_snp_hit;
+
   dcache_arr u_arr (
     .clk(clk), .rst_n(rst_n),
     .rd_en(slot_granted), .rd_addr(slot_addr), .rd_valid(rd_valid), .rd_pf(rd_pf),
     .pfc_en(pfc_en), .pfc_way(ld_lu_way), .fw_pf(s2f_pf), .rd_tag(rd_tag), .rd_data(rd_data),
     .fs_en(s2f_valid), .fs_set(s2f_line[SET_W-1:0]), .fs_valid(fs_valid), .fs_dirty(fs_dirty), .fs_plru(fs_plru),
     .fs_tag(fs_tag), .fs_line(fs_line),
+    .snp_line(fdip_snoop_line), .snp_dirty(arr_snp_dirty),
     .sw_en(st_pw), .sw_set(st_set), .sw_way(st_pw_way), .sw_word(st_word), .sw_data(slot_data), .sw_strb(slot_strb),
     .sw_l2(slot_l2),
     .lu_en({st_lu, ld_lu}), .lu_way(lu_way_w),
@@ -259,7 +268,8 @@ module dcache
       .clk(clk), .rst_n(rst_n),
       .head_valid(pf_head_valid), .head_line(pf_head_line), .head_llc(pf_head_llc), .head_taken(pf_taken),
       .fill_valid(fill_valid), .fill_line(s2f_line), .fill_is_pf(s2f_pf),
-      .acc_valid(acc_valid), .acc_line(acc_line), .acc_pc(slot_pc), .acc_va(slot_va), .acc_miss(acc_miss), .acc_pf_hit(acc_pf_hit),
+      .acc_valid(acc_valid), .acc_line(acc_line), .acc_pc(slot_pc), .acc_va(slot_va),
+      .acc_miss(acc_miss), .acc_pf_hit(acc_pf_hit),
       .pf_xq_v, .pf_xq_va, .pf_xq_llc, .pf_xq_pop, .pf_xans_v, .pf_xans_line, .pf_xans_llc
     );
   end else begin : g_nopf
@@ -307,7 +317,8 @@ module dcache
     .mrg_strb(slot_strb), .mrg_l2(slot_l2),
     .push_valid(evict_valid), .push_line(evict_line), .push_data(evict_data),
     .free(wb_free), .byp_hit(byp_hit), .byp_data(byp_data), .mrg_ok(wb_mrg_ok), .mrg_busy(wb_mrg_busy),
-    .ax_req_valid(wb_req_valid), .ax_req_line(wb_ax_line), .ax_req_data(wb_ax_data)
+    .ax_req_valid(wb_req_valid), .ax_req_line(wb_ax_line), .ax_req_data(wb_ax_data),
+    .snp_line(fdip_snoop_line), .snp_hit(wb_snp_hit)
   );
   assign wb_req_addr = {wb_ax_line, {OFF_W{1'b0}}};
   for (genvar w = 0; w < WORDS; w++) begin : g_wbd

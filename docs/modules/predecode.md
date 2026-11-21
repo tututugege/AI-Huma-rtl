@@ -3,11 +3,17 @@ module: predecode
 area: frontend
 rtl: rtl/frontend/predecode.sv、predecode_lane.sv、predecode_checker.sv、rvc_expand.sv、sequential_next_pc.sv、front_head_fix.sv、front_pd_info.sv、front_slot_kind.sv
 model: trace-model front-end/front_checker.h、predecode_checker.cpp、predecode.cpp、front_top.cpp（调度单元 `front.core.checker`，类 `FrontChecker`，阶段 `comb`；展开 / 预译码 / 顺序下一 pc 在 `InstPort::comb_write`，头修正在 `InstPort::comb_read`）；function-model/include/rvc.h（`rvc::expand`）
-status: 整核周期与模型逐个相等（fm_gate 67/67，参考 scripts/ref_cycles_memiq6_nr_int2_ev5.txt）
-depth: 29 层（predecode；predecode_checker 22 层，单模块综合，2026-11-18，`SYNTH_ABC="strash;balance;map"`，生成门代理，见第 6 节）
+status: 整核周期与模型逐个相等（EXP-051 里程碑 B：fm_gate 68/68 + Linux 27 窗，零环境变量）
+depth: 27 层 / 10,144 单元（predecode，单模块综合，2026-11-21，`SYNTH_ABC="strash;balance;map"`，较 main 29 层 / 11,780 单元降 2 层）
 ---
 
 # predecode 设计文档（预译码、头修正、预测检查）
+
+> **EXP-051 里程碑 B 升级**：
+> 1. `predecode` 支持每槽独立 `slot_pc[FETCH_WIDTH]`（兼容 Block A + Block B 不连续 PC）；
+> 2. `front_head_fix` 接收 S2-mux 及 PC 对齐截断后的 `slot_pc[FETCH_WIDTH]`、`up16`、`up_ok`，按实际段末槽计算 `group_end_pc`、`complete` 与 `seq_next_o`；
+> 3. `predecode_checker` 新增多段模式（`multi`、`in_range`、`seg_first`、`slot_pc`、`inst_valid`、`is_rvc`），逐段核验 `corrected != claimed || (!last && (ft != e || !inst_valid[e+1]))`，并输出截断槽数 `keep_n`；
+> 4. `front_pd_info` 支持双段历史符号拼接（至多 2 个 taken 槽 = 6 位历史）、双 RAS 操作（`pd_ras_op2 / pd_ras_val2`）以及按 PTAB 段基址输出的 `pd_nb_base`（避免 RVC 携带块 `pc0 = base - 2` 导致清槽失配）。
 
 ## 1. 职责
 
@@ -146,6 +152,7 @@ RTL 与模型保持一致的细节（容易误判为 bug）：
 
 ## 10. 变更记录
 
+- 2026-11-21（`rtl/fe-2fetch-2taken`，EXP-051 里程碑 B）：`predecode` 支持每槽独立 `slot_pc[FETCH_WIDTH]`；`front_head_fix`、`predecode_checker`、`front_pd_info` 升级支持双块多段（`multi`/`in_range`/`seg_first`/`keep_n`、双历史符号/双 RAS 操作、`pd_nb_base` 修复 RVC 携带假分支清槽）。Yosys 综合 `predecode` 10,144 单元 / 27 层（原 11,780 / 29）；通过 `lint_chip` 0、`fm_gate` 68/68（0 周期偏差，含 `directed/fe_2taken_fdip.bin`）与 Linux 27 窗检查点对齐。
 - 2026-11-18（exp/agu-share）：本组文件没有改动；指令起点前缀扫描（`front_fetch_buf`）见 front_top.md。
 - 2026-11-14/15：RVC 前端：C910 风格的携带取代 I-Cache 第二行（`e784f05`）、RVC=1 的非压缩程序周期与 `ref_cycles_rvc.txt` 相等（`f8feff3`）、模型三处预测修正（`1a3d458`）；设计说明见 docs/RVC_RTL.md。
 - 更早：见 git 历史。

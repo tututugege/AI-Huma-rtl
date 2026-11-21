@@ -273,6 +273,7 @@ package exu_ctrl_pkg;
     logic [FW-1:0]            fsrc2;
     logic [FW-1:0]            fsrc3;
     logic [FTQ_IDX_WIDTH-1:0] ftq_idx;
+    logic [FTQ_OFFSET_WIDTH-1:0] ftq_offset;
     logic                     is_atomic;
     logic                     dest_en;
     logic                     src1_en;
@@ -327,6 +328,7 @@ package exu_ctrl_pkg;
     logic                     br_taken;
     logic [BR_TAG_WIDTH-1:0]  br_id;
     logic [FTQ_IDX_WIDTH-1:0] ftq_idx;
+    logic [FTQ_OFFSET_WIDTH-1:0] ftq_offset;
     logic [XLEN_BITS-1:0]      pc; // pc of the instruction (the mispredicted branch: BPU history repair)
     logic                     is_rvc;      // 16-bit instruction (RVC=1): BPU repair needs the length
     logic [2:0]               func3;

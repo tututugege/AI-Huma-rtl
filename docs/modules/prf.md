@@ -143,6 +143,7 @@ RTL 与模型保持一致的细节：
 
 ## 10. 变更记录
 
+- 2026-11-21（`rtl/fe-2fetch-2taken`，EXP-051 里程碑 B）：`prf.sv` 透传 4 位 `iss2prf_iss_entry_uop_ftq_offset` → `prf2exe_iss_entry_uop_ftq_offset` 至 EXU；通过 `lint_chip` 0、`fm_gate` 68/68（0 周期偏差）与 Linux 27 窗对齐。
 - 2026-11-19（`exp/wb-presel`，EXP-046）：写回总线按通道编号（`WB_LANES = 13`），不再按发射口（21）：STA / STD / BR 口的空通道去掉，整数寄存器堆 21 → 13 个写口，写回级、写回旁路、load 唤醒同步；`prf_bypass` 的参数改名 `WBL`（避开包里的 `WB_LANES`）。周期不变。
 - 2026-11-19（`exp/wb-presel`，EXP-046）：浮点寄存器堆的写通道 21 → 6（4 条 load + 浮点单元写回压缩成 `FP_WB_PORTS` 条，靠发射级的 FP 写口预约保证不超）；浮点结果的写回暂存移到 `prf.sv`，只暂存会写浮点寄存器的 9 个口。周期不变。
 

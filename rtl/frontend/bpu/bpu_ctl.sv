@@ -1,34 +1,26 @@
 // Ref: front-end/BPU/BPU_pipe.h  BpuPipe::decide, l1_override, comb (priority of refetch / override / issue)
 `default_nettype none
 
-// Decisions of the cycle, from registers and the compare-stage result only.
-//   ovr      the block in S2 disagrees with its S0 / S1 guess: younger blocks are squashed, S0 restarts at its
-//            target.
-//   l1_ov    the L1 table (S1) hits and disagrees with the S0 guess of the block in S1: that block gets the L1
-//            guess and S0 does not issue this cycle (one bubble instead of two).
-//   issue    S0 sends the block at the pc register to the ICache (fetch-address queue) and to S1.
-//   fast     FE_RFAST bit0 / FE_BFAST: S0 also issues in the cycle of a refetch / an S2 override / an S1 (L1)
-//            override, on the state the redirect leaves (the block at the corrected pc); s0_go = issue | fast.
-//   Priority: refetch > ovr > l1_ov > issue.  A predecode flush with a PDCKPT record restores from the record, a
-//   back-end branch mispredict from the checkpoint the FTQ returned (same epoch), anything else from the
-//   committed state.
 module bpu_ctl import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; (
   input  logic        refetch,
-  input  logic        refetch_pd,         // the refetch comes from the predecode checker
-  input  logic        rf_valid,           // back-end refetch caused by a branch mispredict
-  input  logic        rf_epoch_ok,        // the returned checkpoint belongs to the current history epoch
+  input  logic        refetch_pd,
+  input  logic        rep_ok_in,          // internal rec_q[256] matched rf_blk / epoch / pc
   input  logic        pd_valid,
   input  logic        pd_flush,
   input  logic        pdq_have,
   input  logic        icache_read_ready,
   input  logic [7:0]  ptab_size,
-  /* verilator lint_off UNUSEDSIGNAL */   // block / guess structs: only some fields are decisions here
+  /* verilator lint_off UNUSEDSIGNAL */
   input  blk_t        r0,
   input  blk_t        r1,
   input  pred_t       fin,
+  input  pred_t       fin_b,
   input  pred_t       g1,
   /* verilator lint_on UNUSEDSIGNAL */
   output logic        d_valid,
+  output logic        ovr_a,
+  output logic        d_pair,
+  output logic        ovr_b,
   output logic        ovr,
   output logic        squash,
   output logic        l1_ov,
@@ -44,12 +36,15 @@ module bpu_ctl import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*
   localparam bit BF_L1 = (FE_BFAST & 1) != 0;
   localparam bit BF_SD = (FE_BFAST & 2) != 0;
 
-  // Ref: decide / l1_override (FTB_AH_ONLY=1: skip S1 override when S0 hit 1-ahead)
+  // Ref: decide / l1_override (2-taken: ovr_a checks slot/taken when has_b; ovr_b checks Block B when !ovr_a)
   always_comb begin
     d_valid = r1.valid && !refetch;
-    ovr     = d_valid && pred_differs(fin, r1.g);
+    ovr_a   = d_valid && pred_differs(fin, r1.g, r1.has_b);
+    d_pair  = d_valid && !ovr_a && r1.has_b;
+    ovr_b   = d_pair && pred_differs(fin_b, r1.g_b, 1'b0);
+    ovr     = ovr_a || ovr_b;
     squash  = ovr && r0.valid;
-    l1_ov   = !refetch && !ovr && r0.valid && !r0.ah_hit && g1.hit && pred_differs(g1, r0.g);
+    l1_ov   = !refetch && !ovr && r0.valid && !r0.ah_hit && g1.hit && pred_differs(g1, r0.g, r0.has_b);
   end
 
   // Ref: comb, S0 credit: blocks in flight count against the PTAB
@@ -57,7 +52,6 @@ module bpu_ctl import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*
     ptab_stall = icache_read_ready &&
                  (int'(ptab_size) + int'(r0.valid) + int'(r1.valid) >= PTAB_SIZE - 1);
     issue      = !refetch && !ovr && !l1_ov && icache_read_ready && !ptab_stall;
-    // Ref: comb, FE_RFAST bit0 (refetch) / FE_BFAST bit0, bit1 (overrides): ptab_size + 1 < PTAB_SIZE - 1
     fast       = icache_read_ready &&
                  ((RF0 && refetch) ||
                   (((BF_SD && ovr) || (BF_L1 && l1_ov)) && (int'(ptab_size) + 1 < PTAB_SIZE - 1)));
@@ -67,7 +61,7 @@ module bpu_ctl import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*
   // Ref: comb, refetch handling
   always_comb begin
     pd_restore = refetch && refetch_pd && pd_valid && pd_flush && pdq_have;
-    rep_ok     = refetch && !pd_restore && rf_valid && rf_epoch_ok;
+    rep_ok     = refetch && !pd_restore && rep_ok_in;
   end
 
 endmodule

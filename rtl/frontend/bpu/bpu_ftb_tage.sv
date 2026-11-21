@@ -4,15 +4,18 @@
 module bpu_ftb_tage import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; import bpu_types_pkg::*; #(
   parameter int N_ENT         = 4096,
   parameter bit HAS_BASE      = 1'b1,
-  parameter bit USE_LIVE_PRED = 1'b0
+  parameter bit USE_LIVE_PRED = 1'b0,
+  parameter bit HAS_RD2       = 1'b0
 ) (
   input  logic                  clk,
   input  logic                  rst_n,
-  // Predict read port (all 4 slots)
+  // Predict read port 0 (all 4 slots)
   /* verilator lint_off UNUSEDSIGNAL */
   input  ftb_ix_t               rd_ix,
+  input  ftb_ix_t               rd2_ix,
   /* verilator lint_on UNUSEDSIGNAL */
   output ftb_tage_raw_t         rd_raw,
+  output ftb_tage_raw_t         rd2_raw,
   output logic                  prefer_alt,
   // Single-slot commit update port
   input  logic                  upd_en,
@@ -28,6 +31,7 @@ module bpu_ftb_tage import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_p
 );
 
   localparam int IDX_W = $clog2(N_ENT);
+  localparam int N_RD  = HAS_RD2 ? 3 : 2;
 
   typedef struct packed {
     logic [FTB_TAG_W-1:0] tag;
@@ -43,55 +47,56 @@ module bpu_ftb_tage import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_p
 
   // ---- Backing memories ----
   /* verilator lint_off UNUSEDSIGNAL */
-  logic [IDX_W-1:0] base_rd_a  [FTB_SLOTS][2];
-  logic [1:0]       base_rd_d  [FTB_SLOTS][2];
+  logic [IDX_W-1:0] base_rd_a  [FTB_SLOTS][N_RD];
+  logic [1:0]       base_rd_d  [FTB_SLOTS][N_RD];
   logic             base_wr_e  [FTB_SLOTS][1];
   logic [IDX_W-1:0] base_wr_a  [FTB_SLOTS][1];
   logic [1:0]       base_wr_d  [FTB_SLOTS][1];
   /* verilator lint_on UNUSEDSIGNAL */
 
-  logic [IDX_W-1:0] tc_rd_a    [TN][FTB_SLOTS][2];
-  tc_t              tc_rd_d    [TN][FTB_SLOTS][2];
+  logic [IDX_W-1:0] tc_rd_a    [TN][FTB_SLOTS][N_RD];
+  tc_t              tc_rd_d    [TN][FTB_SLOTS][N_RD];
   logic             tc_wr_e    [TN][FTB_SLOTS][1];
   logic [IDX_W-1:0] tc_wr_a    [TN][FTB_SLOTS][1];
   tc_t              tc_wr_d    [TN][FTB_SLOTS][1];
 
-  logic [IDX_W-1:0] ulo_rd_a   [TN][FTB_SLOTS][2];
-  logic [0:0]       ulo_rd_d   [TN][FTB_SLOTS][2];
+  logic [IDX_W-1:0] ulo_rd_a   [TN][FTB_SLOTS][N_RD];
+  logic [0:0]       ulo_rd_d   [TN][FTB_SLOTS][N_RD];
   logic             ulo_wr_e   [TN][FTB_SLOTS][1];
   logic [IDX_W-1:0] ulo_wr_a   [TN][FTB_SLOTS][1];
   logic [0:0]       ulo_wr_d   [TN][FTB_SLOTS][1];
 
-  logic [IDX_W-1:0] uhi_rd_a   [TN][FTB_SLOTS][2];
-  logic [0:0]       uhi_rd_d   [TN][FTB_SLOTS][2];
+  logic [IDX_W-1:0] uhi_rd_a   [TN][FTB_SLOTS][N_RD];
+  logic [0:0]       uhi_rd_d   [TN][FTB_SLOTS][N_RD];
   logic             uhi_wr_e   [TN][FTB_SLOTS][2];
   logic [IDX_W-1:0] uhi_wr_a   [TN][FTB_SLOTS][2];
   logic [0:0]       uhi_wr_d   [TN][FTB_SLOTS][2];
 
   for (genvar sl = 0; sl < FTB_SLOTS; sl++) begin : g_sl
     if (HAS_BASE) begin : g_base
-      bpu_mem #(.W(2), .DEPTH(N_ENT), .N_RD(2), .N_WR(1)) u_base (
+      bpu_mem #(.W(2), .DEPTH(N_ENT), .N_RD(N_RD), .N_WR(1)) u_base (
         .clk, .rst_n,
         .rd_addr(base_rd_a[sl]), .rd_data(base_rd_d[sl]),
         .wr_en(base_wr_e[sl]), .wr_addr(base_wr_a[sl]), .wr_data(base_wr_d[sl])
       );
     end else begin : g_nobase
-      assign base_rd_d[sl][0] = 2'd0;
-      assign base_rd_d[sl][1] = 2'd0;
+      for (genvar p = 0; p < N_RD; p++) begin : g_nb
+        assign base_rd_d[sl][p] = 2'd0;
+      end
     end
 
     for (genvar t = 0; t < TN; t++) begin : g_tbl
-      bpu_mem #(.W($bits(tc_t)), .DEPTH(N_ENT), .N_RD(2), .N_WR(1), .T(tc_t)) u_tc (
+      bpu_mem #(.W($bits(tc_t)), .DEPTH(N_ENT), .N_RD(N_RD), .N_WR(1), .T(tc_t)) u_tc (
         .clk, .rst_n,
         .rd_addr(tc_rd_a[t][sl]), .rd_data(tc_rd_d[t][sl]),
         .wr_en(tc_wr_e[t][sl]), .wr_addr(tc_wr_a[t][sl]), .wr_data(tc_wr_d[t][sl])
       );
-      bpu_mem #(.W(1), .DEPTH(N_ENT), .N_RD(2), .N_WR(1)) u_ulo (
+      bpu_mem #(.W(1), .DEPTH(N_ENT), .N_RD(N_RD), .N_WR(1)) u_ulo (
         .clk, .rst_n,
         .rd_addr(ulo_rd_a[t][sl]), .rd_data(ulo_rd_d[t][sl]),
         .wr_en(ulo_wr_e[t][sl]), .wr_addr(ulo_wr_a[t][sl]), .wr_data(ulo_wr_d[t][sl])
       );
-      bpu_mem #(.W(1), .DEPTH(N_ENT), .N_RD(2), .N_WR(2)) u_uhi (
+      bpu_mem #(.W(1), .DEPTH(N_ENT), .N_RD(N_RD), .N_WR(2)) u_uhi (
         .clk, .rst_n,
         .rd_addr(uhi_rd_a[t][sl]), .rd_data(uhi_rd_d[t][sl]),
         .wr_en(uhi_wr_e[t][sl]), .wr_addr(uhi_wr_a[t][sl]), .wr_data(uhi_wr_d[t][sl])
@@ -104,16 +109,16 @@ module bpu_ftb_tage import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_p
 
   always_comb begin
     for (int sl = 0; sl < FTB_SLOTS; sl++) begin
-      base_rd_a[sl][0]   = rd_ix.base_idx[IDX_W-1:0];
-      base_rd_a[sl][1]   = upd_ix.base_idx[IDX_W-1:0];
+      base_rd_a[sl][0]    = rd_ix.base_idx[IDX_W-1:0];
+      base_rd_a[sl][1]    = upd_ix.base_idx[IDX_W-1:0];
       rd_raw[sl].base_cnt = base_rd_d[sl][0];
       for (int t = 0; t < TN; t++) begin
-        tc_rd_a[t][sl][0]   = rd_ix.idx[t][IDX_W-1:0];
-        tc_rd_a[t][sl][1]   = upd_ix.idx[t][IDX_W-1:0];
-        ulo_rd_a[t][sl][0]  = rd_ix.idx[t][IDX_W-1:0];
-        ulo_rd_a[t][sl][1]  = upd_ix.idx[t][IDX_W-1:0];
-        uhi_rd_a[t][sl][0]  = rd_ix.idx[t][IDX_W-1:0];
-        uhi_rd_a[t][sl][1]  = upd_ix.idx[t][IDX_W-1:0];
+        tc_rd_a[t][sl][0]    = rd_ix.idx[t][IDX_W-1:0];
+        tc_rd_a[t][sl][1]    = upd_ix.idx[t][IDX_W-1:0];
+        ulo_rd_a[t][sl][0]   = rd_ix.idx[t][IDX_W-1:0];
+        ulo_rd_a[t][sl][1]   = upd_ix.idx[t][IDX_W-1:0];
+        uhi_rd_a[t][sl][0]   = rd_ix.idx[t][IDX_W-1:0];
+        uhi_rd_a[t][sl][1]   = upd_ix.idx[t][IDX_W-1:0];
         rd_raw[sl].tag[t]    = tc_rd_d[t][sl][0].tag;
         rd_raw[sl].cnt[t]    = tc_rd_d[t][sl][0].cnt;
         rd_raw[sl].useful[t] = {uhi_rd_d[t][sl][0], ulo_rd_d[t][sl][0]};
@@ -126,6 +131,25 @@ module bpu_ftb_tage import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_p
       upd_raw.cnt[t]    = tc_rd_d[t][upd_sl][1].cnt;
       upd_raw.useful[t] = {uhi_rd_d[t][upd_sl][1], ulo_rd_d[t][upd_sl][1]};
     end
+  end
+
+  if (HAS_RD2) begin : g_rd2
+    always_comb begin
+      for (int sl = 0; sl < FTB_SLOTS; sl++) begin
+        base_rd_a[sl][2]     = rd2_ix.base_idx[IDX_W-1:0];
+        rd2_raw[sl].base_cnt = base_rd_d[sl][2];
+        for (int t = 0; t < TN; t++) begin
+          tc_rd_a[t][sl][2]     = rd2_ix.idx[t][IDX_W-1:0];
+          ulo_rd_a[t][sl][2]    = rd2_ix.idx[t][IDX_W-1:0];
+          uhi_rd_a[t][sl][2]    = rd2_ix.idx[t][IDX_W-1:0];
+          rd2_raw[sl].tag[t]    = tc_rd_d[t][sl][2].tag;
+          rd2_raw[sl].cnt[t]    = tc_rd_d[t][sl][2].cnt;
+          rd2_raw[sl].useful[t] = {uhi_rd_d[t][sl][2], ulo_rd_d[t][sl][2]};
+        end
+      end
+    end
+  end else begin : g_nord2
+    assign rd2_raw = '0;
   end
 
   // ---- Effective prediction metadata & allocation target ----

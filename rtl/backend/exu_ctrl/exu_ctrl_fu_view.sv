@@ -48,7 +48,8 @@ module exu_ctrl_fu_view
         done.mispred   = fu_res[f].mispred;
         done.br_taken  = fu_res[f].br_taken;
         done.br_id     = fu_inst[f].br_id;
-        done.ftq_idx   = fu_inst[f].ftq_idx;
+        done.ftq_idx    = fu_inst[f].ftq_idx;
+        done.ftq_offset = fu_inst[f].ftq_offset;
         done.pc        = fu_inst[f].pc;
         done.is_rvc    = fu_inst[f].ftq_is_rvc;
         done.func3     = fu_inst[f].func3;

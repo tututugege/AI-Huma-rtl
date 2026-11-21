@@ -187,6 +187,7 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 
 ## 10. 变更记录
 
+- 2026-11-21（`rtl/fe-2fetch-2taken`，EXP-051 里程碑 B）：`exu_ctrl_pkg`（`xc_inst_t` / `xc_done_t`）、`exu_ctrl_fu_view`、`exu_ctrl_br_arb`、`exu_ctrl` 透传 4 位 `ftq_offset`（`prf2exe_iss_entry_uop_ftq_offset` → `exu2id_ftq_offset`），供后端误预测精确索引双块 FTQ（避免同 PC 在 Block A/B 重复时的歧义）；通过 `lint_chip` 0、`fm_gate` 68/68（0 周期偏差）与 Linux 27 窗对齐。
 - 2026-11-19（`exp/wb-presel`，EXP-046）：`exu_ctrl_wb_prf` 输出按通道编号的写回总线（`WB_LANES = 13`：ALU 6、load 4、浮点口 3），不再按发射口输出 21 路；STA 写回不再进写回总线（`sta_wb` 只给 `exu_ctrl_wb_rob`）。周期不变。
 - 2026-11-18（exp/agu-share，`261bd67..HEAD`）：
   - `e49618c`：AGU 槽的占用 `exe2lsu_ldu_req_occ`、`exe2lsu_sta_req_occ`（`exu_ctrl_slot` 的 `fu_occ`，经 `exu_ctrl_lsu_out`）；LSU 重放口的分配看它（模型 `ExeLsuReqEntry::raw`），周期对 `ref_cycles_memiq6_nr_int2_ev2.txt`；

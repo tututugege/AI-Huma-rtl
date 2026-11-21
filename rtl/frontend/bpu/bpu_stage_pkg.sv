@@ -8,8 +8,8 @@ package bpu_stage_pkg;
 
   localparam int UB_SLOT_W = $clog2(FETCH_WIDTH);
   localparam int HSYM_W    = 3;
-  localparam int HR_BITS   = 256;
-  localparam int HR_PTR_W  = 8;
+  localparam int HR_BITS   = 1024;
+  localparam int HR_PTR_W  = 10;
   localparam int PQ_DEPTH  = 32;
   localparam int NITT      = 3;
   localparam int ITT_TBL [NITT] = '{1, 2, 3};
@@ -45,6 +45,7 @@ package bpu_stage_pkg;
     logic [UB_SLOT_W-1:0] slot;
     logic [2:0]           ty;
     logic                 rvc;
+    logic                 carried;
     logic [XLEN_BITS-1:0] next;
     logic [HSYM_W-1:0]    hbits;
     logic [1:0]           ras_op;
@@ -64,6 +65,17 @@ package bpu_stage_pkg;
     logic [XLEN_BITS-1:0] base;
     pred_t                g;
     ck_t                  ck;
+    // Optional paired second block B (2-taken)
+    logic                 has_b;
+    logic [XLEN_BITS-1:0] base_b;
+    logic [XLEN_BITS-1:0] bnd_b;
+    logic [3:0]           a_len;
+    logic [3:0]           b_len;
+    pred_t                g_b;
+    ck_t                  ck_b;
+    logic                 ah_v_b;
+    logic [XLEN_BITS-1:0] ah_key_base_b;
+    fh_t                  ah_key_fh_b;
   } blk_t;
 
   // ---- helpers ----
@@ -73,6 +85,13 @@ package bpu_stage_pkg;
     return ((base & ~XLEN_BITS'(ICACHE_LINE_SIZE - 1)) != (plus & ~XLEN_BITS'(ICACHE_LINE_SIZE - 1))) ?
            (plus & ~XLEN_BITS'(ICACHE_LINE_SIZE - 1)) : plus;
   endfunction
+
+  // 4-bank 1R1W ICache bank-conflict filter (2-port ITLB allows cross-page pairing)
+  /* verilator lint_off UNUSEDSIGNAL */
+  function automatic logic ic_pair_ok(input logic [XLEN_BITS-1:0] pc_a, input logic [XLEN_BITS-1:0] pc_b);
+    return (pc_a[XLEN_BITS-1:6] == pc_b[XLEN_BITS-1:6]) || (pc_a[7:6] != pc_b[7:6]);
+  endfunction
+  /* verilator lint_on UNUSEDSIGNAL */
 
   function automatic logic [HSYM_W-1:0] hsym_of(input logic [XLEN_BITS-1:0] pc, input logic [XLEN_BITS-1:0] tgt);
     logic [31:0] v;
@@ -86,9 +105,9 @@ package bpu_stage_pkg;
   endfunction
 
   /* verilator lint_off UNUSEDSIGNAL */
-  function automatic logic pred_differs(input pred_t a, input pred_t b);
+  function automatic logic pred_differs(input pred_t a, input pred_t b, input logic check_slot = 1'b0);
     return (a.next != b.next) || (a.taken != b.taken) || (a.hbits != b.hbits) || (a.ras_op != b.ras_op) ||
-           (a.ras_op == 2'd1 && a.ras_val != b.ras_val);
+           (a.ras_op == 2'd1 && a.ras_val != b.ras_val) || (check_slot && (a.slot != b.slot));
   endfunction
   /* verilator lint_on UNUSEDSIGNAL */
 
@@ -157,15 +176,11 @@ package bpu_stage_pkg;
     logic [RAS_CNT_W-1:0] cnt;
   } rptr_t;
   typedef struct packed {
-    logic                 arch;
-    logic                 w1;
-    logic [RASQ_W-1:0]    i1;
-    logic [XLEN_BITS-1:0] v1;
-    logic [RASQ_W-1:0]    n1;
-    logic                 w2;
-    logic [RASQ_W-1:0]    i2;
-    logic [XLEN_BITS-1:0] v2;
-    logic [RASQ_W-1:0]    n2;
+    logic                       arch;
+    logic [3:0]                 w;
+    logic [3:0][RASQ_W-1:0]     idx;
+    logic [3:0][XLEN_BITS-1:0]  val;
+    logic [3:0][RASQ_W-1:0]     nos;
   } rov_t;
   typedef struct packed { rptr_t p; rov_t o; } rst_t;
 

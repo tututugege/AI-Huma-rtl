@@ -4,10 +4,13 @@
 module bpu_ftb_brq import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; import bpu_types_pkg::*; (
   input  logic                    clk,
   input  logic                    rst_n,
-  // S2 ftb_rec write port
+  // S2 ftb_rec write ports (port 0: Block A, port 1: paired Block B)
   input  logic                    rec_wr_en,
   input  logic [FTB_REC_W-1:0]    rec_wr_addr,
   input  ftb_rec_t                rec_wr_data,
+  input  logic                    rec_wr_b_en,
+  input  logic [FTB_REC_W-1:0]    rec_wr_b_addr,
+  input  ftb_rec_t                rec_wr_b_data,
   // 8-lane commit stream
   input  logic [NCOMMIT-1:0]      upd_valid,
   input  logic [XLEN_BITS-1:0]    base_pc    [NCOMMIT],
@@ -24,6 +27,7 @@ module bpu_ftb_brq import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
   output logic [XLEN_BITS-1:0]    upd_start,
   output fh_t                     upd_fh,
   output logic                    upd_ah_v,
+  output logic                    upd_ah_kind,
   output logic [XLEN_BITS-1:0]    upd_ah_key_base,
   output fh_t                     upd_ah_key_fh,
   output ftb_br_upd_t             upd_br,
@@ -48,18 +52,18 @@ module bpu_ftb_brq import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
     logic [XLEN_BITS-1:0]    target;
   } brq_ent_t;
 
-  // ---- 512-entry 1R1W ftb_rec table ----
+  // ---- 512-entry 1R2W ftb_rec table ----
   logic [FTB_REC_W-1:0] rec_rd_addr [1];
   ftb_rec_t             rec_rd_data [1];
-  logic                 rec_we      [1];
-  logic [FTB_REC_W-1:0] rec_wa      [1];
-  ftb_rec_t             rec_wd      [1];
+  logic                 rec_we      [2];
+  logic [FTB_REC_W-1:0] rec_wa      [2];
+  ftb_rec_t             rec_wd      [2];
 
   bpu_mem #(
     .W     ($bits(ftb_rec_t)),
     .DEPTH (FTB_REC_N),
     .N_RD  (1),
-    .N_WR  (1),
+    .N_WR  (2),
     .T     (ftb_rec_t)
   ) u_rec (
     .clk, .rst_n,
@@ -82,6 +86,9 @@ module bpu_ftb_brq import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
     rec_we[0]      = rec_wr_en;
     rec_wa[0]      = rec_wr_addr;
     rec_wd[0]      = rec_wr_data;
+    rec_we[1]      = rec_wr_b_en;
+    rec_wa[1]      = rec_wr_b_addr;
+    rec_wd[1]      = rec_wr_b_data;
 
     do_pop         = (cnt_q != '0);
     q_head         = brq_q[head_q];
@@ -95,6 +102,7 @@ module bpu_ftb_brq import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
     upd_start         = rc.base;
     upd_fh            = rc.fh;
     upd_ah_v          = rc.ah_v;
+    upd_ah_kind       = rc.ah_kind;
     upd_ah_key_base   = rc.ah_key_base;
     upd_ah_key_fh     = rc.ah_key_fh;
     upd_pc            = q_head.pc;

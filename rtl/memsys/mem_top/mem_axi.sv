@@ -180,11 +180,13 @@ module mem_axi import ttg_cfg_pkg::*; import memcpu_pkg::*; (
   assign raw_ready[0] = ax_rd0_ready;
   assign raw_ready[1] = ax_rd3_ready;
   assign raw_ready[2] = ax_wr1_ready;
-  // the C++ adapter samples the accepted STATE after each tick's seq = the accepted-this-tick value of that tick
-  assign raw_accepted[0] = ax_rd_acc_new[0];
-  assign raw_accepted[1] = ax_rd_acc_new[3];
-  assign raw_accepted[2] = ax_wr_acc_new[1];
-  assign raw_accepted_id[0] = ax_rd_acc_new_id[0]; assign raw_accepted_id[1] = ax_rd_acc_new_id[3];
+  // TICKS == 1: SimCpu latches icache_axi_q from read_ports[0] after comb_outputs (which reflects the registered
+  // read_req_accepted[0] = ax_rd_accepted[0]); TICKS > 1 folds per-tick ax_rd_acc_new across the sub-ticks.
+  assign raw_accepted[0]    = (AXI_SUBSYSTEM_FREQ_DIV == 1) ? ax_rd_accepted[0]    : ax_rd_acc_new[0];
+  assign raw_accepted[1]    = ax_rd_acc_new[3];
+  assign raw_accepted[2]    = ax_wr_acc_new[1];
+  assign raw_accepted_id[0] = (AXI_SUBSYSTEM_FREQ_DIV == 1) ? ax_rd_accepted_id[0] : ax_rd_acc_new_id[0];
+  assign raw_accepted_id[1] = ax_rd_acc_new_id[3];
   assign raw_accepted_id[2] = '0;
   assign raw_resp_valid[0] = ax_rd_resp_valid[0];
   assign raw_resp_valid[1] = ax_rd_resp_valid[3];

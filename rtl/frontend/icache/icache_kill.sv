@@ -53,7 +53,7 @@ module icache_kill import ttg_cfg_pkg::*; import icache_pkg::*; (
     dc_req_valid = swap_in && r.req_valid && !ic_is_uncache(r.ppn[IC_TAG_W-1 -: 2]) && !r.probe_done
                    && !r.probe_inflight;
     dc_req_addr  = ic_probe_addr(r.ppn, r.req_pc[11:IC_OFF_W], r.probe_word);
-    mem_resp_ready = drop_resp || r.state == IC_CANCEL_WAIT;
+    mem_resp_ready = drop_resp;
   end
 
   logic [IC_TXID_N-1:0] txid_mask, set_both;

@@ -1,15 +1,16 @@
 // Ref: back-end/Lsu/TlbMmu.cpp  TlbMmu::top_comb / translate_lsu_ports / flush / cancel_pending_walk / seq
 `default_nettype none
 
-// N-port translation core shared by the DTLB (one port per physical AGU, the type of a request comes with it) and the ITLB (FETCH=1,
-// one fetch port).
+// N-port translation core shared by the DTLB (one port per physical AGU, the type of a request comes with it)
+// and the ITLB (FETCH=1, one fetch port).
 // Per cycle exactly one of three modes: fence (SFENCE.VMA: flush the TLB and the walk), cancel (pipeline flush /
 // mispredict: drop the
 // walk, tell the PTW), translate (serve the ports).
 module tlb_mmu_core import tlb_mmu_pkg::*; import ttg_cfg_pkg::*; #(
   parameter int LANES = 8,
   parameter bit FETCH = 1'b0,
-  parameter int ENTRIES = 64
+  parameter int ENTRIES = 64,
+  parameter int NPEEK = 0
 ) (
   input  logic clk,
   input  logic rst_n,
@@ -23,12 +24,15 @@ module tlb_mmu_core import tlb_mmu_pkg::*; import ttg_cfg_pkg::*; #(
   input  logic [1:0]  mpp,
   input  logic        req_valid [LANES],
   input  logic [XLEN_BITS-1:0] req_vaddr [LANES],
-  input  logic        req_is_store [LANES],   // the request of the port is a store address (the port type is per request)
+  input  logic        req_is_store [LANES],   // request is a store address (the port type is per request)
   input  logic        ptw_req_ready,
   input  logic        ptw_resp_valid,
   input  tlb_mmu_ptw_resp_t ptw_resp,
   input  logic pf_page_set,
   input  logic [VPN_W-1:0] pf_page_vpn,
+  input  logic [XLEN_BITS-1:0] peek_vaddr [(NPEEK > 0) ? NPEEK : 1],
+  output logic        peek_ok    [(NPEEK > 0) ? NPEEK : 1],
+  output logic [31:0] peek_paddr [(NPEEK > 0) ? NPEEK : 1],
   output logic        resp_valid [LANES],
   output logic [1:0]  resp_result [LANES],
   output logic [31:0] resp_paddr [LANES],
@@ -183,6 +187,53 @@ module tlb_mmu_core import tlb_mmu_pkg::*; import ttg_cfg_pkg::*; #(
 
   assign walk_next_v   = walk_d.active;
   assign walk_next_vpn = walk_d.vpn;
+
+  // ---- Optional read-only CAM peek ports (TlbMmu::peek_translate for ACC_FETCH, zero PTW / side effects) ----
+  if (NPEEK > 0) begin : g_peek
+    logic [1:0]        pk_eff_priv;
+    logic              pk_pass;
+    logic [ASID_W-1:0] pk_asid;
+    assign pk_eff_priv = effective_priv(ACC_FETCH, privilege, mprv, mpp);
+    assign pk_pass     = (pk_eff_priv == 2'd3) || !satp_on(satp);
+    assign pk_asid     = satp_asid(satp);
+
+    for (genvar p = 0; p < NPEEK; p++) begin : g_p
+      logic          pk_tbl_hit, pk_rf_hit, pk_hit;
+      tlb_mmu_xlat_t pk_tbl_xlat, pk_xlat;
+      logic [31:0]   pk_id_pa;
+
+      tlb_mmu_lookup #(.ENTRIES(ENTRIES)) u_pk_lookup (
+        .entry_valid, .entry,
+        .vpn(peek_vaddr[p][12 +: VPN_W]), .asid(pk_asid),
+        .hit(pk_tbl_hit), .xlat(pk_tbl_xlat)
+      );
+
+      always_comb begin
+        pk_id_pa   = (RV64 && (peek_vaddr[p][XLEN_BITS-1:32] != '0)) ? 32'h7fff_ffff : peek_vaddr[p][31:0];
+        pk_rf_hit  = refill_valid_end && !fence && tag_match(refill_end.tag, peek_vaddr[p][12 +: VPN_W], pk_asid);
+        pk_hit     = pk_rf_hit || pk_tbl_hit;
+        pk_xlat    = pk_rf_hit ? refill_end.xlat : pk_tbl_xlat;
+        if (pk_pass) begin
+          peek_ok[p]    = 1'b1;
+          peek_paddr[p] = pk_id_pa;
+        end else if (va_canonical(peek_vaddr[p]) && pk_hit &&
+                     perm_ok(pk_xlat.perm, ACC_FETCH, pk_eff_priv, sum, mxr)) begin
+          peek_ok[p]    = 1'b1;
+          peek_paddr[p] = compose_paddr(peek_vaddr[p][VLOW_W-1:0], pk_xlat.level, pk_xlat.ppn);
+        end else begin
+          peek_ok[p]    = 1'b0;
+          peek_paddr[p] = '0;
+        end
+      end
+    end
+  end else begin : g_nopeek
+    assign peek_ok[0]    = 1'b0;
+    assign peek_paddr[0] = '0;
+    /* verilator lint_off UNUSEDSIGNAL */
+    logic unused_pk;
+    assign unused_pk = ^peek_vaddr[0];
+    /* verilator lint_on UNUSEDSIGNAL */
+  end
 
   always_ff @(posedge clk) begin
     if (!rst_n) begin

@@ -12,6 +12,7 @@ module idu_br_latch import ttg_cfg_pkg::*; (
   input  logic [ROB_IDX_WIDTH-1:0]    exu_redirect_rob_idx,
   input  logic [BR_TAG_WIDTH-1:0]     exu_br_id,
   input  logic [FTQ_IDX_WIDTH-1:0]    exu_ftq_idx,
+  input  logic [FTQ_OFFSET_WIDTH-1:0] exu_ftq_offset,
   input  logic [XLEN_BITS-1:0]                 exu_br_pc,
   input  logic                        exu_br_is_rvc,
   input  logic [BR_MASK_WIDTH-1:0]    exu_clear_mask,
@@ -20,6 +21,7 @@ module idu_br_latch import ttg_cfg_pkg::*; (
   output logic [ROB_IDX_WIDTH-1:0]    redirect_rob_idx,
   output logic [BR_TAG_WIDTH-1:0]     br_id,
   output logic [FTQ_IDX_WIDTH-1:0]    ftq_idx,
+  output logic [FTQ_OFFSET_WIDTH-1:0] ftq_offset,
   output logic [XLEN_BITS-1:0]                 br_pc,
   output logic                        br_is_rvc,
   output logic [BR_MASK_WIDTH-1:0]    clear_mask
@@ -31,6 +33,7 @@ module idu_br_latch import ttg_cfg_pkg::*; (
   logic [ROB_IDX_WIDTH-1:0]    redirect_rob_idx_q;
   logic [BR_TAG_WIDTH-1:0]     br_id_q;
   logic [FTQ_IDX_WIDTH-1:0]    ftq_idx_q;
+  logic [FTQ_OFFSET_WIDTH-1:0] ftq_offset_q;
   logic [XLEN_BITS-1:0]                 br_pc_q;
   logic                        br_is_rvc_q;
 
@@ -49,6 +52,7 @@ module idu_br_latch import ttg_cfg_pkg::*; (
       redirect_rob_idx_q <= '0;
       br_id_q            <= '0;
       ftq_idx_q          <= '0;
+      ftq_offset_q       <= '0;
       br_pc_q            <= '0;
       br_is_rvc_q        <= 1'b0;
     end else begin
@@ -58,6 +62,7 @@ module idu_br_latch import ttg_cfg_pkg::*; (
       redirect_rob_idx_q <= exu_redirect_rob_idx;
       br_id_q            <= exu_br_id;
       ftq_idx_q          <= exu_ftq_idx;
+      ftq_offset_q       <= exu_ftq_offset;
       br_pc_q            <= exu_br_pc;
       br_is_rvc_q        <= exu_br_is_rvc;
     end
@@ -69,6 +74,7 @@ module idu_br_latch import ttg_cfg_pkg::*; (
   assign redirect_rob_idx = redirect_rob_idx_q;
   assign br_id            = br_id_q;
   assign ftq_idx          = ftq_idx_q;
+  assign ftq_offset       = ftq_offset_q;
   assign br_pc            = br_pc_q;
   assign br_is_rvc        = br_is_rvc_q;
 

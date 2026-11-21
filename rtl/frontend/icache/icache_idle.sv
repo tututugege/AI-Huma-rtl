@@ -28,7 +28,8 @@ module icache_idle import ttg_cfg_pkg::*; import icache_pkg::*; (
   logic [IC_TXID_W-1:0] free_id, alloc_id;
   logic                 free_any;
 
-  ttg_first_set #(.N(IC_TXID_N)) u_free (.req(~r.inflight), .onehot(free_onehot), .any(free_any));
+  // Demand misses allocate txids 0..7 only (txids 8..9 are reserved for 2-slot FDIP)
+  ttg_first_set #(.N(IC_TXID_N)) u_free (.req(~r.inflight & 16'h00FF), .onehot(free_onehot), .any(free_any));
   ttg_onehot_to_idx #(.N(IC_TXID_N)) u_free_idx (.onehot(free_onehot), .idx(free_id));
 
   always_comb begin

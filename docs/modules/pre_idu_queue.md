@@ -3,11 +3,15 @@ module: pre_idu_queue
 area: backend
 rtl: rtl/backend/pre_idu_queue
 model: trace-model back-end/PreIduQueue.cpp、back-end/InstructionBuffer.cpp、back-end/include/PreIduQueue.h、back-end/include/InstructionBuffer.h、back-end/include/FTQ.h（调度单元 `back.pre`，类 `PreIduQueue`，阶段 `comb_accept_front`、`comb_commit_info`）
-status: 整核周期与模型逐个相等（fm_gate 67/67，参考 scripts/ref_cycles_memiq6_nr_int2_ev5.txt）
-depth: 39 层（pre_idu_queue，单模块综合，2026-11-18，`SYNTH_ABC="strash;balance;map"`，生成门代理，见第 6 节）
+status: 整核周期与模型逐个相等（EXP-051 里程碑 B：fm_gate 68/68 + Linux 27 窗，零环境变量）
+depth: 38 层 / 137,578 单元（pre_idu_queue，单模块综合，2026-11-21，`SYNTH_ABC="strash;balance;map"`，较 main 39 层 / 123,508 单元降 1 层）
 ---
 
 # pre_idu_queue 设计文档
+
+> **EXP-051 里程碑 B 升级**：
+> 1. `pre_idu_ftq_pc` 新增 `nslots_q[FTQ_SIZE]`：当 `pred_taken_q[idx][off] && off+1 < nslots_q[idx] && slot_pc_q[idx][off+1] != slot_pc_q[idx][off] + ilen` 时，`rd_next_pc` 返回 `slot_pc_q[idx][off+1]`（Block A 跳转后同组内续接 Block B）；`dis_pc[p]` 直接读 `slot_pc_q[dis_idx[p]][dis_off[p]]`（兼容不连续双块 PC）；
+> 2. `pre_idu_ftq_bpu` 删除原 168 位 `bpu_ck` 存储，仅存 `{blk_id[16], kind[16]}`；误预测恢复直接按 4 位 `idu_br_latch_ftq_offset`（由 `prf -> exu_ctrl -> idu_br_latch` 透传）索引 `rec.blk_id[rd_offset]` 与 `rec.kind[rd_offset]`，彻底消除同 PC 在 Block A 与 Block B 中重复出现时的 PC 扫描歧义并省去 16×64b 比较器，输出 `out_rf_blk[9:0]` 与 `out_rf_type[2:0]` 供 BPU 内部 `rec_q[256]` 修复。
 
 ## 1. 职责
 
@@ -159,4 +163,5 @@ RTL 与模型保持一致的细节（读模型时容易误判）：
 
 ## 10. 变更记录
 
-`git log --oneline 261bd67..HEAD -- rtl/backend/pre_idu_queue`：本分支没有对本模块的提交；FLUSH_REG（`803692f`）只改了 `back_top` 的连线，使 `rob_bcast_flush` 到本模块晚一拍。更早：见 git 历史。
+- 2026-11-21（`rtl/fe-2fetch-2taken`，EXP-051 里程碑 B）：`pre_idu_ftq_pc` 新增 `nslots_q` 与双块不连续 `rd_next_pc` / `dis_pc`；`pre_idu_ftq_bpu` 删除 168 位 `bpu_ck`，改为按精确 `idu_br_latch_ftq_offset` 直接索引 `{blk_id[16], kind[16]}` 输出 `out_rf_blk`/`out_rf_type`。Yosys 综合 `pre_idu_queue` 137,578 单元 / 38 层（原 123,508 / 39）；通过 `lint_chip` 0、`fm_gate` 68/68（0 周期偏差）与 Linux 27 窗检查点对齐。
+- `git log --oneline 261bd67..HEAD -- rtl/backend/pre_idu_queue`：本分支没有对本模块的提交；FLUSH_REG（`803692f`）只改了 `back_top` 的连线，使 `rob_bcast_flush` 到本模块晚一拍。更早：见 git 历史。

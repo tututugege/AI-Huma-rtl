@@ -3,11 +3,16 @@ module: icache
 area: frontend
 rtl: rtl/frontend/icache
 model: trace-model front-end/icache/icache_top.h、icache_top.cpp、icache_module.cpp、include/icache_module.h（调度单元 `front.core.icache`，类 `ICacheTop`，阶段 `comb_fetch`、`comb_invalidate`）；ITLB 是 back-end 的 `TlbMmu`（`Kind::ITLB`）
-status: 整核周期与模型逐个相等（fm_gate 67/67，参考 scripts/ref_cycles_memiq6_nr_int2_ev5.txt）
-depth: 70 层（icache，单模块综合，2026-11-19 SRRIP 后；之前 69，`SYNTH_ABC="strash;balance;map"`，生成门代理，见第 6 节）
+status: 整核周期与模型逐个相等（EXP-051 里程碑 B：fm_gate 68/68 + Linux 27 窗，零环境变量）
+depth: 106 层 / 916,659 单元（icache，单模块综合，2026-11-21，`SYNTH_ABC="strash;balance;map" SYNTH_NO_MEMPRIO=1`，4-Bank 1R1W + 2-Port ITLB peek + 2-slot FDIP；原 70 层 / 312,314 单元）
 ---
 
-# icache 设计文档（指令缓存 + ITLB + 存储侧口）
+# icache 设计文档（4-Bank 指令缓存 + 2-Port ITLB + 实 AXI FDIP + 存储侧口）
+
+> **EXP-051 里程碑 B 升级**：
+> 1. **4-Bank 1R1W 数据/标签阵列**（`icache_arr` 按 `set[1:0]` 分为 4 bank，每 bank 16 组 × 8 路）：同拍支持需求块 A 与配对块 B（`fetch_second`）并行读出（同 64B 行时直接复用 A 的命中行，否则跨 bank 并行查读），不改变需求侧任何单块时序；
+> 2. **2 读口只读 ITLB Peek**（`icache_itlb` 复用 `tlb_mmu_core` 的 2 个只读 CAM peek 口，零额外 PTW walker）：口 0 服务跨 4KB 页配对块 B 翻译，口 1 服务 FDIP 队首虚拟地址翻译，无副作用、不改替换状态、不触发页表遍历；
+> 3. **S2 确认 2-Slot 实 AXI FDIP**（新增 `icache_fdip.sv`）：需求侧事务号收窄至 `0..7`，FDIP 独占 `8..9` 复用 `MASTER_ICACHE` 且严格让位于需求请求；8 项循环 VA 队列在 `refetch || bpu_ovr || fence_i` 清空、接收 S2 确认的 `predict_next_fetch_address` 以及配对块 B ICache 缺失行；每拍至多弹出 1 项队首（无组合 `while` 环），响应回填在 `!tw_we` 时经单写口写入并更新 SRRIP。
 
 ## 1. 职责
 
@@ -160,6 +165,7 @@ RTL 与模型保持一致的细节（容易误判为 bug）：
 
 ## 10. 变更记录
 
+- 2026-11-21（`rtl/fe-2fetch-2taken`，EXP-051 里程碑 B）：`icache_arr` 升级 4-Bank 1R1W 支持同拍双块取指（`fetch_second`）；`icache_itlb` 启用 `tlb_mmu_core` `NPEEK=2` 只读 CAM 翻译口；新增 `icache_fdip.sv`（S2 确认 2-slot 实 AXI FDIP，txid `8..9`，8 项 VA 队列，1-pop/cycle，`issued` 保护 + `resp_popped_q` 抑制 1 拍回声 + 周期初 L1D/WB 脏行窥探）；修复 `IC_CANCEL_WAIT` 盲置 `mem_resp_ready`。Yosys 综合 `icache` 916,659 单元 / 106 层（路径起于 `u_ctl.r_q[136] -> mmu_req_vtag[4]`）；通过 `lint_chip` 0、`fm_gate` 68/68（含 `directed/fe_2taken_fdip.bin` 与 `fence-i-self-modify`）与 Linux 27 窗检查点对齐。
 - 2026-11-19（`exp/llc-plru`，EXP-045）：替换从"全局轮转指针"改为每组 SRRIP（`icache_arr` 加 `repl_q` 与命中 / 回填更新，`icache_swap` 按 RRPV 选路）。29 个 SPEC06 高权重点几何平均 +0.42%（gobmk +3.2%）。
 
 - 2026-11-17/18（exp/agu-share）：`16de223`（EXP-TLBPORTS 第 3 步）顺带改了 `icache_itlb.sv`（`tlb_mmu_core` 例化去掉 `LD_LANES` 参数、加 `req_is_store` 接常 0，是 DTLB 多端口化的接口随动，ITLB 行为不变）；I-Cache 本身没有改。

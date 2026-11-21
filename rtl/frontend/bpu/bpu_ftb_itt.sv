@@ -2,15 +2,18 @@
 `default_nettype none
 
 module bpu_ftb_itt import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; import bpu_types_pkg::*; #(
-  parameter int N_ENT = FTB_ITT_N
+  parameter int N_ENT   = FTB_ITT_N,
+  parameter bit HAS_RD2 = 1'b0
 ) (
   input  logic                 clk,
   input  logic                 rst_n,
-  // Predict read port
+  // Predict read port 0 & optional port 1 (Block B)
   /* verilator lint_off UNUSEDSIGNAL */
   input  ftb_ix_t              rd_ix,
+  input  ftb_ix_t              rd2_ix,
   /* verilator lint_on UNUSEDSIGNAL */
   output ftb_itt_raw_t         rd_raw,
+  output ftb_itt_raw_t         rd2_raw,
   // Single-branch commit update port
   input  logic                 upd_en,
   /* verilator lint_off UNUSEDSIGNAL */
@@ -20,9 +23,10 @@ module bpu_ftb_itt import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
 );
 
   localparam int IDX_W = $clog2(N_ENT);
+  localparam int N_RD  = HAS_RD2 ? 3 : 2;
 
-  logic [IDX_W-1:0] rd_addr [NITT][2];
-  ftb_itt_ent_t     rd_data [NITT][2];
+  logic [IDX_W-1:0] rd_addr [NITT][N_RD];
+  ftb_itt_ent_t     rd_data [NITT][N_RD];
   logic             wr_en   [NITT][1];
   logic [IDX_W-1:0] wr_addr [NITT][1];
   ftb_itt_ent_t     wr_data [NITT][1];
@@ -31,7 +35,7 @@ module bpu_ftb_itt import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
     bpu_mem #(
       .W     ($bits(ftb_itt_ent_t)),
       .DEPTH (N_ENT),
-      .N_RD  (2),
+      .N_RD  (N_RD),
       .N_WR  (1),
       .T     (ftb_itt_ent_t)
     ) u_mem (
@@ -39,6 +43,17 @@ module bpu_ftb_itt import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
       .rd_addr(rd_addr[k]), .rd_data(rd_data[k]),
       .wr_en(wr_en[k]), .wr_addr(wr_addr[k]), .wr_data(wr_data[k])
     );
+  end
+
+  if (HAS_RD2) begin : g_rd2
+    always_comb begin
+      for (int k = 0; k < NITT; k++) begin
+        rd_addr[k][2] = rd2_ix.idx[ITT_TBL[k]][IDX_W-1:0];
+        rd2_raw[k]    = rd_data[k][2];
+      end
+    end
+  end else begin : g_nord2
+    assign rd2_raw = '0;
   end
 
   logic       hit_found, correct, alloc_found;

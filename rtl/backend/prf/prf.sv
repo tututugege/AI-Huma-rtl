@@ -87,6 +87,7 @@ module prf import ttg_cfg_pkg::*; import fp_pkg::*; #(
   output logic [FW-1:0] prf2exe_iss_entry_uop_fsrc3 [ISSUE_WIDTH],
   output logic [PRF_IDX_WIDTH-1:0] prf2exe_iss_entry_uop_dest_preg [ISSUE_WIDTH],
   output logic [FTQ_IDX_WIDTH-1:0] prf2exe_iss_entry_uop_ftq_idx [ISSUE_WIDTH],
+  output logic [FTQ_OFFSET_WIDTH-1:0] prf2exe_iss_entry_uop_ftq_offset [ISSUE_WIDTH],
   output logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_is_atomic,
   output logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_dest_en,
   output logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_src1_en,
@@ -170,6 +171,7 @@ module prf import ttg_cfg_pkg::*; import fp_pkg::*; #(
     assign prf2exe_iss_entry_valid[i]          = iss2prf_iss_entry_valid[i];
     assign prf2exe_iss_entry_uop_dest_preg[i] = iss2prf_iss_entry_uop_dest_preg[i];
     assign prf2exe_iss_entry_uop_ftq_idx[i] = iss2prf_iss_entry_uop_ftq_idx[i];
+    assign prf2exe_iss_entry_uop_ftq_offset[i] = iss2prf_iss_entry_uop_ftq_offset[i];
     assign prf2exe_iss_entry_uop_is_atomic[i] = iss2prf_iss_entry_uop_is_atomic[i];
     assign prf2exe_iss_entry_uop_dest_en[i] = iss2prf_iss_entry_uop_dest_en[i];
     assign prf2exe_iss_entry_uop_src1_en[i] = iss2prf_iss_entry_uop_src1_en[i];

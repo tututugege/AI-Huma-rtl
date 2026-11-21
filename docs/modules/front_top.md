@@ -3,11 +3,16 @@ module: front_top
 area: frontend
 rtl: rtl/frontend/front_top（front_top.sv、front_fetch_buf.sv、front_pred_path.sv）
 model: trace-model front-end/front_core.h 的 `FrontCore`（各调度单元 `front.core.*` 的连线 `FrontCore::FrontCore` 和阶段顺序 `FrontCore::comb`）；指令起点扫描对应 front-end/front_top.cpp 的 `InstPort::comb_write`（调度单元 `front.core.inst_port`）
-status: 整核周期与模型逐个相等（fm_gate 67/67，参考 scripts/ref_cycles.txt）
-depth: 153 层 / 898,333 cells（Yosys 通用门代理 `SYNTH_ABC="strash;balance;map" SYNTH_NO_MEMPRIO=1`，EXP-050 块级 1-Ahead FTB 后首次在 3600s 内完成）
+status: 整核周期与模型逐个相等（EXP-051 里程碑 B：fm_gate 68/68 + Linux 27 窗，零环境变量）
+depth: 356 层 / 1,582,763 单元（front_top，单模块综合，2026-11-21，`SYNTH_ABC="strash;balance;map" SYNTH_NO_MEMPRIO=1`，含 2-taken BPU + 4-Bank ICache/FDIP，最长路径 `u_pred_path.u_bpu.r1_q[1074] → PTAB bypass → u_pd.pd_ras_op2_q[1]`；原 EXP-050 898,333 单元 / 153 层）
 ---
 
 # front_top 设计文档
+
+> **EXP-051 里程碑 B 升级**：
+> 1. `fetch_addr_fifo` 与在途寄存器 `pend_pair_q` 携带 `FetchPair`（`valid, addr2, a_len, b_len`）；`front_fetch_buf` 在 ICache 响应同拍并行拼合 Block A 与 Block B（同时将完整 Block A 副本存入 `inst_fifo` 作 S2 覆写兜底），读端若 `has_alt_a && !ptab_is_pair` 无损恢复完整 Block A，避免 S2 覆写 A 时误切槽；
+> 2. `ptab` 与 `front2back_fifo` 用紧凑字段 `{is_pair, a_len[3:0], base_b[63:0]}` 重建 16 槽 PC（无需存 16×64b），并删除原 166 位 `bpu_ck`（由 `out_tage_idx[*][0] = blk_id` 在 BPU 内部 `rec_q[256]` 直接修复）；
+> 3. `front_top` 将 S2 确认信号（`ptab_wr_en`、`bpu_predict_next_fetch_address`、`bpu_override_valid`）接入 `icache` FDIP 队列。
 
 ## 1. 职责
 
@@ -93,7 +98,7 @@ depth: 153 层 / 898,333 cells（Yosys 通用门代理 `SYNTH_ABC="strash;balanc
 2. 取指地址队列队首（`fa_rd_en` 成立时）作为 `req_valid / fetch_address` 送 I-Cache；I-Cache 的 `read_complete / fetch_pc / fetch_group / inst_valid / page_fault_inst / fetch_upper_ok` 回来。
 3. `front_fetch_buf`：16 路展开（`ic_fetch_group[i][1:0] != 2'b11` 的窗口是 16 位指令，展开成 32 位，非法编码展开成 0）、预测译码（只看展开后的字）、起点扫描、`seq_next_pc`；`ic_read_complete & !global_refetch` 时整组写进指令队列。
 4. BPU 同拍给出 `icache_read_valid / fetch_address`（S0 块，经 `fa_wr_en` 写取指地址队列）和 `ptab_write_enable`（S2 块，经 `ptab_wr_en` 写 PTAB）。
-5. `predecode_can_run`（指令队列非空、PTAB 非空或同拍有旁路写、`front2back` 队列不满、无全局 refetch）时，读指令队列队首和 PTAB 队首；`front_head_fix` 处理携带、丢弃非起点槽、处理末槽跨组；`predecode_checker` 比较预测与预译码；`front_slot_kind` 为每槽译出 BPU 类型。
+5. `predecode_can_run`（指令队列非空、PTAB 非空或同拍有旁路写、`front2back` 队列不满、无全局 refetch）时，读指令队列队首和 PTAB 队首；`front_head_fix` 处理携带（含跨 4KB 页第二半字取指缺页时置 `insts_o[0]=32'd2` 经 `diag_val[1]` 传给 ROB 修正 `stval=pc+2`）、丢弃非起点槽、处理末槽跨组；`predecode_checker` 比较预测与预译码；`front_slot_kind` 为每槽译出 BPU 类型。
 6. 检查通过或不通过都要写 `front2back` 队列（`f2b_wr_en`）；队列空、后端本拍读时走旁路（`f2b_use_bypass`），本拍写的条目直接当输出。
 7. `do_predecode_flush = predecode_can_run & checker_flush_enable`：进 `predecode_refetch_q`（下一拍成为全局 refetch）、进 I-Cache 的 `invalidate`（同拍的第二步）、进 `front_pd_info` 的寄存器（下一拍告诉 BPU）。
 
@@ -157,5 +162,6 @@ RTL 与模型保持一致的细节：
 
 ## 10. 变更记录
 
+- 2026-11-21（`rtl/fe-2fetch-2taken`，EXP-051 里程碑 B）：`fetch_addr_fifo` 与 `pend_pair_q` 携带 `FetchPair`；`front_fetch_buf` 实现双块融合与 `alt_a` 完整 A 兜底；`ptab` / `front2back_fifo` 用紧凑字段 `{is_pair, a_len, base_b}` 重建 16 槽 PC 并删除 166 位 `bpu_ck`；`front_top` 接入 ICache FDIP S2 信号。Yosys 综合 `front_top` `1,582,763` 单元 / `356` 层（最长路径 `u_pred_path.u_bpu.r1_q[1074] → u_pd.pd_ras_op2_q[1]`，已登记至 TODO）；通过 `lint_chip` 0、`fm_gate` 68/68（0 周期偏差）与 Linux 27 窗检查点对齐。
 - 2026-11-17/18（exp/agu-share）：指令起点前缀扫描 `737e7a5`；取指地址队列 push 后一拍才弹出 `4eb8f0e`（模型 `CFG_FE_OVR_REG`，16 个 SPEC 点几何平均 IPC -0.82 %）；BPU 的三处深度改写 `7551dd0`、`47f4a7d`、`2c76ba2`（见 bpu.md）。
 - 更早：见 git 历史。

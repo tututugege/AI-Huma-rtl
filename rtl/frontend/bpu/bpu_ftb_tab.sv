@@ -8,15 +8,20 @@ module bpu_ftb_tab import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
   parameter int TGT_BITS         = 0,
   parameter bit ALLOC_ONLY_TAKEN = 1'b0,
   parameter bit AHEAD_MODE       = 1'b0,
-  parameter bit HAS_CLR          = 1'b0
+  parameter bit HAS_CLR          = 1'b0,
+  parameter bit HAS_RD2          = 1'b0
 ) (
   input  logic                    clk,
   input  logic                    rst_n,
-  // Lookup read port (S0 for ftb0/aftb, S1 for ftb1)
+  // Lookup read port 0 (S0 for ftb0/aftb/aftb2, S1 Block A for ftb1)
   input  logic [XLEN_BITS-1:0]    rd_base,
   output logic                    rd_hit,
   output ftb_ent_t                rd_ent,
   output ftb_ent_t [WAYS-1:0]     rd_ways,
+  // Optional lookup read port 1 (Block B for ftb0 / ftb1 when HAS_RD2=1)
+  input  logic [XLEN_BITS-1:0]    rd2_base,
+  output logic                    rd2_hit,
+  output ftb_ent_t                rd2_ent,
   // Single-branch commit RMW update port
   input  logic                    upd_en,
   input  logic [XLEN_BITS-1:0]    upd_base,
@@ -31,10 +36,12 @@ module bpu_ftb_tab import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
   input  logic [XLEN_BITS-1:0]    clr_pc
 );
 
-  localparam int SET_W = $clog2(SETS);
-  localparam int WAY_W = $clog2(WAYS);
-  localparam int N_RD  = HAS_CLR ? 3 : 2;
-  localparam int N_WR  = HAS_CLR ? 2 : 1;
+  localparam int SET_W    = $clog2(SETS);
+  localparam int WAY_W    = $clog2(WAYS);
+  localparam int CLR_PORT = 2;
+  localparam int RD2_PORT = HAS_CLR ? 3 : 2;
+  localparam int N_RD     = 2 + int'(HAS_CLR) + int'(HAS_RD2);
+  localparam int N_WR     = HAS_CLR ? 2 : 1;
 
   typedef ftb_ent_t [WAYS-1:0] set_t;
 
@@ -90,6 +97,31 @@ module bpu_ftb_tab import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
     end
   end
 
+  if (HAS_RD2) begin : g_rd2
+    logic [SET_W-1:0]         rd2_set;
+    logic [FTB_MAX_TAG_W-1:0] rd2_tag_v;
+    assign rd_addr[RD2_PORT] = rd2_set;
+    always_comb begin
+      rd2_set   = set_idx(rd2_base);
+      rd2_tag_v = norm_tag(rd2_base);
+      rd2_hit   = 1'b0;
+      rd2_ent   = '0;
+      for (int w = 0; w < WAYS; w++) begin
+        if (!rd2_hit && rd_data[RD2_PORT][w].valid && (rd_data[RD2_PORT][w].tag == rd2_tag_v)) begin
+          rd2_hit = 1'b1;
+          rd2_ent = rd_data[RD2_PORT][w];
+        end
+      end
+    end
+  end else begin : g_nord2
+    assign rd2_hit = 1'b0;
+    assign rd2_ent = '0;
+    /* verilator lint_off UNUSEDSIGNAL */
+    logic unused_rd2;
+    assign unused_rd2 = ^rd2_base;
+    /* verilator lint_on UNUSEDSIGNAL */
+  end
+
   // ---- Update RMW ----
   logic [SET_W-1:0]         upd_set;
   logic [FTB_MAX_TAG_W-1:0] upd_tag;
@@ -109,7 +141,7 @@ module bpu_ftb_tab import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
 
   always_comb begin
     upd_set    = AHEAD_MODE ? set_idx(upd_key_base) : set_idx(upd_base);
-    upd_tag    = AHEAD_MODE ? FTB_MAX_TAG_W'(ftb_ah_tag(upd_key_base, upd_base)) : norm_tag(upd_base);
+    upd_tag    = AHEAD_MODE ? FTB_MAX_TAG_W'(ftb_ah_tag(upd_key_base, upd_base, SET_W)) : norm_tag(upd_base);
     tgt_ok     = (TGT_BITS == 0) || !upd_br.actual_dir || (upd_br.br_type == BR_RET) ||
                  ftb_s0_tgt_fits(upd_base, upd_br.target);
 
@@ -184,10 +216,10 @@ module bpu_ftb_tab import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
     set_t                     clr_src, clr_next;
     logic                     slot_any_v;
 
-    assign rd_addr[2] = clr_set;
-    assign wr_en[1]   = clr_valid_pc && clr_hit;
-    assign wr_addr[1] = clr_set;
-    assign wr_data[1] = clr_next;
+    assign rd_addr[CLR_PORT] = clr_set;
+    assign wr_en[1]          = clr_valid_pc && clr_hit;
+    assign wr_addr[1]        = clr_set;
+    assign wr_data[1]        = clr_next;
 
     always_comb begin
       clr_set      = set_idx(clr_base);
@@ -195,7 +227,7 @@ module bpu_ftb_tab import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
       clr_carried  = (clr_pc + XLEN_BITS'(SLOT_BYTES) == clr_base);
       clr_valid_pc = clr_en && (clr_carried || (clr_pc >= clr_base));
       clr_off      = clr_carried ? 4'd0 : 4'((clr_pc - clr_base) >> SLOT_SHIFT);
-      clr_src      = (do_upd && (upd_set == clr_set)) ? upd_set_next : rd_data[2];
+      clr_src      = (do_upd && (upd_set == clr_set)) ? upd_set_next : rd_data[CLR_PORT];
       clr_next     = clr_src;
       clr_hit      = 1'b0;
       slot_any_v   = 1'b0;

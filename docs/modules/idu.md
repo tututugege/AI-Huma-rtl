@@ -164,4 +164,5 @@ RTL 与模型保持一致的细节（读模型时容易误判）：
 
 ## 10. 变更记录
 
-`git log --oneline 261bd67..HEAD -- rtl/backend/idu`：本分支没有对本模块的提交；FLUSH_REG（`803692f`）只改了 `back_top` 的连线，使 `rob_bcast_flush` 到本模块晚一拍。更早：见 git 历史。
+- 2026-11-21（`rtl/fe-2fetch-2taken`，EXP-051 里程碑 B）：`idu` 与 `idu_br_latch` 新增 4 位 `exu2id_ftq_offset` → `br_latch_ftq_offset` 寄存透传，供 `pre_idu_ftq_bpu` 按精确 `ftq_offset` 索引双块 FTQ 修复记录；通过 `lint_chip` 0、`fm_gate` 68/68（0 周期偏差）与 Linux 27 窗对齐。
+- `git log --oneline 261bd67..HEAD -- rtl/backend/idu`：本分支没有对本模块的提交；FLUSH_REG（`803692f`）只改了 `back_top` 的连线，使 `rob_bcast_flush` 到本模块晚一拍。更早：见 git 历史。

@@ -4,7 +4,8 @@
 package tlb_mmu_pkg;
   import ttg_cfg_pkg::*;
 
-  // Sv39: 3 levels of 9-bit VPNs, 16-bit ASID satp[59:44].  The physical address is 32 bits in both: only ppn[19:0] of a PTE reaches it.
+  // Sv39: 3 levels of 9-bit VPNs, 16-bit ASID satp[59:44].
+  // Physical address is 32 bits in both: only ppn[19:0] of a PTE reaches it.
   localparam bit RV64 = (XLEN_BITS == 64);
   localparam int ASID_W = RV64 ? 16 : 9;
   localparam int LEVELS = RV64 ? 3 : 2;
@@ -129,7 +130,7 @@ package tlb_mmu_pkg;
     return RV64 ? s[44 +: ASID_W] : s[22 +: ASID_W];
   endfunction
 
-  // Sv39: a virtual address must be sign-extended from bit 38 
+  // Sv39: a virtual address must be sign-extended from bit 38
   function automatic logic va_canonical(input logic [XLEN_BITS-1:0] v);
     logic signed [XLEN_BITS-1:0] top;
     top = $signed(v) >>> 38;

@@ -32,6 +32,7 @@ module exu
   input  logic [FW-1:0] prf2exe_iss_entry_uop_fsrc2 [ISSUE_WIDTH],
   input  logic [FW-1:0] prf2exe_iss_entry_uop_fsrc3 [ISSUE_WIDTH],
   input  logic [5:0] prf2exe_iss_entry_uop_ftq_idx [ISSUE_WIDTH],
+  input  logic [FTQ_OFFSET_WIDTH-1:0] prf2exe_iss_entry_uop_ftq_offset [ISSUE_WIDTH],
   input  logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_is_atomic,
   input  logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_dest_en,
   input  logic [ISSUE_WIDTH-1:0] prf2exe_iss_entry_uop_src1_en,
@@ -132,6 +133,7 @@ module exu
   output logic [6:0] exu2id_redirect_rob_idx,
   output logic [BR_TAG_WIDTH-1:0] exu2id_br_id,
   output logic [5:0] exu2id_ftq_idx,
+  output logic [FTQ_OFFSET_WIDTH-1:0] exu2id_ftq_offset,
   output logic [XLEN_BITS-1:0] exu2id_br_pc,
   output logic exu2id_br_is_rvc
 );
@@ -244,6 +246,7 @@ module exu
     .prf2exe_iss_entry_uop_fsrc2(prf2exe_iss_entry_uop_fsrc2),
     .prf2exe_iss_entry_uop_fsrc3(prf2exe_iss_entry_uop_fsrc3),
     .prf2exe_iss_entry_uop_ftq_idx(prf2exe_iss_entry_uop_ftq_idx),
+    .prf2exe_iss_entry_uop_ftq_offset(prf2exe_iss_entry_uop_ftq_offset),
     .prf2exe_iss_entry_uop_is_atomic(prf2exe_iss_entry_uop_is_atomic),
     .prf2exe_iss_entry_uop_dest_en(prf2exe_iss_entry_uop_dest_en),
     .prf2exe_iss_entry_uop_src1_en(prf2exe_iss_entry_uop_src1_en),
@@ -343,6 +346,7 @@ module exu
     .exu2id_redirect_rob_idx(exu2id_redirect_rob_idx),
     .exu2id_br_id(exu2id_br_id),
     .exu2id_ftq_idx(exu2id_ftq_idx),
+    .exu2id_ftq_offset(exu2id_ftq_offset),
     .exu2id_br_pc(exu2id_br_pc),
     .exu2id_br_is_rvc(exu2id_br_is_rvc),
     .fu_alu_result(fu_alu_result),
