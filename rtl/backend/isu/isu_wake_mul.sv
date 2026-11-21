@@ -16,23 +16,25 @@ module isu_wake_mul
   input  logic [NREQ-1:0]          req_valid,
   input  logic [PRF_IDX_WIDTH-1:0] req_preg [NREQ],
   input  logic [BR_MASK_WIDTH-1:0] req_br_mask [NREQ],
+  input  logic [NREQ-1:0]          req_lane,       // 0 = first MUL port (lane 0), 1 = second MUL port (lane 2)
   input  logic                     flush_all,
   input  logic                     flush_br,
   input  logic [BR_MASK_WIDTH-1:0] flush_br_mask,
   input  logic [BR_MASK_WIDTH-1:0] clear_mask,
   output logic [SLOTS-1:0]         wake_valid,
-  output logic [PRF_IDX_WIDTH-1:0] wake_preg [SLOTS]
+  output logic [PRF_IDX_WIDTH-1:0] wake_preg [SLOTS],
+  output logic [SLOTS-1:0]         wake_lane
 );
 
-  localparam int DW = PRF_IDX_WIDTH + BR_MASK_WIDTH;
+  localparam int DW = 1 + PRF_IDX_WIDTH + BR_MASK_WIDTH;
 
   logic [SLOTS-1:0] alloc_slot [NREQ];
   logic [DW-1:0]    req_bits [NREQ];
-  logic [DW-1:0]    stage_bits  [DEPTH][SLOTS];      // {preg, br_mask} per stage / slot (registered)
+  logic [DW-1:0]    stage_bits  [DEPTH][SLOTS];      // {lane, preg, br_mask} per stage / slot (registered)
   logic [SLOTS-1:0] stage_valid [DEPTH];
 
   for (genvar r = 0; r < NREQ; r++) begin : g_req
-    assign req_bits[r] = {req_preg[r], req_br_mask[r]};
+    assign req_bits[r] = {req_lane[r], req_preg[r], req_br_mask[r]};
   end
 
   // stage 0 starts empty each cycle, so the k-th request takes slot k
@@ -63,7 +65,7 @@ module isu_wake_mul
       always_comb begin
         killed  = flush_br && ((enter_bits[BR_MASK_WIDTH-1:0] & flush_br_mask) != '0);   // mask before the clear
         valid_d = enter_valid && !flush_all && !killed;
-        bits_d  = {enter_bits[DW-1 -: PRF_IDX_WIDTH], enter_bits[BR_MASK_WIDTH-1:0] & ~clear_mask};
+        bits_d  = {enter_bits[DW-1 -: (1 + PRF_IDX_WIDTH)], enter_bits[BR_MASK_WIDTH-1:0] & ~clear_mask};
       end
 
       always_ff @(posedge clk) begin
@@ -82,7 +84,8 @@ module isu_wake_mul
 
   for (genvar j = 0; j < SLOTS; j++) begin : g_out
     assign wake_valid[j] = stage_valid[DEPTH - 1][j];
-    assign wake_preg[j]  = stage_bits[DEPTH - 1][j][DW-1 -: PRF_IDX_WIDTH];
+    assign wake_lane[j]  = stage_bits[DEPTH - 1][j][DW-1];
+    assign wake_preg[j]  = stage_bits[DEPTH - 1][j][BR_MASK_WIDTH +: PRF_IDX_WIDTH];
   end
 
 endmodule

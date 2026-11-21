@@ -336,6 +336,8 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
   logic [ISSUE_WIDTH-1:0] iss2prf_iss_entry_uop_rob_flag;
   logic [6:0] iss2prf_iss_entry_uop_rob_idx [ISSUE_WIDTH];
   logic [ISSUE_WIDTH-1:0] iss2prf_iss_entry_uop_src1_en;
+  logic [ALU_NUM-1:0] iss2prf_iss_entry_uop_src1_byp [ISSUE_WIDTH];
+  logic [ALU_NUM-1:0] iss2prf_iss_entry_uop_src2_byp [ISSUE_WIDTH];
   logic [ISSUE_WIDTH-1:0] iss2prf_iss_entry_uop_src1_is_pc;
   logic [PRF_IDX_WIDTH-1:0] iss2prf_iss_entry_uop_src1_preg [ISSUE_WIDTH];
   logic [ISSUE_WIDTH-1:0] iss2prf_iss_entry_uop_src2_en;
@@ -425,11 +427,6 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
   logic [6:0] exe2lsu_sta_req_uop_rob_idx [LSU_STA_COUNT];
   logic [5:0] exe2lsu_sta_req_uop_stq_idx [LSU_STA_COUNT];
   logic [LSU_STA_COUNT-1:0] exe2lsu_sta_req_valid;
-  logic [TOTAL_FU_COUNT-1:0] exe2prf_bypass_uop_dest_en;
-  logic [PRF_IDX_WIDTH-1:0] exe2prf_bypass_uop_dest_preg [TOTAL_FU_COUNT];
-  logic [XLEN_BITS-1:0] exe2prf_bypass_uop_result [TOTAL_FU_COUNT];
-  logic [FW-1:0] exe2prf_bypass_uop_fresult [TOTAL_FU_COUNT];
-  logic [TOTAL_FU_COUNT-1:0] exe2prf_bypass_valid;
   logic [BR_MASK_WIDTH-1:0] exe2prf_entry_uop_br_mask [WB_LANES];
   logic [WB_LANES-1:0] exe2prf_entry_uop_dest_en;
   logic [PRF_IDX_WIDTH-1:0] exe2prf_entry_uop_dest_preg [WB_LANES];
@@ -1019,6 +1016,8 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .iss2prf_iss_entry_uop_is_atomic(iss2prf_iss_entry_uop_is_atomic),
     .iss2prf_iss_entry_uop_dest_en(iss2prf_iss_entry_uop_dest_en),
     .iss2prf_iss_entry_uop_src1_en(iss2prf_iss_entry_uop_src1_en),
+    .iss2prf_iss_entry_uop_src1_byp(iss2prf_iss_entry_uop_src1_byp),
+    .iss2prf_iss_entry_uop_src2_byp(iss2prf_iss_entry_uop_src2_byp),
     .iss2prf_iss_entry_uop_src2_en(iss2prf_iss_entry_uop_src2_en),
     .iss2prf_iss_entry_uop_src1_is_pc(iss2prf_iss_entry_uop_src1_is_pc),
     .iss2prf_iss_entry_uop_src2_is_imm(iss2prf_iss_entry_uop_src2_is_imm),
@@ -1049,11 +1048,6 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .lsu_byp_result(lsu2exe_wb_req_uop_result),
     .lsu_byp_is_w(lsu2exe_wb_req_uop_is_w),
     // inputs from exu
-    .exe2prf_bypass_uop_dest_en(exe2prf_bypass_uop_dest_en),
-    .exe2prf_bypass_uop_dest_preg(exe2prf_bypass_uop_dest_preg),
-    .exe2prf_bypass_uop_result(exe2prf_bypass_uop_result),
-    .exe2prf_bypass_uop_fresult(exe2prf_bypass_uop_fresult),
-    .exe2prf_bypass_valid(exe2prf_bypass_valid),
     .exe2prf_entry_uop_br_mask(exe2prf_entry_uop_br_mask),
     .exe2prf_entry_uop_dest_en(exe2prf_entry_uop_dest_en),
     .exe2prf_entry_uop_dest_preg(exe2prf_entry_uop_dest_preg),
@@ -1082,6 +1076,8 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .iss2prf_iss_entry_uop_rob_flag(iss2prf_iss_entry_uop_rob_flag),
     .iss2prf_iss_entry_uop_rob_idx(iss2prf_iss_entry_uop_rob_idx),
     .iss2prf_iss_entry_uop_src1_en(iss2prf_iss_entry_uop_src1_en),
+    .iss2prf_iss_entry_uop_src1_byp(iss2prf_iss_entry_uop_src1_byp),
+    .iss2prf_iss_entry_uop_src2_byp(iss2prf_iss_entry_uop_src2_byp),
     .iss2prf_iss_entry_uop_src1_is_pc(iss2prf_iss_entry_uop_src1_is_pc),
     .iss2prf_iss_entry_uop_src1_preg(iss2prf_iss_entry_uop_src1_preg),
     .iss2prf_iss_entry_uop_src2_en(iss2prf_iss_entry_uop_src2_en),
@@ -1219,11 +1215,6 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .exe2prf_entry_uop_br_mask(exe2prf_entry_uop_br_mask),
     .exe2prf_entry_uop_dest_en(exe2prf_entry_uop_dest_en),
     .exe2prf_entry_uop_op(exe2prf_entry_uop_op),
-    .exe2prf_bypass_valid(exe2prf_bypass_valid),
-    .exe2prf_bypass_uop_dest_preg(exe2prf_bypass_uop_dest_preg),
-    .exe2prf_bypass_uop_result(exe2prf_bypass_uop_result),
-    .exe2prf_bypass_uop_fresult(exe2prf_bypass_uop_fresult),
-    .exe2prf_bypass_uop_dest_en(exe2prf_bypass_uop_dest_en),
     .exu2rob_entry_valid(exu2rob_entry_valid),
     .exu2rob_entry_uop_rob_idx(exu2rob_entry_uop_rob_idx),
     .exu2rob_entry_uop_op(exu2rob_entry_uop_op),

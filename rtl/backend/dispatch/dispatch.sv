@@ -227,19 +227,28 @@ module dispatch
       ldq_alloc_idx[k]   = lsu2dis_ldq_alloc_idx[k];
       ldq_alloc_valid[k] = lsu2dis_ldq_alloc_valid[k];
     end
-    for (int w = 0; w < LSU_LOAD_WB_WIDTH; w++) begin
-      wake_valid[w] = prf_awake_wake_valid[w];
-      wake_preg[w]  = prf_awake_wake_preg[w];
-    end
     for (int w = 0; w < MAX_WAKEUP_PORTS; w++) begin
-      wake_valid[LSU_LOAD_WB_WIDTH + w] = iss_awake_wake_valid[w];
-      wake_preg[LSU_LOAD_WB_WIDTH + w]  = iss_awake_wake_preg[w];
+      wake_valid[w] = iss_awake_wake_valid[w];
+      wake_preg[w]  = iss_awake_wake_preg[w];
     end
-    for (int w = 0; w < 2 * LSU_LDU_COUNT; w++) begin
-      wake_valid[LSU_LOAD_WB_WIDTH + MAX_WAKEUP_PORTS + w] = lsu2iss_wake_valid[w];
-      wake_preg[LSU_LOAD_WB_WIDTH + MAX_WAKEUP_PORTS + w]  = lsu2iss_wake_preg[w];
+    for (int w = 0; w < NUM_LSU_WAKE; w++) begin
+      wake_valid[MAX_WAKEUP_PORTS + w] = lsu2iss_wake_valid[HAS_SPEC_WAKE ? w : (LSU_LDU_COUNT + w)];
+      wake_preg[MAX_WAKEUP_PORTS + w]  = lsu2iss_wake_preg[HAS_SPEC_WAKE ? w : (LSU_LDU_COUNT + w)];
     end
   end
+
+  // prf_awake_* is already carried on iss_awake[0..LSU_LOAD_WB_WIDTH-1]; keep port for interface compatibility
+  /* verilator lint_off UNUSEDSIGNAL */
+  logic unused_dup_wake;
+  always_comb begin
+    unused_dup_wake = 1'b0;
+    for (int w = 0; w < LSU_LOAD_WB_WIDTH; w++)
+      unused_dup_wake ^= prf_awake_wake_valid[w] ^ (^prf_awake_wake_preg[w]);
+    if (!HAS_SPEC_WAKE)
+      for (int w = 0; w < LSU_LDU_COUNT; w++)
+        unused_dup_wake ^= lsu2iss_wake_valid[w] ^ (^lsu2iss_wake_preg[w]);
+  end
+  /* verilator lint_on UNUSEDSIGNAL */
 
   // cancel of a wrong speculative load wake-up (LP_L2): the registers are busy again before this cycle's lookups
   logic [TAG_NUM-1:0] cancel_v;

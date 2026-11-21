@@ -3,8 +3,8 @@ module: isu
 area: backend
 rtl: rtl/backend/isu
 model: trace-model back-end/Isu.cpp、back-end/include/Isu.h、back-end/include/IssueQueue.h（调度单元 `back.isu`，类 `Isu`，阶段 `comb_issue`）
-status: 整核周期与模型逐个相等（fm_gate 67/67，参考 scripts/ref_cycles_memiq6_nr_int2_ev5.txt）
-depth: 90 层（isu，单模块综合，2026-11-20，`SYNTH_ABC="strash;balance;map"`，生成门代理，见 09-synthesis-report 第 12 节）
+status: 整核周期与模型逐个相等（fm_gate 68/68，0 周期偏差）
+depth: 89 层（rtl/be-wake-byp-opt，916,275 单元，−3.4%，含 6 位唤醒驱动 EXU 旁路 Mask 与 23 级移位寄存器 `isu_fp_gate`；main 948,982 / 90 层）（isu，单模块综合，2026-11-21，`SYNTH_ABC="strash;balance;map"`，生成门代理，见第 6 节）
 ---
 
 # isu 设计文档
@@ -106,7 +106,11 @@ depth: 90 层（isu，单模块综合，2026-11-20，`SYNTH_ABC="strash;balance;
 
 ### 5.2 唤醒
 
-授予生成延迟唤醒请求（MUL 进管线、DIV / FP 进倒计时槽，下拍起可见）和快速唤醒（单周期 ALU 授予直接在本拍广播）；各通道合成 preg 位图 `woken`，每槽 `wait_d = wait_q & ~woken[src_preg]`。本拍授予的槽的寄存器状态不受本拍唤醒影响（模型先 issue 后 awake）。
+授予生成延迟唤醒请求（MUL 进管线、DIV / FP 进倒计时槽，下拍起可见）和快速唤醒（6 路单周期 ALU 授予直接在本拍广播，仅整数域）。为压缩 `select → grant → wakeup` 关键环路深度，唤醒网络按**数据域**与**快慢路径**拆分：
+
+1. **慢速唤醒**（全部来自寄存输出：PRF 写回 load 4 路、MUL 2 路、DIV 2 路、FP 倒计时 8 路、LSU L3 4 路）：在拍初即稳定，由 `isu_wake_bus` 分别生成整数域 `woken_slow_int[PRF_NUM]`（128 位）和浮点域 `woken_slow_fp[FPRF_NUM]`（96 位），与 `select → grant` 并行；
+2. **快速唤醒**（6 路 ALU 授予，`fast_valid[FAST_UNITS]` / `fast_preg[FAST_UNITS]` 低 7 位）：不经 224 位位图展开，直接广播至监听整数域的队列槽位，在槽内用 6 路 7 位并行比较（CAM）生成 `fast_hit`，与慢速唤醒结果单级相与更新 `wait_d`；
+3. **按队列裁剪源与域**：INT0/INT1/BR 仅整数域且无 `src3`；MEM 仅整数域且仅 `src1`（无 `src2`/`src3`）；STD 无 `src3`（`src1` 整数域、`src2` 双域）；FP 仅浮点域（3 源，完全不接 6 路快速唤醒）。本拍授予的槽的寄存器状态不受本拍唤醒影响（模型先 issue 后 awake）。
 
 ### 5.3 入队
 
@@ -179,6 +183,7 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 
 ## 10. 变更记录
 
+- 2026-11-21（`rtl/be-wake-byp-opt`，后端阶段一瘦身）：唤醒网络按数据域（Int 128b / FP 96b）与快慢路径拆分（慢速寄存唤醒经分域 `isu_wake_bus`，6 路 ALU 快速唤醒直连整数域槽位 7-bit CAM）；各队列按实际源操作数裁剪死 `wait` 位（非 FP 队列去 `wait3`，MEM 队列去 `wait2`）；零周期变化。
 - 2026-11-19（`exp/wb-presel`，EXP-046）：完成周期的检查移到选择之前（合入时删掉了探索用的开关 `WB_PRESEL`，模型的 `CFG_WB_PRESEL` 同时删掉）；`isu_wb_gate` 的忙表从 21 × 64 位环 + 拍号改成每口按需长度的移位寄存器，偏移最长的类编译期恒空；`tests/wb_gate` 改为按完成类驱动并检查 `cls_free`。
 
 - 2026-11-17/18（exp/agu-share）：两个 INT 队列、合并内存队列与年龄选择、共享 AGU、并行分配、完成类闸、FP 闸去链、不等本拍发射的槽分配（见第 6 节表）；全局 flush 晚一拍到达（docs/FLUSH_REG.md）。

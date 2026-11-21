@@ -3,8 +3,8 @@ module: dispatch
 area: backend
 rtl: rtl/backend/dispatch
 model: trace-model back-end/Dispatch.cpp、back-end/include/Dispatch.h（调度单元 `back.dis`，类 `Dispatch`，阶段 `comb_alloc`、`comb_dispatch`）
-status: 整核周期与模型逐个相等（fm_gate 67/67，参考 scripts/ref_cycles_memiq6_nr_int2_ev5.txt）
-depth: 56 层（dispatch，单模块综合，2026-11-18，`SYNTH_ABC="strash;balance;map"`，生成门代理，见第 6 节）
+status: 整核周期与模型逐个相等（fm_gate 68/68，0 周期偏差）
+depth: 56 层（rtl/be-wake-byp-opt，176,071 单元，−5.6%；main 186,536 单元 / 56 层）（dispatch，单模块综合，2026-11-21，`SYNTH_ABC="strash;balance;map"`，生成门代理，见第 6 节）
 ---
 
 # dispatch 设计文档
@@ -32,7 +32,7 @@ depth: 56 层（dispatch，单模块综合，2026-11-18，`SYNTH_ABC="strash;bal
 | STQ / LDQ 分配口 | 各 8 | `MAX_STQ_DISPATCH_WIDTH`、`MAX_LDQ_DISPATCH_WIDTH` |
 | STQ / LDQ 项数 | 各 64 | `STQ_SIZE`、`LDQ_SIZE` |
 | 忙表 | 224 位（每个物理寄存器标号一位；整数 0..127，FP 从 128 起） | `TAG_NUM`、`FP_TAG_BASE = 128` |
-| 唤醒通道数 | 34 = 4（PRF 的 load 写回唤醒）+ 22（发射单元的唤醒）+ 8（LSU 的 load 唤醒） | `dis_pkg::NUM_WAKE = LSU_LOAD_WB_WIDTH + MAX_WAKEUP_PORTS + 2 * LSU_LDU_COUNT` |
+| 唤醒通道数 | 26（`LP_L2[3]=0` 时）= 22（`iss_awake`，已含 4 路 `prf_awake`）+ 4（LSU L3 唤醒）；`LP_L2[3]=1` 时为 30（+4 路 L2 推测唤醒） | `dis_pkg::NUM_WAKE = MAX_WAKEUP_PORTS + (((lp_pkg::LP_L2 & 8) != 0) ? (2 * LSU_LDU_COUNT) : LSU_LDU_COUNT)` |
 | 完成组 | G0 = INT / LD / FP，G1 = BR / STA，G2 = STD | `dis_pkg::CPLT_G0/1/2` |
 
 uop 种类到队列的映射（`dispatch_core.sv` 里的 `has_iq`；模型 `route_iq`，`include/util.h`）：

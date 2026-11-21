@@ -1,17 +1,17 @@
 // Ref: back-end/Prf.cpp  class Prf  reg_file[] / seq
 `default_nettype none
 
-// Physical register storage: NREG x 32, asynchronous read ports, per-register write enable from prf_write_arb.
+// Physical register storage: NREG x XLEN_BITS, NRD asynchronous read ports, per-register write enable from prf_write_arb.
 module prf_regfile import ttg_cfg_pkg::*; #(
-  parameter int NREG  = PRF_NUM,
-  parameter int LANES = ISSUE_WIDTH
+  parameter int NREG = PRF_NUM,
+  parameter int NRD  = 2 * ISSUE_WIDTH
 ) (
   input  logic                     clk,
   input  logic                     rst_n,
   input  logic [NREG-1:0]          reg_wr_en,
-  input  logic [XLEN_BITS-1:0]              reg_wr_data [NREG],
-  input  logic [PRF_IDX_WIDTH-1:0] rd_addr [2][LANES],
-  output logic [XLEN_BITS-1:0]              rd_data [2][LANES]
+  input  logic [XLEN_BITS-1:0]     reg_wr_data [NREG],
+  input  logic [PRF_IDX_WIDTH-1:0] rd_addr [NRD],
+  output logic [XLEN_BITS-1:0]     rd_data [NRD]
 );
 
   localparam int IW = $clog2(NREG);   // integer registers only: an FP tag (>= FP_TAG_BASE) selects none here
@@ -19,10 +19,8 @@ module prf_regfile import ttg_cfg_pkg::*; #(
 
   // Ref: Prf::comb_read (register file part)
   always_comb begin
-    for (int s = 0; s < 2; s++) begin
-      for (int i = 0; i < LANES; i++) begin
-        rd_data[s][i] = reg_file_q[rd_addr[s][i][IW-1:0]];
-      end
+    for (int r = 0; r < NRD; r++) begin
+      rd_data[r] = reg_file_q[rd_addr[r][IW-1:0]];
     end
   end
 

@@ -22,7 +22,10 @@ module isu_wake_src
   input  logic [BR_MASK_WIDTH-1:0] flush_br_mask,
   input  logic [BR_MASK_WIDTH-1:0] clear_mask,
   output logic [WAKE_NUM-1:0]      wake_valid,
-  output logic [PRF_IDX_WIDTH-1:0] wake_preg [WAKE_NUM]
+  output logic [PRF_IDX_WIDTH-1:0] wake_preg [WAKE_NUM],
+  // Per-ALU-lane registered EXU bypass wake-up (MUL on lanes 0,2; DIV on lanes 1,3) for wakeup-driven bypass masks
+  output logic [ALU_NUM-1:0]       slow_exu_valid,
+  output logic [$clog2(PRF_NUM)-1:0] slow_exu_preg [ALU_NUM]
 );
 
   // ---- load channels: straight from the PRF ----
@@ -93,11 +96,14 @@ module isu_wake_src
 
     logic [FP_SLOTS-1:0]      fp_slot_valid;
     logic [PRF_IDX_WIDTH-1:0] fp_slot_preg [FP_SLOTS];
+    /* verilator lint_off UNUSEDSIGNAL */   // waiver: FP slots do not use the 1-bit source-port tag
+    logic [FP_SLOTS-1:0]      fp_slot_lane;
+    /* verilator lint_on UNUSEDSIGNAL */
     isu_wake_iter #(.SLOTS(FP_SLOTS), .NREQ(FP_REQ_UNITS), .CW(FP_COUNT_W)) u_fp (
       .clk(clk), .rst_n(rst_n), .req_valid(fp_req_valid), .req_preg(fp_req_preg), .req_br_mask(fp_req_mask),
-      .req_countdown(fp_req_count),
+      .req_countdown(fp_req_count), .req_lane('0),
       .flush_all(flush_all), .flush_br(flush_br), .flush_br_mask(flush_br_mask), .clear_mask(clear_mask),
-      .wake_valid(fp_slot_valid), .wake_preg(fp_slot_preg));
+      .wake_valid(fp_slot_valid), .wake_preg(fp_slot_preg), .wake_lane(fp_slot_lane));
 
     logic [FPW_CH-1:0]        fpw_valid;
     logic [PRF_IDX_WIDTH-1:0] fpw_preg [FPW_CH];
@@ -110,21 +116,29 @@ module isu_wake_src
   end
 
   // ---- delayed structures ----
-  logic [MUL_UNITS-1:0]     mul_wake_valid;
-  logic [DIV_UNITS-1:0]     div_wake_valid;
+  localparam int INT_W = $clog2(PRF_NUM);
+  logic [MUL_UNITS-1:0]     mul_wake_valid, mul_wake_lane, mul_req_lane;
+  logic [DIV_UNITS-1:0]     div_wake_valid, div_wake_lane, div_req_lane;
   logic [PRF_IDX_WIDTH-1:0] mul_wake_preg [MUL_UNITS];
   logic [PRF_IDX_WIDTH-1:0] div_wake_preg [DIV_UNITS];
+  for (genvar r = 0; r < MUL_UNITS; r++) begin : g_mlane
+    assign mul_req_lane[r] = 1'(r);
+  end
+  for (genvar r = 0; r < DIV_UNITS; r++) begin : g_dlane
+    assign div_req_lane[r] = 1'(r);
+  end
 
   isu_wake_mul #(.SLOTS(MUL_UNITS), .NREQ(MUL_UNITS)) u_mul (
     .clk(clk), .rst_n(rst_n), .req_valid(mul_req_valid), .req_preg(mul_req_preg), .req_br_mask(mul_req_mask),
+    .req_lane(mul_req_lane),
     .flush_all(flush_all), .flush_br(flush_br), .flush_br_mask(flush_br_mask), .clear_mask(clear_mask),
-    .wake_valid(mul_wake_valid), .wake_preg(mul_wake_preg));
+    .wake_valid(mul_wake_valid), .wake_preg(mul_wake_preg), .wake_lane(mul_wake_lane));
 
   isu_wake_iter #(.SLOTS(DIV_UNITS), .NREQ(DIV_UNITS)) u_div (
     .clk(clk), .rst_n(rst_n), .req_valid(div_req_valid), .req_preg(div_req_preg), .req_br_mask(div_req_mask),
-    .req_countdown(div_req_count),
+    .req_countdown(div_req_count), .req_lane(div_req_lane),
     .flush_all(flush_all), .flush_br(flush_br), .flush_br_mask(flush_br_mask), .clear_mask(clear_mask),
-    .wake_valid(div_wake_valid), .wake_preg(div_wake_preg));
+    .wake_valid(div_wake_valid), .wake_preg(div_wake_preg), .wake_lane(div_wake_lane));
 
   for (genvar k = 0; k < MUL_UNITS; k++) begin : g_mul_out
     assign wake_valid[MUL_WAKE_BASE + k] = mul_wake_valid[k];
@@ -133,6 +147,30 @@ module isu_wake_src
   for (genvar k = 0; k < DIV_UNITS; k++) begin : g_div_out
     assign wake_valid[DIV_WAKE_BASE + k] = div_wake_valid[k];
     assign wake_preg[DIV_WAKE_BASE + k]  = div_wake_preg[k];
+  end
+
+  // Map MUL (ports 0, 2) and DIV (ports 1, 3) delayed wake-ups onto their ALU write-back lanes (0..5)
+  always_comb begin
+    slow_exu_valid = '0;
+    for (int l = 0; l < ALU_NUM; l++) slow_exu_preg[l] = '0;
+    for (int k = 0; k < MUL_UNITS; k++) if (mul_wake_valid[k]) begin
+      if (!mul_wake_lane[k]) begin
+        slow_exu_valid[0] = 1'b1;
+        slow_exu_preg[0]  = mul_wake_preg[k][INT_W-1:0];
+      end else begin
+        slow_exu_valid[2] = 1'b1;
+        slow_exu_preg[2]  = mul_wake_preg[k][INT_W-1:0];
+      end
+    end
+    for (int k = 0; k < DIV_UNITS; k++) if (div_wake_valid[k]) begin
+      if (!div_wake_lane[k]) begin
+        slow_exu_valid[1] = 1'b1;
+        slow_exu_preg[1]  = div_wake_preg[k][INT_W-1:0];
+      end else begin
+        slow_exu_valid[3] = 1'b1;
+        slow_exu_preg[3]  = div_wake_preg[k][INT_W-1:0];
+      end
+    end
   end
 
 endmodule

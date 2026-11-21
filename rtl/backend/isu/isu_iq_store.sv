@@ -1,15 +1,23 @@
 // Ref: back-end/include/IssueQueue.h  IssueQueue (entry, enqueue, comb_wakeup, flush_br, clear_br, commit_issue)
 `default_nettype none
 
-// Issue-queue storage: per slot a valid bit, the uop and two "still waiting for source" bits.
-// Next-state priority per slot: enqueue writes the slot; wake-up clears wait bits of old entries; issue frees the slot;
-// then flush kills (global, or by branch mask on the slot's mask before the clear); finally resolved-branch bits clear.
+// Issue-queue storage: per slot a valid bit, the uop, per-source "still waiting" bits, and per-source 6-bit
+// wakeup-driven one-hot EXU bypass masks (slot_byp1 / slot_byp2). When a waiting integer source is woken by one
+// of the 6 ALU/MUL/DIV execution lanes, the corresponding bit in byp*_q is set for the next cycle and auto-clears
+// the cycle after (once the result has moved to the WB stage), eliminating all EXU-stage tag comparators in PRF.
 module isu_iq_store
   import ttg_cfg_pkg::*;
   import isu_pkg::*;
 #(
-  parameter int SIZE = 64,
-  parameter int DW   = IQ_DISPATCH_WIDTH
+  parameter int SIZE     = 64,
+  parameter int DW       = IQ_DISPATCH_WIDTH,
+  parameter bit HAS_SRC2 = 1'b1,
+  parameter bit HAS_SRC3 = 1'b0,
+  // 0 = integer domain only, 1 = FP domain only, 2 = both domains (STD src2)
+  parameter int SRC1_DOM = 0,
+  parameter int SRC2_DOM = 0,
+  parameter int FP_TAGS  = FP_EN ? FPRF_NUM : 1,
+  parameter int INT_W    = $clog2(PRF_NUM)
 ) (
   input  logic                     clk,
   input  logic                     rst_n,
@@ -17,10 +25,20 @@ module isu_iq_store
   input  logic [SIZE-1:0]          enq_slot [DW],
   input  isu_uop_t                 enq_uop  [DW],
   input  logic [DW-1:0]            enq_wait1,
+  /* verilator lint_off UNUSEDSIGNAL */   // waiver: unused when HAS_SRC2/3 == 0 or domain does not read the other bitmap
   input  logic [DW-1:0]            enq_wait2,
   input  logic [DW-1:0]            enq_wait3,
-  input  logic [TAG_NUM-1:0]       woken,
-  input  logic [TAG_NUM-1:0]       cancel_v,       // the wake-up of the previous cycle was wrong: entries wait again
+  input  logic [ALU_NUM-1:0]       enq_byp1 [DW],
+  input  logic [ALU_NUM-1:0]       enq_byp2 [DW],
+  input  logic [PRF_NUM-1:0]       woken_slow_int,
+  input  logic [FP_TAGS-1:0]       woken_slow_fp,
+  input  logic [3:0]               slow_exu_valid,
+  input  logic [INT_W-1:0]         slow_exu_preg [4],
+  input  logic [FAST_UNITS-1:0]    fast_valid,
+  input  logic [INT_W-1:0]         fast_preg [FAST_UNITS],
+  input  logic [PRF_NUM-1:0]       cancel_int,     // wrong speculative load wake-up (LP_L2[3]): wait again
+  input  logic [FP_TAGS-1:0]       cancel_fp,
+  /* verilator lint_on UNUSEDSIGNAL */
   input  logic [SIZE-1:0]          issue_clear,    // slots granted this cycle
   input  logic                     flush_all,
   input  logic                     flush_br,       // misprediction without a global flush
@@ -29,11 +47,25 @@ module isu_iq_store
   // registered view (what select and the PRF read this cycle)
   output logic [SIZE-1:0]          slot_valid,
   output logic [SIZE-1:0]          slot_ready,
-  output isu_uop_t                 slot_uop [SIZE],
-  output op_set_t                  slot_op  [SIZE]
+  output isu_uop_t                 slot_uop  [SIZE],
+  output op_set_t                  slot_op   [SIZE],
+  output logic [ALU_NUM-1:0]       slot_byp1 [SIZE],
+  output logic [ALU_NUM-1:0]       slot_byp2 [SIZE]
 );
 
-  localparam int UW = $bits(isu_uop_t);
+  localparam int UW   = $bits(isu_uop_t);
+  localparam int FP_W = (FP_TAGS > 1) ? $clog2(FP_TAGS) : 1;
+
+  function automatic logic lookup_int_map(input logic [PRF_NUM-1:0] m, input logic [PRF_IDX_WIDTH-1:0] preg);
+    return (preg < PRF_IDX_WIDTH'(PRF_NUM)) ? m[preg[INT_W-1:0]] : 1'b0;
+  endfunction
+
+  function automatic logic lookup_fp_map(input logic [FP_TAGS-1:0] m, input logic [PRF_IDX_WIDTH-1:0] preg);
+    logic [PRF_IDX_WIDTH-1:0] idx;
+    idx = preg - PRF_IDX_WIDTH'(FP_TAG_BASE);
+    if (!FP_EN) return 1'b0;
+    return (preg >= PRF_IDX_WIDTH'(FP_TAG_BASE)) && (idx < PRF_IDX_WIDTH'(FP_TAGS)) ? m[idx[FP_W-1:0]] : 1'b0;
+  endfunction
 
   logic [UW-1:0] enq_bits [DW];
   for (genvar w = 0; w < DW; w++) begin : g_pack
@@ -46,8 +78,8 @@ module isu_iq_store
     logic [UW-1:0] new_bits;
     logic          valid_q, valid_d;
     isu_uop_t      uop_q, uop_d;
-    logic          wait1_q, wait1_d, wait2_q, wait2_d, wait3_q, wait3_d;
-    logic          wait1_c, wait2_c, wait3_c;     // wait bits with this cycle's cancel (applied before the select)
+    logic          wait1_q, wait1_d, wait1_c;
+    logic          wait2_c, wait3_c;
     logic          killed_by_branch;
 
     for (genvar w = 0; w < DW; w++) begin : g_hit
@@ -56,19 +88,129 @@ module isu_iq_store
     assign write = |hit;
     ttg_onehot_mux #(.N(DW), .W(UW)) u_new (.sel(hit), .data(enq_bits), .out(new_bits));
 
-    assign wait1_c = wait1_q || (uop_q.src1_en && cancel_v[uop_q.src1_preg]);
-    assign wait2_c = wait2_q || (uop_q.src2_en && cancel_v[uop_q.src2_preg]);
-    assign wait3_c = wait3_q || (uop_q.src3_en && cancel_v[uop_q.src3_preg]);
+    // ---- src1 wait, wake, and EXU bypass mask ----
+    logic s1_cancel, s1_slow, s1_fast, s1_after_slow;
+    if (SRC1_DOM == 1) begin : g_s1_fp
+      assign s1_cancel    = lookup_fp_map(cancel_fp, uop_q.src1_preg);
+      assign s1_slow      = lookup_fp_map(woken_slow_fp, uop_q.src1_preg);
+      assign s1_fast      = 1'b0;
+      assign slot_byp1[i] = '0;
+    end else begin : g_s1_int
+      logic [ALU_NUM-1:0] s1_fast_match, s1_slow_exu_match, enq_byp1_sel, byp1_q, byp1_d;
+      assign s1_cancel = lookup_int_map(cancel_int, uop_q.src1_preg);
+      assign s1_slow   = lookup_int_map(woken_slow_int, uop_q.src1_preg);
+      always_comb begin
+        s1_slow_exu_match = '0;
+        for (int k = 0; k < ALU_NUM; k++)
+          s1_fast_match[k] = fast_valid[k] && (fast_preg[k] == uop_q.src1_preg[INT_W-1:0]);
+        for (int k = 0; k < 4; k++)
+          s1_slow_exu_match[k] = slow_exu_valid[k] && (slow_exu_preg[k] == uop_q.src1_preg[INT_W-1:0]);
+      end
+      assign s1_fast = |s1_fast_match;
+      ttg_onehot_mux #(.N(DW), .W(ALU_NUM)) u_eb1 (.sel(hit), .data(enq_byp1), .out(enq_byp1_sel));
+      assign byp1_d = write ? enq_byp1_sel
+                            : ((wait1_c && uop_q.src1_en && (uop_q.src1_preg != '0))
+                               ? (s1_slow_exu_match | s1_fast_match) : '0);
+      always_ff @(posedge clk) begin
+        if (!rst_n) byp1_q <= '0;
+        else        byp1_q <= byp1_d;
+      end
+      assign slot_byp1[i] = byp1_q;
+    end
+    assign wait1_c       = wait1_q || (uop_q.src1_en && s1_cancel);
+    assign s1_after_slow = wait1_c & ~s1_slow;
+    assign wait1_d       = write ? |(hit & enq_wait1) : (s1_after_slow & ~s1_fast);
+
+    // ---- src2 wait, wake, and EXU bypass mask (compiled out for IQ_MEM) ----
+    if (HAS_SRC2) begin : g_s2
+      logic wait2_q, wait2_d;
+      logic s2_cancel, s2_slow, s2_fast, s2_after_slow;
+      if (SRC2_DOM == 1) begin : g_s2_fp
+        assign s2_cancel    = lookup_fp_map(cancel_fp, uop_q.src2_preg);
+        assign s2_slow      = lookup_fp_map(woken_slow_fp, uop_q.src2_preg);
+        assign s2_fast      = 1'b0;
+        assign slot_byp2[i] = '0;
+      end else if (SRC2_DOM == 2) begin : g_s2_both
+        logic s2_is_int;
+        logic [ALU_NUM-1:0] s2_fast_match, s2_slow_exu_match, enq_byp2_sel, byp2_q, byp2_d;
+        assign s2_is_int = uop_q.src2_preg < PRF_IDX_WIDTH'(PRF_NUM);
+        assign s2_cancel = s2_is_int ? lookup_int_map(cancel_int, uop_q.src2_preg)
+                                     : lookup_fp_map(cancel_fp, uop_q.src2_preg);
+        assign s2_slow   = s2_is_int ? lookup_int_map(woken_slow_int, uop_q.src2_preg)
+                                     : lookup_fp_map(woken_slow_fp, uop_q.src2_preg);
+        always_comb begin
+          s2_slow_exu_match = '0;
+          for (int k = 0; k < ALU_NUM; k++)
+            s2_fast_match[k] = s2_is_int && fast_valid[k] && (fast_preg[k] == uop_q.src2_preg[INT_W-1:0]);
+          for (int k = 0; k < 4; k++)
+            s2_slow_exu_match[k] = s2_is_int && slow_exu_valid[k] && (slow_exu_preg[k] == uop_q.src2_preg[INT_W-1:0]);
+        end
+        assign s2_fast = |s2_fast_match;
+        ttg_onehot_mux #(.N(DW), .W(ALU_NUM)) u_eb2 (.sel(hit), .data(enq_byp2), .out(enq_byp2_sel));
+        assign byp2_d = write ? enq_byp2_sel
+                              : ((wait2_c && uop_q.src2_en && (uop_q.src2_preg != '0))
+                                 ? (s2_slow_exu_match | s2_fast_match) : '0);
+        always_ff @(posedge clk) begin
+          if (!rst_n) byp2_q <= '0;
+          else        byp2_q <= byp2_d;
+        end
+        assign slot_byp2[i] = byp2_q;
+      end else begin : g_s2_int
+        logic [ALU_NUM-1:0] s2_fast_match, s2_slow_exu_match, enq_byp2_sel, byp2_q, byp2_d;
+        assign s2_cancel = lookup_int_map(cancel_int, uop_q.src2_preg);
+        assign s2_slow   = lookup_int_map(woken_slow_int, uop_q.src2_preg);
+        always_comb begin
+          s2_slow_exu_match = '0;
+          for (int k = 0; k < ALU_NUM; k++)
+            s2_fast_match[k] = fast_valid[k] && (fast_preg[k] == uop_q.src2_preg[INT_W-1:0]);
+          for (int k = 0; k < 4; k++)
+            s2_slow_exu_match[k] = slow_exu_valid[k] && (slow_exu_preg[k] == uop_q.src2_preg[INT_W-1:0]);
+        end
+        assign s2_fast = |s2_fast_match;
+        ttg_onehot_mux #(.N(DW), .W(ALU_NUM)) u_eb2 (.sel(hit), .data(enq_byp2), .out(enq_byp2_sel));
+        assign byp2_d = write ? enq_byp2_sel
+                              : ((wait2_c && uop_q.src2_en && (uop_q.src2_preg != '0))
+                                 ? (s2_slow_exu_match | s2_fast_match) : '0);
+        always_ff @(posedge clk) begin
+          if (!rst_n) byp2_q <= '0;
+          else        byp2_q <= byp2_d;
+        end
+        assign slot_byp2[i] = byp2_q;
+      end
+      assign wait2_c       = wait2_q || (uop_q.src2_en && s2_cancel);
+      assign s2_after_slow = wait2_c & ~s2_slow;
+      assign wait2_d       = write ? |(hit & enq_wait2) : (s2_after_slow & ~s2_fast);
+      always_ff @(posedge clk) begin
+        if (!rst_n) wait2_q <= 1'b0;
+        else        wait2_q <= wait2_d;
+      end
+    end else begin : g_no_s2
+      assign wait2_c      = 1'b0;
+      assign slot_byp2[i] = '0;
+    end
+
+    // ---- src3 wait & wake (FP queue only, FP domain only, no fast wake-up) ----
+    if (HAS_SRC3) begin : g_s3
+      logic wait3_q, wait3_d;
+      logic s3_cancel, s3_slow;
+      assign s3_cancel = lookup_fp_map(cancel_fp, uop_q.src3_preg);
+      assign s3_slow   = lookup_fp_map(woken_slow_fp, uop_q.src3_preg);
+      assign wait3_c   = wait3_q || (uop_q.src3_en && s3_cancel);
+      assign wait3_d   = write ? |(hit & enq_wait3) : (wait3_c & ~s3_slow);
+      always_ff @(posedge clk) begin
+        if (!rst_n) wait3_q <= 1'b0;
+        else        wait3_q <= wait3_d;
+      end
+    end else begin : g_no_s3
+      assign wait3_c = 1'b0;
+    end
 
     // Ref: IssueQueue::enqueue / comb_wakeup / commit_issue / flush_br / clear_br / flush_all
     always_comb begin
-      uop_d   = write ? isu_uop_t'(new_bits) : uop_q;
-      wait1_d = write ? |(hit & enq_wait1) : (wait1_c & ~woken[uop_q.src1_preg]);
-      wait2_d = write ? |(hit & enq_wait2) : (wait2_c & ~woken[uop_q.src2_preg]);
-      wait3_d = write ? |(hit & enq_wait3) : (wait3_c & ~woken[uop_q.src3_preg]);
+      uop_d            = write ? isu_uop_t'(new_bits) : uop_q;
       killed_by_branch = flush_br && ((uop_d.br_mask & flush_br_mask) != '0);   // mask before the clear below
-      valid_d = ((valid_q && !issue_clear[i]) || write) && !flush_all && !killed_by_branch;
-      uop_d.br_mask = uop_d.br_mask & ~clear_mask;
+      valid_d          = ((valid_q && !issue_clear[i]) || write) && !flush_all && !killed_by_branch;
+      uop_d.br_mask    = uop_d.br_mask & ~clear_mask;
     end
 
     always_ff @(posedge clk) begin
@@ -76,14 +218,10 @@ module isu_iq_store
         valid_q <= 1'b0;
         uop_q   <= '0;
         wait1_q <= 1'b0;
-        wait2_q <= 1'b0;
-        wait3_q <= 1'b0;
       end else begin
         valid_q <= valid_d;
         uop_q   <= uop_d;
         wait1_q <= wait1_d;
-        wait2_q <= wait2_d;
-        wait3_q <= wait3_d;
       end
     end
 

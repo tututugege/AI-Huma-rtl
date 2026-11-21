@@ -34,7 +34,11 @@ package dis_pkg;
   localparam int STQ_FREE_W = $clog2(STQ_SIZE + 1);         // bit_width_for_count(STQ_SIZE + 1)
   localparam int LDQ_FREE_W = $clog2(LDQ_SIZE + 1);
   localparam int STQ_POS_W = STQ_IDX_WIDTH + 1;             // STQ ring position incl. wrap carry
-  localparam int NUM_WAKE = LSU_LOAD_WB_WIDTH + MAX_WAKEUP_PORTS + 2 * LSU_LDU_COUNT;  // prf + iss + LSU wakes
+  // iss_awake already includes the LSU_LOAD_WB_WIDTH prf_awake channels at [0..LSU_LOAD_WB_WIDTH-1];
+  // speculative L2 load wake-ups [0..LSU_LDU_COUNT-1] only exist when LP_L2[3] is enabled.
+  localparam bit HAS_SPEC_WAKE = ((lp_pkg::LP_L2 & 8) != 0);
+  localparam int NUM_LSU_WAKE  = HAS_SPEC_WAKE ? (2 * LSU_LDU_COUNT) : LSU_LDU_COUNT;
+  localparam int NUM_WAKE      = MAX_WAKEUP_PORTS + NUM_LSU_WAKE;
   localparam int INST_TYPE_W = 5;                           // bit_width_for_count(20 InstType values)
   localparam int UOP_TYPE_W = 5;                            // bit_width_for_count(18 UopType values)
   localparam int CPLT_MASK_W = 3;                           // ROB_CPLT_MASK_WIDTH

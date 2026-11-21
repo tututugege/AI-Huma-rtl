@@ -88,6 +88,8 @@ module isu
   output logic [LDQ_IDX_WIDTH-1:0] iss2prf_iss_entry_uop_ldq_idx [ISSUE_WIDTH],
   output logic [ISSUE_WIDTH-1:0] iss2prf_iss_entry_uop_rob_flag,
   output logic [OP_W-1:0] iss2prf_iss_entry_uop_op [ISSUE_WIDTH],
+  output logic [ALU_NUM-1:0] iss2prf_iss_entry_uop_src1_byp [ISSUE_WIDTH],
+  output logic [ALU_NUM-1:0] iss2prf_iss_entry_uop_src2_byp [ISSUE_WIDTH],
   output logic [WAKE_NUM-1:0] iss_awake_wake_valid,
   output logic [PRF_IDX_WIDTH-1:0] iss_awake_wake_preg [WAKE_NUM]
 );
@@ -105,9 +107,12 @@ module isu
   logic                     issue_block;
   logic [ISSUE_WIDTH-1:0]   grant_valid;
   isu_uop_t [ISSUE_WIDTH-1:0] grant_uop;
+  logic [ALU_NUM-1:0]       grant_src1_byp [ISSUE_WIDTH];
+  logic [ALU_NUM-1:0]       grant_src2_byp [ISSUE_WIDTH];
   logic [WAKE_NUM-1:0]      wake_valid;
   logic [PRF_IDX_WIDTH-1:0] wake_preg [WAKE_NUM];
-  logic [TAG_NUM-1:0]       woken;
+  logic [ALU_NUM-1:0]       slow_exu_valid;
+  logic [$clog2(PRF_NUM)-1:0] slow_exu_preg [ALU_NUM];
 
   logic [LSU_LOAD_WB_WIDTH-1:0] prf_wake_valid;
   for (genvar k = 0; k < LSU_LOAD_WB_WIDTH; k++) begin : g_prf_wake
@@ -123,26 +128,114 @@ module isu
     .grant_valid(grant_valid), .grant_uop(grant_uop),
     .flush_all(rob_bcast_flush), .flush_br(flush_br),
     .flush_br_mask(dec_bcast_br_mask), .clear_mask(dec_bcast_clear_mask),
-    .wake_valid(wake_valid), .wake_preg(wake_preg));
+    .wake_valid(wake_valid), .wake_preg(wake_preg),
+    .slow_exu_valid(slow_exu_valid), .slow_exu_preg(slow_exu_preg));
 
-  logic [TAG_NUM-1:0] woken_main, woken_lsu, cancel_v;
-  isu_wake_bus u_wake_bus (.wake_valid(wake_valid), .wake_preg(wake_preg), .woken(woken_main));
-  // LP_L2[3] (speculative load wake-up): the [p] wake-ups and the cancel exist only then. Without it the cancel is
-  // compiled out; in a per-module synthesis the cancel inputs are free and its 128:1 selects per IQ entry would
-  // otherwise add ~17 levels in front of slot_ready.
-  if ((lp_pkg::LP_L2 & 8) != 0) begin : g_spec_wake
-    isu_wake_bus #(.N(2 * LSU_LDU_COUNT)) u_wake_lsu (.wake_valid(lsu2iss_wake_valid), .wake_preg(lsu2iss_wake_preg),
-                                                        .woken(woken_lsu));
-    isu_wake_bus #(.N(LSU_LDU_COUNT)) u_cancel (.wake_valid(lsu2iss_cancel_valid), .wake_preg(lsu2iss_cancel_preg),
-                                                .woken(cancel_v));
-  end else begin : g_nospec_wake
-    logic [PRF_IDX_WIDTH-1:0] l3_preg [LSU_LDU_COUNT];
-    for (genvar p = 0; p < LSU_LDU_COUNT; p++) begin : g_l3
-      assign l3_preg[p] = lsu2iss_wake_preg[LSU_LDU_COUNT + p];
+  // ---- Domain-split slow (registered) wake-up bitmaps + direct 7-bit fast ALU wake-ups ----
+  localparam bit HAS_SPEC_WAKE = ((lp_pkg::LP_L2 & 8) != 0);
+  localparam int LSU_W_N       = HAS_SPEC_WAKE ? (2 * LSU_LDU_COUNT) : LSU_LDU_COUNT;
+  localparam int FP_TAGS       = FP_EN ? FPRF_NUM : 1;
+  localparam int INT_W         = $clog2(PRF_NUM);
+  localparam int SLOW_INT_N    = LSU_LOAD_WB_WIDTH + MUL_UNITS + DIV_UNITS + (FP_EN ? FPW_CH : 0) + LSU_W_N;
+  localparam int SLOW_FP_N     = LSU_LOAD_WB_WIDTH + (FP_EN ? FPW_CH : 0) + LSU_W_N;
+
+  logic [FAST_UNITS-1:0]    fast_wake_valid;
+  logic [INT_W-1:0]         fast_wake_preg [FAST_UNITS];
+  for (genvar k = 0; k < FAST_UNITS; k++) begin : g_fast_out
+    assign fast_wake_valid[k] = wake_valid[FAST_WAKE_BASE + k];
+    assign fast_wake_preg[k]  = wake_preg[FAST_WAKE_BASE + k][INT_W-1:0];
+  end
+
+  logic [SLOW_INT_N-1:0]    slow_int_valid;
+  logic [PRF_IDX_WIDTH-1:0] slow_int_preg [SLOW_INT_N];
+  logic [PRF_NUM-1:0]       woken_slow_int;
+  logic [FP_TAGS-1:0]       woken_slow_fp;
+  logic [PRF_NUM-1:0]       cancel_int;
+  logic [FP_TAGS-1:0]       cancel_fp;
+
+  // Only ALU lanes 0..3 have delayed MUL/DIV EXU bypass wake-ups (lanes 4..5 are plain ALU)
+  logic [3:0]       slow_exu_v4;
+  logic [INT_W-1:0] slow_exu_p4 [4];
+  for (genvar l = 0; l < 4; l++) begin : g_se4
+    assign slow_exu_v4[l] = slow_exu_valid[l];
+    assign slow_exu_p4[l] = slow_exu_preg[l];
+  end
+  /* verilator lint_off UNUSEDSIGNAL */   // waiver: plain ALU lanes 4..5 have no delayed MUL/DIV wake-ups
+  logic unused_slow_exu_hi;
+  always_comb begin
+    unused_slow_exu_hi = 1'b0;
+    for (int l = 4; l < ALU_NUM; l++) unused_slow_exu_hi ^= slow_exu_valid[l] ^ (^slow_exu_preg[l]);
+  end
+  /* verilator lint_on UNUSEDSIGNAL */
+
+  // Pack slow integer-capable channels: LD (PRF) + MUL + DIV + FP (FMISC writes int) + LSU
+  for (genvar k = 0; k < LSU_LOAD_WB_WIDTH; k++) begin : g_si_ld
+    assign slow_int_valid[k] = wake_valid[LD_WAKE_BASE + k];
+    assign slow_int_preg[k]  = wake_preg[LD_WAKE_BASE + k];
+  end
+  for (genvar k = 0; k < MUL_UNITS; k++) begin : g_si_mul
+    localparam int B = LSU_LOAD_WB_WIDTH;
+    assign slow_int_valid[B + k] = wake_valid[MUL_WAKE_BASE + k];
+    assign slow_int_preg[B + k]  = wake_preg[MUL_WAKE_BASE + k];
+  end
+  for (genvar k = 0; k < DIV_UNITS; k++) begin : g_si_div
+    localparam int B = LSU_LOAD_WB_WIDTH + MUL_UNITS;
+    assign slow_int_valid[B + k] = wake_valid[DIV_WAKE_BASE + k];
+    assign slow_int_preg[B + k]  = wake_preg[DIV_WAKE_BASE + k];
+  end
+  if (FP_EN) begin : g_si_fp
+    localparam int B = LSU_LOAD_WB_WIDTH + MUL_UNITS + DIV_UNITS;
+    for (genvar k = 0; k < FPW_CH; k++) begin : g_k
+      assign slow_int_valid[B + k] = wake_valid[FP_WAKE_BASE + k];
+      assign slow_int_preg[B + k]  = wake_preg[FP_WAKE_BASE + k];
     end
-    isu_wake_bus #(.N(LSU_LDU_COUNT)) u_wake_lsu (.wake_valid(lsu2iss_wake_valid[2*LSU_LDU_COUNT-1:LSU_LDU_COUNT]),
-                                                    .wake_preg(l3_preg), .woken(woken_lsu));
-    assign cancel_v = '0;
+  end
+  for (genvar k = 0; k < LSU_W_N; k++) begin : g_si_lsu
+    localparam int B = LSU_LOAD_WB_WIDTH + MUL_UNITS + DIV_UNITS + (FP_EN ? FPW_CH : 0);
+    localparam int S = HAS_SPEC_WAKE ? k : (LSU_LDU_COUNT + k);
+    assign slow_int_valid[B + k] = lsu2iss_wake_valid[S];
+    assign slow_int_preg[B + k]  = lsu2iss_wake_preg[S];
+  end
+  isu_wake_bus #(.N(SLOW_INT_N), .BASE(0), .TAGS(PRF_NUM)) u_wake_int (
+    .wake_valid(slow_int_valid), .wake_preg(slow_int_preg), .woken(woken_slow_int));
+
+  if (FP_EN) begin : g_fp_wake_bus
+    logic [SLOW_FP_N-1:0]     slow_fp_valid;
+    logic [PRF_IDX_WIDTH-1:0] slow_fp_preg [SLOW_FP_N];
+    for (genvar k = 0; k < LSU_LOAD_WB_WIDTH; k++) begin : g_sf_ld
+      assign slow_fp_valid[k] = wake_valid[LD_WAKE_BASE + k];
+      assign slow_fp_preg[k]  = wake_preg[LD_WAKE_BASE + k];
+    end
+    for (genvar k = 0; k < FPW_CH; k++) begin : g_sf_fp
+      assign slow_fp_valid[LSU_LOAD_WB_WIDTH + k] = wake_valid[FP_WAKE_BASE + k];
+      assign slow_fp_preg[LSU_LOAD_WB_WIDTH + k]  = wake_preg[FP_WAKE_BASE + k];
+    end
+    for (genvar k = 0; k < LSU_W_N; k++) begin : g_sf_lsu
+      localparam int B = LSU_LOAD_WB_WIDTH + FPW_CH;
+      localparam int S = HAS_SPEC_WAKE ? k : (LSU_LDU_COUNT + k);
+      assign slow_fp_valid[B + k] = lsu2iss_wake_valid[S];
+      assign slow_fp_preg[B + k]  = lsu2iss_wake_preg[S];
+    end
+    isu_wake_bus #(.N(SLOW_FP_N), .BASE(FP_TAG_BASE), .TAGS(FP_TAGS)) u_wake_fp (
+      .wake_valid(slow_fp_valid), .wake_preg(slow_fp_preg), .woken(woken_slow_fp));
+  end else begin : g_no_fp_wake_bus
+    assign woken_slow_fp = '0;
+  end
+
+  // LP_L2[3] (speculative load wake-up): the [p] wake-ups and the cancel exist only then.
+  if (HAS_SPEC_WAKE) begin : g_spec_cancel
+    isu_wake_bus #(.N(LSU_LDU_COUNT), .BASE(0), .TAGS(PRF_NUM)) u_cancel_int (
+      .wake_valid(lsu2iss_cancel_valid), .wake_preg(lsu2iss_cancel_preg), .woken(cancel_int));
+    if (FP_EN) begin : g_cfp
+      isu_wake_bus #(.N(LSU_LDU_COUNT), .BASE(FP_TAG_BASE), .TAGS(FP_TAGS)) u_cancel_fp (
+        .wake_valid(lsu2iss_cancel_valid), .wake_preg(lsu2iss_cancel_preg), .woken(cancel_fp));
+    end else begin : g_ncfp
+      assign cancel_fp = '0;
+    end
+  end else begin : g_nospec_wake
+    assign cancel_int = '0;
+    assign cancel_fp  = '0;
+    /* verilator lint_off UNUSEDSIGNAL */
     logic [LSU_LDU_COUNT-1:0] unused_spec_valid;  // spec wake-up / cancel inputs have no consumer
     assign unused_spec_valid = lsu2iss_wake_valid[LSU_LDU_COUNT-1:0] | lsu2iss_cancel_valid;
     logic unused_spec_preg;
@@ -150,8 +243,8 @@ module isu
       unused_spec_preg = 1'b0;
       for (int p = 0; p < LSU_LDU_COUNT; p++) unused_spec_preg ^= ^{lsu2iss_cancel_preg[p], lsu2iss_wake_preg[p]};
     end
+    /* verilator lint_on UNUSEDSIGNAL */
   end
-  assign woken = woken_main | woken_lsu;
 
   for (genvar k = 0; k < WAKE_NUM; k++) begin : g_awake_out
     assign iss_awake_wake_valid[k] = wake_valid[k];
@@ -214,6 +307,8 @@ module isu
     logic [NP-1:0]                g_valid, g_cand, g_gate_ok;
     logic [WB_NCLS-1:0]           g_cls_free [NP];
     isu_uop_t                     g_uop [NP];
+    logic [ALU_NUM-1:0]           g_byp1 [NP];
+    logic [ALU_NUM-1:0]           g_byp2 [NP];
 
     for (genvar w = 0; w < EW; w++) begin : g_enq
       assign enq_valid[w] = dis2iss_req_valid[q][w];
@@ -263,6 +358,8 @@ module isu
       assign grant_valid[PP]      = g_valid[p];
       assign cand_valid_all[PP]   = g_cand[p];
       assign grant_uop[PP]        = g_uop[p];
+      assign grant_src1_byp[PP]   = g_byp1[p];
+      assign grant_src2_byp[PP]   = g_byp2[p];
     end
 
     // dispatch may place at most EW uops per cycle: report min(free entries, EW) (the model checks both limits)
@@ -271,13 +368,22 @@ module isu
     isu_iq #(.SIZE(SIZE), .DW(EW), .NP(NP), .QID(q),
              .SH_N((q == IQ_MEM) ? LSU_AGU_SHARED : 0),
              .SH_LD_LO(LSU_LDU_COUNT - LSU_AGU_SHARED), .SH_STA_LO(LSU_LDU_COUNT + LSU_STA_COUNT - LSU_AGU_SHARED),
-             .AGE_EN(q == IQ_MEM)) u_iq (   // the memory queue selects the oldest on the first port of each capability
-      .clk(clk), .rst_n(rst_n), .enq_valid(enq_valid), .enq(enq), .woken(woken), .fu_ready(fu_ready),
-      .gate_ok(g_gate_ok), .cls_free(g_cls_free),
+             .AGE_EN(q == IQ_MEM),
+             .HAS_SRC2(q != IQ_MEM),
+             .HAS_SRC3(FP_EN && (q == IQ_FP)),
+             .SRC1_DOM((q == IQ_FP) ? 1 : 0),
+             .SRC2_DOM((q == IQ_FP) ? 1 : ((q == 2 && FP_EN) ? 2 : 0)),
+             .FP_TAGS(FP_TAGS), .INT_W(INT_W)) u_iq (
+      .clk(clk), .rst_n(rst_n), .enq_valid(enq_valid), .enq(enq),
+      .woken_slow_int(woken_slow_int), .woken_slow_fp(woken_slow_fp),
+      .slow_exu_valid(slow_exu_v4), .slow_exu_preg(slow_exu_p4),
+      .fast_valid(fast_wake_valid), .fast_preg(fast_wake_preg),
+      .fu_ready(fu_ready), .gate_ok(g_gate_ok), .cls_free(g_cls_free),
       .issue_block(issue_block), .flush_all(rob_bcast_flush), .flush_br(flush_br),
       .flush_br_mask(dec_bcast_br_mask), .clear_mask(dec_bcast_clear_mask),
-      .cancel_v(cancel_v), .free_slots(free_slots), .cand_valid(g_cand), .grant_valid(g_valid),
-      .grant_uop(g_uop));
+      .cancel_int(cancel_int), .cancel_fp(cancel_fp),
+      .free_slots(free_slots), .cand_valid(g_cand), .grant_valid(g_valid),
+      .grant_uop(g_uop), .grant_src1_byp(g_byp1), .grant_src2_byp(g_byp2));
   end
 
   // ---- issue ports to the PRF ----
@@ -312,6 +418,8 @@ module isu
     assign iss2prf_iss_entry_uop_ldq_idx[p] = grant_uop[p].ldq_idx;
     assign iss2prf_iss_entry_uop_rob_flag[p] = grant_uop[p].rob_flag;
     assign iss2prf_iss_entry_uop_op[p] = grant_uop[p].op;
+    assign iss2prf_iss_entry_uop_src1_byp[p] = grant_src1_byp[p];
+    assign iss2prf_iss_entry_uop_src2_byp[p] = grant_src2_byp[p];
   end
 
 endmodule

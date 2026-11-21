@@ -3,8 +3,8 @@ module: prf
 area: backend
 rtl: rtl/backend/prf
 model: 当前 trace-model 里没有对应的调度单元：模型没有寄存器堆（操作数值是 trace 的事实），`Prf.cpp` 已不存在。唯一有对应的时序行为是 back-end/Exu/Exu.cpp 的 `Exu::load_wake` 和 `LoadWake` 写回寄存器（RTL 的 `prf_awake`）；FTQ pc 读口对应 `Exu::seq` 里的 `needs_ftq_pc`
-status: 整核周期与模型逐个相等（fm_gate 67/67，参考 scripts/ref_cycles_memiq6_nr_int2_ev5.txt；沿用 isu.md 记录的验收结果，本文作者没有重跑）
-depth: 27 层（exp/wb-presel，写回总线按通道；main 36 层）（prf，单模块综合，2026-11-18 / 2026-11-19，`SYNTH_ABC="strash;balance;map"`，生成门代理，见第 6 节）
+status: 整核周期与模型逐个相等（fm_gate 68/68，0 周期偏差）
+depth: 27 层（rtl/be-wake-byp-opt，395,785 单元，−41.8%；main 679,466 单元 / 27 层）（prf，单模块综合，2026-11-21，`SYNTH_ABC="strash;balance;map"`，生成门代理，见第 6 节）
 ---
 
 # prf 设计文档
@@ -29,9 +29,9 @@ depth: 27 层（exp/wb-presel，写回总线按通道；main 36 层）（prf，�
 | 浮点物理寄存器 | `FPRF_NUM = 96`，每个 `FW = FLEN = 64` 位；浮点寄存器的编号从 `FP_TAG_BASE = 128` 起，和整数寄存器共用一个编号空间 `TAG_NUM = 224`，编号宽 `PRF_IDX_WIDTH = 8` |
 | 写回通道数 | `WB_LANES = 13`（`ttg_cfg_pkg`，由模型 `config.h` 的 `WB_*` 生成）：通道 `WB_ALU_BASE = 0`..5 是 ALU 口 0..5，`WB_LD_BASE = 6`..9 是 4 路 load 写回（含 SC），`WB_FP_BASE = 10`..12 是浮点口 18..20。STA / STD / BR 口不写寄存器，没有通道。整数寄存器堆 13 个写口；浮点寄存器堆 6 个（见 5.1） |
 | 发射通道数（读侧） | `NIP = ISSUE_WIDTH = 21`：每个发射口 2 个整数读口 |
-| 整数读口 | 每口 2 个，共 42 个（其中两个共用 STA 口的 `src1` 读口不用，见 5.2） |
+| 整数读口 | 仅按发射口实际需要生成 **27 个**（ALU 6×2 + 物理 AGU 5×1 + STD 3×2 + BR 2×2；LD/STA 不用 `src2`，共用 STA 11、12 借用 LD 8、9 的 `src1`，FP 口 18..20 不读整数） |
 | 浮点读口 | `NRD = 3 * FP_LANES + LSU_SDU_COUNT = 12`：3 个浮点口（`ISSUE_WIDTH - IQ_FP_PORT_BASE`）各 3 个源，3 个 store-data 口各 1 个数据源（fsw / fsd） |
-| 旁路源 | `BYP_NUM = TOTAL_FU_COUNT + LSU_LOAD_WB_WIDTH = 35`：31 个执行单元结果加 4 路 LSU 写回请求 |
+| 旁路源 | **唤醒驱动二维 Mask + 写回级混合架构**：整数 EXU 级直接复用 `exe2prf_entry[WB_ALU_BASE + 0..5]`（6 条 ALU/MUL/DIV/CSR 通道），由 ISU 随发射送来的 6 位独热码 `iss2prf_iss_entry_uop_src{1,2}_byp` 直驱 6:1 MUX（**0 个 EXU 级 tag 比较器**）；浮点 EXU 级仅需 1 路迭代 FDIV（`exe2prf_entry[WB_FP_BASE + 2]`，流水化 FMA/FMISC/I2F 唤醒时已完成、消费者发射时已在 `wb_fres_q`）；WB 级保留寄存 tag 比较；`lsu_byp` 4 路仅在 `LP_L2[3]` 打开时并入 |
 | FTQ pc 口 | `FTQ_PRF_PC_PORT_NUM = 8`：口 0..5（ALU 口）、6..7 对应分支口 16、17 |
 | 唤醒槽 | `LSU_LOAD_WB_WIDTH = 4` |
 | 共用 AGU | `LSU_AGU_SHARED = 2`：被借用的 load 口从 `IQ_LD_PORT_BASE + LSU_LDU_COUNT - 2 = 8` 起，借用的 STA 口从 `IQ_STA_PORT_BASE + LSU_STA_COUNT - 2 = 11` 起，即 load 口 8、9 与 STA 口 11、12 配对 |
@@ -98,7 +98,7 @@ depth: 27 层（exp/wb-presel，写回总线按通道；main 36 层）（prf，�
 
 ## 6. 关键路径与深度
 
-EXP-046（2026-11-19，同一口径）：main 1,077,848 单元、36 层 → 浮点写通道压缩 867,357、36 层 → 写回总线按通道（整数写口 21 → 13）**679,466 单元（−37%）、27 层**，触发器 3570 → 1698。这是单模块口径：恒为 0 的通道在整芯片展平时本来也会被常量传播去掉，那部分不是真节省；真节省是浮点单元 5 条写通道压成 2 条。main 时的记录：单模块综合深度 **36 层**（prf；2026-11-18；`scripts/synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`，生成门代理，不是时序）。综合报告给出的最长路径：从 `\u_wb_pipe.wb_br_mask_q [671]` 到 `\prf_awake_wake_preg [7]`。，本模块没有单独综合过。以下是从代码读出的，未综合验证：
+2026-11-21（`rtl/be-wake-byp-opt`，`eda-06`，`SYNTH_ABC="strash;balance;map"`，无工艺库）：阶段 1A（读口 42→27 + 旁路按域裁剪）后 `679,466 → 447,058` 单元（−34.2%）；阶段 1B（整数 EXU 级改为 ISU 6 位二维独热 Mask 直驱、0 比较器，浮点 EXU 级压至 1 路 FDIV）后进一步降至 **395,785 单元（−41.8%）**，深度保持 **27 层**。EXP-046（2026-11-19，同一口径）：main 1,077,848 单元、36 层 → 浮点写通道压缩 867,357、36 层 → 写回总线按通道（整数写口 21 → 13）**679,466 单元（−37%）、27 层**，触发器 3570 → 1698。这是单模块口径：恒为 0 的通道在整芯片展平时本来也会被常量传播去掉，那部分不是真节省；真节省是浮点单元 5 条写通道压成 2 条。main 时的记录：单模块综合深度 **36 层**（prf；2026-11-18；`scripts/synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`，生成门代理，不是时序）。综合报告给出的最长路径：从 `\u_wb_pipe.wb_br_mask_q [671]` 到 `\prf_awake_wake_preg [7]`。，本模块没有单独综合过。以下是从代码读出的，未综合验证：
 
 | 路径 | 内容 |
 | --- | --- |
@@ -143,6 +143,7 @@ RTL 与模型保持一致的细节：
 
 ## 10. 变更记录
 
+- 2026-11-21（`rtl/be-wake-byp-opt`，后端阶段一瘦身）：整数读口按发射口需求由 42 减至 27 个（`prf_regfile` 改为平铺 `NRD` 口，裁掉 LD/STA `src2`、共用 STA `src1` 及 FP 口整数读口）；FU 旁路源按数据域裁剪（整数 35→14 路，浮点 35→8 路，`lsu_byp` 随 `LP_L2[3]` 编译期门控）；零周期变化。
 - 2026-11-21（`rtl/fe-2fetch-2taken`，EXP-051 里程碑 B）：`prf.sv` 透传 4 位 `iss2prf_iss_entry_uop_ftq_offset` → `prf2exe_iss_entry_uop_ftq_offset` 至 EXU；通过 `lint_chip` 0、`fm_gate` 68/68（0 周期偏差）与 Linux 27 窗对齐。
 - 2026-11-19（`exp/wb-presel`，EXP-046）：写回总线按通道编号（`WB_LANES = 13`），不再按发射口（21）：STA / STD / BR 口的空通道去掉，整数寄存器堆 21 → 13 个写口，写回级、写回旁路、load 唤醒同步；`prf_bypass` 的参数改名 `WBL`（避开包里的 `WB_LANES`）。周期不变。
 - 2026-11-19（`exp/wb-presel`，EXP-046）：浮点寄存器堆的写通道 21 → 6（4 条 load + 浮点单元写回压缩成 `FP_WB_PORTS` 条，靠发射级的 FP 写口预约保证不超）；浮点结果的写回暂存移到 `prf.sv`，只暂存会写浮点寄存器的 9 个口。周期不变。

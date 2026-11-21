@@ -19,22 +19,24 @@ module isu_wake_iter
   input  logic [PRF_IDX_WIDTH-1:0] req_preg [NREQ],
   input  logic [BR_MASK_WIDTH-1:0] req_br_mask [NREQ],
   input  logic [CW-1:0]            req_countdown [NREQ],
+  input  logic [NREQ-1:0]          req_lane,       // optional 1-bit source-port tag (DIV: 0=lane 1, 1=lane 3)
   input  logic                     flush_all,
   input  logic                     flush_br,
   input  logic [BR_MASK_WIDTH-1:0] flush_br_mask,
   input  logic [BR_MASK_WIDTH-1:0] clear_mask,
   output logic [SLOTS-1:0]         wake_valid,
-  output logic [PRF_IDX_WIDTH-1:0] wake_preg [SLOTS]
+  output logic [PRF_IDX_WIDTH-1:0] wake_preg [SLOTS],
+  output logic [SLOTS-1:0]         wake_lane
 );
 
-  localparam int DW = PRF_IDX_WIDTH + BR_MASK_WIDTH + CW;
+  localparam int DW = 1 + PRF_IDX_WIDTH + BR_MASK_WIDTH + CW;
 
   logic [SLOTS-1:0] slot_free;
   logic [SLOTS-1:0] alloc_slot [NREQ];
   logic [DW-1:0]    req_bits [NREQ];
 
   for (genvar r = 0; r < NREQ; r++) begin : g_req
-    assign req_bits[r] = {req_preg[r], req_br_mask[r], req_countdown[r]};
+    assign req_bits[r] = {req_lane[r], req_preg[r], req_br_mask[r], req_countdown[r]};
   end
 
   isu_alloc_chain #(.NREQ(NREQ), .NSLOT(SLOTS)) u_alloc (
@@ -42,6 +44,7 @@ module isu_wake_iter
 
   for (genvar j = 0; j < SLOTS; j++) begin : g_slot
     logic                     valid_q, valid_d;
+    logic                     lane_q, lane_d;
     logic [CW-1:0]            count_q, count_d;
     logic [PRF_IDX_WIDTH-1:0] preg_q, preg_d;
     logic [BR_MASK_WIDTH-1:0] mask_q, mask_d;
@@ -61,8 +64,9 @@ module isu_wake_iter
     // Ref: Isu::comb_calc_latency_next, Isu::comb_flush
     always_comb begin
       valid_d = (|hit) || counting;
+      lane_d  = (|hit) ? new_bits[DW-1] : lane_q;
       count_d = (|hit) ? new_bits[CW-1:0] : (count_q - CW'(1));
-      preg_d  = (|hit) ? new_bits[DW-1 -: PRF_IDX_WIDTH] : preg_q;
+      preg_d  = (|hit) ? new_bits[(CW + BR_MASK_WIDTH) +: PRF_IDX_WIDTH] : preg_q;
       mask_d  = (|hit) ? new_bits[CW +: BR_MASK_WIDTH] : mask_q;
       killed  = flush_br && ((mask_d & flush_br_mask) != '0);    // mask before the clear below
       valid_d = valid_d && !flush_all && !killed;
@@ -72,11 +76,13 @@ module isu_wake_iter
     always_ff @(posedge clk) begin
       if (!rst_n) begin
         valid_q <= 1'b0;
+        lane_q  <= 1'b0;
         count_q <= '0;
         preg_q  <= '0;
         mask_q  <= '0;
       end else begin
         valid_q <= valid_d;
+        lane_q  <= lane_d;
         count_q <= count_d;
         preg_q  <= preg_d;
         mask_q  <= mask_d;
@@ -85,6 +91,7 @@ module isu_wake_iter
 
     assign wake_valid[j] = valid_q && (count_q == '0);
     assign wake_preg[j]  = preg_q;
+    assign wake_lane[j]  = lane_q;
   end
 
 endmodule

@@ -3,8 +3,8 @@ module: exu_ctrl
 area: backend
 rtl: rtl/backend/exu_ctrl
 model: trace-model back-end/Exu/Exu.cpp、back-end/Exu/include/Exu.h、back-end/Exu/include/Fu.h（调度单元 `back.exu`，类 `Exu`，阶段 `comb_exec`，内部 `load_wake → exec → ready`；本文只管其中的控制和仲裁）
-status: 整核周期与模型逐个相等（fm_gate 67/67，参考 scripts/ref_cycles_memiq6_nr_int2_ev5.txt；沿用 isu.md 记录的验收结果，本文作者没有重跑）
-depth: 17 层（exu_ctrl，单模块综合，2026-11-18，`SYNTH_ABC="strash;balance;map"`，生成门代理，见第 6 节）
+status: 整核周期与模型逐个相等（fm_gate 68/68，0 周期偏差）
+depth: 17 层（rtl/be-wake-byp-opt，20,037 单元，已删除 31 路 `exe2prf_bypass` 总线；main 20,133 / 17 层）（exu_ctrl，单模块综合，2026-11-21，`SYNTH_ABC="strash;balance;map"`，生成门代理，见第 6 节）
 ---
 
 # exu_ctrl 设计文档

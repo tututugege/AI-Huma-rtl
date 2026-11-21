@@ -1,12 +1,8 @@
 // Ref: back-end/include/FpStats.h  FpStats::try_reserve; back-end/Isu.cpp  comb_issue (grant_gate)  (EXP-032)
 `default_nettype none
 
-// FP register-file write-port limit. The cycle in which an FP unit writes the FP register file is known at issue (issue
-// cycle + latency), so a grant reserves one of P write ports in that future cycle (a ring of busy counters indexed by
-// the cycle number, like XiangShan's WbFuBusyTable); a grant that finds the cycle full is refused and the uop stays in
-// its queue. The candidates are the FP-writing grants in the reference's evaluation order (the INT queue's I2F ports,
-// then the FP queue's ports); a refused candidate takes no reservation, so later candidates see only the granted
-// earlier ones.
+// FP register-file write-port limit using a shift-register busy table indexed by (cycles-from-now - 1),
+// mirroring EXP-046's isu_wb_gate. Eliminates the 64-entry ring, 6-bit now_q adders, and 64:1 read muxes.
 module isu_fp_gate
   import ttg_cfg_pkg::*;
   import isu_pkg::*;
@@ -23,54 +19,46 @@ module isu_fp_gate
   output logic [NC-1:0] gate_ok         // candidate may issue (not an FP write, or a port is free in its cycle)
 );
 
-  localparam int RING = 64;
-  localparam int RB = $clog2(RING);
+  localparam int DEPTH = FP_EN ? FP_FSQRT_D_LAT : 2;
   localparam int CNT_W = $clog2(P + 2);
 
-  logic [RB-1:0] now_q;
-  logic [CNT_W-1:0] busy_q [RING];
+  // busy_q[d] = number of reserved FP write ports (d + 1) cycles from now (d = 0 .. DEPTH - 1)
+  logic [CNT_W-1:0] busy_q [DEPTH];
+  logic [NC-1:0]    req, granted;
+  logic [WB_NCLS-1:0] cls_1h [NC];
+  logic [CNT_W-1:0] occ0 [NC];
+  logic [NC-1:0]    same_slot [NC];
 
-  logic [RB-1:0] slot [NC];
-  logic [NC-1:0] granted;               // candidate holds a reservation
-  logic [CNT_W-1:0] occ_c [WB_NCLS];    // reservations in the cycle a class writes (registered table only)
-  logic [CNT_W-1:0] occ0 [NC];          // ... for the candidate's class
-  logic [NC-1:0] same_slot [NC];        // same_slot[k][j]: earlier candidate j writes in the same cycle as k (from the classes only)
-
-  for (genvar c = 0; c < WB_NCLS; c++) begin : g_cls
-    if (fp_cls_lat(c) > 0) begin : g_fp
-      assign occ_c[c] = busy_q[now_q + RB'(fp_cls_lat(c))];
-    end else begin : g_nofp
-      assign occ_c[c] = '0;
-    end
-  end
-
-  for (genvar k = 0; k < NC; k++) begin : g_cand
-    logic [RB-1:0] lat_k;
-    always_comb begin
-      lat_k = '0;
-      occ0[k] = '0;
-      for (int c = 0; c < WB_NCLS; c++) if (cand_cls[k] == WB_CLS_W'(c)) begin
-        lat_k = RB'(fp_cls_lat(c));
-        occ0[k] = occ_c[c];
-      end
-    end
-    assign slot[k] = now_q + lat_k;
-    for (genvar j = 0; j < NC; j++) begin : g_same
-      logic [RB-1:0] lat_j;
-      always_comb begin
-        lat_j = '0;
-        for (int c = 0; c < WB_NCLS; c++) if (cand_cls[j] == WB_CLS_W'(c)) lat_j = RB'(fp_cls_lat(c));
-      end
-      assign same_slot[k][j] = (j < k) && (lat_j == lat_k);
-    end
-  end
-
-  // A candidate is granted iff the cycle it writes in still has a free port after the earlier candidates of that cycle. A refused
-  // earlier candidate only exists once the cycle is full, in which case the later ones are refused as well, so counting all the
-  // earlier *requesting* candidates of the same cycle (granted or not) gives the same answer as counting the granted ones:
-  // there is no chain over the candidates.
-  logic [NC-1:0] req;
   assign req = cand_valid & cand_fpw;
+
+  // One-hot decode of cand_cls (only FP-writing classes 4..10 are ever active when req[k] = 1)
+  for (genvar k = 0; k < NC; k++) begin : g_dec
+    for (genvar c = 0; c < WB_NCLS; c++) begin : g_c
+      assign cls_1h[k][c] = (cand_cls[k] == WB_CLS_W'(c));
+    end
+  end
+
+  // Direct constant-index lookup from shift-register busy_q (zero adder / 64:1 mux)
+  for (genvar k = 0; k < NC; k++) begin : g_occ
+    always_comb begin
+      occ0[k] = '0;
+      for (int c = 0; c < WB_NCLS; c++) begin
+        if (fp_cls_lat(c) > 0 && cls_1h[k][c]) occ0[k] = busy_q[fp_cls_lat(c) - 1];
+      end
+    end
+    for (genvar j = 0; j < NC; j++) begin : g_same
+      always_comb begin
+        same_slot[k][j] = 1'b0;
+        if (j < k) begin
+          for (int c1 = 0; c1 < WB_NCLS; c1++)
+            for (int c2 = 0; c2 < WB_NCLS; c2++)
+              if (fp_cls_lat(c1) > 0 && fp_cls_lat(c1) == fp_cls_lat(c2))
+                same_slot[k][j] = same_slot[k][j] | (cls_1h[k][c1] & cls_1h[j][c2]);
+        end
+      end
+    end
+  end
+
   for (genvar k = 0; k < NC; k++) begin : g_gate
     logic [NC-1:0] same;
     logic [CNT_W-1:0] n_same;
@@ -80,24 +68,29 @@ module isu_fp_gate
     assign granted[k] = req[k] && gate_ok[k];
   end
 
-  // per slot: reservations added this cycle; the slot of the current cycle is consumed at its end
-  for (genvar s = 0; s < RING; s++) begin : g_slot
-    logic [NC-1:0] hit;
-    logic [CNT_W-1:0] n_hit;
-    for (genvar k = 0; k < NC; k++) begin : g_hit
-      assign hit[k] = granted[k] & (slot[k] == RB'(s));
+  // Shift down by 1 every cycle, adding grants that target (d + 2) cycles from now into next busy_q[d]
+  for (genvar d = 0; d < DEPTH; d++) begin : g_shift
+    if (d + 1 < DEPTH) begin : g_mid
+      logic [NC-1:0]    hit;
+      logic [CNT_W-1:0] n_hit;
+      for (genvar k = 0; k < NC; k++) begin : g_hit
+        always_comb begin
+          hit[k] = 1'b0;
+          for (int c = 0; c < WB_NCLS; c++)
+            if (fp_cls_lat(c) == d + 2) hit[k] = hit[k] | (granted[k] & cls_1h[k][c]);
+        end
+      end
+      ttg_popcount #(.N(NC), .CW(CNT_W)) u_hit (.bits(hit), .count(n_hit));
+      always_ff @(posedge clk) begin
+        if (!rst_n || flush_all) busy_q[d] <= '0;
+        else                     busy_q[d] <= busy_q[d + 1] + n_hit;
+      end
+    end else begin : g_top
+      always_ff @(posedge clk) begin
+        if (!rst_n || flush_all) busy_q[d] <= '0;
+        else                     busy_q[d] <= '0;
+      end
     end
-    ttg_popcount #(.N(NC), .CW(CNT_W)) u_hit (.bits(hit), .count(n_hit));
-    always_ff @(posedge clk) begin
-      if (!rst_n || flush_all)     busy_q[s] <= '0;
-      else if (now_q == RB'(s))    busy_q[s] <= '0;
-      else                         busy_q[s] <= busy_q[s] + n_hit;
-    end
-  end
-
-  always_ff @(posedge clk) begin
-    if (!rst_n) now_q <= '0;
-    else        now_q <= now_q + RB'(1);
   end
 
 endmodule

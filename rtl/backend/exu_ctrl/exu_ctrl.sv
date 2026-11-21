@@ -100,11 +100,6 @@ module exu_ctrl
   output logic [BR_MASK_WIDTH-1:0] exe2prf_entry_uop_br_mask [WB_LANES],
   output logic [WB_LANES-1:0] exe2prf_entry_uop_dest_en,
   output logic [XC_OP_W-1:0] exe2prf_entry_uop_op [WB_LANES],
-  output logic [TOTAL_FU_COUNT-1:0] exe2prf_bypass_valid,
-  output logic [PRF_IDX_WIDTH-1:0] exe2prf_bypass_uop_dest_preg [TOTAL_FU_COUNT],
-  output logic [XLEN_BITS-1:0] exe2prf_bypass_uop_result [TOTAL_FU_COUNT],
-  output logic [FW-1:0] exe2prf_bypass_uop_fresult [TOTAL_FU_COUNT],
-  output logic [TOTAL_FU_COUNT-1:0] exe2prf_bypass_uop_dest_en,
   output logic [ISSUE_WIDTH-1:0] exu2rob_entry_valid,
   output logic [ROB_IDX_WIDTH-1:0] exu2rob_entry_uop_rob_idx [ISSUE_WIDTH],
   output logic [XC_OP_W-1:0] exu2rob_entry_uop_op [ISSUE_WIDTH],
@@ -338,15 +333,12 @@ module exu_ctrl
   );
 
   exu_ctrl_wb_prf u_wb_prf (
-    .fu_done, .win_valid, .win, .win_is_csr,
+    .win_valid, .win, .win_is_csr,
     .csr_re(exe2csr_re), .csr_rdata(csr2exe_rdata), .ld_wb,
     .entry_valid(exe2prf_entry_valid), .entry_dest_preg(exe2prf_entry_uop_dest_preg),
     .entry_result(exe2prf_entry_uop_result), .entry_fresult(exe2prf_entry_uop_fresult),
     .entry_br_mask(exe2prf_entry_uop_br_mask),
-    .entry_dest_en(exe2prf_entry_uop_dest_en), .entry_op(exe2prf_entry_uop_op),
-    .bypass_valid(exe2prf_bypass_valid), .bypass_dest_preg(exe2prf_bypass_uop_dest_preg),
-    .bypass_result(exe2prf_bypass_uop_result), .bypass_fresult(exe2prf_bypass_uop_fresult),
-    .bypass_dest_en(exe2prf_bypass_uop_dest_en)
+    .entry_dest_en(exe2prf_entry_uop_dest_en), .entry_op(exe2prf_entry_uop_op)
   );
   exu_ctrl_wb_rob u_wb_rob (
     .flush(rob_bcast_flush), .mispred(dec_bcast_mispred), .kill_mask(dec_bcast_br_mask),
