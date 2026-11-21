@@ -10,7 +10,8 @@
 //   resp_ready     : the master's tick-0 ready, withheld when the response is new in the extra ticks or hidden
 // The view is registered at the end of tick 15 (phase_last).
 module axi_cpu_port_chan import memcpu_pkg::*; #(
-  parameter bit EXPORT_ID = 1'b1     // the write channel's accepted id is internal only
+  parameter bit EXPORT_ID    = 1'b1, // the write channel's accepted id is internal only
+  parameter bit CLEAR_ON_POP = 1'b0  // clear registered resp_valid on pop (TICKS=1 stale-echo fix for ICache)
 ) (
   input  logic clk,
   input  logic rst_n,
@@ -51,7 +52,7 @@ module axi_cpu_port_chan import memcpu_pkg::*; #(
   wire resp_is_new  = raw_resp_valid && !(resp0_valid_n && (resp0_id_n == raw_resp_id));
   logic view_resp_valid_n, view_resp_ready_n;
   always_comb begin
-    view_resp_valid_n = raw_resp_valid && !hide_resp;
+    view_resp_valid_n = raw_resp_valid && !hide_resp && !(CLEAR_ON_POP && raw_resp_ready);
     view_resp_ready_n = resp0_ready_n && !(resp_is_new || hide_resp);
   end
 

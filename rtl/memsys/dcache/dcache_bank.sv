@@ -40,11 +40,7 @@ module dcache_bank
   // PLRU word write (later ports win)
   input  logic [NSLOT:0]       pl_en,
   input  logic [ROW_W-1:0]     pl_row   [NSLOT+1],
-  input  logic [2:0]           pl_bits  [NSLOT+1],
-  // Read-only dirty-tag snoop (ICache FDIP coherency, cycle-start state, no data read)
-  input  logic [ROW_W-1:0]     snp_row,
-  input  logic [TAG_W-1:0]     snp_tag,
-  output logic                 snp_dirty
+  input  logic [2:0]           pl_bits  [NSLOT+1]
 );
 
   logic [ROWS-1:0]     valid_q [WAYS];
@@ -54,17 +50,14 @@ module dcache_bank
   logic [TAG_W-1:0]    tag_q   [WAYS][ROWS];
   logic [LINE_BITS-1:0] data_q [WAYS][ROWS];
 
-  logic [WAYS-1:0] snp_hit;
   for (genvar w = 0; w < WAYS; w++) begin : g_rd
     assign rd_valid[w] = valid_q[w][rd_row];
     assign rd_dirty[w] = dirty_q[w][rd_row];
     assign rd_pf[w]    = pf_q[w][rd_row];
     assign rd_tag[w]   = tag_q[w][rd_row];
     assign rd_line[w]  = data_q[w][rd_row];
-    assign snp_hit[w]  = valid_q[w][snp_row] && dirty_q[w][snp_row] && (tag_q[w][snp_row] == snp_tag);
   end
   assign rd_plru   = plru_q[rd_row];
-  assign snp_dirty = |snp_hit;
 
   // control bits: reset to the C++ init() state (all invalid / clean / PLRU 0)
   always_ff @(posedge clk) begin

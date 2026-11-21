@@ -8,6 +8,7 @@ module idu_decoder import ttg_cfg_pkg::*; (
   input  logic                        entry_valid,        // only qualifies is_branch
   input  logic [31:0]                 entry_inst,
   input  logic                        entry_page_fault_inst,
+  input  logic                        entry_pf_inst_hi,
   input  logic [FTQ_IDX_WIDTH-1:0]    entry_ftq_idx,
   input  logic [FTQ_OFFSET_WIDTH-1:0] entry_ftq_offset,
   input  logic                        entry_ftq_is_last,
@@ -31,6 +32,7 @@ module idu_decoder import ttg_cfg_pkg::*; (
   output logic [31:0]                 uop_imm,
   output logic [CSR_IDX_WIDTH-1:0]    uop_csr_idx,
   output logic                        uop_page_fault_inst,
+  output logic                        uop_pf_inst_hi,
   output logic                        uop_illegal_inst,
   output logic                        uop_dest_fp,           // F/D domain bits (zero without an FP register file)
   output logic                        uop_src1_fp,
@@ -79,6 +81,7 @@ module idu_decoder import ttg_cfg_pkg::*; (
     decoded_en                  = ~entry_page_fault_inst;
     uop_diag_val                = XLEN_BITS'(entry_inst);
     uop_page_fault_inst         = entry_page_fault_inst;
+    uop_pf_inst_hi              = entry_pf_inst_hi;
     uop_ftq_idx                 = entry_ftq_idx;
     uop_ftq_offset              = entry_ftq_offset;
     uop_ftq_is_last             = entry_ftq_is_last;

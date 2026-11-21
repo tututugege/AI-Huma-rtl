@@ -17,10 +17,8 @@ package front_pkg;
   localparam int F2B_FIFO_FULL_AT        = F2B_FIFO_DEPTH;
 
   // prediction metadata (BPU_configs.h, wire_types.h)
-  localparam int TN_MAX        = 4;    // TAGE tables
   localparam int PCPN_W        = 3;
-  localparam int TAGE_IDX_W    = 10;
-  localparam int TAGE_TAG_W    = 8;
+  localparam int BLK_ID_W      = 10;   // FTB block ID (matches bpu_types_pkg::FTB_BLK_ID_W)
   localparam int INST_BYTES    = 4;
   localparam int KIND_W        = 3;
 
@@ -44,46 +42,30 @@ package front_pkg;
   } fetch_pair_t;
 
   // ---- FIFO entries ----
-  // instruction_FIFO entry: one predecoded fetch group (fused A+B when paired, plus intact A fallback alt_a)
+  // instruction_FIFO entry: compact raw halfwords (Block A + optional Block B); expand/predecode runs once after S2 A/B mux.
   typedef struct packed {
-    logic                                  is_pair;
-    logic [3:0]                            a_len;
-    logic [XLEN_BITS-1:0]                  base_a;
-    logic [XLEN_BITS-1:0]                  base_b;
-    logic [15:0]                           up16;
-    logic                                  up_ok;
-    logic [15:0]                           raw0;
-    logic [FETCH_WIDTH-1:0]                start_b;
-    logic [FETCH_WIDTH-1:0]                start_a;
-    logic [FETCH_WIDTH-1:0]                is_rvc;
-    logic [XLEN_BITS-1:0]                  seq_next_pc;
-    logic [FETCH_WIDTH-1:0][XLEN_BITS-1:0] predecode_target_address;
-    logic [FETCH_WIDTH-1:0][1:0]           predecode_type;
-    logic [FETCH_WIDTH-1:0]                inst_valid;
-    logic [FETCH_WIDTH-1:0]                page_fault_inst;
-    logic [FETCH_WIDTH-1:0][31:0]          instructions;
-    // Intact Block A fallback (selected when has_alt_a && !ptab.is_pair, i.e. S2 overrode A)
-    logic                                  has_alt_a;
-    logic [15:0]                           alt_up16;
-    logic                                  alt_up_ok;
-    logic [FETCH_WIDTH-1:0]                alt_start_b;
-    logic [FETCH_WIDTH-1:0]                alt_start_a;
-    logic [FETCH_WIDTH-1:0]                alt_is_rvc;
-    logic [XLEN_BITS-1:0]                  alt_seq_next_pc;
-    logic [FETCH_WIDTH-1:0][XLEN_BITS-1:0] alt_predecode_target_address;
-    logic [FETCH_WIDTH-1:0][1:0]           alt_predecode_type;
-    logic [FETCH_WIDTH-1:0]                alt_inst_valid;
-    logic [FETCH_WIDTH-1:0]                alt_page_fault_inst;
-    logic [FETCH_WIDTH-1:0][31:0]          alt_instructions;
+    logic                         is_pair;
+    logic [3:0]                   a_len;
+    logic [XLEN_BITS-1:0]         base_a;
+    logic [XLEN_BITS-1:0]         base_b;
+    logic [FETCH_WIDTH-1:0]       valid_a;
+    logic [FETCH_WIDTH-1:0]       pf_a;
+    logic                         single_word_a;
+    logic [FETCH_WIDTH-1:0][15:0] raw_a;
+    logic [15:0]                  up16_a;
+    logic                         b_ok;
+    logic [4:0]                   b_actual_n;
+    logic [FETCH_WIDTH-1:0][15:0] raw_b;
+    logic [15:0]                  up16_b;
   } inst_fifo_entry_t;
 
   // BPU prediction metadata of one fetch group, shared by PTAB and front2back entries.
+  // Block A lanes have id = blk_id; paired Block B lanes (idx >= a_len when is_pair) have id = blk_id + 1.
   typedef struct packed {
-    logic [FETCH_WIDTH-1:0][TN_MAX-1:0][TAGE_TAG_W-1:0] tage_tag;
-    logic [FETCH_WIDTH-1:0][TN_MAX-1:0][TAGE_IDX_W-1:0] tage_idx;
-    logic [FETCH_WIDTH-1:0][PCPN_W-1:0]                 pcpn;
-    logic [FETCH_WIDTH-1:0]                             alt_pred;
-    logic [XLEN_BITS-1:0]                               predict_base_pc;
+    logic [BLK_ID_W-1:0]                blk_id;
+    logic [FETCH_WIDTH-1:0][PCPN_W-1:0] pcpn;
+    logic [FETCH_WIDTH-1:0]             alt_pred;
+    logic [XLEN_BITS-1:0]               predict_base_pc;
   } pred_meta_t;
 
   // PTAB entry: BPU prediction of one fetch group (compact {is_pair, base_b, a_len}, no bpu_ck)
@@ -107,6 +89,7 @@ package front_pkg;
     logic [FETCH_WIDTH-1:0]             predict_dir_corrected;
     logic [FETCH_WIDTH-1:0]             inst_valid;
     logic [FETCH_WIDTH-1:0]             page_fault_inst;
+    logic [FETCH_WIDTH-1:0]             pf_inst_hi;
     logic [FETCH_WIDTH-1:0]             is_rvc;
     logic                               carry;
     logic [FETCH_WIDTH-1:0][31:0]       fetch_group;

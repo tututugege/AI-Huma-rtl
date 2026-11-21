@@ -9,14 +9,16 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
   input  logic [BACKEND_FETCH_WIDTH-1:0] front2pre_alt_pred,
   input  logic [31:0] front2pre_inst [BACKEND_FETCH_WIDTH],
   input  logic [BACKEND_FETCH_WIDTH-1:0] front2pre_page_fault_inst,
+  input  logic [BACKEND_FETCH_WIDTH-1:0] front2pre_pf_inst_hi,
   input  logic [XLEN_BITS-1:0] front2pre_pc [BACKEND_FETCH_WIDTH],
   input  logic [2:0] front2pre_pcpn [BACKEND_FETCH_WIDTH],
   input  logic [BACKEND_FETCH_WIDTH-1:0] front2pre_predict_dir,
   input  logic [BACKEND_FETCH_WIDTH-1:0] front2pre_is_rvc,
   input  logic [XLEN_BITS-1:0] front2pre_predict_next_fetch_address,
   input  logic [FETCH_WIDTH-1:0][2:0] front2pre_slot_kind,
-  input  logic [9:0] front2pre_tage_idx [BACKEND_FETCH_WIDTH][4],
-  input  logic [7:0] front2pre_tage_tag [BACKEND_FETCH_WIDTH][4],
+  input  logic [9:0] front2pre_blk_id,
+  input  logic front2pre_is_pair,
+  input  logic [3:0] front2pre_a_len,
   input  logic [BACKEND_FETCH_WIDTH-1:0] front2pre_valid,
   input  logic front_stall,
   input  logic [3:0] bpu_upd_free,   // compact ROB commit credits (EXP-028)
@@ -64,10 +66,8 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
   output logic [2:0] ftq_commit_info_resp_pcpn [COMMIT_WIDTH],
   output logic ftq_commit_info_resp_pred_taken [COMMIT_WIDTH],
   output logic ftq_commit_info_resp_is_rvc [COMMIT_WIDTH],
-  output logic [9:0] ftq_commit_info_resp_tage_idx [COMMIT_WIDTH][4],
-  output logic [7:0] ftq_commit_info_resp_tage_tag [COMMIT_WIDTH][4],
+  output logic [9:0] ftq_commit_info_resp_blk_id [COMMIT_WIDTH],
   output logic [COMMIT_WIDTH-1:0] ftq_commit_info_resp_valid,
-  output logic [COMMIT_WIDTH-1:0][3:0] ftq_commit_info_resp_valid_t,
   output logic [XLEN_BITS-1:0] out_commit_entry_uop_diag_val [COMMIT_WIDTH],
   output logic out_mispred,
   output logic out_no_mispred,
@@ -154,6 +154,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
   logic [FTQ_OFFSET_WIDTH-1:0] pre_issue_entries_ftq_offset [DECODE_WIDTH];
   logic [31:0] pre_issue_entries_inst [DECODE_WIDTH];
   logic [DECODE_WIDTH-1:0] pre_issue_entries_page_fault_inst;
+  logic [DECODE_WIDTH-1:0] pre_issue_entries_pf_inst_hi;
   logic [DECODE_WIDTH-1:0] pre_issue_entries_valid;
 
   // ---- nets driven by idu: Idu (back-end/Idu.cpp)
@@ -184,6 +185,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
   logic [31:0] dec2ren_uop_imm [DECODE_WIDTH];
   logic [DECODE_WIDTH-1:0] dec2ren_uop_is_atomic;
   logic [DECODE_WIDTH-1:0] dec2ren_uop_page_fault_inst;
+  logic [DECODE_WIDTH-1:0] dec2ren_uop_pf_inst_hi;
   logic [5:0] dec2ren_uop_src1_areg [DECODE_WIDTH];
   logic [DECODE_WIDTH-1:0] dec2ren_uop_src1_en;
   logic [DECODE_WIDTH-1:0] dec2ren_uop_src1_is_pc;
@@ -226,6 +228,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
   logic [2:0] ren2dis_uop_fp_cls [DECODE_WIDTH];
   logic [PRF_IDX_WIDTH-1:0] ren2dis_uop_old_dest_preg [DECODE_WIDTH];
   logic [DECODE_WIDTH-1:0] ren2dis_uop_page_fault_inst;
+  logic [DECODE_WIDTH-1:0] ren2dis_uop_pf_inst_hi;
   logic [5:0] ren2dis_uop_src1_areg [DECODE_WIDTH];
   logic [DECODE_WIDTH-1:0] ren2dis_uop_src1_en;
   logic [DECODE_WIDTH-1:0] ren2dis_uop_src1_is_pc;
@@ -311,6 +314,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
   logic [DECODE_WIDTH-1:0] dis2rob_uop_fs_need;
   logic [PRF_IDX_WIDTH-1:0] dis2rob_uop_old_dest_preg [DECODE_WIDTH];
   logic [DECODE_WIDTH-1:0] dis2rob_uop_page_fault_inst;
+  logic [DECODE_WIDTH-1:0] dis2rob_uop_pf_inst_hi;
   logic [DECODE_WIDTH-1:0] dis2rob_uop_rob_flag;
   logic [6:0] dis2rob_uop_rob_idx [DECODE_WIDTH];
   logic [5:0] dis2rob_uop_src1_areg [DECODE_WIDTH];
@@ -597,14 +601,16 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .front2pre_alt_pred(front2pre_alt_pred),
     .front2pre_inst(front2pre_inst),
     .front2pre_page_fault_inst(front2pre_page_fault_inst),
+    .front2pre_pf_inst_hi(front2pre_pf_inst_hi),
     .front2pre_pc(front2pre_pc),
     .front2pre_pcpn(front2pre_pcpn),
     .front2pre_predict_dir(front2pre_predict_dir),
     .front2pre_is_rvc(front2pre_is_rvc),
     .front2pre_predict_next_fetch_address(front2pre_predict_next_fetch_address),
     .front2pre_slot_kind(front2pre_slot_kind),
-    .front2pre_tage_idx(front2pre_tage_idx),
-    .front2pre_tage_tag(front2pre_tage_tag),
+    .front2pre_blk_id(front2pre_blk_id),
+    .front2pre_is_pair(front2pre_is_pair),
+    .front2pre_a_len(front2pre_a_len),
     .front2pre_valid(front2pre_valid),
     // outputs
     .pre2front_ready(pre2front_ready),
@@ -614,6 +620,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .pre_issue_entries_valid(pre_issue_entries_valid),
     .pre_issue_entries_inst(pre_issue_entries_inst),
     .pre_issue_entries_page_fault_inst(pre_issue_entries_page_fault_inst),
+    .pre_issue_entries_pf_inst_hi(pre_issue_entries_pf_inst_hi),
     .pre_issue_entries_ftq_idx(pre_issue_entries_ftq_idx),
     .pre_issue_entries_ftq_offset(pre_issue_entries_ftq_offset),
     .pre_issue_entries_ftq_is_last(pre_issue_entries_ftq_is_last),
@@ -625,15 +632,13 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .ftq_rob_pc_resp_resp_valid(nc_ftq_rob_pc_resp_resp_valid),
     .ftq_rob_pc_resp_resp_pc(ftq_rob_pc_resp_resp_pc),
     .ftq_rob_pc_resp_resp_is_rvc(ftq_rob_pc_resp_resp_is_rvc),
-    .ftq_commit_info_resp_valid_t(ftq_commit_info_resp_valid_t),
     .ftq_commit_info_resp_valid(ftq_commit_info_resp_valid),
     .ftq_commit_info_resp_pc(ftq_commit_info_resp_pc),
     .ftq_commit_info_resp_pred_taken(ftq_commit_info_resp_pred_taken),
     .ftq_commit_info_resp_is_rvc(ftq_commit_info_resp_is_rvc),
     .ftq_commit_info_resp_alt_pred(ftq_commit_info_resp_alt_pred),
     .ftq_commit_info_resp_pcpn(ftq_commit_info_resp_pcpn),
-    .ftq_commit_info_resp_tage_idx(ftq_commit_info_resp_tage_idx),
-    .ftq_commit_info_resp_tage_tag(ftq_commit_info_resp_tage_tag)
+    .ftq_commit_info_resp_blk_id(ftq_commit_info_resp_blk_id)
   );
 
   // ================= idu: Idu (back-end/Idu.cpp)
@@ -656,6 +661,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .pre_issue_entries_ftq_offset(pre_issue_entries_ftq_offset),
     .pre_issue_entries_inst(pre_issue_entries_inst),
     .pre_issue_entries_page_fault_inst(pre_issue_entries_page_fault_inst),
+    .pre_issue_entries_pf_inst_hi(pre_issue_entries_pf_inst_hi),
     .pre_issue_entries_valid(pre_issue_entries_valid),
     // inputs from ren
     .ren2dec_ready(ren2dec_ready),
@@ -685,6 +691,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .dec2ren_uop_br_mask(dec2ren_uop_br_mask),
     .dec2ren_uop_csr_idx(dec2ren_uop_csr_idx),
     .dec2ren_uop_page_fault_inst(dec2ren_uop_page_fault_inst),
+    .dec2ren_uop_pf_inst_hi(dec2ren_uop_pf_inst_hi),
     .dec2ren_uop_illegal_inst(dec2ren_uop_illegal_inst),
     .dec2ren_uop_dest_fp(dec2ren_uop_dest_fp),
     .dec2ren_uop_src1_fp(dec2ren_uop_src1_fp),
@@ -734,6 +741,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .dec2ren_uop_imm(dec2ren_uop_imm),
     .dec2ren_uop_is_atomic(dec2ren_uop_is_atomic),
     .dec2ren_uop_page_fault_inst(dec2ren_uop_page_fault_inst),
+    .dec2ren_uop_pf_inst_hi(dec2ren_uop_pf_inst_hi),
     .dec2ren_uop_src1_areg(dec2ren_uop_src1_areg),
     .dec2ren_uop_src1_en(dec2ren_uop_src1_en),
     .dec2ren_uop_src1_is_pc(dec2ren_uop_src1_is_pc),
@@ -785,6 +793,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .ren2dis_uop_br_mask(ren2dis_uop_br_mask),
     .ren2dis_uop_csr_idx(ren2dis_uop_csr_idx),
     .ren2dis_uop_page_fault_inst(ren2dis_uop_page_fault_inst),
+    .ren2dis_uop_pf_inst_hi(ren2dis_uop_pf_inst_hi),
     .ren2dis_uop_illegal_inst(ren2dis_uop_illegal_inst),
     .ren2dis_uop_dest_preg(ren2dis_uop_dest_preg),
     .ren2dis_uop_src1_preg(ren2dis_uop_src1_preg),
@@ -852,6 +861,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .ren2dis_uop_fp_cls(ren2dis_uop_fp_cls),
     .ren2dis_uop_old_dest_preg(ren2dis_uop_old_dest_preg),
     .ren2dis_uop_page_fault_inst(ren2dis_uop_page_fault_inst),
+    .ren2dis_uop_pf_inst_hi(ren2dis_uop_pf_inst_hi),
     .ren2dis_uop_src1_areg(ren2dis_uop_src1_areg),
     .ren2dis_uop_src1_en(ren2dis_uop_src1_en),
     .ren2dis_uop_src1_is_pc(ren2dis_uop_src1_is_pc),
@@ -897,6 +907,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .dis2rob_uop_expect_mask(dis2rob_uop_expect_mask),
     .dis2rob_uop_rob_flag(dis2rob_uop_rob_flag),
     .dis2rob_uop_page_fault_inst(dis2rob_uop_page_fault_inst),
+    .dis2rob_uop_pf_inst_hi(dis2rob_uop_pf_inst_hi),
     .dis2rob_uop_illegal_inst(dis2rob_uop_illegal_inst),
     .dis2iss_req_valid(dis2iss_req_valid),
     .dis2iss_req_uop_dest_preg(dis2iss_req_uop_dest_preg),
@@ -1356,6 +1367,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .dis2rob_uop_fs_need(dis2rob_uop_fs_need),
     .dis2rob_uop_old_dest_preg(dis2rob_uop_old_dest_preg),
     .dis2rob_uop_page_fault_inst(dis2rob_uop_page_fault_inst),
+    .dis2rob_uop_pf_inst_hi(dis2rob_uop_pf_inst_hi),
     .dis2rob_uop_rob_flag(dis2rob_uop_rob_flag),
     .dis2rob_uop_rob_idx(dis2rob_uop_rob_idx),
     .dis2rob_uop_src1_areg(dis2rob_uop_src1_areg),

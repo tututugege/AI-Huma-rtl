@@ -36,8 +36,7 @@ module core_back2front import ttg_cfg_pkg::*; import dis_pkg::*; import bpu_pkg:
   input  logic        ftq_is_rvc     [COMMIT_WIDTH],
   input  logic [COMMIT_WIDTH-1:0] ftq_alt_pred,
   input  logic [2:0]  ftq_pcpn           [COMMIT_WIDTH],
-  input  logic [9:0]  ftq_tage_idx       [COMMIT_WIDTH][TN],
-  input  logic [7:0]  ftq_tage_tag       [COMMIT_WIDTH][TN],
+  input  logic [FTB_BLK_ID_W-1:0] ftq_blk_id [COMMIT_WIDTH],
   // registered: front end inputs (cycle t+1)
   output logic        refetch_q,
   output logic [XLEN_BITS-1:0] refetch_address_q,
@@ -58,8 +57,7 @@ module core_back2front import ttg_cfg_pkg::*; import dis_pkg::*; import bpu_pkg:
   output logic [COMMIT_WIDTH-1:0] upd_pred_dir_q,
   output logic [COMMIT_WIDTH-1:0] upd_alt_pred_q,
   output logic [2:0]  upd_pcpn_q [COMMIT_WIDTH],
-  output logic [7:0]  upd_tags_q [COMMIT_WIDTH][TN],
-  output logic [9:0]  upd_idxs_q [COMMIT_WIDTH][TN]
+  output logic [FTB_BLK_ID_W-1:0] upd_blk_id_q [COMMIT_WIDTH]
 );
 
   logic [COMMIT_WIDTH-1:0] is_jal;
@@ -106,8 +104,7 @@ module core_back2front import ttg_cfg_pkg::*; import dis_pkg::*; import bpu_pkg:
   logic [COMMIT_WIDTH-1:0] upd_pred_dir_d;
   logic [COMMIT_WIDTH-1:0] upd_alt_pred_d;
   logic [2:0]  upd_pcpn_d [COMMIT_WIDTH];
-  logic [7:0]  upd_tags_d [COMMIT_WIDTH][TN];
-  logic [9:0]  upd_idxs_d [COMMIT_WIDTH][TN];
+  logic [FTB_BLK_ID_W-1:0] upd_blk_id_d [COMMIT_WIDTH];
 
   always_comb begin
     for (int i = 0; i < COMMIT_WIDTH; i++) begin
@@ -120,10 +117,7 @@ module core_back2front import ttg_cfg_pkg::*; import dis_pkg::*; import bpu_pkg:
       upd_pred_dir_d[i]   = commit_valid[i] && ftq_pred_taken[i];
       upd_alt_pred_d[i]   = commit_valid[i] && ftq_alt_pred[i];
       upd_pcpn_d[i]       = commit_valid[i] ? ftq_pcpn[i]        : 3'd0;
-      for (int j = 0; j < TN; j++) begin
-        upd_tags_d[i][j] = commit_valid[i] ? ftq_tage_tag[i][j] : 8'd0;
-        upd_idxs_d[i][j] = commit_valid[i] ? ftq_tage_idx[i][j] : 10'd0;
-      end
+      upd_blk_id_d[i]     = commit_valid[i] ? ftq_blk_id[i]      : '0;
     end
   end
 
@@ -165,8 +159,7 @@ module core_back2front import ttg_cfg_pkg::*; import dis_pkg::*; import bpu_pkg:
         upd_pred_dir_q[i]   <= 1'b0;
         upd_alt_pred_q[i]   <= 1'b0;
         upd_pcpn_q[i]       <= 3'd0;
-        upd_tags_q[i]       <= '{default: '0};
-        upd_idxs_q[i]       <= '{default: '0};
+        upd_blk_id_q[i]     <= '0;
       end else begin
         upd_valid_q[i]      <= upd_valid_d[i];
         upd_is_rvc_q[i]     <= upd_is_rvc_d[i];
@@ -177,8 +170,7 @@ module core_back2front import ttg_cfg_pkg::*; import dis_pkg::*; import bpu_pkg:
         upd_pred_dir_q[i]   <= upd_pred_dir_d[i];
         upd_alt_pred_q[i]   <= upd_alt_pred_d[i];
         upd_pcpn_q[i]       <= upd_pcpn_d[i];
-        upd_tags_q[i]       <= upd_tags_d[i];
-        upd_idxs_q[i]       <= upd_idxs_d[i];
+        upd_blk_id_q[i]     <= upd_blk_id_d[i];
       end
     end
   end

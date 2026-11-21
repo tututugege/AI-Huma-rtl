@@ -24,7 +24,6 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
   input  logic mem_resp_ready,
   input  logic dc_req_valid,
   input  logic [31:0] dc_req_addr,
-  input  logic [25:0] fdip_snoop_line,
   input  logic itlb_walk_req_valid,
   input  logic [VPN_W-1:0] itlb_walk_req_vpn,
   input  logic [21:0] itlb_walk_req_root_ppn,
@@ -65,7 +64,6 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
   output logic dc_resp_retry,
   output logic dc_resp_miss,
   output logic [31:0] dc_resp_data,
-  output logic fdip_snoop_dirty,
   output logic itlb_walk_req_ready,
   output logic itlb_walk_resp_valid,
   output logic itlb_walk_resp_fault,
@@ -332,8 +330,7 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
     .mshr_fill(dc_mshr_fill), .mshr_fill_addr(dc_mshr_fill_addr),
     .mshr_req_valid(mshr_req_valid), .mshr_req_addr(mshr_req_addr), .mshr_req_id(mshr_req_id),
     .mshr_resp_ready(mshr_resp_ready),
-    .wb_req_valid(wb_req_valid), .wb_req_addr(wb_req_addr), .wb_req_data(wb_req_data),
-    .fdip_snoop_line(fdip_snoop_line), .fdip_snoop_dirty(fdip_snoop_dirty)
+    .wb_req_valid(wb_req_valid), .wb_req_addr(wb_req_addr), .wb_req_data(wb_req_data)
   );
 
   // ======================= peripheral_axi + hold register =======================

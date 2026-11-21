@@ -290,3 +290,24 @@ rv32 配置包（改动时在旧基线 `15af4b4` 上测）：`tlb_mmu` 159 → 6
 > **关键发现与后续降深度方向**：
 > 1. `bpu` 在加入 2-taken + 2-Ahead B + 1024b `HistRing` + 内部 `rec_q[256]` 后单元数（504k）仍低于 EXP-050 前旧 16-bank BPU（549k，−8.3%），`predecode` / `pre_idu_queue` 深度均小幅下降（27 / 38 层）；
 > 2. `bpu`（272 层）与 `front_top`（356 层）的最长路径均起于 `r1_q[1074]`（S2 双块 `fin` → `fin_b` 串行校验），分别穿入 `u_spec.spec_d` 与 PTAB 旁路→`u_pd.pd_ras_op2_q`；`icache`（106 层）略超 100 层红线。上述三项均已登记至总仓库 `docs/TODO.md` 综合深度优化清单，作为下一阶段前端时序拆拍的精确切入点。
+
+## 14. EXP-053 前端结构清理（Phase 1 零周期重构 + Phase 2 去补丁微架构重构，2026-11-21）
+
+在 `eda-04` / `eda-05` / `eda-06` 按同口径（`SYNTH_LIGHT=1 SYNTH_MEM=1 SYNTH_LTP=1 SYNTH_NO_MEMPRIO=1 SYNTH_ABC="strash;balance;map"`，通用门代理、无工艺库/WNS）对前端与受影响后端/访存模块重测，结果存档于 `/nfs_global/S/houruyao/rtl_synth_work/res_p2/`：
+
+- **Phase 1（零周期改动结构重构）**：真 4-bank 1R1W `icache_arr` + 并行 SRRIP；`bpu_eval` 并行 `ftb_eval_ent`、`bpu_hist_vec` 零取模并行移位、切断 `r1_q → ovr_a → spec_a → g0_b` 假路径、收紧 `MAX_SYM`；`inst_fifo_entry_t` 改存紧凑原始半字 + 单份展开预译码与 4 轮 Kogge-Stone `start_a/b` 前缀扫描挪至 `front_head_fix`；彻底删除死线 `tage_idx` / `tage_tag` / `ftq_commit_info_resp_valid_t`。
+- **Phase 2（微架构去补丁）**：
+  - **P2-1**：删除跨子系统 `fdip_snoop_dirty` / `fdip_snoop_line` 旁路，改为 FDIP 发射前借既有 `dc_req`/`dc_resp` 通道做 1 拍 DCache/WB/MSHR/fill 一致性探针；删除 `resp_popped_q` 回波补丁，改为在 `axi_cpu_port_chan` 通道 0 参数化 `CLEAR_ON_POP=1` 从根源消除陈旧响应回波；
+  - **P2-2**：删除跨页 RVC 第二半字取指缺页经 `inst -> diag_val[1]` 搭便车编码，改为显式 1-bit `pf_inst_hi` 贯穿 `front_head_fix → front2back → core_front2back → pre_idu → idu → ren → dis → rob → rob_trap_ctrl`。
+
+| 模块 | EXP-051 里程碑 B（单元 / 深度） | EXP-053 Phase 1+2（单元 / 深度） | 变化 | 备注 / 最长路径线索 |
+|---|---:|---:|---:|---|
+| `front_top` | 1,582,763 / 356 | **1,159,189 / 216** | **−26.8% / −39.3%** | `mem_v2=180`；`u_pred_path.u_bpu.r1_q[1106] → u_pred_path.u_pd.ras_val_d[29]` |
+| `bpu` | 504,078 / 272 | **410,093 / 197** | **−18.6% / −27.6%** | `mem_v2=169`；`r1_q[1106] → u_spec.spec_d[144]` |
+| `icache` | 916,659 / 106 | **389,270 / 114** | **−57.5% / +8 层** | `mem_v2=7`；真 4-bank 1R1W 面积腰斩超半；`u_ctl.r_q[136] → Mux$12092[30]` |
+| `pre_idu_queue` | 137,578 / 38 | **131,433 / 38** | **−4.5% / 0 层** | `mem_v2=8`；删死 `tage_idx/tag` + 加 1b `pf_inst_hi`；`front2pre_valid[1] → pre_issue_entries_ftq_is_last[3]` |
+| `axi_cpu_port_adapter` | 222 / 9 | **227 / 9** | +2.3% / 0 层 | 通道 0 增加 `CLEAR_ON_POP=1`，仅 +5 单元、深度不变 |
+| `dcache_bank` | — | **142,429 / 12** | 删 `fdip_snoop` 读口 | `mem_v2=6`；删除 `fdip_snoop_dirty` / `fdip_snoop_line` 端口 |
+| `dcache_s2_ld` | 5,074 / 37 | **5,097 / 37** | +0.5% / 0 层 | 支持 1 拍 `icache` 一致性探针（`ic_probe` 复用既有 load 口） |
+| `dcache_wb` | 23,334 / 49 | **23,334 / 49** | 0.0% / 0 层 | 删除 `fdip_snoop` 端口，面积深度零回归 |
+| `rob` | 466,029 / 64 | **466,653 / 64** | +0.1% / 0 层 | 槽位显式增加 1-bit `pf_inst_hi`（+624 单元，深度不变） |

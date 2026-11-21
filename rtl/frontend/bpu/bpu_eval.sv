@@ -31,7 +31,6 @@ module bpu_eval import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
   input  logic                    s2_prefer_alt,
   input  logic                    d_pair,
   input  logic [FTB_BLK_ID_W-1:0] blk_seq_q,
-  input  logic [FTB_BLK_ID_W-1:0] seq1,
   // S0 outputs
   output logic                    ah_src_v,
   output logic                    ah_hit,
@@ -53,8 +52,7 @@ module bpu_eval import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
   output logic [NLANE-1:0]        out_pred_dir,
   output logic [NLANE-1:0]        out_alt_pred,
   output logic [PCPN_W-1:0]       out_pcpn      [NLANE],
-  output logic [T_TAG_W-1:0]      out_tage_tags [NLANE][TN],
-  output logic [T_IDX_W-1:0]      out_tage_idxs [NLANE][TN]
+  output logic [FTB_BLK_ID_W-1:0] out_blk_id
 );
 
   // ---- S0 Block A: 1-ahead select + uFTB fallback ----
@@ -96,8 +94,9 @@ module bpu_eval import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
 
   // ---- S0 Block B: 2-ahead B select + uFTB fallback + strict NT=1 + 4-bank ic_pair_ok ----
   logic                    a_upper_ok, disc_ok, b_cand_ok, b_truncated, ah2_hit;
-  logic [4:0]              s0_a_len5, s0_b_len5;
-  logic [XLEN_BITS-1:0]    a_br_pc, max_b_end, full_bnd_b;
+  logic [4:0]              s0_a_len5, s0_b_len5, s0_a_nslots;
+  logic [5:0]              b_line_bytes, b_cap_bytes, b_eff_bytes;
+  logic [XLEN_BITS-1:0]    a_br_pc;
   logic [FTB_AH_TAG_W-1:0] ah2_sel_tag;
   ftb_ent_t                ah2_ent;
   ftb_ix_t                 ah2_sel_ix;
@@ -107,24 +106,25 @@ module bpu_eval import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
   ftb_eval_res_t           ah2_eval, u0_b_eval;
 
   always_comb begin
-    s0_b_base   = g0.next;
-    s0_a_len5   = {1'b0, g0.slot} + 5'd1;
-    a_upper_ok  = g0.rvc || ((g0.slot == '0) && g0.carried) ||
-                  ((s0_base + (XLEN_BITS'(s0_a_len5) << SLOT_SHIFT)) < s0_bnd);
-    a_br_pc     = ((g0.slot == '0) && g0.carried) ?
-                  (s0_base - XLEN_BITS'(SLOT_BYTES)) :
-                  (s0_base + (XLEN_BITS'(g0.slot) << SLOT_SHIFT));
-    disc_ok     = (s0_b_base != (s0_base + (XLEN_BITS'(s0_a_len5) << SLOT_SHIFT))) &&
-                  (s0_b_base != (a_br_pc + (g0.rvc ? XLEN_BITS'(2) : XLEN_BITS'(4))));
-    max_b_end   = s0_b_base + (XLEN_BITS'(5'(FETCH_WIDTH) - s0_a_len5) << SLOT_SHIFT);
-    full_bnd_b  = block_bnd(s0_b_base);
-    s0_b_bnd    = (full_bnd_b < max_b_end) ? full_bnd_b : max_b_end;
-    b_truncated = (full_bnd_b > max_b_end);
-    s0_b_len5   = 5'((s0_b_bnd - s0_b_base) >> SLOT_SHIFT);
-    b_cand_ok   = g0.taken && (s0_a_len5 >= 5'd1) && (s0_a_len5 < 5'(FETCH_WIDTH)) &&
-                  a_upper_ok && disc_ok && ic_pair_ok(s0_base, s0_b_base) && (s0_b_len5 >= 5'd2);
-    s0_a_len    = s0_a_len5[3:0];
-    s0_b_len    = s0_b_len5[3:0];
+    s0_b_base    = g0.next;
+    s0_a_len5    = {1'b0, g0.slot} + 5'd1;
+    s0_a_nslots  = (s0_bnd != '0) ? 5'(((6'(s0_bnd[5:0]) - 6'(s0_base[5:0])) + 6'd1) >> 1) : 5'd0;
+    a_upper_ok   = g0.rvc || ((g0.slot == '0) && g0.carried) || (s0_a_len5 < s0_a_nslots);
+    a_br_pc      = ((g0.slot == '0) && g0.carried) ?
+                   (s0_base - XLEN_BITS'(SLOT_BYTES)) :
+                   (s0_base + (XLEN_BITS'(g0.slot) << SLOT_SHIFT));
+    disc_ok      = (s0_b_base != (s0_base + (XLEN_BITS'(s0_a_len5) << SLOT_SHIFT))) &&
+                   (s0_b_base != (a_br_pc + (g0.rvc ? XLEN_BITS'(2) : XLEN_BITS'(4))));
+    b_line_bytes = s0_b_base[5] ? (6'd0 - s0_b_base[5:0]) : 6'd32;
+    b_cap_bytes  = {5'(FETCH_WIDTH) - s0_a_len5, 1'b0};
+    b_eff_bytes  = (b_line_bytes < b_cap_bytes) ? b_line_bytes : b_cap_bytes;
+    b_truncated  = (b_line_bytes > b_cap_bytes);
+    s0_b_bnd     = s0_b_base + XLEN_BITS'(b_eff_bytes);
+    s0_b_len5    = b_eff_bytes[5:1];
+    b_cand_ok    = g0.taken && (s0_a_len5 >= 5'd1) && (s0_a_len5 < 5'(FETCH_WIDTH)) &&
+                   a_upper_ok && disc_ok && ic_pair_ok(s0_base, s0_b_base) && (s0_b_len5 >= 5'd2);
+    s0_a_len     = s0_a_len5[3:0];
+    s0_b_len     = s0_b_len5[3:0];
   end
 
   always_comb begin
@@ -191,6 +191,9 @@ module bpu_eval import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
   end
 
   always_comb begin
+    logic [4:0] s2_ns, s2_bns;
+    s2_ns  = (s2_bnd != '0) ? 5'(((6'(s2_bnd[5:0]) - 6'(r1_q.base[5:0])) + 6'd1) >> 1) : 5'd0;
+    s2_bns = (r1_q.bnd_b != '0) ? 5'(((6'(r1_q.bnd_b[5:0]) - 6'(r1_q.base_b[5:0])) + 6'd1) >> 1) : 5'd0;
     a_pred_dir = '0; a_alt_pred = '0;
     b_pred_dir = '0; b_alt_pred = '0;
     for (int i = 0; i < NLANE; i++) begin
@@ -199,8 +202,7 @@ module bpu_eval import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
     end
     if (r1_raw_q.ftb_hit) begin
       for (int k = 0; k < FTB_SLOTS; k++) begin
-        if (r1_raw_q.ent.s[k].valid &&
-            ((r1_q.base + (XLEN_BITS'(r1_raw_q.ent.s[k].offset) << SLOT_SHIFT)) < s2_bnd)) begin
+        if (r1_raw_q.ent.s[k].valid && ({1'b0, r1_raw_q.ent.s[k].offset} < s2_ns)) begin
           a_pred_dir[r1_raw_q.ent.s[k].offset] = s2_eval.slot_tk[k];
           a_alt_pred[r1_raw_q.ent.s[k].offset] = s2_tp[k].alt;
           a_pcpn[r1_raw_q.ent.s[k].offset]     = s2_tp[k].pcpn;
@@ -209,39 +211,34 @@ module bpu_eval import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
     end
     if (r1_raw_b_q.ftb_hit) begin
       for (int k = 0; k < FTB_SLOTS; k++) begin
-        if (r1_raw_b_q.ent.s[k].valid &&
-            ((r1_q.base_b + (XLEN_BITS'(r1_raw_b_q.ent.s[k].offset) << SLOT_SHIFT)) < r1_q.bnd_b)) begin
+        if (r1_raw_b_q.ent.s[k].valid && ({1'b0, r1_raw_b_q.ent.s[k].offset} < s2_bns)) begin
           b_pred_dir[r1_raw_b_q.ent.s[k].offset] = s2_b_eval.slot_tk[k];
           b_alt_pred[r1_raw_b_q.ent.s[k].offset] = s2_b_tp[k].alt;
           b_pcpn[r1_raw_b_q.ent.s[k].offset]     = s2_b_tp[k].pcpn;
         end
       end
     end
+    out_blk_id = blk_seq_q;
     for (int i = 0; i < NLANE; i++) begin
       logic [3:0] j;
       j = 4'(i) - r1_q.a_len;
       if (d_pair && (4'(i) >= r1_q.a_len)) begin
-        out_pred_dir[i]     = b_pred_dir[j];
-        out_alt_pred[i]     = b_alt_pred[j];
-        out_pcpn[i]         = b_pcpn[j];
-        out_tage_idxs[i][0] = seq1;
-        for (int t = 1; t < TN; t++) out_tage_idxs[i][t] = r1_ix_b_q.idx[t][T_IDX_W-1:0];
-        for (int t = 0; t < TN; t++) out_tage_tags[i][t] = r1_ix_b_q.tag[t][T_TAG_W-1:0];
+        out_pred_dir[i] = b_pred_dir[j];
+        out_alt_pred[i] = b_alt_pred[j];
+        out_pcpn[i]     = b_pcpn[j];
       end else begin
-        out_pred_dir[i]     = a_pred_dir[i];
-        out_alt_pred[i]     = a_alt_pred[i];
-        out_pcpn[i]         = a_pcpn[i];
-        out_tage_idxs[i][0] = blk_seq_q;
-        for (int t = 1; t < TN; t++) out_tage_idxs[i][t] = r1_ix_q.idx[t][T_IDX_W-1:0];
-        for (int t = 0; t < TN; t++) out_tage_tags[i][t] = r1_ix_q.tag[t][T_TAG_W-1:0];
+        out_pred_dir[i] = a_pred_dir[i];
+        out_alt_pred[i] = a_alt_pred[i];
+        out_pcpn[i]     = a_pcpn[i];
       end
     end
   end
 
   /* verilator lint_off UNUSEDSIGNAL */
   logic unused_eval;
-  assign unused_eval = ^{r0_q, r1_q, s1_raw, ah_eval.slot_tk, u0_eval.slot_tk, ah2_eval.slot_tk, u0_b_eval.slot_tk,
-                         s1_eval.slot_tk, ah_tp[0].alt, ah_tp[0].pcpn, ah_tp[0].used_alt,
+  assign unused_eval = ^{r0_q, r1_q, r1_ix_q, r1_ix_b_q, s1_raw, ah_eval.slot_tk, u0_eval.slot_tk,
+                         ah2_eval.slot_tk, u0_b_eval.slot_tk, s1_eval.slot_tk,
+                         ah_tp[0].alt, ah_tp[0].pcpn, ah_tp[0].used_alt,
                          ah2_tp[0].alt, ah2_tp[0].pcpn, ah2_tp[0].used_alt,
                          s2_tp[0].used_alt, s2_b_tp[0].used_alt};
   /* verilator lint_on UNUSEDSIGNAL */

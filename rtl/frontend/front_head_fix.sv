@@ -1,10 +1,11 @@
-// Ref: front-end/front_top.cpp  InstPort::comb_read (S2-confirmed A/B mux, PTAB PC agreement cut, rvc_head_fix)
+// Ref: front-end/front_top.cpp  InstPort::comb_read (S2-confirmed raw A/B mux, single expand+predecode, O(log N) prefix start scan, PTAB PC cut, rvc_head_fix)
 `default_nettype none
 
 // Instruction-queue head preparation before predecode_checker:
-//   1) S2-confirmed A/B mux: if has_alt_a && !ptab_is_pair, restore intact Block A;
-//   2) PTAB PC agreement cut: drop any suffix whose PC disagrees with the PTAB entry, updating up16/up_ok/seq_next_pc;
-//   3) RVC=1 C910-style carry assembly, instruction-start filtering, and last-slot straddler completion/carry.
+//   1) S2-confirmed raw A/B mux (select fused A+B when inst_e.is_pair && ptab_is_pair, else intact Block A);
+//   2) Single 16-lane RVC expand + predecode + 4-round O(log N) Kogge-Stone start_a/start_b prefix scan;
+//   3) Parallel PTAB PC agreement cut (4-round prefix-OR) + log-depth valid count (ttg_first_set);
+//   4) RVC=1 C910-style carry assembly, cross-page 2nd-halfword page-fault offset (+2), and straddler handling.
 module front_head_fix import ttg_cfg_pkg::*; import front_pkg::*; (
   input  inst_fifo_entry_t        inst_e,
   input  logic [XLEN_BITS-1:0]    ptab_base_pc,
@@ -18,6 +19,7 @@ module front_head_fix import ttg_cfg_pkg::*; import front_pkg::*; (
   output logic [31:0]             insts_o      [FETCH_WIDTH],
   output logic [FETCH_WIDTH-1:0]  valid_o,
   output logic [FETCH_WIDTH-1:0]  pf_o,
+  output logic [FETCH_WIDTH-1:0]  pf_hi_o,
   output logic [1:0]              ptype_o      [FETCH_WIDTH],
   output logic [XLEN_BITS-1:0]    ptarget_o    [FETCH_WIDTH],
   output logic [FETCH_WIDTH-1:0]  is_rvc_o,
@@ -33,96 +35,209 @@ module front_head_fix import ttg_cfg_pkg::*; import front_pkg::*; (
   output logic [XLEN_BITS-1:0]    seq_next_o
 );
 
-  // ---- Step 1: S2-confirmed A/B mux ----
-  logic                   use_alt;
-  logic [31:0]            s1_inst  [FETCH_WIDTH];
-  logic [XLEN_BITS-1:0]   s1_pc    [FETCH_WIDTH], ptab_pc [FETCH_WIDTH];
-  logic [FETCH_WIDTH-1:0] s1_v, s1_pf, s1_rvc, s1_sa, s1_sb;
-  logic [1:0]             s1_ty    [FETCH_WIDTH];
-  logic [XLEN_BITS-1:0]   s1_tgt   [FETCH_WIDTH];
-  logic [15:0]            s1_up16;
-  logic                   s1_up_ok;
-  logic [XLEN_BITS-1:0]   s1_seq;
+  localparam logic [15:0] INST_NOP_LO = 16'h0013;
+  localparam int          IC_OFF_W    = $clog2(ICACHE_LINE_SIZE);
+
+  // ---- Step 1: S2-confirmed raw halfword A/B mux ----
+  logic                   use_pair;
+  logic [FETCH_WIDTH-1:0] s1_v, s1_pf;
+  logic [XLEN_BITS-1:0]   s1_pc   [FETCH_WIDTH], ptab_pc [FETCH_WIDTH];
+  logic [15:0]            s1_lo   [FETCH_WIDTH], s1_hi   [FETCH_WIDTH];
+
+  assign use_pair = inst_e.is_pair && ptab_is_pair;
 
   always_comb begin
-    use_alt  = inst_e.has_alt_a && !ptab_is_pair;
-    s1_v     = use_alt ? inst_e.alt_inst_valid      : inst_e.inst_valid;
-    s1_pf    = use_alt ? inst_e.alt_page_fault_inst : inst_e.page_fault_inst;
-    s1_rvc   = use_alt ? inst_e.alt_is_rvc          : inst_e.is_rvc;
-    s1_sa    = use_alt ? inst_e.alt_start_a         : inst_e.start_a;
-    s1_sb    = use_alt ? inst_e.alt_start_b         : inst_e.start_b;
-    s1_up16  = use_alt ? inst_e.alt_up16            : inst_e.up16;
-    s1_up_ok = use_alt ? inst_e.alt_up_ok           : inst_e.up_ok;
-    s1_seq   = use_alt ? inst_e.alt_seq_next_pc     : inst_e.seq_next_pc;
     for (int i = 0; i < FETCH_WIDTH; i++) begin
-      s1_inst[i] = use_alt ? inst_e.alt_instructions[i]             : inst_e.instructions[i];
-      s1_ty[i]   = use_alt ? inst_e.alt_predecode_type[i]           : inst_e.predecode_type[i];
-      s1_tgt[i]  = use_alt ? inst_e.alt_predecode_target_address[i] : inst_e.predecode_target_address[i];
-      s1_pc[i]   = use_alt ? (inst_e.base_a + XLEN_BITS'(SLOT_BYTES * i))
-                           : pair_slot_pc(inst_e.base_a, inst_e.is_pair, inst_e.a_len, inst_e.base_b, i);
+      logic [3:0] j;
+      j = 4'(i) - inst_e.a_len;
+      if (use_pair && (4'(i) >= inst_e.a_len)) begin
+        s1_v[i]  = inst_e.b_ok && ({1'b0, j} < inst_e.b_actual_n);
+        s1_pf[i] = 1'b0;
+        s1_pc[i] = inst_e.base_b + (XLEN_BITS'(j) << SLOT_SHIFT);
+        s1_lo[i] = s1_v[i] ? inst_e.raw_b[j] : INST_NOP_LO;
+        s1_hi[i] = s1_v[i]
+                   ? (({1'b0, j} + 5'd1 < inst_e.b_actual_n) ? inst_e.raw_b[j + 4'd1] : inst_e.up16_b)
+                   : 16'h0000;
+      end else begin
+        s1_v[i]  = inst_e.valid_a[i];
+        s1_pf[i] = inst_e.pf_a[i];
+        s1_pc[i] = inst_e.base_a + XLEN_BITS'(SLOT_BYTES * i);
+        s1_lo[i] = inst_e.raw_a[i];
+        s1_hi[i] = (inst_e.pf_a[i] || !inst_e.valid_a[i])
+                   ? 16'h0000
+                   : (((i + 1 < FETCH_WIDTH) && inst_e.valid_a[i + 1]) ? inst_e.raw_a[i + 1] : inst_e.up16_a);
+      end
       ptab_pc[i] = pair_slot_pc(ptab_base_pc, ptab_is_pair, ptab_a_len, ptab_base_b, i);
     end
   end
 
-  // ---- Step 2: PTAB PC agreement cut & segment descriptors ----
-  logic [FETCH_WIDTH-1:0] s2_v;
-  logic [1:0]             s2_ty  [FETCH_WIDTH];
-  logic [XLEN_BITS-1:0]   s2_tgt [FETCH_WIDTH];
-  logic [15:0]            s2_up16;
-  logic                   s2_up_ok;
-  logic [XLEN_BITS-1:0]   s2_seq;
+  // First invalid slot in s1_v -> s1_last_oh, s1_up16, s1_up_ok, s1_seq (O(log N))
+  logic [FETCH_WIDTH-1:0] s1_inv_oh, s1_last_oh;
+  logic                   s1_any_inv, s1_has_v, s1_up_ok;
+  logic [15:0]            s1_up16;
+  logic [XLEN_BITS-1:0]   s1_last_pc, s1_seq_raw, s1_seq;
 
+  ttg_first_set #(.N(FETCH_WIDTH)) u_s1_inv (.req(~s1_v), .onehot(s1_inv_oh), .any(s1_any_inv));
+  assign s1_last_oh = s1_any_inv ? {1'b0, s1_inv_oh[FETCH_WIDTH-1:1]} : {1'b1, {(FETCH_WIDTH-1){1'b0}}};
+  assign s1_has_v   = s1_v[0];
+  ttg_onehot_mux #(.N(FETCH_WIDTH), .W(16))        u_s1_up16 (.sel(s1_last_oh), .data(s1_hi), .out(s1_up16));
+  ttg_onehot_mux #(.N(FETCH_WIDTH), .W(XLEN_BITS)) u_s1_lpc  (.sel(s1_last_oh), .data(s1_pc), .out(s1_last_pc));
+  assign s1_up_ok   = s1_has_v && (!inst_e.single_word_a) &&
+                      (((s1_last_pc + XLEN_BITS'(SLOT_BYTES)) & XLEN_BITS'(ICACHE_LINE_SIZE - 1)) != '0);
+  assign s1_seq_raw = s1_has_v ? (s1_last_pc + XLEN_BITS'(SLOT_BYTES)) : inst_e.base_a;
+  assign s1_seq     = (!use_pair && (s1_seq_raw[XLEN_BITS-1:IC_OFF_W] != inst_e.base_a[XLEN_BITS-1:IC_OFF_W]))
+                      ? {s1_seq_raw[XLEN_BITS-1:IC_OFF_W], {IC_OFF_W{1'b0}}}
+                      : s1_seq_raw;
+
+  // ---- Step 2: Single 16-lane RVC expand + predecode + 4-round O(log N) prefix start scan ----
+  logic [31:0]            s1_win  [FETCH_WIDTH], s1_inst [FETCH_WIDTH];
+  logic [FETCH_WIDTH-1:0] s1_rvc, s1_sa, s1_sb;
+  logic [1:0]             s1_ty   [FETCH_WIDTH];
+  logic [XLEN_BITS-1:0]   s1_tgt  [FETCH_WIDTH];
+
+  for (genvar i = 0; i < FETCH_WIDTH; i++) begin : g_dec
+    logic [31:0] ex;
+    assign s1_win[i]  = s1_last_oh[i] ? {16'h0000, s1_lo[i]} : {s1_hi[i], s1_lo[i]};
+    rvc_expand u_exp (.h(s1_lo[i]), .inst(ex));
+    assign s1_rvc[i]  = (RVC_ENABLE != 0) && s1_v[i] && (s1_lo[i][1:0] != 2'b11);
+    assign s1_inst[i] = s1_rvc[i] ? ex : s1_win[i];
+    predecode_lane u_pd (
+      .pc(s1_pc[i]), .inst(s1_inst[i]), .inst_valid(s1_v[i]),
+      .predecode_type(s1_ty[i]), .predecode_target_address(s1_tgt[i])
+    );
+  end
+
+  // 4-round Kogge-Stone prefix scan for start_a / start_b with inner A/B segment boundary reset
+  logic [FETCH_WIDTH-1:0] s1_v_pre, bnd_vec, ga_gen, gb_gen;
   always_comb begin
-    logic cut, dropped;
-    int last_v;
-    cut     = 1'b0;
-    dropped = 1'b0;
-    last_v  = -1;
-    multi_o = 1'b0;
-    for (int i = 0; i < FETCH_WIDTH; i++) begin
-      if (!cut && s1_v[i] && (s1_pc[i] != ptab_pc[i])) cut = 1'b1;
-      if (cut) begin
-        if (s1_v[i]) dropped = 1'b1;
-        s2_v[i]   = 1'b0;
-        s2_ty[i]  = PREDECODE_NON_BRANCH;
-        s2_tgt[i] = '0;
-      end else begin
-        s2_v[i]   = s1_v[i];
-        s2_ty[i]  = s1_ty[i];
-        s2_tgt[i] = s1_tgt[i];
-      end
-      if (s2_v[i]) last_v = i;
-    end
-    for (int i = 0; i < FETCH_WIDTH; i++) begin
-      in_range_o[i]  = s2_v[i];
-      seg_first_o[i] = (i > 0) && s2_v[i] && s2_v[i - 1] && (s1_pc[i] != s1_pc[i - 1] + XLEN_BITS'(SLOT_BYTES));
-      if (seg_first_o[i]) multi_o = 1'b1;
-    end
-    s2_seq   = s1_seq;
-    s2_up16  = s1_up16;
-    s2_up_ok = s1_up_ok;
-    if (dropped && (last_v >= 0)) begin
-      s2_seq   = s1_pc[last_v] + XLEN_BITS'(SLOT_BYTES);
-      s2_up16  = s1_inst[last_v][31:16];
-      s2_up_ok = 1'b1;
+    // Leading valid prefix mask: bits strictly before first zero in s1_v
+    logic [FETCH_WIDTH-1:0] z_pre;
+    z_pre = ~s1_v;
+    z_pre = z_pre | (z_pre << 1);
+    z_pre = z_pre | (z_pre << 2);
+    z_pre = z_pre | (z_pre << 4);
+    z_pre = z_pre | (z_pre << 8);
+    s1_v_pre = ~z_pre;
+
+    bnd_vec = '0;
+    for (int i = 1; i < FETCH_WIDTH; i++)
+      bnd_vec[i] = use_pair && (4'(i) == inst_e.a_len) && (inst_e.base_b != (s1_pc[i - 1] + XLEN_BITS'(SLOT_BYTES)));
+
+    ga_gen[0] = 1'b1;
+    gb_gen[0] = 1'b0;
+    for (int i = 1; i < FETCH_WIDTH; i++) begin
+      ga_gen[i] = bnd_vec[i] || s1_rvc[i - 1];
+      gb_gen[i] = (i == 1) ? 1'b1 : (bnd_vec[i] || s1_rvc[i - 1]);
     end
   end
 
-  assign pf_o = s1_pf;
+  // Helper: nearest-left generator parity (Kogge-Stone parallel tree for synthesis, fast scan for simulation)
+  function automatic logic [FETCH_WIDTH-1:0] scan_starts(input logic [FETCH_WIDTH-1:0] gen,
+                                                         input logic [FETCH_WIDTH-1:0] vmask);
+    logic [FETCH_WIDTH-1:0] out;
+`ifdef SYNTHESIS
+    logic [FETCH_WIDTH-1:0] h0, p0, h1, p1, h2, p2, h3, p3, h4, p4;
+    for (int i = 0; i < FETCH_WIDTH; i++) begin
+      h0[i] = gen[i];
+      p0[i] = 1'(i & 1);
+    end
+    for (int i = 0; i < FETCH_WIDTH; i++) begin
+      h1[i] = (i >= 1) ? (h0[i] || h0[i - 1]) : h0[i];
+      p1[i] = (i >= 1) ? (h0[i] ? p0[i] : p0[i - 1]) : p0[i];
+    end
+    for (int i = 0; i < FETCH_WIDTH; i++) begin
+      h2[i] = (i >= 2) ? (h1[i] || h1[i - 2]) : h1[i];
+      p2[i] = (i >= 2) ? (h1[i] ? p1[i] : p1[i - 2]) : p1[i];
+    end
+    for (int i = 0; i < FETCH_WIDTH; i++) begin
+      h3[i] = (i >= 4) ? (h2[i] || h2[i - 4]) : h2[i];
+      p3[i] = (i >= 4) ? (h2[i] ? p2[i] : p2[i - 4]) : p2[i];
+    end
+    for (int i = 0; i < FETCH_WIDTH; i++) begin
+      h4[i] = (i >= 8) ? (h3[i] || h3[i - 8]) : h3[i];
+      p4[i] = (i >= 8) ? (h3[i] ? p3[i] : p3[i - 8]) : p3[i];
+      out[i] = vmask[i] && h4[i] && (p4[i] == 1'(i & 1));
+    end
+`else
+    logic cur_has, cur_par;
+    cur_has = 1'b0;
+    cur_par = 1'b0;
+    for (int i = 0; i < FETCH_WIDTH; i++) begin
+      if (gen[i]) begin
+        cur_has = 1'b1;
+        cur_par = 1'(i & 1);
+      end
+      out[i] = vmask[i] && cur_has && (cur_par == 1'(i & 1));
+    end
+`endif
+    return out;
+  endfunction
 
-  // ---- Step 3: RVC=1 carry assembly + instruction-start filter + straddler ----
-  logic [XLEN_BITS-1:0] asm_pc, comp_pc;
-  logic [31:0]          asm_word, comp_word;
-  logic [1:0]           asm_type, comp_type;
-  logic [XLEN_BITS-1:0] asm_tgt, comp_tgt;
-  logic [FETCH_WIDTH-1:0] chain, last_oh, straddle_raw_oh, complete_oh, straddle_oh, keep;
-  logic [15:0]          raw_low [FETCH_WIDTH];
-  logic [15:0]          comp_low;
-  logic [4:0]           rvc_n;
+  assign s1_sa = (RVC_ENABLE != 0) ? scan_starts(ga_gen, s1_v_pre) : '0;
+  assign s1_sb = (RVC_ENABLE != 0) ? scan_starts(gb_gen, s1_v_pre) : '0;
+
+  // ---- Step 3: Parallel PTAB PC agreement cut & segment descriptors ----
+  logic [FETCH_WIDTH-1:0] mm_raw, cut_mask, s2_v;
+  logic [1:0]             s2_ty  [FETCH_WIDTH];
+  logic [XLEN_BITS-1:0]   s2_tgt [FETCH_WIDTH];
+  logic                   dropped;
+  logic [FETCH_WIDTH-1:0] s2_inv_oh, s2_last_oh;
+  logic                   s2_any_inv, s2_has_v;
+  logic [3:0]             s2_inv_idx;
+  logic [4:0]             rvc_n;
+  logic [15:0]            s2_cut_up16, s2_up16;
+  logic                   s2_up_ok;
+  logic [XLEN_BITS-1:0]   s2_last_pc, s2_seq;
+
+  always_comb begin
+    for (int i = 0; i < FETCH_WIDTH; i++)
+      mm_raw[i] = s1_v[i] && (s1_pc[i] != ptab_pc[i]);
+    cut_mask = mm_raw;
+    cut_mask = cut_mask | (cut_mask << 1);
+    cut_mask = cut_mask | (cut_mask << 2);
+    cut_mask = cut_mask | (cut_mask << 4);
+    cut_mask = cut_mask | (cut_mask << 8);
+    dropped  = |(s1_v & cut_mask);
+    s2_v     = s1_v & ~cut_mask;
+    for (int i = 0; i < FETCH_WIDTH; i++) begin
+      s2_ty[i]       = cut_mask[i] ? PREDECODE_NON_BRANCH : s1_ty[i];
+      s2_tgt[i]      = cut_mask[i] ? '0                   : s1_tgt[i];
+      in_range_o[i]  = s2_v[i];
+      seg_first_o[i] = (i > 0) && s2_v[i] && s2_v[i - 1] && bnd_vec[i];
+    end
+    multi_o = |seg_first_o;
+  end
+
+  ttg_first_set #(.N(FETCH_WIDTH)) u_s2_inv (.req(~s2_v), .onehot(s2_inv_oh), .any(s2_any_inv));
+  ttg_onehot_to_idx #(.N(FETCH_WIDTH)) u_s2_inv_idx (.onehot(s2_inv_oh), .idx(s2_inv_idx));
+  assign rvc_n      = s2_any_inv ? {1'b0, s2_inv_idx} : 5'(FETCH_WIDTH);
+  assign s2_last_oh = s2_any_inv ? {1'b0, s2_inv_oh[FETCH_WIDTH-1:1]} : {1'b1, {(FETCH_WIDTH-1){1'b0}}};
+  assign s2_has_v   = s2_v[0];
+
+  logic [15:0] s1_inst_hi [FETCH_WIDTH];
+  for (genvar i = 0; i < FETCH_WIDTH; i++) begin : g_s1_hi
+    assign s1_inst_hi[i] = s1_inst[i][31:16];
+  end
+  ttg_onehot_mux #(.N(FETCH_WIDTH), .W(16))        u_s2_up16 (.sel(s2_last_oh), .data(s1_inst_hi), .out(s2_cut_up16));
+  ttg_onehot_mux #(.N(FETCH_WIDTH), .W(XLEN_BITS)) u_s2_lpc  (.sel(s2_last_oh), .data(s1_pc),      .out(s2_last_pc));
+
+  assign s2_seq   = (dropped && s2_has_v) ? (s2_last_pc + XLEN_BITS'(SLOT_BYTES)) : s1_seq;
+  assign s2_up16  = (dropped && s2_has_v) ? s2_cut_up16 : s1_up16;
+  assign s2_up_ok = (dropped && s2_has_v) ? 1'b1        : s1_up_ok;
+  assign pf_o     = s1_pf;
+
+  // ---- Step 4: RVC=1 carry assembly + instruction-start filter + straddler ----
+  logic [XLEN_BITS-1:0]   asm_pc, comp_pc;
+  logic [31:0]            asm_word, comp_word;
+  logic [1:0]             asm_type, comp_type;
+  logic [XLEN_BITS-1:0]   asm_tgt, comp_tgt;
+  logic [FETCH_WIDTH-1:0] chain, straddle_raw_oh, complete_oh, straddle_oh, keep;
+  logic [15:0]            raw_low [FETCH_WIDTH];
+  logic [15:0]            comp_low;
 
   assign carry    = (RVC_ENABLE != 0) && lh_valid && (lh_pc == s1_pc[0]) && s2_v[0];
   assign asm_pc   = s1_pc[0] - XLEN_BITS'(SLOT_BYTES);
-  assign asm_word = {inst_e.raw0, lh_data};
+  assign asm_word = {inst_e.raw_a[0], lh_data};
 
   predecode_lane u_asm (
     .pc(asm_pc), .inst(asm_word), .inst_valid(1'b1),
@@ -130,14 +245,9 @@ module front_head_fix import ttg_cfg_pkg::*; import front_pkg::*; (
   );
 
   always_comb begin
-    int n;
-    n     = 0;
     chain = carry ? s1_sb : s1_sa;
-    for (int i = 0; i < FETCH_WIDTH; i++) if ((n == i) && s2_v[i]) n = i + 1;
-    rvc_n = 5'(n);
     for (int i = 0; i < FETCH_WIDTH; i++) begin
-      last_oh[i]         = (n > 0) && (i == (n - 1));
-      straddle_raw_oh[i] = (RVC_ENABLE != 0) && last_oh[i] && chain[i] && !s1_rvc[i] && !s1_pf[i];
+      straddle_raw_oh[i] = (RVC_ENABLE != 0) && s2_last_oh[i] && s2_has_v && chain[i] && !s1_rvc[i] && !s1_pf[i];
       complete_oh[i]     = straddle_raw_oh[i] && predict_dir[i] && s2_up_ok;
       straddle_oh[i]     = straddle_raw_oh[i] && !complete_oh[i];
       raw_low[i]         = s1_inst[i][15:0];
@@ -157,6 +267,9 @@ module front_head_fix import ttg_cfg_pkg::*; import front_pkg::*; (
     .predecode_type(comp_type), .predecode_target_address(comp_tgt)
   );
 
+  logic [XLEN_BITS-1:0] last_slot_pc;
+  ttg_onehot_mux #(.N(FETCH_WIDTH), .W(XLEN_BITS)) u_end_pc (.sel(s2_last_oh), .data(slot_pc_o), .out(last_slot_pc));
+
   always_comb begin
     for (int i = 0; i < FETCH_WIDTH; i++) begin
       if (i == 0 && carry) begin
@@ -175,15 +288,21 @@ module front_head_fix import ttg_cfg_pkg::*; import front_pkg::*; (
         ptype_o[i]   = valid_o[i] ? s2_ty[i]  : PREDECODE_NON_BRANCH;
         ptarget_o[i] = valid_o[i] ? s2_tgt[i] : '0;
       end
-      // Carry cross-page 2nd-halfword instruction page-fault offset (+2) in inst->diag_val for ROB stval
-      if (s1_pf[i]) insts_o[i] = (i == 0 && carry) ? 32'd2 : 32'd0;
+      // Explicit 1-bit flag for cross-page 2nd-halfword instruction page-fault (+2 in ROB stval)
+      pf_hi_o[i] = s1_pf[i] && (i == 0) && carry;
+      if (s1_pf[i]) insts_o[i] = 32'h00000013;
     end
-    group_end_pc = (rvc_n != 5'd0) ? (slot_pc_o[rvc_n[3:0] - 4'd1] + XLEN_BITS'(SLOT_BYTES)) : slot_pc_o[0];
+    group_end_pc = (rvc_n != 5'd0) ? (last_slot_pc + XLEN_BITS'(SLOT_BYTES)) : slot_pc_o[0];
   end
 
   assign straddle   = |straddle_oh;
   assign seq_next_o = (|complete_oh) ? (comp_pc + XLEN_BITS'(4)) : s2_seq;
   ttg_onehot_mux #(.N(FETCH_WIDTH), .W(16)) u_carry_low (.sel(straddle_oh), .data(raw_low), .out(carry_low));
+
+  /* verilator lint_off UNUSEDSIGNAL */
+  logic unused_hf;
+  assign unused_hf = s1_inv_oh[0];
+  /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule
 

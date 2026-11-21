@@ -17,6 +17,7 @@ module icache_kill import ttg_cfg_pkg::*; import icache_pkg::*; (
   input  logic [IC_TXID_W-1:0]    mem_req_accepted_id,
   input  logic                    mem_resp_valid,
   input  logic [IC_TXID_W-1:0]    mem_resp_id,
+  input  logic                    dc_probe_busy,
   output ic_regs_t                r_n,
   output logic                    mem_resp_ready,
   output logic                    dc_req_valid,
@@ -51,7 +52,7 @@ module icache_kill import ttg_cfg_pkg::*; import icache_pkg::*; (
   // DCache probe request of the SWAP_IN case (step_dcache_probe runs before the kill test there)
   always_comb begin
     dc_req_valid = swap_in && r.req_valid && !ic_is_uncache(r.ppn[IC_TAG_W-1 -: 2]) && !r.probe_done
-                   && !r.probe_inflight;
+                   && !r.probe_inflight && !dc_probe_busy;
     dc_req_addr  = ic_probe_addr(r.ppn, r.req_pc[11:IC_OFF_W], r.probe_word);
     mem_resp_ready = drop_resp;
   end

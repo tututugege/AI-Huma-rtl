@@ -10,6 +10,7 @@ module front2back_fifo import ttg_cfg_pkg::*; import front_pkg::*; (
   input  logic                    wr_en,
   input  logic [31:0]             wr_fetch_group [FETCH_WIDTH],
   input  logic [FETCH_WIDTH-1:0]  wr_page_fault_inst,
+  input  logic [FETCH_WIDTH-1:0]  wr_pf_inst_hi,
   input  logic [FETCH_WIDTH-1:0]  wr_inst_valid,
   input  logic [FETCH_WIDTH-1:0]  wr_predict_dir_corrected,
   input  logic [XLEN_BITS-1:0]    wr_predict_base_pc,
@@ -18,8 +19,7 @@ module front2back_fifo import ttg_cfg_pkg::*; import front_pkg::*; (
   input  logic [3:0]              wr_a_len,
   input  logic [FETCH_WIDTH-1:0]  wr_alt_pred,
   input  logic [PCPN_W-1:0]       wr_pcpn        [FETCH_WIDTH],
-  input  logic [TAGE_IDX_W-1:0]   wr_tage_idx    [FETCH_WIDTH][TN_MAX],
-  input  logic [TAGE_TAG_W-1:0]   wr_tage_tag    [FETCH_WIDTH][TN_MAX],
+  input  logic [BLK_ID_W-1:0]     wr_blk_id,
   input  logic [XLEN_BITS-1:0]    wr_predict_next_fetch_address_corrected,
   input  logic [FETCH_WIDTH-1:0][KIND_W-1:0] wr_slot_kind,
   input  logic [FETCH_WIDTH-1:0]  wr_is_rvc,
@@ -27,6 +27,7 @@ module front2back_fifo import ttg_cfg_pkg::*; import front_pkg::*; (
   output logic                    rd_valid,
   output logic [31:0]             rd_fetch_group [FETCH_WIDTH],
   output logic [FETCH_WIDTH-1:0]  rd_page_fault_inst,
+  output logic [FETCH_WIDTH-1:0]  rd_pf_inst_hi,
   output logic [FETCH_WIDTH-1:0]  rd_inst_valid,
   output logic [FETCH_WIDTH-1:0]  rd_predict_dir_corrected,
   output logic [XLEN_BITS-1:0]    rd_predict_base_pc,
@@ -35,8 +36,7 @@ module front2back_fifo import ttg_cfg_pkg::*; import front_pkg::*; (
   output logic [3:0]              rd_a_len,
   output logic [FETCH_WIDTH-1:0]  rd_alt_pred,
   output logic [PCPN_W-1:0]       rd_pcpn        [FETCH_WIDTH],
-  output logic [TAGE_IDX_W-1:0]   rd_tage_idx    [FETCH_WIDTH][TN_MAX],
-  output logic [TAGE_TAG_W-1:0]   rd_tage_tag    [FETCH_WIDTH][TN_MAX],
+  output logic [BLK_ID_W-1:0]     rd_blk_id,
   output logic [XLEN_BITS-1:0]    rd_predict_next_fetch_address_corrected,
   output logic [FETCH_WIDTH-1:0][KIND_W-1:0] rd_slot_kind,
   output logic [FETCH_WIDTH-1:0]  rd_is_rvc,
@@ -52,26 +52,20 @@ module front2back_fifo import ttg_cfg_pkg::*; import front_pkg::*; (
     for (int i = 0; i < FETCH_WIDTH; i++) begin
       wr_entry.fetch_group[i]           = wr_fetch_group[i];
       wr_entry.page_fault_inst[i]       = wr_page_fault_inst[i];
+      wr_entry.pf_inst_hi[i]            = wr_pf_inst_hi[i];
       wr_entry.inst_valid[i]            = wr_inst_valid[i];
       wr_entry.predict_dir_corrected[i] = wr_predict_dir_corrected[i];
       wr_entry.is_rvc[i]                = wr_is_rvc[i];
       rd_is_rvc[i]                      = rd_entry.is_rvc[i];
       wr_entry.meta.alt_pred[i]         = wr_alt_pred[i];
       wr_entry.meta.pcpn[i]             = wr_pcpn[i];
-      for (int j = 0; j < TN_MAX; j++) begin
-        wr_entry.meta.tage_idx[i][j] = wr_tage_idx[i][j];
-        wr_entry.meta.tage_tag[i][j] = wr_tage_tag[i][j];
-      end
-      rd_fetch_group[i]           = rd_entry.fetch_group[i];
-      rd_page_fault_inst[i]       = rd_entry.page_fault_inst[i];
-      rd_inst_valid[i]            = rd_entry.inst_valid[i];
-      rd_predict_dir_corrected[i] = rd_entry.predict_dir_corrected[i];
-      rd_alt_pred[i]              = rd_entry.meta.alt_pred[i];
-      rd_pcpn[i]                  = rd_entry.meta.pcpn[i];
-      for (int j = 0; j < TN_MAX; j++) begin
-        rd_tage_idx[i][j] = rd_entry.meta.tage_idx[i][j];
-        rd_tage_tag[i][j] = rd_entry.meta.tage_tag[i][j];
-      end
+      rd_fetch_group[i]                 = rd_entry.fetch_group[i];
+      rd_page_fault_inst[i]             = rd_entry.page_fault_inst[i];
+      rd_pf_inst_hi[i]                  = rd_entry.pf_inst_hi[i];
+      rd_inst_valid[i]                  = rd_entry.inst_valid[i];
+      rd_predict_dir_corrected[i]       = rd_entry.predict_dir_corrected[i];
+      rd_alt_pred[i]                    = rd_entry.meta.alt_pred[i];
+      rd_pcpn[i]                        = rd_entry.meta.pcpn[i];
     end
     wr_entry.carry                                = wr_carry;
     rd_carry                                      = rd_entry.carry;
@@ -81,6 +75,8 @@ module front2back_fifo import ttg_cfg_pkg::*; import front_pkg::*; (
     rd_is_pair                                    = rd_entry.is_pair;
     rd_base_b                                     = rd_entry.base_b;
     rd_a_len                                      = rd_entry.a_len;
+    wr_entry.meta.blk_id                          = wr_blk_id;
+    rd_blk_id                                     = rd_entry.meta.blk_id;
     wr_entry.slot_kind                            = wr_slot_kind;
     rd_slot_kind                                  = rd_entry.slot_kind;
     wr_entry.meta.predict_base_pc                 = wr_predict_base_pc;

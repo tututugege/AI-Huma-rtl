@@ -36,7 +36,6 @@ module icache import ttg_cfg_pkg::*; import icache_pkg::*; import tlb_mmu_pkg::*
   input  logic dc_resp_retry,
   input  logic dc_resp_miss,
   input  logic [31:0] dc_resp_data,
-  input  logic fdip_snoop_dirty,
   input  logic ptw_walk_req_ready,
   input  logic ptw_walk_resp_valid,
   input  logic ptw_walk_resp_fault,
@@ -64,7 +63,6 @@ module icache import ttg_cfg_pkg::*; import icache_pkg::*; import tlb_mmu_pkg::*
   output logic mem_resp_ready,
   output logic dc_req_valid,
   output logic [31:0] dc_req_addr,
-  output logic [25:0] fdip_snoop_line,
   output logic ptw_walk_req_valid,
   output logic [VPN_W-1:0] ptw_walk_req_vpn,
   output logic [21:0] ptw_walk_req_root_ppn,
@@ -89,18 +87,17 @@ module icache import ttg_cfg_pkg::*; import icache_pkg::*; import tlb_mmu_pkg::*
   logic [IC_TAG_W-1:0] ppn;
   logic resp_valid, resp_page_fault, resp_single_word;
   logic [XLEN_BITS-1:0] resp_pc;
-  logic demand_mem_req_step0, demand_miss_txv;
+  logic demand_mem_req_step0, demand_dc_busy, demand_miss_txv;
   logic [25:0] demand_miss_line;
-  logic ctl_mem_req_valid, ctl_mem_req_bypass, ctl_mem_resp_ready;
-  logic [31:0] ctl_mem_req_addr;
+  logic ctl_mem_req_valid, ctl_mem_req_bypass, ctl_mem_resp_ready, ctl_dc_req_valid;
+  logic [31:0] ctl_mem_req_addr, ctl_dc_req_addr;
   logic [7:0]  ctl_mem_req_total_size;
   logic [3:0]  ctl_mem_req_id;
 
   // ---- FDIP signals ----
-  logic resp_popped_q, eff_resp_valid;
-  logic fdip_acc, fdip_rsp, fdip_rsp_raw, fdip_busy_req;
+  logic fdip_acc, fdip_rsp, fdip_rsp_raw, fdip_busy_req, fdip_probe_busy, fdip_dc_req_valid;
   logic fdip_req_valid, fdip_fill_we, arr_fdip_peek_hit;
-  logic [31:0] fdip_req_addr;
+  logic [31:0] fdip_req_addr, fdip_dc_req_addr;
   logic [3:0]  fdip_req_id;
   logic [IC_IDX_W-1:0] fdip_peek_index, fdip_fill_index;
   logic [IC_TAG_W-1:0] fdip_peek_tag, fdip_fill_tag;
@@ -108,14 +105,6 @@ module icache import ttg_cfg_pkg::*; import icache_pkg::*; import tlb_mmu_pkg::*
   logic [XLEN_BITS-1:0] peek_fdip_vaddr;
   logic peek_fdip_ok, peek_b_ok;
   logic [31:0] peek_fdip_paddr, peek_b_paddr;
-
-  // Suppress the 1-cycle stale echo on axi_cpu_port_chan after a response pop (prevents orphan_resp from
-  // popping a queued FDIP/demand response early from axi_llc before it reaches the registered CPU view).
-  assign eff_resp_valid = mem_resp_valid && !resp_popped_q;
-  always_ff @(posedge clk) begin
-    if (!rst_n) resp_popped_q <= 1'b0;
-    else        resp_popped_q <= eff_resp_valid && mem_resp_ready;
-  end
 
   // ---- Block B parallel lookup ----
   logic        b_same_page, b_pa_ok, arr_b_hit, pair_miss_en;
@@ -128,20 +117,20 @@ module icache import ttg_cfg_pkg::*; import icache_pkg::*; import tlb_mmu_pkg::*
     .mem_req_ready     (fdip_busy_req ? 1'b0 : mem_req_ready),
     .mem_req_accepted  (fdip_acc ? 1'b0 : mem_req_accepted),
     .mem_req_accepted_id,
-    .mem_resp_valid    (fdip_rsp_raw ? 1'b0 : eff_resp_valid),
+    .mem_resp_valid    (fdip_rsp_raw ? 1'b0 : mem_resp_valid),
     .mem_resp_id,
     .mem_resp_data     (mem_resp_line),
-    .dc_resp_valid, .dc_resp_retry, .dc_resp_miss, .dc_resp_data,
+    .dc_resp_valid, .dc_resp_retry, .dc_resp_miss, .dc_resp_data, .dc_probe_busy(fdip_probe_busy),
     .hit(arr_hit), .hit_line(arr_hit_line), .has_invalid(arr_has_invalid), .first_invalid(arr_first_invalid),
     .repl_way(arr_repl_way),
     .arr_rd_en, .arr_rd_index, .arr_cmp_valid, .tw_we, .tw_index, .tw_way, .tw_tag, .tw_line, .inv_all,
     .mmu_req_valid, .mmu_req_vtag,
     .resp_valid, .resp_pc, .resp_ppn, .resp_page_fault, .resp_single_word, .resp_line, .icache_ready,
-    .demand_mem_req_step0, .demand_miss_txv, .demand_miss_line,
+    .demand_mem_req_step0, .demand_dc_busy, .demand_miss_txv, .demand_miss_line,
     .mem_req_valid(ctl_mem_req_valid), .mem_req_addr(ctl_mem_req_addr),
     .mem_req_total_size(ctl_mem_req_total_size), .mem_req_bypass(ctl_mem_req_bypass),
     .mem_req_id(ctl_mem_req_id), .mem_resp_ready(ctl_mem_resp_ready),
-    .dc_req_valid, .dc_req_addr
+    .dc_req_valid(ctl_dc_req_valid), .dc_req_addr(ctl_dc_req_addr)
   );
 
   // Block B address translation (same-page reuses resp_ppn; cross-page uses ITLB peek port 0)
@@ -165,21 +154,24 @@ module icache import ttg_cfg_pkg::*; import icache_pkg::*; import tlb_mmu_pkg::*
 
   icache_fdip u_fdip (
     .clk, .rst_n, .refetch, .fence_i,
-    .demand_mem_req_step0, .demand_miss_txv, .demand_miss_line,
-    .mem_req_accepted, .mem_req_accepted_id, .mem_resp_valid(eff_resp_valid), .mem_resp_id, .mem_resp_line,
+    .demand_mem_req_step0, .demand_dc_busy, .demand_miss_txv, .demand_miss_line,
+    .mem_req_accepted, .mem_req_accepted_id, .mem_resp_valid, .mem_resp_id, .mem_resp_line,
+    .dc_resp_valid, .dc_resp_retry, .dc_resp_miss,
+    .fdip_probe_busy, .fdip_dc_req_valid, .fdip_dc_req_addr,
     .peek_vaddr(peek_fdip_vaddr), .peek_ok(peek_fdip_ok), .peek_paddr(peek_fdip_paddr),
     .arr_peek_index(fdip_peek_index), .arr_peek_tag(fdip_peek_tag), .arr_peek_hit(arr_fdip_peek_hit),
     .pair_miss_en, .pair_miss_va(b_req_addr),
     .s2_en(fdip_s2_en), .s2_va(fdip_s2_va), .s2_clear(fdip_s2_clear),
-    .fdip_snoop_dirty, .fdip_snoop_line,
     .fdip_acc, .fdip_rsp, .fdip_rsp_raw, .fdip_busy_req,
     .fdip_req_valid, .fdip_req_addr, .fdip_req_id,
     .fdip_fill_we, .fdip_fill_index, .fdip_fill_tag, .fdip_fill_line
   );
 
-  // AXI output mux: FDIP drives only when sending (demand was masked via fdip_busy_req / !demand_mem_req_step0)
+  // AXI & DCache probe output muxes: FDIP drives only when sending / probing (demand was gated cleanly)
   always_comb begin
     mem_resp_ready = ctl_mem_resp_ready || fdip_rsp;
+    dc_req_valid   = fdip_dc_req_valid ? 1'b1             : ctl_dc_req_valid;
+    dc_req_addr    = fdip_dc_req_valid ? fdip_dc_req_addr : ctl_dc_req_addr;
     if (fdip_req_valid) begin
       mem_req_valid      = 1'b1;
       mem_req_addr       = fdip_req_addr;

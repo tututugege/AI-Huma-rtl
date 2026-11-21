@@ -45,6 +45,7 @@ module dispatch
   input  logic [BR_MASK_WIDTH-1:0] ren2dis_uop_br_mask [DECODE_WIDTH],
   input  logic [11:0] ren2dis_uop_csr_idx [DECODE_WIDTH],
   input  logic [DECODE_WIDTH-1:0] ren2dis_uop_page_fault_inst,
+  input  logic [DECODE_WIDTH-1:0] ren2dis_uop_pf_inst_hi,
   input  logic [DECODE_WIDTH-1:0] ren2dis_uop_illegal_inst,
   input  logic rob2dis_ready,
   input  logic rob2dis_empty,
@@ -99,6 +100,7 @@ module dispatch
   output logic [2:0] dis2rob_uop_expect_mask [DECODE_WIDTH],
   output logic [DECODE_WIDTH-1:0] dis2rob_uop_rob_flag,
   output logic [DECODE_WIDTH-1:0] dis2rob_uop_page_fault_inst,
+  output logic [DECODE_WIDTH-1:0] dis2rob_uop_pf_inst_hi,
   output logic [DECODE_WIDTH-1:0] dis2rob_uop_illegal_inst,
   output logic dis2iss_req_valid [IQ_NUM] [DECODE_WIDTH],
   output logic [PRF_IDX_WIDTH-1:0] dis2iss_req_uop_dest_preg [IQ_NUM] [DECODE_WIDTH],
@@ -219,6 +221,7 @@ module dispatch
       ren_inst[i].br_mask = ren2dis_uop_br_mask[i];
       ren_inst[i].csr_idx = ren2dis_uop_csr_idx[i];
       ren_inst[i].page_fault_inst = ren2dis_uop_page_fault_inst[i];
+      ren_inst[i].pf_inst_hi = ren2dis_uop_pf_inst_hi[i];
       ren_inst[i].illegal_inst = ren2dis_uop_illegal_inst[i];
       ren_inst[i].itype = inst_type_e'(ren2dis_uop_type[i]);
     end
@@ -314,6 +317,7 @@ module dispatch
       dis2rob_uop_func7[i] = rob_inst[i].func7;
       dis2rob_uop_imm[i] = rob_inst[i].imm;
       dis2rob_uop_page_fault_inst[i] = rob_inst[i].page_fault_inst;
+      dis2rob_uop_pf_inst_hi[i] = rob_inst[i].pf_inst_hi;
       dis2rob_uop_illegal_inst[i] = rob_inst[i].illegal_inst;
       dis2rob_uop_type[i]        = rob_inst[i].itype;
       dis2rob_uop_rob_idx[i]     = rob_res[i].rob_idx;

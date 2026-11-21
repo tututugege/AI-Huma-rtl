@@ -104,6 +104,7 @@ package dis_pkg;
     logic [BR_MASK_WIDTH-1:0]  br_mask;
     logic [CSR_IDX_WIDTH-1:0]  csr_idx;
     logic                      page_fault_inst;
+    logic                      pf_inst_hi;
     logic                      illegal_inst;
     logic [LSU_MDP_BITS-1:0]   mdp;
     logic [31:0]               pc;           // wait-table index of the PC (LSU_MEMSPEC; loads only use it)

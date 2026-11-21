@@ -3,12 +3,17 @@ module: front_top
 area: frontend
 rtl: rtl/frontend/front_top（front_top.sv、front_fetch_buf.sv、front_pred_path.sv）
 model: trace-model front-end/front_core.h 的 `FrontCore`（各调度单元 `front.core.*` 的连线 `FrontCore::FrontCore` 和阶段顺序 `FrontCore::comb`）；指令起点扫描对应 front-end/front_top.cpp 的 `InstPort::comb_write`（调度单元 `front.core.inst_port`）
-status: 整核周期与模型逐个相等（EXP-051 里程碑 B：fm_gate 68/68 + Linux 27 窗，零环境变量）
-depth: 356 层 / 1,582,763 单元（front_top，单模块综合，2026-11-21，`SYNTH_ABC="strash;balance;map" SYNTH_NO_MEMPRIO=1`，含 2-taken BPU + 4-Bank ICache/FDIP，最长路径 `u_pred_path.u_bpu.r1_q[1074] → PTAB bypass → u_pd.pd_ras_op2_q[1]`；原 EXP-050 898,333 单元 / 153 层）
+status: 整核周期与模型逐个相等（EXP-053 前端清理：fm_gate 68/68 零偏差 + Linux 27 窗 PT/UP 全等，零环境变量）
+depth: 216 层 / 1,159,189 单元（front_top，单模块综合，2026-11-21，`SYNTH_ABC="strash;balance;map" SYNTH_NO_MEMPRIO=1`，EXP-053 Phase 1+2 清理后较 EXP-051 1,582,763 / 356 层 **−26.8% / −39.3%**，最长路径 `u_pred_path.u_bpu.r1_q[1106] → u_pred_path.u_pd.ras_val_d[29]`）
 ---
 
 # front_top 设计文档
 
+> **EXP-053 前端结构清理（Phase 1 + Phase 2）升级**：
+> 1. **紧凑原始半字 `inst_fifo_entry_t` 与单份展开预译码（Phase 1）**：`front_fetch_buf` 不再做双份展开/预译码与宽目标存储，`inst_fifo` 仅存原始 16b 半字流与精简元数据；单份 `rvc_expand` + `predecode` 与 4 轮 Kogge-Stone `start_a`/`start_b` 前缀扫描统一落在 `front_head_fix`（按实际 `s1_seq` 64B 行掩码对齐，兼容错路奇地址）；
+> 2. **删死线与去补丁（Phase 1 + P2-2）**：删除全链路死信号 `tage_idx` / `tage_tag`；用显式 1-bit `pf_inst_hi` 替代原先经 `inst -> diag_val[1]` 搭便车传递跨页 RVC 第二半字取指缺页偏移；
+> 3. **综合收益**：`front_top` 整块单元数由 1,582,763 降至 **1,159,189（−26.8%）**，组合深度由 356 层降至 **216 层（−39.3%）**。
+>
 > **EXP-051 里程碑 B 升级**：
 > 1. `fetch_addr_fifo` 与在途寄存器 `pend_pair_q` 携带 `FetchPair`（`valid, addr2, a_len, b_len`）；`front_fetch_buf` 在 ICache 响应同拍并行拼合 Block A 与 Block B（同时将完整 Block A 副本存入 `inst_fifo` 作 S2 覆写兜底），读端若 `has_alt_a && !ptab_is_pair` 无损恢复完整 Block A，避免 S2 覆写 A 时误切槽；
 > 2. `ptab` 与 `front2back_fifo` 用紧凑字段 `{is_pair, a_len[3:0], base_b[63:0]}` 重建 16 槽 PC（无需存 16×64b），并删除原 166 位 `bpu_ck`（由 `out_tage_idx[*][0] = blk_id` 在 BPU 内部 `rec_q[256]` 直接修复）；
@@ -98,7 +103,7 @@ depth: 356 层 / 1,582,763 单元（front_top，单模块综合，2026-11-21，`
 2. 取指地址队列队首（`fa_rd_en` 成立时）作为 `req_valid / fetch_address` 送 I-Cache；I-Cache 的 `read_complete / fetch_pc / fetch_group / inst_valid / page_fault_inst / fetch_upper_ok` 回来。
 3. `front_fetch_buf`：16 路展开（`ic_fetch_group[i][1:0] != 2'b11` 的窗口是 16 位指令，展开成 32 位，非法编码展开成 0）、预测译码（只看展开后的字）、起点扫描、`seq_next_pc`；`ic_read_complete & !global_refetch` 时整组写进指令队列。
 4. BPU 同拍给出 `icache_read_valid / fetch_address`（S0 块，经 `fa_wr_en` 写取指地址队列）和 `ptab_write_enable`（S2 块，经 `ptab_wr_en` 写 PTAB）。
-5. `predecode_can_run`（指令队列非空、PTAB 非空或同拍有旁路写、`front2back` 队列不满、无全局 refetch）时，读指令队列队首和 PTAB 队首；`front_head_fix` 处理携带（含跨 4KB 页第二半字取指缺页时置 `insts_o[0]=32'd2` 经 `diag_val[1]` 传给 ROB 修正 `stval=pc+2`）、丢弃非起点槽、处理末槽跨组；`predecode_checker` 比较预测与预译码；`front_slot_kind` 为每槽译出 BPU 类型。
+5. `predecode_can_run`（指令队列非空、PTAB 非空或同拍有旁路写、`front2back` 队列不满、无全局 refetch）时，读指令队列队首和 PTAB 队首；`front_head_fix` 执行单份展开/预译码、4 轮 Kogge-Stone `start_a`/`start_b` 前缀扫描并处理携带（跨 4KB 页第二半字取指缺页时输出显式 1-bit `pf_inst_hi` 传给 ROB 修正 `stval=pc+2`）、丢弃非起点槽、处理末槽跨组；`predecode_checker` 比较预测与预译码；`front_slot_kind` 为每槽译出 BPU 类型。
 6. 检查通过或不通过都要写 `front2back` 队列（`f2b_wr_en`）；队列空、后端本拍读时走旁路（`f2b_use_bypass`），本拍写的条目直接当输出。
 7. `do_predecode_flush = predecode_can_run & checker_flush_enable`：进 `predecode_refetch_q`（下一拍成为全局 refetch）、进 I-Cache 的 `invalidate`（同拍的第二步）、进 `front_pd_info` 的寄存器（下一拍告诉 BPU）。
 

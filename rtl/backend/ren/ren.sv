@@ -31,6 +31,7 @@ module ren
   input  logic [BR_MASK_WIDTH-1:0] dec2ren_uop_br_mask [DECODE_WIDTH],
   input  logic [CSR_IDX_WIDTH-1:0] dec2ren_uop_csr_idx [DECODE_WIDTH],
   input  logic [DECODE_WIDTH-1:0] dec2ren_uop_page_fault_inst,
+  input  logic [DECODE_WIDTH-1:0] dec2ren_uop_pf_inst_hi,
   input  logic [DECODE_WIDTH-1:0] dec2ren_uop_illegal_inst,
   input  logic [DECODE_WIDTH-1:0] dec2ren_uop_dest_fp,
   input  logic [DECODE_WIDTH-1:0] dec2ren_uop_src1_fp,
@@ -79,6 +80,7 @@ module ren
   output logic [BR_MASK_WIDTH-1:0] ren2dis_uop_br_mask [DECODE_WIDTH],
   output logic [CSR_IDX_WIDTH-1:0] ren2dis_uop_csr_idx [DECODE_WIDTH],
   output logic [DECODE_WIDTH-1:0] ren2dis_uop_page_fault_inst,
+  output logic [DECODE_WIDTH-1:0] ren2dis_uop_pf_inst_hi,
   output logic [DECODE_WIDTH-1:0] ren2dis_uop_illegal_inst,
   output logic [PRF_IDX_WIDTH-1:0] ren2dis_uop_dest_preg [DECODE_WIDTH],
   output logic [PRF_IDX_WIDTH-1:0] ren2dis_uop_src1_preg [DECODE_WIDTH],
@@ -124,6 +126,7 @@ diag_val: dec2ren_uop_diag_val[i],
                           br_mask: dec2ren_uop_br_mask[i],
                           csr_idx: dec2ren_uop_csr_idx[i],
                           page_fault_inst: dec2ren_uop_page_fault_inst[i],
+                          pf_inst_hi: dec2ren_uop_pf_inst_hi[i],
                           illegal_inst: dec2ren_uop_illegal_inst[i],
                           dest_fp: dec2ren_uop_dest_fp[i],
                           src1_fp: dec2ren_uop_src1_fp[i],
@@ -153,6 +156,7 @@ diag_val: dec2ren_uop_diag_val[i],
     assign ren2dis_uop_br_mask[i] = out_uop[i].br_mask;
     assign ren2dis_uop_csr_idx[i] = out_uop[i].csr_idx;
     assign ren2dis_uop_page_fault_inst[i] = out_uop[i].page_fault_inst;
+    assign ren2dis_uop_pf_inst_hi[i] = out_uop[i].pf_inst_hi;
     assign ren2dis_uop_illegal_inst[i] = out_uop[i].illegal_inst;
     assign ren2dis_uop_dest_preg[i] = out_uop[i].dest_preg;
     assign ren2dis_uop_src1_preg[i] = out_uop[i].src1_preg;

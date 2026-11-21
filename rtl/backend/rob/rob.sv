@@ -39,6 +39,7 @@ module rob
   input  logic [2:0] dis2rob_uop_expect_mask [DECODE_WIDTH],
   input  logic [DECODE_WIDTH-1:0] dis2rob_uop_rob_flag,
   input  logic [DECODE_WIDTH-1:0] dis2rob_uop_page_fault_inst,
+  input  logic [DECODE_WIDTH-1:0] dis2rob_uop_pf_inst_hi,
   input  logic [DECODE_WIDTH-1:0] dis2rob_uop_illegal_inst,
   input  logic [ISSUE_WIDTH-1:0] exu2rob_entry_valid,
   input  logic [XLEN_BITS-1:0] exu2rob_entry_uop_diag_val [ISSUE_WIDTH],
@@ -144,6 +145,7 @@ module rob
       stq_flag:      dis2rob_uop_stq_flag[b],
       pend_mask:     dis2rob_uop_expect_mask[b],  // cplt_mask restarts at 0
       pf_inst:       dis2rob_uop_page_fault_inst[b],
+      pf_inst_hi:    dis2rob_uop_pf_inst_hi[b],
       pf_load:       1'b0,
       pf_store:      1'b0,
       illegal_inst:  dis2rob_uop_illegal_inst[b],

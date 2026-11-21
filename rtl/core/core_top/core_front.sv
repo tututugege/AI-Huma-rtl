@@ -33,8 +33,7 @@ module core_front import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*;
   input  logic        ftq_commit_info_resp_is_rvc [COMMIT_WIDTH],
   input  logic [COMMIT_WIDTH-1:0] ftq_commit_info_resp_alt_pred,
   input  logic [2:0]  ftq_commit_info_resp_pcpn [COMMIT_WIDTH],
-  input  logic [9:0]  ftq_commit_info_resp_tage_idx [COMMIT_WIDTH][TN],
-  input  logic [7:0]  ftq_commit_info_resp_tage_tag [COMMIT_WIDTH][TN],
+  input  logic [FTB_BLK_ID_W-1:0] ftq_commit_info_resp_blk_id [COMMIT_WIDTH],
   input  logic [XLEN_BITS-1:0] csr_status_satp,
   input  logic [1:0]  csr_status_privilege,
   /* verilator lint_off UNUSEDSIGNAL */   // only the mxr / sum / mprv / mpp bits go to the ITLB
@@ -51,7 +50,6 @@ module core_front import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*;
   input  logic        dc_resp_retry,
   input  logic        dc_resp_miss,
   input  logic [31:0] dc_resp_data,
-  input  logic        fdip_snoop_dirty,
   input  logic        itlb_walk_req_ready,
   input  logic        itlb_walk_resp_valid,
   input  logic        itlb_walk_resp_fault,
@@ -67,7 +65,6 @@ module core_front import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*;
   output logic        mem_resp_ready,
   output logic        dc_req_valid,
   output logic [31:0] dc_req_addr,
-  output logic [25:0] fdip_snoop_line,
   output logic        itlb_walk_req_valid,
   output logic [VPN_W-1:0] itlb_walk_req_vpn,
   output logic [21:0] itlb_walk_req_root_ppn,
@@ -77,13 +74,15 @@ module core_front import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*;
   output logic [BACKEND_FETCH_WIDTH-1:0] front2pre_valid,
   output logic [31:0] front2pre_inst [BACKEND_FETCH_WIDTH],
   output logic [BACKEND_FETCH_WIDTH-1:0] front2pre_page_fault_inst,
+  output logic [BACKEND_FETCH_WIDTH-1:0] front2pre_pf_inst_hi,
   output logic [XLEN_BITS-1:0] front2pre_pc [BACKEND_FETCH_WIDTH],
   output logic [BACKEND_FETCH_WIDTH-1:0] front2pre_predict_dir,
   output logic [BACKEND_FETCH_WIDTH-1:0] front2pre_is_rvc,
   output logic [BACKEND_FETCH_WIDTH-1:0] front2pre_alt_pred,
   output logic [front_pkg::PCPN_W-1:0]     front2pre_pcpn [BACKEND_FETCH_WIDTH],
-  output logic [TAGE_IDX_W-1:0] front2pre_tage_idx [BACKEND_FETCH_WIDTH][TN_MAX],
-  output logic [TAGE_TAG_W-1:0] front2pre_tage_tag [BACKEND_FETCH_WIDTH][TN_MAX],
+  output logic [BLK_ID_W-1:0] front2pre_blk_id,
+  output logic                front2pre_is_pair,
+  output logic [3:0]          front2pre_a_len,
   output logic [XLEN_BITS-1:0] front2pre_predict_next_fetch_address,
   output logic [3:0]  commit_upd_free,   // compact ROB commit credits (EXP-028)
   output logic [3:0]  commit_tq_free
@@ -106,8 +105,7 @@ module core_front import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*;
   logic [COMMIT_WIDTH-1:0] upd_pred_dir;
   logic [COMMIT_WIDTH-1:0] upd_alt_pred;
   logic [2:0]  upd_pcpn     [COMMIT_WIDTH];
-  logic [7:0]  upd_tags     [COMMIT_WIDTH][TN];
-  logic [9:0]  upd_idxs     [COMMIT_WIDTH][TN];
+  logic [FTB_BLK_ID_W-1:0] upd_blk_id [COMMIT_WIDTH];
 
   core_back2front u_b2f (
     .clk, .rst_n,
@@ -130,8 +128,7 @@ module core_front import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*;
     .ftq_is_rvc          (ftq_commit_info_resp_is_rvc),
     .ftq_alt_pred            (ftq_commit_info_resp_alt_pred),
     .ftq_pcpn                (ftq_commit_info_resp_pcpn),
-    .ftq_tage_idx            (ftq_commit_info_resp_tage_idx),
-    .ftq_tage_tag            (ftq_commit_info_resp_tage_tag),
+    .ftq_blk_id              (ftq_commit_info_resp_blk_id),
     .refetch_q               (b2f_refetch),
     .refetch_address_q       (b2f_refetch_address),
     .rf_valid_q              (b2f_rf_valid),
@@ -151,8 +148,7 @@ module core_front import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*;
     .upd_pred_dir_q          (upd_pred_dir),
     .upd_alt_pred_q          (upd_alt_pred),
     .upd_pcpn_q              (upd_pcpn),
-    .upd_tags_q              (upd_tags),
-    .upd_idxs_q              (upd_idxs)
+    .upd_blk_id_q            (upd_blk_id)
   );
 
   // ---- front end ----
@@ -164,13 +160,15 @@ module core_front import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*;
   logic [FETCH_WIDTH-1:0] fe_lane_valid;
   logic [31:0] fe_instructions    [FETCH_WIDTH];
   logic [FETCH_WIDTH-1:0] fe_page_fault_inst;
+  logic [FETCH_WIDTH-1:0] fe_pf_inst_hi;
   logic [FETCH_WIDTH-1:0] fe_predict_dir;
   logic [FETCH_WIDTH-1:0] fe_is_rvc;   // 16-bit instruction (RVC=1)
   logic [XLEN_BITS-1:0] fe_pc              [FETCH_WIDTH];
   logic [FETCH_WIDTH-1:0] fe_alt_pred;
   logic [front_pkg::PCPN_W-1:0]     fe_pcpn    [FETCH_WIDTH];
-  logic [TAGE_IDX_W-1:0] fe_tage_idx [FETCH_WIDTH][TN_MAX];
-  logic [TAGE_TAG_W-1:0] fe_tage_tag [FETCH_WIDTH][TN_MAX];
+  logic [BLK_ID_W-1:0] fe_blk_id;
+  logic                fe_is_pair;
+  logic [3:0]          fe_a_len;
   logic [XLEN_BITS-1:0] fe_predict_next_fetch_address;
   logic [FETCH_WIDTH-1:0][KIND_W-1:0] fe_slot_kind;
 
@@ -201,10 +199,9 @@ module core_front import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*;
     .pred_dir                   (upd_pred_dir),
     .alt_pred                   (upd_alt_pred),
     .pcpn                       (upd_pcpn),
-    .tags                       (upd_tags),
-    .idxs                       (upd_idxs),
+    .blk_id                     (upd_blk_id),
     .mem_req_ready, .mem_req_accepted, .mem_req_accepted_id, .mem_resp_valid, .mem_resp_id, .mem_resp_data,
-    .dc_resp_valid, .dc_resp_retry, .dc_resp_miss, .dc_resp_data, .fdip_snoop_dirty,
+    .dc_resp_valid, .dc_resp_retry, .dc_resp_miss, .dc_resp_data,
     .ptw_walk_req_ready         (itlb_walk_req_ready),
     .ptw_walk_resp_valid        (itlb_walk_resp_valid),
     .ptw_walk_resp_fault        (itlb_walk_resp_fault),
@@ -216,17 +213,19 @@ module core_front import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*;
     .out_lane_valid             (fe_lane_valid),
     .out_instructions           (fe_instructions),
     .out_page_fault_inst        (fe_page_fault_inst),
+    .out_pf_inst_hi             (fe_pf_inst_hi),
     .out_predict_dir            (fe_predict_dir),
     .out_pc                     (fe_pc),
     .out_alt_pred               (fe_alt_pred),
     .out_pcpn                   (fe_pcpn),
-    .out_tage_idx               (fe_tage_idx),
-    .out_tage_tag               (fe_tage_tag),
+    .out_blk_id                 (fe_blk_id),
+    .out_is_pair                (fe_is_pair),
+    .out_a_len                  (fe_a_len),
     .out_predict_next_fetch_address (fe_predict_next_fetch_address),
     .out_slot_kind              (fe_slot_kind),
     .out_is_rvc                 (fe_is_rvc),
     .mem_req_valid, .mem_req_addr, .mem_req_total_size, .mem_req_bypass, .mem_req_id, .mem_resp_ready,
-    .dc_req_valid, .dc_req_addr, .fdip_snoop_line,
+    .dc_req_valid, .dc_req_addr,
     .ptw_walk_req_valid         (itlb_walk_req_valid),
     .ptw_walk_req_vpn           (itlb_walk_req_vpn),
     .ptw_walk_req_root_ppn      (itlb_walk_req_root_ppn),
@@ -242,25 +241,29 @@ module core_front import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*;
     .lane_valid                  (fe_lane_valid),
     .instructions                (fe_instructions),
     .page_fault_inst             (fe_page_fault_inst),
+    .pf_inst_hi                  (fe_pf_inst_hi),
     .predict_dir                 (fe_predict_dir),
     .is_rvc                      (fe_is_rvc),
     .pc                          (fe_pc),
     .alt_pred                    (fe_alt_pred),
     .pcpn                        (fe_pcpn),
-    .tage_idx                    (fe_tage_idx),
-    .tage_tag                    (fe_tage_tag),
+    .blk_id                      (fe_blk_id),
+    .is_pair                     (fe_is_pair),
+    .a_len                       (fe_a_len),
     .predict_next_fetch_address  (fe_predict_next_fetch_address),
     .slot_kind                   (fe_slot_kind),
     .back_valid                  (front2pre_valid),
     .back_inst                   (front2pre_inst),
     .back_page_fault             (front2pre_page_fault_inst),
+    .back_pf_inst_hi             (front2pre_pf_inst_hi),
     .back_pc                     (front2pre_pc),
     .back_predict_dir            (front2pre_predict_dir),
     .back_is_rvc                 (front2pre_is_rvc),
     .back_alt_pred               (front2pre_alt_pred),
     .back_pcpn                   (front2pre_pcpn),
-    .back_tage_idx               (front2pre_tage_idx),
-    .back_tage_tag               (front2pre_tage_tag),
+    .back_blk_id                 (front2pre_blk_id),
+    .back_is_pair                (front2pre_is_pair),
+    .back_a_len                  (front2pre_a_len),
     .back_predict_next_fetch_address (front2pre_predict_next_fetch_address),
     .back_slot_kind              (front2pre_slot_kind)
   );

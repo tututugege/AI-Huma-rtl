@@ -14,6 +14,7 @@ module icache_probe import icache_pkg::*; (
   input  logic                    probe_done,
   input  logic                    probe_hit,
   input  logic [IC_WORD_IDX_W-1:0] probe_word,
+  input  logic                    dc_probe_busy,
   input  logic                    dc_resp_valid,
   input  logic                    dc_resp_retry,
   input  logic                    dc_resp_miss,
@@ -32,7 +33,7 @@ module icache_probe import icache_pkg::*; (
 
   always_comb begin
     early_done = req_valid && ic_is_uncache(ppn[IC_TAG_W-1 -: 2]);
-    issue      = !early_done && !probe_done && !probe_inflight && req_valid;
+    issue      = !early_done && !probe_done && !probe_inflight && !dc_probe_busy && req_valid;
     take       = !early_done && probe_inflight && dc_resp_valid;
     got_miss   = take && !dc_resp_retry && dc_resp_miss;
     got_hit    = take && !dc_resp_retry && !dc_resp_miss;

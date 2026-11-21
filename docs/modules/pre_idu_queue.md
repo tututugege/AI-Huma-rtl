@@ -3,12 +3,16 @@ module: pre_idu_queue
 area: backend
 rtl: rtl/backend/pre_idu_queue
 model: trace-model back-end/PreIduQueue.cpp、back-end/InstructionBuffer.cpp、back-end/include/PreIduQueue.h、back-end/include/InstructionBuffer.h、back-end/include/FTQ.h（调度单元 `back.pre`，类 `PreIduQueue`，阶段 `comb_accept_front`、`comb_commit_info`）
-status: 整核周期与模型逐个相等（EXP-051 里程碑 B：fm_gate 68/68 + Linux 27 窗，零环境变量）
-depth: 38 层 / 137,578 单元（pre_idu_queue，单模块综合，2026-11-21，`SYNTH_ABC="strash;balance;map"`，较 main 39 层 / 123,508 单元降 1 层）
+status: 整核周期与模型逐个相等（EXP-053 前端清理：fm_gate 68/68 零偏差 + Linux 27 窗 PT/UP 全等，零环境变量）
+depth: 38 层 / 131,433 单元（pre_idu_queue，单模块综合，2026-11-21，`SYNTH_ABC="strash;balance;map"`，EXP-053 删死 `tage_idx/tag` + 加显式 1b `pf_inst_hi`，较 EXP-051 137,578 单元 **−4.5%**、深度持平 38 层）
 ---
 
 # pre_idu_queue 设计文档
 
+> **EXP-053 前端结构清理（Phase 1 + P2-2）升级**：
+> - 删除 `pre_idu_ftq_meta` / `pre_idu_pkg` 中不再使用的死线 `tage_idx[1..3]`、`tage_tag` 及 `ftq_commit_info_resp_valid_t`，仅保留 10-bit `blk_id`；
+> - `ib_entry_t` 与 `pre_issue_entries` 新增显式 1-bit `pf_inst_hi`，直通送给 `idu -> ren -> dis -> rob`（替代原 `inst` 编码搭便车）；单元数净减 **4.5%**，深度维持 38 层。
+>
 > **EXP-051 里程碑 B 升级**：
 > 1. `pre_idu_ftq_pc` 新增 `nslots_q[FTQ_SIZE]`：当 `pred_taken_q[idx][off] && off+1 < nslots_q[idx] && slot_pc_q[idx][off+1] != slot_pc_q[idx][off] + ilen` 时，`rd_next_pc` 返回 `slot_pc_q[idx][off+1]`（Block A 跳转后同组内续接 Block B）；`dis_pc[p]` 直接读 `slot_pc_q[dis_idx[p]][dis_off[p]]`（兼容不连续双块 PC）；
 > 2. `pre_idu_ftq_bpu` 删除原 168 位 `bpu_ck` 存储，仅存 `{blk_id[16], kind[16]}`；误预测恢复直接按 4 位 `idu_br_latch_ftq_offset`（由 `prf -> exu_ctrl -> idu_br_latch` 透传）索引 `rec.blk_id[rd_offset]` 与 `rec.kind[rd_offset]`，彻底消除同 PC 在 Block A 与 Block B 中重复出现时的 PC 扫描歧义并省去 16×64b 比较器，输出 `out_rf_blk[9:0]` 与 `out_rf_type[2:0]` 供 BPU 内部 `rec_q[256]` 修复。

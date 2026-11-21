@@ -72,6 +72,7 @@ package rob_pkg;
     logic                      stq_flag;
     logic [CPLT_W-1:0]         pend_mask;  // completion groups still outstanding (expect_mask & ~cplt_mask)
     logic                      pf_inst;
+    logic                      pf_inst_hi;
     logic                      pf_load;
     logic                      pf_store;
     logic                      illegal_inst;

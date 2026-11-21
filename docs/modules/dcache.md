@@ -3,11 +3,13 @@ module: dcache
 area: memsys
 rtl: rtl/memsys/dcache（除 dcache_pf.sv，它有自己的文档 dcache_pf.md）
 model: trace-model MemSubSystem/RealDcache.cpp、WriteBuffer.cpp、MSHR.cpp、DcacheConfig.cpp 及对应头文件（三个调度单元 `mem_subsystem.dcache_`（类 `RealDcache`，阶段 `comb_stage2`、`comb_stage1`）、`mem_subsystem.wb_`（`WriteBuffer`）、`mem_subsystem.mshr_`（`MSHR`），后两者各有 `comb_axi_to_dcache`、`comb_dcache_to_axi`）
-status: 整核周期与模型逐个相等（fm_gate 67/67，参考 scripts/ref_cycles_memiq6_nr_int2_ev5.txt）
-depth: 123 层（子模块拆测最深 `dcache_mshr` 123 层，其余 `s1`/`s2_*`/`wb`/`resp` 为 13–49 层，整块超 64G RSS，2026-11-20，`SYNTH_ABC="strash;balance;map" SYNTH_NO_MEMPRIO=1`，见 09-synthesis-report 第 12.2.1 节）
+status: 整核周期与模型逐个相等（EXP-053 前端清理：fm_gate 68/68 零偏差 + Linux 27 窗 PT/UP 全等，零环境变量）
+depth: 123 层（子模块拆测最深 `dcache_mshr` 123 层，2026-11-21 EXP-053 重测 `dcache_bank` 12 层 / 142,429 单元、`dcache_s2_ld` 37 层 / 5,097 单元、`dcache_wb` 49 层 / 23,334 单元，整块超 64G RSS，见 09-synthesis-report 第 12.2.1 & 14 节）
 ---
 
 # dcache 设计文档
+
+> **EXP-053 P2-1 清理**：彻底删除 `dcache` / `dcache_arr` / `dcache_bank` / `dcache_wb` 上的跨子系统 `fdip_snoop_dirty` / `fdip_snoop_line` 旁路端口；FDIP 预取一致性改由 `icache_fdip` 复用既有 `dc_req` / `dc_resp` 通道（经 `mem_route` 进 load 末口与 `dcache_s2_ld`）完成 1 拍探针检查。
 
 ## 1. 职责
 

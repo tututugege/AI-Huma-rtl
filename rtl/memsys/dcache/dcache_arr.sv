@@ -43,10 +43,7 @@ module dcache_arr
   input  logic [TAG_W-1:0]     fw_tag,
   input  logic                 fw_dirty,
   input  logic                 fw_pf,
-  input  logic [LINE_BITS-1:0] fw_data,
-  // Read-only dirty-tag snoop (ICache FDIP coherency)
-  input  logic [LINE_W-1:0]    snp_line,
-  output logic                 snp_dirty
+  input  logic [LINE_BITS-1:0] fw_data
 );
 
   // ---- requester -> bank mapping ----
@@ -68,7 +65,6 @@ module dcache_arr
   logic [TAG_W-1:0]      b_tag   [BANKS][WAYS];
   logic [2:0]            b_plru  [BANKS];
   logic [LINE_BITS-1:0]  b_line  [BANKS][WAYS];
-  logic [BANKS-1:0]      b_snp_dirty;
 
   for (genvar b = 0; b < BANKS; b++) begin : g_bank
     logic [ROW_W-1:0]  rd_row;
@@ -114,11 +110,9 @@ module dcache_arr
       .pfc_en(pfc_en_b), .pfc_row(pfc_row_b), .pfc_way(pfc_way),
       .sw_en(sw_en_b), .sw_row(sw_row_b), .sw_way(sw_way), .sw_word(sw_word), .sw_data(sw_data),
       .sw_strb(sw_strb), .sw_l2(sw_l2),
-      .pl_en(pl_en_b), .pl_row(pl_row_b), .pl_bits(pl_bits_b),
-      .snp_row(snp_line[BANK_W +: ROW_W]), .snp_tag(snp_line[SET_W +: TAG_W]), .snp_dirty(b_snp_dirty[b])
+      .pl_en(pl_en_b), .pl_row(pl_row_b), .pl_bits(pl_bits_b)
     );
   end
-  assign snp_dirty = b_snp_dirty[snp_line[BANK_W-1:0]];
 
   // ---- bank outputs -> requesters ----
   for (genvar k = 0; k < NSLOT; k++) begin : g_slot

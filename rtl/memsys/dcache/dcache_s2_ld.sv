@@ -107,6 +107,7 @@ module dcache_s2_ld
           resp_data[i]   = hit_data;
           resp_replay[i] = RP_HIT;
         end else if (probe) begin
+          resp_retry[i]  = find_hit[i] || fill_same;
           resp_replay[i] = RP_CONFLICT;
         end else if (find_hit[i] || alloc_ok[i]) begin
           resp_replay[i] = RP_MSHR_HIT;

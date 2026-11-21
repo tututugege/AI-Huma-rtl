@@ -268,40 +268,50 @@ package bpu_types_pkg;
                                                  input logic ras_nonempty,
                                                  input logic [XLEN_BITS-1:0] ras_top);
     ftb_eval_res_t res;
+    logic [5:0]            diff6;
+    logic [4:0]            nslots;
+    logic [FTB_SLOTS-1:0]  tk, win;
     logic                  found;
-    logic [FTB_SLOT_W-1:0] best_k;
-    logic [4:0]            best_off;
-    logic [XLEN_BITS-1:0]  bpc, tgt;
     ftb_slot_t             sl;
-    logic                  tk;
+    logic [XLEN_BITS-1:0]  bpc, tgt;
 
     res           = '0;
     res.pred.hit  = hit_in;
     res.pred.next = bnd;
     res.pred.ty   = BR_NONCTL;
-    found         = 1'b0;
-    best_k        = '0;
-    best_off      = 5'd31;
+
+    // Exact match to (bpc < bnd) without per-slot 64-bit adders:
+    //   - bnd == 0 means 64-bit wraparound (no unsigned bpc < 0);
+    //   - normal slot k (base + 2*k < bnd) <=> 2*k < diff6 <=> k < ceil(diff6 / 2) = (diff6 + 1) >> 1;
+    //   - carried slot 0 (base - 2 < bnd) <=> bnd != 0 && base >= 2 (no underflow).
+    diff6  = bnd[5:0] - base[5:0];
+    nslots = (bnd != '0) ? 5'((diff6 + 6'd1) >> 1) : 5'd0;
+    tk     = '0;
+    win    = '0;
+    sl     = '0;
 
     if (hit_in) begin
       for (int k = 0; k < FTB_SLOTS; k++) begin
-        sl  = ent.s[k];
-        bpc = (sl.offset == 4'd0 && sl.carried) ?
-              (base - XLEN_BITS'(SLOT_BYTES)) :
-              (base + (XLEN_BITS'(sl.offset) << SLOT_SHIFT));
-        if (sl.valid && (bpc < bnd)) begin
-          tk = (sl.br_type == BR_DIRECT) ? (use_dir_ovr ? dir_ovr[k] : (sl.ctr >= 2'd2)) : 1'b1;
-          res.slot_tk[k] = tk;
-          if (tk && ({1'b0, sl.offset} < best_off)) begin
-            found    = 1'b1;
-            best_k   = FTB_SLOT_W'(k);
-            best_off = {1'b0, sl.offset};
-          end
+        if (ent.s[k].valid &&
+            (((ent.s[k].offset == 4'd0) && ent.s[k].carried) ? ((bnd != '0) && (|base[XLEN_BITS-1:1]))
+                                                              : ({1'b0, ent.s[k].offset} < nslots))) begin
+          tk[k] = (ent.s[k].br_type == BR_DIRECT) ? (use_dir_ovr ? dir_ovr[k] : (ent.s[k].ctr >= 2'd2)) : 1'b1;
         end
       end
+      res.slot_tk = tk;
+
+      // Parallel 4-way pairwise min-offset tournament (lowest index breaks ties)
+      for (int k = 0; k < FTB_SLOTS; k++) begin
+        win[k] = tk[k];
+        for (int j = 0; j < FTB_SLOTS; j++) begin
+          if (j < k)      win[k] = win[k] && (!tk[j] || (ent.s[k].offset <  ent.s[j].offset));
+          else if (j > k) win[k] = win[k] && (!tk[j] || (ent.s[k].offset <= ent.s[j].offset));
+        end
+      end
+      found = |win;
 
       if (found) begin
-        sl  = ent.s[best_k];
+        for (int k = 0; k < FTB_SLOTS; k++) if (win[k]) sl = ent.s[k];
         bpc = (sl.offset == 4'd0 && sl.carried) ?
               (base - XLEN_BITS'(SLOT_BYTES)) :
               (base + (XLEN_BITS'(sl.offset) << SLOT_SHIFT));
@@ -314,7 +324,7 @@ package bpu_types_pkg;
         res.pred.rvc     = sl.is_rvc;
         res.pred.carried = sl.carried;
         res.pred.next    = tgt;
-        res.pred.hbits = hsym_of(bpc, tgt);
+        res.pred.hbits   = hsym_of(bpc, tgt);
         if (ftb_br_call(sl.br_type)) begin
           res.pred.ras_op  = 2'd1;
           res.pred.ras_val = bpc + (sl.is_rvc ? XLEN_BITS'(2) : XLEN_BITS'(4));

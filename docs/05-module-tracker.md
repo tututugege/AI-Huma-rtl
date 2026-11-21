@@ -7,43 +7,43 @@
 
 | 模块 | RTL（文件/行） | 深度 |
 | --- | --- | --- |
-| [back_top](modules/back_top.md) | 3/2450 | 142 层 |
+| [back_top](modules/back_top.md) | 3/2443 | 142 层 |
 | [csr](modules/csr.md) | 10/742 | 29 层 |
-| [dispatch](modules/dispatch.md) | 13/1524 | 56 层 |
-| [exu_ctrl](modules/exu_ctrl.md) | 14/1680 | 17 层 |
+| [dispatch](modules/dispatch.md) | 13/1542 | 56 层 |
+| [exu_ctrl](modules/exu_ctrl.md) | 14/1652 | 17 层 |
 | [exu_fu](modules/exu_fu.md) | 26/1782 | 73 层 |
-| [idu](modules/idu.md) | 11/954 | 67 层 |
-| [isu](modules/isu.md) | 14/1628 | 90 层 |
+| [idu](modules/idu.md) | 11/970 | 66 层 |
+| [isu](modules/isu.md) | 14/2339 | 89 层 |
 | [lsu](modules/lsu.md) | 33/4886 | 101 层 |
-| [pre_idu_queue](modules/pre_idu_queue.md) | 8/727 | 38 层 |
-| [prf](modules/prf.md) | 8/789 | 27 层 |
-| [ren](modules/ren.md) | 18/1600 | 111 层 |
-| [rob](modules/rob.md) | 6/1000 | 64 层 |
+| [pre_idu_queue](modules/pre_idu_queue.md) | 8/742 | 38 层 |
+| [prf](modules/prf.md) | 8/839 | 27 层 |
+| [ren](modules/ren.md) | 18/1656 | 97 层 |
+| [rob](modules/rob.md) | 6/1003 | 64 层 |
 | [tlb_mmu](modules/tlb_mmu.md) | 7/759 | 61 层 |
 
 ## 前端
 
 | 模块 | RTL（文件/行） | 深度 |
 | --- | --- | --- |
-| [bpu](modules/bpu.md) | 16/3121 | 272 层 |
+| [bpu](modules/bpu.md) | 16/3218 | 197 层 |
 | [front_ctrl](modules/front_ctrl.md) | 1/59 | 5 层 |
 | [front_fifos](modules/front_fifos.md) | 1/108 | 13 层 |
-| [front_top](modules/front_top.md) | 3/869 | 356 层 |
-| [icache](modules/icache.md) | 13/1660 | 106 层 |
+| [front_top](modules/front_top.md) | 3/740 | 216 层 |
+| [icache](modules/icache.md) | 13/1786 | 114 层 |
 | [predecode](modules/predecode.md) | 1/29 | 27 层 |
 
 ## 访存子系统
 
 | 模块 | RTL（文件/行） | 深度 |
 | --- | --- | --- |
-| [axi_cpu_port_adapter](modules/axi_cpu_port_adapter.md) | 2/149 | 9 层 |
+| [axi_cpu_port_adapter](modules/axi_cpu_port_adapter.md) | 2/150 | 9 层 |
 | [axi_interconnect](modules/axi_interconnect.md) | 9/1245 | 53 层 |
 | [axi_llc](modules/axi_llc.md) | 20/2606 | 350 层 |
 | [axi_subsys](modules/axi_subsys.md) | 1/299 | 353 层 |
-| [dcache](modules/dcache.md) | 18/3148 | 123 层 |
+| [dcache](modules/dcache.md) | 18/3118 | 123 层 |
 | [dcache_pf](modules/dcache_pf.md) | 1/169 | 384 层 |
 | [mem_route](modules/mem_route.md) | 4/382 | 9 层 |
-| [mem_top](modules/mem_top.md) | 3/692 | 待测 |
+| [mem_top](modules/mem_top.md) | 3/689 | 待测 |
 | [peripheral_axi](modules/peripheral_axi.md) | 3/239 | 10 层 |
 | [ptw_walk](modules/ptw_walk.md) | 4/406 | 47 层 |
 
@@ -51,9 +51,9 @@
 
 | 模块 | RTL（文件/行） | 深度 |
 | --- | --- | --- |
-| [common](modules/common.md) | 6/302 | 待测 |
-| [core_top](modules/core_top.md) | 4/1002 | 待测 |
+| [common](modules/common.md) | 7/434 | 待测 |
+| [core_top](modules/core_top.md) | 4/1005 | 待测 |
 | [pmu](modules/pmu.md) | 3/364 | 90 层 |
-| [soc_top](modules/soc_top.md) | 1/155 | 待测 |
+| [soc_top](modules/soc_top.md) | 1/153 | 待测 |
 
-合计（各文档的目录有重叠时会重复计数）：285 个文件，37525 行。
+合计（各文档的目录有重叠时会重复计数）：286 个文件，38554 行。

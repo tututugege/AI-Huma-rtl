@@ -47,8 +47,13 @@ module bpu_spec import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
   output logic                spec_a_ras_nonempty,
   output logic [XLEN_BITS-1:0]         spec_a_ras_top,
   output fh_t                 spec_a_fh,
-  // REFONLY: refetch flag and refetch-only step-1 command
+  // REFONLY: refetch flag, issue flag, direct S0 Block A inputs (independent of S2 ovr), and refetch-only step-1 command
   input  logic                refetch,
+  input  logic                issue,
+  input  logic                g0_h_en,
+  input  logic [HSYM_W-1:0]   g0_h_bits,
+  input  logic [1:0]          g0_r_op,
+  input  logic [XLEN_BITS-1:0] g0_r_val,
   input  logic [1:0]          hr_mode,
   input  hist_ck_t            hr_ck,
   input  logic [1:0]          hr_push_n,
@@ -79,21 +84,21 @@ module bpu_spec import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
 
   // Ref: push_arch: every taken control instruction of the commit lanes pushes its symbol
   logic [23:0] arch_d_bits;
-  logic [4:0]  arch_n;
+  logic [3:0]  arch_sym_n;
 
   always_comb begin
     arch_d_bits = '0;
-    arch_n      = '0;
+    arch_sym_n  = '0;
     for (int i = 0; i < NCOMMIT; i++) begin
       if (upd_valid[i] && (br_type[i] != BR_NONCTL) && actual_dir[i]) begin
         arch_d_bits = {arch_d_bits[20:0], hsym_of(base_pc[i], target[i])[0], hsym_of(base_pc[i], target[i])[1],
                        hsym_of(base_pc[i], target[i])[2]};
-        arch_n      = arch_n + 5'd3;
+        arch_sym_n  = arch_sym_n + 4'd1;
       end
     end
   end
 
-  bpu_hist_vec u_arch_push (.h(arch_q), .n(arch_n), .d(arch_d_bits), .h_next(arch_d));
+  bpu_hist_vec #(.MAX_SYM(8)) u_arch_push (.h(arch_q), .sym_n(arch_sym_n), .d(arch_d_bits), .h_next(arch_d));
 
   // Ref: commit loop: calls / returns move the architectural RAS
   always_comb begin
@@ -121,8 +126,8 @@ module bpu_spec import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
     return d;
   endfunction
 
-  function automatic logic [4:0] cnt_syms(input logic [1:0] n1, input logic en2, input logic en3);
-    return 5'(3 * (int'(n1) + int'(en2) + int'(en3)));
+  function automatic logic [3:0] cnt_syms(input logic [1:0] n1, input logic en2, input logic en3);
+    return 4'(int'(n1) + int'(en2) + int'(en3));
   endfunction
 
   // Ref: comb: spec history update
@@ -139,34 +144,37 @@ module bpu_spec import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
   end
 
   if (!FAST) begin : g_h_old
-    bpu_hist_vec u_v1 (.h(base1), .n(cnt_syms(n1_eff, 1'b0, 1'b0)),
+    bpu_hist_vec #(.MAX_SYM(4)) u_v1 (.h(base1), .sym_n(cnt_syms(n1_eff, 1'b0, 1'b0)),
                        .d(pack_syms(n1_eff, h_push_bits, 1'b0, '0, 1'b0, '0)), .h_next(spec_d1));
-    bpu_hist_vec u_v2 (.h(base1), .n(cnt_syms(n1_eff, 1'b0, h3_en)),
+    bpu_hist_vec #(.MAX_SYM(4)) u_v2 (.h(base1), .sym_n(cnt_syms(n1_eff, 1'b0, h3_en)),
                        .d(pack_syms(n1_eff, h_push_bits, 1'b0, '0, h3_en, h3_bits)), .h_next(spec_d));
     assign spec_da = spec_d1;
   end else if (BFANY) begin : g_h_bf
-    bpu_hist_vec u_v1 (.h(base1), .n(cnt_syms(n1_eff, 1'b0, 1'b0)),
+    bpu_hist_vec #(.MAX_SYM(4)) u_v1 (.h(base1), .sym_n(cnt_syms(n1_eff, 1'b0, 1'b0)),
                        .d(pack_syms(n1_eff, h_push_bits, 1'b0, '0, 1'b0, '0)), .h_next(spec_d1));
-    bpu_hist_vec u_va (.h(base1), .n(cnt_syms(n1_eff, h2_en, 1'b0)),
+    bpu_hist_vec #(.MAX_SYM(4)) u_va (.h(base1), .sym_n(cnt_syms(n1_eff, h2_en, 1'b0)),
                        .d(pack_syms(n1_eff, h_push_bits, h2_en, h2_bits, 1'b0, '0)), .h_next(spec_da));
-    bpu_hist_vec u_v2 (.h(base1), .n(cnt_syms(n1_eff, h2_en, h3_en)),
+    bpu_hist_vec #(.MAX_SYM(4)) u_v2 (.h(base1), .sym_n(cnt_syms(n1_eff, h2_en, h3_en)),
                        .d(pack_syms(n1_eff, h_push_bits, h2_en, h2_bits, h3_en, h3_bits)), .h_next(spec_d));
   end else begin : g_h_ref
-    hist_t spec_n1, spec_n2, spec_r1, spec_ra, spec_r2, base_r;
+    // REFONLY: S0 Block A/B on !refetch starts directly from spec_q (independent of S2 ovr / r1_q!)
+    hist_t spec_n1, spec_qa, spec_q2, spec_r1, spec_ra, spec_r2, base_r;
     always_comb base_r = (hr_mode == M_CK) ? hist_restore(spec_q, hr_ck) : arch_d;
-    bpu_hist_vec u_n1 (.h(base1), .n(cnt_syms(n1_eff, 1'b0, 1'b0)),
+    bpu_hist_vec #(.MAX_SYM(2)) u_n1 (.h(base1), .sym_n(cnt_syms(n1_eff, 1'b0, 1'b0)),
                        .d(pack_syms(n1_eff, h_push_bits, 1'b0, '0, 1'b0, '0)), .h_next(spec_n1));
-    bpu_hist_vec u_n2 (.h(base1), .n(cnt_syms(n1_eff, 1'b0, h3_en)),
-                       .d(pack_syms(n1_eff, h_push_bits, 1'b0, '0, h3_en, h3_bits)), .h_next(spec_n2));
-    bpu_hist_vec u_r1 (.h(base_r), .n(cnt_syms(hr_push_n, 1'b0, 1'b0)),
+    bpu_hist_vec #(.MAX_SYM(1)) u_qa (.h(spec_q), .sym_n(cnt_syms(2'd0, g0_h_en, 1'b0)),
+                       .d(pack_syms(2'd0, 6'd0, g0_h_en, g0_h_bits, 1'b0, '0)), .h_next(spec_qa));
+    bpu_hist_vec #(.MAX_SYM(2)) u_q2 (.h(spec_q), .sym_n(cnt_syms(2'd0, g0_h_en, h3_en)),
+                       .d(pack_syms(2'd0, 6'd0, g0_h_en, g0_h_bits, h3_en, h3_bits)), .h_next(spec_q2));
+    bpu_hist_vec #(.MAX_SYM(2)) u_r1 (.h(base_r), .sym_n(cnt_syms(hr_push_n, 1'b0, 1'b0)),
                        .d(pack_syms(hr_push_n, hr_push_bits, 1'b0, '0, 1'b0, '0)), .h_next(spec_r1));
-    bpu_hist_vec u_ra (.h(base_r), .n(cnt_syms(hr_push_n, h2_en, 1'b0)),
+    bpu_hist_vec #(.MAX_SYM(3)) u_ra (.h(base_r), .sym_n(cnt_syms(hr_push_n, h2_en, 1'b0)),
                        .d(pack_syms(hr_push_n, hr_push_bits, h2_en, h2_bits, 1'b0, '0)), .h_next(spec_ra));
-    bpu_hist_vec u_r2 (.h(base_r), .n(cnt_syms(hr_push_n, h2_en, h3_en)),
+    bpu_hist_vec #(.MAX_SYM(4)) u_r2 (.h(base_r), .sym_n(cnt_syms(hr_push_n, h2_en, h3_en)),
                        .d(pack_syms(hr_push_n, hr_push_bits, h2_en, h2_bits, h3_en, h3_bits)), .h_next(spec_r2));
     assign spec_d1 = spec_r1;
-    assign spec_da = refetch ? spec_ra : spec_n1;
-    assign spec_d  = refetch ? spec_r2 : spec_n2;
+    assign spec_da = refetch ? spec_ra : spec_qa;
+    assign spec_d  = refetch ? spec_r2 : (issue ? spec_q2 : spec_n1);
   end
 
   // ---- speculative RAS: queue arrays + pointers + 4-slot write overlay ----
@@ -230,11 +238,14 @@ module bpu_spec import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
   rst_t s_old, s_d1, s_da, s_d;
   always_comb s_old = do_op(do_op(start(r_mode, r_ck), r_op, r_val, 2'd0), r_op2, r_val2, 2'd1);
   if (REFONLY) begin : g_r_ref
-    rst_t s_ra;
+    rst_t s_ra, s_r2, s_qa, s_q2;
     always_comb s_d1 = do_op(do_op(start(rr_mode, rr_ck), rr_op, rr_val, 2'd0), rr_op2, rr_val2, 2'd1);
     always_comb s_ra = do_op(s_d1, r2_op, r2_val, 2'd2);
-    always_comb s_da = refetch ? s_ra : s_old;
-    always_comb s_d  = do_op(s_da, r3_op, r3_val, 2'd3);
+    always_comb s_r2 = do_op(s_ra, r3_op, r3_val, 2'd3);
+    always_comb s_qa = do_op(start(2'd0, '0), g0_r_op, g0_r_val, 2'd2);
+    always_comb s_q2 = do_op(s_qa, r3_op, r3_val, 2'd3);
+    always_comb s_da = refetch ? s_ra : s_qa;
+    always_comb s_d  = refetch ? s_r2 : (issue ? s_q2 : s_old);
   end else begin : g_r_std
     always_comb s_d1 = s_old;
     always_comb s_da = BFANY ? do_op(s_d1, r2_op, r2_val, 2'd2) : s_d1;
@@ -289,8 +300,8 @@ module bpu_spec import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
 
   /* verilator lint_off UNUSEDSIGNAL */
   logic unused_ok;
-  assign unused_ok = ^{h2_en, h2_bits, r2_op, r2_val, refetch, hr_mode, hr_ck, hr_push_n, hr_push_bits,
-                       rr_mode, rr_ck, rr_op, rr_val, rr_op2, rr_val2};
+  assign unused_ok = ^{h2_en, h2_bits, r2_op, r2_val, refetch, issue, g0_h_en, g0_h_bits, g0_r_op, g0_r_val,
+                       hr_mode, hr_ck, hr_push_n, hr_push_bits, rr_mode, rr_ck, rr_op, rr_val, rr_op2, rr_val2};
   /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

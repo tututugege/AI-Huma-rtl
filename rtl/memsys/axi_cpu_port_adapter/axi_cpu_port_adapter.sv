@@ -25,7 +25,7 @@ module axi_cpu_port_adapter import memcpu_pkg::*; (
 );
 
   for (genvar c = 0; c < AX_NCH; c++) begin : g_chan
-    axi_cpu_port_chan #(.EXPORT_ID(c != 2)) u_chan (
+    axi_cpu_port_chan #(.EXPORT_ID(c != 2), .CLEAR_ON_POP(c == 0)) u_chan (
       .clk, .rst_n, .phase0, .phase_last,
       .raw_ready        (raw_ready[c]),
       .raw_accepted     (raw_accepted[c]),

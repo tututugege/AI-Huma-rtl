@@ -37,6 +37,7 @@ module icache_ctl import ttg_cfg_pkg::*; import icache_pkg::*; (
   input  logic                    dc_resp_retry,
   input  logic                    dc_resp_miss,
   input  logic [IC_WORD_W-1:0]    dc_resp_data,
+  input  logic                    dc_probe_busy,
   // arrays
   input  logic                    hit,
   input  logic [IC_LINE_W-1:0]    hit_line,
@@ -63,8 +64,9 @@ module icache_ctl import ttg_cfg_pkg::*; import icache_pkg::*; (
   output logic                    resp_single_word,
   output logic [IC_LINE_W-1:0]    resp_line,
   output logic                    icache_ready,
-  // FDIP arbitration visibility (step-0 demand req & in-flight miss line)
+  // FDIP arbitration visibility (step-0 demand req, DCache probe busy & in-flight miss line)
   output logic                    demand_mem_req_step0,
+  output logic                    demand_dc_busy,
   output logic                    demand_miss_txv,
   output logic [25:0]             demand_miss_line,
   // memory-side outputs
@@ -100,6 +102,7 @@ module icache_ctl import ttg_cfg_pkg::*; import icache_pkg::*; (
   icache_probe u_probe (
     .req_valid(r_q.req_valid), .ppn(r_q.ppn), .req_index(r_q.req_pc[11:IC_OFF_W]), .probe_inflight(r_q.probe_inflight),
     .probe_done(r_q.probe_done), .probe_hit(r_q.probe_hit), .probe_word(r_q.probe_word),
+    .dc_probe_busy,
     .dc_resp_valid, .dc_resp_retry, .dc_resp_miss, .dc_req_valid(p_dc_req_valid), .dc_req_addr(p_dc_req_addr),
     .step_done(p_step_done), .step_hit(p_step_hit), .word_we(p_word_we), .probe_inflight_d(p_infl_d),
     .probe_done_d(p_done_d), .probe_hit_d(p_hit_d), .probe_word_d(p_word_d)
@@ -157,10 +160,12 @@ module icache_ctl import ttg_cfg_pkg::*; import icache_pkg::*; (
   logic [31:0] k0_dc_a, k1_dc_a;
   icache_kill u_k0 (
     .r(r_q), .mem_req_ready, .mem_req_accepted, .mem_req_accepted_id, .mem_resp_valid, .mem_resp_id,
+    .dc_probe_busy,
     .r_n(k0_r_n), .mem_resp_ready(k0_mrr), .dc_req_valid(k0_dc_v), .dc_req_addr(k0_dc_a)
   );
   icache_kill u_k1 (
     .r(r1), .mem_req_ready, .mem_req_accepted, .mem_req_accepted_id, .mem_resp_valid, .mem_resp_id,
+    .dc_probe_busy,
     .r_n(k1_r_n), .mem_resp_ready(k1_mrr), .dc_req_valid(k1_dc_v), .dc_req_addr(k1_dc_a)
   );
 
@@ -228,6 +233,7 @@ module icache_ctl import ttg_cfg_pkg::*; import icache_pkg::*; (
   logic n_dc_v;
   always_comb begin
     n_dc_v = (r_q.state == IC_SWAP_REQ || r_q.state == IC_SWAP_WAIT || r_q.state == IC_WAIT_DC) && p_dc_req_valid;
+    demand_dc_busy     = ((r_q.state != IC_IDLE) && !r_q.probe_done) || r_q.probe_inflight || (kill1 ? k0_dc_v : n_dc_v);
     mem_req_valid      = !invalidate && !kill1 && swap_mem_req_valid;
     mem_req_addr       = ic_req_mem_addr(r_q.ppn, r_q.req_pc[11:0]);
     mem_req_total_size = unc ? 8'd3 : 8'(IC_LINE_W / 8 - 1);

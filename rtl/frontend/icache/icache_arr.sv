@@ -1,11 +1,13 @@
-// Ref: front-end/icache/icache_top.cpp  ICacheTop (4-bank 1R1W arrays, Bank B fetch_second, FDIP peek & fill, SRRIP)
+// Ref: front-end/icache/icache_top.cpp  ICacheTop (physical 4-bank 1R1W arrays, Bank B fetch_second, FDIP peek & fill, parallel SRRIP)
 `default_nettype none
 
-// 4-bank 1R1W I-cache arrays: 8 ways x 64 sets (partitioned into 4 banks by set[1:0], 16 sets/bank) of
+// Physical 4-bank 1R1W I-cache arrays: 8 ways x 64 sets partitioned into 4 banks by set[1:0] (16 sets/bank) of
 // {tag, valid, 64-byte line} + 2-bit SRRIP RRPV per way.
-//   - Port A (demand): asynchronous read at rd_index, hit compare vs cmp_tag, SRRIP hit touch.
-//   - Port B (fetch_second): parallel read at b_rd_index (with same-cycle demand refill forwarding) for paired Block B.
-//   - FDIP tag peek: cycle-start tag/valid check at fdip_peek_index (no data read, no state update).
+//   - Each bank's data_q[8][16] has strictly ONE read port and ONE write port.
+//   - Port A (demand) reads bank rd_index[1:0]; Port B (fetch_second) reads bank b_rd_index[1:0] in parallel when
+//     b_rd_index[1:0] != rd_index[1:0] (or shares Port A's bank read on same-line pair; ic_pair_ok guarantees no
+//     same-bank different-line conflict).
+//   - FDIP tag peek / fill resident check inspect tag/valid only (no data read, no state update).
 //   - Single write port: demand refill (we) has strict priority over FDIP refill (fdip_we).
 module icache_arr import icache_pkg::*; (
   input  logic                    clk,
@@ -43,10 +45,34 @@ module icache_arr import icache_pkg::*; (
   input  logic [IC_LINE_W-1:0]    fdip_w_line
 );
 
-  logic [IC_LINE_W-1:0] data_q  [IC_WAYS][IC_SETS];
-  logic [IC_TAG_W-1:0]  tag_q   [IC_WAYS][IC_SETS];
-  logic [IC_SETS-1:0]   valid_q [IC_WAYS];
+  localparam int IC_BANKS  = 4;
+  localparam int IC_BK_W   = 2;
+  localparam int IC_BSETS  = IC_SETS / IC_BANKS;
+  localparam int IC_BROW_W = IC_IDX_W - IC_BK_W;
+
+  // Physical 4-bank arrays: data_q is strictly 1R1W per bank
+  logic [IC_LINE_W-1:0] data_q  [IC_BANKS][IC_WAYS][IC_BSETS];
+  logic [IC_TAG_W-1:0]  tag_q   [IC_BANKS][IC_WAYS][IC_BSETS];
+  logic [IC_BSETS-1:0]  valid_q [IC_BANKS][IC_WAYS];
   logic [IC_RB-1:0]     repl_q  [IC_SETS];
+
+  logic [IC_BK_W-1:0]   a_bk, b_bk, fp_bk, fw_bk, eff_w_bk;
+  logic [IC_BROW_W-1:0] a_row, b_row, fp_row, fw_row, eff_w_row;
+
+  assign a_bk   = rd_index[IC_BK_W-1:0];
+  assign a_row  = rd_index[IC_IDX_W-1:IC_BK_W];
+  assign b_bk   = b_rd_index[IC_BK_W-1:0];
+  assign b_row  = b_rd_index[IC_IDX_W-1:IC_BK_W];
+  assign fp_bk  = fdip_peek_index[IC_BK_W-1:0];
+  assign fp_row = fdip_peek_index[IC_IDX_W-1:IC_BK_W];
+  assign fw_bk  = fdip_w_index[IC_BK_W-1:0];
+  assign fw_row = fdip_w_index[IC_IDX_W-1:IC_BK_W];
+
+  // Single read row per bank: Port A takes its bank when rd_en, Port B uses its own bank in parallel
+  logic [IC_BROW_W-1:0] bk_rrow  [IC_BANKS];
+  logic [IC_LINE_W-1:0] bk_rdata [IC_BANKS][IC_WAYS];
+  logic [IC_TAG_W-1:0]  bk_rtag  [IC_BANKS][IC_WAYS];
+  logic [IC_WAYS-1:0]   bk_rval  [IC_BANKS];
 
   // ---- Port A (demand) ----
   logic [IC_WAYS-1:0]   way_valid, way_match, way_invalid, hit_onehot, invalid_onehot;
@@ -70,36 +96,52 @@ module icache_arr import icache_pkg::*; (
   logic [IC_TAG_W-1:0]  eff_w_tag;
   logic [IC_LINE_W-1:0] eff_w_line;
 
-  for (genvar w = 0; w < IC_WAYS; w++) begin : g_way
-    logic b_fwd;
-    logic b_v;
-    logic [IC_TAG_W-1:0] b_t;
+  assign eff_w_bk  = eff_w_index[IC_BK_W-1:0];
+  assign eff_w_row = eff_w_index[IC_IDX_W-1:IC_BK_W];
 
-    assign way_valid[w] = valid_q[w][rd_index];
-    assign way_line[w]  = data_q[w][rd_index];
-    assign way_match[w] = way_valid[w] && (tag_q[w][rd_index] == cmp_tag);
+  for (genvar bk = 0; bk < IC_BANKS; bk++) begin : g_bank
+    assign bk_rrow[bk] = (rd_en && (a_bk == IC_BK_W'(bk))) ? a_row : b_row;
+    for (genvar w = 0; w < IC_WAYS; w++) begin : g_way
+      assign bk_rdata[bk][w] = data_q[bk][w][bk_rrow[bk]];
+      assign bk_rtag[bk][w]  = tag_q[bk][w][bk_rrow[bk]];
+      assign bk_rval[bk][w]  = valid_q[bk][w][bk_rrow[bk]];
 
-    assign b_fwd         = !inv_all && we && (w_index == b_rd_index) && (w_way == IC_WAY_W'(w));
-    assign b_v           = inv_all ? 1'b0 : (b_fwd ? 1'b1 : valid_q[w][b_rd_index]);
-    assign b_t           = b_fwd ? w_tag : tag_q[w][b_rd_index];
-    assign b_way_line[w] = b_fwd ? w_line : data_q[w][b_rd_index];
-    assign b_way_match[w] = b_v && (b_t == b_cmp_tag);
+      always_ff @(posedge clk) begin
+        if (eff_we && (eff_w_bk == IC_BK_W'(bk)) && (eff_w_way == IC_WAY_W'(w))) begin
+          data_q[bk][w][eff_w_row] <= eff_w_line;
+          tag_q[bk][w][eff_w_row]  <= eff_w_tag;
+        end
+      end
 
-    assign fp_match[w] = valid_q[w][fdip_peek_index] && (tag_q[w][fdip_peek_index] == fdip_peek_tag);
-    assign ff_match[w] = valid_q[w][fdip_w_index] && (tag_q[w][fdip_w_index] == fdip_w_tag);
-    assign ff_inv[w]   = !valid_q[w][fdip_w_index];
-
-    always_ff @(posedge clk) begin
-      if (eff_we && eff_w_way == IC_WAY_W'(w)) begin
-        data_q[w][eff_w_index] <= eff_w_line;
-        tag_q[w][eff_w_index]  <= eff_w_tag;
+      always_ff @(posedge clk) begin
+        if (!rst_n || inv_all)
+          valid_q[bk][w] <= '0;
+        else if (eff_we && (eff_w_bk == IC_BK_W'(bk)) && (eff_w_way == IC_WAY_W'(w)))
+          valid_q[bk][w][eff_w_row] <= 1'b1;
       end
     end
+  end
 
-    always_ff @(posedge clk) begin
-      if (!rst_n || inv_all)                        valid_q[w] <= '0;
-      else if (eff_we && eff_w_way == IC_WAY_W'(w)) valid_q[w][eff_w_index] <= 1'b1;
-    end
+  for (genvar w = 0; w < IC_WAYS; w++) begin : g_mux
+    logic                 b_fwd, b_v;
+    logic [IC_TAG_W-1:0]  a_t, b_t;
+    logic [IC_LINE_W-1:0] b_d;
+
+    assign way_valid[w] = bk_rval[a_bk][w];
+    assign way_line[w]  = bk_rdata[a_bk][w];
+    assign a_t          = bk_rtag[a_bk][w];
+    assign way_match[w] = way_valid[w] && (a_t == cmp_tag);
+
+    assign b_fwd         = !inv_all && we && (w_index == b_rd_index) && (w_way == IC_WAY_W'(w));
+    assign b_v           = inv_all ? 1'b0 : (b_fwd ? 1'b1 : bk_rval[b_bk][w]);
+    assign b_t           = b_fwd ? w_tag  : bk_rtag[b_bk][w];
+    assign b_d           = b_fwd ? w_line : bk_rdata[b_bk][w];
+    assign b_way_line[w] = b_d;
+    assign b_way_match[w] = b_v && (b_t == b_cmp_tag);
+
+    assign fp_match[w] = valid_q[fp_bk][w][fp_row] && (tag_q[fp_bk][w][fp_row] == fdip_peek_tag);
+    assign ff_match[w] = valid_q[fw_bk][w][fw_row] && (tag_q[fw_bk][w][fw_row] == fdip_w_tag);
+    assign ff_inv[w]   = !valid_q[fw_bk][w][fw_row];
   end
 
   assign way_invalid = ~way_valid;
@@ -119,29 +161,45 @@ module icache_arr import icache_pkg::*; (
   ttg_first_set #(.N(IC_WAYS)) u_ff_inv (.req(ff_inv), .onehot(ff_inv_oh), .any(ff_inv_any));
   ttg_onehot_to_idx #(.N(IC_WAYS)) u_ff_inv_idx (.onehot(ff_inv_oh), .idx(ff_inv_idx));
 
-  // ---- SRRIP helper: victim of a row ----
+  // ---- Parallel log-depth SRRIP helpers (IC_WAYS = 8) ----
+  function automatic logic [IC_WAY_W-1:0] first_set8_idx(input logic [IC_WAYS-1:0] m);
+    logic lo_any;
+    logic [1:0] lo_i, hi_i;
+    lo_any = |m[3:0];
+    lo_i   = m[0] ? 2'd0 : m[1] ? 2'd1 : m[2] ? 2'd2 : 2'd3;
+    hi_i   = m[4] ? 2'd0 : m[5] ? 2'd1 : m[6] ? 2'd2 : (m[7] ? 2'd3 : 2'd3);
+    return lo_any ? {1'b0, lo_i} : {1'b1, hi_i};
+  endfunction
+
   function automatic logic [IC_WAY_W-1:0] srrip_victim(input logic [IC_RB-1:0] row);
-    logic [IC_WAY_W-1:0] v;
-    logic found;
-    v = '0;
-    found = 1'b0;
-    for (int lvl = 3; lvl >= 0; lvl--) begin
-      for (int w = 0; w < IC_WAYS; w++) begin
-        if (!found && (row[2 * w +: 2] == 2'(lvl))) begin
-          v     = IC_WAY_W'(w);
-          found = 1'b1;
-        end
-      end
+    logic [IC_WAYS-1:0] m3, m2, m1;
+    for (int w = 0; w < IC_WAYS; w++) begin
+      m3[w] = (row[2 * w +: 2] == 2'd3);
+      m2[w] = (row[2 * w +: 2] == 2'd2);
+      m1[w] = (row[2 * w +: 2] == 2'd1);
     end
-    return v;
+    if (|m3)      return first_set8_idx(m3);
+    else if (|m2) return first_set8_idx(m2);
+    else if (|m1) return first_set8_idx(m1);
+    else          return 3'd0;
+  endfunction
+
+  function automatic logic [1:0] max2(input logic [1:0] a, input logic [1:0] b);
+    return (a >= b) ? a : b;
   endfunction
 
   function automatic logic [IC_RB-1:0] srrip_fill_row(input logic [IC_RB-1:0] row, input logic [IC_WAY_W-1:0] wy);
-    logic [1:0] mx;
+    logic [1:0] m01, m23, m45, m67, m03, m47, mx, delta;
     logic [IC_RB-1:0] nr;
-    mx = 2'd0;
-    for (int w = 0; w < IC_WAYS; w++) if (row[2 * w +: 2] > mx) mx = row[2 * w +: 2];
-    for (int w = 0; w < IC_WAYS; w++) nr[2 * w +: 2] = row[2 * w +: 2] + (2'd3 - mx);
+    m01   = max2(row[1:0],   row[3:2]);
+    m23   = max2(row[5:4],   row[7:6]);
+    m45   = max2(row[9:8],   row[11:10]);
+    m67   = max2(row[13:12], row[15:14]);
+    m03   = max2(m01, m23);
+    m47   = max2(m45, m67);
+    mx    = max2(m03, m47);
+    delta = ~mx; // 2'd3 - mx
+    for (int w = 0; w < IC_WAYS; w++) nr[2 * w +: 2] = row[2 * w +: 2] + delta;
     nr[2 * wy +: 2] = 2'd2;
     return nr;
   endfunction

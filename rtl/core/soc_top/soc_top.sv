@@ -115,8 +115,6 @@ module soc_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*;
  logic mem_resp_ready ;
  logic dc_req_valid ;
  logic [31:0] dc_req_addr ;
- logic [25:0] fdip_snoop_line ;
- logic fdip_snoop_dirty ;
  logic itlb_walk_req_valid ;
  logic [VPN_W-1:0] itlb_walk_req_vpn ;
  logic [21:0] itlb_walk_req_root_ppn ;

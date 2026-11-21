@@ -16,8 +16,7 @@ module ptab import ttg_cfg_pkg::*; import front_pkg::*; (
   input  logic [3:0]              wr_a_len,
   input  logic [FETCH_WIDTH-1:0]  wr_alt_pred,
   input  logic [PCPN_W-1:0]       wr_pcpn        [FETCH_WIDTH],
-  input  logic [TAGE_IDX_W-1:0]   wr_tage_idx    [FETCH_WIDTH][TN_MAX],
-  input  logic [TAGE_TAG_W-1:0]   wr_tage_tag    [FETCH_WIDTH][TN_MAX],
+  input  logic [BLK_ID_W-1:0]     wr_blk_id,
   output logic                    rd_valid,
   output logic [XLEN_BITS-1:0]    rd_predict_next_fetch_address,
   output logic [FETCH_WIDTH-1:0]  rd_predict_dir,
@@ -27,8 +26,7 @@ module ptab import ttg_cfg_pkg::*; import front_pkg::*; (
   output logic [3:0]              rd_a_len,
   output logic [FETCH_WIDTH-1:0]  rd_alt_pred,
   output logic [PCPN_W-1:0]       rd_pcpn        [FETCH_WIDTH],
-  output logic [TAGE_IDX_W-1:0]   rd_tage_idx    [FETCH_WIDTH][TN_MAX],
-  output logic [TAGE_TAG_W-1:0]   rd_tage_tag    [FETCH_WIDTH][TN_MAX],
+  output logic [BLK_ID_W-1:0]     rd_blk_id,
   output logic                    full,
   output logic                    empty,
   output logic [$clog2(PTAB_DEPTH + 1)-1:0] size
@@ -42,26 +40,20 @@ module ptab import ttg_cfg_pkg::*; import front_pkg::*; (
       wr_entry.predict_dir[i]   = wr_predict_dir[i];
       wr_entry.meta.alt_pred[i] = wr_alt_pred[i];
       wr_entry.meta.pcpn[i]     = wr_pcpn[i];
-      for (int j = 0; j < TN_MAX; j++) begin
-        wr_entry.meta.tage_idx[i][j] = wr_tage_idx[i][j];
-        wr_entry.meta.tage_tag[i][j] = wr_tage_tag[i][j];
-      end
-      rd_predict_dir[i] = rd_entry.predict_dir[i];
-      rd_alt_pred[i]    = rd_entry.meta.alt_pred[i];
-      rd_pcpn[i]        = rd_entry.meta.pcpn[i];
-      for (int j = 0; j < TN_MAX; j++) begin
-        rd_tage_idx[i][j] = rd_entry.meta.tage_idx[i][j];
-        rd_tage_tag[i][j] = rd_entry.meta.tage_tag[i][j];
-      end
+      rd_predict_dir[i]         = rd_entry.predict_dir[i];
+      rd_alt_pred[i]            = rd_entry.meta.alt_pred[i];
+      rd_pcpn[i]                = rd_entry.meta.pcpn[i];
     end
     wr_entry.is_pair                    = wr_is_pair;
     wr_entry.base_b                     = wr_base_b;
     wr_entry.a_len                      = wr_a_len;
+    wr_entry.meta.blk_id                = wr_blk_id;
     wr_entry.meta.predict_base_pc       = wr_predict_base_pc;
     wr_entry.predict_next_fetch_address = wr_predict_next_fetch_address;
     rd_is_pair                          = rd_entry.is_pair;
     rd_base_b                           = rd_entry.base_b;
     rd_a_len                            = rd_entry.a_len;
+    rd_blk_id                           = rd_entry.meta.blk_id;
     rd_predict_base_pc                  = rd_entry.meta.predict_base_pc;
     rd_predict_next_fetch_address       = rd_entry.predict_next_fetch_address;
   end

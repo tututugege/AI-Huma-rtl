@@ -1,4 +1,4 @@
-// Ref: front-end/front_top.cpp  FrontChecker::comb (PdInfo: up to 2 history symbols & 2 RAS ops, pd_nb_base)
+// Ref: front-end/front_top.cpp  FrontChecker::comb (log-depth parallel PdInfo: up to 2 history symbols & 2 RAS ops, pd_nb_base)
 `default_nettype none
 
 module front_pd_info import ttg_cfg_pkg::*; import front_pkg::*; import bpu_stage_pkg::*; (
@@ -32,77 +32,103 @@ module front_pd_info import ttg_cfg_pkg::*; import front_pkg::*; import bpu_stag
   output logic [XLEN_BITS-1:0]    pd_nb_base
 );
 
-  logic                 nb_any;
-  logic [XLEN_BITS-1:0] nb_pc_d, nb_base_d;
-  logic [1:0]           hn_d, ras_op_d, ras_op2_d;
-  logic [5:0]           hbits_d;
-  logic [XLEN_BITS-1:0] ras_val_d, ras_val2_d;
+  // ---- Segment 1 prefix mask & base (parallel) ----
+  logic [FETCH_WIDTH-1:0] s1_oh, seg1_ge;
+  logic                   any_s1;
+  logic [XLEN_BITS-1:0]   seg1_base;
 
-  // False-branch (predicted taken on non-branch) detection with segment base for multi
+  ttg_first_set #(.N(FETCH_WIDTH)) u_s1 (.req(seg_first), .onehot(s1_oh), .any(any_s1));
+  ttg_onehot_mux #(.N(FETCH_WIDTH), .W(XLEN_BITS)) u_s1_base (.sel(s1_oh), .data(ptab_pc), .out(seg1_base));
+
   always_comb begin
-    logic [XLEN_BITS-1:0] seg_base;
-    nb_any    = 1'b0;
-    nb_pc_d   = '0;
-    nb_base_d = '0;
-    seg_base  = ptab_pc[0];
-    if (flush) begin
-      for (int i = 0; i < FETCH_WIDTH; i++) begin
-        if (seg_first[i]) seg_base = ptab_pc[i];
-        if (!nb_any && inst_valid[i] && predict_dir[i] && (ptype[i] == PREDECODE_NON_BRANCH)) begin
-          nb_any    = 1'b1;
-          nb_pc_d   = slot_pc[i];
-          nb_base_d = multi ? seg_base : '0;
-        end
+    seg1_ge = s1_oh;
+    seg1_ge = seg1_ge | (seg1_ge << 1);
+    seg1_ge = seg1_ge | (seg1_ge << 2);
+    seg1_ge = seg1_ge | (seg1_ge << 4);
+    seg1_ge = seg1_ge | (seg1_ge << 8);
+  end
+
+  // ---- False-branch detection (parallel ttg_first_set) ----
+  logic [FETCH_WIDTH-1:0] nb_req, nb_oh;
+  logic                   nb_any_raw, nb_any;
+  logic [XLEN_BITS-1:0]   nb_pc_sel, nb_pc_d, nb_base_d;
+
+  always_comb begin
+    for (int i = 0; i < FETCH_WIDTH; i++)
+      nb_req[i] = flush && inst_valid[i] && predict_dir[i] && (ptype[i] == PREDECODE_NON_BRANCH);
+  end
+  ttg_first_set #(.N(FETCH_WIDTH)) u_nb (.req(nb_req), .onehot(nb_oh), .any(nb_any_raw));
+  ttg_onehot_mux #(.N(FETCH_WIDTH), .W(XLEN_BITS)) u_nb_pc (.sel(nb_oh), .data(slot_pc), .out(nb_pc_sel));
+
+  assign nb_any    = nb_any_raw;
+  assign nb_pc_d   = nb_any_raw ? nb_pc_sel : '0;
+  assign nb_base_d = (nb_any_raw && multi) ? ((|(nb_oh & seg1_ge)) ? seg1_base : ptab_pc[0]) : '0;
+
+  // ---- Parallel per-lane symbol & RAS op, then single ttg_pick_k(K=2) ----
+  logic [FETCH_WIDTH-1:0] ctrl_tk, tk_oh [2], tk1_oh, tk2_oh;
+  logic [1:0]             tk_v;
+  logic                   tk1_any, tk2_any;
+  logic [HSYM_W-1:0]      lane_sym  [FETCH_WIDTH];
+  logic [1:0]             lane_rop  [FETCH_WIDTH];
+  logic [XLEN_BITS-1:0]   lane_rval [FETCH_WIDTH];
+
+  always_comb begin
+    for (int i = 0; i < FETCH_WIDTH; i++) begin
+      logic [XLEN_BITS-1:0] tgt;
+      ctrl_tk[i] = flush && (!multi || (5'(i) < keep_n)) &&
+                   inst_valid[i] && (ptype[i] != PREDECODE_NON_BRANCH) && dir_corrected[i];
+      if (ptype[i] == PREDECODE_JALR)
+        tgt = (multi && (i + 1 < FETCH_WIDTH) && seg_first[i + 1]) ? slot_pc[i + 1] : ptab_next;
+      else
+        tgt = pre_target[i];
+      lane_sym[i]  = hsym_of(slot_pc[i], tgt);
+      lane_rop[i]  = 2'd0;
+      lane_rval[i] = '0;
+      if ((ptype[i] == PREDECODE_JAL) && (insts[i][11:7] == 5'd1)) begin
+        lane_rop[i]  = 2'd1;
+        lane_rval[i] = slot_pc[i] + (is_rvc[i] ? XLEN_BITS'(2) : XLEN_BITS'(4));
+      end else if ((ptype[i] == PREDECODE_JALR) && (insts[i][11:7] == 5'd0) &&
+                   (insts[i][19:15] == 5'd1) && (insts[i][31:20] == 12'd0)) begin
+        lane_rop[i] = 2'd2;
       end
     end
   end
 
-  // Up to 2 corrected taken control instructions (Block A + optional Block B)
+  ttg_pick_k #(.N(FETCH_WIDTH), .K(2)) u_tk (.req(ctrl_tk), .pick_oh(tk_oh), .valid(tk_v));
+  assign tk1_oh  = tk_oh[0];
+  assign tk1_any = tk_v[0];
+  assign tk2_oh  = multi ? tk_oh[1] : '0;
+  assign tk2_any = multi && tk_v[1];
+
+  logic [HSYM_W-1:0]    sym1, sym2;
+  logic [1:0]           rop1, rop2, hn_d, ras_op_d, ras_op2_d;
+  logic [5:0]           hbits_d;
+  logic [XLEN_BITS-1:0] rval1, rval2, ras_val_d, ras_val2_d;
+
+  ttg_onehot_mux #(.N(FETCH_WIDTH), .W(HSYM_W))    u_sym1  (.sel(tk1_oh), .data(lane_sym),  .out(sym1));
+  ttg_onehot_mux #(.N(FETCH_WIDTH), .W(2))         u_rop1  (.sel(tk1_oh), .data(lane_rop),  .out(rop1));
+  ttg_onehot_mux #(.N(FETCH_WIDTH), .W(XLEN_BITS)) u_rval1 (.sel(tk1_oh), .data(lane_rval), .out(rval1));
+  ttg_onehot_mux #(.N(FETCH_WIDTH), .W(HSYM_W))    u_sym2  (.sel(tk2_oh), .data(lane_sym),  .out(sym2));
+  ttg_onehot_mux #(.N(FETCH_WIDTH), .W(2))         u_rop2  (.sel(tk2_oh), .data(lane_rop),  .out(rop2));
+  ttg_onehot_mux #(.N(FETCH_WIDTH), .W(XLEN_BITS)) u_rval2 (.sel(tk2_oh), .data(lane_rval), .out(rval2));
+
   always_comb begin
-    logic stop;
-    logic [XLEN_BITS-1:0] tgt, rval;
-    logic [HSYM_W-1:0]    sym;
-    logic [1:0]           rop;
-    hn_d       = 2'd0;
-    hbits_d    = 6'd0;
+    hn_d       = tk2_any ? 2'd2 : tk1_any ? 2'd1 : 2'd0;
+    hbits_d    = {tk2_any ? sym2 : 3'd0, tk1_any ? sym1 : 3'd0};
     ras_op_d   = 2'd0;
     ras_val_d  = '0;
     ras_op2_d  = 2'd0;
     ras_val2_d = '0;
-    stop       = 1'b0;
-    tgt        = '0;
-    rval       = '0;
-    sym        = '0;
-    rop        = 2'd0;
-    if (flush) begin
-      for (int i = 0; i < FETCH_WIDTH; i++) begin
-        if (!stop && (!multi || (5'(i) < keep_n))) begin
-          if (inst_valid[i] && (ptype[i] != PREDECODE_NON_BRANCH) && dir_corrected[i]) begin
-            if (ptype[i] == PREDECODE_JALR)
-              tgt = (multi && (i + 1 < FETCH_WIDTH) && seg_first[i + 1]) ? slot_pc[i + 1] : ptab_next;
-            else
-              tgt = pre_target[i];
-            sym = hsym_of(slot_pc[i], tgt);
-            if (hn_d == 2'd0)      begin hbits_d[2:0] = sym; hn_d = 2'd1; end
-            else if (hn_d == 2'd1) begin hbits_d[5:3] = sym; hn_d = 2'd2; end
-
-            rop  = 2'd0;
-            rval = '0;
-            if ((ptype[i] == PREDECODE_JAL) && (insts[i][11:7] == 5'd1)) begin
-              rop  = 2'd1;
-              rval = slot_pc[i] + (is_rvc[i] ? XLEN_BITS'(2) : XLEN_BITS'(4));
-            end else if ((ptype[i] == PREDECODE_JALR) && (insts[i][11:7] == 5'd0) &&
-                         (insts[i][19:15] == 5'd1) && (insts[i][31:20] == 12'd0)) begin
-              rop = 2'd2;
-            end
-            if (rop != 2'd0) begin
-              if (ras_op_d == 2'd0)       begin ras_op_d  = rop; ras_val_d  = rval; end
-              else if (ras_op2_d == 2'd0) begin ras_op2_d = rop; ras_val2_d = rval; end
-            end
-            if (!multi || (5'(i + 1) >= keep_n)) stop = 1'b1;
-          end
-        end
+    if (tk1_any && (rop1 != 2'd0)) begin
+      ras_op_d  = rop1;
+      ras_val_d = rval1;
+      if (tk2_any && (rop2 != 2'd0)) begin
+        ras_op2_d  = rop2;
+        ras_val2_d = rval2;
       end
+    end else if (tk2_any && (rop2 != 2'd0)) begin
+      ras_op_d  = rop2;
+      ras_val_d = rval2;
     end
   end
 
@@ -150,6 +176,11 @@ module front_pd_info import ttg_cfg_pkg::*; import front_pkg::*; import bpu_stag
   assign pd_nb_valid = pd_nb_valid_q;
   assign pd_nb_pc    = pd_nb_pc_q;
   assign pd_nb_base  = pd_nb_base_q;
+
+  /* verilator lint_off UNUSEDSIGNAL */
+  logic unused_pd;
+  assign unused_pd = any_s1;
+  /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule
 

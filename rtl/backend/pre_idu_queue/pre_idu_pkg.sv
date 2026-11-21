@@ -8,9 +8,7 @@ package pre_idu_pkg;
   import ttg_cfg_pkg::*;
 
   // ---- widths the reference model derives from front-end types that ttg_cfg_pkg does not export (wire_types.h) ----
-  localparam int TAGE_N = 4;  // TN_MAX
-  localparam int TAGE_IDX_W = 10;  // clog2(TN_ENTRY_NUM = 1024)
-  localparam int TAGE_TAG_W = 8;  // TAGE_TAG_WIDTH
+  localparam int BLK_ID_W = 10;  // FTB block ID width (matches bpu_types_pkg::FTB_BLK_ID_W)
   localparam int PCPN_W = 3;  // pcpn_t
   localparam int SC_SUM_W = 16;  // tage_scl_meta_sum_t
   localparam int SC_IDX_W = BPU_SCL_META_IDX_BITS;
@@ -25,18 +23,25 @@ package pre_idu_pkg;
   localparam int COMMIT_CNT_W = $clog2(COMMIT_WIDTH + 1);
   localparam int DECODE_CNT_W = $clog2(DECODE_WIDTH + 1);
 
-  // Training metadata of one fetch slot; written when the fetch group enters the FTQ, read back at commit.
+  // Per-slot training metadata (written when the fetch group enters the FTQ, read back at commit).
   typedef struct packed {
-    logic                                       alt_pred;
-    logic [PCPN_W-1:0]                          pcpn;
-    logic [TAGE_N-1:0][TAGE_IDX_W-1:0]          tage_idx;
-    logic [TAGE_N-1:0][TAGE_TAG_W-1:0]          tage_tag;
+    logic                alt_pred;
+    logic [PCPN_W-1:0]   pcpn;
   } ftq_meta_t;
+
+  // Per-FTQ-entry compact training metadata: 15b block descriptor + 16 x 4b slot metadata = 79b/entry.
+  typedef struct packed {
+    logic [BLK_ID_W-1:0]                       blk_id;
+    logic                                      is_pair;
+    logic [3:0]                                a_len;
+    ftq_meta_t [BACKEND_FETCH_WIDTH-1:0]       slots;
+  } ftq_meta_entry_t;
 
   // One InstructionBuffer slot (valid is implied by the occupancy count; pc is dropped, only Idu dbg reads it).
   typedef struct packed {
     logic [31:0]                inst;
     logic                       page_fault_inst;
+    logic                       pf_inst_hi;
     logic [FTQ_IDX_WIDTH-1:0]   ftq_idx;
     logic [FTQ_OFFSET_WIDTH-1:0] ftq_offset;
     logic                       ftq_is_last;

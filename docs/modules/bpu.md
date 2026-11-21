@@ -3,11 +3,16 @@ module: bpu
 area: frontend
 rtl: rtl/frontend/bpu
 model: trace-model front-end/BPU/BpuFtb.h、BPU_pipe.h、BPU.h、BPU_configs.h（调度单元 `front.core.bpu_pipe`，类 `BpuPipe`，块级 1-Ahead A + 2-Ahead B 双跳预测 + S2 Block-TAGE/ITT，`fe2f_b4_it2_ah1k` + `BRQ_W=1`）
-status: 整核周期与模型逐个相等（EXP-051 里程碑 B：fm_gate 68/68 + Linux 27 窗，零环境变量）
-depth: 272 层 / 504,078 单元（bpu，单模块综合，2026-11-21，`SYNTH_ABC="strash;balance;map" SYNTH_NO_MEMPRIO=1`，2-taken + 1-Ahead A + 2-Ahead B + HistRing 1024b + rec_q[256]；较原 16-bank 549,458 仍少 8.3%，最长路径 `r1_q[1074] → u_spec.spec_d[99]`）
+status: 整核周期与模型逐个相等（EXP-053 前端清理：fm_gate 68/68 零偏差 + Linux 27 窗 PT/UP 全等，零环境变量）
+depth: 197 层 / 410,093 单元（bpu，单模块综合，2026-11-21，`SYNTH_ABC="strash;balance;map" SYNTH_NO_MEMPRIO=1`，EXP-053 并行 `ftb_eval_ent` + 零取模 `bpu_hist_vec` + 切断 `ovr_a→g0_b` 假路径；较 EXP-051 504,078 单元 / 272 层 **−18.6% / −27.6%**，最长路径 `r1_q[1106] → u_spec.spec_d[144]`）
 ---
 
-# bpu 设计文档（块级 2-Taken + 1-Ahead A / 2-Ahead B 分支预测单元，EXP-051 里程碑 B）
+# bpu 设计文档（块级 2-Taken + 1-Ahead A / 2-Ahead B 分支预测单元，EXP-051/052）
+
+> **EXP-053 前端结构清理（Phase 1）优化**：
+> - `bpu_eval.sv`：将 `ftb_eval_ent` 改为并行求值（并用 6 位差 `(6'(bnd[5:0]) - 6'(base[5:0])) >> 1` 加固错路奇地址 `nslots`）；
+> - `bpu_hist_vec.sv` / `bpu_spec.sv`：彻底消除取模运算改为并行移位（`` `ifdef SYNTHESIS `` 综合走并行桶形移位、仿真走快速循环，经 `fe_clean_eq_tb` 20,000 次随机双路径验证 0 差异），收紧 `MAX_SYM`，并在 `bpu.sv` 中切断 `r1_q → ovr_a → spec_a → g0_b` 组合假路径；
+> - 删除不再使用的死信号 `out_tage_idx[1..3]` / `out_tage_tag`；单模块面积 **−18.6%**（504k → 410k），组合深度 **−27.6%**（272 → 197 层）。
 
 本版在里程碑 A（单块 1-ahead FTB `ah1_4k_a2k1k`）基础上，升级为 **每拍至多 2 个 taken 分支块（Block A + Block B）同拍预测** 的前端 BPU（Pareto 冠军 `fe2f_b4_it2_ah1k`）：
 - S0 并行读 **1-Ahead A**（`aftb 2K×8` + `atage 1K×4×4` + `aitt 256×3`）与 **2-Ahead B**（`aftb2 1K×8` + `atage2 512×4×4` + `aitt2 256×3`），共享同一已寄存前驱键 `(key_base, key_fh)`，S0 零串行 SRAM 读；未命中回退双读口 uFTB（`ftb0`）；

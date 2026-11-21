@@ -3,12 +3,16 @@ module: icache
 area: frontend
 rtl: rtl/frontend/icache
 model: trace-model front-end/icache/icache_top.h、icache_top.cpp、icache_module.cpp、include/icache_module.h（调度单元 `front.core.icache`，类 `ICacheTop`，阶段 `comb_fetch`、`comb_invalidate`）；ITLB 是 back-end 的 `TlbMmu`（`Kind::ITLB`）
-status: 整核周期与模型逐个相等（EXP-051 里程碑 B：fm_gate 68/68 + Linux 27 窗，零环境变量）
-depth: 106 层 / 916,659 单元（icache，单模块综合，2026-11-21，`SYNTH_ABC="strash;balance;map" SYNTH_NO_MEMPRIO=1`，4-Bank 1R1W + 2-Port ITLB peek + 2-slot FDIP；原 70 层 / 312,314 单元）
+status: 整核周期与模型逐个相等（EXP-053 前端清理：fm_gate 68/68 零偏差 + Linux 27 窗 PT/UP 全等，零环境变量）
+depth: 114 层 / 389,270 单元（icache，单模块综合，2026-11-21，`SYNTH_ABC="strash;balance;map" SYNTH_NO_MEMPRIO=1`，EXP-053 真 4-Bank 1R1W + 1 拍 DCache 探针 FDIP；较 EXP-051 916,659 单元 **−57.5%**）
 ---
 
 # icache 设计文档（4-Bank 指令缓存 + 2-Port ITLB + 实 AXI FDIP + 存储侧口）
 
+> **EXP-053 前端结构清理（Phase 1 + Phase 2）升级**：
+> 1. **真 4-Bank 1R1W 阵列（`icache_arr.sv`）**：按 `set[1:0]` 显式拆成 4 个独立 1R1W bank（每 bank 16 组 × 8 路，综合落 7 个 `$mem_v2`）并配并行 SRRIP 更新，单模块面积由 916,659 降至 **389,270 单元（−57.5%）**；
+> 2. **FDIP 去旁路一致性探针（P2-1，`icache_fdip.sv` / `icache.sv`）**：彻底删除跨子系统 `fdip_snoop_dirty` / `fdip_snoop_line` 旁路，改为 FDIP 预取发射前借既有 `dc_req` / `dc_resp` 通道发起 1 拍 DCache/WB/MSHR/fill 一致性探针（与 demand 探针互斥，命中或忙时让行）；同时删除 `resp_popped_q` 回波补丁（根治于 `axi_cpu_port_chan` 通道 0 的 `CLEAR_ON_POP=1`）；
+>
 > **EXP-051 里程碑 B 升级**：
 > 1. **4-Bank 1R1W 数据/标签阵列**（`icache_arr` 按 `set[1:0]` 分为 4 bank，每 bank 16 组 × 8 路）：同拍支持需求块 A 与配对块 B（`fetch_second`）并行读出（同 64B 行时直接复用 A 的命中行，否则跨 bank 并行查读），不改变需求侧任何单块时序；
 > 2. **2 读口只读 ITLB Peek**（`icache_itlb` 复用 `tlb_mmu_core` 的 2 个只读 CAM peek 口，零额外 PTW walker）：口 0 服务跨 4KB 页配对块 B 翻译，口 1 服务 FDIP 队首虚拟地址翻译，无副作用、不改替换状态、不触发页表遍历；

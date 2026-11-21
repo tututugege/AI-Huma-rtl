@@ -3,11 +3,13 @@ module: axi_cpu_port_adapter
 area: memsys
 rtl: rtl/memsys/axi_cpu_port_adapter
 model: 无对应的类。作用最接近 SimCpu.cpp 的 `icache_port_regs_seq`（把 `axi.interconnect.read_ports[MASTER_ICACHE]` 在周期开头拷成寄存的 `icache_axi_q`）；原 16 tick 方案里的 `capture / accumulate / restore_axi_cpu_boundary_state` 在 trace-model-tlbports 里已不存在
-status: 整核周期与模型逐个相等（最近一次提交 60ed422 的提交信息记 fm_gate 67/67、周期等于 scripts/ref_cycles_memiq6_nr_int2_ev5.txt；本次写文档没有重跑）
-depth: 9 层（axi_cpu_port_adapter，单模块综合，2026-11-18，`SYNTH_ABC="strash;balance;map"`，生成门代理，见第 6 节）
+status: 整核周期与模型逐个相等（EXP-053 前端清理：fm_gate 68/68 零偏差 + Linux 27 窗 PT/UP 全等，零环境变量）
+depth: 9 层 / 227 单元（axi_cpu_port_adapter，单模块综合，2026-11-21，`SYNTH_ABC="strash;balance;map"`，EXP-053 P2-1 通道 0 增加 `CLEAR_ON_POP=1`，较旧版 222 单元 / 9 层仅 +5 单元）
 ---
 
 # axi_cpu_port_adapter 设计文档
+
+> **EXP-053 P2-1 升级**：`axi_cpu_port_chan` 新增参数 `CLEAR_ON_POP`（通道 0 = ICache 读口置 1）：当 CPU 端已在当拍握手消费响应（`raw_resp_ready`）时清零寄存视图的 `view_resp_valid_q`，从 AXI 边界根源消除已消费响应的陈旧回波，使 `icache_fdip` 得以彻底删除 `resp_popped_q` 补丁。
 
 ## 1. 职责
 

@@ -15,13 +15,15 @@ module pre_idu_queue import ttg_cfg_pkg::*; import pre_idu_pkg::*; import front_
   input  logic [31:0] front2pre_inst [BACKEND_FETCH_WIDTH],
   input  logic [XLEN_BITS-1:0] front2pre_pc [BACKEND_FETCH_WIDTH],
   input  logic [BACKEND_FETCH_WIDTH-1:0] front2pre_page_fault_inst,
+  input  logic [BACKEND_FETCH_WIDTH-1:0] front2pre_pf_inst_hi,
   input  logic [BACKEND_FETCH_WIDTH-1:0] front2pre_predict_dir,
   input  logic [BACKEND_FETCH_WIDTH-1:0] front2pre_alt_pred,
   input  logic [PCPN_W-1:0] front2pre_pcpn [BACKEND_FETCH_WIDTH],
   input  logic [BACKEND_FETCH_WIDTH-1:0] front2pre_is_rvc,
   input  logic [XLEN_BITS-1:0] front2pre_predict_next_fetch_address,
-  input  logic [TAGE_IDX_W-1:0] front2pre_tage_idx [BACKEND_FETCH_WIDTH] [TAGE_N],
-  input  logic [TAGE_TAG_W-1:0] front2pre_tage_tag [BACKEND_FETCH_WIDTH] [TAGE_N],
+  input  logic [BLK_ID_W-1:0] front2pre_blk_id,
+  input  logic front2pre_is_pair,
+  input  logic [3:0] front2pre_a_len,
   input  logic [FETCH_WIDTH-1:0][KIND_W-1:0] front2pre_slot_kind,
   input  logic [DECODE_WIDTH-1:0] idu_consume_fire,
   input  logic idu_br_latch_mispred,
@@ -53,6 +55,7 @@ module pre_idu_queue import ttg_cfg_pkg::*; import pre_idu_pkg::*; import front_
   output logic [DECODE_WIDTH-1:0] pre_issue_entries_valid,
   output logic [31:0] pre_issue_entries_inst [DECODE_WIDTH],
   output logic [DECODE_WIDTH-1:0] pre_issue_entries_page_fault_inst,
+  output logic [DECODE_WIDTH-1:0] pre_issue_entries_pf_inst_hi,
   output logic [FTQ_IDX_WIDTH-1:0] pre_issue_entries_ftq_idx [DECODE_WIDTH],
   output logic [FTQ_OFFSET_WIDTH-1:0] pre_issue_entries_ftq_offset [DECODE_WIDTH],
   output logic [DECODE_WIDTH-1:0] pre_issue_entries_ftq_is_last,
@@ -64,15 +67,13 @@ module pre_idu_queue import ttg_cfg_pkg::*; import pre_idu_pkg::*; import front_
   output logic [FTQ_ROB_PC_PORT_NUM-1:0] ftq_rob_pc_resp_resp_valid,
   output logic [XLEN_BITS-1:0] ftq_rob_pc_resp_resp_pc [FTQ_ROB_PC_PORT_NUM],
   output logic [FTQ_ROB_PC_PORT_NUM-1:0] ftq_rob_pc_resp_resp_is_rvc,
-  output logic [COMMIT_WIDTH-1:0][TAGE_N-1:0] ftq_commit_info_resp_valid_t,
   output logic [COMMIT_WIDTH-1:0] ftq_commit_info_resp_valid,
   output logic [XLEN_BITS-1:0] ftq_commit_info_resp_pc [COMMIT_WIDTH],
   output logic ftq_commit_info_resp_pred_taken [COMMIT_WIDTH],
   output logic ftq_commit_info_resp_is_rvc [COMMIT_WIDTH],
   output logic [COMMIT_WIDTH-1:0] ftq_commit_info_resp_alt_pred,
   output logic [PCPN_W-1:0] ftq_commit_info_resp_pcpn [COMMIT_WIDTH],
-  output logic [TAGE_IDX_W-1:0] ftq_commit_info_resp_tage_idx [COMMIT_WIDTH] [TAGE_N],
-  output logic [TAGE_TAG_W-1:0] ftq_commit_info_resp_tage_tag [COMMIT_WIDTH] [TAGE_N]
+  output logic [BLK_ID_W-1:0] ftq_commit_info_resp_blk_id [COMMIT_WIDTH]
 );
 
   localparam int NPORT_PC = FTQ_PRF_PC_PORT_NUM + FTQ_ROB_PC_PORT_NUM + COMMIT_WIDTH;
@@ -91,6 +92,7 @@ module pre_idu_queue import ttg_cfg_pkg::*; import pre_idu_pkg::*; import front_
   ib_entry_t                      push_entry [BACKEND_FETCH_WIDTH];
   ib_entry_t                      issue_entry [DECODE_WIDTH];
   ftq_meta_t                      rd_meta [COMMIT_WIDTH];
+  logic [BLK_ID_W-1:0]            rd_blk_id [COMMIT_WIDTH];
   logic [DECODE_WIDTH-1:0]        issue_valid;
 
   logic [FTQ_IDX_WIDTH-1:0]       pc_rd_idx [NPORT_PC];
@@ -122,12 +124,9 @@ module pre_idu_queue import ttg_cfg_pkg::*; import pre_idu_pkg::*; import front_
       front_slot_pc[i]   = front2pre_pc[i];
       wr_meta[i].alt_pred  = front2pre_alt_pred[i];
       wr_meta[i].pcpn      = front2pre_pcpn[i];
-      for (int k = 0; k < TAGE_N; k++) begin
-        wr_meta[i].tage_idx[k] = front2pre_tage_idx[i][k];
-        wr_meta[i].tage_tag[k] = front2pre_tage_tag[i][k];
-      end
       push_entry[i].inst            = front2pre_inst[i];
       push_entry[i].page_fault_inst = front2pre_page_fault_inst[i];
+      push_entry[i].pf_inst_hi      = front2pre_pf_inst_hi[i];
       push_entry[i].ftq_idx         = ftq_tail;
       push_entry[i].ftq_offset      = FTQ_OFFSET_WIDTH'(i);
       push_entry[i].ftq_is_last     = lane_is_last[i];
@@ -193,9 +192,6 @@ module pre_idu_queue import ttg_cfg_pkg::*; import pre_idu_pkg::*; import front_
     .recover_idx(idu_br_latch_ftq_idx), .pop_cnt(ftq_pop_cnt), .tail(ftq_tail), .count(ftq_count)
   );
 
-  logic [FETCH_WIDTH-1:0][FTB_BLK_ID_W-1:0] front_blk_id;
-  always_comb for (int i = 0; i < FETCH_WIDTH; i++) front_blk_id[i] = front2pre_tage_idx[i][0];
-
   pre_idu_ftq_pc #(.NPORT(NPORT_PC)) u_pc (
     .clk, .wr_en(alloc), .wr_idx(ftq_tail), .wr_valid(front_valid), .wr_slot_pc(front_slot_pc),
     .wr_pred_taken(front_pred_taken), .wr_is_rvc(front_is_rvc),
@@ -206,12 +202,16 @@ module pre_idu_queue import ttg_cfg_pkg::*; import pre_idu_pkg::*; import front_
   );
 
   pre_idu_ftq_meta u_meta (
-    .clk, .wr_en(alloc), .wr_idx(ftq_tail), .wr_meta,
-    .rd_idx(rob_commit_commit_entry_uop_ftq_idx), .rd_offset(rob_commit_commit_entry_uop_ftq_offset), .rd_meta
+    .clk, .wr_en(alloc), .wr_idx(ftq_tail),
+    .wr_blk_id(front2pre_blk_id), .wr_is_pair(front2pre_is_pair), .wr_a_len(front2pre_a_len), .wr_meta,
+    .rd_idx(rob_commit_commit_entry_uop_ftq_idx), .rd_offset(rob_commit_commit_entry_uop_ftq_offset),
+    .rd_meta, .rd_blk_id
   );
 
   pre_idu_ftq_bpu u_bpu (
-    .clk, .wr_en(alloc), .wr_idx(ftq_tail), .wr_blk_id(front_blk_id), .wr_kind(front2pre_slot_kind),
+    .clk, .wr_en(alloc), .wr_idx(ftq_tail),
+    .wr_blk_id(front2pre_blk_id), .wr_is_pair(front2pre_is_pair), .wr_a_len(front2pre_a_len),
+    .wr_kind(front2pre_slot_kind),
     .rd_idx(idu_br_latch_ftq_idx), .rd_offset(idu_br_latch_ftq_offset),
     .rd_blk(out_rf_blk), .rd_type(out_rf_type)
   );
@@ -224,6 +224,7 @@ module pre_idu_queue import ttg_cfg_pkg::*; import pre_idu_pkg::*; import front_
       pre_issue_entries_valid[i]           = issue_valid[i];
       pre_issue_entries_inst[i]            = issue_entry[i].inst;
       pre_issue_entries_page_fault_inst[i] = issue_entry[i].page_fault_inst;
+      pre_issue_entries_pf_inst_hi[i]      = issue_entry[i].pf_inst_hi;
       pre_issue_entries_ftq_idx[i]         = issue_entry[i].ftq_idx;
       pre_issue_entries_ftq_offset[i]      = issue_entry[i].ftq_offset;
       pre_issue_entries_ftq_is_last[i]     = issue_entry[i].ftq_is_last;
@@ -248,11 +249,7 @@ module pre_idu_queue import ttg_cfg_pkg::*; import pre_idu_pkg::*; import front_
       ftq_commit_info_resp_is_rvc[i]     = pc_rd_is_rvc[PORT_COMMIT+i];
       ftq_commit_info_resp_alt_pred[i]   = rd_meta[i].alt_pred;
       ftq_commit_info_resp_pcpn[i]       = rd_meta[i].pcpn;
-      for (int k = 0; k < TAGE_N; k++) begin
-        ftq_commit_info_resp_valid_t[i][k]  = commit_valid[i];
-        ftq_commit_info_resp_tage_idx[i][k] = rd_meta[i].tage_idx[k];
-        ftq_commit_info_resp_tage_tag[i][k] = rd_meta[i].tage_tag[k];
-      end
+      ftq_commit_info_resp_blk_id[i]     = rd_blk_id[i];
     end
   end
 

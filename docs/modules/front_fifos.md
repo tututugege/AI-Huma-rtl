@@ -3,11 +3,15 @@ module: front_fifos
 area: frontend
 rtl: rtl/frontend/front_fifo.sv、fetch_addr_fifo.sv、ptab.sv、inst_fifo.sv、front2back_fifo.sv
 model: trace-model front-end/fifo/front_fifo.h、front-end/front_fifo_ports.h、front-end/front_top.cpp（调度单元 `front.core.fa_port`、`front.core.ptab_port`、`front.core.inst_port`、`front.core.f2b_port`，类 `FetchAddrPort`、`PtabPort`、`InstPort`、`F2bPort`）
-status: 整核周期与模型逐个相等（fm_gate 67/67，参考 scripts/ref_cycles_memiq6_nr_int2_ev5.txt）
+status: 整核周期与模型逐个相等（EXP-053 前端清理：fm_gate 68/68 零偏差 + Linux 27 窗 PT/UP 全等，零环境变量）
 depth: 13 层（fetch_addr_fifo；ptab、inst_fifo、front2back_fifo 更浅，单模块综合，2026-11-18，`SYNTH_ABC="strash;balance;map"`，生成门代理，见第 6 节）
 ---
 
 # front_fifos 设计文档
+
+> **EXP-053 前端结构清理（Phase 1 + P2-2）升级**：
+> - `inst_fifo_entry_t` 改为存储紧凑原始 16b 半字流与最小元数据（省去 16 槽展开指令、双份预译码类型/目标及 `start_a`/`start_b`）；
+> - `ptab` 与 `front2back_fifo` 删除死线 `tage_idx` / `tage_tag`，`front2back_fifo` 新增每槽显式 1-bit `pf_inst_hi`。
 
 ## 1. 职责
 

@@ -37,10 +37,7 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
   input  logic [NCOMMIT-1:0]  pred_dir,
   input  logic [NCOMMIT-1:0]  alt_pred,
   input  logic [PCPN_W-1:0]   pcpn       [NCOMMIT],
-  /* verilator lint_off UNUSEDSIGNAL */
-  input  logic [T_TAG_W-1:0]  tags       [NCOMMIT][TN],
-  input  logic [T_IDX_W-1:0]  idxs       [NCOMMIT][TN],
-  /* verilator lint_on UNUSEDSIGNAL */
+  input  logic [FTB_BLK_ID_W-1:0] blk_id [NCOMMIT],
   // S0: block address + optional paired Block B to fetch-address queue
   output logic                icache_read_valid,
   output logic [XLEN_BITS-1:0] fetch_address,
@@ -61,8 +58,7 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
   output logic [NLANE-1:0]    out_pred_dir,
   output logic [NLANE-1:0]    out_alt_pred,
   output logic [PCPN_W-1:0]   out_pcpn      [NLANE],
-  output logic [T_TAG_W-1:0]  out_tage_tags [NLANE][TN],
-  output logic [T_IDX_W-1:0]  out_tage_idxs [NLANE][TN],
+  output logic [FTB_BLK_ID_W-1:0] out_blk_id,
   output logic [3:0]          commit_upd_free,
   output logic [3:0]          commit_tq_free
 );
@@ -149,7 +145,6 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
   );
 
   // ---- Commit branch queue + ftb_rec (1R2W, BRQ_W=1) ----
-  logic [FTB_BLK_ID_W-1:0] cmt_blk_id [NCOMMIT];
   logic                    upd_en, upd_ah_v, upd_ah_kind;
   logic [XLEN_BITS-1:0]    upd_start, upd_ah_key_base, upd_pc;
   fh_t                     upd_fh, upd_ah_key_fh;
@@ -158,7 +153,6 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
   ftb_rec_t                rec_wr_data, rec_wr_b_data;
 
   always_comb begin
-    for (int i = 0; i < NCOMMIT; i++) cmt_blk_id[i] = idxs[i][0];
     upd_ix    = ftb_make_index(upd_start, upd_fh);
     upd_ah_ix = ftb_make_ah_index(upd_ah_key_base, upd_start, upd_ah_key_fh);
     rec_wr_data = '{
@@ -176,7 +170,7 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
     .rec_wr_en(d_valid), .rec_wr_addr(blk_seq_q[FTB_REC_W-1:0]), .rec_wr_data,
     .rec_wr_b_en(d_pair), .rec_wr_b_addr(seq1[FTB_REC_W-1:0]), .rec_wr_b_data,
     .upd_valid, .base_pc, .actual_dir, .upd_is_rvc, .br_type, .target, .pred_dir, .alt_pred, .pcpn,
-    .blk_id(cmt_blk_id),
+    .blk_id,
     .upd_en, .upd_start, .upd_fh, .upd_ah_v, .upd_ah_kind, .upd_ah_key_base, .upd_ah_key_fh, .upd_br, .upd_pc,
     .commit_upd_free, .commit_tq_free
   );
@@ -215,11 +209,11 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
     .ftb0_hit, .ftb0_ent, .ftb0_b_hit, .ftb0_b_ent,
     .ah_prefer_alt, .ah2_prefer_alt,
     .r0_q, .r1_q, .r1_ix_q, .r1_ix_b_q, .s1_raw, .r1_raw_q, .r1_raw_b_q, .s2_prefer_alt,
-    .d_pair, .blk_seq_q, .seq1,
+    .d_pair, .blk_seq_q,
     .ah_src_v, .ah_hit, .g0, .s0_b_base, .s0_b_bnd, .s0_a_len, .s0_b_len, .g0_b, .s0_paired,
     .s0_b_ix, .ah_rd_base, .ah_rd_fh, .ah_rd_ix,
     .g1, .fin, .fin_b,
-    .out_pred_dir, .out_alt_pred, .out_pcpn, .out_tage_tags, .out_tage_idxs
+    .out_pred_dir, .out_alt_pred, .out_pcpn, .out_blk_id
   );
 
   // ---- Control, speculative history/RAS, PDCKPT ----
@@ -256,7 +250,8 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
     .spec_ck, .spec_ras_nonempty, .spec_ras_top, .spec_fh,
     .spec1_ck, .spec1_ras_nonempty, .spec1_ras_top, .spec1_fh,
     .spec_a_ck, .spec_a_ras_nonempty, .spec_a_ras_top, .spec_a_fh,
-    .refetch, .hr_mode, .hr_ck, .hr_push_n, .hr_push_bits, .rr_mode, .rr_ck, .rr_op, .rr_val, .rr_op2, .rr_val2
+    .refetch, .issue, .g0_h_en(g0.taken), .g0_h_bits(g0.hbits), .g0_r_op(g0.ras_op), .g0_r_val(g0.ras_val),
+    .hr_mode, .hr_ck, .hr_push_n, .hr_push_bits, .rr_mode, .rr_ck, .rr_op, .rr_val, .rr_op2, .rr_val2
   );
 
   bpu_pdq u_pdq (

@@ -3,12 +3,17 @@ module: predecode
 area: frontend
 rtl: rtl/frontend/predecode.sv、predecode_lane.sv、predecode_checker.sv、rvc_expand.sv、sequential_next_pc.sv、front_head_fix.sv、front_pd_info.sv、front_slot_kind.sv
 model: trace-model front-end/front_checker.h、predecode_checker.cpp、predecode.cpp、front_top.cpp（调度单元 `front.core.checker`，类 `FrontChecker`，阶段 `comb`；展开 / 预译码 / 顺序下一 pc 在 `InstPort::comb_write`，头修正在 `InstPort::comb_read`）；function-model/include/rvc.h（`rvc::expand`）
-status: 整核周期与模型逐个相等（EXP-051 里程碑 B：fm_gate 68/68 + Linux 27 窗，零环境变量）
+status: 整核周期与模型逐个相等（EXP-053 前端清理：fm_gate 68/68 零偏差 + Linux 27 窗 PT/UP 全等，零环境变量）
 depth: 27 层 / 10,144 单元（predecode，单模块综合，2026-11-21，`SYNTH_ABC="strash;balance;map"`，较 main 29 层 / 11,780 单元降 2 层）
 ---
 
 # predecode 设计文档（预译码、头修正、预测检查）
 
+> **EXP-053 前端结构清理（Phase 1 + P2-2）升级**：
+> - `front_head_fix` 承接来自 `inst_fifo` 的紧凑原始半字流，统一做单份 `rvc_expand` + `predecode` 及 4 轮 Kogge-Stone `start_a`/`start_b` 前缀扫描（`` `ifdef SYNTHESIS `` 综合走并行树、仿真走快速扫描，与 `fe_clean_eq_tb` 65,536 全枚举双路径零差异），并用按 64B 行掩码对齐的 `s1_seq` 兼容错路奇地址；
+> - 跨 4KB 页 RVC 第二半字取指缺页改为输出显式 1-bit `pf_inst_hi`（替代原先写 `insts_o[0]=32'd2` 借 `diag_val[1]` 透传）；
+> - `front_pd_info` 复用公用 `ttg_pick_k #(.N(FETCH_WIDTH), .K(2))` 与 `ttg_first_set` / `ttg_onehot_mux`（继承 `rtl/common` 双路径加速），`predecode_checker` 与新 `front_head_fix` 零周期偏差对齐。
+>
 > **EXP-051 里程碑 B 升级**：
 > 1. `predecode` 支持每槽独立 `slot_pc[FETCH_WIDTH]`（兼容 Block A + Block B 不连续 PC）；
 > 2. `front_head_fix` 接收 S2-mux 及 PC 对齐截断后的 `slot_pc[FETCH_WIDTH]`、`up16`、`up_ok`，按实际段末槽计算 `group_end_pc`、`complete` 与 `seq_next_o`；

@@ -49,6 +49,7 @@ package ren_pkg;
     br_mask_t br_mask;
     logic [CSR_IDX_WIDTH-1:0] csr_idx;
     logic page_fault_inst;
+    logic pf_inst_hi;
     logic illegal_inst;
     logic dest_fp;           // F/D: the destination / sources live in the FP register file (tags FP_TAG_BASE+)
     logic src1_fp;
@@ -84,6 +85,7 @@ package ren_pkg;
     br_mask_t br_mask;
     logic [CSR_IDX_WIDTH-1:0] csr_idx;
     logic page_fault_inst;
+    logic pf_inst_hi;
     logic illegal_inst;
     preg_t dest_preg;
     preg_t src1_preg;

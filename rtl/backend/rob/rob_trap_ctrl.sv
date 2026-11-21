@@ -74,7 +74,7 @@ module rob_trap_ctrl
     fence            = sel[SEL_SFENCE];
     fence_i          = sel[SEL_FENCE_I];
     trap_val_valid   = sel[SEL_PF_STORE] || sel[SEL_PF_LOAD] || sel[SEL_PF_INST] || sel[SEL_ILLEGAL] || sel[SEL_BP];
-    trap_val         = sel[SEL_PF_INST] ? (ftq_resp_pc + (single_uop.diag_val[1] ? ROB_XLEN'(2) : ROB_XLEN'(0)))
+    trap_val         = sel[SEL_PF_INST] ? (ftq_resp_pc + (single_uop.pf_inst_hi ? ROB_XLEN'(2) : ROB_XLEN'(0)))
                      : sel[SEL_BP]      ? ftq_resp_pc
                                         : single_uop.diag_val;
     pc               = ftq_resp_pc;
