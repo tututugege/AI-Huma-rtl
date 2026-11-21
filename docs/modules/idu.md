@@ -3,8 +3,8 @@ module: idu
 area: backend
 rtl: rtl/backend/idu
 model: trace-model back-end/Idu.cpp、back-end/include/Idu.h（调度单元 `back.idu`，类 `Idu`，阶段 `comb_decode`、`comb_fire`）
-status: 整核周期与模型逐个相等（fm_gate 67/67，参考 scripts/ref_cycles_memiq6_nr_int2_ev5.txt）
-depth: 67 层（idu，单模块综合，2026-11-18，`SYNTH_ABC="strash;balance;map"`，生成门代理，见第 6 节）
+status: 整核周期与模型逐个相等（fm_gate 68/68，0 周期偏差）
+depth: 66 层（idu，单模块综合，2026-11-21，`SYNTH_ABC="strash;balance;map"`，31,607 cells）
 ---
 
 # idu 设计文档
@@ -92,7 +92,8 @@ depth: 67 层（idu，单模块综合，2026-11-18，`SYNTH_ABC="strash;balance;
 - 读改写 AMO（不是 LR 和 SC）且 rd = x0 时，目的寄存器号改成 32（整数 RAT 的第 33 项，见 ren.md），保持 `dest_en`；
 - `func7` 取指令字 [31:25]，`csr_idx` 取 [31:20]；
 - `src3` 只在 FP 融合乘加有，`src3_en` 同时表示"第三个源是浮点"；
-- rv64：OP-IMM-32、OP-32 类的 `is_word = 1`；其中 `OP-32` 严格校验 RV64IM + Zba/Zbb 合法编码（`op32_alu_ok` 与 `MUL` 要求 `funct3 == 0`），非法编码落入 `CLS_ILLEGAL`（避免错误路径上被当作合法 ALU 改写目的寄存器）。
+- rv64：OP-IMM-32、OP-32 类的 `is_word = 1`；其中 `OP-32` 严格校验 RV64IM + Zba/Zbb 合法编码（`op32_alu_ok` 与 `MUL` 要求 `funct3 == 0`），非法编码落入 `CLS_ILLEGAL`（避免错误路径上被当作合法 ALU 改写目的寄存器）；
+- `c.mv` 规范化（EXP-052）：`idu_decoder` 将 `add rd, x0, rs2`（含前端 `rvc_expand` 展开的全部 16-bit `c.mv rd, rs2`）规范化为语义等价的 `addi rd, rs2, 0`（`src1_areg = rs2, src2_en = 0, src2_is_imm = 1, imm = 0`），使后端 `ren` 的移动消除统一覆盖 RV64GC 压缩移动指令。
 
 ### 5.2 分支标签与掩码
 
@@ -164,5 +165,6 @@ RTL 与模型保持一致的细节（读模型时容易误判）：
 
 ## 10. 变更记录
 
+- 2026-11-21（`rtl/move-elim-1hop`，EXP-052）：`idu_decoder` 新增 `c_mv_canon`，将 `add rd, x0, rs2`（含全部展开后的 `c.mv`）规范化为 `addi rd, rs2, 0` 供 `ren` 移动消除识别；`eda-08` Yosys 深度 66 层（31,607 cells），`lint_chip` 0、`fm_gate` 68/68（0 周期偏差）。
 - 2026-11-21（`rtl/fe-2fetch-2taken`，EXP-051 里程碑 B）：`idu` 与 `idu_br_latch` 新增 4 位 `exu2id_ftq_offset` → `br_latch_ftq_offset` 寄存透传，供 `pre_idu_ftq_bpu` 按精确 `ftq_offset` 索引双块 FTQ 修复记录；通过 `lint_chip` 0、`fm_gate` 68/68（0 周期偏差）与 Linux 27 窗对齐。
 - `git log --oneline 261bd67..HEAD -- rtl/backend/idu`：本分支没有对本模块的提交；FLUSH_REG（`803692f`）只改了 `back_top` 的连线，使 `rob_bcast_flush` 到本模块晚一拍。更早：见 git 历史。

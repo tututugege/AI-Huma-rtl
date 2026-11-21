@@ -37,14 +37,15 @@ module ren_fp
   localparam int RW = FP_ARF_NUM * PRF_IDX_WIDTH;
   typedef logic [FP_ARF_NUM-1:0][PRF_IDX_WIDTH-1:0] ent_t;
 
-  logic [N-1:0] alloc_fire, rat_fire, br_fire;
+  logic [N-1:0] rat_fire, br_fire;
   logic [N-2:0] producer;
   areg_t        dest_areg [N], look_areg [N][4];
   areg_t        rd_areg [NR];
   preg_t        rd_preg [NR];
   preg_t        look_rat [N][4], look_preg [N][4];
   preg_t        window [N], alloc_reg [N];
-  fp_ptr_t      free_count, head, head_after [N], ckpt_head;
+  fp_ptr_t      free_count, head, head_after [N], head_next, head_last, ckpt_head;
+  logic         any_fire;
   ent_t         snapshot [N], ckpt_rat, spec_rat;
   br_tag_t      br_id [N];
   logic [CW-1:0] free_rank [C];
@@ -58,7 +59,6 @@ module ren_fp
     assign br_id[i]            = inst[i].br_id;
     assign alloc_req[i]        = inst_valid[i] & inst[i].dest_en & inst[i].dest_fp;
     assign rat_fire[i]         = fire[i] & inst[i].dest_en & inst[i].dest_fp;
-    assign alloc_fire[i]       = rat_fire[i];
     assign br_fire[i]          = fire[i] & ((inst[i].inst_type == ITYPE_BR) | (inst[i].inst_type == ITYPE_JALR));
     assign look_areg[i][0]     = inst[i].src1_areg;
     assign look_areg[i][1]     = inst[i].src2_areg;
@@ -103,16 +103,23 @@ module ren_fp
   // ---- commit side ----
   ren_rank u_free_rank (.sel(reclaim), .rank(free_rank), .total(free_total));
 
+  ren_last_write #(.N(N), .W(FP_PTR_W)) u_head_next (
+    .hit(fire), .data(head_after), .any(any_fire), .value(head_last)
+  );
+  assign head_next = any_fire ? head_last : head;
+
   ren_fp_free_list u_fl (
-    .clk(clk), .rst_n(rst_n), .alloc_fire(alloc_fire), .reclaim(reclaim), .reclaim_rank(free_rank),
+    .clk(clk), .rst_n(rst_n), .head_next(head_next), .reclaim(reclaim), .reclaim_rank(free_rank),
     .reclaim_total(free_total), .reclaim_preg(c_old_dest_preg), .flush(rob_flush), .mispred(dec_mispred),
     .ckpt_head(ckpt_head), .window(window), .free_count(free_count), .head(head)
   );
 
-  // ---- branch checkpoints: head after slot i = head + number of allocating fires in slots 0..i ----
+  // ---- branch checkpoints: head after slot i = head + number of allocating requests in slots 0..i ----
+  // Since fire is an in-order prefix, whenever br_fire[i] is asserted every valid slot 0..i has fire=1,
+  // so alloc_req[0..i] == alloc_fire[0..i]; using alloc_req keeps head_after off the handshake critical path.
   for (genvar i = 0; i < N; i++) begin : g_head_after
     logic [$clog2(N+1)-1:0] taken;
-    ttg_popcount #(.N(N)) u_cnt (.bits(alloc_fire & ({N{1'b1}} >> (N - 1 - i))), .count(taken));
+    ttg_popcount #(.N(N)) u_cnt (.bits(alloc_req & ({N{1'b1}} >> (N - 1 - i))), .count(taken));
     assign head_after[i] = fp_ptr_add(head, fp_ptr_t'(taken));
   end
 

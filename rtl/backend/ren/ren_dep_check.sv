@@ -61,8 +61,8 @@ module ren_dep_check
     assign old_dest_preg[i] = any_dest ? val_dest : dest_normal[i];
     assign src1_preg[i]     = any_src1 ? val_src1 : src1_normal[i];
     assign src2_preg[i]     = any_src2 ? val_src2 : src2_normal[i];
-    // an eliminated move's source is never bypassed, so it is the RAT value
-    assign dest_of          = elim[i] ? src1_normal[i] : alloc_reg[i];
+    // an eliminated move's destination is its (possibly 1-hop intra-group bypassed) source register
+    assign dest_of          = elim[i] ? src1_preg[i] : alloc_reg[i];
   end
 
   for (genvar i = 0; i < N; i++) begin : g_out

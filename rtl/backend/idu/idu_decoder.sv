@@ -53,6 +53,7 @@ module idu_decoder import ttg_cfg_pkg::*; (
   logic [2:0]  raw_fp_cls;
   logic [31:0] raw_imm;
   logic        decoded_en;     // not a page fault: decoded fields reach the output (page fault -> NOP uop)
+  logic        c_mv_canon;     // `add rd, x0, rs2` (incl. expanded `c.mv`) -> `addi rd, rs2, 0` for move elimination
 
   idu_ctrl_decode u_ctrl (
     .inst(entry_inst), .uop_type(raw_type), .dest_en(raw_dest_en), .src1_en(raw_src1_en), .src2_en(raw_src2_en),
@@ -67,6 +68,13 @@ module idu_decoder import ttg_cfg_pkg::*; (
   idu_imm_gen u_imm (.inst(entry_inst[31:2]), .imm_sel(raw_imm_sel), .imm(raw_imm));
 
   // Ref: Idu::comb_decode (page_fault -> NOP with diag_val = inst ; else decode())
+  // Canonicalize `add rd, x0, rs2` (including every expanded `c.mv rd, rs2`) into `addi rd, rs2, 0`
+  // so move elimination sees RVC moves without extra decoding in ren. (ITYPE_ADD == 5'd3)
+  assign c_mv_canon = (raw_type == 5'd3) & ~raw_src2_is_imm & ~raw_is_word & (raw_func3 == 3'd0) &
+                      (entry_inst[31:25] == 7'd0) & raw_src1_en & raw_src2_en &
+                      (raw_src1_areg == 6'd0) & (raw_src2_areg != 6'd0) &
+                      raw_dest_en & (raw_dest_areg != 6'd0);
+
   always_comb begin
     decoded_en                  = ~entry_page_fault_inst;
     uop_diag_val                = XLEN_BITS'(entry_inst);
@@ -77,18 +85,18 @@ module idu_decoder import ttg_cfg_pkg::*; (
     uop_type                    = raw_type & {5{decoded_en}};
     uop_dest_en                 = raw_dest_en & decoded_en;
     uop_src1_en                 = raw_src1_en & decoded_en;
-    uop_src2_en                 = raw_src2_en & decoded_en;
+    uop_src2_en                 = raw_src2_en & ~c_mv_canon & decoded_en;
     uop_is_atomic               = raw_is_atomic & decoded_en;
     uop_src1_is_pc              = raw_src1_is_pc & decoded_en;
-    uop_src2_is_imm             = raw_src2_is_imm & decoded_en;
+    uop_src2_is_imm             = (raw_src2_is_imm | c_mv_canon) & decoded_en;
     uop_is_word                 = raw_is_word & decoded_en;
     uop_func3                   = raw_func3 & {3{decoded_en}};
     uop_func7                   = entry_inst[31:25] & {7{decoded_en}};
-    uop_imm                     = raw_imm & {32{decoded_en}};
+    uop_imm                     = raw_imm & {32{decoded_en & ~c_mv_canon}};
     uop_csr_idx                 = entry_inst[31:20] & {CSR_IDX_WIDTH{decoded_en}};
     uop_dest_areg               = raw_dest_areg & {AREG_IDX_WIDTH{decoded_en}};
-    uop_src1_areg               = raw_src1_areg & {AREG_IDX_WIDTH{decoded_en}};
-    uop_src2_areg               = raw_src2_areg & {AREG_IDX_WIDTH{decoded_en}};
+    uop_src1_areg               = (c_mv_canon ? raw_src2_areg : raw_src1_areg) & {AREG_IDX_WIDTH{decoded_en}};
+    uop_src2_areg               = (c_mv_canon ? 6'd0          : raw_src2_areg) & {AREG_IDX_WIDTH{decoded_en}};
     uop_illegal_inst            = raw_illegal_inst & decoded_en;
     uop_dest_fp                 = raw_dest_fp & decoded_en;
     uop_src1_fp                 = raw_src1_fp & decoded_en;

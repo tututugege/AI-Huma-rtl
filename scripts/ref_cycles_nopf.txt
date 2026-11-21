@@ -5,10 +5,11 @@
 # 2026-11-21 regen_refs.sh: trace-model ef61350 PF_ENABLE=0; EXP-051 Milestone B (2-taken 1-Ahead A + 2-Ahead B + 4-bank ICache + 2-port ITLB + FDIP)
 # 2026-11-21 regen_refs.sh: trace-model ef61350 PF_ENABLE=0; EXP-051 Milestone B fe2f_b4_it2_ah1k (FDIP rsp-issued + L1D dirty snoop)
 # 2026-11-21 regen_refs.sh: trace-model ef61350 PF_ENABLE=0; EXP-051 2-taken + 2-ahead BPU + FDIP
+# 2026-11-21 regen_refs.sh: trace-model 7e00aae PF_ENABLE=0; c.mv + 1-hop move elimination
 1619 add/add.bin
 1551 add-longlong/add-longlong.bin
 2327 atomic-boundary/atomic-boundary.bin
-231913 big/coremark.bin
+230923 big/coremark.bin
 96351 big/dhrystone.bin
 1637 bit/bit.bin
 2696 bitmanip-boundary/bitmanip-boundary.bin
@@ -21,7 +22,7 @@
 2943 directed/memspec_addr.bin
 7253 directed/memspec_data.bin
 4431 directed/memspec_pf.bin
-3680 directed/memspec_vio.bin
+3668 directed/memspec_vio.bin
 2406 div/div.bin
 848 dummy/dummy.bin
 1432 fact/fact.bin
@@ -33,27 +34,27 @@
 27283 fd-matmul/fd-matmul.bin
 1666 fence-i-self-modify/fence-i-self-modify.bin
 1536 fib/fib.bin
-3579 goldbach/goldbach.bin
+3611 goldbach/goldbach.bin
 1396 if-else/if-else.bin
 1534 illegal-instruction-trap/illegal-instruction-trap.bin
 3656 interrupt-vectored/interrupt-vectored.bin
-155592 itt-dispatch/itt-dispatch.bin
+155598 itt-dispatch/itt-dispatch.bin
 2161 leap-year/leap-year.bin
 2038 load-store-aligned/load-store-aligned.bin
 2999 matrix-mul/matrix-mul.bin
-1883 max/max.bin
+1880 max/max.bin
 1516 memory-boundary/memory-boundary.bin
 340208 memory-stress-small/memory-stress-small.bin
 2601 mersenne/mersenne.bin
-2532 min3/min3.bin
+2535 min3/min3.bin
 1341 mov-c/mov-c.bin
 1412 movsx/movsx.bin
 1856 mul-longlong/mul-longlong.bin
 1989 pascal/pascal.bin
 494411 pf-stress/pf-stress.bin
-12786 prime/prime.bin
+12901 prime/prime.bin
 4749 quick-sort/quick-sort.bin
-3441 recursion/recursion.bin
+3443 recursion/recursion.bin
 4772 select-sort/select-sort.bin
 1756 shift/shift.bin
 4325 shuixianhua/shuixianhua.bin

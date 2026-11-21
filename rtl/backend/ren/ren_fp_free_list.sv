@@ -13,7 +13,7 @@ module ren_fp_free_list
 ) (
   input  logic                 clk,
   input  logic                 rst_n,
-  input  logic [N-1:0]         alloc_fire,        // slots that take an FP register this cycle
+  input  fp_ptr_t              head_next,         // next head on normal fire (precomputed from alloc_req prefix)
   input  logic [C-1:0]         reclaim,
   input  logic [CW-1:0]        reclaim_rank [C],
   input  logic [CW-1:0]        reclaim_total,     // = head_commit advance (no move elimination in the FP domain)
@@ -26,12 +26,9 @@ module ren_fp_free_list
   output fp_ptr_t              head
 );
 
-  localparam int AW = $clog2(N + 1);
-
   logic [FPN-1:0][PRF_IDX_WIDTH-1:0] list_q;
   fp_ptr_t head_q, head_d, head_commit_q, head_commit_d, tail_q, tail_d;
   fp_ptr_t write_ptr [C];
-  logic [AW-1:0] alloc_count;
 
   assign head = head_q;
   assign free_count = (tail_q >= head_q) ? (tail_q - head_q) : fp_ptr_t'(tail_q + fp_ptr_t'(FPN) - head_q);
@@ -39,8 +36,6 @@ module ren_fp_free_list
   for (genvar k = 0; k < N; k++) begin : g_window
     assign window[k] = list_q[fp_ptr_add(head_q, fp_ptr_t'(k))];
   end
-
-  ttg_popcount #(.N(N)) u_alloc_count (.bits(alloc_fire), .count(alloc_count));
 
   // ---- committed old_dest pregs append at tail + rank; a later commit slot never collides with an earlier one ----
   for (genvar k = 0; k < C; k++) begin : g_wptr
@@ -69,7 +64,7 @@ module ren_fp_free_list
     tail_d        = fp_ptr_add(tail_q, fp_ptr_t'(reclaim_total));
     if (flush)         head_d = head_commit_d;
     else if (mispred)  head_d = ckpt_head;
-    else               head_d = fp_ptr_add(head_q, fp_ptr_t'(alloc_count));
+    else               head_d = head_next;
   end
 
   always_ff @(posedge clk) begin

@@ -3,8 +3,8 @@ module: ren
 area: backend
 rtl: rtl/backend/ren
 model: trace-model back-end/Ren.cpp、back-end/include/Ren.h（调度单元 `back.rename`，类 `Ren`，阶段 `comb_rename`、`comb_fire`）
-status: 整核周期与模型逐个相等（fm_gate 67/67，参考 scripts/ref_cycles_memiq6_nr_int2_ev5.txt）
-depth: 111 层（ren，单模块综合，2026-11-20，`SYNTH_ABC="strash;balance;map"`，生成门代理，见 09-synthesis-report 第 12 节）
+status: 整核周期与模型逐个相等（fm_gate 68/68，0 周期偏差；`tests/ren_elim_sel/run.sh` 100k 随机 0 不一致）
+depth: 97 层（ren，单模块综合，2026-11-21，`SYNTH_ABC="strash;balance;map"`，475,533 cells）
 ---
 
 # ren 设计文档
@@ -91,7 +91,10 @@ AMO 暂存寄存器：IDU 把"丢弃结果的读改写 AMO"的目的寄存器号
 
 ### 5.1 重命名（只读寄存器）
 
-1. **移动消除**（`ren_elim_sel`，对应模型 `elim_refs_ok`）：move 形状（`addi rd, rs, 0`，rd、rs 都不是 x0）且：本组里比自己老的有效指令没有写它的源架构寄存器（旁路命中则不消除），且 `推测 RAT 中等于它源物理寄存器的项数 + 本组里比自己老且有目的寄存器的指令数 + 1 <= MOVE_ELIM_MAX_REFS`。老的写者每个至多多一个引用，所以不必看它们写什么。
+1. **移动消除**（`ren_elim_sel`，对应模型 `elim_refs_ok`）：move 形状（`addi rd, rs, 0`，含 IDU 规范化后的 `c.mv` / `add rd, x0, rs2`，rd、rs 都不是 x0）分两种情形：
+   - **组内 1-hop 生产链消除**：本组里比自己老的有效整数指令写了 `src1_areg` 时，取最近老写者 `j`；若 `j` 未被消除（分配全新物理寄存器，RAT 原引用数为 0）且 `(i - j) < MOVE_ELIM_MAX_REFS`（保证同组最多 `i - j + 1 <= MOVE_ELIM_MAX_REFS` 个引用，3-bit `arch_cnt` 永不溢出），则允许消除，目的物理寄存器直接取旁路后的 `src1_preg`；
+   - **推测 RAT 消除**：无更老整数写者时，要求 `推测 RAT 中等于它源物理寄存器的项数 + 本组里比自己老且有目的寄存器的指令数 < MOVE_ELIM_MAX_REFS`。
+   RTL 将组内旁路链解析成关于单个 `refs_ok[root]` 的 1-bit 仿射函数（`is_const / const_val / inv / root_oh`），与 33 路 `spec_rat` `ttg_popcount` 完全并行，不引入串行链延迟。
 2. **分配**（`ren_alloc_sel`）：要整数寄存器的 lane（有效、有目的寄存器、不是浮点、没被消除）按序排队；第 k 个请求者拿窗口第 k 项，且要 `k < free_count` 才算拿到。浮点域同样（`ren_fp` 里再用一份 `ren_alloc_sel`）。
 3. **按序卡住**（`ren_handshake`）：整数域和浮点域的请求合在一起，第一个请求却没拿到的 lane 起（含它）全部 `ren2dis_valid = 0`；没有目的寄存器的指令只受这个卡住的影响。
 4. **查表和旁路**：每个 lane 查 3 个读口（目的、src1、src2）；`ren_dep_check` 对比自己老的有效、有目的寄存器的 lane，同一个架构寄存器号就换成那个 lane 的目的物理寄存器（新分配的，被消除的 move 则是它旁路后的源），最近的老写者赢；x0 不会被写（译码器不给 x0 置 `dest_en`）。浮点域有 4 个读口（src1、src2、src3、旧目的），旁路在 `ren_fp_dep`，f0 是真寄存器。
@@ -162,5 +165,6 @@ RTL 与模型的实现差别（行为等价）：
 
 ## 10. 变更记录
 
+- 2026-11-21（`rtl/move-elim-1hop`，EXP-052）：`ren_elim_sel` 新增组内 1-hop 生产链移动消除（并行根分解，避免串在 33 路 popcount 后），`ren_dep_check` 改为 `dest_of = elim[i] ? src1_preg[i] : alloc_reg[i]`；`ren_core` / `ren_fp` 的分支 `head_after` 改用 `alloc_req` 前缀并由 `ren_free_list` / `ren_fp_free_list` 按 `fire` 末位直接选通 `head_next`（移除握手后的 `popcount + 加法`）。`eda-08` Yosys 深度 **99 → 97 层**（`474,699 → 475,533` cells，+0.18%）；`tests/ren_elim_sel/run.sh` 100k 随机 0 不一致；`lint_chip` 0、`fm_gate` 68/68（0 周期偏差）。
 - 2026-11-21（`rtl/onehot-mux-tree`）：`ren_alloc_sel` 从 8 级串行 `ttg_first_set` 链改用公共并行原语 `ttg_pick_k`，配合 `ttg_onehot_mux`/`ttg_popcount` 平衡树，`eda-08` Yosys 深度从 **111 → 99 层**（跌破 100 层红线，单元 `474,613 → 474,699`），零周期变化。
 - `git log --oneline 261bd67..HEAD -- rtl/backend/ren`：本分支没有对本模块的提交；FLUSH_REG（`803692f`）只改了 `back_top` 的连线，使 `rob_bcast_flush` 到本模块晚一拍。更早：见 git 历史。

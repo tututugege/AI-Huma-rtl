@@ -33,7 +33,7 @@ module ren_core
 
   localparam int NR = 3 * N;
 
-  logic [N-1:0] inst_valid, alloc_req, alloc_valid, fire, alloc_fire, rat_fire, br_fire;
+  logic [N-1:0] inst_valid, alloc_req, alloc_valid, fire, rat_fire, br_fire;
   logic [N-1:0] fp_alloc_req, fp_alloc_valid;   // F/D: slots that need / got an FP register (own free list)
   logic [N-1:0] req_all, valid_all;             // both domains, for the in-order stall chain
   logic [N-1:0] elim;             // move elimination: renamed away, takes no free register
@@ -56,7 +56,8 @@ module ren_core
   rat_t         snapshot [N];
   // checkpoint
   br_tag_t      br_id [N];
-  preg_t        head_after [N];
+  preg_t        head_after [N], head_next, head_last;
+  logic         any_fire;
   rat_t         ckpt_rat;
   preg_t        ckpt_head;
   // commit
@@ -97,7 +98,6 @@ module ren_core
                                                 inst[i].dest_en, inst[i].dest_areg);
     assign alloc_req[i]     = inst_valid[i] & inst[i].dest_en & ~inst[i].dest_fp & ~elim[i];
     assign rat_fire[i]      = fire[i] & inst[i].dest_en & ~inst[i].dest_fp;
-    assign alloc_fire[i]    = rat_fire[i] & ~elim[i];
     assign br_fire[i]       = fire[i] & ((inst[i].inst_type == ITYPE_BR) | (inst[i].inst_type == ITYPE_JALR));
   end
   for (genvar i = 0; i < N - 1; i++) begin : g_older_view
@@ -224,17 +224,24 @@ module ren_core
     .spec_rat(spec_rat)
   );
 
+  ren_last_write #(.N(N), .W(PRF_IDX_WIDTH)) u_head_next (
+    .hit(fire), .data(head_after), .any(any_fire), .value(head_last)
+  );
+  assign head_next = any_fire ? head_last : head;
+
   ren_free_list u_fl (
-    .clk(clk), .rst_n(rst_n), .alloc_fire(alloc_fire), .reclaim(free), .reclaim_rank(free_rank),
+    .clk(clk), .rst_n(rst_n), .head_next(head_next), .reclaim(free), .reclaim_rank(free_rank),
     .reclaim_total(free_total), .alloc_commit_total(alloc_commit_total), .reclaim_preg(c_old_dest_preg),
     .flush(rob_flush), .mispred(dec_mispred),
     .ckpt_head(ckpt_head), .window(window), .free_count(free_count), .head(head)
   );
 
-  // ---- branch checkpoints: head after slot i = head + number of allocating fires in slots 0..i ----
+  // ---- branch checkpoints: head after slot i = head + number of allocating requests in slots 0..i ----
+  // Since fire is an in-order prefix, whenever br_fire[i] is asserted every valid slot 0..i has fire=1,
+  // so alloc_req[0..i] == alloc_fire[0..i]; using alloc_req keeps head_after off the handshake critical path.
   for (genvar i = 0; i < N; i++) begin : g_head_after
     logic [$clog2(N+1)-1:0] taken;
-    ttg_popcount #(.N(N)) u_cnt (.bits(alloc_fire & ({N{1'b1}} >> (N - 1 - i))), .count(taken));
+    ttg_popcount #(.N(N)) u_cnt (.bits(alloc_req & ({N{1'b1}} >> (N - 1 - i))), .count(taken));
     assign head_after[i] = (head + preg_t'(taken)) & preg_t'(PRF_NUM - 1);   // ring position: wraps at PRF_NUM
   end
 

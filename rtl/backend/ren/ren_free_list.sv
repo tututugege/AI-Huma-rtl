@@ -16,7 +16,9 @@ module ren_free_list
 ) (
   input  logic                 clk,
   input  logic                 rst_n,
-  input  logic [N-1:0]         alloc_fire,        // slots that take a preg this cycle
+  /* verilator lint_off UNUSEDSIGNAL */   // waiver: ring positions are log2(PRF_NUM) bits, tags may be wider
+  input  preg_t                head_next,         // next head on normal fire (precomputed from alloc_req prefix)
+  /* verilator lint_on UNUSEDSIGNAL */
   input  logic [C-1:0]         reclaim,
   input  logic [CW-1:0]        reclaim_rank [C],
   input  logic [CW-1:0]        reclaim_total,
@@ -32,7 +34,6 @@ module ren_free_list
   output preg_t                head
 );
 
-  localparam int AW = $clog2(N + 1);
   // ring positions: PRF_NUM is a power of two, the pointers wrap in log2(PRF_NUM) bits (the tags themselves may be
   // wider: with F/D the tag space is 8 bits while the integer ring has 128 slots)
   localparam int PW = $clog2(PRF_NUM);
@@ -40,7 +41,6 @@ module ren_free_list
 
   logic [PRF_NUM-1:0][PRF_IDX_WIDTH-1:0] list_q, list_d;
   ptr_t head_q, head_d, head_commit_q, head_commit_d, tail_q, tail_d;
-  logic [AW-1:0] alloc_count;
   ptr_t write_ptr [C];
 
   assign head = preg_t'(head_q);
@@ -53,8 +53,6 @@ module ren_free_list
   for (genvar k = 0; k < N; k++) begin : g_window
     assign window[k] = list_q[head_q + ptr_t'(k)];
   end
-
-  ttg_popcount #(.N(N)) u_alloc_count (.bits(alloc_fire), .count(alloc_count));
 
   // ---- write side: committed old_dest pregs append at tail + rank ----
   for (genvar k = 0; k < C; k++) begin : g_wptr
@@ -83,7 +81,7 @@ module ren_free_list
     tail_d        = tail_q + ptr_t'(reclaim_total);
     if (flush)         head_d = head_commit_d;
     else if (mispred)  head_d = ptr_t'(ckpt_head);
-    else               head_d = head_q + ptr_t'(alloc_count);
+    else               head_d = ptr_t'(head_next);
   end
 
   always_ff @(posedge clk) begin
