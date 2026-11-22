@@ -45,7 +45,7 @@
 | [mem_route](modules/mem_route.md) | 4/382 | 9 层 |
 | [mem_top](modules/mem_top.md) | 3/689 | 待测 |
 | [peripheral_axi](modules/peripheral_axi.md) | 3/239 | 10 层 |
-| [ptw_walk](modules/ptw_walk.md) | 4/406 | 47 层 |
+| [ptw_walk](modules/ptw_walk.md) | 5/777 | 44 层 |
 
 ## 整核、PMU 与公共代码
 

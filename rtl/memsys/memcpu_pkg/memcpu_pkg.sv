@@ -41,13 +41,24 @@ package memcpu_pkg;
   localparam int PT_ID_W    = RT_ID_W;
   localparam int PT_NCLIENT = 2;                     // 0 = DTLB, 1 = ITLB
 
+  // ---- Shared L2 TLB + Superpage CAM + Sv39 PWC (inside ptw_walk) ----
+  localparam int PT_STLB_WAYS  = L2TLB_WAYS;
+  localparam int PT_STLB_SETS  = L2TLB_ENTRIES / L2TLB_WAYS;
+  localparam int PT_STLB_IDX_W = $clog2(PT_STLB_SETS);
+  localparam int PT_STLB_WAY_W = $clog2(PT_STLB_WAYS);
+  localparam int PT_SP_N       = L2TLB_SP_ENTRIES;
+  localparam int PT_SP_IDX_W   = $clog2(PT_SP_N);
+  localparam int PT_PWC_N      = L2TLB_PWC_ENTRIES;
+  localparam int PT_PWC_IDX_W  = $clog2(PT_PWC_N);
+
   // walker FSM (Ref: MemPtwBlock WalkState)
   typedef enum logic [2:0] {
     PW_IDLE    = 3'd0,
     PW_L1_REQ  = 3'd1,   // level-1 PTE read to be issued
     PW_L1_WAIT = 3'd2,   // level-1 read granted, waiting for the PTE
     PW_L2_REQ  = 3'd3,   // level-0 PTE read to be issued
-    PW_L2_WAIT = 3'd4
+    PW_L2_WAIT = 3'd4,
+    PW_STLB_LK = 3'd5    // L2 TLB + SP CAM + PWC lookup stage
   } ptw_state_e;
 
   // ---- peripheral ----

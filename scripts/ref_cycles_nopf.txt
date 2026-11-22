@@ -8,6 +8,7 @@
 # 2026-11-21 regen_refs.sh: trace-model 7e00aae PF_ENABLE=0; c.mv + 1-hop move elimination
 # 2026-11-22 regen_refs.sh: trace-model e580b57 PF_ENABLE=0; EXP-053 frontend cleanup (Phase 1+2) + STLF cam_ok fix
 # 2026-11-22 regen_refs.sh: trace-model 4d4534f PF_ENABLE=0
+# 2026-11-22 regen_refs.sh: trace-model 16548ba PF_ENABLE=0; EXP-056: L2 TLB (1024x4) + SP CAM (8) + PWC (16)
 1607 add/add.bin
 1546 add-longlong/add-longlong.bin
 2405 atomic-boundary/atomic-boundary.bin
@@ -21,9 +22,10 @@
 4612 dcache-conflict-writeback/dcache-conflict-writeback.bin
 1459 dcache-mshr-pressure/dcache-mshr-pressure.bin
 3595 directed/fe_2taken_fdip.bin
+9041 directed/l2tlb_pwc.bin
 2939 directed/memspec_addr.bin
 7224 directed/memspec_data.bin
-3472 directed/memspec_pf.bin
+3474 directed/memspec_pf.bin
 3650 directed/memspec_vio.bin
 2553 div/div.bin
 841 dummy/dummy.bin
