@@ -25,6 +25,10 @@ module axi_llc_bop
   input  logic [25:0] fill_line,
   input  logic trig_v,
   input  logic [25:0] trig_line,
+  // EXP-058: dual-priority Bingo queue partner (BOP > Bingo)
+  input  logic bingo_q_empty,
+  input  logic [25:0] bingo_q_head,
+  output logic bingo_pop,
   // prefetch lookup launch
   output logic p_launch,
   output addr_t p_addr
@@ -50,15 +54,22 @@ module axi_llc_bop
   logic [25:0] q_line_q [BOP_Q];
   logic [3:0] q_cnt_q;
 
-  // ---------------- launch (combinational) ----------------
-  logic pop_head, head_in_mshr;
+  // ---------------- launch (combinational, BOP > Bingo) ----------------
+  logic has_bop, has_bingo, pop_head, head_in_mshr;
+  logic [25:0] launch_line;
+  always_comb begin
+    has_bop     = (q_cnt_q != 4'd0);
+    has_bingo   = !bingo_q_empty;
+    launch_line = has_bop ? q_line_q[0] : bingo_q_head;
+  end
   axi_llc_linecam #(.N(NMSHR)) u_hd_ms (
-    .vld(ml_vld_d), .addr(ml_line_d), .line({q_line_q[0], 6'b0}), .hit(head_in_mshr)
+    .vld(ml_vld_d), .addr(ml_line_d), .line({launch_line, 6'b0}), .hit(head_in_mshr)
   );
   always_comb begin
-    pop_head = (q_cnt_q != 4'd0) && lk_free_pf && pf_allow && pf_alloc_ok_d;
-    p_launch = pop_head && !head_in_mshr;
-    p_addr = {q_line_q[0], 6'b0};
+    pop_head  = has_bop && lk_free_pf && pf_allow && pf_alloc_ok_d;
+    bingo_pop = !has_bop && has_bingo && lk_free_pf && pf_allow && pf_alloc_ok_d;
+    p_launch  = (pop_head || bingo_pop) && !head_in_mshr;
+    p_addr    = {launch_line, 6'b0};
   end
 
   // ---------------- RR fill + probe (same-cycle fill forwarded to learn) ----------------

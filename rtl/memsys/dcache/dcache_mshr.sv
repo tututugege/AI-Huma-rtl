@@ -26,6 +26,7 @@ module dcache_mshr
   input  logic [NSLOT-1:0]     req_pf,                  // request of a prefetch probe
   input  logic [NSLOT-1:0]     req_nofill,              // ... that only goes to the LLC
   input  logic [LINE_W-1:0]    req_line   [NSLOT],
+  input  logic [11:0]          req_pc_hash [NSLOT],     // EXP-058: 12-bit load PC hash -> LLC Bingo
   // store requests (ports NLD..) merge their word; load requests only allocate
   input  logic [WORD_W-1:0]    req_word   [NST],
   input  logic [DW-1:0]          req_data   [NST],
@@ -47,12 +48,14 @@ module dcache_mshr
   output logic                 ax_req_valid,
   output logic [LINE_W-1:0]    ax_req_line,
   output logic [MSHR_IDW-1:0]  ax_req_id,
+  output logic [11:0]          ax_req_pc_hash,
   output logic                 ax_resp_ready
 );
 
   // ---------------------------------------------------------------- state
   logic [MSHR_N-1:0]    valid_q, issued_q, mdirty_q, pf_q, nofill_q;
   logic [LINE_W-1:0]    line_q  [MSHR_N];
+  logic [11:0]          pc_hash_q [MSHR_N];
   logic [LINE_BITS-1:0] mdata_q [MSHR_N];
   logic [LINE_BITS/8-1:0] mstrb_q [MSHR_N];            // per byte
   logic                 hold_valid_q;
@@ -154,15 +157,18 @@ module dcache_mshr
   // prefetch flags after this tick: a new entry takes those of its request; a demand request merging into an entry
   // promotes it
   logic [MSHR_N-1:0] pf_d, nofill_d, promo_b;
+  logic [11:0]       pc_hash_d [MSHR_N];
   always_comb begin
     for (int e = 0; e < MSHR_N; e++) begin
-      pf_d[e]     = pf_a[e];
-      nofill_d[e] = nofill_a[e];
-      promo_b[e]  = 1'b0;
+      pf_d[e]      = pf_a[e];
+      nofill_d[e]  = nofill_a[e];
+      pc_hash_d[e] = alloc_en[e] ? 12'd0 : pc_hash_q[e];
+      promo_b[e]   = 1'b0;
       for (int j = 0; j < NSLOT; j++) if (tgt[j][e] && req_valid[j]) begin
         if (alloc_en[e]) begin
-          pf_d[e]     = req_pf[j];
-          nofill_d[e] = req_nofill[j];
+          pf_d[e]      = req_pf[j];
+          nofill_d[e]  = req_nofill[j];
+          pc_hash_d[e] = req_pc_hash[j];
         end else if (!req_pf[j]) begin
           promo_b[e]  = 1'b1;
         end
@@ -191,12 +197,14 @@ module dcache_mshr
   end
   ttg_first_set #(.N(MSHR_N)) u_send (.req(send_pass), .onehot(send_oh), .any(send_any));
   always_comb begin
-    ax_req_valid = send_any;
-    ax_req_line  = '0;
-    ax_req_id    = '0;
+    ax_req_valid   = send_any;
+    ax_req_line    = '0;
+    ax_req_id      = '0;
+    ax_req_pc_hash = 12'd0;
     for (int e = 0; e < MSHR_N; e++) if (send_oh[e]) begin
-      ax_req_line = line_d[e];
-      ax_req_id   = MSHR_IDW'(e);
+      ax_req_line    = line_d[e];
+      ax_req_id      = MSHR_IDW'(e);
+      ax_req_pc_hash = pc_hash_d[e];
     end
     ax_resp_ready = ax_resp_valid ? (take_h || take_nf) : !hold_valid_b;
   end
@@ -221,7 +229,10 @@ module dcache_mshr
   // entry payload (written on allocation / merge; the line address and hold data/id are only read while valid)
   always_ff @(posedge clk) begin
     for (int e = 0; e < MSHR_N; e++) begin
-      if (alloc_en[e]) line_q[e] <= alloc_line[e];
+      if (alloc_en[e]) begin
+        line_q[e]    <= alloc_line[e];
+        pc_hash_q[e] <= pc_hash_d[e];
+      end
       if (mupd[e]) begin
         mdirty_q[e] <= mdirty_d[e];
         mdata_q[e]  <= mdata_d[e];

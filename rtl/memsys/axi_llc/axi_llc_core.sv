@@ -19,6 +19,7 @@ module axi_llc_core
   input  logic [NR-1:0][31:0] rd_addr,
   input  logic [NR-1:0][7:0] rd_size,
   input  logic [NR-1:0][3:0] rd_id,
+  input  logic [11:0] rd_dcache_pch,
   input  logic [NW-1:0] wr_v,
   input  logic [NW-1:0] wr_byp,
   input  logic [NW-1:0] wr_ready,
@@ -126,8 +127,11 @@ module axi_llc_core
   logic ms_free_q, ms_free_d, ms_pf_ok_q, ms_pf_ok_d, ms_resp_want, ms_resp_acc, ms_bad_resp, cs_v, e_bypass, e_rcomm, e_is_write, e_is_pf, e_vdirty, e_vdone;
   line_t e_merged;
   logic [NMSHR-1:0] ms_hz_is_write;
-  logic bop_trig, bop_fill, bop_fill_pf, bop_launch;
-  logic [25:0] bop_trig_line, bop_fill_line;
+  logic bop_trig, bop_trig_pf, bop_fill, bop_fill_pf, bop_launch;
+  logic bingo_evict, bingo_q_empty, bingo_pop;
+  logic [25:0] bop_trig_line, bop_fill_line, bingo_q_head;
+  logic [19:0] bingo_evict_reg;
+  logic [11:0] lk_pch;
   addr_t bop_addr;
   logic [1:0] ms_resp_master, e_master;
   logic [3:0] ms_resp_eid, e_id;
@@ -201,9 +205,9 @@ module axi_llc_core
     .w_launch(launch_any), .w_addr(wp_l_addr[launch_idx]), .w_size(wp_l_size[launch_idx]),
     .w_id(wp_l_id[launch_idx]), .w_master(2'(launch_idx)), .w_bypass(wp_l_bypass[launch_idx]),
     .r_launch(acc_r_any), .r_addr(acc_r_addr), .r_size(acc_r_size), .r_id(acc_r_id), .r_master(acc_r_master),
-    .r_bypass(acc_r_byp), .p_launch(bop_launch), .p_addr(bop_addr),
+    .r_bypass(acc_r_byp), .r_pch(rd_dcache_pch), .p_launch(bop_launch), .p_addr(bop_addr),
     .valid_q(lk_valid), .issued_q(lk_issued), .is_write_q(lk_is_write), .is_pf_q(lk_is_pf), .bypass_q(lk_bypass), .addr_q(lk_addr),
-    .size_q(lk_size), .master_q(lk_master), .id_q(lk_id), .free_s3(lk_free)
+    .size_q(lk_size), .master_q(lk_master), .id_q(lk_id), .pch_q(lk_pch), .free_s3(lk_free)
   );
 
   assign act = lk_valid && lk_issued && t_ok;
@@ -225,7 +229,8 @@ module axi_llc_core
     .vu_go(rs_vu_go), .vu_way(rs_vu_way), .vu_data(rs_vu_data), .cdone_set(rs_cdone), .cpend_set(rs_cpend),
     .cpend_vwait(rs_vwait), .vict_addr(rs_vict_addr), .pick_way(rs_way), .vict_data(rs_vict_data),
     .forw_go(rs_forw), .alloc_go(rs_alloc), .alloc_is_write(rs_alloc_w), .alloc_is_pf(rs_alloc_pf),
-    .alloc_vdirty(rs_vdirty), .bop_trig(bop_trig), .bop_trig_line(bop_trig_line)
+    .alloc_vdirty(rs_vdirty), .bop_trig(bop_trig), .bop_trig_pf(bop_trig_pf), .bop_trig_line(bop_trig_line),
+    .bingo_evict(bingo_evict), .bingo_evict_reg(bingo_evict_reg)
   );
 
   // ---------------- read response units: producers 0 lookup hit, 1 bypass memory response, 2 MSHR completion ----
@@ -356,7 +361,16 @@ module axi_llc_core
   axi_llc_bop u_bop (
     .clk, .rst_n, .pf_allow, .lk_free_pf(lk_free && !launch_any && !acc_r_any), .pf_alloc_ok_d(ms_pf_ok_d),
     .ml_vld_d, .ml_line_d, .fill_v(bop_fill), .fill_pf(bop_fill_pf), .fill_line(bop_fill_line),
-    .trig_v(bop_trig), .trig_line(bop_trig_line), .p_launch(bop_launch), .p_addr(bop_addr)
+    .trig_v(bop_trig), .trig_line(bop_trig_line),
+    .bingo_q_empty(bingo_q_empty), .bingo_q_head(bingo_q_head), .bingo_pop(bingo_pop),
+    .p_launch(bop_launch), .p_addr(bop_addr)
+  );
+  axi_llc_bingo u_bingo (
+    .clk, .rst_n,
+    .pop_head(bingo_pop), .pf_sent(bop_launch),
+    .trig_v(bop_trig), .trig_pf(bop_trig_pf), .trig_line(bop_trig_line), .trig_pch(lk_pch),
+    .evict_v(bingo_evict), .evict_reg(bingo_evict_reg),
+    .q_empty(bingo_q_empty), .q_head_line(bingo_q_head)
   );
   always_comb begin
     hz_lk_valid = lk_valid; hz_lk_is_write = lk_is_write; hz_lk_is_pf = lk_is_pf;

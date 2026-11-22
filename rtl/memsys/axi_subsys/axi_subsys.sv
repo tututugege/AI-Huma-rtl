@@ -14,6 +14,7 @@ module axi_subsys (
   input  logic [3:0] m_rd_id [4],
   input  logic m_rd_bypass [4],
   input  logic m_rd_resp_ready [4],
+  input  logic [11:0] m_rd_dcache_pc_hash,
   input  logic m_wr_valid [2],
   input  logic [31:0] m_wr_addr [2],
   input  logic [511:0] m_wr_data [2],
@@ -100,6 +101,7 @@ module axi_subsys (
   logic [3:0] up_rd_id [4];
   logic up_rd_bypass [4];
   logic up_rd_resp_ready [4];
+  logic [11:0] up_rd_dcache_pc_hash;
   logic up_wr_valid [2];
   logic [31:0] up_wr_addr [2];
   logic [511:0] up_wr_data [2];
@@ -130,6 +132,7 @@ module axi_subsys (
     .m_rd_id(m_rd_id),
     .m_rd_bypass(m_rd_bypass),
     .m_rd_resp_ready(m_rd_resp_ready),
+    .m_rd_dcache_pc_hash(m_rd_dcache_pc_hash),
     .m_wr_valid(m_wr_valid),
     .m_wr_addr(m_wr_addr),
     .m_wr_data(m_wr_data),
@@ -212,6 +215,7 @@ module axi_subsys (
     .li_rd_id(up_rd_id),
     .li_rd_bypass(up_rd_bypass),
     .li_rd_resp_ready(up_rd_resp_ready),
+    .li_rd_dcache_pc_hash(up_rd_dcache_pc_hash),
     .li_wr_valid(up_wr_valid),
     .li_wr_addr(up_wr_addr),
     .li_wr_data(up_wr_data),
@@ -238,6 +242,7 @@ module axi_subsys (
     .up_rd_id(up_rd_id),
     .up_rd_bypass(up_rd_bypass),
     .up_rd_resp_ready(up_rd_resp_ready),
+    .up_rd_dcache_pc_hash(up_rd_dcache_pc_hash),
     .up_wr_valid(up_wr_valid),
     .up_wr_addr(up_wr_addr),
     .up_wr_data(up_wr_data),

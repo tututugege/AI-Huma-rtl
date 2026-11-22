@@ -37,13 +37,13 @@
 | 模块 | RTL（文件/行） | 深度 |
 | --- | --- | --- |
 | [axi_cpu_port_adapter](modules/axi_cpu_port_adapter.md) | 2/150 | 9 层 |
-| [axi_interconnect](modules/axi_interconnect.md) | 9/1245 | 53 层 |
-| [axi_llc](modules/axi_llc.md) | 20/2606 | 350 层 |
-| [axi_subsys](modules/axi_subsys.md) | 1/299 | 353 层 |
-| [dcache](modules/dcache.md) | 18/3118 | 123 层 |
+| [axi_interconnect](modules/axi_interconnect.md) | 9/1256 | 53 层 |
+| [axi_llc](modules/axi_llc.md) | 23/3384 | 350 层 |
+| [axi_subsys](modules/axi_subsys.md) | 1/304 | 353 层 |
+| [dcache](modules/dcache.md) | 18/3140 | 123 层 |
 | [dcache_pf](modules/dcache_pf.md) | 1/169 | 384 层 |
 | [mem_route](modules/mem_route.md) | 4/382 | 9 层 |
-| [mem_top](modules/mem_top.md) | 3/689 | 待测 |
+| [mem_top](modules/mem_top.md) | 3/705 | 待测 |
 | [peripheral_axi](modules/peripheral_axi.md) | 3/239 | 10 层 |
 | [ptw_walk](modules/ptw_walk.md) | 5/777 | 44 层 |
 
@@ -51,9 +51,9 @@
 
 | 模块 | RTL（文件/行） | 深度 |
 | --- | --- | --- |
-| [common](modules/common.md) | 7/434 | 待测 |
+| [common](modules/common.md) | 7/438 | 待测 |
 | [core_top](modules/core_top.md) | 4/1005 | 待测 |
 | [pmu](modules/pmu.md) | 3/364 | 90 层 |
 | [soc_top](modules/soc_top.md) | 1/153 | 待测 |
 
-合计（各文档的目录有重叠时会重复计数）：286 个文件，38618 行。
+合计（各文档的目录有重叠时会重复计数）：290 个文件，39825 行。

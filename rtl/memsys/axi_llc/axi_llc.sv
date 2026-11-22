@@ -14,6 +14,7 @@ module axi_llc
   input logic [3:0] up_rd_id [4],
   input logic up_rd_bypass [4],
   input logic up_rd_resp_ready [4],
+  input logic [11:0] up_rd_dcache_pc_hash,
   input logic up_wr_valid [2],
   input logic [31:0] up_wr_addr [2],
   input logic [511:0] up_wr_data [2],
@@ -110,6 +111,7 @@ module axi_llc
   axi_llc_core u_core (
     .clk(clk), .rst_n(rst_n),
     .rd_v(rd_v), .rd_byp(rd_byp), .rd_ready(rd_ready), .rd_addr(rd_addr), .rd_size(rd_size), .rd_id(rd_id),
+    .rd_dcache_pch(up_rd_dcache_pc_hash),
     .wr_v(wr_v), .wr_byp(wr_byp), .wr_ready(wr_ready), .wr_addr(wr_addr), .wr_size(wr_size), .wr_id(wr_id),
     .wr_data(wr_data), .wr_strb(wr_strb),
     .mrd_ready(mem_rd_req_ready), .mrr_v(mem_rd_resp_valid), .mrr_data(mem_rd_resp_data), .mrr_id(mem_rd_resp_id),

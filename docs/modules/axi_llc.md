@@ -3,8 +3,8 @@ module: axi_llc
 area: memsys
 rtl: rtl/memsys/axi_llc
 model: trace-model axi-interconnect-kit/axi_interconnect/AXI_LLC.cpp、include/AXI_LLC.h、include/AXI_LLC_Config.h；行表（数据 / 标签 / 脏 / 有效 / 替换状态）在 MemSubSystem/MemSubsystem.cpp 的 `AxiLlcTableRuntime`（调度单元 `axi`，类 `AxiSubsystem`；见 axi_subsys.md）
-status: 整核周期与模型逐个相等（最近一次提交 60ed422 的提交信息记 fm_gate 67/67、周期等于 scripts/ref_cycles_memiq6_nr_int2_ev5.txt；本次写文档没有重跑）
-depth: 350 层（axi_llc，含 EXP-048 BOP，单模块综合，2026-11-20，`SYNTH_ABC="strash;balance;map"`，生成门代理，见 09-synthesis-report 第 12 节）
+status: 整核周期与模型逐个相等（EXP-058：`fm_gate.sh` 69/69 PASS、0 周期差；27 窗 `rv64gc` Linux 1.377 亿指令 0 FM 差且 27/27 PT/UP 逐拍一致）
+depth: 350 层（axi_llc，含 EXP-048 BOP，单模块综合，2026-11-20）；新增 `axi_llc_bingo`（EXP-058，2026-11-22，`eda-05` Yosys `strash;balance;map` + `SYNTH_NO_MEMPRIO=1`）：41,232 单元 / **48 层**
 ---
 
 # axi_llc 设计文档
@@ -17,7 +17,10 @@ depth: 350 层（axi_llc，含 EXP-048 BOP，单模块综合，2026-11-20，`SYN
 - **MSHR**（miss status holding register，缺失状态寄存器）：记一次在途缺失的表项，共 16 项（`NMSHR`）；它的槽号就是发给内存的读请求的 id。
 - **受害行**（victim）：缺失时被换出的行；脏的要先写回内存。
 - **替换状态**（SRRIP，EXP-045）：每组 16 路各 2 位的"再访问预测值"（RRPV，re-reference prediction value；0 = 预计很快再用，3 = 预计很久不用），一组 32 位。命中把该路置 0；缺失要换出时选 RRPV 最大的路；新装入的行先把整组"变老"到最大值为 3，再把新行置 2（不是 0：新行只有再被命中才算"常用"，一次性扫过的行会先被换掉）。
-- **LLC 预取（BOP，EXP-048）**：Best-Offset Prefetcher（`axi_llc_bop`），由 L1D 读缺失（`master == 1`）以及对预取行（`pf_q` 置位）的首次 L1D 需求命中触发学习与候选生成。偏移表为 4 KiB 页内 26 个 5-平滑正偏移（1..60），最近请求表 RR 为 256 项直映表（重填时写入），8 项去重候选队列；仅在互连无可见上游请求（`pf_allow`）、查表引擎空闲、空 MSHR > 2（`BOP_RES = 2`）且在途预取 MSHR < 4（`BOP_INF = 4`）时发起预取查表。发往内存时需求缺失严格优先于预取；预取命中或无法分配 MSHR 时静默放弃，预取重填写入缓存并置 `pf_q` 后直接释放 MSHR（不回上游响应）。
+- **LLC 预取（BOP + Bingo 4KB，EXP-048 / EXP-058）**：
+  - **Best-Offset Prefetcher（`axi_llc_bop`，EXP-048）**：由 L1D 读缺失（`master == 1`）以及对预取行（`pf_q` 置位）的首次 L1D 需求命中触发学习与候选生成。偏移表为 4 KiB 页内 26 个 5-平滑正偏移（1..60），最近请求表 RR 为 256 项直映表（重填时写入），8 项去重候选队列。
+  - **Bingo 4KB 空间预取器（`axi_llc_bingo` / `axi_llc_bingo_agt` / `axi_llc_bingo_pht`，EXP-058）**：由相同 L1D 触发事件（携带经 `dcache_mshr → axi_interconnect → axi_llc_lookup` 透传的 12-bit 负载 `pc_hash`）和 LLC 受害行换出事件驱动。包含 32 项 FIFO 过滤表 FT、32 项 31-bit tree-PLRU 累积表 AGT、4 项提交队列 `cmt_q`、1RW SRAM 4 路组相联长表 PHT_L（256×4=1024 项，3-bit tree-PLRU）与短表 PHT_S（128×4=512 项，相对偏移，3-bit tree-PLRU）、密集流过滤（`popcount >= 48` 跳过）、无乘法器周期准确率节流器（256 发窗口、<26 命中即 <10.16% 降为 1/8 试探 `deg=2`）、1 候选/拍桶形移位发射器与 16 项去重队列 `bingo_q`。
+  - **双优先级发射**：`bop_q` 严格优先于 `bingo_q`；仅在互连无可见上游请求（`pf_allow`）、查表引擎空闲、空 MSHR > 2（`BOP_RES = 2`）且在途预取 MSHR < 8（`BOP_INF = 8`）时发起预取查表。发往内存时需求缺失严格优先于预取；预取命中或无法分配 MSHR 时静默放弃，预取重填写入缓存并置 `pf_q` 后直接释放 MSHR（不回上游响应）。
 - **bypass**：不缓存的请求（外设、ICache 的非缓存取指）。bypass 读可以命中已有的行，缺失时不分配行；bypass 写只在行已缓存时更新它（保持脏位），并总是写穿到内存。
 
 每个 tick 按固定顺序做五步（`axi_llc_core.sv` 文件头）：1 读响应离开；2 写路径（受害行写回、写请求接收、写上下文）；3 解析刚到的查表（命中 / 缺失，写行表、分配 MSHR、产生响应）；4 内存读路径（内存读响应、发内存读、重填）；5 接收新的读请求、发起行表读。每一步只看到前面步骤已经决定的状态。
@@ -40,7 +43,8 @@ depth: 350 层（axi_llc，含 EXP-048 BOP，单模块综合，2026-11-20，`SYN
 | 写请求队列 `WQD` | 2 项 / 写主口 | 同上 |
 | 受害行写回队列 `VQD` | 32 项 | 与模型 `AXI_LLC.h` 深度一致（16 MSHR + LLC BOP 下 Linux 启动峰值超过 8，由 8 扩至 32） |
 | 受害行持有者表 `NVL` | 1 + VQD + NW + NMSHR = 51 | 同上（写回槽、队列、写上下文、MSHR） |
-| BOP 预取参数 | 26 偏移、RR 256 项、候选队列 `BOP_Q = 8`、`ROUNDS = 100`、`SCORE_MAX = 31`、`BAD = 1`、`DEG = 1`、`BOP_RES = 2`、`BOP_INF = 4` | `axi_llc_pkg`、`axi_llc_bop.sv`；模型 `LLC_BOP=1`（`Bop.h`） |
+| BOP 预取参数 | 26 偏移、RR 256 项、候选队列 `BOP_Q = 8`、`ROUNDS = 100`、`SCORE_MAX = 31`、`BAD = 1`、`DEG = 1`、`BOP_RES = 2`、`BOP_INF = 8` | `axi_llc_pkg`、`axi_llc_bop.sv`；模型 `LLC_BOP=1`（`Bop.h`） |
+| Bingo 4KB 预取参数 | `BINGO_FT_N = 32`、`BINGO_AGT_N = 32`、`BINGO_PHTL_SETS = 256`、`BINGO_PHTS_SETS = 128`、`BINGO_PHT_WAYS = 4`、`BINGO_CMTQ_N = 4`、`BINGO_Q = 16`、`BINGO_DEG = 16`（节流 `2`）、`BINGO_MAXDENSE = 48`、`BINGO_TWIN = 256`、`BINGO_TMIN = 26` | `axi_llc_pkg`、`axi_llc_bingo*.sv`；模型 `LLC_BINGO=1`（`BingoHw.h`） |
 | 主口数 | 读 4、写 2 | `NR`、`NW` |
 
 模型的三个队列是 32 项（`AXI_LLC_READ_RESP_QUEUE_DEPTH`、`AXI_LLC_READ_VICTIM_WB_QUEUE_DEPTH` 等于 `MAX_OUTSTANDING`；写队列 `MAX_WRITE_OUTSTANDING`），RTL 取小，见第 7 节。
@@ -51,7 +55,7 @@ LLC 的"上游"端口（`up_*`）连互连的 `li_*` / `lo_*`，"内存"端口�
 
 | 方向 | 信号组 | 含义 |
 | --- | --- | --- |
-| 入 | `up_rd_valid / addr / size / id / bypass / resp_ready [4]`、`up_wr_valid / addr / data(512) / strb(64) / size / id / bypass / resp_ready [2]` | 互连的台送来的请求（同一时刻最多一个读或写有效）和主口的响应 ready |
+| 入 | `up_rd_valid / addr / size / id / bypass / resp_ready [4]`、`up_rd_dcache_pc_hash [11:0]`、`up_wr_valid / addr / data(512) / strb(64) / size / id / bypass / resp_ready [2]` | 互连的台送来的请求（同一时刻最多一个读或写有效）、DCache 读主口 12-bit PC hash 边带与主口响应 ready |
 | 入 | `mem_rd_req_ready`、`mem_rd_resp_valid / data / id`、`mem_wr_req_ready`、`mem_wr_resp_valid / resp` | 互连的 DDR 侧 |
 | 出 | `up_rd_req_ready [4]`、`up_rd_resp_valid / id / data [4]`、`up_wr_req_ready [2]`、`up_wr_resp_valid / id / resp [2]` | 对主口的 ready 和响应 |
 | 出 | `mem_rd_req_valid / addr / size / id`、`mem_wr_req_valid / addr / data / strb / size / id` | 内存侧读写请求（读 id = MSHR 槽号） |
@@ -90,6 +94,8 @@ LLC 的"上游"端口（`up_*`）连互连的 `li_*` / `lo_*`，"内存"端口�
 | `axi_llc_memwr.sv` | 48 | 内存写请求：受害行写回优先，否则 bypass 写 |
 | `axi_llc_waypick.sv`、`axi_llc_rrpick.sv` | 41、38 | 缺失选路（无效路，否则 RRPV 最大的未占用路）；旋转优先级仲裁（读 / 写主口选择） |
 | `axi_llc_linecam.sv`、`axi_llc_merge.sv` | 19、27 | N 项行地址比较；按字节合并 |
+| `axi_llc_bop.sv` | 200 | Best-Offset 预取器及双优先级（BOP > Bingo）预取查表发射仲裁 |
+| `axi_llc_bingo.sv`、`axi_llc_bingo_agt.sv`、`axi_llc_bingo_pht.sv` | 162、247、251 | EXP-058 Bingo 4KB 空间预取器（FT/AGT/提交队列 + 1RW SRAM PHT_L/PHT_S + 节流器/1 候选每拍发射器/16 项队列；`eda-05` Yosys 综合 `41,232` 单元 / **48 层**） |
 
 状态：行表 `data_q[4096][16]`（512 位）、`tag_q`、`dirty_q`、`valid_q`、`repl_q`（每组 32 位替换状态）；MSHR 8 项（每项含 512 位重填数据和 512 位受害行快照）；受害行写回槽和队列（8 项 × 512 位）；每写主口的请求队列（2 项）和写上下文；每读主口的响应队列；轮询指针；查表引擎的 valid / issued 等。存储阵列没有复位，有效位靠上电值 0（测试平台用 `--x-initial 0`，见 `axi_llc_tables.sv` 头注释）。
 
@@ -178,6 +184,8 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 `AXI_LLC_SETS`（4096）、`AXI_LLC_WAYS`（16）、`AXI_LLC_MSHR`（16，与 `axi_ic_pkg` 一致）；替换策略固定为 SRRIP（RTL 无开关；模型 `LLC_REPL`，见第 7 节）；`RQD`、`WQD`、`VQD`（`axi_llc_pkg` 内常量，不是宏）；模型侧 `CONFIG_AXI_LLC_ENABLE`、`CONFIG_AXI_LLC_SIZE_BYTES`、`CONFIG_AXI_LLC_WAYS`、`CONFIG_AXI_LLC_MSHR_NUM`、`CONFIG_AXI_LLC_LOOKUP_LATENCY`（`config.h`）。
 
 ## 10. 变更记录
+
+- **2026-11-22（EXP-058）**：新增硬件忠实版 **LLC Bingo 4KB 空间预取器**（`axi_llc_bingo.sv`、`axi_llc_bingo_agt.sv`、`axi_llc_bingo_pht.sv`），与 `axi_llc_bop` 组成双优先级预取（BOP > Bingo，`BOP_INF` `4 → 8`）；12-bit 负载 `pc_hash` 经 `dcache_mshr → mem_axi → axi_subsys → axi_interconnect → axi_llc_lookup` 透传；PHT_L（256×4）与 PHT_S（128×4）均采用 4 个独立 1D 1RW SRAM bank（干净 `$mem_v2`）与桶形移位掩码旋转，`eda-05` Yosys 综合 `axi_llc_bingo` 仅 **`41,232` 单元 / 48 层**；`lint_chip.sh` 0 警告，`fm_gate.sh` **69/69 PASS（0 FM 差、0 周期差）**，SPEC06 INT 386/386 SimPoint 加权 **`+1.26%`（`14.69 → 14.88 /GHz`）**。
 
 - 2026-11-19（`exp/llc-plru`，EXP-045）：替换从"每组一个下一受害路指针"改为 SRRIP（每路 2 位 RRPV，查表解析时读改写；分配时更新，重填 / 写提交不再写替换状态；写口被写提交占用时丢弃分配的更新）。29 个 SPEC06 高权重点几何平均 +1.23%（omnetpp +9.0%）。
 - 更早：见 git 历史。

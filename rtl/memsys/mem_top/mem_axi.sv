@@ -28,6 +28,7 @@ module mem_axi import ttg_cfg_pkg::*; import memcpu_pkg::*; (
   input  logic mshr_req_valid,
   input  logic [31:0] mshr_req_addr,
   input  logic [3:0] mshr_req_id,
+  input  logic [11:0] mshr_req_pc_hash,
   input  logic mshr_resp_ready,
   input  logic wb_req_valid,
   input  logic [31:0] wb_req_addr,
@@ -163,6 +164,7 @@ module mem_axi import ttg_cfg_pkg::*; import memcpu_pkg::*; (
   axi_subsys u_axi (
     .clk, .rst_n, .phase0,
     .m_rd_valid, .m_rd_addr, .m_rd_size, .m_rd_id, .m_rd_bypass, .m_rd_resp_ready,
+    .m_rd_dcache_pc_hash(mshr_req_pc_hash),
     .m_wr_valid, .m_wr_addr, .m_wr_data, .m_wr_strb, .m_wr_size, .m_wr_id, .m_wr_bypass, .m_wr_resp_ready,
     .d_arready, .d_rvalid, .d_rid, .d_rdata, .d_awready, .d_wready, .d_bvalid, .d_bid, .d_bresp,
     .m_rd_resp_valid(ax_rd_resp_valid), .m_rd_resp_id(ax_rd_resp_id), .m_rd_resp_data(ax_rd_resp_data),

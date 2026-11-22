@@ -24,6 +24,7 @@ module axi_llc_lookup
   input  logic [3:0] r_id,
   input  logic [1:0] r_master,
   input  logic r_bypass,
+  input  logic [11:0] r_pch,
   input  logic p_launch,
   input  addr_t p_addr,
   output logic valid_q,
@@ -35,6 +36,7 @@ module axi_llc_lookup
   output logic [7:0] size_q,
   output logic [1:0] master_q,
   output logic [3:0] id_q,
+  output logic [11:0] pch_q,
   output logic free_s3                         // no lookup in flight after stage 3 (a new one may start)
 );
   logic valid_d, issued_d, is_write_d, is_pf_d, bypass_d, new_lookup;
@@ -71,16 +73,19 @@ module axi_llc_lookup
       size_q <= w_size;
       master_q <= w_master;
       id_q <= w_id;
+      pch_q <= 12'd0;
     end else if (r_launch) begin
       addr_q <= r_addr;
       size_q <= r_size;
       master_q <= r_master;
       id_q <= r_id;
+      pch_q <= (r_master == 2'd1) ? r_pch : 12'd0;
     end else if (p_launch) begin
       addr_q <= p_addr;
       size_q <= 8'd63;
       master_q <= 2'd0;
       id_q <= 4'd0;
+      pch_q <= 12'd0;
     end
   end
 endmodule

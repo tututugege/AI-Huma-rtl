@@ -61,7 +61,10 @@ module axi_llc_resolve
   output logic alloc_is_pf,
   output logic alloc_vdirty,
   output logic bop_trig,
-  output logic [25:0] bop_trig_line
+  output logic bop_trig_pf,
+  output logic [25:0] bop_trig_line,
+  output logic bingo_evict,
+  output logic [19:0] bingo_evict_reg
 );
   logic [WAYS-1:0] tag_eq, hit_oh, inv_oh, sel_oh;
   logic hit_any, inv_any, pick_ok, vdirty;
@@ -160,9 +163,12 @@ module axi_llc_resolve
     alloc_is_write = is_write;
     alloc_is_pf = miss_pf_ok;
     alloc_vdirty = vdirty;
-    bop_trig = (hit_r_ok && !bypass && lk_pf[hit_way] && (lk_master == 2'd1)) ||
+    bop_trig_pf = hit_r_ok && !bypass && lk_pf[hit_way] && (lk_master == 2'd1);
+    bop_trig = bop_trig_pf ||
                (act && !hit_any && !is_write && !is_pf && !bypass && (lk_master == 2'd1));
     bop_trig_line = laddr[31:6];
+    bingo_evict = ((miss_r_ok && !bypass) || miss_pf_ok || miss_w_direct || miss_w_fwd || miss_w_part) && lk_v[pick_way];
+    bingo_evict_reg = vict_addr[31:12];
   end
 endmodule
 

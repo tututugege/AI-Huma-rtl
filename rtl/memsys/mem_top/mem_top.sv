@@ -284,6 +284,7 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
   logic        mshr_req_valid, mshr_resp_ready, wb_req_valid;
   logic [31:0] mshr_req_addr, wb_req_addr;
   logic [dcache_pkg::MSHR_IDW-1:0] mshr_req_id;
+  logic [11:0] mshr_req_pc_hash;
   logic [31:0] wb_req_data [DCACHE_WORD_NUM];
   logic [31:0] mshr_resp_data [DCACHE_WORD_NUM];
 
@@ -330,7 +331,7 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
     .ld_retry_busy(dcache2lsu_load_retry_busy), .st_retry_busy(dcache2lsu_store_retry_busy),
     .st_resp_valid(dc_st_resp_valid), .st_resp_replay(dc_st_resp_replay), .st_resp_id(dc_st_resp_id),
     .mshr_fill(dc_mshr_fill), .mshr_fill_addr(dc_mshr_fill_addr),
-    .mshr_req_valid(mshr_req_valid), .mshr_req_addr(mshr_req_addr), .mshr_req_id(mshr_req_id),
+    .mshr_req_valid(mshr_req_valid), .mshr_req_addr(mshr_req_addr), .mshr_req_id(mshr_req_id), .mshr_req_pc_hash(mshr_req_pc_hash),
     .mshr_resp_ready(mshr_resp_ready),
     .wb_req_valid(wb_req_valid), .wb_req_addr(wb_req_addr), .wb_req_data(wb_req_data)
   );
@@ -378,7 +379,7 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
     .clk, .rst_n, .phase0, .phase_last,
     .mem_req_valid, .mem_req_addr, .mem_req_total_size, .mem_req_bypass, .mem_req_id, .mem_resp_ready,
     .mem_req_ready, .mem_req_accepted, .mem_req_accepted_id, .mem_resp_valid, .mem_resp_id, .mem_resp_data,
-    .mshr_req_valid, .mshr_req_addr, .mshr_req_id(4'(mshr_req_id)), .mshr_resp_ready,
+    .mshr_req_valid, .mshr_req_addr, .mshr_req_id(4'(mshr_req_id)), .mshr_req_pc_hash, .mshr_resp_ready,
     .wb_req_valid, .wb_req_addr, .wb_req_data,
     .mshr_req_accepted(ax_mshr_acc), .mshr_req_accepted_id(ax_mshr_acc_id), .mshr_resp_valid(ax_mshr_rv),
     .mshr_resp_id(ax_mshr_rid), .mshr_resp_data,

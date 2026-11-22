@@ -17,6 +17,7 @@ module axi_ic_stage
   input  logic [7:0]    rd_size [NR],
   input  logic [3:0]    rd_id   [NR],
   input  logic          rd_byp  [NR],
+  input  logic [11:0]   rd_dcache_pch,
   input  logic          wr_acc  [NW],
   input  logic [31:0]   wr_addr [NW],
   input  logic [7:0]    wr_size [NW],
@@ -39,6 +40,7 @@ module axi_ic_stage
   output logic          up_wr_any,
   // what the LLC sees
   output logic [31:0]   li_addr, output logic [7:0] li_size, output logic [3:0] li_id, output logic li_byp,
+  output logic [11:0]   li_pch,
   output logic [511:0]  li_wdata, output logic [63:0] li_wstrb,
   // accepted flags for the master ports (comb_outputs of the NEXT tick)
   output logic          acc_o1_rd [NR],
@@ -55,6 +57,7 @@ module axi_ic_stage
     logic [7:0] size;
     logic [3:0] id;
     logic byp;
+    logic [11:0] pch;
   } rd_slot_t;
   typedef struct packed {
     logic v;
@@ -72,6 +75,7 @@ module axi_ic_stage
     logic [7:0] size;
     logic [3:0] id;
     logic byp;
+    logic [11:0] pch;
     logic [511:0] data;
     logic [63:0] strb;
   } stage_t;
@@ -104,6 +108,7 @@ module axi_ic_stage
   assign li_size  = stg_q.size;
   assign li_id    = stg_q.id;
   assign li_byp   = stg_q.byp;
+  assign li_pch   = stg_q.pch;
   assign li_wdata = stg_q.data;
   assign li_wstrb = stg_q.strb;
 
@@ -129,9 +134,9 @@ module axi_ic_stage
     stg_pre = stg_pop;
     rr_pre  = rr_q;
     if (pre_en) begin
-      pre_rd[stg_pop.master] = '{v: 1'b1, addr: stg_pop.addr, size: stg_pop.size, id: stg_pop.id, byp: stg_pop.byp};
+      pre_rd[stg_pop.master] = '{v: 1'b1, addr: stg_pop.addr, size: stg_pop.size, id: stg_pop.id, byp: stg_pop.byp, pch: stg_pop.pch};
       stg_pre = '{v: 1'b1, is_wr: 1'b1, master: {1'b0, pre_pick}, addr: up_wr_q[pre_pick].addr,
-                  size: up_wr_q[pre_pick].size, id: up_wr_q[pre_pick].id, byp: up_wr_q[pre_pick].byp,
+                  size: up_wr_q[pre_pick].size, id: up_wr_q[pre_pick].id, byp: up_wr_q[pre_pick].byp, pch: 12'd0,
                   data: up_wr_q[pre_pick].data, strb: up_wr_q[pre_pick].strb};
       pre_wr[pre_pick] = '0;
       rr_pre = 3'((NR + int'(pre_pick) + 1) % (NR + NW));
@@ -164,13 +169,13 @@ module axi_ic_stage
     if (!stg_pre.v && (hi_any || lo_any)) begin
       for (int m = 0; m < NR; m++) if (port_sel[m]) begin
         stg_dis = '{v: 1'b1, is_wr: 1'b0, master: 2'(m), addr: pre_rd[m].addr, size: pre_rd[m].size, id: pre_rd[m].id,
-                    byp: pre_rd[m].byp, data: '0, strb: '0};
+                    byp: pre_rd[m].byp, pch: pre_rd[m].pch, data: '0, strb: '0};
         dis_rd[m] = '0;
         rr_dis = 3'((m + 1) % (NR + NW));
       end
       for (int w = 0; w < NW; w++) if (port_sel[NR + w]) begin
         stg_dis = '{v: 1'b1, is_wr: 1'b1, master: 2'(w), addr: pre_wr[w].addr, size: pre_wr[w].size, id: pre_wr[w].id,
-                    byp: pre_wr[w].byp, data: pre_wr[w].data, strb: pre_wr[w].strb};
+                    byp: pre_wr[w].byp, pch: 12'd0, data: pre_wr[w].data, strb: pre_wr[w].strb};
         dis_wr[w] = '0;
         rr_dis = 3'((NR + w + 1) % (NR + NW));
       end
@@ -184,7 +189,8 @@ module axi_ic_stage
     for (int m = 0; m < NR; m++) begin
       up_rd_d[m] = dis_rd[m];
       if (!dis_rd[m].v && rd_acc[m])
-        up_rd_d[m] = '{v: 1'b1, addr: rd_addr[m], size: rd_size[m], id: rd_id[m], byp: rd_byp[m]};
+        up_rd_d[m] = '{v: 1'b1, addr: rd_addr[m], size: rd_size[m], id: rd_id[m], byp: rd_byp[m],
+                       pch: (m == MASTER_DCACHE_R) ? rd_dcache_pch : 12'd0};
     end
     for (int w = 0; w < NW; w++) begin
       up_wr_d[w] = dis_wr[w];

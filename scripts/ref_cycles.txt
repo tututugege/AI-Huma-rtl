@@ -14,6 +14,7 @@
 # 2026-11-22 regen_refs.sh: trace-model e580b57 default; EXP-053 frontend cleanup (Phase 1+2) + STLF cam_ok fix
 # 2026-11-22 regen_refs.sh: trace-model 4d4534f default
 # 2026-11-22 regen_refs.sh: trace-model 16548ba default; EXP-056: L2 TLB (1024x4) + SP CAM (8) + PWC (16)
+# 2026-11-22 regen_refs.sh: trace-model c174d8d default
 1607 add/add.bin
 1546 add-longlong/add-longlong.bin
 2405 atomic-boundary/atomic-boundary.bin
@@ -27,7 +28,7 @@
 4612 dcache-conflict-writeback/dcache-conflict-writeback.bin
 1459 dcache-mshr-pressure/dcache-mshr-pressure.bin
 3595 directed/fe_2taken_fdip.bin
-9041 directed/l2tlb_pwc.bin
+9028 directed/l2tlb_pwc.bin
 2939 directed/memspec_addr.bin
 7224 directed/memspec_data.bin
 3295 directed/memspec_pf.bin
@@ -53,7 +54,7 @@
 2800 matrix-mul/matrix-mul.bin
 1969 max/max.bin
 1509 memory-boundary/memory-boundary.bin
-309486 memory-stress-small/memory-stress-small.bin
+309431 memory-stress-small/memory-stress-small.bin
 2675 mersenne/mersenne.bin
 2581 min3/min3.bin
 1185 mov-c/mov-c.bin

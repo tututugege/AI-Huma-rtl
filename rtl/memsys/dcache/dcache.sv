@@ -51,6 +51,7 @@ module dcache
   output logic                 mshr_req_valid,
   output logic [31:0]          mshr_req_addr,
   output logic [MSHR_IDW-1:0]  mshr_req_id,
+  output logic [11:0]          mshr_req_pc_hash,
   output logic                 mshr_resp_ready,
   output logic [NLD-1:0]       pf_xq_v,
   output logic [38:0]          pf_xq_va      [NLD],
@@ -279,6 +280,15 @@ module dcache
   // ------------------------------------------------------------ MSHR
   logic [LINE_BITS-1:0] mshr_resp_line;
   logic [LINE_W-1:0]    mshr_ax_line;
+  logic [11:0]          mshr_slot_pch [NSLOT];
+  always_comb begin
+    for (int i = 0; i < NLD; i++) begin
+      mshr_slot_pch[i] = (ld_mreq[i] && slot_lsu[i])
+          ? (slot_pc[i][12:1] ^ slot_pc[i][24:13] ^ {1'b0, slot_pc[i][31:21]})
+          : 12'd0;
+    end
+    for (int i = NLD; i < NSLOT; i++) mshr_slot_pch[i] = 12'd0;
+  end
   for (genvar w = 0; w < WORDS; w++) begin : g_rsp
     assign mshr_resp_line[32*w +: 32] = mshr_resp_data[w];
   end
@@ -289,12 +299,13 @@ module dcache
     .find_en(slot_granted), .find_pf({{NST{1'b0}}, slot_pf}), .find_line(slot_line),
     .req_valid({st_mreq, ld_mreq | pf_ok}), .req_pf({{NST{1'b0}}, slot_pf}),
     .req_nofill({{NST{1'b0}}, slot_pf_llc & slot_pf}),
-    .release_event(rel_event), .fr_pf(fr_pf), .req_line(slot_line),
+    .release_event(rel_event), .fr_pf(fr_pf), .req_line(slot_line), .req_pc_hash(mshr_slot_pch),
     .req_word(st_word), .req_data(slot_data), .req_strb(slot_strb), .req_l2(slot_l2),
     .fill_done(fill_done), .fill_id(fill_done_id),
     .free(mshr_free), .find_hit(mshr_find_hit),
     .fr_valid(fr_valid), .fr_id(fr_id), .fr_line(fr_line), .fr_dirty(fr_dirty), .fr_data(fr_data),
     .ax_req_valid(mshr_req_valid), .ax_req_line(mshr_ax_line), .ax_req_id(mshr_req_id),
+    .ax_req_pc_hash(mshr_req_pc_hash),
     .ax_resp_ready(mshr_resp_ready)
   );
   assign mshr_req_addr = {mshr_ax_line, {OFF_W{1'b0}}};

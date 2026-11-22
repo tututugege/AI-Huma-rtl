@@ -17,6 +17,7 @@ module axi_interconnect
   input  logic [3:0] m_rd_id [4],
   input  logic m_rd_bypass [4],
   input  logic m_rd_resp_ready [4],
+  input  logic [11:0] m_rd_dcache_pc_hash,
   input  logic m_wr_valid [2],
   input  logic [31:0] m_wr_addr [2],
   input  logic [511:0] m_wr_data [2],
@@ -102,6 +103,7 @@ module axi_interconnect
   output logic [3:0] li_rd_id [4],
   output logic li_rd_bypass [4],
   output logic li_rd_resp_ready [4],
+  output logic [11:0] li_rd_dcache_pc_hash,
   output logic li_wr_valid [2],
   output logic [31:0] li_wr_addr [2],
   output logic [511:0] li_wr_data [2],
@@ -202,17 +204,20 @@ module axi_interconnect
   );
 
   // ---------------- stage / dispatcher ----------------
+  logic [11:0] li_pch;
   axi_ic_stage u_stage (
     .clk, .rst_n, .phase0,
     .rd_acc, .rd_addr(rd_cap_addr), .rd_size(rd_cap_size), .rd_id(rd_cap_id), .rd_byp(rd_cap_byp),
+    .rd_dcache_pch(m_rd_dcache_pc_hash),
     .wr_acc, .wr_addr(m_wr_addr), .wr_size(m_wr_size), .wr_id(m_wr_id), .wr_byp(m_wr_bypass),
     .wr_data(m_wr_data), .wr_strb(m_wr_strb),
     .lo_rd_ready(lo_rd_req_ready), .lo_wr_ready(lo_wr_req_ready),
     .up_v, .up_addr, .up_id, .stg_rd_v, .stg_rd_id, .stg_rd_any, .stg_rd_addr, .stg_wr_v, .up_wr_any,
-    .li_addr, .li_size, .li_id, .li_byp, .li_wdata, .li_wstrb,
+    .li_addr, .li_size, .li_id, .li_byp, .li_pch, .li_wdata, .li_wstrb,
     .acc_o1_rd(acc_q_rd), .acc_o1_id(acc_id_q), .acc_o1_wr(acc_q_wr),
     .acc_new_rd(m_rd_acc_new), .acc_new_id(m_rd_acc_new_id), .acc_new_wr(m_wr_acc_new)
   );
+  assign li_rd_dcache_pc_hash = li_pch;
 
   // ---------------- DDR read side ----------------
   logic d_arlen_bit;

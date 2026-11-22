@@ -33,16 +33,28 @@ package axi_llc_pkg;
   localparam int VQD   = 32;              // read victim write-back queue depth (matches C++ 32; 16 MSHRs + BOP)
   localparam int VQW   = $clog2(VQD);
   localparam int NVL   = 1 + VQD + NW + NMSHR;  // victim-holder list: write-back slot, queue, write contexts, MSHRs
-  // EXP-048 LLC Best-Offset prefetcher (LLC_BOP=1)
-  localparam int BOP_Q         = 8;
-  localparam int BOP_RES       = 2;
-  localparam int BOP_INF       = 4;
-  localparam int BOP_OFFS      = 26;
-  localparam int BOP_RR_BITS   = 8;
-  localparam int BOP_RR_SZ     = 1 << BOP_RR_BITS;
-  localparam int BOP_ROUNDS    = 100;
-  localparam int BOP_SCORE_MAX = 31;
-  localparam int BOP_BAD       = 1;
+  // EXP-048 LLC Best-Offset prefetcher (LLC_BOP=1) + EXP-058 LLC Bingo 4KB
+  localparam int BOP_Q          = 8;
+  localparam int BOP_RES        = 2;
+  localparam int BOP_INF        = 8;
+  localparam int BOP_OFFS       = 26;
+  localparam int BOP_RR_BITS    = 8;
+  localparam int BOP_RR_SZ      = 1 << BOP_RR_BITS;
+  localparam int BOP_ROUNDS     = 100;
+  localparam int BOP_SCORE_MAX  = 31;
+  localparam int BOP_BAD        = 1;
+  localparam int BINGO_FT_N     = 32;
+  localparam int BINGO_AGT_N    = 32;
+  localparam int BINGO_PHTL_SETS = 256;
+  localparam int BINGO_PHTS_SETS = 128;
+  localparam int BINGO_PHT_WAYS = 4;
+  localparam int BINGO_CMTQ_N   = 4;
+  localparam int BINGO_Q        = 16;
+  localparam int BINGO_DEG      = 16;
+  localparam int BINGO_THR_DEG  = 2;
+  localparam int BINGO_MAXDENSE = 48;
+  localparam int BINGO_TWIN     = 256;
+  localparam int BINGO_TMIN     = 26;
   /* verilator lint_on UNUSEDPARAM */
 
   typedef logic [511:0] line_t;
