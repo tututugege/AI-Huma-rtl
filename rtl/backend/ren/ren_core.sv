@@ -33,7 +33,7 @@ module ren_core
 
   localparam int NR = 3 * N;
 
-  logic [N-1:0] inst_valid, alloc_req, alloc_valid, fire, rat_fire, br_fire;
+  logic [N-1:0] inst_valid, alloc_req, alloc_valid, fire, rat_cand, br_fire;
   logic [N-1:0] fp_alloc_req, fp_alloc_valid;   // F/D: slots that need / got an FP register (own free list)
   logic [N-1:0] req_all, valid_all;             // both domains, for the in-order stall chain
   logic [N-1:0] elim;             // move elimination: renamed away, takes no free register
@@ -97,7 +97,7 @@ module ren_core
                                                 inst[i].src1_en, inst[i].src1_is_pc, inst[i].src1_areg,
                                                 inst[i].dest_en, inst[i].dest_areg);
     assign alloc_req[i]     = inst_valid[i] & inst[i].dest_en & ~inst[i].dest_fp & ~elim[i];
-    assign rat_fire[i]      = fire[i] & inst[i].dest_en & ~inst[i].dest_fp;
+    assign rat_cand[i]      = inst_valid[i] & inst[i].dest_en & ~inst[i].dest_fp;
     assign br_fire[i]       = fire[i] & ((inst[i].inst_type == ITYPE_BR) | (inst[i].inst_type == ITYPE_JALR));
   end
   for (genvar i = 0; i < N - 1; i++) begin : g_older_view
@@ -219,7 +219,7 @@ module ren_core
 
   ren_rat u_rat (
     .clk(clk), .rst_n(rst_n), .rd_areg(rd_areg), .rd_preg(rd_preg),
-    .alloc_fire(rat_fire), .alloc_areg(dest_areg), .alloc_preg(dest_preg),
+    .alloc_cand(rat_cand), .fire(fire), .alloc_areg(dest_areg), .alloc_preg(dest_preg),
     .reclaim(reclaim), .commit_areg(c_dest_areg), .commit_preg(c_dest_preg),
     .flush(rob_flush), .mispred(dec_mispred), .ckpt_rat(ckpt_rat), .snapshot(snapshot),
     .spec_rat(spec_rat)

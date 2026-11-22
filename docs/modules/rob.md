@@ -3,8 +3,8 @@ module: rob
 area: backend
 rtl: rtl/backend/rob
 model: trace-model back-end/Rob.cpp、back-end/include/Rob.h（调度单元 `back.rob`，类 `Rob`，阶段 `comb_commit`；`comb_redirect` 在 RTL 里不属于 ROB，见第 7 节）
-status: 整核周期与模型逐个相等（EXP-053 前端清理：fm_gate 68/68 零偏差 + Linux 27 窗 PT/UP 全等，零环境变量）
-depth: 64 层 / 466,653 单元（rob，单模块综合，2026-11-21，`SYNTH_ABC="strash;balance;map"`，EXP-053 P2-2 槽位增加 1b `pf_inst_hi`，较 466,029 单元仅 +624 单元、深度不变，见 09-synthesis-report 第 14 节）
+status: 整核周期与模型逐个相等（EXP-054 窗口扩展 256/256：fm_gate 68/68 零偏差 + Linux 27 窗验证，零环境变量）
+depth: 64 层 / 897,972 单元（rob，单模块综合，2026-11-22，`SYNTH_ABC="strash;balance;map"`，`ROB_NUM=256 / PRF_NUM=256`，深度与 128 槽持平）
 ---
 
 # rob 设计文档
@@ -29,8 +29,8 @@ depth: 64 层 / 466,653 单元（rob，单模块综合，2026-11-21，`SYNTH_ABC
 
 | 项 | 值 | 常量 |
 | --- | --- | --- |
-| ROB 槽数 | 128 | `ROB_NUM` |
-| 存储组织 | 8 个 bank × 16 行；`rob_idx` 的低 3 位是 bank，高 4 位是行 | `ROB_BANK_NUM = 8`、`ROB_LINE_NUM = 16`、`ROB_IDX_WIDTH = 7` |
+| ROB 槽数 | 256 | `ROB_NUM` |
+| 存储组织 | 8 个 bank × 32 行；`rob_idx` 的低 3 位是 bank，高 5 位是行 | `ROB_BANK_NUM = 8`、`ROB_LINE_NUM = 32`、`ROB_IDX_WIDTH = 8` |
 | 入队宽度 | 8 | `DECODE_WIDTH` |
 | 退休宽度 | 8 | `COMMIT_WIDTH` |
 | 写回口 | 21（口号 0..20，口号见 isu.md） | `ISSUE_WIDTH` |

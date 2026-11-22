@@ -4,7 +4,7 @@ area: backend
 rtl: rtl/backend/ren
 model: trace-model back-end/Ren.cpp、back-end/include/Ren.h（调度单元 `back.rename`，类 `Ren`，阶段 `comb_rename`、`comb_fire`）
 status: 整核周期与模型逐个相等（fm_gate 68/68，0 周期偏差；`tests/ren_elim_sel/run.sh` 100k 随机 0 不一致）
-depth: 97 层（ren，单模块综合，2026-11-21，`SYNTH_ABC="strash;balance;map"`，475,533 cells）
+depth: 91 层（ren，单模块综合，2026-11-22，`SYNTH_ABC="strash;balance;map"`，`PRF_NUM=256 / ROB_NUM=256`，586,315 cells；较同配置未优化 100 层 −9 层，较 128/128 基线 97 层 −6 层）
 ---
 
 # ren 设计文档
@@ -29,8 +29,8 @@ depth: 97 层（ren，单模块综合，2026-11-21，`SYNTH_ABC="strash;balance;
 | lane 数 | 8 | `DECODE_WIDTH` |
 | 退休宽度 | 8 | `COMMIT_WIDTH` |
 | 整数架构寄存器 | 32 个，外加 1 个 AMO 暂存（RAT 共 33 项） | `ARF_NUM = 32`，`ren_pkg::RAT_NUM = ARF_NUM + 1` |
-| 整数物理寄存器 | 128（标号 0..127；初始空闲 128 - 33 = 95 个） | `PRF_NUM = 128` |
-| 浮点架构 / 物理寄存器 | 32 / 96（标号从 128 起；初始空闲 96 - 32 = 64 个） | `FP_ARF_NUM = 32`、`FPRF_NUM = 96`、`FP_TAG_BASE = 128` |
+| 整数物理寄存器 | 256（标号 0..255；初始空闲 256 - 33 = 223 个） | `PRF_NUM = 256` |
+| 浮点架构 / 物理寄存器 | 32 / 96（标号从 256 起；初始空闲 96 - 32 = 64 个；总编号宽 9 位） | `FP_ARF_NUM = 32`、`FPRF_NUM = 96`、`FP_TAG_BASE = 256`、`PRF_IDX_WIDTH = 9` |
 | 分支标签 | 32 个（标签 0 表示"不是分支"，不使用），每个标签一份恢复点 | `MAX_BR_NUM = 32`、`BR_TAG_WIDTH = 5` |
 | 移动消除 | 开；每个物理寄存器被架构 RAT 引用的次数上限 7 | `MOVE_ELIM = 1`、`MOVE_ELIM_MAX_REFS = 7`，计数宽度 `ren_pkg::CNT_W = 3` |
 
@@ -94,16 +94,16 @@ AMO 暂存寄存器：IDU 把"丢弃结果的读改写 AMO"的目的寄存器号
 1. **移动消除**（`ren_elim_sel`，对应模型 `elim_refs_ok`）：move 形状（`addi rd, rs, 0`，含 IDU 规范化后的 `c.mv` / `add rd, x0, rs2`，rd、rs 都不是 x0）分两种情形：
    - **组内 1-hop 生产链消除**：本组里比自己老的有效整数指令写了 `src1_areg` 时，取最近老写者 `j`；若 `j` 未被消除（分配全新物理寄存器，RAT 原引用数为 0）且 `(i - j) < MOVE_ELIM_MAX_REFS`（保证同组最多 `i - j + 1 <= MOVE_ELIM_MAX_REFS` 个引用，3-bit `arch_cnt` 永不溢出），则允许消除，目的物理寄存器直接取旁路后的 `src1_preg`；
    - **推测 RAT 消除**：无更老整数写者时，要求 `推测 RAT 中等于它源物理寄存器的项数 + 本组里比自己老且有目的寄存器的指令数 < MOVE_ELIM_MAX_REFS`。
-   RTL 将组内旁路链解析成关于单个 `refs_ok[root]` 的 1-bit 仿射函数（`is_const / const_val / inv / root_oh`），与 33 路 `spec_rat` `ttg_popcount` 完全并行，不引入串行链延迟。
-2. **分配**（`ren_alloc_sel`）：要整数寄存器的 lane（有效、有目的寄存器、不是浮点、没被消除）按序排队；第 k 个请求者拿窗口第 k 项，且要 `k < free_count` 才算拿到。浮点域同样（`ren_fp` 里再用一份 `ren_alloc_sel`）。
+   RTL 复用公共原语库（`ttg_first_set`、`ttg_onehot_to_idx`、`ttg_onehot_mux`、`ttg_popcount`）将 7 级组内旁路链改写为 3 级 Kogge-Stone 并行指针跳跃网络（`st_const / st_cval / st_inv / st_ptr`），与 33 路 `spec_rat` `ttg_popcount` 完全并行。
+2. **分配**（`ren_alloc_sel`）：要整数寄存器的 lane（有效、有目的寄存器、不是浮点、没被消除）按序排队；第 k 个请求者拿窗口第 k 项，且要 `k < free_count` 才算拿到（复用 `ttg_pick_k` 与 `ttg_onehot_mux`）。浮点域同样（`ren_fp` 里再用一份 `ren_alloc_sel`）。
 3. **按序卡住**（`ren_handshake`）：整数域和浮点域的请求合在一起，第一个请求却没拿到的 lane 起（含它）全部 `ren2dis_valid = 0`；没有目的寄存器的指令只受这个卡住的影响。
-4. **查表和旁路**：每个 lane 查 3 个读口（目的、src1、src2）；`ren_dep_check` 对比自己老的有效、有目的寄存器的 lane，同一个架构寄存器号就换成那个 lane 的目的物理寄存器（新分配的，被消除的 move 则是它旁路后的源），最近的老写者赢；x0 不会被写（译码器不给 x0 置 `dest_en`）。浮点域有 4 个读口（src1、src2、src3、旧目的），旁路在 `ren_fp_dep`，f0 是真寄存器。
+4. **查表和旁路**：每个 lane 查 3 个读口（目的、src1、src2）；`ren_dep_check` 采用两级无递推并行旁路（复用 `ttg_first_set`、`ttg_onehot_mux` 与 `ren_last_write`）：第一级利用 1-hop 消除不变式（被消除 move 的最近老写者必未被消除）直接从 `alloc_reg[0..i-1]` 与 `src1_normal[i]` 并行算出全部 `dest_of[0..7]`（打破 7 级假串行链），第二级再从 `dest_of` 并行旁路 `old_dest / src1 / src2`（`src1` 复用第一级 `ttg_first_set` 独热码）。浮点域有 4 个读口（src1、src2、src3、旧目的），旁路在 `ren_fp_dep`，f0 是真寄存器。
 5. 被消除的 move：`dest_preg = src1_preg`（旁路后的），不占空闲表。
 
 ### 5.2 握手与推进（寄存器次态）
 
 - `fire[i] = ren2dis_valid[i] & dis2ren_ready`；`ren2dec_ready = 所有有效 lane 都 fire & !冲刷 & !误预测`。
-- fire 的指令：推测 RAT 写目的寄存器（同一拍多个写者，最年轻的赢）；空闲表头 `head` 前进已分配的个数（`ttg_popcount`）；fire 的分支（`BR` 或 `JALR`；JAL 不占标签）把"本指令重命名之后"的 RAT 快照和空闲表头写进它的标签（`ren_rat` 的 `snapshot[i]` 是 lane 0..i 全部写完后的 RAT）。
+- `ren_rat` 的 `snapshot[0..7]` 按 `alloc_cand`（`inst_valid & dest_en & ~dest_fp`，不依赖 `fire`）预计算，分支检查点在 `fire[i]` 成立时直接锁存 `snapshot[i]`（前缀性保证 `0..i` 全部 fire），将 `ren_handshake` 移出 `ren_ckpt` 关键路径；正常次态 `spec_d` 与空闲表头 `head_next` 均通过 `ren_last_write` 按 `fire` 末位直接选通对应快照/表头。
 - 输入寄存器：冲刷或误预测清空；`ren2dec_ready` 时换成译码的新组；否则保留没 fire 的 lane。每拍从所有 lane 的 `br_mask` 去掉 `clear_mask`。
 
 ### 5.3 退休（commit）

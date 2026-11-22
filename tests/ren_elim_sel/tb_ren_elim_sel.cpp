@@ -57,11 +57,17 @@ int main() {
       dut.src1_areg[i] = src1_areg[i];
       dut.src1_rat[i]  = src1_rat[i];
     }
-    // Pack spec_rat (RAT_NUM * 8 bits = 264 bits -> VlWide<9>)
-    for (int w = 0; w < 9; w++) dut.spec_rat[w] = 0;
+    // Pack spec_rat (RAT_NUM * PW bits, where PW = PRF_IDX_WIDTH; handles crossing 32-bit word boundary)
+    constexpr int PW = 9;
+    constexpr int NWORDS = (RAT_NUM * PW + 31) / 32;
+    for (int w = 0; w < NWORDS; w++) dut.spec_rat[w] = 0;
     for (int e = 0; e < RAT_NUM; e++) {
-      int bit = e * 8;
-      dut.spec_rat[bit / 32] |= (static_cast<uint32_t>(spec_rat[e]) << (bit % 32));
+      int bit = e * PW;
+      int w = bit / 32;
+      int sh = bit % 32;
+      uint32_t v = static_cast<uint32_t>(spec_rat[e]);
+      dut.spec_rat[w] |= (v << sh);
+      if (sh + PW > 32) dut.spec_rat[w + 1] |= (v >> (32 - sh));
     }
     dut.eval();
 

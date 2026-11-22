@@ -17,8 +17,10 @@ module ren_rat
   // spec RAT reads (value before this cycle's writes)
   input  areg_t             rd_areg [NR],
   output preg_t             rd_preg [NR],
-  // spec RAT writes from rename-fire, slot order = program order
-  input  logic [N-1:0]      alloc_fire,
+  // spec RAT writes from rename, slot order = program order
+  // alloc_cand[j]: lane j is a valid domain writer (independent of fire); fire[j] is a prefix of valid lanes
+  input  logic [N-1:0]      alloc_cand,
+  input  logic [N-1:0]      fire,
   input  areg_t             alloc_areg [N],
   input  preg_t             alloc_preg [N],
   // arch RAT writes from commit
@@ -59,7 +61,8 @@ module ren_rat
     ttg_onehot_mux #(.N(ENTRIES), .W(PRF_IDX_WIDTH)) u_rd (.sel(sel), .data(spec_entry), .out(rd_preg[r]));
   end
 
-  // ---- spec RAT snapshots: per slot i and entry e, last writer among slots 0..i ----
+  // ---- spec RAT snapshots: per slot i and entry e, last valid writer among slots 0..i (fire-independent!) ----
+  // Branch checkpoint i only latches when fire[i] == 1, which guarantees all valid older slots 0..i fired.
   for (genvar i = 0; i < N; i++) begin : g_snap_slot
     for (genvar e = 0; e < ENTRIES; e++) begin : g_snap_entry
       logic [N-1:0] hit;
@@ -67,7 +70,7 @@ module ren_rat
       preg_t        hit_value;
       for (genvar j = 0; j < N; j++) begin : g_hit
         if (j <= i) begin : g_older
-          assign hit[j] = alloc_fire[j] & (alloc_areg[j] == areg_t'(e));
+          assign hit[j] = alloc_cand[j] & (alloc_areg[j] == areg_t'(e));
         end else begin : g_younger
           assign hit[j] = 1'b0;
         end
@@ -77,6 +80,14 @@ module ren_rat
       assign snapshot[i][e] = hit_any ? hit_value : spec_q[e];
     end
   end
+
+  // Normal next spec RAT: select snapshot of the last firing lane (or keep spec_q if no lane fires)
+  logic any_fire;
+  ent_t snap_last, spec_norm;
+  ren_last_write #(.N(N), .W(ENTRIES * PRF_IDX_WIDTH)) u_spec_next (
+    .hit(fire), .data(snapshot), .any(any_fire), .value(snap_last)
+  );
+  assign spec_norm = any_fire ? snap_last : spec_q;
 
   // ---- arch RAT: commit writes, later commit slot wins ----
   for (genvar e = 0; e < ENTRIES; e++) begin : g_arch
@@ -95,7 +106,7 @@ module ren_rat
   always_comb begin
     if (flush)         spec_d = arch_d;
     else if (mispred)  spec_d = ckpt_rat;
-    else               spec_d = snapshot[N-1];
+    else               spec_d = spec_norm;
   end
 
   always_ff @(posedge clk) begin

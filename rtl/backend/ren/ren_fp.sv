@@ -37,7 +37,7 @@ module ren_fp
   localparam int RW = FP_ARF_NUM * PRF_IDX_WIDTH;
   typedef logic [FP_ARF_NUM-1:0][PRF_IDX_WIDTH-1:0] ent_t;
 
-  logic [N-1:0] rat_fire, br_fire;
+  logic [N-1:0] br_fire;
   logic [N-2:0] producer;
   areg_t        dest_areg [N], look_areg [N][4];
   areg_t        rd_areg [NR];
@@ -58,7 +58,6 @@ module ren_fp
     assign dest_areg[i]        = inst[i].dest_areg;
     assign br_id[i]            = inst[i].br_id;
     assign alloc_req[i]        = inst_valid[i] & inst[i].dest_en & inst[i].dest_fp;
-    assign rat_fire[i]         = fire[i] & inst[i].dest_en & inst[i].dest_fp;
     assign br_fire[i]          = fire[i] & ((inst[i].inst_type == ITYPE_BR) | (inst[i].inst_type == ITYPE_JALR));
     assign look_areg[i][0]     = inst[i].src1_areg;
     assign look_areg[i][1]     = inst[i].src2_areg;
@@ -77,7 +76,7 @@ module ren_fp
 
   ren_rat #(.NR(NR), .ENTRIES(FP_ARF_NUM), .FP(1'b1)) u_rat (
     .clk(clk), .rst_n(rst_n), .rd_areg(rd_areg), .rd_preg(rd_preg),
-    .alloc_fire(rat_fire), .alloc_areg(dest_areg), .alloc_preg(alloc_reg),
+    .alloc_cand(alloc_req), .fire(fire), .alloc_areg(dest_areg), .alloc_preg(alloc_reg),
     .reclaim(reclaim), .commit_areg(c_dest_areg), .commit_preg(c_dest_preg),
     .flush(rob_flush), .mispred(dec_mispred), .ckpt_rat(ckpt_rat), .snapshot(snapshot), .spec_rat(spec_rat)
   );

@@ -8,6 +8,7 @@ verilator --cc --exe --build -j "$(nproc)" -Wno-fatal -Wno-lint -Wno-style \
   "$ROOT/rtl/common/ttg_cfg_pkg.sv" \
   "$ROOT/rtl/common/ttg_first_set.sv" \
   "$ROOT/rtl/common/ttg_onehot_mux.sv" \
+  "$ROOT/rtl/common/ttg_onehot_to_idx.sv" \
   "$ROOT/rtl/common/ttg_popcount.sv" \
   "$ROOT/rtl/backend/ren/ren_pkg.sv" \
   "$ROOT/rtl/backend/ren/ren_last_write.sv" \

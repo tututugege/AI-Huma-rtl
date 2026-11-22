@@ -16,8 +16,8 @@
 | [isu](modules/isu.md) | 14/2339 | 89 层 |
 | [lsu](modules/lsu.md) | 33/4886 | 101 层 |
 | [pre_idu_queue](modules/pre_idu_queue.md) | 8/742 | 38 层 |
-| [prf](modules/prf.md) | 8/839 | 27 层 |
-| [ren](modules/ren.md) | 18/1656 | 97 层 |
+| [prf](modules/prf.md) | 8/839 | 25 层 |
+| [ren](modules/ren.md) | 18/1720 | 91 层 |
 | [rob](modules/rob.md) | 6/1003 | 64 层 |
 | [tlb_mmu](modules/tlb_mmu.md) | 7/759 | 61 层 |
 
@@ -56,4 +56,4 @@
 | [pmu](modules/pmu.md) | 3/364 | 90 层 |
 | [soc_top](modules/soc_top.md) | 1/153 | 待测 |
 
-合计（各文档的目录有重叠时会重复计数）：286 个文件，38554 行。
+合计（各文档的目录有重叠时会重复计数）：286 个文件，38618 行。

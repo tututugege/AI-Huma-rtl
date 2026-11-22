@@ -34,7 +34,7 @@ module soc_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*;
   output logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_page_fault_load,
   output logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_page_fault_store,
   output logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_rob_flag,
-  output logic [6:0] rob_commit_commit_entry_uop_rob_idx [COMMIT_WIDTH],
+  output logic [ROB_IDX_WIDTH-1:0] rob_commit_commit_entry_uop_rob_idx [COMMIT_WIDTH],
   output logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_stq_flag,
   output logic [5:0] rob_commit_commit_entry_uop_stq_idx [COMMIT_WIDTH],
   output logic [4:0] rob_commit_commit_entry_uop_type [COMMIT_WIDTH],

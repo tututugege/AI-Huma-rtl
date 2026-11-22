@@ -4,7 +4,7 @@ area: backend
 rtl: rtl/backend/prf
 model: 当前 trace-model 里没有对应的调度单元：模型没有寄存器堆（操作数值是 trace 的事实），`Prf.cpp` 已不存在。唯一有对应的时序行为是 back-end/Exu/Exu.cpp 的 `Exu::load_wake` 和 `LoadWake` 写回寄存器（RTL 的 `prf_awake`）；FTQ pc 读口对应 `Exu::seq` 里的 `needs_ftq_pc`
 status: 整核周期与模型逐个相等（fm_gate 68/68，0 周期偏差）
-depth: 27 层（rtl/be-wake-byp-opt，395,785 单元，−41.8%；main 679,466 单元 / 27 层）（prf，单模块综合，2026-11-21，`SYNTH_ABC="strash;balance;map"`，生成门代理，见第 6 节）
+depth: 25 层 / 614,529 单元（EXP-054 `PRF_NUM=256 / ROB_NUM=256`，较 128 项 395,785 单元 / 27 层 深度降 2 层、仍低于瘦身前 128 项的 679,466 单元）（prf，单模块综合，2026-11-22，`SYNTH_ABC="strash;balance;map"`，生成门代理，见第 6 节）
 ---
 
 # prf 设计文档
@@ -25,8 +25,8 @@ depth: 27 层（rtl/be-wake-byp-opt，395,785 单元，−41.8%；main 679,466 �
 
 | 项 | 值（常量） |
 | --- | --- |
-| 整数物理寄存器 | `PRF_NUM = 128`，每个 `XLEN_BITS = 64` 位 |
-| 浮点物理寄存器 | `FPRF_NUM = 96`，每个 `FW = FLEN = 64` 位；浮点寄存器的编号从 `FP_TAG_BASE = 128` 起，和整数寄存器共用一个编号空间 `TAG_NUM = 224`，编号宽 `PRF_IDX_WIDTH = 8` |
+| 整数物理寄存器 | `PRF_NUM = 256`，每个 `XLEN_BITS = 64` 位 |
+| 浮点物理寄存器 | `FPRF_NUM = 96`，每个 `FW = FLEN = 64` 位；浮点寄存器的编号从 `FP_TAG_BASE = 256` 起，和整数寄存器共用一个编号空间 `TAG_NUM = 352`，编号宽 `PRF_IDX_WIDTH = 9` |
 | 写回通道数 | `WB_LANES = 13`（`ttg_cfg_pkg`，由模型 `config.h` 的 `WB_*` 生成）：通道 `WB_ALU_BASE = 0`..5 是 ALU 口 0..5，`WB_LD_BASE = 6`..9 是 4 路 load 写回（含 SC），`WB_FP_BASE = 10`..12 是浮点口 18..20。STA / STD / BR 口不写寄存器，没有通道。整数寄存器堆 13 个写口；浮点寄存器堆 6 个（见 5.1） |
 | 发射通道数（读侧） | `NIP = ISSUE_WIDTH = 21`：每个发射口 2 个整数读口 |
 | 整数读口 | 仅按发射口实际需要生成 **27 个**（ALU 6×2 + 物理 AGU 5×1 + STD 3×2 + BR 2×2；LD/STA 不用 `src2`，共用 STA 11、12 借用 LD 8、9 的 `src1`，FP 口 18..20 不读整数） |

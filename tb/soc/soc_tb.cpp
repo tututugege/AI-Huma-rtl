@@ -256,7 +256,9 @@ int main(int argc, char **argv) {
       const tb_xlen_t val = c.rd ? top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__u_prf__DOT__u_regfile__DOT__reg_file_q[c.preg] : 0u;
       uint64_t fval = 0;
 #ifdef SOC_FP
-      if (c.fp) fval = top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__u_prf__DOT__g_fp__DOT__u_fp__DOT__reg_file_q[c.fpreg - 128];   // FP_TAG_BASE
+      const unsigned fp_tag_base = sizeof(top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__u_prf__DOT__u_regfile__DOT__reg_file_q)
+                                 / sizeof(top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__u_prf__DOT__u_regfile__DOT__reg_file_q[0]);
+      if (c.fp) fval = top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__u_prf__DOT__g_fp__DOT__u_fp__DOT__reg_file_q[c.fpreg - fp_tag_base];   // FP_TAG_BASE
 #endif
       if (!fm.commit(cyc, c.pc, c.rd, val, c.fp, c.frd, fval, c.pf, &c.st)) {
         auto &R = *top->rootp; const auto &g = R.soc_top__DOT__u_core__DOT__u_back__DOT__u_csr__DOT__regs;
