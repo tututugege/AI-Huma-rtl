@@ -185,7 +185,7 @@ package exu_ctrl_pkg;
 
   function automatic int xc_mc_rank(int f);
     int n = 0;
-    for (int g = 0; g < f; g++) n += int'(xc_is_mc_kind(xc_fu_kind(g)));
+    for (int g = 0; g < f; g++) if (xc_is_mc_kind(xc_fu_kind(g))) n = n + 1;
     return n;
   endfunction
 
@@ -201,25 +201,25 @@ package exu_ctrl_pkg;
   endfunction
 
   // F/D units: indexed in fu_idx order like the multi-cycle ones (they have their own flat port group)
-  function automatic bit xc_is_fp_kind(int k);
-    return FP_EN && (k == XC_K_FMA || k == XC_K_FDIV || k == XC_K_FMISC || k == XC_K_I2F);
+  function automatic int xc_is_fp_kind(int k);
+    return ((FP_EN != 0) && (k == XC_K_FMA || k == XC_K_FDIV || k == XC_K_FMISC || k == XC_K_I2F)) ? 1 : 0;
   endfunction
 
   function automatic int xc_fp_count();
     int n = 0;
-    for (int f = 0; f < xc_fu_total(); f++) n += int'(xc_is_fp_kind(xc_fu_kind(f)));
+    for (int f = 0; f < xc_fu_total(); f++) if (xc_is_fp_kind(xc_fu_kind(f)) != 0) n = n + 1;
     return n;
   endfunction
 
   function automatic int xc_fp_rank(int f);
     int n = 0;
-    for (int g = 0; g < f; g++) n += int'(xc_is_fp_kind(xc_fu_kind(g)));
+    for (int g = 0; g < f; g++) if (xc_is_fp_kind(xc_fu_kind(g)) != 0) n = n + 1;
     return n;
   endfunction
 
   function automatic int xc_fp_fu(int r);
     int fu = 0;
-    for (int f = 0; f < xc_fu_total(); f++) if (xc_is_fp_kind(xc_fu_kind(f)) && xc_fp_rank(f) == r) fu = f;
+    for (int f = 0; f < xc_fu_total(); f++) if ((xc_is_fp_kind(xc_fu_kind(f)) != 0) && xc_fp_rank(f) == r) fu = f;
     return fu;
   endfunction
 

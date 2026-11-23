@@ -9,7 +9,8 @@ module bpu_ftb_tab import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
   parameter bit ALLOC_ONLY_TAKEN = 1'b0,
   parameter bit AHEAD_MODE       = 1'b0,
   parameter bit HAS_CLR          = 1'b0,
-  parameter bit HAS_RD2          = 1'b0
+  parameter bit HAS_RD2          = 1'b0,
+  parameter bit STORE_B_BASE     = 1'b0
 ) (
   input  logic                    clk,
   input  logic                    rst_n,
@@ -18,6 +19,7 @@ module bpu_ftb_tab import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
   output logic                    rd_hit,
   output ftb_ent_t                rd_ent,
   output ftb_ent_t [WAYS-1:0]     rd_ways,
+  output logic [WAYS-1:0][XLEN_BITS-1:0] rd_b_base,
   // Optional lookup read port 1 (Block B for ftb0 / ftb1 when HAS_RD2=1)
   input  logic [XLEN_BITS-1:0]    rd2_base,
   output logic                    rd2_hit,
@@ -26,6 +28,7 @@ module bpu_ftb_tab import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
   input  logic                    upd_en,
   input  logic [XLEN_BITS-1:0]    upd_base,
   input  logic [XLEN_BITS-1:0]    upd_key_base,
+  input  logic [XLEN_BITS-1:0]    upd_b_base,
   input  ftb_br_upd_t             upd_br,
   output logic                    upd_slot_valid,
   output logic [FTB_SLOT_W-1:0]   upd_slot_idx,
@@ -74,6 +77,43 @@ module bpu_ftb_tab import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
   ) u_mem (
     .clk, .rst_n, .rd_addr, .rd_data, .wr_en, .wr_addr, .wr_data
   );
+
+  // Optional parallel b_base array for 2-Ahead B (STORE_B_BASE=1)
+  typedef logic [WAYS-1:0][XLEN_BITS-1:0] bbase_set_t;
+  bbase_set_t bbase_rd_upd;
+  if (STORE_B_BASE) begin : g_bbase
+    logic [SET_W-1:0] bb_ra [2];
+    bbase_set_t       bb_rd [2];
+    logic             bb_we [1];
+    logic [SET_W-1:0] bb_wa [1];
+    bbase_set_t       bb_wd [1];
+    assign bb_ra[0]     = rd_set0;
+    assign bb_ra[1]     = upd_set;
+    assign rd_b_base    = bb_rd[0];
+    assign bbase_rd_upd = bb_rd[1];
+    assign bb_we[0]     = do_upd;
+    assign bb_wa[0]     = upd_set;
+    always_comb begin
+      bb_wd[0]        = bb_rd[1];
+      bb_wd[0][sel_w] = upd_b_base;
+    end
+    bpu_mem #(
+      .W     ($bits(bbase_set_t)),
+      .DEPTH (SETS),
+      .N_RD  (2),
+      .N_WR  (1),
+      .T     (bbase_set_t)
+    ) u_bbase (
+      .clk, .rst_n, .rd_addr(bb_ra), .rd_data(bb_rd), .wr_en(bb_we), .wr_addr(bb_wa), .wr_data(bb_wd)
+    );
+  end else begin : g_nobbase
+    assign rd_b_base    = '0;
+    assign bbase_rd_upd = '0;
+    /* verilator lint_off UNUSEDSIGNAL */
+    logic unused_bb;
+    assign unused_bb = ^{upd_b_base, bbase_rd_upd};
+    /* verilator lint_on UNUSEDSIGNAL */
+  end
 
   // ---- Lookup read ----
   logic [SET_W-1:0]         rd_set0;
@@ -168,13 +208,13 @@ module bpu_ftb_tab import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
 
     do_upd = upd_en && tgt_ok && (hit_found || !(ALLOC_ONLY_TAKEN && !upd_br.actual_dir));
     sel_w  = hit_found ? hit_w : (inv_found ? inv_w : lru_w);
-    if (hit_found) begin
+    if (hit_found && (!STORE_B_BASE || (bbase_rd_upd[hit_w] == upd_b_base))) begin
       cur_ent = rd_data[1][hit_w];
     end else begin
       cur_ent       = '0;
       cur_ent.valid = 1'b1;
       cur_ent.tag   = upd_tag;
-      cur_ent.lru   = 3'(WAYS - 1);
+      cur_ent.lru   = hit_found ? rd_data[1][hit_w].lru : 3'(WAYS - 1);
     end
     up_res = ftb_upsert_branch(cur_ent, upd_br);
   end

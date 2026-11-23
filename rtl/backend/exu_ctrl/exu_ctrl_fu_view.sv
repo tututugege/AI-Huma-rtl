@@ -16,7 +16,7 @@ module exu_ctrl_fu_view
 );
 
   for (genvar f = 0; f < N_FU; f++) begin : g_fu
-    localparam bit IS_FP = xc_is_fp_kind(xc_fu_kind(f));
+    localparam bit IS_FP = (xc_is_fp_kind(xc_fu_kind(f)) != 0);
     localparam bit MULTI_CYCLE = xc_is_mc_kind(xc_fu_kind(f)) || IS_FP;
     localparam xc_op_t MC_OP = IS_FP ? xc_op_t'(xc_fp_op(xc_fu_kind(f))) : xc_op_t'(xc_mc_op(xc_fu_kind(f)));
     xc_done_t done;

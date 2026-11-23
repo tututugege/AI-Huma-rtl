@@ -187,6 +187,7 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 
 ## 10. 变更记录
 
+- 2026-11-24（`rtl/timing-opt2`，EXP-063，0 周期变化）：将 `exu_ctrl_pkg.sv` 中 `xc_is_fp_kind` 返回类型由 `bit` 改为 `int`（返回 `1 : 0`），并同步调整 `exu_ctrl_fu_view` / `exu_ctrl_ready` / `exu_ctrl_fu_in` 3 处调用与 `localparam` 计数循环，消除 Synopsys DC Presto 内部断言 `(VER-37)`；TSMC 28nm HPC+ DC 实测 **WNS = 0.00 ns（MET ≥2.00 GHz）**、13 级、`31,761 um²`；通过 `lint_chip` 0、`fm_gate` 69/69。
 - 2026-11-21（`rtl/fe-2fetch-2taken`，EXP-051 里程碑 B）：`exu_ctrl_pkg`（`xc_inst_t` / `xc_done_t`）、`exu_ctrl_fu_view`、`exu_ctrl_br_arb`、`exu_ctrl` 透传 4 位 `ftq_offset`（`prf2exe_iss_entry_uop_ftq_offset` → `exu2id_ftq_offset`），供后端误预测精确索引双块 FTQ（避免同 PC 在 Block A/B 重复时的歧义）；通过 `lint_chip` 0、`fm_gate` 68/68（0 周期偏差）与 Linux 27 窗对齐。
 - 2026-11-19（`exp/wb-presel`，EXP-046）：`exu_ctrl_wb_prf` 输出按通道编号的写回总线（`WB_LANES = 13`：ALU 6、load 4、浮点口 3），不再按发射口输出 21 路；STA 写回不再进写回总线（`sta_wb` 只给 `exu_ctrl_wb_rob`）。周期不变。
 - 2026-11-18（exp/agu-share，`261bd67..HEAD`）：

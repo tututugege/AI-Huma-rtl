@@ -119,6 +119,7 @@ package bpu_types_pkg;
     logic                    ah_v;
     logic                    ah_kind; // 0 = 1-ahead A (aftb), 1 = 2-ahead B (aftb2)
     logic [XLEN_BITS-1:0]    ah_key_base;
+    logic [XLEN_BITS-1:0]    ah_a_base;
     fh_t                     ah_key_fh;
   } ftb_rec_t;
 
@@ -132,9 +133,10 @@ package bpu_types_pkg;
   } bpu_rf_rec_t;
 
   typedef struct packed {
-    ftb_ent_t [FTB_AH_WAYS-1:0] ftb_ways;
-    ftb_tage_raw_t              tage_raw;
-    ftb_itt_raw_t               itt_raw;
+    ftb_ent_t [FTB_AH_WAYS-1:0]             ftb_ways;
+    logic [FTB_AH_WAYS-1:0][XLEN_BITS-1:0]  b_base;
+    ftb_tage_raw_t                          tage_raw;
+    ftb_itt_raw_t                           itt_raw;
   } ftb_ah_raw_t;
 
   typedef struct packed {

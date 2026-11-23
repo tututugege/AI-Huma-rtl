@@ -55,8 +55,9 @@ module bpu_eval import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
   output logic [FTB_BLK_ID_W-1:0] out_blk_id
 );
 
-  // ---- S0 Block A: 1-ahead select + uFTB fallback ----
+  // ---- S0 Block A: 1-ahead select + uFTB fallback (parallel onehot way select) ----
   logic [FTB_AH_TAG_W-1:0] ah_sel_tag;
+  logic [FTB_AH_WAYS-1:0]  ah_w_match, ah_w_oh;
   ftb_ent_t                ah_ent;
   ftb_ix_t                 ah_sel_ix;
   logic [FTB_SLOTS-1:0]    ah_dirs;
@@ -67,17 +68,15 @@ module bpu_eval import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
   always_comb begin
     ah_src_v   = !refetch && ah_pipe0.valid;
     ah_sel_tag = ftb_ah_tag(ah_pipe0.key_base, s0_base, $clog2(FTB_AH_SETS));
-    ah_hit     = 1'b0;
-    ah_ent     = '0;
-    if (ah_src_v) begin
-      for (int w = 0; w < FTB_AH_WAYS; w++) begin
-        if (!ah_hit && ah_pipe0.raw.ftb_ways[w].valid &&
-            (ah_pipe0.raw.ftb_ways[w].tag == FTB_MAX_TAG_W'(ah_sel_tag))) begin
-          ah_hit = 1'b1;
-          ah_ent = ah_pipe0.raw.ftb_ways[w];
-        end
-      end
+    for (int w = 0; w < FTB_AH_WAYS; w++) begin
+      ah_w_match[w] = ah_src_v && ah_pipe0.raw.ftb_ways[w].valid &&
+                      (ah_pipe0.raw.ftb_ways[w].tag == FTB_MAX_TAG_W'(ah_sel_tag));
     end
+  end
+  ttg_first_set #(.N(FTB_AH_WAYS)) u_ah_fs (.req(ah_w_match), .onehot(ah_w_oh), .any(ah_hit));
+  always_comb begin
+    ah_ent = '0;
+    for (int w = 0; w < FTB_AH_WAYS; w++) if (ah_w_oh[w]) ah_ent = ah_ent | ah_pipe0.raw.ftb_ways[w];
     ah_sel_ix = ftb_make_ah_index(ah_pipe0.key_base, s0_base, ah_pipe0.key_fh);
     for (int k = 0; k < FTB_SLOTS; k++) begin
       ah_tp[k]   = ftb_tage_select(ah_sel_ix, ah_pipe0.raw.tage_raw[k],
@@ -92,12 +91,14 @@ module bpu_eval import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
     g0      = ah_hit ? ah_eval.pred : u0_eval.pred;
   end
 
-  // ---- S0 Block B: 2-ahead B select + uFTB fallback + strict NT=1 + 4-bank ic_pair_ok ----
-  logic                    a_upper_ok, disc_ok, b_cand_ok, b_truncated, ah2_hit;
+  // ---- S0 Block B: Parallel 2-ahead B (keyed by s0_base, verified against s0_b_base at end) ----
+  logic                    a_upper_ok, disc_ok, b_cand_ok, b_truncated, ah2_hit_raw, ah2_hit;
   logic [4:0]              s0_a_len5, s0_b_len5, s0_a_nslots;
   logic [5:0]              b_line_bytes, b_cap_bytes, b_eff_bytes;
-  logic [XLEN_BITS-1:0]    a_br_pc;
+  logic [6:0]              b_low_sum;
+  logic [XLEN_BITS-1:0]    a_br_pc, ah2_b_base;
   logic [FTB_AH_TAG_W-1:0] ah2_sel_tag;
+  logic [FTB_AH2_WAYS-1:0] ah2_w_match, ah2_w_oh;
   ftb_ent_t                ah2_ent;
   ftb_ix_t                 ah2_sel_ix;
   logic [FTB_SLOTS-1:0]    ah2_dirs;
@@ -119,7 +120,10 @@ module bpu_eval import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
     b_cap_bytes  = {5'(FETCH_WIDTH) - s0_a_len5, 1'b0};
     b_eff_bytes  = (b_line_bytes < b_cap_bytes) ? b_line_bytes : b_cap_bytes;
     b_truncated  = (b_line_bytes > b_cap_bytes);
-    s0_b_bnd     = s0_b_base + XLEN_BITS'(b_eff_bytes);
+    // Fast 6-bit low sum + upper increment (b_eff_bytes <= 64 - s0_b_base[5:0])
+    b_low_sum    = {1'b0, s0_b_base[5:0]} + {1'b0, b_eff_bytes};
+    s0_b_bnd     = {b_low_sum[6] ? (s0_b_base[XLEN_BITS-1:6] + (XLEN_BITS-6)'(1)) : s0_b_base[XLEN_BITS-1:6],
+                    b_low_sum[5:0]};
     s0_b_len5    = b_eff_bytes[5:1];
     b_cand_ok    = g0.taken && (s0_a_len5 >= 5'd1) && (s0_a_len5 < 5'(FETCH_WIDTH)) &&
                    a_upper_ok && disc_ok && ic_pair_ok(s0_base, s0_b_base) && (s0_b_len5 >= 5'd2);
@@ -127,31 +131,45 @@ module bpu_eval import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
     s0_b_len     = s0_b_len5[3:0];
   end
 
+  // Parallel with Block A (starts at t=0 from s0_base, not s0_b_base!)
   always_comb begin
-    ah2_sel_tag = ftb_ah_tag(ah_pipe0.key_base, s0_b_base, $clog2(FTB_AH2_SETS));
-    ah2_hit     = 1'b0;
-    ah2_ent     = '0;
-    if (ah_src_v) begin
-      for (int w = 0; w < FTB_AH2_WAYS; w++) begin
-        if (!ah2_hit && ah2_pipe0.ftb_ways[w].valid &&
-            (ah2_pipe0.ftb_ways[w].tag == FTB_MAX_TAG_W'(ah2_sel_tag))) begin
-          ah2_hit = 1'b1;
-          ah2_ent = ah2_pipe0.ftb_ways[w];
-        end
+    ah2_sel_tag = ftb_ah_tag(ah_pipe0.key_base, s0_base, $clog2(FTB_AH2_SETS));
+    for (int w = 0; w < FTB_AH2_WAYS; w++) begin
+      ah2_w_match[w] = ah_src_v && ah2_pipe0.ftb_ways[w].valid &&
+                       (ah2_pipe0.ftb_ways[w].tag == FTB_MAX_TAG_W'(ah2_sel_tag));
+    end
+  end
+  ttg_first_set #(.N(FTB_AH2_WAYS)) u_ah2_fs (.req(ah2_w_match), .onehot(ah2_w_oh), .any(ah2_hit_raw));
+  always_comb begin
+    ah2_ent    = '0;
+    ah2_b_base = '0;
+    for (int w = 0; w < FTB_AH2_WAYS; w++) begin
+      if (ah2_w_oh[w]) begin
+        ah2_ent    = ah2_ent    | ah2_pipe0.ftb_ways[w];
+        ah2_b_base = ah2_b_base | ah2_pipe0.b_base[w];
       end
     end
-    ah2_sel_ix = ftb_make_ah_index(ah_pipe0.key_base, s0_b_base, ah_pipe0.key_fh);
+    ah2_sel_ix = ftb_make_ah_index(ah_pipe0.key_base, s0_base, ah_pipe0.key_fh);
     for (int k = 0; k < FTB_SLOTS; k++) begin
       ah2_tp[k]   = ftb_tage_select(ah2_sel_ix, ah2_pipe0.tage_raw[k],
                                     ah2_ent.s[k].valid, ah2_ent.s[k].ctr, ah2_prefer_alt);
       ah2_dirs[k] = ah2_tp[k].pred;
     end
     ah2_itt   = ftb_itt_select(ah2_sel_ix, ah2_pipe0.itt_raw);
-    ah2_eval  = ftb_eval_ent(s0_b_base, s0_b_bnd, ah2_ent, ah2_hit, 1'b1, ah2_dirs, ah2_itt.hit, ah2_itt.target,
-                             spec_a_ras_nonempty, spec_a_ras_top);
-    u0_b_eval = ftb_eval_ent(s0_b_base, s0_b_bnd, ftb0_b_ent, ftb0_b_hit, 1'b0, '0, 1'b0, '0,
-                             spec_a_ras_nonempty, spec_a_ras_top);
-    g0_b      = ah2_hit ? ah2_eval.pred : u0_b_eval.pred;
+    // Evaluate ah2_eval 100% in parallel with Block A using ah2_b_base + block_bnd(ah2_b_base) (zero wait on g0.next!)
+    ah2_eval  = ftb_eval_ent(ah2_b_base, block_bnd(ah2_b_base), ah2_ent, ah2_hit_raw, 1'b1, ah2_dirs,
+                             ah2_itt.hit, ah2_itt.target, spec_a_ras_nonempty, spec_a_ras_top);
+    ah2_hit   = ah2_hit_raw && (ah2_b_base == s0_b_base);
+    u0_b_eval = '0;
+    // AH2_PAR=2: no serial u0_b fallback; if ah2 misses, Block B falls through to s0_b_bnd (not taken)
+    g0_b      = ah2_hit ? ah2_eval.pred : '{hit: 1'b0, taken: 1'b0, slot: '0, ty: BR_NONCTL, rvc: 1'b0,
+                                            carried: 1'b0, next: s0_b_bnd, hbits: '0, ras_op: 2'd0, ras_val: '0};
+    if (ah2_hit && b_truncated && (!ah2_eval.pred.taken || ({1'b0, ah2_eval.pred.slot} >= s0_b_len5))) begin
+      g0_b.taken  = 1'b0;
+      g0_b.next   = s0_b_bnd;
+      g0_b.hbits  = '0;
+      g0_b.ras_op = 2'd0;
+    end
     s0_paired = b_cand_ok && (!b_truncated || g0_b.taken);
     s0_b_ix   = ftb_make_index(s0_b_base, spec_a_fh);
     ah_rd_base = s0_paired ? s0_b_base : s0_base;
@@ -237,7 +255,7 @@ module bpu_eval import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
   /* verilator lint_off UNUSEDSIGNAL */
   logic unused_eval;
   assign unused_eval = ^{r0_q, r1_q, r1_ix_q, r1_ix_b_q, s1_raw, ah_eval.slot_tk, u0_eval.slot_tk,
-                         ah2_eval.slot_tk, u0_b_eval.slot_tk, s1_eval.slot_tk,
+                         ah2_eval.slot_tk, u0_b_eval, s1_eval.slot_tk, ftb0_b_hit, ftb0_b_ent,
                          ah_tp[0].alt, ah_tp[0].pcpn, ah_tp[0].used_alt,
                          ah2_tp[0].alt, ah2_tp[0].pcpn, ah2_tp[0].used_alt,
                          s2_tp[0].used_alt, s2_b_tp[0].used_alt};

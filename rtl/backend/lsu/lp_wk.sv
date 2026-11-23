@@ -26,25 +26,37 @@ module lp_wk
 );
 
   logic          b_sta, b_ret, b_sc, b_data, alive_b;
-  /* verilator lint_off UNUSEDSIGNAL */
-  lp_sta_info_t  inf;
-  /* verilator lint_on UNUSEDSIGNAL */
-  lp_conf_t      conf;
-  logic [lsu_pkg::OW-1:0] off_a;
-  logic [XLEN_BITS-1:0]   std_d;
+  logic [NST-1:0] sta_m;
+  lp_conf_t      conf_k [NST], conf_0, conf;
+  logic [lsu_pkg::OW-1:0] off_k [NST], off_a;
+  logic [XLEN_BITS-1:0]   inf_data, std_d;
   always_comb begin
     b_sta = ev_sta[blk];
     b_ret = ev_ret[blk];
     b_sc = ev_sc[blk];
     b_data = ev_data[blk];
     alive_b = alive_post[blk] && !b_ret;
-    inf = '0;
+    // Compute stlf_confirm & off_a for all NST sta_info lanes in parallel with sta_info[k].stq == blk
+    conf_0 = stlf_confirm(l_voff, l_paddr, l_func3, alive_b, 1'b0, 1'b0, 12'd0, 1'b0, 32'd0, 3'd0, 1'b0, 1'b0);
+    for (int k = 0; k < NST; k++) begin
+      sta_m[k] = sta_info[k].v && (sta_info[k].stq == blk);
+      conf_k[k] = stlf_confirm(l_voff, l_paddr, l_func3, alive_b, sta_info[k].suppress, sta_info[k].va_v,
+                               sta_info[k].voff, sta_info[k].pa_v, sta_info[k].paddr, sta_info[k].func3,
+                               sta_info[k].data_v, sta_info[k].hold_sc);
+      off_k[k]  = l_paddr[lsu_pkg::OW-1:0] - sta_info[k].paddr[lsu_pkg::OW-1:0];
+    end
+    conf     = conf_0;
+    off_a    = l_paddr[lsu_pkg::OW-1:0];
+    inf_data = '0;
+    for (int k = 0; k < NST; k++) begin
+      if (sta_m[k]) begin
+        conf     = conf_k[k];
+        off_a    = off_k[k];
+        inf_data = sta_info[k].data;
+      end
+    end
     std_d = '0;
-    for (int k = 0; k < NST; k++) if (sta_info[k].v && sta_info[k].stq == blk) inf = sta_info[k];
     for (int k = 0; k < NSD; k++) if (sdw[k].v && sdw[k].stq == blk) std_d = sdw[k].data;
-    conf = stlf_confirm(l_voff, l_paddr, l_func3, alive_b, inf.suppress, inf.va_v, inf.voff, inf.pa_v, inf.paddr,
-                        inf.func3, inf.data_v, inf.hold_sc);
-    off_a = l_paddr[lsu_pkg::OW-1:0] - inf.paddr[lsu_pkg::OW-1:0];
   end
 
   always_comb begin
@@ -67,7 +79,7 @@ module lp_wk
             CF_FWD: begin
               o.wbp = 1'b1;
               o.res_set = 1'b1;
-              o.res = lsu_pkg::extract_data(inf.data, off_a, l_func3);
+              o.res = lsu_pkg::extract_data(inf_data, off_a, l_func3);
             end
             default: ;
           endcase

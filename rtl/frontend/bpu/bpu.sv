@@ -146,7 +146,7 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
 
   // ---- Commit branch queue + ftb_rec (1R2W, BRQ_W=1) ----
   logic                    upd_en, upd_ah_v, upd_ah_kind;
-  logic [XLEN_BITS-1:0]    upd_start, upd_ah_key_base, upd_pc;
+  logic [XLEN_BITS-1:0]    upd_start, upd_ah_key_base, upd_ah_a_base, upd_pc;
   fh_t                     upd_fh, upd_ah_key_fh;
   ftb_br_upd_t             upd_br;
   ftb_ix_t                 upd_ix, upd_ah_ix;
@@ -154,14 +154,14 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
 
   always_comb begin
     upd_ix    = ftb_make_index(upd_start, upd_fh);
-    upd_ah_ix = ftb_make_ah_index(upd_ah_key_base, upd_start, upd_ah_key_fh);
+    upd_ah_ix = ftb_make_ah_index(upd_ah_key_base, upd_ah_kind ? upd_ah_a_base : upd_start, upd_ah_key_fh);
     rec_wr_data = '{
       valid: 1'b1, id: blk_seq_q, base: r1_q.base, fh: r1_q.ck.h.fh,
-      ah_v: r1_q.ah_v, ah_kind: 1'b0, ah_key_base: r1_q.ah_key_base, ah_key_fh: r1_q.ah_key_fh
+      ah_v: r1_q.ah_v, ah_kind: 1'b0, ah_key_base: r1_q.ah_key_base, ah_a_base: '0, ah_key_fh: r1_q.ah_key_fh
     };
     rec_wr_b_data = '{
       valid: 1'b1, id: seq1, base: r1_q.base_b, fh: r1_q.ck_b.h.fh,
-      ah_v: r1_q.ah_v_b, ah_kind: 1'b1, ah_key_base: r1_q.ah_key_base_b, ah_key_fh: r1_q.ah_key_fh_b
+      ah_v: r1_q.ah_v_b, ah_kind: 1'b1, ah_key_base: r1_q.ah_key_base_b, ah_a_base: r1_q.base, ah_key_fh: r1_q.ah_key_fh_b
     };
   end
 
@@ -171,7 +171,7 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
     .rec_wr_b_en(d_pair), .rec_wr_b_addr(seq1[FTB_REC_W-1:0]), .rec_wr_b_data,
     .upd_valid, .base_pc, .actual_dir, .upd_is_rvc, .br_type, .target, .pred_dir, .alt_pred, .pcpn,
     .blk_id,
-    .upd_en, .upd_start, .upd_fh, .upd_ah_v, .upd_ah_kind, .upd_ah_key_base, .upd_ah_key_fh, .upd_br, .upd_pc,
+    .upd_en, .upd_start, .upd_fh, .upd_ah_v, .upd_ah_kind, .upd_ah_key_base, .upd_ah_a_base, .upd_ah_key_fh, .upd_br, .upd_pc,
     .commit_upd_free, .commit_tq_free
   );
 
@@ -191,7 +191,7 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
     .ah_rd_raw, .ah2_rd_raw, .ah_prefer_alt, .ah2_prefer_alt,
     .s1_base(r0_q.base), .s1_ix(r0_ix_q), .s1_b_base(r0_q.base_b), .s1_b_ix(r0_ix_b_q),
     .s1_raw, .s1_b_raw, .s2_prefer_alt,
-    .upd_en, .upd_start, .upd_ix, .upd_ah_v, .upd_ah_kind, .upd_ah_key_base, .upd_ah_ix, .upd_br,
+    .upd_en, .upd_start, .upd_ix, .upd_ah_v, .upd_ah_kind, .upd_ah_key_base, .upd_ah_a_base, .upd_ah_ix, .upd_br,
     .clr_en(pd_valid && pd_nb_valid && pdq_have), .clr_base(clr_base_eff), .clr_pc(pd_nb_pc)
   );
 

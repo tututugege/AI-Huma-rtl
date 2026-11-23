@@ -60,7 +60,7 @@ module exu_ctrl_fu_in
         res.br_mask     = fu_mc_br_mask[xc_mc_rank(f)];
         res.rob_idx     = fu_mc_rob_idx[xc_mc_rank(f)];
       end
-      if (xc_is_fp_kind(KIND)) begin
+      if (xc_is_fp_kind(KIND) != 0) begin
         res.mc_ready    = fu_fp_ready[xc_fp_rank(f)];
         res.mc_complete = fu_fp_complete[xc_fp_rank(f)];
         res.result      = fu_fp_result[xc_fp_rank(f)];

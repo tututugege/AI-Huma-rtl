@@ -131,5 +131,9 @@ depth: 197 层 / 410,093 单元（Yosys 整块 `bpu`）；**TSMC 28nm HPC+ DC `s
 
 ## 10. 变更记录
 
+- 2026-11-24（`rtl/timing-opt2`，EXP-063 第二轮 28nm DC 时序优化）：
+  - **2-Ahead B 与 Block A 真并行**（`bpu_types_pkg` / `bpu_ftb_tab` / `bpu_ftb_arrays` / `bpu_ftb_brq` / `bpu_eval` / `bpu`）：`aftb2` 开启 `STORE_B_BASE=1` 存 `b_base`、`ftb_rec_t` 存 `ah_a_base`，2-Ahead B 改为以 `(key_base, s0_base)` 索引与 Block A 并行评估并在末尾校验 `ah2_b_base == s0_b_base` 与 `b_truncated`，删除串行 `u0_b` 回退，`bpu_eval` 改用并行 `ttg_first_set` 选路与 6-bit 快速 `s0_b_bnd`；DC 28nm `bpu_eval` **0.84 → 1.28 GHz (+52.4%)**（WNS `−0.69 → −0.28 ns`，纯组合 `0.68 ns / 1.47 GHz`，69→49 级，面积 `25,652 → 23,911 um²`）。
+  - **`bpu_spec` `M_ARCH` 改为寄存恢复**：重定向回退至架构态时直接读寄存态 `arch_sr_q / arch_fh_q / aras_q`（切断 `commit br_type[0..7] → aras_d → spec_a_ras_top` 关键路径）；DC 28nm `bpu_spec` **0.86 → 1.20 GHz (+39.5%)**（WNS `−0.66 → −0.33 ns`，纯组合 `0.70 ns / 1.43 GHz`，`reg2reg −0.32 ns / 1.22 GHz`，面积 `156k → 142k um²`）。
+  - 验证：`lint_chip` 0、`fm_gate` **69/69 PASS（0 周期差）**、rv64gc Linux 26 窗全通、SPEC06 INT 386/386 `−1.20%`。
 - 2026-11-21（`rtl/fe-2fetch-2taken`，EXP-051 里程碑 B 完成）：升级为 2-taken 双块融合 + 1-Ahead A（`2K×8 / 1K×4×4 / 256×3`）+ 2-Ahead B（`1K×8 / 512×4×4 / 256×3`）+ `NT=1` + 4-Bank `ic_pair_ok` + `HistRing 1024b` + 内部 `rec_q[256]`（删除流经 PTAB/F2B/FTQ 的 168 位 `bpu_ck`）+ `BRQ_W=1`；新增 `bpu_eval.sv`。Yosys 综合 `bpu` `504,078 cells` / `272 layers`（较旧 16-bank `549,458` 仍 −8.3%，最长路径 `r1_q[1074] → u_spec.spec_d[99]`，已登记至 TODO）；通过 `lint_chip` 0 警告、`fm_gate` 68/68（0 周期偏差，含 `directed/fe_2taken_fdip.bin`）与 `rv64gc` Linux 27 窗检查点对齐。
 - 2026-11-21（`rtl/ftb-bpu`，EXP-050 里程碑 A 完成）：按文档先行完成 7 个块级 1-Ahead FTB SV 模块实现并删除 22 个旧 16-bank 文件；通过 `lint_chip` 0 警告、`fm_gate` 67/67（0 周期偏差）、`rv64gc` Linux 26/26 全量检查点 1.325 亿指令 0 FM 错误且 100% PT/UP 指纹 0 差异与 Yosys 综合（`bpu` 单元数 549,458 → 274,811，−50.0%，深度 134 → 131）。

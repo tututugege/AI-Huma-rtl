@@ -32,6 +32,7 @@ module bpu_ftb_arrays import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage
   input  logic                 upd_ah_v,
   input  logic                 upd_ah_kind, // 0 = 1-ahead A (aftb), 1 = 2-ahead B (aftb2)
   input  logic [XLEN_BITS-1:0] upd_ah_key_base,
+  input  logic [XLEN_BITS-1:0] upd_ah_a_base,
   input  ftb_ix_t              upd_ah_ix,
   input  ftb_br_upd_t          upd_br,
   // Predecode false-branch slot clear
@@ -43,6 +44,9 @@ module bpu_ftb_arrays import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage
   /* verilator lint_off UNUSEDSIGNAL */
   ftb_ent_t [FTB_S0_WAYS-1:0] ftb0_ways_nc;
   ftb_ent_t [FTB_S1_WAYS-1:0] ftb1_ways_nc;
+  logic [FTB_S0_WAYS-1:0][XLEN_BITS-1:0] ftb0_bb_nc;
+  logic [FTB_S1_WAYS-1:0][XLEN_BITS-1:0] ftb1_bb_nc;
+  logic [FTB_AH_WAYS-1:0][XLEN_BITS-1:0] aftb_bb_nc;
   logic                       ftb0_sl_v_nc, aftb_hit_nc, aftb2_hit_nc;
   logic                       aftb_rd2_hit_nc, aftb2_rd2_hit_nc;
   logic [FTB_SLOT_W-1:0]      ftb0_sl_idx_nc;
@@ -61,9 +65,9 @@ module bpu_ftb_arrays import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage
     .ALLOC_ONLY_TAKEN(1'b1), .AHEAD_MODE(1'b0), .HAS_CLR(1'b1), .HAS_RD2(1'b1)
   ) u_ftb0 (
     .clk, .rst_n,
-    .rd_base(s0_base), .rd_hit(ftb0_hit), .rd_ent(ftb0_ent), .rd_ways(ftb0_ways_nc),
+    .rd_base(s0_base), .rd_hit(ftb0_hit), .rd_ent(ftb0_ent), .rd_ways(ftb0_ways_nc), .rd_b_base(ftb0_bb_nc),
     .rd2_base(s0_b_base), .rd2_hit(ftb0_b_hit), .rd2_ent(ftb0_b_ent),
-    .upd_en, .upd_base(upd_start), .upd_key_base('0), .upd_br,
+    .upd_en, .upd_base(upd_start), .upd_key_base('0), .upd_b_base('0), .upd_br,
     .upd_slot_valid(ftb0_sl_v_nc), .upd_slot_idx(ftb0_sl_idx_nc), .upd_slot_ctr(ftb0_sl_ctr_nc),
     .clr_en, .clr_base, .clr_pc
   );
@@ -73,9 +77,9 @@ module bpu_ftb_arrays import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage
     .ALLOC_ONLY_TAKEN(1'b0), .AHEAD_MODE(1'b0), .HAS_CLR(1'b1), .HAS_RD2(1'b1)
   ) u_ftb1 (
     .clk, .rst_n,
-    .rd_base(s1_base), .rd_hit(s1_raw.ftb_hit), .rd_ent(s1_raw.ent), .rd_ways(ftb1_ways_nc),
+    .rd_base(s1_base), .rd_hit(s1_raw.ftb_hit), .rd_ent(s1_raw.ent), .rd_ways(ftb1_ways_nc), .rd_b_base(ftb1_bb_nc),
     .rd2_base(s1_b_base), .rd2_hit(s1_b_raw.ftb_hit), .rd2_ent(s1_b_raw.ent),
-    .upd_en, .upd_base(upd_start), .upd_key_base('0), .upd_br,
+    .upd_en, .upd_base(upd_start), .upd_key_base('0), .upd_b_base('0), .upd_br,
     .upd_slot_valid(ftb1_sl_v), .upd_slot_idx(ftb1_sl_idx), .upd_slot_ctr(ftb1_sl_ctr_nc),
     .clr_en, .clr_base, .clr_pc
   );
@@ -98,18 +102,19 @@ module bpu_ftb_arrays import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage
   );
 
   // ---- 1-Ahead A arrays (2K x 8 FTB, 1K x 4 x 4 TAGE, 256 x 3 ITT) ----
+  assign ah_rd_raw.b_base = '0;
   logic upd_ah1, upd_ah2;
   assign upd_ah1 = upd_en && upd_ah_v && !upd_ah_kind;
   assign upd_ah2 = upd_en && upd_ah_v &&  upd_ah_kind;
 
   bpu_ftb_tab #(
     .SETS(FTB_AH_SETS), .WAYS(FTB_AH_WAYS), .TAG_W(FTB_AH_TAG_W), .TGT_BITS(0),
-    .ALLOC_ONLY_TAKEN(1'b0), .AHEAD_MODE(1'b1), .HAS_CLR(1'b0), .HAS_RD2(1'b0)
+    .ALLOC_ONLY_TAKEN(1'b0), .AHEAD_MODE(1'b1), .HAS_CLR(1'b0), .HAS_RD2(1'b0), .STORE_B_BASE(1'b0)
   ) u_aftb (
     .clk, .rst_n,
-    .rd_base(ah_rd_base), .rd_hit(aftb_hit_nc), .rd_ent(aftb_ent_nc), .rd_ways(ah_rd_raw.ftb_ways),
+    .rd_base(ah_rd_base), .rd_hit(aftb_hit_nc), .rd_ent(aftb_ent_nc), .rd_ways(ah_rd_raw.ftb_ways), .rd_b_base(aftb_bb_nc),
     .rd2_base('0), .rd2_hit(aftb_rd2_hit_nc), .rd2_ent(aftb_rd2_ent_nc),
-    .upd_en(upd_ah1), .upd_base(upd_start), .upd_key_base(upd_ah_key_base), .upd_br,
+    .upd_en(upd_ah1), .upd_base(upd_start), .upd_key_base(upd_ah_key_base), .upd_b_base('0), .upd_br,
     .upd_slot_valid(aftb_sl_v), .upd_slot_idx(aftb_sl_idx), .upd_slot_ctr(aftb_sl_ctr),
     .clr_en(1'b0), .clr_base('0), .clr_pc('0)
   );
@@ -130,15 +135,15 @@ module bpu_ftb_arrays import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage
     .upd_ix(upd_ah_ix), .upd_target(upd_br.target)
   );
 
-  // ---- 2-Ahead B companion arrays (1K x 8 FTB, 512 x 4 x 4 TAGE, 256 x 3 ITT, parallel read) ----
+  // ---- 2-Ahead B companion arrays (1K x 8 FTB keyed on a_base + b_base, 512 x 4 x 4 TAGE, 256 x 3 ITT) ----
   bpu_ftb_tab #(
     .SETS(FTB_AH2_SETS), .WAYS(FTB_AH2_WAYS), .TAG_W(FTB_AH_TAG_W), .TGT_BITS(0),
-    .ALLOC_ONLY_TAKEN(1'b0), .AHEAD_MODE(1'b1), .HAS_CLR(1'b0), .HAS_RD2(1'b0)
+    .ALLOC_ONLY_TAKEN(1'b0), .AHEAD_MODE(1'b1), .HAS_CLR(1'b0), .HAS_RD2(1'b0), .STORE_B_BASE(1'b1)
   ) u_aftb2 (
     .clk, .rst_n,
-    .rd_base(ah_rd_base), .rd_hit(aftb2_hit_nc), .rd_ent(aftb2_ent_nc), .rd_ways(ah2_rd_raw.ftb_ways),
+    .rd_base(ah_rd_base), .rd_hit(aftb2_hit_nc), .rd_ent(aftb2_ent_nc), .rd_ways(ah2_rd_raw.ftb_ways), .rd_b_base(ah2_rd_raw.b_base),
     .rd2_base('0), .rd2_hit(aftb2_rd2_hit_nc), .rd2_ent(aftb2_rd2_ent_nc),
-    .upd_en(upd_ah2), .upd_base(upd_start), .upd_key_base(upd_ah_key_base), .upd_br,
+    .upd_en(upd_ah2), .upd_base(upd_ah_a_base), .upd_key_base(upd_ah_key_base), .upd_b_base(upd_start), .upd_br,
     .upd_slot_valid(aftb2_sl_v), .upd_slot_idx(aftb2_sl_idx), .upd_slot_ctr(aftb2_sl_ctr),
     .clr_en(1'b0), .clr_base('0), .clr_pc('0)
   );

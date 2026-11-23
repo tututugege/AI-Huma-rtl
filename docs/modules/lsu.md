@@ -360,5 +360,6 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 - 更早：见 git 历史（分级 LSU 合入 2026-11-07，store 写缓冲 EXP-024，访存推测 EXP-018 / 019，rv64 等）。
 
 - 2026-11-18：删除旧 LSU 和没用的东西：30 个 `lsu_*` 文件（2688 行）、`lsu.sv` 里 `LSU_PIPE = 0` 的分支和 `LSU_PIPE` 常量（`dcache_s1`、`back_top`、`tb/soc/build.sh` 里依赖它的地方改为无条件）、`lp_pkg::NDC`；`lp_stq_ent` 里 `dr_pick ? rw13 : rw13` 两边相同，简化成 `rw13`。整核周期不变（见提交说明）。
+- 2026-11-24（`rtl/timing-opt2`，EXP-063 第二轮 28nm DC 时序优化，0 周期变化）：`lp_cam.sv` 利用代数恒等式 `rotr64(rotl64(mask_unrot, head) & raw, head) == mask_unrot & rotr64(raw, head)` 与 6-bit 常量比较 `CNTW'(i) < older` 消除 2 个 64-bit 桶形移位器；`lp_wk.sv` 将 3 路 `stlf_confirm` 与 `off_a` 移至与 `sta_info[k].stq == blk` 并行预计算。TSMC 28nm DC `lsu` **0.83 → 0.88 GHz**（WNS `−0.71 → −0.64 ns`，56 级，面积 `927k → 919k um²`）；通过 `lint_chip` 0、`fm_gate` 69/69（0 周期差）与 Linux 26 窗对齐。
 - 2026-11-23（`rtl/ld-wake`，EXP-060）：开启 `LP_L2[3]`（`LP_L2 = 1915`）实现 L2 推测唤醒（Hit 与 `data_v=1` 且 `!suppress` 的 STLF 候选均在 L2 提前 1 拍发 `wk_valid[p]`，排除 `second` 违例重放项；未直接完成时寄存 `cn_q` 于下拍取消），并在 `lp_wb` 导出 `wp_v/wp_idx` 让 WBP（Miss/Replay 返回）load 共享 `wk_valid[NLD+p]` 同拍唤醒；`eda-08` Yosys：`lsu` **101 层**（0 增长）/ 1,239,556 单元；`fm_gate` 69/69 PASS 0 周期差，Linux 26 窗 1.326 亿指令 0 FM 差且 26/26 PT/UP 全等。
 - 2026-11-18：删除只剩一种取值的 `LP_STAEV_REG`（STA / STD 事件寄存直接展开，`lp_core.sv` 里没有 `generate` 的另一支）和 `LSU_WAIT_MSHR_FILL`（`fill_en = fill_valid`）。

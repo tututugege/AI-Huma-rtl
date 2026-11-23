@@ -29,6 +29,7 @@ module bpu_ftb_brq import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
   output logic                    upd_ah_v,
   output logic                    upd_ah_kind,
   output logic [XLEN_BITS-1:0]    upd_ah_key_base,
+  output logic [XLEN_BITS-1:0]    upd_ah_a_base,
   output fh_t                     upd_ah_key_fh,
   output ftb_br_upd_t             upd_br,
   output logic [XLEN_BITS-1:0]    upd_pc,
@@ -104,6 +105,7 @@ module bpu_ftb_brq import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
     upd_ah_v          = rc.ah_v;
     upd_ah_kind       = rc.ah_kind;
     upd_ah_key_base   = rc.ah_key_base;
+    upd_ah_a_base     = rc.ah_a_base;
     upd_ah_key_fh     = rc.ah_key_fh;
     upd_pc            = q_head.pc;
     upd_br.offset     = carried ? 4'd0 : 4'((q_head.pc - rc.base) >> SLOT_SHIFT);

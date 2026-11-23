@@ -224,12 +224,14 @@ module bpu_spec import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
     return c;
   endfunction
 
+  logic [NCOMMIT-1:0]   c_push;
+  logic [XLEN_BITS-1:0] c_val [NCOMMIT];
+  logic [RAS_PTR_W-1:0] ptr_after [NCOMMIT];
+
   always_comb begin
-    logic [NCOMMIT-1:0]   c_push, c_pop, c_eff_pop;
-    logic [XLEN_BITS-1:0] c_val [NCOMMIT];
+    logic [NCOMMIT-1:0]   c_pop, c_eff_pop;
     ras_op_t              p0 [NCOMMIT], p1 [NCOMMIT], p2 [NCOMMIT], p3 [NCOMMIT];
     logic [RAS_CNT_W-1:0] cnt_before [NCOMMIT];
-    logic [RAS_PTR_W-1:0] ptr_after  [NCOMMIT];
 
     for (int i = 0; i < NCOMMIT; i++) begin
       c_push[i] = upd_valid[i] && (br_type[i] == BR_CALL || br_type[i] == BR_ICALL);
@@ -253,14 +255,14 @@ module bpu_spec import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
       c_eff_pop[i] = c_pop[i] && (cnt_before[i] != '0);
     end
 
-    for (int i = 0; i < NCOMMIT; i++) begin
-      logic [3:0] n_p, n_o;
-      n_p = '0; n_o = '0;
-      for (int j = 0; j <= i; j++) begin
-        n_p = n_p + {3'b0, c_push[j]};
-        n_o = n_o + {3'b0, c_eff_pop[j]};
-      end
-      ptr_after[i] = aras_q.ptr + RAS_PTR_W'(n_p) - RAS_PTR_W'(n_o);
+    // Parallel 3-level prefix delta for ptr_after (net = push - eff_pop per lane)
+    begin
+      logic signed [4:0] d0 [NCOMMIT], d1 [NCOMMIT], d2 [NCOMMIT], d3 [NCOMMIT];
+      for (int i = 0; i < NCOMMIT; i++) d0[i] = c_push[i] ? 5'sd1 : (c_eff_pop[i] ? -5'sd1 : 5'sd0);
+      for (int i = 0; i < NCOMMIT; i++) d1[i] = (i >= 1) ? (d0[i-1] + d0[i]) : d0[i];
+      for (int i = 0; i < NCOMMIT; i++) d2[i] = (i >= 2) ? (d1[i-2] + d1[i]) : d1[i];
+      for (int i = 0; i < NCOMMIT; i++) d3[i] = (i >= 4) ? (d2[i-4] + d2[i]) : d2[i];
+      for (int i = 0; i < NCOMMIT; i++) ptr_after[i] = aras_q.ptr + RAS_PTR_W'(d3[i]);
     end
 
     aras_d.cnt = ras_clamp_add(aras_q.cnt, p3[NCOMMIT-1].d, p3[NCOMMIT-1].lo, p3[NCOMMIT-1].hi);
@@ -309,11 +311,12 @@ module bpu_spec import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
   hist_t base1;
   /* verilator lint_on UNUSEDSIGNAL */
   logic [1:0] n1_eff;
+  // M_ARCH restores from REGISTERED arch_sr_q / arch_fh_q / aras_q (breaks commit -> spec_d/spec_a_ras_top critical path)
   always_comb begin
     base1 = spec_q;
     case (h_mode)
       M_CK:    base1 = hist_restore(spec_q, h_ck);
-      M_ARCH:  base1 = arch_to_hist(arch_next_st, 4'd0);
+      M_ARCH:  base1 = arch_to_hist('{sr: arch_sr_q, fh: arch_fh_q}, 4'd0);
       default: base1 = spec_q;
     endcase
     n1_eff = (h_mode != 2'd0) ? h_push_n : 2'd0;
@@ -343,8 +346,8 @@ module bpu_spec import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
     bpu_hist_vec #(.MAX_SYM(2)) u_n1_ck (.h(base_ck), .sym_n(cnt_syms(n1_eff, 1'b0, 1'b0)),
                        .d(pack_syms(n1_eff, h_push_bits, 1'b0, '0, 1'b0, '0)), .h_next(spec_n1_ck));
     always_comb spec_n1_ar = arch_to_hist(arch_push_vec(arch_sr_q, arch_fh_q,
-                               arch_sym_n + cnt_syms(n1_eff, 1'b0, 1'b0),
-                               pack_arch_syms(arch_d_bits, n1_eff, h_push_bits, 1'b0, '0, 1'b0, '0)), 4'd0);
+                               cnt_syms(n1_eff, 1'b0, 1'b0),
+                               {12'b0, pack_syms(n1_eff, h_push_bits, 1'b0, '0, 1'b0, '0)}), 4'd0);
     assign spec_n1 = (h_mode == M_ARCH) ? spec_n1_ar : spec_n1_ck;
 
     bpu_hist_vec #(.MAX_SYM(1)) u_qa (.h(spec_q), .sym_n(cnt_syms(2'd0, g0_h_en, 1'b0)),
@@ -361,15 +364,15 @@ module bpu_spec import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
 
     always_comb begin
       spec_r1_ar = arch_to_hist(arch_push_vec(arch_sr_q, arch_fh_q,
-                     arch_sym_n + cnt_syms(hr_push_n, 1'b0, 1'b0),
-                     pack_arch_syms(arch_d_bits, hr_push_n, hr_push_bits, 1'b0, '0, 1'b0, '0)), 4'd0);
+                     cnt_syms(hr_push_n, 1'b0, 1'b0),
+                     {12'b0, pack_syms(hr_push_n, hr_push_bits, 1'b0, '0, 1'b0, '0)}), 4'd0);
       spec_ra_ar = arch_to_hist(arch_push_vec(arch_sr_q, arch_fh_q,
-                     arch_sym_n + cnt_syms(hr_push_n, h2_en, 1'b0),
-                     pack_arch_syms(arch_d_bits, hr_push_n, hr_push_bits, h2_en, h2_bits, 1'b0, '0)),
+                     cnt_syms(hr_push_n, h2_en, 1'b0),
+                     {12'b0, pack_syms(hr_push_n, hr_push_bits, h2_en, h2_bits, 1'b0, '0)}),
                      h2_en ? 4'd3 : 4'd0);
       spec_r2_ar = arch_to_hist(arch_push_vec(arch_sr_q, arch_fh_q,
-                     arch_sym_n + cnt_syms(hr_push_n, h2_en, h3_en),
-                     pack_arch_syms(arch_d_bits, hr_push_n, hr_push_bits, h2_en, h2_bits, h3_en, h3_bits)),
+                     cnt_syms(hr_push_n, h2_en, h3_en),
+                     {12'b0, pack_syms(hr_push_n, hr_push_bits, h2_en, h2_bits, h3_en, h3_bits)}),
                      (h2_en ? 4'd3 : 4'd0) + (h3_en ? 4'd3 : 4'd0));
     end
 
@@ -379,8 +382,9 @@ module bpu_spec import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
   end
 
   // ---- speculative RAS: queue arrays + pointers + 4-slot write overlay ----
+  // Read purely from REGISTERED aras_q (zero commit -> spec_a_ras_top path!)
   function automatic logic [XLEN_BITS-1:0] arch_st(input logic [RAS_PTR_W-1:0] j);
-    return aras_d.st[aras_d.ptr - aras_d.cnt[RAS_PTR_W-1:0] + RAS_PTR_W'(1) + j];
+    return aras_q.st[aras_q.ptr - aras_q.cnt[RAS_PTR_W-1:0] + RAS_PTR_W'(1) + j];
   endfunction
 
   /* verilator lint_off UNUSEDSIGNAL */
@@ -407,9 +411,9 @@ module bpu_spec import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
     if (mode == M_CK) begin
       s.p.tosr = ck.tosr; s.p.tosw = ck.tosw; s.p.cnt = ck.cnt;
     end else if (mode == M_ARCH) begin
-      s.p.cnt  = aras_d.cnt;
-      s.p.tosr = (aras_d.cnt == '0) ? '0 : RASQ_W'(aras_d.cnt - RAS_CNT_W'(1));
-      s.p.tosw = RASQ_W'(aras_d.cnt);
+      s.p.cnt  = aras_q.cnt;
+      s.p.tosr = (aras_q.cnt == '0) ? '0 : RASQ_W'(aras_q.cnt - RAS_CNT_W'(1));
+      s.p.tosw = RASQ_W'(aras_q.cnt);
       s.o.arch = 1'b1;
     end
     return s;
