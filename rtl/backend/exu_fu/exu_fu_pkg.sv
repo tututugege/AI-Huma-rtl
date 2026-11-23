@@ -27,7 +27,7 @@ package exu_fu_pkg;
   // ---- number of instances of the FU kinds that ttg_cfg_pkg does not export (count of ports in
   //      GLOBAL_ISSUE_PORT_CONFIG whose support_mask has OP_MASK_MUL / OP_MASK_DIV: config.h:371-398) ----
   localparam int MUL_NUM = 2;
-  localparam int DIV_NUM = 2;
+  localparam int DIV_NUM = 1;
 
   // ---- ALU: one-hot-ish control decoded from (op, func3, func7, src2_is_imm, imm[4:0]) by alu_decode ----
   typedef struct packed {

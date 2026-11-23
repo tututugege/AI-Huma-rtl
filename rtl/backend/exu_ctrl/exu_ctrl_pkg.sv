@@ -59,7 +59,7 @@ package exu_ctrl_pkg;
       0: return xc_opset_t'(OP_MASK_ALU | OP_MASK_MUL | OP_MASK_CSR);
       1: return xc_opset_t'(OP_MASK_ALU | OP_MASK_DIV);
       2: return xc_opset_t'(OP_MASK_ALU | OP_MASK_MUL) | (FP_EN ? xc_opset_t'(OP_MASK_I2F) : xc_opset_t'(0));
-      3: return xc_opset_t'(OP_MASK_ALU | OP_MASK_DIV) | (FP_EN ? xc_opset_t'(OP_MASK_I2F) : xc_opset_t'(0));
+      3: return xc_opset_t'(OP_MASK_ALU) | (FP_EN ? xc_opset_t'(OP_MASK_I2F) : xc_opset_t'(0));
       4, 5: return xc_opset_t'(OP_MASK_ALU);
       default: begin
         // F/D ports (last): two FMA + MISC pipes, then a divide / square-root unit that also takes MISC
@@ -234,7 +234,7 @@ package exu_ctrl_pkg;
   endfunction
 
   localparam int N_FU  = TOTAL_FU_COUNT;
-  localparam int N_MC  = 4;                   // MUL x2, DIV x2
+  localparam int N_MC  = 3;                   // MUL x2, DIV x1
   localparam int N_FPU = FP_EN ? 8 : 1;       // F/D units: FMA x2, FMISC x3, FDIV, I2F x2 (one dummy entry without F/D)
   localparam int N_AGU = LSU_AGU_COUNT;       // load AGUs 0..3, store-address AGUs 4..7 (= LSU agu ports)
   localparam int N_SDU = LSU_SDU_COUNT;

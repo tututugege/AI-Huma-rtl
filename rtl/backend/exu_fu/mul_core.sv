@@ -1,16 +1,17 @@
 // Ref: back-end/Exu/include/Fu.h  MulUnit::impl_compute (mul / mulh / mulhsu / mulhu, and rv64 mulw)
 `default_nettype none
 
-// XLENxXLEN multiplier spread over the latency of the unit (MUL_MAX_LATENCY = 3 cycles from the accept cycle to the result):
+// XLENxXLEN multiplier spread over MUL_MAX_LATENCY = 3 cycles from the accept cycle to the result:
 //   accept cycle t : operands (sign / zero extended by func3) -> registers a_q, b_q
-//   t + 1          : the 2*XLEN-bit product of the registered operands, as two vectors (carry-save: sum_q + car_q)
-//   t + 2 (result) : the carry-propagate add and the select of the half (mul / mulh* / mulw), combinational to the output
-// The result is valid in cycle t + 2 only: the unit's result pipeline (mul_pipe) completes the entry exactly then, and the
-// write-back reservation of the ISU guarantees that it is consumed in that cycle (checked in simulation by mul_unit).
+//   t + 1          : 2*XLEN-bit product of registered operands as carry-save (sum_q + car_q)
+//   t + 2 (result) : carry-propagate add and half select (mul / mulh* / mulw), comb to output
+// The result is valid in cycle t + 2 only: mul_pipe completes the entry exactly then, and the
+// write-back reservation of ISU guarantees consumption in that cycle (checked in sim by mul_unit).
 //   func3[1:0]: 0 mul (low half) 1 mulh (signed x signed) 2 mulhsu (signed x unsigned) 3 mulhu (unsigned x unsigned).
 //   rv64 mulw (is_word, func3 = 0): the low word of the product, sign-extended.
-// STRUCT = 0: the product is `a * b` (simple, fast to simulate); STRUCT = 1: an explicit Wallace tree (AND array, 3:2 compressors).
-// Default: the structural one for synthesis (SYNTHESIS defined), the behavioural one for simulation. scripts/mul_check.sh compares them.
+// STRUCT = 0: `a * b` (fast sim); STRUCT = 1: Radix-4 Booth (33 partial products + 1 sign/hot-1 row = 34 rows,
+// halved from 68) + explicit Wallace 3:2 compressor tree + Kogge-Stone final adder.
+// Default: structural for synthesis (SYNTHESIS defined), behavioural for sim (scripts/mul_check.sh compares them).
 module mul_core
   import ttg_cfg_pkg::*;
 #(
@@ -32,18 +33,29 @@ module mul_core
   localparam int HW = XLEN_BITS / 2;
   localparam int PW = 2 * W;               // product bits that are used
   localparam int AW = W + 1;               // operand width with the sign / zero extension bit
-  localparam int NR = AW + 2;              // rows of the tree: AW partial products and the two sign corrections
+  localparam int NB = (AW + 1) / 2;        // Radix-4 Booth groups: 33 for 65-bit operands
+  localparam int MW = AW + 2;              // signed width of +/-2*a (67 bits: no overflow for any AW-bit signed a)
+  localparam int NC = NB + 1;              // rows of the tree: NB Booth partial products + 1 (CONST_FIX | hot-1 negs)
 
   function automatic int rows_next(input int n);
     return 2 * (n / 3) + (n % 3);
   endfunction
   function automatic int num_levels();
-    int n = NR + 1, l = 0;                         // + the constant row
-    for (int i = 0; i < NR; i++) if (n > 2) begin n = rows_next(n); l++; end
+    int n = NC, l = 0;
+    for (int i = 0; i < NC; i++) if (n > 2) begin n = rows_next(n); l++; end
     return l;
   endfunction
   localparam int NL = num_levels();
-  localparam int NC = NR + 1;
+
+  function automatic logic [PW-1:0] booth_const_fix();
+    logic [PW-1:0] c;
+    c = '0;
+    for (int j = 0; j < NB; j++) begin
+      if (MW + 2 * j < PW) c = c - (PW'(1) << (MW + 2 * j));
+    end
+    return c;
+  endfunction
+  localparam logic [PW-1:0] CONST_FIX = booth_const_fix();
 
   // ---- t: operand extension, registered ----
   logic               a_signed, b_signed;
@@ -75,22 +87,45 @@ module mul_core
       car_d = '0;
     end
   end else begin : g_tree
-    // The operands are two's complement of AW bits: a = Au - 2^AW * as (Au the unsigned reading, as the sign bit), the same for b. Modulo
-    // 2^PW the product is Au*Bu - 2^AW * (as*Bu + bs*Au) (the 2^2AW*as*bs term is gone): AW rows of the unsigned AND array, plus the two
-    // corrections, subtracted as ~(x << AW) + 1 over PW bits (the two +1 are the constant row).
+    // Modified Radix-4 Booth encoding over AW-bit signed multiplier b_q (sign-extended + 0 at LSB).
+    // Each of the NB groups selects d_j in {-2,-1,0,+1,+2} * a_q as an MW-bit signed partial product pp
+    // (inverted when neg=1, with +1 collected into s_vec at bit 2*j). Sign extension mod 2^PW uses:
+    //   sext(pp) === {~pp[MW-1], pp} - 2^MW  (mod 2^PW)
+    // All -2^(MW+2*j) terms fold into CONST_FIX (bits MW..PW-1), disjoint from s_vec (bits 0..2*(NB-1)).
     logic [PW-1:0] rows [NL+1][NC];
     always_comb begin
+      logic [AW+1:0] b_pad;
+      logic [MW-1:0] a1, a2, mag, pp;
+      logic [PW-1:0] s_vec;
+      logic [2:0]    win;
+      logic          neg;
       int n;
       for (int l = 0; l <= NL; l++) for (int r = 0; r < NC; r++) rows[l][r] = '0;
-      for (int i = 0; i < AW; i++) rows[0][i] = (PW'(a_q) & {PW{b_q[i]}}) << i;
-      rows[0][AW]     = ~((PW'(b_q) & {PW{a_q[AW-1]}}) << AW);
-      rows[0][AW + 1] = ~((PW'(a_q) & {PW{b_q[AW-1]}}) << AW);
-      rows[0][AW + 2] = PW'(2);
+      b_pad = {b_q[AW-1], b_q, 1'b0};
+      a1    = {{(MW - AW){a_q[AW-1]}}, a_q};
+      a2    = {{(MW - AW - 1){a_q[AW-1]}}, a_q, 1'b0};
+      s_vec = '0;
+      for (int j = 0; j < NB; j++) begin
+        win = b_pad[2*j +: 3];
+        unique case (win)
+          3'b000, 3'b111: begin neg = 1'b0; mag = '0; end
+          3'b001, 3'b010: begin neg = 1'b0; mag = a1; end
+          3'b011:         begin neg = 1'b0; mag = a2; end
+          3'b100:         begin neg = 1'b1; mag = a2; end
+          3'b101, 3'b110: begin neg = 1'b1; mag = a1; end
+        endcase
+        pp = neg ? ~mag : mag;
+        rows[0][j] = PW'({~pp[MW-1], pp}) << (2 * j);
+        s_vec[2*j] = neg;
+      end
+      rows[0][NB] = CONST_FIX | s_vec;
       n = NC;
       for (int l = 0; l < NL; l++) begin             // one level of 3:2 compressors over the groups of three rows
         for (int g = 0; g < n / 3; g++) begin
           rows[l+1][2*g]   = rows[l][3*g] ^ rows[l][3*g+1] ^ rows[l][3*g+2];
-          rows[l+1][2*g+1] = ((rows[l][3*g] & rows[l][3*g+1]) | (rows[l][3*g] & rows[l][3*g+2]) | (rows[l][3*g+1] & rows[l][3*g+2])) << 1;
+          rows[l+1][2*g+1] = ((rows[l][3*g] & rows[l][3*g+1]) |
+                              (rows[l][3*g] & rows[l][3*g+2]) |
+                              (rows[l][3*g+1] & rows[l][3*g+2])) << 1;
         end
         for (int k = 0; k < n % 3; k++) rows[l+1][2 * (n / 3) + k] = rows[l][3 * (n / 3) + k];
         n = rows_next(n);

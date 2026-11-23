@@ -186,7 +186,7 @@ module dispatch_core
     // store address both go to the memory queue (an AMO sends two uops there); STD, BR and FP to their own queues.
     logic to_int1;
     always_comb begin
-      if (lane_uop[K_INT].op == UOP_CSR)      to_int1 = 1'b0;
+      if (lane_uop[K_INT].op == UOP_CSR || lane_uop[K_INT].op == UOP_DIV) to_int1 = 1'b0;
       else if (lane_uop[K_INT].op == UOP_I2F) to_int1 = 1'b1;
       else                                    to_int1 = res[i].rob_idx[0];
       has_iq[i] = '0;

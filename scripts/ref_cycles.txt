@@ -17,11 +17,12 @@
 # 2026-11-22 regen_refs.sh: trace-model c174d8d default
 # 2026-11-23 regen_refs.sh: trace-model aa345c9 default
 # 2026-11-23 regen_refs.sh: trace-model f4f2122 default; EXP-060: L2 spec load wake + STLF L2 wake + WBP early wake
+# 2026-11-23 regen_refs.sh: trace-model 0e609d7 default
 1597 add/add.bin
 1533 add-longlong/add-longlong.bin
 2314 atomic-boundary/atomic-boundary.bin
-207177 big/coremark.bin
-88702 big/dhrystone.bin
+206921 big/coremark.bin
+85401 big/dhrystone.bin
 1625 bit/bit.bin
 2504 bitmanip-boundary/bitmanip-boundary.bin
 4514 bubble-sort/bubble-sort.bin
@@ -32,10 +33,10 @@
 3595 directed/fe_2taken_fdip.bin
 8896 directed/l2tlb_pwc.bin
 2903 directed/memspec_addr.bin
-7209 directed/memspec_data.bin
+6634 directed/memspec_data.bin
 3000 directed/memspec_pf.bin
 3506 directed/memspec_vio.bin
-2552 div/div.bin
+2319 div/div.bin
 841 dummy/dummy.bin
 1418 fact/fact.bin
 1172 fd-basic/fd-basic.bin
@@ -46,7 +47,7 @@
 27431 fd-matmul/fd-matmul.bin
 1635 fence-i-self-modify/fence-i-self-modify.bin
 1448 fib/fib.bin
-3771 goldbach/goldbach.bin
+2287 goldbach/goldbach.bin
 1394 if-else/if-else.bin
 1508 illegal-instruction-trap/illegal-instruction-trap.bin
 3623 interrupt-vectored/interrupt-vectored.bin
@@ -57,14 +58,14 @@
 1945 max/max.bin
 1580 memory-boundary/memory-boundary.bin
 310468 memory-stress-small/memory-stress-small.bin
-2675 mersenne/mersenne.bin
+1781 mersenne/mersenne.bin
 2560 min3/min3.bin
 1186 mov-c/mov-c.bin
 1393 movsx/movsx.bin
 1848 mul-longlong/mul-longlong.bin
 1985 pascal/pascal.bin
 487049 pf-stress/pf-stress.bin
-13438 prime/prime.bin
+5933 prime/prime.bin
 4836 quick-sort/quick-sort.bin
 3228 recursion/recursion.bin
 4764 select-sort/select-sort.bin
@@ -84,5 +85,5 @@
 2223 trap-boundary/trap-boundary.bin
 1693 trap-precise-store/trap-precise-store.bin
 1619 unalign/unalign.bin
-5979 wanshu/wanshu.bin
+2625 wanshu/wanshu.bin
 1229 wfi-boundary/wfi-boundary.bin

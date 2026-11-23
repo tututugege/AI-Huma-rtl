@@ -28,6 +28,7 @@ module exu_iter_ctl
   output logic                     accept,
   output logic                     run,
   output logic                     complete,
+  output logic                     wb_next,   // registered-only: completes next cycle (cnt_q == 1 && busy_q)
   output logic                     ready,
   output logic [BR_MASK_WIDTH-1:0] done_br_mask
 );
@@ -44,6 +45,7 @@ module exu_iter_ctl
     live     = busy_q && !kill;
     finished = (cnt_q == '0);
     complete = live && finished;
+    wb_next  = busy_q && (cnt_q == CW'(1));
     accept   = en && !live;                       // busy is tested before consume releases the FU
     pop      = consume && complete;
     run      = live && !finished;

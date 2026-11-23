@@ -1,13 +1,25 @@
 // Ref: back-end/Exu/include/Fu.h  FuKind::FMA / FMISC / I2F (PIPE: fully pipelined, fixed latency)
 `default_nettype none
 
-// A pipelined F/D unit: the result is computed in the accept cycle (as in the reference) and travels through the result
-// pipeline together with its write-back payload (mul_pipe with the FP payload). LAT = the unit latency of the model.
+// A pipelined F/D unit:
+//   SYNTH_FPU = 0 (default in simulation): DPI SoftFloat via fp_core at accept + mul_pipe delay queue (fast sim).
+//   SYNTH_FPU = 1 (default in synthesis, or -DFPU_REAL): synthesizable RV64FD datapath:
+//     MODE = 0 (FMA, LAT=3)   : 3-stage pipelined fp_fma_core (result valid at t+2, like mul_core) + mul_pipe payload
+//     MODE = 1 (FMISC, LAT=2) : fp_misc_core + fp_fcvt_core + mul_pipe
+//     MODE = 2 (I2F, LAT=2)   : fp_i2f_core + mul_pipe
 module fp_pipe_unit
   import ttg_cfg_pkg::*;
   import exu_fu_pkg::*;
 #(
-  parameter int LAT = 3
+  parameter int LAT  = 3,
+  parameter int MODE = 0,
+`ifdef SYNTHESIS
+  parameter bit SYNTH_FPU = 1'b1
+`elsif FPU_REAL
+  parameter bit SYNTH_FPU = 1'b1
+`else
+  parameter bit SYNTH_FPU = 1'b0
+`endif
 ) (
   input  logic                       clk,
   input  logic                       rst_n,
@@ -41,19 +53,74 @@ module fp_pipe_unit
   logic [63:0] res;
   logic [4:0]  flags;
   logic        bad;
-  fp_uop_t     en_uop, done_uop;
+  fp_uop_t     en_uop;
+  /* verilator lint_off UNUSEDSIGNAL */
+  fp_uop_t     done_uop;
+  /* verilator lint_on UNUSEDSIGNAL */
 
-  fp_core u_core (
-    .func3(func3), .imm(imm), .int_src(src1_rdata), .fsrc1(fsrc1), .fsrc2(fsrc2), .fsrc3(fsrc3), .frm(frm),
-    .result(res), .fflags(flags), .illegal(bad)
-  );
+  if (!SYNTH_FPU) begin : g_dpi
+    fp_core u_core (
+      .func3(func3), .imm(imm), .int_src(src1_rdata), .fsrc1(fsrc1), .fsrc2(fsrc2), .fsrc3(fsrc3), .frm(frm),
+      .result(res), .fflags(flags), .illegal(bad)
+    );
+    always_comb begin
+      en_uop  = '{fresult: res, fflags: flags, illegal: bad, rob_idx: rob_idx, dest_preg: dest_preg, dest_en: dest_en,
+                  br_mask: br_mask};
+      fresult = done_uop.fresult;
+      fflags  = done_uop.fflags;
+      illegal = done_uop.illegal;
+    end
+  end else if (MODE == 0) begin : g_fma
+    // 3-stage pipelined FMA: result arrives at t+2 matching mul_pipe completion (guaranteed consumed by wb_gate)
+    fp_fma_core u_fma (
+      .clk(clk), .func3(func3), .imm(imm), .fsrc1(fsrc1), .fsrc2(fsrc2), .fsrc3(fsrc3), .frm(frm),
+      .result(res), .fflags(flags), .illegal(bad)
+    );
+    always_comb begin
+      en_uop  = '{fresult: '0, fflags: '0, illegal: 1'b0, rob_idx: rob_idx, dest_preg: dest_preg, dest_en: dest_en,
+                  br_mask: br_mask};
+      fresult = res;
+      fflags  = flags;
+      illegal = bad;
+    end
+  end else if (MODE == 1) begin : g_misc
+    logic [63:0] m_res, c_res;
+    logic [4:0]  m_flg, c_flg;
+    logic        m_bad, c_bad, is_fcvt;
+    fp_misc_core u_misc (
+      .func3(func3), .imm(imm), .fsrc1(fsrc1), .fsrc2(fsrc2),
+      .result(m_res), .fflags(m_flg), .illegal(m_bad)
+    );
+    fp_fcvt_core u_fcvt (
+      .func3(func3), .imm(imm), .fsrc1(fsrc1), .frm(frm),
+      .result(c_res), .fflags(c_flg), .illegal(c_bad)
+    );
+    always_comb begin
+      is_fcvt = (imm[11:7] == 5'h08) || (imm[11:7] == 5'h18);
+      res     = is_fcvt ? c_res : m_res;
+      flags   = is_fcvt ? c_flg : m_flg;
+      bad     = is_fcvt ? c_bad : m_bad;
+      en_uop  = '{fresult: res, fflags: flags, illegal: bad, rob_idx: rob_idx, dest_preg: dest_preg, dest_en: dest_en,
+                  br_mask: br_mask};
+      fresult = done_uop.fresult;
+      fflags  = done_uop.fflags;
+      illegal = done_uop.illegal;
+    end
+  end else begin : g_i2f
+    fp_i2f_core u_i2f (
+      .func3(func3), .imm(imm), .int_src(src1_rdata), .frm(frm),
+      .result(res), .fflags(flags), .illegal(bad)
+    );
+    always_comb begin
+      en_uop  = '{fresult: res, fflags: flags, illegal: bad, rob_idx: rob_idx, dest_preg: dest_preg, dest_en: dest_en,
+                  br_mask: br_mask};
+      fresult = done_uop.fresult;
+      fflags  = done_uop.fflags;
+      illegal = done_uop.illegal;
+    end
+  end
 
   always_comb begin
-    en_uop = '{fresult: res, fflags: flags, illegal: bad, rob_idx: rob_idx, dest_preg: dest_preg, dest_en: dest_en,
-               br_mask: br_mask};
-    fresult        = done_uop.fresult;
-    fflags         = done_uop.fflags;
-    illegal        = done_uop.illegal;
     done_rob_idx   = done_uop.rob_idx;
     done_dest_preg = done_uop.dest_preg;
     done_dest_en   = done_uop.dest_en;

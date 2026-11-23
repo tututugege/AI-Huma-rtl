@@ -7,6 +7,7 @@ module exu_ctrl_ready
   import exu_ctrl_pkg::*;
 (
   input  logic                   flush,
+  input  logic                   div_wb_next,
   input  logic [N_FU-1:0]        fu_en,
   // consume of the multi-cycle FUs goes straight to the FU; only the single-cycle FUs' bits are read here
   /* verilator lint_off UNUSEDSIGNAL */
@@ -40,6 +41,8 @@ module exu_ctrl_ready
     always_comb begin
       port_ops = '0;
       for (int j = 0; j < NFU; j++) port_ops = port_ops | accept_ops[BASE+j];
+      // Port 1 hosts the single variable-latency DIV: block ALU issue one cycle before DIV completes
+      if (p == 1 && div_wb_next) port_ops = port_ops & ~xc_opset_t'(OP_MASK_ALU);
     end
     assign fu_ready_mask[p] = flush ? '0 : port_ops;
   end

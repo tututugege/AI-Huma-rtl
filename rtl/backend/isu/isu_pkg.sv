@@ -96,7 +96,7 @@ package isu_pkg;
       0: return op_set_t'(OP_MASK_ALU | OP_MASK_MUL | OP_MASK_CSR);
       1: return op_set_t'(OP_MASK_ALU | OP_MASK_DIV);
       2: return op_set_t'(OP_MASK_ALU | OP_MASK_MUL) | (FP_EN ? MASK_I2F : op_set_t'(0));
-      3: return op_set_t'(OP_MASK_ALU | OP_MASK_DIV) | (FP_EN ? MASK_I2F : op_set_t'(0));
+      3: return op_set_t'(OP_MASK_ALU) | (FP_EN ? MASK_I2F : op_set_t'(0));
       4, 5: return op_set_t'(OP_MASK_ALU);
       default: begin
         // F/D ports (last): two FMA + MISC pipes, then a divide / square-root unit that also takes MISC
@@ -201,7 +201,7 @@ package isu_pkg;
     case (c)
       0: return 1'b1;
       1: return (port_cap(p) & MASK_MUL) != '0;
-      2, 3: return (port_cap(p) & MASK_DIV) != '0;
+      2, 3: return 1'b0;   // variable-latency DIV uses exe2iss div_wb_next instead of wb_busy reservation
       4, 5, 6, 7: return FP_EN && (port_cap(p) & MASK_FDIV) != '0;
       8: return FP_EN && (port_cap(p) & MASK_FMA) != '0;
       9: return FP_EN && (port_cap(p) & MASK_FMISC) != '0;

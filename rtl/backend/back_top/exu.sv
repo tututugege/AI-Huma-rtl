@@ -75,6 +75,8 @@ module exu
   output logic [XLEN_BITS-1:0] exe2csr_wdata,
   output logic [1:0] exe2csr_wcmd,
   output logic [isu_pkg::OP_NUM-1:0] exe2iss_fu_ready_mask [ISSUE_WIDTH],
+  output logic exe2iss_div_wake_valid,
+  output logic [PRF_IDX_WIDTH-1:0] exe2iss_div_wake_preg,
   output logic [WB_LANES-1:0] exe2prf_entry_valid,
   output logic [PRF_IDX_WIDTH-1:0] exe2prf_entry_uop_dest_preg [WB_LANES],
   output logic [XLEN_BITS-1:0] exe2prf_entry_uop_result [WB_LANES],
@@ -346,6 +348,7 @@ module exu
     .fu_bru_mispred(fu_bru_mispred),
     .fu_bru_br_taken(fu_bru_br_taken),
     .fu_mc_ready(fu_mc_ready),
+    .div_wb_next(div_wb_next[0]),
     .fu_mc_complete(fu_mc_complete),
     .fu_mc_result(fu_mc_result),
     .fu_mc_dest_preg(fu_mc_dest_preg),
@@ -482,7 +485,7 @@ module exu
 
   // ---- multi-cycle FUs. exu_ctrl numbers them in Exu::units order {MUL(0), DIV(3), MUL(5), DIV(7)}.
   localparam int MC_MUL [MUL_NUM] = '{0, 2};
-  localparam int MC_DIV [DIV_NUM] = '{1, 3};
+  localparam int MC_DIV [DIV_NUM] = '{1};
 
   // MUL: result/dest/rob/br_mask come back from the FU's own pipeline (it keeps the instruction in flight).
   logic mul_flush [MUL_NUM];
@@ -543,6 +546,9 @@ module exu
   logic div_is_word [DIV_NUM];
   logic div_complete [DIV_NUM];
   logic div_ready [DIV_NUM];
+  logic div_wb_next [DIV_NUM];
+  logic div_wake_valid [DIV_NUM];
+  logic [PRF_IDX_WIDTH-1:0] div_wake_preg [DIV_NUM];
   logic [XLEN_BITS-1:0] div_result [DIV_NUM];
   logic [ROB_IDX_WIDTH-1:0] div_done_rob_idx [DIV_NUM];
   logic [PRF_IDX_WIDTH-1:0] div_done_dest_preg [DIV_NUM];
@@ -583,9 +589,13 @@ module exu
     .clear_mask(div_clear_mask), .func3(div_func3), .is_word(div_is_word),
     .src1_rdata(div_src1_rdata), .src2_rdata(div_src2_rdata),
     .rob_idx(div_rob_idx), .dest_preg(div_dest_preg), .dest_en(div_dest_en), .br_mask(div_br_mask),
-    .complete(div_complete), .ready(div_ready), .result(div_result), .done_rob_idx(div_done_rob_idx),
+    .complete(div_complete), .ready(div_ready),
+    .wb_next(div_wb_next), .wake_valid(div_wake_valid), .wake_preg(div_wake_preg),
+    .result(div_result), .done_rob_idx(div_done_rob_idx),
     .done_dest_preg(div_done_dest_preg), .done_dest_en(div_done_dest_en), .done_br_mask(div_done_br_mask)
   );
+  assign exe2iss_div_wake_valid = !rob_bcast_flush && div_wake_valid[0];
+  assign exe2iss_div_wake_preg  = div_wake_preg[0];
 
   // ---- F/D units (fp_unit: pipelined FMA / FMISC / I2F, iterative FDIV): their own flat port group in fu_idx order.
   // The dynamic rounding mode comes from fcsr.frm (csr2exe_frm: the committed value).
@@ -608,7 +618,10 @@ module exu
           .done_dest_en(fu_fp_dest_en[r]), .done_br_mask(fu_fp_br_mask[r])
         );
       end else begin : g_pipe
-        fp_pipe_unit #(.LAT((KIND == XC_K_FMA) ? FP_FMA_LAT : (KIND == XC_K_FMISC) ? FP_MISC_LAT : FP_I2F_LAT)) u_fp (
+        fp_pipe_unit #(
+          .LAT((KIND == XC_K_FMA) ? FP_FMA_LAT : (KIND == XC_K_FMISC) ? FP_MISC_LAT : FP_I2F_LAT),
+          .MODE((KIND == XC_K_FMA) ? 0 : (KIND == XC_K_FMISC) ? 1 : 2)
+        ) u_fp (
           .clk(clk), .rst_n(rst_n), .en(exu2fu_fp_en[r]), .consume(exu2fu_fp_consume[r]), .flush(exu2fu_flush),
           .flush_mask(exu2fu_flush_mask), .clear_mask(exu2fu_clear_mask), .func3(exu2fu_fp_func3[r]),
           .imm(exu2fu_fp_imm[r]), .src1_rdata(exu2fu_fp_src1_rdata[r]),

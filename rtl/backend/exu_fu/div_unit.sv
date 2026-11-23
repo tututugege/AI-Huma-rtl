@@ -1,8 +1,9 @@
-// Ref: back-end/Exu/include/Fu.h  DivUnit (IterativeFU, latency DIV_MAX_LATENCY)
+// Ref: back-end/Exu/include/Fu.h  DivUnit (IterativeFU, variable-latency Radix-16 early-out divider)
 `default_nettype none
 
-// One divider FU = iterative control skeleton (exu_iter_ctl) + iterative divider datapath (div_core) + the write-back
-// payload of the uop in flight (loaded on accept; br_mask lives in the skeleton because flush/clear act on it).
+// One divider FU = iterative control skeleton (exu_iter_ctl) + Radix-16 early-out datapath (div_core) + payload regs.
+// Exports wb_next / wake_valid / wake_preg (registered-only, 1 cycle before completion) so EXU reserves Port 1 wb
+// and ISU wakes consumers without fixed-latency countdown slots.
 module div_unit
   import ttg_cfg_pkg::*;
   import exu_fu_pkg::*;
@@ -17,36 +18,40 @@ module div_unit
   input  logic [BR_MASK_WIDTH-1:0]   flush_mask,
   input  logic [BR_MASK_WIDTH-1:0]   clear_mask,
   input  logic [1:0]                 func3,
-  input  logic                       is_word,   // rv64 divw/divuw/remw/remuw: half the iterations
-  input  logic [XLEN_BITS-1:0]                src1_rdata,
-  input  logic [XLEN_BITS-1:0]                src2_rdata,
+  input  logic                       is_word,
+  input  logic [XLEN_BITS-1:0]       src1_rdata,
+  input  logic [XLEN_BITS-1:0]       src2_rdata,
   input  logic [ROB_IDX_WIDTH-1:0]   rob_idx,
   input  logic [PRF_IDX_WIDTH-1:0]   dest_preg,
   input  logic                       dest_en,
   input  logic [BR_MASK_WIDTH-1:0]   br_mask,
   output logic                       complete,
   output logic                       ready,
-  output logic [XLEN_BITS-1:0]                result,
+  output logic                       wb_next,
+  output logic                       wake_valid,
+  output logic [PRF_IDX_WIDTH-1:0]   wake_preg,
+  output logic [XLEN_BITS-1:0]       result,
   output logic [ROB_IDX_WIDTH-1:0]   done_rob_idx,
   output logic [PRF_IDX_WIDTH-1:0]   done_dest_preg,
   output logic                       done_dest_en,
   output logic [BR_MASK_WIDTH-1:0]   done_br_mask
 );
 
-  localparam int CW = $clog2(LAT);
+  localparam int CW = 5;   // lat_m1 in 1..16 (fits in 5 bits)
 
-  logic accept, run;
+  logic       accept, run;
+  logic [4:0] lat_m1;
 
   exu_iter_ctl #(.CW(CW)) u_ctl (
     .clk(clk), .rst_n(rst_n), .flush(flush), .flush_mask(flush_mask), .clear_mask(clear_mask),
     .en(en), .consume(consume), .en_br_mask(br_mask),
-    .lat_m1(is_word ? CW'(LAT / 2 - 1) : CW'(LAT - 1)),
-    .accept(accept), .run(run), .complete(complete), .ready(ready), .done_br_mask(done_br_mask)
+    .lat_m1(lat_m1),
+    .accept(accept), .run(run), .complete(complete), .wb_next(wb_next), .ready(ready), .done_br_mask(done_br_mask)
   );
 
   div_core #(.LAT(LAT)) u_core (
     .clk(clk), .rst_n(rst_n), .accept(accept), .run(run), .func3(func3), .is_word(is_word),
-    .src1_rdata(src1_rdata), .src2_rdata(src2_rdata), .result(result)
+    .src1_rdata(src1_rdata), .src2_rdata(src2_rdata), .lat_m1(lat_m1), .result(result)
   );
 
   // payload of the uop in flight: captured when it is accepted
@@ -58,6 +63,8 @@ module div_unit
     done_rob_idx   = rob_idx_q;
     done_dest_preg = dest_preg_q;
     done_dest_en   = dest_en_q;
+    wake_valid     = wb_next && dest_en_q;
+    wake_preg      = dest_preg_q;
   end
 
   always_ff @(posedge clk) begin

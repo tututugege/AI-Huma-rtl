@@ -52,6 +52,8 @@ module isu
   input  logic [LSU_LOAD_WB_WIDTH-1:0] prf_awake_wake_valid,
   input  logic [PRF_IDX_WIDTH-1:0] prf_awake_wake_preg [LSU_LOAD_WB_WIDTH],
   input  logic [OP_NUM-1:0] exe2iss_fu_ready_mask [ISSUE_WIDTH],
+  input  logic exe2iss_div_wake_valid,
+  input  logic [PRF_IDX_WIDTH-1:0] exe2iss_div_wake_preg,
   input  logic rob_bcast_flush,
   input  logic dec_bcast_mispred,
   input  logic [BR_MASK_WIDTH-1:0] dec_bcast_br_mask,
@@ -133,6 +135,7 @@ module isu
   isu_wake_src u_wake_src (
     .clk(clk), .rst_n(rst_n),
     .prf_wake_valid(prf_wake_valid), .prf_wake_preg(prf_awake_wake_preg),
+    .exe_div_wake_valid(exe2iss_div_wake_valid), .exe_div_wake_preg(exe2iss_div_wake_preg),
     .cand_valid(cand_valid_all), .grant_valid(grant_valid), .grant_uop(grant_uop),
     .flush_all(rob_bcast_flush), .flush_br(flush_br),
     .flush_br_mask(dec_bcast_br_mask), .clear_mask(dec_bcast_clear_mask),

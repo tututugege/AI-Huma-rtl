@@ -13,6 +13,8 @@ module isu_wake_src
   input  logic                     rst_n,
   input  logic [LSU_LOAD_WB_WIDTH-1:0] prf_wake_valid,
   input  logic [PRF_IDX_WIDTH-1:0] prf_wake_preg [LSU_LOAD_WB_WIDTH],
+  input  logic                     exe_div_wake_valid,
+  input  logic [PRF_IDX_WIDTH-1:0] exe_div_wake_preg,
   /* verilator lint_off UNUSEDSIGNAL */   // waiver: ports that cannot start a delayed-wake op are not read
   input  logic [ISSUE_WIDTH-1:0]   cand_valid,    // pre-fp-gate grants (equal to grant_valid for single-cycle ALU ops)
   input  logic [ISSUE_WIDTH-1:0]   grant_valid,   // grants of every issue port
@@ -40,12 +42,8 @@ module isu_wake_src
 
   // ---- delayed-wake requests: granted uops with a destination whose op class has latency > 1 ----
   logic [MUL_UNITS-1:0]     mul_req_valid;
-  logic [DIV_UNITS-1:0]     div_req_valid;
   logic [PRF_IDX_WIDTH-1:0] mul_req_preg [MUL_UNITS];
-  logic [PRF_IDX_WIDTH-1:0] div_req_preg [DIV_UNITS];
   logic [BR_MASK_WIDTH-1:0] mul_req_mask [MUL_UNITS];
-  logic [BR_MASK_WIDTH-1:0] div_req_mask [DIV_UNITS];
-  logic [COUNT_W-1:0]       div_req_count [DIV_UNITS];
 
   // Only a port whose capability includes the class can be granted such a uop, so requests come from those ports only.
   for (genvar p = 0; p < ISSUE_WIDTH; p++) begin : g_port
@@ -55,15 +53,6 @@ module isu_wake_src
                                 (grant_uop[p].op == op_t'(UOP_MUL));
       assign mul_req_preg[R]  = grant_uop[p].dest_preg;
       assign mul_req_mask[R]  = grant_uop[p].br_mask;
-    end
-    if (port_has(MASK_DIV, p)) begin : g_div
-      localparam int R = port_rank(MASK_DIV, p);
-      assign div_req_valid[R] = grant_valid[p] && grant_uop[p].dest_en && (grant_uop[p].op == op_t'(UOP_DIV));
-      assign div_req_preg[R]  = grant_uop[p].dest_preg;
-      assign div_req_mask[R]  = grant_uop[p].br_mask;
-      // rv64 divw / divuw / remw / remuw take half the iterations (Isu::get_latency: div_latency(is_word))
-      assign div_req_count[R] = (grant_uop[p].is_word) ? COUNT_W'(DIV_MAX_LATENCY / 2 - 1)
-                                                                          : COUNT_W'(DIV_MAX_LATENCY - 1);
     end
     // fast wake-up: single-cycle uop with a destination (ports that can issue ALU ops own a fast channel)
     if (port_has(MASK_ALU, p)) begin : g_fast
@@ -148,14 +137,9 @@ module isu_wake_src
   // ---- delayed structures ----
   localparam int INT_W = $clog2(PRF_NUM);
   logic [MUL_UNITS-1:0]     mul_wake_valid, mul_wake_lane, mul_req_lane;
-  logic [DIV_UNITS-1:0]     div_wake_valid, div_wake_lane, div_req_lane;
   logic [PRF_IDX_WIDTH-1:0] mul_wake_preg [MUL_UNITS];
-  logic [PRF_IDX_WIDTH-1:0] div_wake_preg [DIV_UNITS];
   for (genvar r = 0; r < MUL_UNITS; r++) begin : g_mlane
     assign mul_req_lane[r] = 1'(r);
-  end
-  for (genvar r = 0; r < DIV_UNITS; r++) begin : g_dlane
-    assign div_req_lane[r] = 1'(r);
   end
 
   isu_wake_mul #(.SLOTS(MUL_UNITS), .NREQ(MUL_UNITS)) u_mul (
@@ -164,22 +148,15 @@ module isu_wake_src
     .flush_all(flush_all), .flush_br(flush_br), .flush_br_mask(flush_br_mask), .clear_mask(clear_mask),
     .wake_valid(mul_wake_valid), .wake_preg(mul_wake_preg), .wake_lane(mul_wake_lane));
 
-  isu_wake_iter #(.SLOTS(DIV_UNITS), .NREQ(DIV_UNITS)) u_div (
-    .clk(clk), .rst_n(rst_n), .req_valid(div_req_valid), .req_preg(div_req_preg), .req_br_mask(div_req_mask),
-    .req_countdown(div_req_count), .req_lane(div_req_lane),
-    .flush_all(flush_all), .flush_br(flush_br), .flush_br_mask(flush_br_mask), .clear_mask(clear_mask),
-    .wake_valid(div_wake_valid), .wake_preg(div_wake_preg), .wake_lane(div_wake_lane));
-
   for (genvar k = 0; k < MUL_UNITS; k++) begin : g_mul_out
     assign wake_valid[MUL_WAKE_BASE + k] = mul_wake_valid[k];
     assign wake_preg[MUL_WAKE_BASE + k]  = mul_wake_preg[k];
   end
-  for (genvar k = 0; k < DIV_UNITS; k++) begin : g_div_out
-    assign wake_valid[DIV_WAKE_BASE + k] = div_wake_valid[k];
-    assign wake_preg[DIV_WAKE_BASE + k]  = div_wake_preg[k];
-  end
+  // Single variable-latency DIV on Port 1: woken dynamically by EXU one cycle before completion
+  assign wake_valid[DIV_WAKE_BASE] = exe_div_wake_valid;
+  assign wake_preg[DIV_WAKE_BASE]  = exe_div_wake_preg;
 
-  // Map MUL (ports 0, 2) and DIV (ports 1, 3) delayed wake-ups onto their ALU write-back lanes (0..5)
+  // Map MUL (ports 0, 2) and DIV (port 1) delayed wake-ups onto their ALU write-back lanes (0..5)
   always_comb begin
     slow_exu_valid = '0;
     for (int l = 0; l < ALU_NUM; l++) slow_exu_preg[l] = '0;
@@ -192,14 +169,9 @@ module isu_wake_src
         slow_exu_preg[2]  = mul_wake_preg[k][INT_W-1:0];
       end
     end
-    for (int k = 0; k < DIV_UNITS; k++) if (div_wake_valid[k]) begin
-      if (!div_wake_lane[k]) begin
-        slow_exu_valid[1] = 1'b1;
-        slow_exu_preg[1]  = div_wake_preg[k][INT_W-1:0];
-      end else begin
-        slow_exu_valid[3] = 1'b1;
-        slow_exu_preg[3]  = div_wake_preg[k][INT_W-1:0];
-      end
+    if (exe_div_wake_valid) begin
+      slow_exu_valid[1] = 1'b1;
+      slow_exu_preg[1]  = exe_div_wake_preg[INT_W-1:0];
     end
   end
 

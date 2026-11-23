@@ -53,6 +53,7 @@ module exu_ctrl
   input  logic fu_bru_mispred [BRU_NUM],
   input  logic fu_bru_br_taken [BRU_NUM],
   input  logic [N_MC-1:0] fu_mc_ready,
+  input  logic            div_wb_next,
   input  logic [N_MC-1:0] fu_mc_complete,
   input  logic [XLEN_BITS-1:0] fu_mc_result [N_MC],
   input  logic [PRF_IDX_WIDTH-1:0] fu_mc_dest_preg [N_MC],
@@ -322,7 +323,7 @@ module exu_ctrl
   exu_ctrl_port_arb u_arb (.fu_done, .consume, .win_valid, .win, .win_is_csr);
 
   exu_ctrl_ready u_ready (
-    .flush(rob_bcast_flush), .fu_en, .consume, .fu_res, .fu_ready, .fu_ready_mask(exe2iss_fu_ready_mask)
+    .flush(rob_bcast_flush), .div_wb_next(div_wb_next), .fu_en, .consume, .fu_res, .fu_ready, .fu_ready_mask(exe2iss_fu_ready_mask)
   );
 
   exu_ctrl_csr_req u_csr (

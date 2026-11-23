@@ -406,6 +406,8 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
   logic [XLEN_BITS-1:0] exe2csr_wdata;
   logic exe2csr_we;
   logic [isu_pkg::OP_NUM-1:0] exe2iss_fu_ready_mask [ISSUE_WIDTH];
+  logic exe2iss_div_wake_valid;
+  logic [PRF_IDX_WIDTH-1:0] exe2iss_div_wake_preg;
   logic [4:0] exe2lsu_ldu_req_uop_amo_op [LSU_LDU_COUNT];
   logic [PRF_IDX_WIDTH-1:0] exe2lsu_ldu_req_uop_dest_preg [LSU_LDU_COUNT];
   logic [2:0] exe2lsu_ldu_req_uop_func3 [LSU_LDU_COUNT];
@@ -994,6 +996,8 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .dis2iss_req_valid(dis2iss_req_valid),
     // inputs from exu
     .exe2iss_fu_ready_mask(exe2iss_fu_ready_mask),
+    .exe2iss_div_wake_valid(exe2iss_div_wake_valid),
+    .exe2iss_div_wake_preg(exe2iss_div_wake_preg),
     // inputs from idu
     .dec_bcast_br_mask(dec_bcast_br_mask),
     .dec_bcast_clear_mask(dec_bcast_clear_mask),
@@ -1211,6 +1215,8 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .exe2csr_wdata(exe2csr_wdata),
     .exe2csr_wcmd(exe2csr_wcmd),
     .exe2iss_fu_ready_mask(exe2iss_fu_ready_mask),
+    .exe2iss_div_wake_valid(exe2iss_div_wake_valid),
+    .exe2iss_div_wake_preg(exe2iss_div_wake_preg),
     .exe2prf_entry_valid(exe2prf_entry_valid),
     .exe2prf_entry_uop_dest_preg(exe2prf_entry_uop_dest_preg),
     .exe2prf_entry_uop_result(exe2prf_entry_uop_result),

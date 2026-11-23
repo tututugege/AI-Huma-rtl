@@ -4,7 +4,7 @@ area: backend
 rtl: rtl/backend/exu_fu
 model: trace-model back-end/Exu/include/Fu.h（`FuUnit`、`FuMode`、`fu_pipe_latency`、`fu::iter_latency`、`fu::compute`）和 back-end/Exu/Exu.cpp（`Exu::exec` 里按模式处理 FU 的部分）；没有独立的调度单元，属于 `back.exu`
 status: 整核周期与模型逐个相等（fm_gate 67/67，参考 scripts/ref_cycles_memiq6_nr_int2_ev5.txt；沿用 isu.md 记录的验收结果，本文作者没有重跑）
-depth: 73 层（exu（含 exu_ctrl 和全部功能单元），单模块综合，2026-11-18，`SYNTH_ABC="strash;balance;map"`，生成门代理，见第 6 节）
+depth: 98 层（exu（含 exu_ctrl、优化后乘除法与全部自研可综合 RV64FD FPU），单模块综合，2026-11-23，`SYNTH_ABC="strash;balance;map"`，生成门代理，见第 6 节）
 ---
 
 # exu_fu 设计文档
@@ -17,7 +17,7 @@ depth: 73 层（exu（含 exu_ctrl 和全部功能单元），单模块综合，
 
 - **单周期**（SINGLE）：ALU、BRU、AGU、SDU，输入槽里的指令这一拍就出结果，没有状态；CSR 单元没有硬件（见下）；
 - **流水线**（PIPE）：定延迟、每拍可收一条：MUL（延迟 `MUL_MAX_LATENCY = 3`），浮点的 FMA（`FP_FMA_LAT = 3`）、FMISC（`FP_MISC_LAT = 2`）、I2F（`FP_I2F_LAT = 2`）；
-- **迭代**（ITER）：一次只做一条、延迟按操作而变：DIV（`DIV_MAX_LATENCY = 32`，*W 除法减半为 16）、浮点的 FDIV（除法 / 开方，单精度 `FP_FDIV_S_LAT = 11`、`FP_FSQRT_S_LAT = 13`，双精度 `FP_FDIV_D_LAT = 19`、`FP_FSQRT_D_LAT = 23`）。
+- **迭代**（ITER）：一次只做一条、延迟按操作而变：DIV（**1 个 Radix-16 双 Radix-4 + Early-out 变延迟除法器**，`DIV_MAX_LATENCY = 17`，实际延迟 `2..17` 拍，完成前 1 拍经 `wb_next` 独占 Port 1 写回并由 EXU 动态唤醒消费者）、浮点的 FDIV（除法 / 开方，单精度 `FP_FDIV_S_LAT = 11`、`FP_FSQRT_S_LAT = 13`，双精度 `FP_FDIV_D_LAT = 19`、`FP_FSQRT_D_LAT = 23`）。
 
 槽、口内仲裁、写回、flush / 分支号清除的分发都在 `exu_ctrl`；本模块只在两个地方自己处理 flush 和分支掩码：MUL / DIV / 浮点这些会把指令留在单元里若干拍的 FU，要自己杀掉被 flush 或被误预测杀死的指令，并清掉在飞指令 `br_mask` 里已解析的位。
 
@@ -36,7 +36,7 @@ CSR 单元（模型 `FuKind::CSR`）没有运算也没有 FU 侧状态：CSR 指
 | AGU | 7（`LSU_AGU_COUNT`；4 个 load 口的、3 个 STA 口的） | `agu_bank` → `agu` | 单周期 | 6..9、10..12 |
 | SDU | 3（`LSU_SDU_COUNT`） | `sdu_bank` → `sdu` | 单周期 | 13..15 |
 | MUL | 2（`exu_fu_pkg::MUL_NUM`） | `mul_bank` → `mul_unit`（`mul_core` + `mul_pipe`） | 流水线，3 拍 | 0、2 |
-| DIV | 2（`exu_fu_pkg::DIV_NUM`） | `div_bank` → `div_unit`（`exu_iter_ctl` + `div_core`） | 迭代，32 拍（*W 16 拍） | 1、3 |
+| DIV | 1（`exu_fu_pkg::DIV_NUM`） | `div_bank` → `div_unit`（`exu_iter_ctl` + `div_core`） | 迭代，变延迟 2..17 拍（Radix-16 Early-out） | 1 |
 | FMA、FMISC、I2F | 2、3、2 | `fp_pipe_unit`（`mul_pipe` + `fp_core`） | 流水线，3、2、2 拍 | 18、19；18、19、20；2、3 |
 | FDIV | 1 | `fp_div_unit`（`exu_iter_ctl` + `fp_core`） | 迭代，按操作 11 / 13 / 19 / 23 拍 | 20 |
 
@@ -79,11 +79,12 @@ AGU 的 7 个实例是 7 个独立的加法器：共用 AGU 的两对口（load 
 | `agu.sv`、`agu_bank.sv` | 22、33 | 地址加法 |
 | `sdu.sv`、`sdu_bank.sv` | 52、37 | 存储数据 / AMO |
 | `mul_unit.sv`、`mul_bank.sv` | 66、48 | 乘法 FU：乘法器 + 在飞队列 |
-| `mul_core.sv` | 145 | 乘法器，跨 3 拍：仿真用 `a * b`，综合用 Wallace 树 + Kogge-Stone 加法器 |
+| `mul_core.sv` | 172 | 乘法器，跨 3 拍：仿真用 `a * b`，综合用 Radix-4 Booth（34 行）+ Wallace 树 + Kogge-Stone 加法器 |
 | `mul_pipe.sv` | 147 | 定延迟 FU 的在飞指令队列（MUL 和浮点流水 FU 共用，载荷类型是参数） |
-| `div_unit.sv`、`div_bank.sv`、`div_core.sv`、`div_step.sv` | 77、48、122、26 | 除法 FU、恢复除法的数据通路、一步恢复除法 |
+| `div_unit.sv`、`div_bank.sv`、`div_core.sv`、`div_step.sv` | 77、48、239、26 | 除法 FU、恢复除法（仿真 `div_step` / 综合并行 Radix-4 + Kogge-Stone） |
 | `exu_iter_ctl.sv` | 72 | 迭代 FU 的控制骨架（DIV 和 FDIV 共用） |
-| `fp_pipe_unit.sv`、`fp_div_unit.sv`、`fp_core.sv` | 70、92、58 | 浮点 FU 和浮点运算（见第 7 节：综合时 `fp_core` 是占位） |
+| `fp_pipe_unit.sv`、`fp_div_unit.sv`、`fp_core.sv` | 124、105、58 | 浮点 FU 封装与双路径选择：默认仿真走 `fp_core`（DPI SoftFloat），`SYNTHESIS` 或 `-DFPU_REAL` 走自研可综合核心 |
+| `fp_arith_pkg.sv`、`fp_misc_core.sv`、`fp_i2f_core.sv`、`fp_fcvt_core.sv`、`fp_fma_core.sv`、`fp_div_core.sv` | 75、176、107、239、346、342 | 自研可综合 RV64FD 算术核心：公共原语/5 模舍入器、FMISC、I2F、FCVT、3 拍全流水 FMA、迭代 3b/拍 FDIV/FSQRT |
 
 几个非平凡的块：
 
@@ -128,6 +129,7 @@ flush 是 `exu_ctrl` 送来的 `exu2fu_flush = rob_bcast_flush || dec_bcast_misp
 | 改动 | 提交 | 作用 |
 | --- | --- | --- |
 | 乘法器摊在 3 拍延迟上 | `48d547e` | 操作数寄存、乘积存成和 + 进位、再做进位传播加法；综合用 Wallace 树 + Kogge-Stone；`mul_unit` 209 → 90 层；周期不变 |
+| 乘法器 Radix-4 Booth + 1× Radix-16 Early-out 变延迟除法 + 自研可综合 RV64FD FPU | `EXP-061` | `mul_unit` 40,041→27,473 cells (−31.4%)/30 层；`div_unit` 缩为 1 个 Radix-16 双 Radix-4 + Early-out（2..17 拍，EXU 动态唤醒），`div_unit` 12,340 cells / 50 层，`isu` 1,079,759→1,071,347 (−8,412) / 60 层；新增全套自研可综合 RV64FD FPU（`fp_misc_core` 1,874/39 层、`fp_i2f_core` 1,790/73 层、`fp_fcvt_core` 4,646/83 层、`fp_fma_core` 33,776/98 层、`fp_div_core` 10,885/73 层）；整块 `exu` 304,977 cells / 98 层 |
 
 ## 7. 与模型的差异和取舍
 
