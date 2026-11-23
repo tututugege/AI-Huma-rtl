@@ -24,6 +24,8 @@ module lp_wb
   output logic [LQ-1:0]       wb_go_d,             // ... of them, those of the direct / L3 write-back (not a WBP pick)
   output logic [SQ-1:0]       wb_go_s,             // STQ entries whose STA / SC completion is sent
   output logic [SQ-1:0]       sc_go,
+  output logic [NLD-1:0]      wp_v,                // WBP load picked on port p (for same-cycle lp_wake)
+  output logic [LQW-1:0]      wp_idx [NLD],
   // load write-back ports
   output logic [NLD-1:0]      wb_valid,
   output logic [XLEN_BITS-1:0]         wb_diag [NLD],
@@ -132,6 +134,8 @@ module lp_wb
     for (int p = 0; p < NLD; p++) begin
       ld_v[p] = wbd_v[p] || kind_wp[p];
       ld_i[p] = wbd_v[p] ? wbd_idx[p] : wp_idx_p[p];
+      wp_v[p] = kind_wp[p];
+      wp_idx[p] = wp_idx_p[p];
     end
   end
 

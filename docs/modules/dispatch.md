@@ -3,8 +3,8 @@ module: dispatch
 area: backend
 rtl: rtl/backend/dispatch
 model: trace-model back-end/Dispatch.cpp、back-end/include/Dispatch.h（调度单元 `back.dis`，类 `Dispatch`，阶段 `comb_alloc`、`comb_dispatch`）
-status: 整核周期与模型逐个相等（fm_gate 68/68，0 周期偏差）
-depth: 56 层（rtl/be-wake-byp-opt，176,071 单元，−5.6%；main 186,536 单元 / 56 层）（dispatch，单模块综合，2026-11-21，`SYNTH_ABC="strash;balance;map"`，生成门代理，见第 6 节）
+status: 整核周期与模型逐个相等（EXP-060，`fm_gate` 69/69 PASS、0 周期偏差，Linux 26 窗 100% 全等）
+depth: 57 层（`rtl/ld-wake`，212,064 单元，开启 `LP_L2[3]` 取消向量与 30 路唤醒，深度 0 增长、面积 +5.9%）（dispatch，单模块综合，2026-11-23，`SYNTH_ABC="strash;balance;map"`，生成门代理，见第 10 节）
 ---
 
 # dispatch 设计文档
@@ -188,4 +188,5 @@ RTL 与模型保持一致的细节（读模型时容易误判）：
 - `6d7ed85`：两个 INT 队列（CSR 进 INT0、I2F 进 INT1、其余按 `rob_idx` 奇偶）；2026-11-18 删掉 `INT_CLUSTERS` 开关，分流直接写成唯一做法。
 - `237738c`：load 和 STA 合并进一个内存队列（`dispatch_iq_alloc`、`dispatch_iq_req` 按队列计数和放置，AMO 向内存队列送两个）。
 - 更早：见 git 历史。
+- 2026-11-23（`rtl/ld-wake`，EXP-060）：随 `LP_L2[3]=1` 启用 `g_cancel` 取消向量与 30 路唤醒；`eda-08` Yosys：`dispatch` **57 层**（较 EXP-059 57 层 0 增长）/ 212,064 单元（+5.9%）；`fm_gate` 69/69 PASS 0 周期差，Linux 26 窗 100% 全等。
 - 2026-11-18：删除 `ROB_COMPACT == 0`（行式 ROB）的分支：`dispatch_core` 里 `rob_idx` 按行编号的写法、`dispatch_fire_ctl` 里 `rob_fit` 恒真的写法，以及 `dis_pkg` 里只给它们用的 `ROB_BANK_W`、`ROB_LINE_W`。

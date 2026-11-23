@@ -176,13 +176,15 @@ module lp_core
   logic [NLD-1:0]  wbw_v, wbw_hd;
   logic [LQW-1:0]  wbw_idx [NLD];
   logic [XLEN_BITS-1:0]     wbw_data [NLD];
+  logic [NLD-1:0]  wb_wp_v;
+  logic [LQW-1:0]  wb_wp_idx [NLD];
   lp_l3 u_l3 (.clk(clk), .rst_n(rst_n), .wbd_v(wbd_v), .wbd_idx(wbd_idx), .wbd_hasdata(wbd_hasdata),
               .wbd_data(wbd_data), .wb3_r(wb3_r), .wbw_v(wbw_v), .wbw_idx(wbw_idx), .wbw_hd(wbw_hd),
               .wbw_data(wbw_data));
   lp_wake u_wake (.clk(clk), .rst_n(rst_n), .flush(rb_flush), .mispred(dec_mispred), .dec_br_mask(dec_br_mask),
-                  .pl12(pl12_q), .l2_ok(l2_ok), .ldq_q(ldq_q), .wbd_v(wbd_v), .wbd_idx(wbd_idx), .wbw_v(wbw_v),
-                  .wbw_idx(wbw_idx), .wk_valid(o_wk_valid), .wk_preg(o_wk_preg), .cn_valid(o_cn_valid),
-                  .cn_preg(o_cn_preg));
+                  .pl12(pl12_q), .l2_ok(l2_ok), .ldq_q(ldq_q), .sq(sq), .wbd_v(wbd_v), .wbd_idx(wbd_idx),
+                  .wbw_v(wbw_v), .wbw_idx(wbw_idx), .wp_v(wb_wp_v), .wp_idx(wb_wp_idx),
+                  .wk_valid(o_wk_valid), .wk_preg(o_wk_preg), .cn_valid(o_cn_valid), .cn_preg(o_cn_preg));
 
   // ------------------------------------------------------------------ write-back (P5)
   logic [LQ-1:0]   wb_go, wb_go_d;
@@ -198,7 +200,7 @@ module lp_core
     .wbd_v(wbw_v), .wbd_idx(wbw_idx), .wbd_hasdata(wbw_hd), .wbd_data(wbw_data),
     .ldq_q(ldq_q), .ldq_res(res_v), .wbp_vec(wbp_sel), .sq(sq), .alive_w(alive_w), .head_q(head_q),
     .rsv_valid(rsv_valid_q), .rsv_addr(rsv_addr_q), .wb_go(wb_go), .wb_go_d(wb_go_d), .wb_go_s(wb_go_s),
-    .sc_go(sc_go),
+    .sc_go(sc_go), .wp_v(wb_wp_v), .wp_idx(wb_wp_idx),
     .wb_valid(wb_valid), .wb_diag(wb_diag), .wb_result(wb_result), .wb_dest(wb_dest), .wb_br(wb_br),
     .wb_rob(wb_rob), .wb_dest_en(wb_dest_en), .wb_pf_load(wb_pf_load), .wb_pf_store(wb_pf_store),
     .wb_defer(wb_defer), .wb_flushp(wb_flushp), .wb_isw(wb_isw),

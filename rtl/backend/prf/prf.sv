@@ -254,8 +254,10 @@ module prf import ttg_cfg_pkg::*; import fp_pkg::*; #(
   logic unused_pruned_in;
   always_comb begin
     unused_pruned_in = 1'b0;
-    for (int k = 0; k < LSU_LOAD_WB_WIDTH; k++)
-      unused_pruned_in ^= lsu_byp_valid[k] ^ (^lsu_byp_dest_preg[k]) ^ (^lsu_byp_result[k]);
+    if (!HAS_LSU_BYP) begin
+      for (int k = 0; k < LSU_LOAD_WB_WIDTH; k++)
+        unused_pruned_in ^= lsu_byp_valid[k] ^ (^lsu_byp_dest_preg[k]) ^ (^lsu_byp_result[k]);
+    end
     for (int i = 0; i < NIP; i++) begin
       if (!int_rd_need(1, i) && !lane_is_fp(i))
         unused_pruned_in ^= iss2prf_iss_entry_uop_src2_en[i] ^ (^iss2prf_iss_entry_uop_src2_preg[i]);
@@ -297,18 +299,21 @@ module prf import ttg_cfg_pkg::*; import fp_pkg::*; #(
     .rd_data (int_rf_data)
   );
 
-  // ---- operand read ports with wakeup-driven EXU bypass + registered WB bypass ----
+  // ---- operand read ports with wakeup-driven EXU bypass + LSU L2-spec bypass + registered WB bypass ----
   for (genvar r = 0; r < N_INT_RD; r++) begin : g_rd
-    prf_bypass #(.WBL(WL), .EXU_N(ALU_NUM)) u_bypass (
-      .src_en       (int_rd_en[r]),
-      .src_preg     (int_rd_preg[r]),
-      .rf_data      (int_rf_data[r]),
-      .wb_wen       (wb_wen_q),
-      .wb_dest_preg (wb_dest_preg_q),
-      .wb_result    (wb_result_q),
-      .fu_sel       (int_rd_byp[r]),
-      .fu_result    (int_exu_res),
-      .rdata        (int_rdata[r])
+    prf_bypass #(.WBL(WL), .EXU_N(ALU_NUM), .HAS_LSU_BYP(HAS_LSU_BYP)) u_bypass (
+      .src_en         (int_rd_en[r]),
+      .src_preg       (int_rd_preg[r]),
+      .rf_data        (int_rf_data[r]),
+      .wb_wen         (wb_wen_q),
+      .wb_dest_preg   (wb_dest_preg_q),
+      .wb_result      (wb_result_q),
+      .fu_sel         (int_rd_byp[r]),
+      .fu_result      (int_exu_res),
+      .lsu_byp_valid  (lsu_byp_valid),
+      .lsu_byp_preg   (lsu_byp_dest_preg),
+      .lsu_byp_result (lsu_byp_result),
+      .rdata          (int_rdata[r])
     );
   end
 

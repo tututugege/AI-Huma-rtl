@@ -159,8 +159,6 @@ module isu
   logic [PRF_IDX_WIDTH-1:0] slow_int_preg [SLOW_INT_N];
   logic [PRF_NUM-1:0]       woken_slow_int;
   logic [FP_TAGS-1:0]       woken_slow_fp;
-  logic [PRF_NUM-1:0]       cancel_int;
-  logic [FP_TAGS-1:0]       cancel_fp;
 
   // Only ALU lanes 0..3 have delayed MUL/DIV EXU bypass wake-ups (lanes 4..5 are plain ALU)
   logic [3:0]       slow_exu_v4;
@@ -231,19 +229,8 @@ module isu
     assign woken_slow_fp = '0;
   end
 
-  // LP_L2[3] (speculative load wake-up): the [p] wake-ups and the cancel exist only then.
-  if (HAS_SPEC_WAKE) begin : g_spec_cancel
-    isu_wake_bus #(.N(LSU_LDU_COUNT), .BASE(0), .TAGS(PRF_NUM)) u_cancel_int (
-      .wake_valid(lsu2iss_cancel_valid), .wake_preg(lsu2iss_cancel_preg), .woken(cancel_int));
-    if (FP_EN) begin : g_cfp
-      isu_wake_bus #(.N(LSU_LDU_COUNT), .BASE(FP_TAG_BASE), .TAGS(FP_TAGS)) u_cancel_fp (
-        .wake_valid(lsu2iss_cancel_valid), .wake_preg(lsu2iss_cancel_preg), .woken(cancel_fp));
-    end else begin : g_ncfp
-      assign cancel_fp = '0;
-    end
-  end else begin : g_nospec_wake
-    assign cancel_int = '0;
-    assign cancel_fp  = '0;
+  // LP_L2[3] (speculative load wake-up): the [p] wake-ups and 4-way direct cancel exist only then.
+  if (!HAS_SPEC_WAKE) begin : g_nospec_wake
     /* verilator lint_off UNUSEDSIGNAL */
     logic [LSU_LDU_COUNT-1:0] unused_spec_valid;  // spec wake-up / cancel inputs have no consumer
     assign unused_spec_valid = lsu2iss_wake_valid[LSU_LDU_COUNT-1:0] | lsu2iss_cancel_valid;
@@ -403,7 +390,7 @@ module isu
       .fp_free1_cls(fp_free1_cls), .fp_free2_cls(fp_free2_cls),
       .issue_block(issue_block), .flush_all(rob_bcast_flush), .flush_br(flush_br),
       .flush_br_mask(dec_bcast_br_mask), .clear_mask(dec_bcast_clear_mask),
-      .cancel_int(cancel_int), .cancel_fp(cancel_fp),
+      .cancel_valid(lsu2iss_cancel_valid), .cancel_preg(lsu2iss_cancel_preg),
       .free_slots(free_slots), .cand_valid(g_cand), .grant_valid(g_valid),
       .grant_uop(g_uop), .grant_src1_byp(g_byp1), .grant_src2_byp(g_byp2),
       .grant_fpw(g_fpw), .grant_fp_cls1h(g_fp_cls1h), .grant_fp_f1(g_fp_f1), .grant_fp_f2(g_fp_f2));

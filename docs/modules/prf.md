@@ -3,8 +3,8 @@ module: prf
 area: backend
 rtl: rtl/backend/prf
 model: 当前 trace-model 里没有对应的调度单元：模型没有寄存器堆（操作数值是 trace 的事实），`Prf.cpp` 已不存在。唯一有对应的时序行为是 back-end/Exu/Exu.cpp 的 `Exu::load_wake` 和 `LoadWake` 写回寄存器（RTL 的 `prf_awake`）；FTQ pc 读口对应 `Exu::seq` 里的 `needs_ftq_pc`
-status: 整核周期与模型逐个相等（fm_gate 68/68，0 周期偏差）
-depth: 25 层 / 614,529 单元（EXP-054 `PRF_NUM=256 / ROB_NUM=256`，较 128 项 395,785 单元 / 27 层 深度降 2 层、仍低于瘦身前 128 项的 679,466 单元）（prf，单模块综合，2026-11-22，`SYNTH_ABC="strash;balance;map"`，生成门代理，见第 6 节）
+status: 整核周期与模型逐个相等（EXP-060，`fm_gate` 69/69 PASS、0 周期偏差，Linux 26 窗 100% 全等）
+depth: 25 层 / 639,644 单元（EXP-060 开启 `HAS_LSU_BYP` 4 路整数 `lsu_byp` 旁路，深度 0 增长、面积 +4.1%）（prf，单模块综合，2026-11-23，`SYNTH_ABC="strash;balance;map"`，生成门代理，见第 10 节）
 ---
 
 # prf 设计文档
@@ -143,6 +143,7 @@ RTL 与模型保持一致的细节：
 
 ## 10. 变更记录
 
+- 2026-11-23（`rtl/ld-wake`，EXP-060）：`prf_bypass.sv` 新增 `HAS_LSU_BYP` 参数与 4 路 `lsu_byp` 旁路（`ttg_onehot_mux`），`prf.sv` 将 `lsu_byp_{valid,dest_preg,result}` 接入整数读口旁路（FP 侧此前已接通），支持 L2 推测唤醒消费者在 L3 写回同拍直接旁路取值；`eda-08` Yosys：`prf` **25 层**（0 增长）/ 639,644 单元（+4.1%）；`fm_gate` 69/69 PASS 0 周期差，Linux 26 窗 100% 全等。
 - 2026-11-21（`rtl/be-wake-byp-opt`，后端阶段一瘦身）：整数读口按发射口需求由 42 减至 27 个（`prf_regfile` 改为平铺 `NRD` 口，裁掉 LD/STA `src2`、共用 STA `src1` 及 FP 口整数读口）；FU 旁路源按数据域裁剪（整数 35→14 路，浮点 35→8 路，`lsu_byp` 随 `LP_L2[3]` 编译期门控）；零周期变化。
 - 2026-11-21（`rtl/fe-2fetch-2taken`，EXP-051 里程碑 B）：`prf.sv` 透传 4 位 `iss2prf_iss_entry_uop_ftq_offset` → `prf2exe_iss_entry_uop_ftq_offset` 至 EXU；通过 `lint_chip` 0、`fm_gate` 68/68（0 周期偏差）与 Linux 27 窗对齐。
 - 2026-11-19（`exp/wb-presel`，EXP-046）：写回总线按通道编号（`WB_LANES = 13`），不再按发射口（21）：STA / STD / BR 口的空通道去掉，整数寄存器堆 21 → 13 个写口，写回级、写回旁路、load 唤醒同步；`prf_bypass` 的参数改名 `WBL`（避开包里的 `WB_LANES`）。周期不变。

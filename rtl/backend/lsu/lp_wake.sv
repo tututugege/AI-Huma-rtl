@@ -21,10 +21,15 @@ module lp_wake
   input  lp_pl12_t            pl12 [NLD],
   input  logic [LQ-1:0]       l2_ok,                 // entry of the L1/L2 register still PIPE, same epoch
   input  lp_ldq_t             ldq_q [LQ],
+  /* verilator lint_off UNUSEDSIGNAL */  // only data_v / suppress of candidate store are read
+  input  lp_stq_t             sq [SQ],
+  /* verilator lint_on UNUSEDSIGNAL */
   input  logic [NLD-1:0]      wbd_v,                 // direct completions decided at L2 (before L3)
   input  logic [LQW-1:0]      wbd_idx [NLD],
-  input  logic [NLD-1:0]      wbw_v,                 // write-back requests of this cycle
+  input  logic [NLD-1:0]      wbw_v,                 // write-back requests of this cycle (L3)
   input  logic [LQW-1:0]      wbw_idx [NLD],
+  input  logic [NLD-1:0]      wp_v,                  // write-back requests of this cycle (WBP)
+  input  logic [LQW-1:0]      wp_idx [NLD],
   output logic [2*NLD-1:0]    wk_valid,
   output logic [PRFW-1:0]     wk_preg [2*NLD],
   output logic [NLD-1:0]      cn_valid,
@@ -40,21 +45,27 @@ module lp_wake
     for (int k = 0; k < 2 * NLD; k++) wk_preg[k] = '0;
     spec_w = '0;
     for (int p = 0; p < NLD; p++) begin
-      // L2 speculative wake-up (d)
+      // L2 speculative wake-up (d): L1D hit or STLF with store data ready
       if ((LP_L2 & 8) != 0) begin
         spec_w[p] = pl12[p].v && l2_ok[pl12[p].ldq] && pl12[p].tlb == TLB_HIT && !pl12[p].mmio &&
-                    !pl12[p].cand_v && !pl12[p].dcblk && ldq_q[pl12[p].ldq].dest_preg != '0 && !flush &&
+                    (!pl12[p].cand_v || (sq[pl12[p].cand].data_v && !sq[pl12[p].cand].suppress)) &&
+                    !pl12[p].dcblk && !(MS && ldq_q[pl12[p].ldq].second) &&
+                    ldq_q[pl12[p].ldq].dest_preg != '0 && !flush &&
                     !(mispred && (ldq_q[pl12[p].ldq].br_mask & dec_br_mask) != '0);
         wk_valid[p] = spec_w[p];
         wk_preg[p] = ldq_q[pl12[p].ldq].dest_preg;
       end
-      // L3 wake-up (a2): not for a load that was woken speculatively
+      // L3 + WBP wake-up (a2): not for a load that was woken speculatively at L2
       if ((LP_L2 & 3) == 3) begin
-        wk_valid[NLD + p] = wbw_v[p] && !l3_sw_q[p] && !(MS && ldq_q[wbw_idx[p]].second) &&
-                            !ldq_q[wbw_idx[p]].pf &&
-                            ldq_q[wbw_idx[p]].dest_preg != '0 && !flush &&
-                            !(mispred && (ldq_q[wbw_idx[p]].br_mask & dec_br_mask) != '0);
-        wk_preg[NLD + p] = ldq_q[wbw_idx[p]].dest_preg;
+        logic ld_wb_v;
+        logic [LQW-1:0] ld_wb_i;
+        ld_wb_v = (wbw_v[p] && !l3_sw_q[p]) || wp_v[p];
+        ld_wb_i = wbw_v[p] ? wbw_idx[p] : wp_idx[p];
+        wk_valid[NLD + p] = ld_wb_v && !(MS && ldq_q[ld_wb_i].second) &&
+                            !ldq_q[ld_wb_i].pf &&
+                            ldq_q[ld_wb_i].dest_preg != '0 && !flush &&
+                            !(mispred && (ldq_q[ld_wb_i].br_mask & dec_br_mask) != '0);
+        wk_preg[NLD + p] = ldq_q[ld_wb_i].dest_preg;
       end
     end
   end

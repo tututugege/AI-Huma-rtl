@@ -28,7 +28,7 @@ package lp_pkg;
   //   bit9 P   : log-depth find-first-set (lp_ffs) in the LSU instead of the carry-chain primitive (equivalent)
   //   bit11 R  : wake-up confirm range compare against thresholds from the load side (no adder after the store)
   //   bit10 T  : STQ mispredict cut: first hit searched without the count mask in front (equivalent)
-  localparam int LP_L2 = 1907;
+  localparam int LP_L2 = 1915;
   // 1: the STA / STD events and broadcast views are registered before the wake-up of the parked loads (model CFG_LSU_STAEV_REG)
   // memory-dependence speculation (EXP-018, model CFG_LSU_MEMSPEC): loads pass older stores with an unknown address
   localparam bit MS   = LSU_MEMSPEC != 0;

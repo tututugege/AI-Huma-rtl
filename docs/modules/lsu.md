@@ -3,8 +3,8 @@ module: lsu
 area: backend
 rtl: rtl/backend/lsu
 model: trace-model back-end/Lsu/RealLsuPipe.cpp、LsuPipeOutputs.cpp、LsuPipeWriteback.cpp、LsuPipeTranslate.cpp、LsuPipeRequests.cpp、LsuPipeInternal.h、include/RealLsu.h、include/RealLsuPipe.h（调度单元 `back.lsu`，类 `RealLsu`，阶段 `comb_outputs / comb_writeback / comb_translate / comb_requests / comb_commit_store`）
-status: 最近一次改 LSU 的提交（312e6f8）的说明写 fm_gate 67/67、周期等于参考表；本次写文档没有重跑（见第 8 节）
-depth: 101 层（lsu，单模块综合，2026-11-20，`SYNTH_ABC="strash;balance;map"`，生成门代理，见 09-synthesis-report 第 12 节）
+status: 整核周期与模型逐个相等（EXP-060，`fm_gate` 69/69 PASS、0 周期偏差，Linux 26 窗 100% 全等）
+depth: 101 层（lsu，1,239,556 单元，单模块综合，2026-11-23，`SYNTH_ABC="strash;balance;map"`，生成门代理，见第 10 节）
 ---
 
 # lsu 设计文档
@@ -336,13 +336,13 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 | 16 | E8 | epoch 和 `pipe8` 用 `~dead_r`（`lp_ldq_ent`、`lp_core`） |
 | 17 | FM | 本拍 MMIO 响应的 load 本拍可写回（`lp_core` 的 `wbp_sel`） |
 
-**`LP_L2`（1907 = 位 0、1、4、5、6、8、9、10 为 1）**：
+**`LP_L2`（1915 = 位 0、1、3、4、5、6、8、9、10 为 1）**：
 
 | 位 | 名 | 现行 | 作用 |
 | --- | --- | --- | --- |
 | 0 | a | 1 | L3 寄存器：L2 的直接完成晚一拍写回 |
-| 1 | a2 | 1 | 从 L3 寄存器写回的 load 在写回请求的同一拍唤醒消费者 |
-| 3 | d | 0 | L2 推测唤醒，下一拍不是 HIT 则取消 |
+| 1 | a2 | 1 | 从 L3 寄存器或 WBP 写回的 load 在写回请求的同一拍唤醒消费者 |
+| 3 | d | 1 | L2 推测唤醒（L1D Hit 及 `data_v=1` 的 STLF 候选），下一拍未直接完成则寄存取消 |
 | 4 | F | 1 | 本拍刚得到 MSHR_FULL 的 load 不被本拍的填充唤醒 |
 | 5 | M | 1 | 本拍在 L2 变成 `LS_MMW` 的 MMIO load 晚一拍发射 |
 | 6 | S | 1 | 每拍最多一个 SC 完成 |
@@ -360,4 +360,5 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 - 更早：见 git 历史（分级 LSU 合入 2026-11-07，store 写缓冲 EXP-024，访存推测 EXP-018 / 019，rv64 等）。
 
 - 2026-11-18：删除旧 LSU 和没用的东西：30 个 `lsu_*` 文件（2688 行）、`lsu.sv` 里 `LSU_PIPE = 0` 的分支和 `LSU_PIPE` 常量（`dcache_s1`、`back_top`、`tb/soc/build.sh` 里依赖它的地方改为无条件）、`lp_pkg::NDC`；`lp_stq_ent` 里 `dr_pick ? rw13 : rw13` 两边相同，简化成 `rw13`。整核周期不变（见提交说明）。
+- 2026-11-23（`rtl/ld-wake`，EXP-060）：开启 `LP_L2[3]`（`LP_L2 = 1915`）实现 L2 推测唤醒（Hit 与 `data_v=1` 且 `!suppress` 的 STLF 候选均在 L2 提前 1 拍发 `wk_valid[p]`，排除 `second` 违例重放项；未直接完成时寄存 `cn_q` 于下拍取消），并在 `lp_wb` 导出 `wp_v/wp_idx` 让 WBP（Miss/Replay 返回）load 共享 `wk_valid[NLD+p]` 同拍唤醒；`eda-08` Yosys：`lsu` **101 层**（0 增长）/ 1,239,556 单元；`fm_gate` 69/69 PASS 0 周期差，Linux 26 窗 1.326 亿指令 0 FM 差且 26/26 PT/UP 全等。
 - 2026-11-18：删除只剩一种取值的 `LP_STAEV_REG`（STA / STD 事件寄存直接展开，`lp_core.sv` 里没有 `generate` 的另一支）和 `LSU_WAIT_MSHR_FILL`（`fill_en = fill_valid`）。

@@ -35,8 +35,8 @@ module isu_iq
   input  logic [INT_W-1:0]         slow_exu_preg [4],
   input  logic [FAST_UNITS-1:0]    fast_valid,
   input  logic [INT_W-1:0]         fast_preg [FAST_UNITS],
-  input  logic [PRF_NUM-1:0]       cancel_int,      // wake-up of the previous cycle was wrong: waiting again (LP_L2)
-  input  logic [FP_TAGS-1:0]       cancel_fp,
+  input  logic [LSU_LDU_COUNT-1:0] cancel_valid,    // wake-up of the previous cycle was wrong: waiting again (LP_L2)
+  input  logic [PRF_IDX_WIDTH-1:0] cancel_preg [LSU_LDU_COUNT],
   /* verilator lint_on UNUSEDSIGNAL */
   input  op_set_t                  fu_ready [NP],   // per port: op classes the functional unit accepts now
   input  logic [NP-1:0]            gate_ok,         // FP write-port gate (isu_fp_gate); 1 for ports without one
@@ -395,7 +395,7 @@ module isu_iq
     .woken_slow_int(woken_slow_int), .woken_slow_fp(woken_slow_fp),
     .slow_exu_valid(slow_exu_valid), .slow_exu_preg(slow_exu_preg),
     .fast_valid(fast_valid), .fast_preg(fast_preg),
-    .cancel_int(cancel_int), .cancel_fp(cancel_fp),
+    .cancel_valid(cancel_valid), .cancel_preg(cancel_preg),
     .issue_clear(granted_slot), .flush_all(flush_all), .flush_br(flush_br), .flush_br_mask(flush_br_mask),
     .clear_mask(clear_mask),
     .slot_valid(slot_valid), .slot_ready(slot_ready), .slot_uop(slot_uop),

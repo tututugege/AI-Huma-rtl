@@ -37,8 +37,8 @@ module isu_iq_store
   input  logic [INT_W-1:0]         slow_exu_preg [4],
   input  logic [FAST_UNITS-1:0]    fast_valid,
   input  logic [INT_W-1:0]         fast_preg [FAST_UNITS],
-  input  logic [PRF_NUM-1:0]       cancel_int,     // wrong speculative load wake-up (LP_L2[3]): wait again
-  input  logic [FP_TAGS-1:0]       cancel_fp,
+  input  logic [LSU_LDU_COUNT-1:0] cancel_valid,   // wrong speculative load wake-up (LP_L2[3]): 4-way direct compare
+  input  logic [PRF_IDX_WIDTH-1:0] cancel_preg [LSU_LDU_COUNT],
   /* verilator lint_on UNUSEDSIGNAL */
   input  logic [SIZE-1:0]          issue_clear,    // slots granted this cycle
   input  logic                     flush_all,
@@ -55,6 +55,18 @@ module isu_iq_store
 
   localparam int UW   = $bits(isu_uop_t);
   localparam int FP_W = (FP_TAGS > 1) ? $clog2(FP_TAGS) : 1;
+
+  function automatic logic match_cancel(
+    input logic [LSU_LDU_COUNT-1:0] cn_v,
+    input logic [PRF_IDX_WIDTH-1:0] cn_p [LSU_LDU_COUNT],
+    input logic [PRF_IDX_WIDTH-1:0] preg
+  );
+    logic m;
+    m = 1'b0;
+    for (int k = 0; k < LSU_LDU_COUNT; k++)
+      m = m || (cn_v[k] && (cn_p[k] == preg));
+    return m;
+  endfunction
 
   function automatic logic lookup_int_map(input logic [PRF_NUM-1:0] m, input logic [PRF_IDX_WIDTH-1:0] preg);
     return (preg < PRF_IDX_WIDTH'(PRF_NUM)) ? m[preg[INT_W-1:0]] : 1'b0;
@@ -93,13 +105,13 @@ module isu_iq_store
     // ---- src1 wait, wake, and EXU bypass mask ----
     logic s1_cancel, s1_slow, s1_fast, s1_after_slow;
     if (SRC1_DOM == 1) begin : g_s1_fp
-      assign s1_cancel    = HAS_CANCEL ? lookup_fp_map(cancel_fp, uop_q.src1_preg) : 1'b0;
+      assign s1_cancel    = HAS_CANCEL ? match_cancel(cancel_valid, cancel_preg, uop_q.src1_preg) : 1'b0;
       assign s1_slow      = lookup_fp_map(woken_slow_fp, uop_q.src1_preg);
       assign s1_fast      = 1'b0;
       assign slot_byp1[i] = '0;
     end else begin : g_s1_int
       logic [ALU_NUM-1:0] s1_fast_match, s1_slow_exu_match, enq_byp1_sel, byp1_q, byp1_d;
-      assign s1_cancel = HAS_CANCEL ? lookup_int_map(cancel_int, uop_q.src1_preg) : 1'b0;
+      assign s1_cancel = HAS_CANCEL ? match_cancel(cancel_valid, cancel_preg, uop_q.src1_preg) : 1'b0;
       assign s1_slow   = lookup_int_map(woken_slow_int, uop_q.src1_preg);
       always_comb begin
         s1_slow_exu_match = '0;
@@ -128,7 +140,7 @@ module isu_iq_store
       logic wait2_q, wait2_d;
       logic s2_cancel, s2_slow, s2_fast, s2_after_slow;
       if (SRC2_DOM == 1) begin : g_s2_fp
-        assign s2_cancel    = HAS_CANCEL ? lookup_fp_map(cancel_fp, uop_q.src2_preg) : 1'b0;
+        assign s2_cancel    = HAS_CANCEL ? match_cancel(cancel_valid, cancel_preg, uop_q.src2_preg) : 1'b0;
         assign s2_slow      = lookup_fp_map(woken_slow_fp, uop_q.src2_preg);
         assign s2_fast      = 1'b0;
         assign slot_byp2[i] = '0;
@@ -136,10 +148,7 @@ module isu_iq_store
         logic s2_is_int;
         logic [ALU_NUM-1:0] s2_fast_match, s2_slow_exu_match, enq_byp2_sel, byp2_q, byp2_d;
         assign s2_is_int = uop_q.src2_preg < PRF_IDX_WIDTH'(PRF_NUM);
-        assign s2_cancel = HAS_CANCEL
-                           ? (s2_is_int ? lookup_int_map(cancel_int, uop_q.src2_preg)
-                                        : lookup_fp_map(cancel_fp, uop_q.src2_preg))
-                           : 1'b0;
+        assign s2_cancel = HAS_CANCEL ? match_cancel(cancel_valid, cancel_preg, uop_q.src2_preg) : 1'b0;
         assign s2_slow   = s2_is_int ? lookup_int_map(woken_slow_int, uop_q.src2_preg)
                                      : lookup_fp_map(woken_slow_fp, uop_q.src2_preg);
         always_comb begin
@@ -161,7 +170,7 @@ module isu_iq_store
         assign slot_byp2[i] = byp2_q;
       end else begin : g_s2_int
         logic [ALU_NUM-1:0] s2_fast_match, s2_slow_exu_match, enq_byp2_sel, byp2_q, byp2_d;
-        assign s2_cancel = HAS_CANCEL ? lookup_int_map(cancel_int, uop_q.src2_preg) : 1'b0;
+        assign s2_cancel = HAS_CANCEL ? match_cancel(cancel_valid, cancel_preg, uop_q.src2_preg) : 1'b0;
         assign s2_slow   = lookup_int_map(woken_slow_int, uop_q.src2_preg);
         always_comb begin
           s2_slow_exu_match = '0;
@@ -197,7 +206,7 @@ module isu_iq_store
     if (HAS_SRC3) begin : g_s3
       logic wait3_q, wait3_d;
       logic s3_cancel, s3_slow;
-      assign s3_cancel = HAS_CANCEL ? lookup_fp_map(cancel_fp, uop_q.src3_preg) : 1'b0;
+      assign s3_cancel = HAS_CANCEL ? match_cancel(cancel_valid, cancel_preg, uop_q.src3_preg) : 1'b0;
       assign s3_slow   = lookup_fp_map(woken_slow_fp, uop_q.src3_preg);
       assign wait3_c   = HAS_CANCEL ? (wait3_q || (uop_q.src3_en && s3_cancel)) : wait3_q;
       assign wait3_d   = write ? |(hit & enq_wait3) : (wait3_c & ~s3_slow);
