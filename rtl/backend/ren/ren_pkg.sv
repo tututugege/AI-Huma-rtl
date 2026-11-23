@@ -24,6 +24,16 @@ package ren_pkg;
   typedef logic [CNT_W-1:0] cnt_t;
   typedef preg_t [RAT_NUM-1:0] rat_t;
 
+  // One entry of Ren's local ROB-indexed rename log (27 bits/entry, 8 banks x ROB_LINE_NUM rows).
+  typedef struct packed {
+    logic  dest_en;
+    logic  dest_fp;
+    areg_t dest_areg;
+    preg_t dest_preg;
+    preg_t old_dest_preg;
+    logic  me_elim;
+  } ren_log_entry_t;
+
   // one decoded instruction as held in the Rename pipeline register (DecRenIO::DecRenInst; only fields with a
   // consumer: tma/dbg and the always-zero expect_mask/cplt_mask are dropped)
   typedef struct packed {
@@ -90,7 +100,6 @@ package ren_pkg;
     preg_t dest_preg;
     preg_t src1_preg;
     preg_t src2_preg;
-    preg_t old_dest_preg;
     logic me_elim;     // move elimination: dest_preg is src1_preg's register, no uop is issued
     logic dest_fp;
     logic src1_fp;
@@ -100,20 +109,14 @@ package ren_pkg;
     logic [2:0] fp_cls;
   } ren_out_uop_t;
 
-  // the part of a ROB commit entry Ren reads (RobCommitIO::RobCommitEntry)
+  // the part of a ROB commit entry Ren reads (rename fields live in Ren's local ren_log)
   typedef struct packed {
     logic valid;
-    logic dest_en;
-    areg_t dest_areg;
-    preg_t dest_preg;
-    preg_t old_dest_preg;
     logic page_fault_inst;
     logic page_fault_load;
     logic page_fault_store;
     logic illegal_inst;
     logic [INST_TYPE_WIDTH-1:0] inst_type;
-    logic me_elim;
-    logic dest_fp;
   } ren_commit_t;
 
   // `addi rd, rs, 0` with rd and rs real registers (back-end/include/util.h is_move_shape)

@@ -3,8 +3,8 @@ module: ren
 area: backend
 rtl: rtl/backend/ren
 model: trace-model back-end/Ren.cpp、back-end/include/Ren.h（调度单元 `back.rename`，类 `Ren`，阶段 `comb_rename`、`comb_fire`）
-status: 整核周期与模型逐个相等（fm_gate 68/68，0 周期偏差；`tests/ren_elim_sel/run.sh` 100k 随机 0 不一致）
-depth: 91 层（ren，单模块综合，2026-11-22，`SYNTH_ABC="strash;balance;map"`，`PRF_NUM=256 / ROB_NUM=256`，586,315 cells；较同配置未优化 100 层 −9 层，较 128/128 基线 97 层 −6 层）
+status: 整核周期与模型逐个相等（fm_gate 69/69，0 周期偏差；稀疏 K=4 单写口检查点 + 本地 256×27b ROB-indexed RenLog + 8 宽前向 Walk）
+depth: 91 层（ren，单模块综合，2026-11-23，`SYNTH_ABC="strash;balance;map"`，`PRF_NUM=256 / ROB_NUM=256 / REN_CKPT_NUM=4 / REN_CKPT_INTERVAL=32`，156,986 cells；较全分支 32×8 写口基线 586,315 cells 降 −429,329 cells / −73.22%，深度与基线 91 层完全持平）
 ---
 
 # ren 设计文档
@@ -165,6 +165,7 @@ RTL 与模型的实现差别（行为等价）：
 
 ## 10. 变更记录
 
+- 2026-11-23（`rtl/ren-ckpt-walk`）：将 ROB 中的重命名字段（`dest_preg`/`old_dest_preg`/`me_elim`）抽离至 `ren` 本地 256×25b ROB 索引日志表 `ren_log`（8 bank × 32 行，1R1W），将 `ren_ckpt` 从 32 项×8 写口缩减为 `REN_CKPT_NUM=4` 项×1 写口 FIFO（`ren_ckpt_ctl` 控制，分支间距 ≥ `REN_CKPT_INTERVAL=32` 分配，误预测时命中检查点 0 拍恢复、未命中则回退至最近检查点或 `arch_rat` 并复用 `ren_rat` 8 宽写口前向 Walk，Walk 期间经 `ren2rob_walking` 暂停 ROB 提交）；同步将 `ren_free_list` / `ren_fp_free_list` 改为 8-bank 1R1W（8b/7b 域内窄位宽）、删除 `ren_rat` 的 8 份全量 `snapshot[0..7]` 改双口直算、`ren_ckpt_ctl` 预计算 `used_after/tail_after` 并将 `ckpt_wr_lane_oh` 提前至 `inst_valid`。`eda-08` Yosys：`ren` **586,315 → 156,986 cells（−73.22%）/ 91 层（与基线持平）**，`rob` **897,972 → 881,101 cells（−1.88%）/ 65 层**；`lint_chip` 0、`fm_gate` 69/69（0 周期偏差）。
 - 2026-11-21（`rtl/move-elim-1hop`，EXP-052）：`ren_elim_sel` 新增组内 1-hop 生产链移动消除（并行根分解，避免串在 33 路 popcount 后），`ren_dep_check` 改为 `dest_of = elim[i] ? src1_preg[i] : alloc_reg[i]`；`ren_core` / `ren_fp` 的分支 `head_after` 改用 `alloc_req` 前缀并由 `ren_free_list` / `ren_fp_free_list` 按 `fire` 末位直接选通 `head_next`（移除握手后的 `popcount + 加法`）。`eda-08` Yosys 深度 **99 → 97 层**（`474,699 → 475,533` cells，+0.18%）；`tests/ren_elim_sel/run.sh` 100k 随机 0 不一致；`lint_chip` 0、`fm_gate` 68/68（0 周期偏差）。
 - 2026-11-21（`rtl/onehot-mux-tree`）：`ren_alloc_sel` 从 8 级串行 `ttg_first_set` 链改用公共并行原语 `ttg_pick_k`，配合 `ttg_onehot_mux`/`ttg_popcount` 平衡树，`eda-08` Yosys 深度从 **111 → 99 层**（跌破 100 层红线，单元 `474,613 → 474,699`），零周期变化。
 - `git log --oneline 261bd67..HEAD -- rtl/backend/ren`：本分支没有对本模块的提交；FLUSH_REG（`803692f`）只改了 `back_top` 的连线，使 `rob_bcast_flush` 到本模块晚一拍。更早：见 git 历史。

@@ -3,8 +3,8 @@ module: rob
 area: backend
 rtl: rtl/backend/rob
 model: trace-model back-end/Rob.cpp、back-end/include/Rob.h（调度单元 `back.rob`，类 `Rob`，阶段 `comb_commit`；`comb_redirect` 在 RTL 里不属于 ROB，见第 7 节）
-status: 整核周期与模型逐个相等（EXP-054 窗口扩展 256/256：fm_gate 68/68 零偏差 + Linux 27 窗验证，零环境变量）
-depth: 64 层 / 897,972 单元（rob，单模块综合，2026-11-22，`SYNTH_ABC="strash;balance;map"`，`ROB_NUM=256 / PRF_NUM=256`，深度与 128 槽持平）
+status: 整核周期与模型逐个相等（`rtl/ren-ckpt-walk`：fm_gate 69/69 零偏差，剥离 `dest_preg`/`old_dest_preg`/`me_elim` 至 `ren_log`，新增 `ren2rob_walking` 暂停提交）
+depth: 65 层 / 881,101 单元（rob，单模块综合，2026-11-23，`SYNTH_ABC="strash;balance;map"`，`ROB_NUM=256 / PRF_NUM=256`，较 897,972 单元降 −16,871 / −1.88%）
 ---
 
 # rob 设计文档

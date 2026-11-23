@@ -76,7 +76,6 @@ package dis_pkg;
     logic [PRF_IDX_WIDTH-1:0]  src1_preg;
     logic [PRF_IDX_WIDTH-1:0]  src2_preg;
     logic [PRF_IDX_WIDTH-1:0]  src3_preg;     // F/D: third source of a fused multiply-add (valid while src3_en)
-    logic [PRF_IDX_WIDTH-1:0]  old_dest_preg;
     logic                      me_elim;       // move elimination: dest_preg is src1_preg, no uop
     logic                      dest_fp;       // F/D: the registers above are FP tags (FP_TAG_BASE+)
     logic                      src1_fp;

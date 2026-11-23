@@ -8,6 +8,7 @@ module rob
   input  logic clk,
   input  logic rst_n,
   input  logic dec_bcast_mispred,
+  input  logic ren2rob_walking,   // Ren forward walk active: pause commit to share 1R1W RenLog read port
   input  logic flush_pend,   // the flush of the previous cycle (FLUSH_REG): the other modules clear in this cycle, a stale mispredict must not recover the (empty) ROB
   input  logic [ROB_IDX_WIDTH-1:0] dec_bcast_redirect_rob_idx,
   input  logic csr2rob_interrupt_req,
@@ -21,9 +22,6 @@ module rob
   input  logic [XLEN_BITS-1:0] dis2rob_uop_diag_val [DECODE_WIDTH],
   input  logic [5:0] dis2rob_uop_dest_areg [DECODE_WIDTH],
   input  logic [5:0] dis2rob_uop_src1_areg [DECODE_WIDTH],
-  input  logic [PRF_IDX_WIDTH-1:0] dis2rob_uop_dest_preg [DECODE_WIDTH],
-  input  logic [PRF_IDX_WIDTH-1:0] dis2rob_uop_old_dest_preg [DECODE_WIDTH],
-  input  logic [DECODE_WIDTH-1:0] dis2rob_uop_me_elim,
   input  logic [DECODE_WIDTH-1:0] dis2rob_uop_dest_fp,
   input  logic [DECODE_WIDTH-1:0] dis2rob_uop_fs_need,
   input  logic [5:0] dis2rob_uop_ftq_idx [DECODE_WIDTH],
@@ -68,9 +66,6 @@ module rob
   output logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_valid,
   output logic [XLEN_BITS-1:0] rob_commit_commit_entry_uop_diag_val [COMMIT_WIDTH],
   output logic [5:0] rob_commit_commit_entry_uop_dest_areg [COMMIT_WIDTH],
-  output logic [PRF_IDX_WIDTH-1:0] rob_commit_commit_entry_uop_dest_preg [COMMIT_WIDTH],
-  output logic [PRF_IDX_WIDTH-1:0] rob_commit_commit_entry_uop_old_dest_preg [COMMIT_WIDTH],
-  output logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_me_elim,
   output logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_dest_fp,
   output logic [5:0] rob_commit_commit_entry_uop_ftq_idx [COMMIT_WIDTH],
   output logic [FTQ_OFFSET_WIDTH-1:0] rob_commit_commit_entry_uop_ftq_offset [COMMIT_WIDTH],
@@ -127,9 +122,6 @@ module rob
       diag_val:      dis2rob_uop_diag_val[b],
       dest_areg:     dis2rob_uop_dest_areg[b],
       src1_areg:     dis2rob_uop_src1_areg[b],
-      dest_preg:     dis2rob_uop_dest_preg[b],
-      old_dest_preg: dis2rob_uop_old_dest_preg[b],
-      me_elim:       dis2rob_uop_me_elim[b],
       dest_fp:       dis2rob_uop_dest_fp[b],
       dest_en:       dis2rob_uop_dest_en[b],
       ftq_idx:       dis2rob_uop_ftq_idx[b],
@@ -185,7 +177,7 @@ module rob
 
   rob_core_cpt u_core (
     .clk(clk), .rst_n(rst_n),
-    .dec_mispred(dec_mispred_eff), .dec_redirect_rob_idx(dec_bcast_redirect_rob_idx),
+    .dec_mispred(dec_mispred_eff), .ren_walking(ren2rob_walking), .dec_redirect_rob_idx(dec_bcast_redirect_rob_idx),
     .interrupt_req(csr2rob_interrupt_req), .committed_store_pending(lsu2rob_committed_store_pending),
     .front_stall(front_stall), .bpu_upd_free(bpu_upd_free), .bpu_tq_free(bpu_tq_free),
     .ftq_resp_pc(ftq_rob_pc_resp_resp_pc[0]),
@@ -227,9 +219,6 @@ module rob
     assign rob_commit_commit_entry_valid[b]                 = commit_valid[b];
     assign rob_commit_commit_entry_uop_diag_val[b]          = commit_uop[b].diag_val;
     assign rob_commit_commit_entry_uop_dest_areg[b]         = commit_uop[b].dest_areg;
-    assign rob_commit_commit_entry_uop_dest_preg[b]         = commit_uop[b].dest_preg;
-    assign rob_commit_commit_entry_uop_old_dest_preg[b]     = commit_uop[b].old_dest_preg;
-    assign rob_commit_commit_entry_uop_me_elim[b]           = commit_uop[b].me_elim;
     assign rob_commit_commit_entry_uop_dest_fp[b]           = commit_uop[b].dest_fp;
     assign rob_commit_commit_entry_uop_ftq_idx[b]           = commit_uop[b].ftq_idx;
     assign rob_commit_commit_entry_uop_ftq_offset[b]        = commit_uop[b].ftq_offset;

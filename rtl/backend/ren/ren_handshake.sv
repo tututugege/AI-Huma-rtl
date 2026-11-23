@@ -11,6 +11,8 @@ module ren_handshake
   input  logic [N-1:0] inst_valid,
   input  logic [N-1:0] alloc_req,     // inst_valid & dest_en
   input  logic [N-1:0] alloc_valid,
+  input  logic [N-1:0] log_ok,        // lane fits in RenLog (and not walking)
+  input  logic         walk_active,
   input  logic         dis_ready,
   input  logic         flush,
   input  logic         mispred,
@@ -19,23 +21,23 @@ module ren_handshake
   output logic         ren2dec_ready
 );
 
-  logic [N-1:0] alloc_fail;           // requested but not served
+  logic [N-1:0] alloc_fail;           // requested but not served, or RenLog full / walking
   logic [N-1:0] first_fail;           // oldest failing slot (one-hot)
   logic         fail_any;
   logic [N-1:0] blocked;              // slot is at or after the oldest failing slot
 
-  assign alloc_fail = alloc_req & ~alloc_valid;
+  assign alloc_fail = (alloc_req & ~alloc_valid) | (inst_valid & ~log_ok);
   ttg_first_set #(.N(N)) u_first_fail (.req(alloc_fail), .onehot(first_fail), .any(fail_any));
 
   // all slots from the oldest failing one upward: ~(first_fail - 1) (two's complement), empty if nothing fails
   assign blocked = fail_any ? ~(first_fail - N'(1)) : '0;
 
   for (genvar i = 0; i < N; i++) begin : g_slot
-    assign out_valid[i] = inst_valid[i] & ~blocked[i];
+    assign out_valid[i] = inst_valid[i] & ~blocked[i] & ~walk_active;
     assign fire[i]      = out_valid[i] & dis_ready;
   end
 
-  assign ren2dec_ready = (&(fire | ~inst_valid)) & ~flush & ~mispred;
+  assign ren2dec_ready = (&(fire | ~inst_valid)) & ~flush & ~mispred & ~walk_active;
 
 endmodule
 

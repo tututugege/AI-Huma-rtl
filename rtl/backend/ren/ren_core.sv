@@ -1,42 +1,50 @@
-// Ref: back-end/Ren.cpp  class Ren  (comb_alloc / comb_rename / comb_fire / comb_pipeline / seq)
+// Ref: back-end/Ren.cpp  class Ren  (comb_alloc / comb_rename / comb_fire / seq + local RenLog + K-ckpt + 8-wide walk)
 `default_nettype none
 
 // Rename stage: pipeline register -> free-list allocation -> RAT lookup + same-group bypass -> Dispatch;
-// on fire the RAT/free list advance and branches checkpoint; commit/mispredict/flush restore.
+// on fire the RAT/free list/local RenLog advance and sparse branches checkpoint; commit reads local RenLog;
+// mispredict restores sparse checkpoint (or arch RAT) and runs 8-wide forward walk via RenLog.
 module ren_core
   import ttg_cfg_pkg::*;
   import ren_pkg::*;
 #(
   parameter int N  = DECODE_WIDTH,
   parameter int C  = COMMIT_WIDTH,
+  parameter int NK = REN_CKPT_NUM,
+  parameter int KW = (NK > 1) ? $clog2(NK) : 1,
   parameter int CW = $clog2(C + 1)
 ) (
-  input  logic          clk,
-  input  logic          rst_n,
+  input  logic                     clk,
+  input  logic                     rst_n,
   // dec2ren
-  input  logic [N-1:0]  dec_valid,
-  input  ren_inst_t     dec_uop [N],
+  input  logic [N-1:0]             dec_valid,
+  input  ren_inst_t                dec_uop [N],
   // dec_bcast / rob_bcast / dis2ren
-  input  logic          dec_mispred,
-  input  br_tag_t       dec_br_id,
-  input  br_mask_t      dec_clear_mask,
-  input  logic          dis_ready,
-  input  logic          rob_flush,
-  input  logic          rob_interrupt,
-  // rob_commit
-  input  ren_commit_t   commit [C],
-  // ren2dec / ren2dis
-  output logic          ren2dec_ready,
-  output logic [N-1:0]  ren2dis_valid,
-  output ren_out_uop_t  ren2dis_uop [N]
+  input  logic                     dec_mispred,
+  input  logic [ROB_IDX_WIDTH-1:0] dec_redirect_rob_idx,
+  input  br_mask_t                 dec_clear_mask,
+  input  logic                     dis_ready,
+  input  logic                     rob_flush,
+  input  logic                     rob_interrupt,
+  // rob_commit (only valid/exception/type; rename fields live in local ren_log)
+  input  ren_commit_t              commit [C],
+  // ren2dec / ren2dis / ren2rob
+  output logic                     ren2dec_ready,
+  output logic                     ren2rob_walking,
+  output logic [N-1:0]             ren2dis_valid,
+  output ren_out_uop_t             ren2dis_uop [N],
+  // commit-side dest_preg from local ren_log (for soc_tb difftest probe)
+  output preg_t                    commit_dest_preg [C]
 );
 
   localparam int NR = 3 * N;
+  localparam int INT_TW = $clog2(PRF_NUM);
+  typedef logic [RAT_NUM-1:0][INT_TW-1:0] int_rat_t;
 
-  logic [N-1:0] inst_valid, alloc_req, alloc_valid, fire, rat_cand, br_fire;
+  logic [N-1:0] inst_valid, alloc_req, alloc_valid, fire, rat_cand, is_branch;
   logic [N-1:0] fp_alloc_req, fp_alloc_valid;   // F/D: slots that need / got an FP register (own free list)
   logic [N-1:0] req_all, valid_all;             // both domains, for the in-order stall chain
-  logic [N-1:0] elim;             // move elimination: renamed away, takes no free register
+  logic [N-1:0] elim;                           // move elimination: renamed away, takes no free register
   // waiver (reviewed): only consumed by ren_elim_sel, which exists when MOVE_ELIM != 0
   /* verilator lint_off UNUSEDSIGNAL */
   logic [N-1:0] move_shape;
@@ -53,13 +61,26 @@ module ren_core
   logic [N-2:0] dest_en_older;    // INT-domain dest_en of every slot except the youngest
   logic [N-2:0] dest_en_any_older, dest_fp_older;
   preg_t        fp_dest [N], fp_src1 [N], fp_src2 [N], fp_src3 [N], fp_old [N];
-  rat_t         snapshot [N];
-  // checkpoint
-  br_tag_t      br_id [N];
+  int_rat_t     ckpt_wr_rat, ckpt_rat;
+  // sparse checkpoint & local ren_log & walk
+  logic                     walk_active;
+  logic [N-1:0]             log_ok, walk_slot_en;
+  logic [ROB_IDX_WIDTH-1:0] lane_rob_idx [N];
+  logic [ROB_IDX_WIDTH-1:0] log_rd_base;
+  logic                     ckpt_wr_en, ckpt_rd_hit;
+  logic [KW-1:0]            ckpt_wr_slot, ckpt_rd_slot;
+  logic [N-1:0]             ckpt_wr_lane_oh;
+  ren_log_entry_t           log_wr_entry [N];
+  ren_log_entry_t           log_rd_slot [N];
   preg_t        head_after [N], head_next, head_last;
+  logic [INT_TW-1:0] head_after_lo [N], ckpt_wr_head, ckpt_head_lo;
   logic         any_fire;
-  rat_t         ckpt_rat;
   preg_t        ckpt_head;
+  // walk muxed INT RAT / free-list inputs
+  logic [N-1:0] rat_alloc_cand, rat_fire, walk_int_rat, walk_int_alloc;
+  areg_t        rat_alloc_areg [N];
+  preg_t        rat_alloc_preg [N];
+  logic [$clog2(N+1)-1:0] walk_int_cnt;
   // commit
   logic [C-1:0] reclaim_all;      // every retiring destination (either domain)
   logic [C-1:0] reclaim;          // ... INT domain
@@ -75,6 +96,8 @@ module ren_core
   preg_t        c_dest_preg [C];
   preg_t        c_old_dest_preg [C];
 
+  assign ren2rob_walking = walk_active;
+
   ren_inst_pipe u_pipe (
     .clk(clk), .rst_n(rst_n), .dec_valid(dec_valid), .dec_uop(dec_uop), .take_new(ren2dec_ready),
     .kill(rob_flush | dec_mispred), .fire(fire), .clear_mask(dec_clear_mask), .valid(inst_valid), .inst(inst)
@@ -85,7 +108,6 @@ module ren_core
     assign dest_areg[i]  = inst[i].dest_areg;
     assign src1_areg[i]  = inst[i].src1_areg;
     assign src2_areg[i]  = inst[i].src2_areg;
-    assign br_id[i]      = inst[i].br_id;
     assign rd_areg[i]       = inst[i].dest_areg;
     assign rd_areg[N+i]     = inst[i].src1_areg;
     assign rd_areg[2*N+i]   = inst[i].src2_areg;
@@ -98,7 +120,23 @@ module ren_core
                                                 inst[i].dest_en, inst[i].dest_areg);
     assign alloc_req[i]     = inst_valid[i] & inst[i].dest_en & ~inst[i].dest_fp & ~elim[i];
     assign rat_cand[i]      = inst_valid[i] & inst[i].dest_en & ~inst[i].dest_fp;
-    assign br_fire[i]       = fire[i] & ((inst[i].inst_type == ITYPE_BR) | (inst[i].inst_type == ITYPE_JALR));
+    assign is_branch[i]     = (inst[i].inst_type == ITYPE_BR) | (inst[i].inst_type == ITYPE_JALR);
+
+    assign log_wr_entry[i] = '{
+      dest_en:       inst[i].dest_en,
+      dest_fp:       inst[i].dest_fp,
+      dest_areg:     inst[i].dest_areg,
+      dest_preg:     inst[i].dest_fp ? fp_dest[i] : dest_preg[i],
+      old_dest_preg: inst[i].dest_fp ? fp_old[i]  : old_dest_preg[i],
+      me_elim:       elim[i]
+    };
+
+    assign walk_int_rat[i]   = walk_slot_en[i] & log_rd_slot[i].dest_en & ~log_rd_slot[i].dest_fp;
+    assign walk_int_alloc[i] = walk_int_rat[i] & ~log_rd_slot[i].me_elim;
+    assign rat_alloc_cand[i] = walk_active ? walk_int_rat[i]           : rat_cand[i];
+    assign rat_fire[i]       = walk_active ? walk_slot_en[i]           : fire[i];
+    assign rat_alloc_areg[i] = walk_active ? log_rd_slot[i].dest_areg  : dest_areg[i];
+    assign rat_alloc_preg[i] = walk_active ? log_rd_slot[i].dest_preg  : dest_preg[i];
   end
   for (genvar i = 0; i < N - 1; i++) begin : g_older_view
     assign dest_en_older[i]     = inst[i].dest_en & ~inst[i].dest_fp;
@@ -106,19 +144,40 @@ module ren_core
     assign dest_fp_older[i]     = inst[i].dest_fp;
   end
   for (genvar k = 0; k < C; k++) begin : g_commit_view
-    assign c_valid[k]        = commit[k].valid;
-    assign c_dest_en[k]      = commit[k].dest_en;
-    assign c_elim[k]         = commit[k].me_elim;
-    assign c_pf_inst[k]      = commit[k].page_fault_inst;
-    assign c_pf_load[k]      = commit[k].page_fault_load;
-    assign c_pf_store[k]     = commit[k].page_fault_store;
-    assign c_illegal[k]      = commit[k].illegal_inst;
-    assign c_type[k]         = commit[k].inst_type;
-    assign c_fp[k]           = commit[k].dest_fp;
-    assign c_dest_areg[k]    = commit[k].dest_areg;
-    assign c_dest_preg[k]    = commit[k].dest_preg;
-    assign c_old_dest_preg[k] = commit[k].old_dest_preg;
+    assign c_valid[k]          = commit[k].valid;
+    assign c_pf_inst[k]        = commit[k].page_fault_inst;
+    assign c_pf_load[k]        = commit[k].page_fault_load;
+    assign c_pf_store[k]       = commit[k].page_fault_store;
+    assign c_illegal[k]        = commit[k].illegal_inst;
+    assign c_type[k]           = commit[k].inst_type;
+    // rename fields come from local ren_log (1R1W: normal cycles read at ren_rob_head)
+    assign c_dest_en[k]        = log_rd_slot[k].dest_en;
+    assign c_elim[k]           = log_rd_slot[k].me_elim;
+    assign c_fp[k]             = log_rd_slot[k].dest_fp;
+    assign c_dest_areg[k]      = log_rd_slot[k].dest_areg;
+    assign c_dest_preg[k]      = log_rd_slot[k].dest_preg;
+    assign c_old_dest_preg[k]  = log_rd_slot[k].old_dest_preg;
+    assign commit_dest_preg[k] = log_rd_slot[k].dest_preg;
   end
+
+  // ---- sparse K-checkpoint & walk controller + local ROB-indexed RenLog ----
+  ren_ckpt_ctl u_ckpt_ctl (
+    .clk(clk), .rst_n(rst_n),
+    .inst_valid(inst_valid), .fire(fire), .is_branch(is_branch),
+    .commit_valid(c_valid), .flush(rob_flush), .mispred(dec_mispred),
+    .dec_redirect_rob_idx(dec_redirect_rob_idx),
+    .walk_active(walk_active), .log_ok(log_ok), .lane_rob_idx(lane_rob_idx),
+    .rd_base(log_rd_base), .walk_slot_en(walk_slot_en),
+    .ckpt_wr_en(ckpt_wr_en), .ckpt_wr_slot(ckpt_wr_slot), .ckpt_wr_lane_oh(ckpt_wr_lane_oh),
+    .ckpt_rd_hit(ckpt_rd_hit), .ckpt_rd_slot(ckpt_rd_slot)
+  );
+
+  ren_log u_log (
+    .clk(clk), .wr_valid(fire), .wr_rob_idx(lane_rob_idx), .wr_entry(log_wr_entry),
+    .rd_base(log_rd_base), .rd_slot(log_rd_slot)
+  );
+
+  ttg_popcount #(.N(N)) u_walk_int_pc (.bits(walk_int_alloc), .count(walk_int_cnt));
 
   // ---- move elimination: which moves are renamed away (Ren::elim_refs_ok) ----
   if (MOVE_ELIM != 0) begin : g_elim
@@ -139,7 +198,8 @@ module ren_core
   assign valid_all = alloc_valid | fp_alloc_valid;
 
   ren_handshake u_hs (
-    .inst_valid(inst_valid), .alloc_req(req_all), .alloc_valid(valid_all), .dis_ready(dis_ready),
+    .inst_valid(inst_valid), .alloc_req(req_all), .alloc_valid(valid_all),
+    .log_ok(log_ok), .walk_active(walk_active), .dis_ready(dis_ready),
     .flush(rob_flush), .mispred(dec_mispred), .out_valid(ren2dis_valid), .fire(fire), .ren2dec_ready(ren2dec_ready)
   );
 
@@ -156,8 +216,12 @@ module ren_core
     logic [C-1:0] reclaim_fp;   // retiring FP destinations: ren_fp's arch RAT / free list
     assign reclaim_fp = reclaim_all & c_fp;
     ren_fp u_fp (
-      .clk(clk), .rst_n(rst_n), .inst_valid(inst_valid), .inst(inst), .fire(fire), .dec_mispred(dec_mispred),
-      .dec_br_id(dec_br_id), .rob_flush(rob_flush), .reclaim(reclaim_fp), .c_dest_areg(c_dest_areg),
+      .clk(clk), .rst_n(rst_n), .inst_valid(inst_valid), .inst(inst), .fire(fire),
+      .dec_mispred(dec_mispred), .rob_flush(rob_flush),
+      .ckpt_wr_en(ckpt_wr_en), .ckpt_wr_slot(ckpt_wr_slot), .ckpt_wr_lane_oh(ckpt_wr_lane_oh),
+      .ckpt_rd_hit(ckpt_rd_hit), .ckpt_rd_slot(ckpt_rd_slot),
+      .walk_active(walk_active), .walk_slot_en(walk_slot_en), .walk_entry(log_rd_slot),
+      .reclaim(reclaim_fp), .c_dest_areg(c_dest_areg),
       .c_dest_preg(c_dest_preg), .c_old_dest_preg(c_old_dest_preg), .alloc_req(fp_alloc_req),
       .alloc_valid(fp_alloc_valid), .dest_preg(fp_dest), .src1_preg(fp_src1), .src2_preg(fp_src2),
       .src3_preg(fp_src3), .old_dest_preg(fp_old)
@@ -189,7 +253,7 @@ module ren_core
                               dest_preg: inst[i].dest_fp ? fp_dest[i] : dest_preg[i],
                               src1_preg: inst[i].src1_fp ? fp_src1[i] : src1_preg[i],
                               src2_preg: inst[i].src2_fp ? fp_src2[i] : src2_preg[i],
-                              old_dest_preg: inst[i].dest_fp ? fp_old[i] : old_dest_preg[i], me_elim: elim[i],
+                              me_elim: elim[i],
                               dest_fp: inst[i].dest_fp, src1_fp: inst[i].src1_fp, src2_fp: inst[i].src2_fp,
                               src3_en: inst[i].src3_en, src3_preg: fp_src3[i], fp_cls: inst[i].fp_cls};
   end
@@ -202,8 +266,7 @@ module ren_core
     .reclaim(reclaim_all), .alloc_total(alloc_commit_total)
   );
   // the FP domain has its own free list / arch RAT (ren_fp); alloc_total above counts INT registers only
-  assign reclaim    = reclaim_all & ~c_fp;
-
+  assign reclaim = reclaim_all & ~c_fp;
 
   // free-list returns: without move elimination every retiring destination frees its old register; with it, only
   // when no architectural RAT entry names the register any more
@@ -219,37 +282,45 @@ module ren_core
 
   ren_rat u_rat (
     .clk(clk), .rst_n(rst_n), .rd_areg(rd_areg), .rd_preg(rd_preg),
-    .alloc_cand(rat_cand), .fire(fire), .alloc_areg(dest_areg), .alloc_preg(dest_preg),
+    .alloc_cand(rat_alloc_cand), .fire(rat_fire), .alloc_areg(rat_alloc_areg), .alloc_preg(rat_alloc_preg),
+    .ckpt_wr_lane_oh(ckpt_wr_lane_oh),
     .reclaim(reclaim), .commit_areg(c_dest_areg), .commit_preg(c_dest_preg),
-    .flush(rob_flush), .mispred(dec_mispred), .ckpt_rat(ckpt_rat), .snapshot(snapshot),
-    .spec_rat(spec_rat)
+    .flush(rob_flush), .mispred(dec_mispred), .ckpt_hit(ckpt_rd_hit), .ckpt_rat(ckpt_rat),
+    .ckpt_wr_rat(ckpt_wr_rat), .spec_rat(spec_rat)
   );
 
   ren_last_write #(.N(N), .W(PRF_IDX_WIDTH)) u_head_next (
     .hit(fire), .data(head_after), .any(any_fire), .value(head_last)
   );
-  assign head_next = any_fire ? head_last : head;
+  assign head_next = walk_active ? ((head + preg_t'(walk_int_cnt)) & preg_t'(PRF_NUM - 1))
+                                 : (any_fire ? head_last : head);
 
   ren_free_list u_fl (
     .clk(clk), .rst_n(rst_n), .head_next(head_next), .reclaim(free), .reclaim_rank(free_rank),
     .reclaim_total(free_total), .alloc_commit_total(alloc_commit_total), .reclaim_preg(c_old_dest_preg),
-    .flush(rob_flush), .mispred(dec_mispred),
+    .flush(rob_flush), .mispred(dec_mispred), .ckpt_hit(ckpt_rd_hit),
     .ckpt_head(ckpt_head), .window(window), .free_count(free_count), .head(head)
   );
 
   // ---- branch checkpoints: head after slot i = head + number of allocating requests in slots 0..i ----
-  // Since fire is an in-order prefix, whenever br_fire[i] is asserted every valid slot 0..i has fire=1,
-  // so alloc_req[0..i] == alloc_fire[0..i]; using alloc_req keeps head_after off the handshake critical path.
   for (genvar i = 0; i < N; i++) begin : g_head_after
     logic [$clog2(N+1)-1:0] taken;
     ttg_popcount #(.N(N)) u_cnt (.bits(alloc_req & ({N{1'b1}} >> (N - 1 - i))), .count(taken));
-    assign head_after[i] = (head + preg_t'(taken)) & preg_t'(PRF_NUM - 1);   // ring position: wraps at PRF_NUM
+    assign head_after[i]    = (head + preg_t'(taken)) & preg_t'(PRF_NUM - 1);   // ring position: wraps at PRF_NUM
+    assign head_after_lo[i] = head_after[i][INT_TW-1:0];
   end
 
-  ren_ckpt u_ckpt (
-    .clk(clk), .rst_n(rst_n), .wr_valid(br_fire), .wr_br_id(br_id), .wr_rat(snapshot), .wr_head(head_after),
-    .rd_br_id(dec_br_id), .rd_rat(ckpt_rat), .rd_head(ckpt_head)
+  ttg_onehot_mux #(.N(N), .W(INT_TW)) u_ckpt_head_sel (
+    .sel(ckpt_wr_lane_oh), .data(head_after_lo), .out(ckpt_wr_head)
   );
+
+  ren_ckpt #(.RW(RAT_NUM * INT_TW), .HW(INT_TW)) u_ckpt (
+    .clk(clk), .rst_n(rst_n),
+    .wr_en(ckpt_wr_en), .wr_slot(ckpt_wr_slot),
+    .wr_rat(ckpt_wr_rat), .wr_head(ckpt_wr_head),
+    .rd_slot(ckpt_rd_slot), .rd_rat(ckpt_rat), .rd_head(ckpt_head_lo)
+  );
+  assign ckpt_head = preg_t'(ckpt_head_lo);
 
 endmodule
 

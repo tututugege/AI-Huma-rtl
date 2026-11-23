@@ -462,7 +462,7 @@ long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
             const bool de = ttg_getbit(top->rob_commit_commit_entry_uop_dest_en, i);
             fm_pend.push_back({top->ftq_commit_info_resp_pc[i], (de && top->rob_commit_commit_entry_uop_dest_areg[i] < 32) ? top->rob_commit_commit_entry_uop_dest_areg[i] : 0u,   // areg 32 = AMO with rd == x0 (pseudo destination)
                                
-                               top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__u_rob__DOT__rob_commit_commit_entry_uop_dest_preg[i], false});
+                               top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__u_ren__DOT__ren_commit_dest_preg[i], false});
             {   // a page fault the RTL takes (its TLB / walker may still see a stale PTE until sfence.vma): the model takes the same one
               const bool pfs = ttg_getbit(top->rob_commit_commit_entry_uop_page_fault_store, i), pfl = ttg_getbit(top->rob_commit_commit_entry_uop_page_fault_load, i);
               if (pfs || pfl) fm_pend.back().pf = pfs ? 2 : 1;

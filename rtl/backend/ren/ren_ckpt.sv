@@ -1,58 +1,49 @@
-// Ref: back-end/Ren.cpp  class Ren  (RAT_checkpoint, alloc_checkpoint_head)
+// Ref: back-end/Ren.cpp  class Ren  (sparse K-entry single-write-port checkpoint data array)
 `default_nettype none
 
-// Per-branch-tag recovery state: the spec RAT and the free-list head right after the branch renamed.
-// Written by up to N branches per cycle (higher slot wins on equal tag); read (old value) at the mispredicted tag.
+// Single-write-port sparse checkpoint array (NK = REN_CKPT_NUM entries).
+// Takes a single pre-selected RAT snapshot + free-list head (no internal N-to-1 write mux).
 module ren_ckpt
   import ttg_cfg_pkg::*;
   import ren_pkg::*;
 #(
-  parameter int N  = DECODE_WIDTH,
-  parameter int NB = MAX_BR_NUM,
-  parameter int RW = $bits(rat_t)          // bits of one RAT snapshot (the FP RAT is smaller)
+  parameter int NK = REN_CKPT_NUM,
+  parameter int KW = (NK > 1) ? $clog2(NK) : 1,
+  parameter int RW = RAT_NUM * $clog2(PRF_NUM),  // bits of one narrow RAT snapshot
+  parameter int HW = $clog2(PRF_NUM)             // bits of one free-list head pointer
 ) (
-  input  logic     clk,
-  input  logic     rst_n,
-  input  logic [N-1:0] wr_valid,
-  input  br_tag_t  wr_br_id [N],
-  input  logic [RW-1:0] wr_rat [N],
-  input  preg_t    wr_head  [N],
-  input  br_tag_t  rd_br_id,
+  input  logic          clk,
+  input  logic          rst_n,
+  input  logic          wr_en,
+  input  logic [KW-1:0] wr_slot,
+  input  logic [RW-1:0] wr_rat,
+  input  logic [HW-1:0] wr_head,
+  input  logic [KW-1:0] rd_slot,
   output logic [RW-1:0] rd_rat,
-  output preg_t    rd_head
+  output logic [HW-1:0] rd_head
 );
 
-  localparam int EW = RW + PRF_IDX_WIDTH;
+  localparam int EW = RW + HW;
 
-  logic [EW-1:0] entry_q [NB];
-  logic [EW-1:0] wr_entry [N];
-  logic [NB-1:0] rd_sel;
+  logic [EW-1:0] entry_q [NK];
+  logic [EW-1:0] wr_entry;
+  logic [NK-1:0] rd_sel;
   logic [EW-1:0] rd_entry;
 
-  for (genvar i = 0; i < N; i++) begin : g_wr_entry
-    assign wr_entry[i] = {wr_head[i], wr_rat[i]};
-  end
+  assign wr_entry = {wr_head, wr_rat};
 
-  for (genvar b = 0; b < NB; b++) begin : g_tag
-    logic [N-1:0] hit;
-    logic         hit_any;
-    logic [EW-1:0] hit_value;
-    for (genvar i = 0; i < N; i++) begin : g_hit
-      assign hit[i] = wr_valid[i] & (wr_br_id[i] == br_tag_t'(b));
-    end
-    ren_last_write #(.N(N), .W(EW)) u_lw (.hit(hit), .data(wr_entry), .any(hit_any), .value(hit_value));
-    assign rd_sel[b]  = (rd_br_id == br_tag_t'(b));
-
+  for (genvar s = 0; s < NK; s++) begin : g_slot
+    assign rd_sel[s] = (rd_slot == KW'(s));
     always_ff @(posedge clk) begin
-      if (!rst_n) entry_q[b] <= '0;
-      else if (hit_any) entry_q[b] <= hit_value;   // per-tag write enable, last (highest) slot wins
+      if (!rst_n) entry_q[s] <= '0;
+      else if (wr_en && (wr_slot == KW'(s))) entry_q[s] <= wr_entry;
     end
   end
 
-  ttg_onehot_mux #(.N(NB), .W(EW)) u_rd (.sel(rd_sel), .data(entry_q), .out(rd_entry));
+  ttg_onehot_mux #(.N(NK), .W(EW)) u_rd (.sel(rd_sel), .data(entry_q), .out(rd_entry));
 
   assign rd_rat  = rd_entry[RW-1:0];
-  assign rd_head = rd_entry[EW-1 -: PRF_IDX_WIDTH];
+  assign rd_head = rd_entry[EW-1 -: HW];
 
 endmodule
 

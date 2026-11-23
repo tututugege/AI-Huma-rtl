@@ -16,7 +16,6 @@ module dispatch
   input  logic [PRF_IDX_WIDTH-1:0] ren2dis_uop_dest_preg [DECODE_WIDTH],
   input  logic [PRF_IDX_WIDTH-1:0] ren2dis_uop_src1_preg [DECODE_WIDTH],
   input  logic [PRF_IDX_WIDTH-1:0] ren2dis_uop_src2_preg [DECODE_WIDTH],
-  input  logic [PRF_IDX_WIDTH-1:0] ren2dis_uop_old_dest_preg [DECODE_WIDTH],
   input  logic [DECODE_WIDTH-1:0] ren2dis_uop_me_elim,
   input  logic [DECODE_WIDTH-1:0] ren2dis_uop_dest_fp,
   input  logic [DECODE_WIDTH-1:0] ren2dis_uop_src1_fp,
@@ -80,9 +79,6 @@ module dispatch
   output logic [XLEN_BITS-1:0] dis2rob_uop_diag_val [DECODE_WIDTH],
   output logic [5:0] dis2rob_uop_dest_areg [DECODE_WIDTH],
   output logic [5:0] dis2rob_uop_src1_areg [DECODE_WIDTH],
-  output logic [PRF_IDX_WIDTH-1:0] dis2rob_uop_dest_preg [DECODE_WIDTH],
-  output logic [PRF_IDX_WIDTH-1:0] dis2rob_uop_old_dest_preg [DECODE_WIDTH],
-  output logic [DECODE_WIDTH-1:0] dis2rob_uop_me_elim,
   output logic [DECODE_WIDTH-1:0] dis2rob_uop_dest_fp,
   output logic [DECODE_WIDTH-1:0] dis2rob_uop_fs_need,
   output logic [5:0] dis2rob_uop_ftq_idx [DECODE_WIDTH],
@@ -190,7 +186,6 @@ module dispatch
       ren_inst[i].dest_preg = ren2dis_uop_dest_preg[i];
       ren_inst[i].src1_preg = ren2dis_uop_src1_preg[i];
       ren_inst[i].src2_preg = ren2dis_uop_src2_preg[i];
-      ren_inst[i].old_dest_preg = ren2dis_uop_old_dest_preg[i];
       ren_inst[i].me_elim = ren2dis_uop_me_elim[i];
       ren_inst[i].dest_fp = ren2dis_uop_dest_fp[i];
       ren_inst[i].src1_fp = ren2dis_uop_src1_fp[i];
@@ -298,9 +293,6 @@ module dispatch
       dis2rob_uop_diag_val[i] = rob_inst[i].diag_val;
       dis2rob_uop_dest_areg[i] = rob_inst[i].dest_areg;
       dis2rob_uop_src1_areg[i] = rob_inst[i].src1_areg;
-      dis2rob_uop_dest_preg[i] = rob_inst[i].dest_preg;
-      dis2rob_uop_old_dest_preg[i] = rob_inst[i].old_dest_preg;
-      dis2rob_uop_me_elim[i] = rob_inst[i].me_elim;
       dis2rob_uop_dest_fp[i] = rob_inst[i].dest_fp;
       // F/D: illegal while mstatus.FS is Off: FP arithmetic, FP load / store, fflags / frm / fcsr access
       dis2rob_uop_fs_need[i] = FP_EN && ((rob_inst[i].itype == INST_FPOP) ||

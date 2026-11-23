@@ -20,6 +20,7 @@ module rob_core_cpt
   input  logic                       rst_n,
   // inputs
   input  logic                       dec_mispred,
+  input  logic                       ren_walking,      // Ren forward walk in progress (1R1W RenLog: pause commit)
   input  logic [ROB_IDX_WIDTH-1:0]   dec_redirect_rob_idx,
   input  logic                       interrupt_req,
   input  logic                       committed_store_pending,
@@ -169,11 +170,11 @@ module rob_core_cpt
     upd_free = $signed({2'b0, bpu_upd_free}) - $signed({2'b0, prev_ctl_q});
     tq_free  = $signed({2'b0, bpu_tq_free}) - $signed({2'b0, prev_blk_q});
     h_alone = w_flush[0] | w_fence[0] | w_wfi[0];
-    interrupt_fire = !mispred_any && nonempty && interrupt_req;
+    interrupt_fire = !mispred_any && !ren_walking && nonempty && interrupt_req;
     single_commit  = interrupt_fire ||
-                     (!mispred_any && nonempty && !interrupt_req && h_alone && w_complete[0] &&
+                     (!mispred_any && !ren_walking && nonempty && !interrupt_req && h_alone && w_complete[0] &&
                       !(w_fence[0] && committed_store_pending));
-    group_go = !mispred_any && nonempty && !interrupt_req && !h_alone;
+    group_go = !mispred_any && !ren_walking && nonempty && !interrupt_req && !h_alone;
     // every slot counts the older control-flow instructions / block ends on its own (parallel, no running sum)
     for (int k = 0; k < NB; k++) begin
       ctl_before = '0;

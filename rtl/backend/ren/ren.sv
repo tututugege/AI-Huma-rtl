@@ -40,24 +40,20 @@ module ren
   input  logic [AREG_IDX_WIDTH-1:0] dec2ren_uop_src3_areg [DECODE_WIDTH],
   input  logic [2:0] dec2ren_uop_fp_cls [DECODE_WIDTH],
   input  logic dec_bcast_mispred,
-  input  logic [BR_TAG_WIDTH-1:0] dec_bcast_br_id,
+  input  logic [ROB_IDX_WIDTH-1:0] dec_bcast_redirect_rob_idx,
   input  logic [BR_MASK_WIDTH-1:0] dec_bcast_clear_mask,
   input  logic dis2ren_ready,
   input  logic rob_bcast_flush,
   input  logic rob_bcast_interrupt,
   input  logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_valid,
-  input  logic [AREG_IDX_WIDTH-1:0] rob_commit_commit_entry_uop_dest_areg [COMMIT_WIDTH],
-  input  logic [PRF_IDX_WIDTH-1:0] rob_commit_commit_entry_uop_dest_preg [COMMIT_WIDTH],
-  input  logic [PRF_IDX_WIDTH-1:0] rob_commit_commit_entry_uop_old_dest_preg [COMMIT_WIDTH],
-  input  logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_dest_en,
   input  logic [INST_TYPE_WIDTH-1:0] rob_commit_commit_entry_uop_type [COMMIT_WIDTH],
-  input  logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_me_elim,
   input  logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_page_fault_inst,
   input  logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_page_fault_load,
   input  logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_page_fault_store,
   input  logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_illegal_inst,
-  input  logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_dest_fp,
   output logic ren2dec_ready,
+  output logic ren2rob_walking,
+  output logic [PRF_IDX_WIDTH-1:0] ren_commit_dest_preg [COMMIT_WIDTH],
   output logic [DECODE_WIDTH-1:0] ren2dis_valid,
   output logic [XLEN_BITS-1:0] ren2dis_uop_diag_val [DECODE_WIDTH],
   output logic [AREG_IDX_WIDTH-1:0] ren2dis_uop_dest_areg [DECODE_WIDTH],
@@ -85,7 +81,6 @@ module ren
   output logic [PRF_IDX_WIDTH-1:0] ren2dis_uop_dest_preg [DECODE_WIDTH],
   output logic [PRF_IDX_WIDTH-1:0] ren2dis_uop_src1_preg [DECODE_WIDTH],
   output logic [PRF_IDX_WIDTH-1:0] ren2dis_uop_src2_preg [DECODE_WIDTH],
-  output logic [PRF_IDX_WIDTH-1:0] ren2dis_uop_old_dest_preg [DECODE_WIDTH],
   output logic [DECODE_WIDTH-1:0] ren2dis_uop_me_elim,
   output logic [DECODE_WIDTH-1:0] ren2dis_uop_dest_fp,
   output logic [DECODE_WIDTH-1:0] ren2dis_uop_src1_fp,
@@ -161,7 +156,6 @@ diag_val: dec2ren_uop_diag_val[i],
     assign ren2dis_uop_dest_preg[i] = out_uop[i].dest_preg;
     assign ren2dis_uop_src1_preg[i] = out_uop[i].src1_preg;
     assign ren2dis_uop_src2_preg[i] = out_uop[i].src2_preg;
-    assign ren2dis_uop_old_dest_preg[i] = out_uop[i].old_dest_preg;
     assign ren2dis_uop_me_elim[i] = out_uop[i].me_elim;
     assign ren2dis_uop_dest_fp[i] = out_uop[i].dest_fp;
     assign ren2dis_uop_src1_fp[i] = out_uop[i].src1_fp;
@@ -173,24 +167,20 @@ diag_val: dec2ren_uop_diag_val[i],
 
   for (genvar k = 0; k < COMMIT_WIDTH; k++) begin : g_commit
     assign commit[k] = '{valid: rob_commit_commit_entry_valid[k],
-dest_areg: rob_commit_commit_entry_uop_dest_areg[k],
-                         dest_preg: rob_commit_commit_entry_uop_dest_preg[k],
-                         old_dest_preg: rob_commit_commit_entry_uop_old_dest_preg[k],
-                         dest_en: rob_commit_commit_entry_uop_dest_en[k],
                          inst_type: rob_commit_commit_entry_uop_type[k],
-                         me_elim: rob_commit_commit_entry_uop_me_elim[k],
                          page_fault_inst: rob_commit_commit_entry_uop_page_fault_inst[k],
                          page_fault_load: rob_commit_commit_entry_uop_page_fault_load[k],
                          page_fault_store: rob_commit_commit_entry_uop_page_fault_store[k],
-                         illegal_inst: rob_commit_commit_entry_uop_illegal_inst[k],
-                         dest_fp: rob_commit_commit_entry_uop_dest_fp[k]};
+                         illegal_inst: rob_commit_commit_entry_uop_illegal_inst[k]};
   end
 
   ren_core u_core (
     .clk(clk), .rst_n(rst_n), .dec_valid(dec_valid), .dec_uop(dec_uop),
-    .dec_mispred(dec_bcast_mispred), .dec_br_id(dec_bcast_br_id), .dec_clear_mask(dec_bcast_clear_mask),
+    .dec_mispred(dec_bcast_mispred), .dec_redirect_rob_idx(dec_bcast_redirect_rob_idx),
+    .dec_clear_mask(dec_bcast_clear_mask),
     .dis_ready(dis2ren_ready), .rob_flush(rob_bcast_flush), .rob_interrupt(rob_bcast_interrupt),
-    .commit(commit), .ren2dec_ready(ren2dec_ready), .ren2dis_valid(out_valid), .ren2dis_uop(out_uop)
+    .commit(commit), .ren2dec_ready(ren2dec_ready), .ren2rob_walking(ren2rob_walking),
+    .ren2dis_valid(out_valid), .ren2dis_uop(out_uop), .commit_dest_preg(ren_commit_dest_preg)
   );
 
 endmodule

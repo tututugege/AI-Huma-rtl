@@ -47,6 +47,8 @@ package ttg_cfg_pkg;
   localparam int FP_ARF_NUM = 32;
   localparam int MAX_BR_NUM = 32;
   localparam int MAX_BR_PER_CYCLE = 8;
+  localparam int REN_CKPT_NUM = 4;
+  localparam int REN_CKPT_INTERVAL = 32;
   localparam int MOVE_ELIM_MAX_REFS = 7;
   localparam int CSR_NUM = 22;
   localparam int ROB_BANK_NUM = 8;

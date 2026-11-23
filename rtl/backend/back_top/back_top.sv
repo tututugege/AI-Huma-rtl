@@ -195,7 +195,9 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
   logic [DECODE_WIDTH-1:0] dec2ren_uop_is_word;
   logic [4:0] dec2ren_uop_type [DECODE_WIDTH];
   logic [DECODE_WIDTH-1:0] dec2ren_valid;
+  /* verilator lint_off UNUSEDSIGNAL */
   logic [BR_TAG_WIDTH-1:0] dec_bcast_br_id;
+  /* verilator lint_on UNUSEDSIGNAL */
   logic [BR_MASK_WIDTH-1:0] dec_bcast_br_mask;
   logic [BR_MASK_WIDTH-1:0] dec_bcast_clear_mask;
   logic dec_bcast_mispred;
@@ -226,7 +228,10 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
   logic [DECODE_WIDTH-1:0] ren2dis_uop_src3_en;
   logic [PRF_IDX_WIDTH-1:0] ren2dis_uop_src3_preg [DECODE_WIDTH];
   logic [2:0] ren2dis_uop_fp_cls [DECODE_WIDTH];
-  logic [PRF_IDX_WIDTH-1:0] ren2dis_uop_old_dest_preg [DECODE_WIDTH];
+  logic ren2rob_walking;
+  /* verilator lint_off UNUSEDSIGNAL */
+  logic [PRF_IDX_WIDTH-1:0] ren_commit_dest_preg [COMMIT_WIDTH];
+  /* verilator lint_on UNUSEDSIGNAL */
   logic [DECODE_WIDTH-1:0] ren2dis_uop_page_fault_inst;
   logic [DECODE_WIDTH-1:0] ren2dis_uop_pf_inst_hi;
   logic [5:0] ren2dis_uop_src1_areg [DECODE_WIDTH];
@@ -300,7 +305,6 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
   logic dis2ren_ready;
   logic [5:0] dis2rob_uop_dest_areg [DECODE_WIDTH];
   logic [DECODE_WIDTH-1:0] dis2rob_uop_dest_en;
-  logic [PRF_IDX_WIDTH-1:0] dis2rob_uop_dest_preg [DECODE_WIDTH];
   logic [XLEN_BITS-1:0] dis2rob_uop_diag_val [DECODE_WIDTH];
   logic [2:0] dis2rob_uop_expect_mask [DECODE_WIDTH];
   logic [5:0] dis2rob_uop_ftq_idx [DECODE_WIDTH];
@@ -309,10 +313,8 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
   logic [6:0] dis2rob_uop_func7 [DECODE_WIDTH];
   logic [DECODE_WIDTH-1:0] dis2rob_uop_illegal_inst;
   logic [31:0] dis2rob_uop_imm [DECODE_WIDTH];
-  logic [DECODE_WIDTH-1:0] dis2rob_uop_me_elim;
   logic [DECODE_WIDTH-1:0] dis2rob_uop_dest_fp;
   logic [DECODE_WIDTH-1:0] dis2rob_uop_fs_need;
-  logic [PRF_IDX_WIDTH-1:0] dis2rob_uop_old_dest_preg [DECODE_WIDTH];
   logic [DECODE_WIDTH-1:0] dis2rob_uop_page_fault_inst;
   logic [DECODE_WIDTH-1:0] dis2rob_uop_pf_inst_hi;
   logic [DECODE_WIDTH-1:0] dis2rob_uop_rob_flag;
@@ -490,16 +492,15 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
   logic rob_bcast_page_fault_load;
   logic rob_bcast_page_fault_store;
   logic [XLEN_BITS-1:0] rob_bcast_trap_val;
-  logic [PRF_IDX_WIDTH-1:0] rob_commit_commit_entry_uop_dest_preg [COMMIT_WIDTH];
   logic [XLEN_BITS-1:0] rob_commit_commit_entry_uop_diag_val [COMMIT_WIDTH];
   logic [5:0] rob_commit_commit_entry_uop_ftq_idx [COMMIT_WIDTH];
   logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_ftq_is_last;
   logic [FTQ_OFFSET_WIDTH-1:0] rob_commit_commit_entry_uop_ftq_offset [COMMIT_WIDTH];
   logic [6:0] rob_commit_commit_entry_uop_func7 [COMMIT_WIDTH];
   logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_illegal_inst;
-  logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_me_elim;
+  /* verilator lint_off UNUSEDSIGNAL */
   logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_dest_fp;
-  logic [PRF_IDX_WIDTH-1:0] rob_commit_commit_entry_uop_old_dest_preg [COMMIT_WIDTH];
+  /* verilator lint_on UNUSEDSIGNAL */
 
   // ---- nets driven by dtlb: TlbMmu, DTLB instance (back-end/Lsu/TlbMmu.cpp)
   logic [5:0] mmu2lsu_resp_entry_idx [LSU_AGU_PHYS];
@@ -751,19 +752,13 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .dec2ren_uop_is_word(dec2ren_uop_is_word),
     .dec2ren_uop_type(dec2ren_uop_type),
     .dec2ren_valid(dec2ren_valid),
-    .dec_bcast_br_id(dec_bcast_br_id),
+    .dec_bcast_redirect_rob_idx(dec_bcast_redirect_rob_idx),
     .dec_bcast_clear_mask(dec_bcast_clear_mask),
     .dec_bcast_mispred(dec_bcast_mispred),
     // inputs from rob
     .rob_bcast_flush(rob_flush_q),
     .rob_bcast_interrupt(rob_bcast_interrupt),
-    .rob_commit_commit_entry_uop_dest_areg(rob_commit_commit_entry_uop_dest_areg),
-    .rob_commit_commit_entry_uop_dest_en(rob_commit_commit_entry_uop_dest_en),
-    .rob_commit_commit_entry_uop_dest_preg(rob_commit_commit_entry_uop_dest_preg),
     .rob_commit_commit_entry_uop_illegal_inst(rob_commit_commit_entry_uop_illegal_inst),
-    .rob_commit_commit_entry_uop_me_elim(rob_commit_commit_entry_uop_me_elim),
-    .rob_commit_commit_entry_uop_dest_fp(rob_commit_commit_entry_uop_dest_fp),
-    .rob_commit_commit_entry_uop_old_dest_preg(rob_commit_commit_entry_uop_old_dest_preg),
     .rob_commit_commit_entry_uop_page_fault_inst(rob_commit_commit_entry_uop_page_fault_inst),
     .rob_commit_commit_entry_uop_page_fault_load(rob_commit_commit_entry_uop_page_fault_load),
     .rob_commit_commit_entry_uop_page_fault_store(rob_commit_commit_entry_uop_page_fault_store),
@@ -771,6 +766,8 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .rob_commit_commit_entry_valid(rob_commit_commit_entry_valid),
     // outputs
     .ren2dec_ready(ren2dec_ready),
+    .ren2rob_walking(ren2rob_walking),
+    .ren_commit_dest_preg(ren_commit_dest_preg),
     .ren2dis_valid(ren2dis_valid),
     .ren2dis_uop_diag_val(ren2dis_uop_diag_val),
     .ren2dis_uop_dest_areg(ren2dis_uop_dest_areg),
@@ -798,7 +795,6 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .ren2dis_uop_dest_preg(ren2dis_uop_dest_preg),
     .ren2dis_uop_src1_preg(ren2dis_uop_src1_preg),
     .ren2dis_uop_src2_preg(ren2dis_uop_src2_preg),
-    .ren2dis_uop_old_dest_preg(ren2dis_uop_old_dest_preg),
     .ren2dis_uop_me_elim(ren2dis_uop_me_elim),
     .ren2dis_uop_dest_fp(ren2dis_uop_dest_fp),
     .ren2dis_uop_src1_fp(ren2dis_uop_src1_fp),
@@ -859,7 +855,6 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .ren2dis_uop_src3_en(ren2dis_uop_src3_en),
     .ren2dis_uop_src3_preg(ren2dis_uop_src3_preg),
     .ren2dis_uop_fp_cls(ren2dis_uop_fp_cls),
-    .ren2dis_uop_old_dest_preg(ren2dis_uop_old_dest_preg),
     .ren2dis_uop_page_fault_inst(ren2dis_uop_page_fault_inst),
     .ren2dis_uop_pf_inst_hi(ren2dis_uop_pf_inst_hi),
     .ren2dis_uop_src1_areg(ren2dis_uop_src1_areg),
@@ -887,9 +882,6 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .dis2rob_uop_diag_val(dis2rob_uop_diag_val),
     .dis2rob_uop_dest_areg(dis2rob_uop_dest_areg),
     .dis2rob_uop_src1_areg(dis2rob_uop_src1_areg),
-    .dis2rob_uop_dest_preg(dis2rob_uop_dest_preg),
-    .dis2rob_uop_old_dest_preg(dis2rob_uop_old_dest_preg),
-    .dis2rob_uop_me_elim(dis2rob_uop_me_elim),
     .dis2rob_uop_dest_fp(dis2rob_uop_dest_fp),
     .dis2rob_uop_fs_need(dis2rob_uop_fs_need),
     .dis2rob_uop_ftq_idx(dis2rob_uop_ftq_idx),
@@ -1353,7 +1345,6 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .dis2rob_dis_fire(dis2rob_dis_fire),
     .dis2rob_uop_dest_areg(dis2rob_uop_dest_areg),
     .dis2rob_uop_dest_en(dis2rob_uop_dest_en),
-    .dis2rob_uop_dest_preg(dis2rob_uop_dest_preg),
     .dis2rob_uop_diag_val(dis2rob_uop_diag_val),
     .dis2rob_uop_expect_mask(dis2rob_uop_expect_mask),
     .dis2rob_uop_ftq_idx(dis2rob_uop_ftq_idx),
@@ -1362,10 +1353,8 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .dis2rob_uop_func7(dis2rob_uop_func7),
     .dis2rob_uop_illegal_inst(dis2rob_uop_illegal_inst),
     .dis2rob_uop_imm(dis2rob_uop_imm),
-    .dis2rob_uop_me_elim(dis2rob_uop_me_elim),
     .dis2rob_uop_dest_fp(dis2rob_uop_dest_fp),
     .dis2rob_uop_fs_need(dis2rob_uop_fs_need),
-    .dis2rob_uop_old_dest_preg(dis2rob_uop_old_dest_preg),
     .dis2rob_uop_page_fault_inst(dis2rob_uop_page_fault_inst),
     .dis2rob_uop_pf_inst_hi(dis2rob_uop_pf_inst_hi),
     .dis2rob_uop_rob_flag(dis2rob_uop_rob_flag),
@@ -1388,8 +1377,9 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .exu2rob_entry_uop_result(exu2rob_entry_uop_result),
     .exu2rob_entry_uop_rob_idx(exu2rob_entry_uop_rob_idx),
     .exu2rob_entry_valid(exu2rob_entry_valid),
-    // inputs from idu
+    // inputs from idu / ren
     .dec_bcast_mispred(dec_bcast_mispred),
+    .ren2rob_walking(ren2rob_walking),
     .dec_bcast_redirect_rob_idx(dec_bcast_redirect_rob_idx),
     // inputs from lsu
     .lsu2rob_committed_store_pending(lsu2rob_committed_store_pending),
@@ -1413,9 +1403,6 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .rob_commit_commit_entry_valid(rob_commit_commit_entry_valid),
     .rob_commit_commit_entry_uop_diag_val(rob_commit_commit_entry_uop_diag_val),
     .rob_commit_commit_entry_uop_dest_areg(rob_commit_commit_entry_uop_dest_areg),
-    .rob_commit_commit_entry_uop_dest_preg(rob_commit_commit_entry_uop_dest_preg),
-    .rob_commit_commit_entry_uop_old_dest_preg(rob_commit_commit_entry_uop_old_dest_preg),
-    .rob_commit_commit_entry_uop_me_elim(rob_commit_commit_entry_uop_me_elim),
     .rob_commit_commit_entry_uop_dest_fp(rob_commit_commit_entry_uop_dest_fp),
     .rob_commit_commit_entry_uop_ftq_idx(rob_commit_commit_entry_uop_ftq_idx),
     .rob_commit_commit_entry_uop_ftq_offset(rob_commit_commit_entry_uop_ftq_offset),
