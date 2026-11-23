@@ -1,5 +1,0 @@
-# rv64 directed programs (rv64ima, -DRV64 builds of programs/directed/*.S): trace-model cycles = RTL cycles, model default (LSU_PIPE_NOWD=1, LSU_MS_DATA=7).
-# usage: REF_CYCLES=scripts/ref_cycles_rv64.txt bash scripts/fm_gate.sh <rv64 soc_tb> <outdir>   (build the rv64 testbench with scripts/build_soc64_linux.sh)
-7381 directed/memspec_data64.bin
-3310 directed/memspec_addr64.bin
-2959 directed/memspec_pf64.bin
