@@ -76,7 +76,12 @@ module bpu_spec import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
   /* verilator lint_off UNUSEDSIGNAL */
   hist_t spec_d1, spec_da;
   /* verilator lint_on UNUSEDSIGNAL */
-  hist_t spec_q, spec_d, arch_q, arch_d;
+  hist_t spec_q, spec_d;
+  // Architectural history never rolls back: 128-bit linear shift register (bit 0 = newest) + folded histories
+  // Eliminates 1024-bit circular barrel shifter from arch_q -> spec_q M_ARCH critical path (100% bit-exact)
+  localparam int ARCH_SR_W = 128;
+  logic [ARCH_SR_W-1:0] arch_sr_q, arch_sr_d;
+  fh_t                  arch_fh_q, arch_fh_d;
   rasc_t aras_q, aras_d;
   logic [XLEN_BITS-1:0] st_q  [RASQ_N];
   logic [RASQ_W-1:0]    nos_q [RASQ_N];
@@ -87,28 +92,183 @@ module bpu_spec import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
   logic [3:0]  arch_sym_n;
 
   always_comb begin
+    logic [2:0] hs_t;
     arch_d_bits = '0;
     arch_sym_n  = '0;
+    hs_t        = '0;
     for (int i = 0; i < NCOMMIT; i++) begin
+      hs_t = hsym_of(base_pc[i], target[i]);
       if (upd_valid[i] && (br_type[i] != BR_NONCTL) && actual_dir[i]) begin
-        arch_d_bits = {arch_d_bits[20:0], hsym_of(base_pc[i], target[i])[0], hsym_of(base_pc[i], target[i])[1],
-                       hsym_of(base_pc[i], target[i])[2]};
+        arch_d_bits = {arch_d_bits[20:0], hs_t[0], hs_t[1], hs_t[2]};
         arch_sym_n  = arch_sym_n + 4'd1;
       end
     end
   end
 
-  bpu_hist_vec #(.MAX_SYM(8)) u_arch_push (.h(arch_q), .sym_n(arch_sym_n), .d(arch_d_bits), .h_next(arch_d));
+  // Linear 128-bit architectural history push (0..12 symbols, zero circular barrel shifter)
+  function automatic logic [FH_W-1:0] arch_rotl_const(input logic [FH_W-1:0] x, input int unsigned a, input int unsigned len);
+    logic [FH_W-1:0] msk;
+    msk = FH_W'((32'd1 << len) - 32'd1);
+    return (a == 0) ? x : (((x << a) | (x >> (len - a))) & msk);
+  endfunction
+
+  function automatic logic [FH_W-1:0] arch_rotl_sym(input logic [FH_W-1:0] x, input logic [3:0] sn, input int unsigned len);
+    case (sn)
+      4'd1:    return arch_rotl_const(x,  3 % len, len);
+      4'd2:    return arch_rotl_const(x,  6 % len, len);
+      4'd3:    return arch_rotl_const(x,  9 % len, len);
+      4'd4:    return arch_rotl_const(x, 12 % len, len);
+      4'd5:    return arch_rotl_const(x, 15 % len, len);
+      4'd6:    return arch_rotl_const(x, 18 % len, len);
+      4'd7:    return arch_rotl_const(x, 21 % len, len);
+      4'd8:    return arch_rotl_const(x, 24 % len, len);
+      4'd9:    return arch_rotl_const(x, 27 % len, len);
+      4'd10:   return arch_rotl_const(x, 30 % len, len);
+      4'd11:   return arch_rotl_const(x, 33 % len, len);
+      4'd12:   return arch_rotl_const(x, 36 % len, len);
+      default: return x;
+    endcase
+  endfunction
+
+  typedef struct packed {
+    logic [ARCH_SR_W-1:0] sr;
+    fh_t                  fh;
+  } arch_hist_t;
+
+  function automatic arch_hist_t arch_push_vec(input logic [ARCH_SR_W-1:0] sr, input fh_t fh,
+                                               input logic [3:0] sn, input logic [35:0] d);
+    arch_hist_t res;
+    logic [5:0]  nb;
+    logic [35:0] keep, din, din_of;
+    logic [35:0] outw [TN];
+    nb = {2'b0, sn} + {1'b0, sn, 1'b0}; // 3 * sn (0..36)
+    for (int u = 0; u < 36; u++) begin
+      keep[u] = (6'(u) < nb);
+      din[u]  = d[u] && keep[u];
+    end
+    din_of = '0;
+    for (int c = 1; c <= 12; c++) begin
+      if (sn == 4'(c)) begin
+        for (int j = 0; j < 3 * c; j++) din_of[j] = d[3 * c - 1 - j];
+      end
+    end
+    res.sr = (sr << nb) | {{(ARCH_SR_W - 36){1'b0}}, din};
+    for (int i = 0; i < TN; i++) begin
+      logic [35:0] raw_o;
+      raw_o = '0;
+      for (int j = 0; j < 36; j++) begin
+        if (j < ghr_len(i)) raw_o[j] = sr[ghr_len(i) - 1 - j];
+        else                raw_o[j] = din_of[j - ghr_len(i)];
+      end
+      outw[i] = '0;
+      for (int c = 1; c <= 12; c++) begin
+        if (sn == 4'(c)) begin
+          for (int u = 0; u < 3 * c; u++) outw[i][u] = raw_o[3 * c - 1 - u];
+        end
+      end
+    end
+    for (int k = 0; k < FH_K; k++) begin
+      for (int i = 0; i < TN; i++) begin
+        logic [FH_W-1:0] acc;
+        acc = arch_rotl_sym(fh[k][i], sn, fh_len(k, i));
+        for (int u = 0; u < 36; u++) begin
+          acc = acc ^ arch_rotl_const(FH_W'(din[u]) ^ (FH_W'(outw[i][u]) << (ghr_len(i) % fh_len(k, i))),
+                                      u % fh_len(k, i), fh_len(k, i));
+        end
+        res.fh[k][i] = acc;
+      end
+    end
+    return res;
+  endfunction
+
+  function automatic hist_t arch_to_hist(input arch_hist_t a, input logic [3:0] extra_bits);
+    hist_t h;
+    h      = '0;
+    h.head = HR_PTR_W'(extra_bits);
+    h.fh   = a.fh;
+    for (int k = 0; k < ARCH_SR_W; k++) begin
+      h.ring[HR_PTR_W'(extra_bits) - HR_PTR_W'(1) - HR_PTR_W'(k)] = a.sr[k];
+    end
+    return h;
+  endfunction
+
+  arch_hist_t arch_next_st;
+  always_comb begin
+    arch_next_st = arch_push_vec(arch_sr_q, arch_fh_q, arch_sym_n, {12'b0, arch_d_bits});
+    arch_sr_d    = arch_next_st.sr;
+    arch_fh_d    = arch_next_st.fh;
+  end
 
   // Ref: commit loop: calls / returns move the architectural RAS
+  // Parallel 3-level associative clamped-counter prefix (bit-exact to NCOMMIT serial ras_push/ras_pop calls)
+  typedef struct packed {
+    logic signed [4:0] d;     // net delta in [-8..+8]
+    logic [RAS_CNT_W-1:0] lo; // clamped lower bound [0..RAS_DEPTH]
+    logic [RAS_CNT_W-1:0] hi; // clamped upper bound [0..RAS_DEPTH]
+  } ras_op_t;
+
+  function automatic logic [RAS_CNT_W-1:0] ras_clamp_add(input logic [RAS_CNT_W-1:0] x, input logic signed [4:0] d,
+                                                         input logic [RAS_CNT_W-1:0] lo, input logic [RAS_CNT_W-1:0] hi);
+    logic signed [RAS_CNT_W+1:0] s;
+    s = $signed({2'b00, x}) + $signed({{(RAS_CNT_W-3){d[4]}}, d});
+    if (s < $signed({2'b00, lo}))      return lo;
+    else if (s > $signed({2'b00, hi})) return hi;
+    else                               return s[RAS_CNT_W-1:0];
+  endfunction
+
+  function automatic ras_op_t ras_compose(input ras_op_t a, input ras_op_t b);
+    ras_op_t c;
+    c.d  = a.d + b.d;
+    c.lo = ras_clamp_add(a.lo, b.d, b.lo, b.hi);
+    c.hi = ras_clamp_add(a.hi, b.d, b.lo, b.hi);
+    return c;
+  endfunction
+
   always_comb begin
-    aras_d = aras_q;
+    logic [NCOMMIT-1:0]   c_push, c_pop, c_eff_pop;
+    logic [XLEN_BITS-1:0] c_val [NCOMMIT];
+    ras_op_t              p0 [NCOMMIT], p1 [NCOMMIT], p2 [NCOMMIT], p3 [NCOMMIT];
+    logic [RAS_CNT_W-1:0] cnt_before [NCOMMIT];
+    logic [RAS_PTR_W-1:0] ptr_after  [NCOMMIT];
+
     for (int i = 0; i < NCOMMIT; i++) begin
-      if (upd_valid[i]) begin
-        if (br_type[i] == BR_CALL || br_type[i] == BR_ICALL)
-          aras_d = ras_push(aras_d, base_pc[i] + (upd_is_rvc[i] ? XLEN_BITS'(2) : XLEN_BITS'(4)));
-        else if (br_type[i] == BR_RET)
-          aras_d = ras_pop(aras_d);
+      c_push[i] = upd_valid[i] && (br_type[i] == BR_CALL || br_type[i] == BR_ICALL);
+      c_pop[i]  = upd_valid[i] && (br_type[i] == BR_RET);
+      c_val[i]  = base_pc[i] + (upd_is_rvc[i] ? XLEN_BITS'(2) : XLEN_BITS'(4));
+      if (c_push[i])      p0[i] = '{d:  5'sd1, lo: RAS_CNT_W'(1), hi: RAS_CNT_W'(RAS_DEPTH)};
+      else if (c_pop[i])  p0[i] = '{d: -5'sd1, lo: RAS_CNT_W'(0), hi: RAS_CNT_W'(RAS_DEPTH - 1)};
+      else                p0[i] = '{d:  5'sd0, lo: RAS_CNT_W'(0), hi: RAS_CNT_W'(RAS_DEPTH)};
+    end
+
+    // 3-level Kogge-Stone prefix over NCOMMIT=8 lanes
+    for (int i = 0; i < NCOMMIT; i++) p1[i] = (i >= 1) ? ras_compose(p0[i-1], p0[i]) : p0[i];
+    for (int i = 0; i < NCOMMIT; i++) p2[i] = (i >= 2) ? ras_compose(p1[i-2], p1[i]) : p1[i];
+    for (int i = 0; i < NCOMMIT; i++) p3[i] = (i >= 4) ? ras_compose(p2[i-4], p2[i]) : p2[i];
+
+    cnt_before[0] = aras_q.cnt;
+    for (int i = 1; i < NCOMMIT; i++) begin
+      cnt_before[i] = ras_clamp_add(aras_q.cnt, p3[i-1].d, p3[i-1].lo, p3[i-1].hi);
+    end
+    for (int i = 0; i < NCOMMIT; i++) begin
+      c_eff_pop[i] = c_pop[i] && (cnt_before[i] != '0);
+    end
+
+    for (int i = 0; i < NCOMMIT; i++) begin
+      logic [3:0] n_p, n_o;
+      n_p = '0; n_o = '0;
+      for (int j = 0; j <= i; j++) begin
+        n_p = n_p + {3'b0, c_push[j]};
+        n_o = n_o + {3'b0, c_eff_pop[j]};
+      end
+      ptr_after[i] = aras_q.ptr + RAS_PTR_W'(n_p) - RAS_PTR_W'(n_o);
+    end
+
+    aras_d.cnt = ras_clamp_add(aras_q.cnt, p3[NCOMMIT-1].d, p3[NCOMMIT-1].lo, p3[NCOMMIT-1].hi);
+    aras_d.ptr = ptr_after[NCOMMIT-1];
+    for (int e = 0; e < RAS_DEPTH; e++) begin
+      aras_d.st[e] = aras_q.st[e];
+      for (int i = 0; i < NCOMMIT; i++) begin
+        if (c_push[i] && (ptr_after[i] == RAS_PTR_W'(e))) aras_d.st[e] = c_val[i];
       end
     end
   end
@@ -130,14 +290,30 @@ module bpu_spec import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
     return 4'(int'(n1) + int'(en2) + int'(en3));
   endfunction
 
+  // Concatenate arch_d_bits (older, arch_sym_n symbols) + extra symbols (newer, up to 4 symbols) into 36-bit vector
+  function automatic logic [35:0] pack_arch_syms(input logic [23:0] abits,
+                                                 input logic [1:0] n1, input logic [5:0] b1,
+                                                 input logic en2, input logic [2:0] b2,
+                                                 input logic en3, input logic [2:0] b3);
+    logic [35:0] d;
+    d = {12'b0, abits};
+    if (n1 >= 2'd1) d = {d[32:0], b1[0], b1[1], b1[2]};
+    if (n1 >= 2'd2) d = {d[32:0], b1[3], b1[4], b1[5]};
+    if (en2)        d = {d[32:0], b2[0], b2[1], b2[2]};
+    if (en3)        d = {d[32:0], b3[0], b3[1], b3[2]};
+    return d;
+  endfunction
+
   // Ref: comb: spec history update
+  /* verilator lint_off UNUSEDSIGNAL */
   hist_t base1;
+  /* verilator lint_on UNUSEDSIGNAL */
   logic [1:0] n1_eff;
   always_comb begin
     base1 = spec_q;
     case (h_mode)
       M_CK:    base1 = hist_restore(spec_q, h_ck);
-      M_ARCH:  base1 = arch_d;
+      M_ARCH:  base1 = arch_to_hist(arch_next_st, 4'd0);
       default: base1 = spec_q;
     endcase
     n1_eff = (h_mode != 2'd0) ? h_push_n : 2'd0;
@@ -157,24 +333,49 @@ module bpu_spec import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
     bpu_hist_vec #(.MAX_SYM(4)) u_v2 (.h(base1), .sym_n(cnt_syms(n1_eff, h2_en, h3_en)),
                        .d(pack_syms(n1_eff, h_push_bits, h2_en, h2_bits, h3_en, h3_bits)), .h_next(spec_d));
   end else begin : g_h_ref
-    // REFONLY: S0 Block A/B on !refetch starts directly from spec_q (independent of S2 ovr / r1_q!)
-    hist_t spec_n1, spec_qa, spec_q2, spec_r1, spec_ra, spec_r2, base_r;
-    always_comb base_r = (hr_mode == M_CK) ? hist_restore(spec_q, hr_ck) : arch_d;
-    bpu_hist_vec #(.MAX_SYM(2)) u_n1 (.h(base1), .sym_n(cnt_syms(n1_eff, 1'b0, 1'b0)),
-                       .d(pack_syms(n1_eff, h_push_bits, 1'b0, '0, 1'b0, '0)), .h_next(spec_n1));
+    // REFONLY: M_ARCH uses linear 128-bit arch_push_vec (zero circular barrel shifter!)
+    hist_t spec_n1_ck, spec_n1_ar, spec_n1, spec_qa, spec_q2;
+    hist_t spec_r1_ck, spec_ra_ck, spec_r2_ck, spec_r1_ar, spec_ra_ar, spec_r2_ar;
+    hist_t base_ck, base_rck;
+    always_comb base_ck  = (h_mode  == M_CK) ? hist_restore(spec_q, h_ck)  : spec_q;
+    always_comb base_rck = hist_restore(spec_q, hr_ck);
+
+    bpu_hist_vec #(.MAX_SYM(2)) u_n1_ck (.h(base_ck), .sym_n(cnt_syms(n1_eff, 1'b0, 1'b0)),
+                       .d(pack_syms(n1_eff, h_push_bits, 1'b0, '0, 1'b0, '0)), .h_next(spec_n1_ck));
+    always_comb spec_n1_ar = arch_to_hist(arch_push_vec(arch_sr_q, arch_fh_q,
+                               arch_sym_n + cnt_syms(n1_eff, 1'b0, 1'b0),
+                               pack_arch_syms(arch_d_bits, n1_eff, h_push_bits, 1'b0, '0, 1'b0, '0)), 4'd0);
+    assign spec_n1 = (h_mode == M_ARCH) ? spec_n1_ar : spec_n1_ck;
+
     bpu_hist_vec #(.MAX_SYM(1)) u_qa (.h(spec_q), .sym_n(cnt_syms(2'd0, g0_h_en, 1'b0)),
                        .d(pack_syms(2'd0, 6'd0, g0_h_en, g0_h_bits, 1'b0, '0)), .h_next(spec_qa));
     bpu_hist_vec #(.MAX_SYM(2)) u_q2 (.h(spec_q), .sym_n(cnt_syms(2'd0, g0_h_en, h3_en)),
                        .d(pack_syms(2'd0, 6'd0, g0_h_en, g0_h_bits, h3_en, h3_bits)), .h_next(spec_q2));
-    bpu_hist_vec #(.MAX_SYM(2)) u_r1 (.h(base_r), .sym_n(cnt_syms(hr_push_n, 1'b0, 1'b0)),
-                       .d(pack_syms(hr_push_n, hr_push_bits, 1'b0, '0, 1'b0, '0)), .h_next(spec_r1));
-    bpu_hist_vec #(.MAX_SYM(3)) u_ra (.h(base_r), .sym_n(cnt_syms(hr_push_n, h2_en, 1'b0)),
-                       .d(pack_syms(hr_push_n, hr_push_bits, h2_en, h2_bits, 1'b0, '0)), .h_next(spec_ra));
-    bpu_hist_vec #(.MAX_SYM(4)) u_r2 (.h(base_r), .sym_n(cnt_syms(hr_push_n, h2_en, h3_en)),
-                       .d(pack_syms(hr_push_n, hr_push_bits, h2_en, h2_bits, h3_en, h3_bits)), .h_next(spec_r2));
-    assign spec_d1 = spec_r1;
-    assign spec_da = refetch ? spec_ra : spec_qa;
-    assign spec_d  = refetch ? spec_r2 : (issue ? spec_q2 : spec_n1);
+
+    bpu_hist_vec #(.MAX_SYM(2)) u_r1_ck (.h(base_rck), .sym_n(cnt_syms(hr_push_n, 1'b0, 1'b0)),
+                       .d(pack_syms(hr_push_n, hr_push_bits, 1'b0, '0, 1'b0, '0)), .h_next(spec_r1_ck));
+    bpu_hist_vec #(.MAX_SYM(3)) u_ra_ck (.h(base_rck), .sym_n(cnt_syms(hr_push_n, h2_en, 1'b0)),
+                       .d(pack_syms(hr_push_n, hr_push_bits, h2_en, h2_bits, 1'b0, '0)), .h_next(spec_ra_ck));
+    bpu_hist_vec #(.MAX_SYM(4)) u_r2_ck (.h(base_rck), .sym_n(cnt_syms(hr_push_n, h2_en, h3_en)),
+                       .d(pack_syms(hr_push_n, hr_push_bits, h2_en, h2_bits, h3_en, h3_bits)), .h_next(spec_r2_ck));
+
+    always_comb begin
+      spec_r1_ar = arch_to_hist(arch_push_vec(arch_sr_q, arch_fh_q,
+                     arch_sym_n + cnt_syms(hr_push_n, 1'b0, 1'b0),
+                     pack_arch_syms(arch_d_bits, hr_push_n, hr_push_bits, 1'b0, '0, 1'b0, '0)), 4'd0);
+      spec_ra_ar = arch_to_hist(arch_push_vec(arch_sr_q, arch_fh_q,
+                     arch_sym_n + cnt_syms(hr_push_n, h2_en, 1'b0),
+                     pack_arch_syms(arch_d_bits, hr_push_n, hr_push_bits, h2_en, h2_bits, 1'b0, '0)),
+                     h2_en ? 4'd3 : 4'd0);
+      spec_r2_ar = arch_to_hist(arch_push_vec(arch_sr_q, arch_fh_q,
+                     arch_sym_n + cnt_syms(hr_push_n, h2_en, h3_en),
+                     pack_arch_syms(arch_d_bits, hr_push_n, hr_push_bits, h2_en, h2_bits, h3_en, h3_bits)),
+                     (h2_en ? 4'd3 : 4'd0) + (h3_en ? 4'd3 : 4'd0));
+    end
+
+    assign spec_d1 = (hr_mode == M_CK) ? spec_r1_ck : spec_r1_ar;
+    assign spec_da = refetch ? ((hr_mode == M_CK) ? spec_ra_ck : spec_ra_ar) : spec_qa;
+    assign spec_d  = refetch ? ((hr_mode == M_CK) ? spec_r2_ck : spec_r2_ar) : (issue ? spec_q2 : spec_n1);
   end
 
   // ---- speculative RAS: queue arrays + pointers + 4-slot write overlay ----
@@ -281,16 +482,18 @@ module bpu_spec import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
 
   always_ff @(posedge clk) begin
     if (!rst_n) begin
-      spec_q <= '0;
-      arch_q <= '0;
-      rp_q   <= '0;
-      aras_q <= '0;
+      spec_q    <= '0;
+      arch_sr_q <= '0;
+      arch_fh_q <= '0;
+      rp_q      <= '0;
+      aras_q    <= '0;
       for (int j = 0; j < RASQ_N; j++) begin st_q[j] <= '0; nos_q[j] <= '0; end
     end else begin
-      spec_q <= spec_d;
-      arch_q <= arch_d;
-      rp_q   <= s_d.p;
-      aras_q <= aras_d;
+      spec_q    <= spec_d;
+      arch_sr_q <= arch_sr_d;
+      arch_fh_q <= arch_fh_d;
+      rp_q      <= s_d.p;
+      aras_q    <= aras_d;
       for (int j = 0; j < RASQ_N; j++) begin
         st_q[j]  <= rd_st(s_d.o, RASQ_W'(j));
         nos_q[j] <= rd_nos(s_d.o, RASQ_W'(j));

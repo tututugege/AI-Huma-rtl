@@ -9,12 +9,13 @@
 //     Thus ring_new and all 12 folded histories compute completely in parallel for both spec (MAX_SYM=4) and arch (MAX_SYM=8).
 //   - Folded-history rotation uses compile-time constant case over sym_n (zero hardware divider/modulo).
 module bpu_hist_vec import bpu_pkg::*; import bpu_stage_pkg::*; #(
-  parameter int MAX_SYM = 8
+  parameter int MAX_SYM = 8,
+  parameter int DW      = 24
 ) (
-  input  hist_t        h,
-  input  logic [3:0]   sym_n,
-  input  logic [23:0]  d,
-  output hist_t        h_next
+  input  hist_t          h,
+  input  logic [3:0]     sym_n,
+  input  logic [DW-1:0]  d,
+  output hist_t          h_next
 );
 
   localparam int NW = 3 * MAX_SYM;
@@ -36,22 +37,26 @@ module bpu_hist_vec import bpu_pkg::*; import bpu_stage_pkg::*; #(
       4'd6:    return rotl_const(x, 18 % len, len);
       4'd7:    return rotl_const(x, 21 % len, len);
       4'd8:    return rotl_const(x, 24 % len, len);
+      4'd9:    return rotl_const(x, 27 % len, len);
+      4'd10:   return rotl_const(x, 30 % len, len);
+      4'd11:   return rotl_const(x, 33 % len, len);
+      4'd12:   return rotl_const(x, 36 % len, len);
       default: return x;
     endcase
   endfunction
 
-  logic [4:0]          n_bits;
+  logic [5:0]          n_bits;
   logic [HR_PTR_W-1:0] head_new;
   logic [NW-1:0]       keep, din, din_of;
   logic [HR_BITS-1:0]  ring_new;
   logic [NW-1:0]       outw [TN];
 
-  assign n_bits   = {1'b0, sym_n} + {sym_n, 1'b0}; // 3 * sym_n
+  assign n_bits   = {2'b0, sym_n} + {1'b0, sym_n, 1'b0}; // 3 * sym_n (0..36)
   assign head_new = h.head + HR_PTR_W'(n_bits);
 
   always_comb begin
     for (int u = 0; u < NW; u++) begin
-      keep[u] = (5'(u) < n_bits);
+      keep[u] = (6'(u) < n_bits);
       din[u]  = d[u] && keep[u];
     end
     // Oldest-first bit order: din_of[j] is written to ring[(h.head + j) & (HR_BITS-1)] for j < n_bits
@@ -118,12 +123,16 @@ module bpu_hist_vec import bpu_pkg::*; import bpu_stage_pkg::*; #(
 `else
   // Fast simulation path (bit-identical to parallel synthesis path above, verified by tb/fe_clean_eq)
   always_comb begin
-    logic [4:0]      nb, bidx;
+    localparam int BIDXW = $clog2(DW);
+    logic [5:0]      nb;
+    /* verilator lint_off UNUSEDSIGNAL */
+    logic [5:0]      bidx;
+    /* verilator lint_on UNUSEDSIGNAL */
     logic            b, ob;
     int unsigned     fl, gl;
     logic [FH_W-1:0] msk, v;
     h_next = h;
-    nb     = {1'b0, sym_n} + {sym_n, 1'b0};
+    nb     = {2'b0, sym_n} + {1'b0, sym_n, 1'b0};
     bidx   = '0;
     b      = 1'b0;
     ob     = 1'b0;
@@ -132,9 +141,9 @@ module bpu_hist_vec import bpu_pkg::*; import bpu_stage_pkg::*; #(
     msk    = '0;
     v      = '0;
     for (int j = 0; j < NW; j++) begin
-      if (5'(j) < nb) begin
-        bidx = nb - 5'd1 - 5'(j);
-        b    = d[bidx];
+      if (6'(j) < nb) begin
+        bidx = nb - 6'd1 - 6'(j);
+        b    = d[bidx[BIDXW-1:0]];
         h_next.ring[h_next.head] = b;
         h_next.head = h_next.head + HR_PTR_W'(1);
         for (int k = 0; k < FH_K; k++) begin

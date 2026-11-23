@@ -66,7 +66,10 @@ module ren_core
   logic                     walk_active;
   logic [N-1:0]             log_ok, walk_slot_en;
   logic [ROB_IDX_WIDTH-1:0] lane_rob_idx [N];
+  /* verilator lint_off UNUSEDSIGNAL */
   logic [ROB_IDX_WIDTH-1:0] log_rd_base;
+  /* verilator lint_on UNUSEDSIGNAL */
+  logic [ROB_IDX_WIDTH-1:0] log_rd_base_next;
   logic                     ckpt_wr_en, ckpt_rd_hit;
   logic [KW-1:0]            ckpt_wr_slot, ckpt_rd_slot;
   logic [N-1:0]             ckpt_wr_lane_oh;
@@ -167,14 +170,14 @@ module ren_core
     .commit_valid(c_valid), .flush(rob_flush), .mispred(dec_mispred),
     .dec_redirect_rob_idx(dec_redirect_rob_idx),
     .walk_active(walk_active), .log_ok(log_ok), .lane_rob_idx(lane_rob_idx),
-    .rd_base(log_rd_base), .walk_slot_en(walk_slot_en),
+    .rd_base(log_rd_base), .rd_base_next(log_rd_base_next), .walk_slot_en(walk_slot_en),
     .ckpt_wr_en(ckpt_wr_en), .ckpt_wr_slot(ckpt_wr_slot), .ckpt_wr_lane_oh(ckpt_wr_lane_oh),
     .ckpt_rd_hit(ckpt_rd_hit), .ckpt_rd_slot(ckpt_rd_slot)
   );
 
   ren_log u_log (
     .clk(clk), .wr_valid(fire), .wr_rob_idx(lane_rob_idx), .wr_entry(log_wr_entry),
-    .rd_base(log_rd_base), .rd_slot(log_rd_slot)
+    .rd_base_next(log_rd_base_next), .rd_slot(log_rd_slot)
   );
 
   ttg_popcount #(.N(N)) u_walk_int_pc (.bits(walk_int_alloc), .count(walk_int_cnt));

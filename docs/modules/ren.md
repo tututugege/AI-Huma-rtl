@@ -3,8 +3,8 @@ module: ren
 area: backend
 rtl: rtl/backend/ren
 model: trace-model back-end/Ren.cpp、back-end/include/Ren.h（调度单元 `back.rename`，类 `Ren`，阶段 `comb_rename`、`comb_fire`）
-status: 整核周期与模型逐个相等（fm_gate 69/69，0 周期偏差；稀疏 K=4 单写口检查点 + 本地 256×27b ROB-indexed RenLog + 8 宽前向 Walk）
-depth: 91 层（ren，单模块综合，2026-11-23，`SYNTH_ABC="strash;balance;map"`，`PRF_NUM=256 / ROB_NUM=256 / REN_CKPT_NUM=4 / REN_CKPT_INTERVAL=32`，156,986 cells；较全分支 32×8 写口基线 586,315 cells 降 −429,329 cells / −73.22%，深度与基线 91 层完全持平）
+status: 整核周期与模型逐个相等（EXP-062：`ren_log` T-1 拍预寄存读窗 `rd_slot_q[0..7]` 0 周期变化，rv64gc Linux 26/26 窗 PT/UP 逐拍全等）
+depth: 91 层（Yosys 156,986 cells）；**TSMC 28nm HPC+ DC `ssg0p81v125c` `0.50ns`（EXP-062）：`WNS -0.45→-0.36 ns`、`1.05→1.16 GHz`、`49→48 lvl`、面积 `144,365 um²`（见 09-synthesis-report 第 15 节）**
 ---
 
 # ren 设计文档

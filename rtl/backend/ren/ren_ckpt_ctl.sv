@@ -25,6 +25,7 @@ module ren_ckpt_ctl
   output logic [N-1:0]             log_ok,           // lane fits in RenLog (and not walking)
   output logic [ROB_IDX_WIDTH-1:0] lane_rob_idx [N], // ROB index for each lane (valid prefix)
   output logic [ROB_IDX_WIDTH-1:0] rd_base,          // RenLog read base (walk_ptr when walking, else ren_rob_head)
+  output logic [ROB_IDX_WIDTH-1:0] rd_base_next,     // next-cycle rd_base (for pre-registered RenLog read window)
   output logic [N-1:0]             walk_slot_en,     // slots active in current walk step
   // Single-write-port checkpoint data control (shared by INT and FP ren_ckpt)
   output logic                     ckpt_wr_en,
@@ -207,6 +208,20 @@ module ren_ckpt_ctl
   assign walk_step = (walk_rem_q > ICW'(N)) ? CW'(N) : CW'(walk_rem_q);
   for (genvar k = 0; k < N; k++) begin : g_walk_en
     assign walk_slot_en[k] = walk_active_q & (CW'(k) < walk_step);
+  end
+
+  // Next-cycle rd_base for pre-registered RenLog read window (eliminates ren_log 32:1+8:1 mux from commit critical path)
+  always_comb begin
+    if (flush) begin
+      rd_base_next = '0;
+    end else if (mispred) begin
+      rd_base_next = mis_walk_active ? mis_walk_ptr : ren_rob_head_q;
+    end else if (walk_active_q) begin
+      rd_base_next = (walk_rem_q > ICW'(walk_step)) ? (walk_ptr_q + IW'(walk_step))
+                                                    : (ren_rob_head_q + IW'(commit_cnt));
+    end else begin
+      rd_base_next = ren_rob_head_q + IW'(commit_cnt);
+    end
   end
 
   // ---- next state: flush > mispred > walk > normal ----

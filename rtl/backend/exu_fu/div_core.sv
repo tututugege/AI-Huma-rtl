@@ -220,7 +220,11 @@ module div_core
       a_rem0    = (iters == 5'd16) ? '0 : (a_mag >> {iters[3:0], 2'b00});
       lat_m1    = early_out ? 5'd1 : iters;
 
-      b3_calc   = ks_add_sw({2'b00, b_mag}, {1'b0, b_mag, 1'b0}, 1'b0)[SW-1:0];
+      begin
+        logic [SW:0] b3_tmp;
+        b3_tmp  = ks_add_sw({2'b00, b_mag}, {1'b0, b_mag, 1'b0}, 1'b0);
+        b3_calc = b3_tmp[SW-1:0];
+      end
     end
 
     // ---- run side: 2 cascaded parallel Radix-4 stages (4 quotient bits/cycle) ----

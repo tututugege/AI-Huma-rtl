@@ -3,8 +3,8 @@ module: dcache_pf
 area: memsys
 rtl: rtl/memsys/dcache/dcache_pf.sv
 model: trace-model MemSubSystem/include/DataPrefetcher.h（类 `DataPrefetcher`，`RealDcache` 的成员 `pf`，没有自己的调度单元；它的 `seq()` 由 `RealDcache::seq()` 调用）
-status: 整核周期与模型逐个相等（fm_gate 67/67，参考 scripts/ref_cycles_memiq6_nr_int2_ev5.txt）
-depth: 384 层（dcache_pf，EXP-048 硬件 Berti，单模块综合，2026-11-20，`SYNTH_ABC="strash;balance;map"`，生成门代理，见 09-synthesis-report 第 12 节）
+status: 整核周期与模型逐个相等（EXP-062：4 级流水化硬件 Berti，rv64gc Linux 26/26 窗 PT/UP 逐拍全等 + SPEC06 386 点 +0.51%）
+depth: 75 层（EXP-062 优化后：Yosys `384→75` 层，拆测 `berti_hist` 33 / `berti_gen` 49 / `berti_tab` 75；**TSMC 28nm HPC+ DC `ssg0p81v125c` `0.50ns`：`WNS -2.23→-0.35 ns`、`0.37→1.18 GHz`、`172→53 lvl`、面积 `184,092→147,594 um²`，见 09-synthesis-report 第 15 节**）
 ---
 
 # dcache_pf 设计文档

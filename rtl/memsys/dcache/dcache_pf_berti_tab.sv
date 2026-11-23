@@ -70,6 +70,7 @@ module dcache_pf_berti_tab (
   end
 
   // ---------------- 2. Parallel hit-increment on selected PC entry ----------------
+  // Read cur_dl directly via hit_oh (skips inv/lru/upd_idx dependency!)
   dl_t              cur_dl [DDELTAS];
   dl_t              hit_dl [DDELTAS];
   logic [15:0]      matched_w, unm_w;
@@ -77,11 +78,20 @@ module dcache_pf_berti_tab (
   logic             unm0_any, unm1_any;
   logic [3:0]       unm0_idx, unm1_idx;
 
+  for (genvar m = 0; m < DDELTAS; m++) begin : g_cur_dl
+    logic [$bits(dl_t)-1:0] dl_col [DPCS];
+    logic [$bits(dl_t)-1:0] dl_sel;
+    for (genvar p = 0; p < DPCS; p++) begin : g_col
+      assign dl_col[p] = dl_q[p][m];
+    end
+    ttg_onehot_mux #(.N(DPCS), .W($bits(dl_t))) u_dl_rd (.sel(hit_oh), .data(dl_col), .out(dl_sel));
+    assign cur_dl[m] = dl_t'(dl_sel);
+  end
+
   always_comb begin
     matched_w = '0;
     for (int m = 0; m < DDELTAS; m++) begin
       logic hit_m;
-      cur_dl[m] = hit_any ? dl_q[upd_idx][m] : '0;
       hit_m = 1'b0;
       for (int w = 0; w < 16; w++) begin
         if (cur_dl[m].v && srch_uniq[w] && (srch_d[w] == cur_dl[m].d)) begin
@@ -95,93 +105,159 @@ module dcache_pf_berti_tab (
     unm_w = srch_uniq & ~matched_w;
   end
 
-  ttg_first_set #(.N(16)) u_u0 (.req(unm_w), .onehot(unm0_oh), .any(unm0_any));
-  ttg_first_set #(.N(16)) u_u1 (.req(unm_w & ~unm0_oh), .onehot(unm1_oh), .any(unm1_any));
+  logic [15:0] unm_oh [2];
+  logic [1:0]  unm_any;
+  ttg_pick_k #(.N(16), .K(2)) u_unm_pk (.req(unm_w), .pick_oh(unm_oh), .valid(unm_any));
+  assign unm0_oh  = unm_oh[0];
+  assign unm1_oh  = unm_oh[1];
+  assign unm0_any = unm_any[0];
+  assign unm1_any = unm_any[1];
   ttg_onehot_to_idx #(.N(16), .IDXW(4)) u_u0_i (.onehot(unm0_oh), .idx(unm0_idx));
   ttg_onehot_to_idx #(.N(16), .IDXW(4)) u_u1_i (.onehot(unm1_oh), .idx(unm1_idx));
 
-  // ---------------- 3. Insert up to 2 unmatched deltas + round-end status update ----------------
-  function automatic logic [4:0] pick_slot(input dl_t arr [DDELTAS]);
-    logic       found_inv, found_st0;
-    logic [3:0] idx_inv, idx_st0;
-    logic [4:0] min_cov;
-    found_inv = 1'b0; idx_inv = 4'd0;
-    found_st0 = 1'b0; idx_st0 = 4'd0; min_cov = 5'd31;
-    for (int m = 0; m < DDELTAS; m++) begin
-      if (!arr[m].v && !found_inv) begin
-        found_inv = 1'b1;
-        idx_inv = 4'(m);
-      end
-      if (arr[m].v && (arr[m].st == 2'd0) && (!found_st0 || (arr[m].cov < min_cov))) begin
-        found_st0 = 1'b1;
-        idx_st0 = 4'(m);
-        min_cov = arr[m].cov;
-      end
+  // ---------------- Stage T1 -> T2 pipeline register (breaks PC CAM + 16x16 match from Top-2 tree + write) ----------------
+  logic              t1_v_q;
+  logic [31:0]       t1_pc_q;
+  logic [3:0]        t1_upd_idx_q, t1_old_lru_q;
+  logic [4:0]        t1_cnt_q;
+  dl_t               t1_hit_dl_q [DDELTAS];
+  logic              t1_unm0_any_q, t1_unm1_any_q;
+  logic signed [6:0] t1_unm0_d_q, t1_unm1_d_q;
+
+  always_ff @(posedge clk) begin
+    if (!rst_n) begin
+      t1_v_q <= 1'b0;
+    end else begin
+      t1_v_q        <= srch_do;
+      t1_pc_q       <= srch_pc;
+      t1_upd_idx_q  <= upd_idx;
+      t1_old_lru_q  <= old_lru;
+      t1_cnt_q      <= hit_any ? cnt_q[hit_idx] : 5'd0;
+      t1_unm0_any_q <= unm0_any;
+      t1_unm1_any_q <= unm1_any;
+      t1_unm0_d_q   <= srch_d[unm0_idx];
+      t1_unm1_d_q   <= srch_d[unm1_idx];
+      for (int m = 0; m < DDELTAS; m++) t1_hit_dl_q[m] <= hit_dl[m];
     end
-    if (found_inv) return {1'b1, idx_inv};
-    if (found_st0) return {1'b1, idx_st0};
-    return 5'd0;
+  end
+
+  // ---------------- 3. Stage T2: Parallel top-2 slot selection + insert up to 2 unmatched deltas ----------------
+  logic [DDELTAS-1:0] dl_inv_vec;
+  logic [DDELTAS-1:0] inv_pk_oh [2];
+  logic [1:0]         inv_pk_v;
+  logic [3:0]         inv0_idx_dl, inv1_idx_dl;
+
+  always_comb begin
+    for (int m = 0; m < DDELTAS; m++) dl_inv_vec[m] = !t1_hit_dl_q[m].v;
+  end
+  ttg_pick_k #(.N(DDELTAS), .K(2)) u_dl_inv_pk (.req(dl_inv_vec), .pick_oh(inv_pk_oh), .valid(inv_pk_v));
+  ttg_onehot_to_idx #(.N(DDELTAS), .IDXW(4)) u_inv0_dl (.onehot(inv_pk_oh[0]), .idx(inv0_idx_dl));
+  ttg_onehot_to_idx #(.N(DDELTAS), .IDXW(4)) u_inv1_dl (.onehot(inv_pk_oh[1]), .idx(inv1_idx_dl));
+
+  typedef struct packed {
+    logic       v;
+    logic [4:0] cov;
+    logic [3:0] idx;
+  } min_cand_t;
+
+  typedef struct packed {
+    min_cand_t m0;
+    min_cand_t m1;
+  } min_pair_t;
+
+  function automatic logic cand_lt(input min_cand_t a, input min_cand_t b);
+    return a.v && (!b.v || (a.cov < b.cov) || ((a.cov == b.cov) && (a.idx < b.idx)));
   endfunction
 
-  dl_t        ins1_dl [DDELTAS];
-  dl_t        ins2_dl [DDELTAS];
-  dl_t        upd_dl  [DDELTAS];
+  function automatic min_pair_t merge_min2(input min_pair_t a, input min_pair_t b);
+    min_pair_t r;
+    min_cand_t c0, c1;
+    if (cand_lt(a.m0, b.m0)) begin
+      r.m0 = a.m0; c0 = a.m1; c1 = b.m0;
+    end else begin
+      r.m0 = b.m0; c0 = a.m0; c1 = b.m1;
+    end
+    r.m1 = cand_lt(c0, c1) ? c0 : c1;
+    return r;
+  endfunction
+
+  dl_t        upd_dl [DDELTAS];
   logic [4:0] upd_cnt;
 
   always_comb begin
+    min_pair_t l0 [16], l1 [8], l2 [4], l3 [2], l4;
     logic [4:0] s0, s1;
+    min_cand_t  c_new, c_old;
+    logic       do_ins0, do_ins1;
     logic [4:0] next_cnt;
-    for (int m = 0; m < DDELTAS; m++) ins1_dl[m] = hit_dl[m];
-    s0 = pick_slot(hit_dl);
-    if (unm0_any && s0[4]) ins1_dl[s0[3:0]] = '{v: 1'b1, d: srch_d[unm0_idx], cov: 5'd1, last_cov: 5'd0, st: 2'd0};
 
-    for (int m = 0; m < DDELTAS; m++) ins2_dl[m] = ins1_dl[m];
-    s1 = pick_slot(ins1_dl);
-    if (unm1_any && s0[4] && s1[4]) ins2_dl[s1[3:0]] = '{v: 1'b1, d: srch_d[unm1_idx], cov: 5'd1, last_cov: 5'd0, st: 2'd0};
+    for (int m = 0; m < 16; m++) begin
+      l0[m].m0 = '{v: (t1_hit_dl_q[m].v && (t1_hit_dl_q[m].st == 2'd0)), cov: t1_hit_dl_q[m].cov, idx: 4'(m)};
+      l0[m].m1 = '{v: 1'b0, cov: 5'd31, idx: 4'd0};
+    end
+    for (int i = 0; i < 8; i++) l1[i] = merge_min2(l0[2*i], l0[2*i+1]);
+    for (int i = 0; i < 4; i++) l2[i] = merge_min2(l1[2*i], l1[2*i+1]);
+    for (int i = 0; i < 2; i++) l3[i] = merge_min2(l2[2*i], l2[2*i+1]);
+    l4 = merge_min2(l3[0], l3[1]);
 
-    next_cnt = (hit_any ? cnt_q[upd_idx] : 5'd0) + 5'd1;
+    if (inv_pk_v[0])       s0 = {1'b1, inv0_idx_dl};
+    else if (l4.m0.v)      s0 = {1'b1, l4.m0.idx};
+    else                   s0 = 5'd0;
+
+    c_new = '{v: 1'b1, cov: 5'd1, idx: s0[3:0]};
+    c_old = inv_pk_v[0] ? l4.m0 : l4.m1;
+    if (inv_pk_v[1])                s1 = {1'b1, inv1_idx_dl};
+    else if (cand_lt(c_old, c_new)) s1 = {1'b1, c_old.idx};
+    else                            s1 = {1'b1, c_new.idx};
+
+    do_ins0 = t1_unm0_any_q && s0[4];
+    do_ins1 = t1_unm1_any_q && s0[4] && s1[4];
+
+    next_cnt = t1_cnt_q + 5'd1;
     upd_cnt  = (next_cnt >= 5'(ROUND)) ? 5'd0 : next_cnt;
     for (int m = 0; m < DDELTAS; m++) begin
-      upd_dl[m] = ins2_dl[m];
-      if ((next_cnt >= 5'(ROUND)) && ins2_dl[m].v) begin
-        upd_dl[m].st       = (ins2_dl[m].cov >= 5'(HI_COV)) ? 2'd1 :
-                             (ins2_dl[m].cov >= 5'(LO_COV)) ? 2'd2 : 2'd0;
-        upd_dl[m].last_cov = ins2_dl[m].cov;
+      dl_t e_ins;
+      if (do_ins1 && (s1[3:0] == 4'(m)))
+        e_ins = '{v: 1'b1, d: t1_unm1_d_q, cov: 5'd1, last_cov: 5'd0, st: 2'd0};
+      else if (do_ins0 && (s0[3:0] == 4'(m)))
+        e_ins = '{v: 1'b1, d: t1_unm0_d_q, cov: 5'd1, last_cov: 5'd0, st: 2'd0};
+      else
+        e_ins = t1_hit_dl_q[m];
+
+      upd_dl[m] = e_ins;
+      if ((next_cnt >= 5'(ROUND)) && e_ins.v) begin
+        upd_dl[m].st       = (e_ins.cov >= 5'(HI_COV)) ? 2'd1 :
+                             (e_ins.cov >= 5'(LO_COV)) ? 2'd2 : 2'd0;
+        upd_dl[m].last_cov = e_ins.cov;
         upd_dl[m].cov      = 5'd0;
       end
     end
   end
 
-  // ---------------- 4. Trigger read (sees post-search state) ----------------
+  // ---------------- 4. Trigger read (decoupled from search update: reads registered table directly!) ----------------
   logic [DPCS-1:0]  t_hit_vec, t_hit_oh;
   logic             t_hit_any;
   logic [3:0]       t_hit_idx;
 
   always_comb begin
     for (int i = 0; i < DPCS; i++) begin
-      logic v_post;
-      logic [31:0] pc_post;
-      v_post  = (srch_do && (4'(i) == upd_idx)) ? 1'b1 : pc_v_q[i];
-      pc_post = (srch_do && (4'(i) == upd_idx)) ? srch_pc : pc_q[i];
-      t_hit_vec[i] = trig_v && v_post && (pc_post == trig_pc);
+      t_hit_vec[i] = trig_v && pc_v_q[i] && (pc_q[i] == trig_pc);
     end
   end
   ttg_first_set #(.N(DPCS)) u_thit (.req(t_hit_vec), .onehot(t_hit_oh), .any(t_hit_any));
   ttg_onehot_to_idx #(.N(DPCS), .IDXW(4)) u_thit_i (.onehot(t_hit_oh), .idx(t_hit_idx));
 
   always_comb begin
-    logic use_fwd;
-    use_fwd = srch_do && (t_hit_idx == upd_idx);
     trig_mask = '0;
     for (int m = 0; m < DDELTAS; m++) begin
       logic ev;
       logic [1:0] est;
-      ev           = use_fwd ? upd_dl[m].v        : dl_q[t_hit_idx][m].v;
-      est          = use_fwd ? upd_dl[m].st       : dl_q[t_hit_idx][m].st;
+      ev           = dl_q[t_hit_idx][m].v;
+      est          = dl_q[t_hit_idx][m].st;
       trig_mask[m] = t_hit_any && ev && (est != 2'd0);
-      trig_d[m]    = use_fwd ? upd_dl[m].d        : dl_q[t_hit_idx][m].d;
+      trig_d[m]    = dl_q[t_hit_idx][m].d;
       trig_st[m]   = est;
-      trig_cov[m]  = use_fwd ? upd_dl[m].last_cov : dl_q[t_hit_idx][m].last_cov;
+      trig_cov[m]  = dl_q[t_hit_idx][m].last_cov;
     end
     trig_go = t_hit_any && (|trig_mask);
   end
@@ -194,14 +270,14 @@ module dcache_pf_berti_tab (
         cnt_q[i] <= '0;
         lru_q[i] <= 4'(i);
       end
-    end else if (srch_do) begin
-      pc_v_q[upd_idx] <= 1'b1;
-      pc_q[upd_idx]   <= srch_pc;
-      cnt_q[upd_idx]  <= upd_cnt;
-      for (int m = 0; m < DDELTAS; m++) dl_q[upd_idx][m] <= upd_dl[m];
+    end else if (t1_v_q) begin
+      pc_v_q[t1_upd_idx_q] <= 1'b1;
+      pc_q[t1_upd_idx_q]   <= t1_pc_q;
+      cnt_q[t1_upd_idx_q]  <= upd_cnt;
+      for (int m = 0; m < DDELTAS; m++) dl_q[t1_upd_idx_q][m] <= upd_dl[m];
       for (int i = 0; i < DPCS; i++) begin
-        if (4'(i) == upd_idx) lru_q[i] <= 4'd0;
-        else if (pc_v_q[i] && (lru_q[i] < old_lru)) lru_q[i] <= lru_q[i] + 4'd1;
+        if (4'(i) == t1_upd_idx_q) lru_q[i] <= 4'd0;
+        else if (pc_v_q[i] && (lru_q[i] < t1_old_lru_q)) lru_q[i] <= lru_q[i] + 4'd1;
       end
     end
   end

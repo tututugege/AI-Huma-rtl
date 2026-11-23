@@ -3,8 +3,8 @@ module: dcache
 area: memsys
 rtl: rtl/memsys/dcache（除 dcache_pf.sv，它有自己的文档 dcache_pf.md）
 model: trace-model MemSubSystem/RealDcache.cpp、WriteBuffer.cpp、MSHR.cpp、DcacheConfig.cpp 及对应头文件（三个调度单元 `mem_subsystem.dcache_`（类 `RealDcache`，阶段 `comb_stage2`、`comb_stage1`）、`mem_subsystem.wb_`（`WriteBuffer`）、`mem_subsystem.mshr_`（`MSHR`），后两者各有 `comb_axi_to_dcache`、`comb_dcache_to_axi`）
-status: 整核周期与模型逐个相等（EXP-053 前端清理：fm_gate 68/68 零偏差 + Linux 27 窗 PT/UP 全等，零环境变量）
-depth: 123 层（子模块拆测最深 `dcache_mshr` 123 层，2026-11-21 EXP-053 重测 `dcache_bank` 12 层 / 142,429 单元、`dcache_s2_ld` 37 层 / 5,097 单元、`dcache_wb` 49 层 / 23,334 单元，整块超 64G RSS，见 09-synthesis-report 第 12.2.1 & 14 节）
+status: 整核周期与模型逐个相等（EXP-062：`dcache_mshr_alloc` `ttg_pick_k(16,8)` 0 周期变化，rv64gc Linux 26/26 窗 PT/UP 逐拍全等）
+depth: `dcache_mshr` **99 层**（EXP-062：Yosys `123→99` 层跌破 100 层红线；**TSMC 28nm DC `ssg0p81v125c` `0.50ns`：`dcache_mshr` WNS −0.37 ns / 1.15 GHz / 54 lvl / 99,463 um²，`dcache_wb` −0.17 ns / 1.49 GHz，`dcache_s1/s2_ld/s2_st` 0.00 ns / ≥2.0 GHz，见 09-synthesis-report 第 15 节**）
 ---
 
 # dcache 设计文档

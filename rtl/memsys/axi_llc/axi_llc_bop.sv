@@ -89,70 +89,120 @@ module axi_llc_bop
     else                                 rr_hit = rr_v_q[probe_idx] && (rr_tag_q[probe_idx] == probe_val);
   end
 
-  // ---------------- learn + phase end ----------------
-  logic [4:0] score_inc, best_sc, eff_sc;
-  logic [4:0] best_idx, test_d;
+  // ---------------- learn + phase end (speculative parallel: max(score_q) & 3 cand paths in parallel with rr_tag_q!) ----------------
+  typedef struct packed {
+    logic       v;
+    logic [4:0] sc;
+    logic [4:0] idx;
+  } bop_cand_t;
+
+  function automatic bop_cand_t max_bop(input bop_cand_t a, input bop_cand_t b);
+    // Lower index wins ties, matching `eff_sc > best_sc` scan order 0..BOP_OFFS-1
+    if (a.v && (!b.v || (a.sc >= b.sc))) return a;
+    else                                 return b;
+  endfunction
+
+  logic [4:0] score_inc, base_best_sc, base_best_idx, best_sc, best_idx;
+  logic [4:0] test_d;
   logic [6:0] round_d;
   logic [5:0] best_d;
-  logic hit_max, last_off, end_round, do_end_phase, on_d;
+  logic hit_max, last_off, end_round, do_end_phase, on_d, test_wins;
+
+  // Path 1 (register-only, parallel with rr_tag_q lookup): max of score_q[0..BOP_OFFS-1]
+  always_comb begin
+    bop_cand_t b0 [32], b1 [16], b2 [8], b3 [4], b4 [2];
+    /* verilator lint_off UNUSEDSIGNAL */
+    bop_cand_t b5;
+    /* verilator lint_on UNUSEDSIGNAL */
+    for (int i = 0; i < 32; i++) begin
+      if (i < BOP_OFFS) b0[i] = '{v: 1'b1, sc: score_q[i], idx: 5'(i)};
+      else              b0[i] = '{v: 1'b0, sc: 5'd0,       idx: 5'd0};
+    end
+    for (int i = 0; i < 16; i++) b1[i] = max_bop(b0[2*i], b0[2*i+1]);
+    for (int i = 0; i < 8;  i++) b2[i] = max_bop(b1[2*i], b1[2*i+1]);
+    for (int i = 0; i < 4;  i++) b3[i] = max_bop(b2[2*i], b2[2*i+1]);
+    for (int i = 0; i < 2;  i++) b4[i] = max_bop(b3[2*i], b3[2*i+1]);
+    b5            = max_bop(b4[0], b4[1]);
+    base_best_sc  = b5.sc;
+    base_best_idx = b5.idx;
+  end
 
   always_comb begin
-    score_inc = score_q[test_q] + 5'd1;
-    hit_max = rr_hit && (score_inc >= 5'(BOP_SCORE_MAX));
-    last_off = (test_q == 5'(BOP_OFFS - 1));
-    end_round = !hit_max && last_off && (round_q + 7'd1 >= 7'(BOP_ROUNDS));
+    score_inc    = score_q[test_q] + 5'd1;
+    hit_max      = rr_hit && (score_inc >= 5'(BOP_SCORE_MAX));
+    last_off     = (test_q == 5'(BOP_OFFS - 1));
+    end_round    = !hit_max && last_off && (round_q + 7'd1 >= 7'(BOP_ROUNDS));
     do_end_phase = trig_v && (hit_max || end_round);
 
-    best_idx = 5'd0;
-    best_sc = (test_q == 5'd0 && rr_hit) ? score_inc : score_q[0];
-    for (int i = 1; i < BOP_OFFS; i++) begin
-      eff_sc = (test_q == 5'(i) && rr_hit) ? score_inc : score_q[i];
-      if (eff_sc > best_sc) begin
-        best_sc = eff_sc;
-        best_idx = 5'(i);
-      end
-    end
+    // Only score_q[test_q] can change (by +1 when rr_hit), so only compare score_inc vs base_best_sc
+    test_wins = rr_hit && ((score_inc > base_best_sc) || ((score_inc == base_best_sc) && (test_q < base_best_idx)));
+    best_sc   = test_wins ? score_inc : base_best_sc;
+    best_idx  = test_wins ? test_q    : base_best_idx;
 
-    on_d = on_q;
-    best_d = best_q;
-    test_d = test_q;
+    on_d    = on_q;
+    best_d  = best_q;
+    test_d  = test_q;
     round_d = round_q;
     if (do_end_phase) begin
       on_d = (best_sc > 5'(BOP_BAD));
       if (on_d) best_d = OFF_ROM[best_idx];
-      test_d = 5'd0;
+      test_d  = 5'd0;
       round_d = 7'd0;
     end else if (trig_v) begin
       if (last_off) begin
-        test_d = 5'd0;
+        test_d  = 5'd0;
         round_d = round_q + 7'd1;
       end else begin
-        test_d = test_q + 5'd1;
+        test_d  = test_q + 5'd1;
       end
     end
   end
 
   // ---------------- candidate generation + FIFO next state ----------------
-  logic [31:0] cand_sum;
+  // Precompute all 3 possible candidate lines & dup flags in parallel with rr_tag_q lookup:
+  //   0: best_q (normal cycles / end_phase with on_d==0)
+  //   1: OFF_ROM[base_best_idx] (end_phase, !test_wins)
+  //   2: cur_off = OFF_ROM[test_q] (end_phase, test_wins)
+  logic [5:0]  cand_off [3];
+  logic [25:0] cand_ln  [3];
+  logic [2:0]  cand_pg_ok, cand_dup_v;
   logic [25:0] cand_line;
-  logic cand_ok, cand_dup, q_push;
+  logic        cand_ok, cand_dup, q_push;
   logic [25:0] q_p [BOP_Q];
   logic [25:0] q_d [BOP_Q];
-  logic [3:0] cnt_p, cnt_d;
+  logic [3:0]  cnt_p, cnt_d;
 
   always_comb begin
-    cand_sum = {6'b0, trig_line} + {26'b0, best_d};
-    cand_line = cand_sum[25:0];
-    cand_ok = trig_v && on_d && (cand_sum[31:6] == {6'b0, trig_line[25:6]});
-
     for (int i = 0; i < BOP_Q; i++) begin
       q_p[i] = (pop_head && (i + 1 < BOP_Q)) ? q_line_q[i + 1] : q_line_q[i];
     end
     cnt_p = pop_head ? (q_cnt_q - 4'd1) : q_cnt_q;
 
-    cand_dup = 1'b0;
-    for (int i = 0; i < BOP_Q; i++) begin
-      if ((4'(i) < cnt_p) && (q_p[i] == cand_line)) cand_dup = 1'b1;
+    cand_off[0] = best_q;
+    cand_off[1] = OFF_ROM[base_best_idx];
+    cand_off[2] = cur_off;
+
+    for (int c = 0; c < 3; c++) begin
+      logic [31:0] s;
+      logic        d;
+      s             = {6'b0, trig_line} + {26'b0, cand_off[c]};
+      cand_ln[c]    = s[25:0];
+      cand_pg_ok[c] = (s[31:6] == {6'b0, trig_line[25:6]});
+      d             = 1'b0;
+      for (int i = 0; i < BOP_Q; i++) begin
+        if ((4'(i) < cnt_p) && (q_p[i] == cand_ln[c])) d = 1'b1;
+      end
+      cand_dup_v[c] = d;
+    end
+
+    if (do_end_phase && on_d) begin
+      cand_line = test_wins ? cand_ln[2]    : cand_ln[1];
+      cand_ok   = trig_v && (test_wins ? cand_pg_ok[2] : cand_pg_ok[1]);
+      cand_dup  = test_wins ? cand_dup_v[2] : cand_dup_v[1];
+    end else begin
+      cand_line = cand_ln[0];
+      cand_ok   = trig_v && on_d && cand_pg_ok[0];
+      cand_dup  = cand_dup_v[0];
     end
     q_push = cand_ok && !cand_dup;
 

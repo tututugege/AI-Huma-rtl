@@ -3,8 +3,8 @@ module: bpu
 area: frontend
 rtl: rtl/frontend/bpu
 model: trace-model front-end/BPU/BpuFtb.h、BPU_pipe.h、BPU.h、BPU_configs.h（调度单元 `front.core.bpu_pipe`，类 `BpuPipe`，块级 1-Ahead A + 2-Ahead B 双跳预测 + S2 Block-TAGE/ITT，`fe2f_b4_it2_ah1k` + `BRQ_W=1`）
-status: 整核周期与模型逐个相等（EXP-053 前端清理：fm_gate 68/68 零偏差 + Linux 27 窗 PT/UP 全等，零环境变量）
-depth: 197 层 / 410,093 单元（bpu，单模块综合，2026-11-21，`SYNTH_ABC="strash;balance;map" SYNTH_NO_MEMPRIO=1`，EXP-053 并行 `ftb_eval_ent` + 零取模 `bpu_hist_vec` + 切断 `ovr_a→g0_b` 假路径；较 EXP-051 504,078 单元 / 272 层 **−18.6% / −27.6%**，最长路径 `r1_q[1106] → u_spec.spec_d[144]`）
+status: 整核周期与模型逐个相等（EXP-062：`bpu_spec` 3 级 Kogge-Stone RAS + 128b 线性 `arch_sr_q` 0 周期变化，rv64gc Linux 26/26 窗 PT/UP 逐拍全等）
+depth: 197 层 / 410,093 单元（Yosys 整块 `bpu`）；**TSMC 28nm HPC+ DC `ssg0p81v125c` `0.50ns`（EXP-062）：`bpu_spec` `WNS -0.87→-0.66 ns`（`0.73→0.86 GHz`, `69→41 lvl`, `156,084 um²`），`bpu_eval` `-0.69 ns`（`0.84 GHz`, `69 lvl`），`bpu_ctl` `+0.10 ns`（`≥2.50 GHz`, `13 lvl`），见 09-synthesis-report 第 15 节**
 ---
 
 # bpu 设计文档（块级 2-Taken + 1-Ahead A / 2-Ahead B 分支预测单元，EXP-051/052）

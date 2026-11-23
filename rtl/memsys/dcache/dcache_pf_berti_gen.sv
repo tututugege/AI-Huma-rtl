@@ -84,27 +84,37 @@ module dcache_pf_berti_gen
     xa_pop   = (xa_p_cnt != 4'd0);
   end
 
-  // ---------------- 2. Generator 16->1 priority tournament + step ----------------
+  // ---------------- 2. Generator 16->1 priority tournament (4-level binary tree) + step ----------------
+  typedef struct packed {
+    logic       v;
+    logic [5:0] key;
+    logic [3:0] idx;
+  } gen_cand_t;
+
+  function automatic gen_cand_t max_gen(input gen_cand_t a, input gen_cand_t b);
+    // Left (lower index) wins ties, matching `key > best_key` scan order 0..15
+    if (a.v && (!b.v || (a.key >= b.key))) return a;
+    else                                   return b;
+  endfunction
+
   logic       gen_act, gen_same_page, gen_step_sp, gen_step_xp;
   logic [3:0] best_m;
   logic [31:0] gen_t;
 
   always_comb begin
-    logic       have;
-    logic [5:0] best_key;
+    gen_cand_t t0 [16], t1 [8], t2 [4], t3 [2];
+    /* verilator lint_off UNUSEDSIGNAL */
+    gen_cand_t t4;
+    /* verilator lint_on UNUSEDSIGNAL */
     gen_act  = (gen_left_q != 4'd0) && (|gen_mask_q);
-    have     = 1'b0;
-    best_m   = 4'd0;
-    best_key = 6'd0;
     for (int m = 0; m < 16; m++) begin
-      logic [5:0] key;
-      key = {(gen_st_q[m] == 2'd1), gen_cov_q[m]};
-      if (gen_mask_q[m] && (!have || (key > best_key))) begin
-        have     = 1'b1;
-        best_m   = 4'(m);
-        best_key = key;
-      end
+      t0[m] = '{v: gen_mask_q[m], key: {(gen_st_q[m] == 2'd1), gen_cov_q[m]}, idx: 4'(m)};
     end
+    for (int i = 0; i < 8; i++) t1[i] = max_gen(t0[2*i], t0[2*i+1]);
+    for (int i = 0; i < 4; i++) t2[i] = max_gen(t1[2*i], t1[2*i+1]);
+    for (int i = 0; i < 2; i++) t3[i] = max_gen(t2[2*i], t2[2*i+1]);
+    t4     = max_gen(t3[0], t3[1]);
+    best_m = t4.v ? t4.idx : 4'd0;
     gen_t         = gen_vline_q + {{25{gen_d_q[best_m][6]}}, gen_d_q[best_m]};
     gen_same_page = (gen_t[31:6] == gen_vline_q[31:6]);
     gen_step_sp   = gen_act && gen_same_page && !xa_pop;

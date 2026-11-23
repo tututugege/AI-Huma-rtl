@@ -57,11 +57,11 @@ module dcache_pf
   assign head_line  = q_line_q[q_head_q];
   assign head_llc   = q_llc_q[q_head_q];
 
-  // ---------------- Berti submodules ----------------
-  logic               srch_v, trig_go, push_en, push_llc;
-  logic [31:0]        srch_pc;
-  logic [15:0]        srch_uniq, trig_mask;
-  logic signed [6:0]  srch_d [16], trig_d [16];
+  // ---------------- Berti submodules (pipelined hist -> srch_r_q -> tab, no same-cycle srch->trig bypass) ----------------
+  logic               srch_v, srch_r_v_q, trig_go, push_en, push_llc;
+  logic [31:0]        srch_pc, srch_r_pc_q;
+  logic [15:0]        srch_uniq, srch_r_uniq_q, trig_mask;
+  logic signed [6:0]  srch_d [16], srch_r_d_q [16], trig_d [16];
   logic [1:0]         trig_st [16];
   logic [4:0]         trig_cov [16];
   logic [LINE_W-1:0]  push_line;
@@ -75,11 +75,27 @@ module dcache_pf
     .fill_valid, .fill_pline(fill_line), .fill_is_pf,
     .trn_v(trn_pop), .trn_miss(trnq_q[0].miss), .trn_pc(trnq_q[0].pc),
     .trn_vline(trnq_q[0].vline), .trn_pline(trnq_q[0].pline),
+    .srch_stall(srch_r_v_q),
     .srch_v, .srch_pc, .srch_uniq, .srch_d
   );
 
+  always_ff @(posedge clk) begin
+    if (!rst_n) begin
+      srch_r_v_q    <= 1'b0;
+      srch_r_pc_q   <= '0;
+      srch_r_uniq_q <= '0;
+      for (int w = 0; w < 16; w++) srch_r_d_q[w] <= '0;
+    end else begin
+      srch_r_v_q    <= srch_v;
+      srch_r_pc_q   <= srch_pc;
+      srch_r_uniq_q <= srch_uniq;
+      for (int w = 0; w < 16; w++) srch_r_d_q[w] <= srch_d[w];
+    end
+  end
+
   dcache_pf_berti_tab u_tab (
-    .clk, .rst_n, .srch_v, .srch_pc, .srch_uniq, .srch_d,
+    .clk, .rst_n,
+    .srch_v(srch_r_v_q), .srch_pc(srch_r_pc_q), .srch_uniq(srch_r_uniq_q), .srch_d(srch_r_d_q),
     .trig_v(trn_pop), .trig_pc(trnq_q[0].pc),
     .trig_go, .trig_mask, .trig_d, .trig_st, .trig_cov
   );

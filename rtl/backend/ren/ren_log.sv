@@ -13,7 +13,7 @@ module ren_log
   input  logic [N-1:0]             wr_valid,
   input  logic [ROB_IDX_WIDTH-1:0] wr_rob_idx [N],
   input  ren_log_entry_t           wr_entry [N],
-  input  logic [ROB_IDX_WIDTH-1:0] rd_base,
+  input  logic [ROB_IDX_WIDTH-1:0] rd_base_next,
   output ren_log_entry_t           rd_slot [N]
 );
 
@@ -68,16 +68,20 @@ module ren_log
     end
   end
 
-  // ---- read side: 8 consecutive entries from rd_base, rotated to slot order 0..7 ----
+  // ---- read side: pre-registered 8-entry window read at rd_base_next (zero-cycle-change) ----
+  // Any entry written in cycle T-1 cannot be committed or walked in cycle T; re-reading entry_q
+  // every cycle guarantees rd_slot_q holds all written entries by cycle T+1 (earliest possible use).
   logic [LW-1:0] base_line, next_line;
   logic [BW-1:0] base_bank;
   logic [NL-1:0] base_oh, next_oh;
   logic [NB-1:0] bb_oh;
   logic [EW-1:0] bank_rd [NB];
+  logic [EW-1:0] rd_slot_d [NB];
+  logic [EW-1:0] rd_slot_q [NB];
 
-  assign base_line = rd_base[ROB_IDX_WIDTH-1:BW];
+  assign base_line = rd_base_next[ROB_IDX_WIDTH-1:BW];
   assign next_line = base_line + LW'(1);
-  assign base_bank = rd_base[BW-1:0];
+  assign base_bank = rd_base_next[BW-1:0];
 
   for (genvar l = 0; l < NL; l++) begin : g_line_dec
     assign base_oh[l] = (base_line == LW'(l));
@@ -101,13 +105,15 @@ module ren_log
 
   for (genvar k = 0; k < NB; k++) begin : g_rot
     logic [NB-1:0] slot_sel;
-    logic [EW-1:0] slot_bits;
     packed_log_t   pe;
     for (genvar b = 0; b < NB; b++) begin : g_sel
       assign slot_sel[b] = bb_oh[(b - k + NB) % NB];
     end
-    ttg_onehot_mux #(.N(NB), .W(EW)) u_rot (.sel(slot_sel), .data(bank_rd), .out(slot_bits));
-    assign pe = packed_log_t'(slot_bits);
+    ttg_onehot_mux #(.N(NB), .W(EW)) u_rot (.sel(slot_sel), .data(bank_rd), .out(rd_slot_d[k]));
+    always_ff @(posedge clk) begin
+      rd_slot_q[k] <= rd_slot_d[k];
+    end
+    assign pe = packed_log_t'(rd_slot_q[k]);
     assign rd_slot[k] = '{
       dest_en:       pe.dest_en,
       dest_fp:       pe.dest_fp,

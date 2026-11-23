@@ -3,8 +3,8 @@ module: axi_llc
 area: memsys
 rtl: rtl/memsys/axi_llc
 model: trace-model axi-interconnect-kit/axi_interconnect/AXI_LLC.cpp、include/AXI_LLC.h、include/AXI_LLC_Config.h；行表（数据 / 标签 / 脏 / 有效 / 替换状态）在 MemSubSystem/MemSubsystem.cpp 的 `AxiLlcTableRuntime`（调度单元 `axi`，类 `AxiSubsystem`；见 axi_subsys.md）
-status: 整核周期与模型逐个相等（EXP-058：`fm_gate.sh` 69/69 PASS、0 周期差；27 窗 `rv64gc` Linux 1.377 亿指令 0 FM 差且 27/27 PT/UP 逐拍一致）
-depth: 350 层（axi_llc，含 EXP-048 BOP，单模块综合，2026-11-20）；新增 `axi_llc_bingo`（EXP-058，2026-11-22，`eda-05` Yosys `strash;balance;map` + `SYNTH_NO_MEMPRIO=1`）：41,232 单元 / **48 层**
+status: 整核周期与模型逐个相等（EXP-062：BOP 5 级树+3 路并行预计算 0 周期变化，rv64gc Linux 26/26 窗 PT/UP 逐拍全等）
+depth: `axi_llc_bop` **75 层**（EXP-062：Yosys `291→75` 层；**TSMC 28nm DC `ssg0p81v125c` `0.50ns`：`WNS -0.45→-0.18 ns`、`1.05→1.47 GHz`、`51→42 lvl`、面积 `46,209 um²`**）；`axi_llc_bingo` 48 层 / 41,232 cells（见 09-synthesis-report 第 15 节）
 ---
 
 # axi_llc 设计文档

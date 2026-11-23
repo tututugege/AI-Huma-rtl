@@ -34,7 +34,7 @@
 8896 directed/l2tlb_pwc.bin
 2903 directed/memspec_addr.bin
 6634 directed/memspec_data.bin
-3000 directed/memspec_pf.bin
+3005 directed/memspec_pf.bin
 3506 directed/memspec_vio.bin
 2319 div/div.bin
 841 dummy/dummy.bin
