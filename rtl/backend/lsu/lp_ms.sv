@@ -45,7 +45,7 @@ module lp_ms
       sa_f3[k] = ags[k].func3;
     end
     for (int k = 0; k < NLD; k++)   // may pass unknown-address stores unless LR, second pass or predicted to wait
-      spec_ok[k] = MS && !ldq_q[l1[k].ldq].second && !l1[k].lrsc && !ldq_q[l1[k].ldq].wait_b;
+      spec_ok[k] = MS && !l1[k].second && !l1[k].lrsc && !l1[k].wait_b;
     for (int i = 0; i < NDIS; i++) begin
       dis_ldw[i] = dis_ld[i];
       dis_ldw[i].wait_b = mdp_wait[i];

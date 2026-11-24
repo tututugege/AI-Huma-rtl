@@ -94,9 +94,17 @@ module ren_fp
 
   ttg_popcount #(.N(N)) u_walk_fp_pc (.bits(walk_fp_alloc), .count(walk_fp_cnt));
 
+  logic [FP_ARF_NUM-1:0] fp_rd_oh_zero [NR];
+  logic [FP_ARF_NUM-1:0] fp_wr_oh_zero [N];
+  always_comb begin
+    for (int r = 0; r < NR; r++) fp_rd_oh_zero[r] = '0;
+    for (int i = 0; i < N;  i++) fp_wr_oh_zero[i] = '0;
+  end
+
   ren_rat #(.NR(NR), .ENTRIES(FP_ARF_NUM), .FP(1'b1)) u_rat (
-    .clk(clk), .rst_n(rst_n), .rd_areg(rd_areg), .rd_preg(rd_preg),
-    .alloc_cand(rat_alloc_cand), .fire(rat_fire), .alloc_areg(rat_alloc_areg), .alloc_preg(rat_alloc_preg),
+    .clk(clk), .rst_n(rst_n), .rd_areg(rd_areg), .rd_oh_in(fp_rd_oh_zero), .rd_preg(rd_preg),
+    .alloc_cand(rat_alloc_cand), .fire(rat_fire), .alloc_areg(rat_alloc_areg),
+    .wr_oh_in(fp_wr_oh_zero), .use_wr_oh(1'b0), .alloc_preg(rat_alloc_preg),
     .ckpt_wr_lane_oh(ckpt_wr_lane_oh),
     .reclaim(reclaim), .commit_areg(c_dest_areg), .commit_preg(c_dest_preg),
     .flush(rob_flush), .mispred(dec_mispred), .ckpt_hit(ckpt_rd_hit), .ckpt_rat(ckpt_rat),

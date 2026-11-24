@@ -185,6 +185,7 @@ depth: 123 层（子模块拆测最深 `dcache_mshr` 123 层，其余 `s1`/`s2_*
 
 ## 10. 变更记录
 
+- 2026-11-24（`rtl/timing-opt3`，EXP-064 第三轮 28nm DC 时序优化，0 周期变化）：① `dcache_pf_berti_gen.sv` 在 16→1 锦标赛树 `gen_cand_t` 内随路携带 `d` (7b) 与 `st` (2b)，与锦标赛树并行预计算 `gen_vline_q[31:6] ± 1` 及 `xq_va_q` 27b 页标签比较，以 7b 有符号低位加法 + 6b 去重比较替代 32b 加法器；TSMC 28nm DC `dcache_pf` **1.18 → 1.35 GHz (+14.4%)**（WNS `−0.35 → −0.24 ns`，纯组合 `0.70 ns / 1.43 GHz`，53→43 级，面积 `151.7k um²`）；② `dcache_mshr.sv` 与 `dcache_mshr_alloc` 并行一次性预展开 3 路 store 512b 行数据与 64b 字节选通（替代 16× `line_merge_n`），并将 `ax_req_*` 选择拆分为并行 demand/all `ttg_first_set` + `ttg_onehot_mux`；TSMC 28nm DC `dcache_mshr` **1.15 → 1.28 GHz (+11.3%)**（WNS `−0.37 → −0.28 ns`，reg2reg `−0.27 ns / 1.30 GHz`，纯组合 `0.65 ns / 1.54 GHz`，54→41 级，面积 `99.5k → 85.7k um²` **−13.9%**）。通过 `lint_chip` 0 与 `fm_gate` 69/69（0 周期差）。
 - 2026-11-21（`rtl/fe-2fetch-2taken`，EXP-051 里程碑 B）：`dcache` / `dcache_arr` / `dcache_bank` / `dcache_wb` 新增 1 路只读周期初脏行窥探口（`fdip_snoop_line` → `fdip_snoop_dirty`），供 ICache FDIP 回填前检查 L1D 阵列脏行与 WB 缓冲，避免自修改代码（SMC）场景将旧指令行填回 L1I；通过 `lint_chip` 0、`fm_gate` 68/68（含 `fence-i-self-modify`）与 Linux 27 窗对齐。
 - 本分支（exp/agu-share）未改动 `rtl/memsys/dcache`（`git log 261bd67..HEAD -- rtl/memsys/dcache` 为空）。
 - 更早（来自 `git log`）：`cff4afe` rv64 step 5；`fb05807` rv64 step 2（数据字 XLEN 位、strb 为 XLEN/8+1 位）；`b44ab4c` EXP-024：store 合并改成逐字节并行的 `line_merge_n`；`b1e0335` EXP-024：RTL 的 store 合并（第二个 store 字通路）；`ec493f4` LSU_PIPE（EXP-014）；`5add753` 引入 dcache 域（当时是 16 节拍锁步）。

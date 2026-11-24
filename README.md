@@ -2,7 +2,15 @@
 
 AI-Huma 乱序 RISC-V 核的 SystemVerilog 实现。起点是把 tututugege 模拟器逐模块翻译过来（2026-11-04 完成，前端、后端、访存子系统、整核）；现在随项目自己的优化迭代，核参数来自 trace-model 的 `config.h`（`make cfg`）。可以在 Verilator 里整核闭环运行（核 + 访存子系统 + DDR/外设模型）。
 
-**当前状态（2026-11-19）**：main 只维护 rv64gc（`XLEN_BITS = 64`、F/D、`RVC_ENABLE = 1`）；rv32 已从 main 删除，整套保留在分支 `rv32-legacy`。Linux 5.15 在 RTL 上从复位启动到登录提示：rv64 约 1.3 亿周期，逐条对比 0 不一致（2026-11-16 的 RTL；最新的 RTL 用 12 个检查点窗口 s00–s11 与 trace-model 对齐，全部 PASS，没有从复位整段重跑）。**配置**（2026-11-19，EXP-044）：两个 INT 发射队列、合并的访存队列（load + STA）、5 个 AGU、全局 flush 晚一拍（`FLUSH_REG`）等，与 trace-model 的 `config.h` 默认值一致；每个原子模块一份设计文档在 `docs/modules/`（索引 `docs/05-module-tracker.md`），RTL 开发流程（文档先行、提交前核对）见总仓库 `docs/WORKFLOW.md` 第 7 节。
+**当前状态（2026-11-24，EXP-064）**：
+- `main` 仅维护 **`rv64gc` + `Sv39`**（`XLEN_BITS = 64`、`FP = 1`、`RVC_ENABLE = 1`）；`rv32` 已归档至分支 `rv32-legacy`。
+- **核心微架构**（与 `trace-model/include/config.h` 默认配置完全对齐）：
+  - **前端**：块级 FTB + S2 Block-TAGE / 多表 ITT + 并行 2-Ahead B（2-taken）、4-Bank 1R1W ICache + 2 读口 ITLB、S2 确认 2-slot FDIP；
+  - **后端**：2 级流水重命名（`IDU → S1 → S2 → DISPATCH`、`MOVE_ELIM` 组内 1-hop 消除、稀疏 `K=4` 单写口检查点 + 本地 256×25b `ren_log` 8 宽前向 Walk）、`PRF=256 / ROB=256 / MAX_BR=32`、双 INT 发射队列 + 合并 MEM 队列 + 5 个物理 AGU、Radix-4 Booth 乘法 + 1× Radix-16 Early-out 变延迟除法（EXU 动态唤醒）+ 全套自研可综合 RV64FD FPU（默认仿真走 DPI、`SYNTHESIS` / `-DFPU_REAL` 走真 RTL）、Load L2 推测唤醒与取消、访存相关推测（`LSU_MEMSPEC`）与 STQ Write Buffer；
+  - **访存与缓存**：16-MSHR L1D + 4 级流水硬件 Berti 预取器、统一 L2 TLB（1024×4 1RW SRAM）+ 8 项大页 CAM + 16 项 Sv39 PWC、4 MiB LLC（SRRIP）+ BOP & Bingo 4KB 空间预取器。
+- **验证状态**：`lint_chip.sh` 0 警告/0 错误；`fm_gate.sh` **69/69 PASS（0 FM 不一致、69/69 与 `trace-model` / `ref_cycles.txt` 0 周期差）**；`rv64gc` + `Sv39` Linux 5.15 **26 窗检查点对齐（`s01..s26`，~1.326 亿指令）26/26 PASS、0 FM 不一致、26/26 PT/UP 指纹 100% 逐拍全等**。
+- **TSMC 28nm HPC+ DC 综合状态**（`ssg0p81v125c`, 12T SVT+LVT, `CLK=0.50 ns / 2.0 GHz`, `compile_ultra`，详见 [docs/09-synthesis-report.md](docs/09-synthesis-report.md) §15–17）：全核 23/23 核心模块已补齐实测数据，其中 **14/23 ≥ 1.54 GHz**、**20/23 ≥ 1.28 GHz**、**22/23 ≥ 1.20 GHz**，仅剩 `lsu`（`0.97 GHz`）低于 1.20 GHz。
+- 每个原子模块的设计文档位于 `docs/modules/`（索引 `docs/05-module-tracker.md`），RTL 开发流程见总仓库 `docs/WORKFLOW.md` 第 7 节。
 
 - 文档入口：[docs/README.md](docs/README.md)（范围、编码规范、模块设计笔记、风险登记簿）；子系统笔记 `RTL_FE_NOTES.md`、`RTL_MEMSPEC_NOTES.md`、`RTL_WBUF_NOTES.md`、`RTL_INTEG_NOTES.md`
 - 目录布局：`rtl/`（全部 RTL，见 [rtl/README.md](rtl/README.md)）、`docs/`、`scripts/`（[索引](scripts/README.md)）、`tb/soc/`（整核测试平台）、`spec/` 与 `tools/`（生成器，见下）、`harness/tools/`（配置包生成器）、`programs/`、`tests/`
@@ -19,15 +27,14 @@ TM_SRC=../trace-model bash scripts/build_progs.sh       # -> build/progs（env.s
 SOC_FM=1 SOC_OUT=$PWD/build/soc_fm bash tb/soc/build.sh
 # 模型默认配置改了（= RTL 配置改了）之后重新生成参考周期：
 bash scripts/regen_refs.sh <trace-model 的 simulator> "说明"
-# 门禁：ref_cycles.txt 里 67 个程序逐条提交对比 function-model
+# 门禁：ref_cycles.txt 里 69 个程序逐条提交对比 function-model
 bash scripts/fm_gate.sh $PWD/build/soc_fm/obj/soc_tb $PWD/build/gate
 ```
 
-- **测试平台构建时间**（2026-11-17，14 核）：`tb/soc/build.sh` 默认用全部核编译 C++（`JOBS` 可改），并按 5000 条语句拆分生成的 C++（`--output-split` / `--output-split-cfuncs`，否则单个 7.4 MB 文件决定编译时间）。rv64 Linux 测试平台 111 s → 89 s，fm_gate 测试平台 82 s；其中约 60 s 是 Verilator 单线程的展开 + 转换，是下限。仿真速度和输出不变（Linux 窗口 50 万周期逐字节相同，fm_gate 67/67 周期 0 差异）。测试平台自带 `tb/soc/fpr.h`（对齐指纹，哈希与 trace-model 相同），不再 include trace-model 的源码。
-- **正确性门禁**：逐条提交对比 function-model（`tb/soc/fm_check.h`），`fm_gate.sh` 跑 `scripts/ref_cycles.txt` 的 67 个 rv64 程序（见 `docs/RV32_REMOVAL.md` 的结果）。（以下为旧 rv32/rv64 时期的说明，保留作参考：个测试平台跑的（见总仓库 `docs/MAIN_RECORDS.md` 2026-11-12 行）。
-- **周期**是性能指标：`ref_cycles.txt` 是 trace-model 默认配置下的周期（`scripts/regen_refs.sh` 生成；2026-11-19 起模型没有 RTL 没有的 LDQ/STQ 看门狗，不再需要 `LSU_PIPE_NOWD=1`），合入 main 时 RTL 与它逐个相等。
-- **跑 Linux**（数小时）：测试平台要用 `SOC_VOPT="--threads 4 -DTTG_EBREAK_TRAP"` 构建（ebreak 当断点异常，内核需要），运行时设 `SOC_TB_SEMIHOST=1 SOC_TB_FM=1 SOC_TB_LOG=2000000`，例如
-  `SOC_TB_LOG=2000000 SOC_TB_SEMIHOST=1 SOC_TB_FM=1 build/soc_fm/obj/soc_tb ~/personal/AI-Huma-data/linux/linux.bin 400000000`（rv64 用 `linux_rv64/linux.bin`，镜像生成见 function-model `linux/README.md`）。分段并行检查见 `scripts/linux_segments.sh`。
+- **测试平台构建**：`tb/soc/build.sh` 默认用全部核编译 C++（`JOBS` 可改），并按 5000 条语句拆分生成的 C++（`--output-split` / `--output-split-cfuncs`）。测试平台自带 `tb/soc/fpr.h`（对齐指纹，哈希与 trace-model 相同）。
+- **正确性门禁**：逐条提交对比 function-model（`tb/soc/fm_check.h`），`fm_gate.sh` 跑 `scripts/ref_cycles.txt` 的 69 个 rv64 程序。
+- **周期**是性能指标：`ref_cycles.txt` 是 trace-model 默认配置下的周期（`scripts/regen_refs.sh` 生成），合入 main 时 RTL 与它逐个相等。
+- **跑 Linux**（长跑/集群 26 窗对齐）：测试平台建议开启 **8 线程**（`SOC_VOPT="--threads 8"`；`rob_pkg::EBREAK_TRAP` 已默认开启），集群跨机静态链接时需传 `SOC_COPT="-O2 -march=x86-64-v3 -mtune=generic"` 与 `-Wl,--whole-archive -lpthread -Wl,--no-whole-archive -latomic`。运行时设 `SOC_TB_SEMIHOST=1 SOC_TB_FM=1 SOC_TB_LOG=2000000`；分段并行检查见 `scripts/linux_segments.sh`。
 - 测试平台调试开关：`SOC_TB_LOG=<n>`（每 n 周期一行进度）、`SOC_TB_STLOG=<物理地址>`（打印提交到该 8 字节字的 store）、`SOC_TB_COMMIT`、`DEBUG=1`（`--public-flat-rw`）。
 
 ## 生成文件与 rv64 的已知债务

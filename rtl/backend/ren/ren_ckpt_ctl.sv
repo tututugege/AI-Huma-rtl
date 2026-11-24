@@ -150,10 +150,13 @@ module ren_ckpt_ctl
   end
 
   // ---- mispredict lookup: youngest checkpoint with age <= br_age ----
+  // Precompute per-slot age, next-ptr, and br equality directly on static slots 0..NK-1 (no ckpt_head_q mux first!)
   logic [IW-1:0]  br_age;
+  logic [IW-1:0]  slot_age [NK], slot_ptr [NK];
+  logic [NK-1:0]  slot_le_br, slot_eq_br;
   logic [NK-1:0]  usable_k;
   logic [KW-1:0]  best_k;
-  logic [IW-1:0]  best_rob_idx, best_age;
+  logic [IW-1:0]  best_age;
   logic           mis_walk_active;
   logic [IW-1:0]  mis_walk_ptr;
   logic [ICW-1:0] mis_walk_rem;
@@ -163,12 +166,17 @@ module ren_ckpt_ctl
 
   assign br_age = dec_redirect_rob_idx - ren_rob_head_q;
 
+  for (genvar s = 0; s < NK; s++) begin : g_slot_pre
+    assign slot_age[s]   = ckpt_rob_idx_q[s] - ren_rob_head_q;
+    assign slot_ptr[s]   = ckpt_rob_idx_q[s] + IW'(1);
+    assign slot_le_br[s] = (slot_age[s] <= br_age);
+    assign slot_eq_br[s] = (ckpt_rob_idx_q[s] == dec_redirect_rob_idx);
+  end
+
   for (genvar k = 0; k < NK; k++) begin : g_mis_k
     logic [KW-1:0] s;
-    logic [IW-1:0] age_k;
-    assign s          = ckpt_head_q + KW'(k);
-    assign age_k      = ckpt_rob_idx_q[s] - ren_rob_head_q;
-    assign usable_k[k] = (KCW'(k) < ckpt_count_q) & ckpt_valid_q[s] & (age_k <= br_age);
+    assign s           = ckpt_head_q + KW'(k);
+    assign usable_k[k] = (KCW'(k) < ckpt_count_q) & ckpt_valid_q[s] & slot_le_br[s];
   end
 
   always_comb begin
@@ -181,13 +189,12 @@ module ren_ckpt_ctl
       end
     end
     ckpt_rd_slot = ckpt_head_q + best_k;
-    best_rob_idx = ckpt_rob_idx_q[ckpt_rd_slot];
-    best_age     = best_rob_idx - ren_rob_head_q;
+    best_age     = slot_age[ckpt_rd_slot];
 
     mis_ckpt_valid = '0;
     if (ckpt_rd_hit) begin
-      mis_walk_active = (best_age != br_age);
-      mis_walk_ptr    = best_rob_idx + IW'(1);
+      mis_walk_active = !slot_eq_br[ckpt_rd_slot];
+      mis_walk_ptr    = slot_ptr[ckpt_rd_slot];
       mis_walk_rem    = {1'b0, (br_age - best_age)};
       mis_ckpt_count  = KCW'(best_k) + KCW'(1);
       mis_ckpt_tail   = ckpt_head_q + KW'(mis_ckpt_count);

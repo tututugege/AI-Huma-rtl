@@ -13,15 +13,10 @@ module lp_pickn #(
   output logic [K-1:0]  v
 );
 
-  logic [N-1:0] rem [K+1];
-  logic [K-1:0] any_k;
-  assign rem[0] = vec;
+  ttg_pick_k #(.N(N), .K(K)) u_pk (.req(vec), .pick_oh(onehot), .valid(v));
   for (genvar m = 0; m < K; m++) begin : g_m
-    lp_ffs #(.N(N)) u_fs (.req(rem[m]), .onehot(onehot[m]), .any(any_k[m]));
     ttg_onehot_to_idx #(.N(N), .IDXW(IW)) u_ix (.onehot(onehot[m]), .idx(idx[m]));
-    assign rem[m+1] = rem[m] & ~onehot[m];
   end
-  assign v = any_k;
 
 endmodule
 

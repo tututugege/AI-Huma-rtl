@@ -28,16 +28,23 @@ module lp_cam
 );
 
   logic [SQW:0]    dst_t;
-  logic [CNTW-1:0] older;
-  logic [SQ-1:0]   mask_unrot, raw_hit, raw_unk, raw_hit_rot, raw_unk_rot;
-  logic [SQ-1:0]   hit_rot, hit_rev, last_rev, last_pos, unk_rot, unk_rev, hit_ge;
-  logic [SQW-1:0]  pos_idx;
-  logic            any_hit;
+  logic [CNTW-1:0] older, end_sum;
+  logic [SQ-1:0]   mask_hi, mask_lo, raw_hit, raw_unk;
+  logic [SQ-1:0]   hit_hi, hit_lo, hit_hi_rev, hit_lo_rev;
+  logic [SQ-1:0]   last_hi_rev, last_lo_rev, last_hi_oh, last_lo_oh, last_oh;
+  logic [SQ-1:0]   hi_ge, lo_ge, unk_hi, unk_lo, unk_hi_rev, unk_lo_rev;
+  logic            any_hi, any_lo, unk_lo_young, unk_hi_young;
 
+  // Unrotated split around head: hi = [head..SQ-1], lo = [0..head-1] (every entry in lo is younger than hi).
+  // Eliminates both 64-bit barrel shifters (rotr64) AND the final (+ head) adder from the CAM critical path!
   always_comb begin
-    dst_t = {snap_flag, snap_idx} - {head_flag, head};
-    older = (CNTW'(dst_t) > count) ? count : CNTW'(dst_t);
-    for (int i = 0; i < SQ; i++) mask_unrot[i] = (CNTW'(i) < older);
+    dst_t   = {snap_flag, snap_idx} - {head_flag, head};
+    older   = (CNTW'(dst_t) > count) ? count : CNTW'(dst_t);
+    end_sum = {1'b0, head} + older;
+    for (int j = 0; j < SQ; j++) begin
+      mask_hi[j] = (SQW'(j) >= head) && (CNTW'(j) < end_sum);
+      mask_lo[j] = (SQW'(j) <  head) && end_sum[SQW] && (SQW'(j) < end_sum[SQW-1:0]);
+    end
   end
 
   for (genvar j = 0; j < SQ; j++) begin : g_cmp
@@ -49,27 +56,29 @@ module lp_cam
     assign raw_unk[j] = !sq[j].suppress && !cv_va[j];
   end
 
-  // Algebraic identity: rotr64(rotl64(mask_unrot, head) & raw, head) == mask_unrot & rotr64(raw, head).
-  // Removes rotl64 and rotr64 from the late-arriving snap_idx -> older -> hit_rot critical path!
-  assign raw_hit_rot = SQ'(rotr64(64'(raw_hit), head));
-  assign raw_unk_rot = SQ'(rotr64(64'(raw_unk), head));
-  assign hit_rot     = mask_unrot & raw_hit_rot;
-  assign unk_rot     = mask_unrot & raw_unk_rot;
+  assign hit_hi = mask_hi & raw_hit;
+  assign hit_lo = mask_lo & raw_hit;
+  assign unk_hi = mask_hi & raw_unk;
+  assign unk_lo = mask_lo & raw_unk;
 
   for (genvar j = 0; j < SQ; j++) begin : g_rev
-    assign hit_rev[j]  = hit_rot[SQ-1-j];
-    assign last_pos[j] = last_rev[SQ-1-j];
-    assign unk_rev[j]  = unk_rot[SQ-1-j];
+    assign hit_hi_rev[j]  = hit_hi[SQ-1-j];
+    assign hit_lo_rev[j]  = hit_lo[SQ-1-j];
+    assign last_hi_oh[j]  = last_hi_rev[SQ-1-j];
+    assign last_lo_oh[j]  = last_lo_rev[SQ-1-j];
+    assign unk_hi_rev[j]  = unk_hi[SQ-1-j];
+    assign unk_lo_rev[j]  = unk_lo[SQ-1-j];
   end
-  lp_ffs_p #(.N(SQ)) u_last (.req(hit_rev), .onehot(last_rev), .any(any_hit), .pre(hit_ge));
-  ttg_onehot_to_idx #(.N(SQ)) u_idx (.onehot(last_pos), .idx(pos_idx));
-  assign cand_v = any_hit;
-  assign cand   = pos_idx + head;
 
-  // memory speculation: youngest passed (unknown-address) store younger than the youngest hit.  In the reversed
-  // rank order (index 0 = youngest) that is an unknown bit with no hit at or before it: the prefix-OR of the hits
-  // (hit_ge, shared with the find-first-set above).
-  assign unk = (|(unk_rev & ~hit_ge));   // 0 when the load may not pass (an unknown store is then a hit)
+  lp_ffs_p #(.N(SQ)) u_hi (.req(hit_hi_rev), .onehot(last_hi_rev), .any(any_hi), .pre(hi_ge));
+  lp_ffs_p #(.N(SQ)) u_lo (.req(hit_lo_rev), .onehot(last_lo_rev), .any(any_lo), .pre(lo_ge));
+  assign cand_v  = any_lo || any_hi;
+  assign last_oh = any_lo ? last_lo_oh : last_hi_oh;
+  ttg_onehot_to_idx #(.N(SQ)) u_idx (.onehot(last_oh), .idx(cand));
+
+  assign unk_lo_young = |(unk_lo_rev & ~lo_ge);
+  assign unk_hi_young = |(unk_hi_rev & ~hi_ge);
+  assign unk = any_lo ? unk_lo_young : ((|unk_lo) || unk_hi_young);
 
 endmodule
 

@@ -15,7 +15,6 @@ module lp_l1b
   input  logic [1:0]          l_tlb [NLD],
   input  logic [NLD-1:0]      ld_retry_busy,
   input  logic [LQ-1:0]       pipe8,
-  input  logic [EPW-1:0]      epoch_nx [LQ],
   input  logic [SQW-1:0]      head_q,
   input  logic                head_flag_q,
   input  logic [CNTW-1:0]     count_q,
@@ -60,7 +59,8 @@ module lp_l1b
       l1_launch[k] = l1[k].v && l_hit[k] && !l_mmio[k] && !cam_v[k] && !ld_retry_busy[k];
       dcl_req_valid[k] = ok8[k] && l1_launch[k];
       dcl_req_addr[k] = l_paddr[k];
-      dcl_req_id_o[k] = 31'({epoch_nx[l1[k].ldq], l1[k].ldq});
+      // When dcl_req_valid[k]==1, epoch_nx[ldq] is always pre-launch epoch + 1 (breaks cam -> l1_launch -> epoch_nx -> req_id!)
+      dcl_req_id_o[k] = 31'({l1[k].epoch + EPW'(1), l1[k].ldq});
     end
   end
 
@@ -70,7 +70,7 @@ module lp_l1b
       pl12_d[k] = '0;
       pl12_d[k].v = ok8[k];
       pl12_d[k].ldq = l1[k].ldq;
-      pl12_d[k].epoch = epoch_nx[l1[k].ldq];
+      pl12_d[k].epoch = l1[k].epoch + EPW'(ok8[k] && l1_launch[k]);
       pl12_d[k].tlb = l_tlb[k];
       pl12_d[k].mmio = l_mmio[k];
       pl12_d[k].cand_v = cam_v[k];

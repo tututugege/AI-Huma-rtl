@@ -128,7 +128,25 @@ package lp_pkg;
     logic [31:0]     paddr_reg;
     logic            mmio_reg;
     logic            lrsc;         // LR (new load: from the AGU, replay: from the entry)
+    logic [EPW-1:0]  epoch;        // pre-launch LDQ epoch (avoids 64:1 mux on epoch_nx)
+    logic            second;       // memory speculation second pass (replay: from rp_f_q)
+    logic            wait_b;       // memory speculation wait-table bit
   } lp_l1in_t;
+
+  // pre-registered immutable LDQ payload stored in each replay register (removes 64:1 LDQ mux from L1/CAM critical path)
+  typedef struct packed {
+    logic [XLEN_BITS-1:0] vaddr;
+    logic [2:0]      func3;
+    logic [SQW-1:0]  snap_idx;
+    logic            snap_flag;
+    logic            pa_v;
+    logic [31:0]     paddr;
+    logic            mmio;
+    logic            lrsc;
+    logic [EPW-1:0]  epoch;
+    logic            second;
+    logic            wait_b;
+  } lp_rp_ent_t;
 
   // DTLB result of one L1 slot
   typedef struct packed {
@@ -294,30 +312,61 @@ package lp_pkg;
     endcase
   endfunction
 
-  // relation of load [lo, lo+lw) and store [so, so+sw) on the low 12 address bits: 0 disjoint, 1 store covers, 2
-  // partial
+  // relation of load [lo, lo+lw) and store [so, so+sw) on W address bits (W=12 or 32, no wrap):
+  //   0 = disjoint, 1 = store covers load, 2 = partial overlap.
+  // Uses 8-byte block split + 3 parallel upper equality checks (zero W-bit carry chains on the compare).
   function automatic logic [1:0] rel12(input logic [11:0] lo, input logic [2:0] lf, input logic [11:0] so,
                                        input logic [2:0] sf);
-    logic [12:0] l0, l1, s0, s1;
-    l0 = {1'b0, lo};
-    l1 = l0 + ld_width13(lf);
-    s0 = {1'b0, so};
-    s1 = s0 + ld_width13(sf);
-    if (s0 <= l0 && s1 >= l1) return 2'd1;
-    else if (l1 <= s0 || l0 >= s1) return 2'd0;
+    logic [8:0]        ul, us, us_p, us_m;
+    logic              eq0, s_is_l1, l_is_s1, cov0, covm, c0, c1, cm, cov, ovl;
+    logic signed [5:0] dl, lw, sw;
+    ul      = lo[11:3];
+    us      = so[11:3];
+    us_p    = us + 9'd1;
+    us_m    = us - 9'd1;
+    eq0     = (ul == us);
+    s_is_l1 = (ul == us_m) && (us != 9'd0);
+    l_is_s1 = (ul == us_p) && !(&us);
+    lw      = $signed({2'b00, 4'(ld_width13(lf))});
+    sw      = $signed({2'b00, 4'(ld_width13(sf))});
+    dl      = $signed({3'b000, so[2:0]}) - $signed({3'b000, lo[2:0]});
+    cov0    = (dl <= 6'sd0) && (dl + sw >= lw);
+    covm    = (dl - 6'sd8 + sw >= lw);
+    cov     = (eq0 && cov0) || (l_is_s1 && covm);
+    c0      = (dl > -sw) && (dl < lw);
+    c1      = (dl + 6'sd8 < lw);
+    cm      = (dl - 6'sd8 > -sw);
+    ovl     = (eq0 && c0) || (s_is_l1 && c1) || (l_is_s1 && cm);
+    if (cov) return 2'd1;
+    else if (!ovl) return 2'd0;
     else return 2'd2;
   endfunction
 
   // same on the full 32-bit physical address (no wrap, as in the model)
   function automatic logic [1:0] rel32(input logic [31:0] lo, input logic [2:0] lf, input logic [31:0] so,
                                        input logic [2:0] sf);
-    logic [32:0] l0, l1, s0, s1;
-    l0 = {1'b0, lo};
-    l1 = l0 + 33'(ld_width13(lf));
-    s0 = {1'b0, so};
-    s1 = s0 + 33'(ld_width13(sf));
-    if (s0 <= l0 && s1 >= l1) return 2'd1;
-    else if (l1 <= s0 || l0 >= s1) return 2'd0;
+    logic [28:0]       ul, us, us_p, us_m;
+    logic              eq0, s_is_l1, l_is_s1, cov0, covm, c0, c1, cm, cov, ovl;
+    logic signed [5:0] dl, lw, sw;
+    ul      = lo[31:3];
+    us      = so[31:3];
+    us_p    = us + 29'd1;
+    us_m    = us - 29'd1;
+    eq0     = (ul == us);
+    s_is_l1 = (ul == us_m) && (us != 29'd0);
+    l_is_s1 = (ul == us_p) && !(&us);
+    lw      = $signed({2'b00, 4'(ld_width13(lf))});
+    sw      = $signed({2'b00, 4'(ld_width13(sf))});
+    dl      = $signed({3'b000, so[2:0]}) - $signed({3'b000, lo[2:0]});
+    cov0    = (dl <= 6'sd0) && (dl + sw >= lw);
+    covm    = (dl - 6'sd8 + sw >= lw);
+    cov     = (eq0 && cov0) || (l_is_s1 && covm);
+    c0      = (dl > -sw) && (dl < lw);
+    c1      = (dl + 6'sd8 < lw);
+    cm      = (dl - 6'sd8 > -sw);
+    ovl     = (eq0 && c0) || (s_is_l1 && c1) || (l_is_s1 && cm);
+    if (cov) return 2'd1;
+    else if (!ovl) return 2'd0;
     else return 2'd2;
   endfunction
 

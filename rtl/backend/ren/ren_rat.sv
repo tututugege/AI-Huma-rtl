@@ -15,17 +15,25 @@ module ren_rat
   parameter int NR = 3 * DECODE_WIDTH,    // read ports on spec_RAT
   parameter int ENTRIES = RAT_NUM,        // RAT entries (the FP RAT has FP_ARF_NUM, no pseudo entry)
   parameter bit FP = 1'b0,                // FP domain: local tag 0..FPRF_NUM-1, offset by FP_TAG_BASE
-  parameter int TW = FP ? FP_PTR_W : $clog2(PRF_NUM)
+  parameter int TW = FP ? FP_PTR_W : $clog2(PRF_NUM),
+  parameter bit PRE_OH = 1'b0             // 1: use pre-decoded one-hot rd_oh_in / wr_oh_in (2-stage Ren)
 ) (
   input  logic              clk,
   input  logic              rst_n,
   // spec RAT reads (value before this cycle's writes)
+  /* verilator lint_off UNUSEDSIGNAL */
   input  areg_t             rd_areg [NR],
+  input  logic [ENTRIES-1:0] rd_oh_in [NR],
+  /* verilator lint_on UNUSEDSIGNAL */
   output preg_t             rd_preg [NR],
   // spec RAT writes from rename or walk, slot order = program order
   input  logic [N-1:0]      alloc_cand,
   input  logic [N-1:0]      fire,
   input  areg_t             alloc_areg [N],
+  /* verilator lint_off UNUSEDSIGNAL */
+  input  logic [ENTRIES-1:0] wr_oh_in [N],
+  input  logic              use_wr_oh,
+  /* verilator lint_on UNUSEDSIGNAL */
   input  preg_t             alloc_preg [N],
   // single checkpoint lane (one-hot) selected by ren_ckpt_ctl
   input  logic [N-1:0]      ckpt_wr_lane_oh,
@@ -80,12 +88,16 @@ module ren_rat
     assign commit_tag[k] = to_local(commit_preg[k]);
   end
 
-  // ---- reads: one-hot decode of areg, AND-OR over narrow TW-bit RAT entries ----
+  // ---- reads: one-hot decode of areg (or pre-decoded rd_oh_in), AND-OR over narrow TW-bit RAT entries ----
   for (genvar r = 0; r < NR; r++) begin : g_read
     logic [ENTRIES-1:0] sel;
     tag_t               rd_tag;
-    for (genvar e = 0; e < ENTRIES; e++) begin : g_dec
-      assign sel[e] = (rd_areg[r] == areg_t'(e));
+    if (PRE_OH) begin : g_pre_rd
+      assign sel = rd_oh_in[r];
+    end else begin : g_dec_rd
+      for (genvar e = 0; e < ENTRIES; e++) begin : g_dec
+        assign sel[e] = (rd_areg[r] == areg_t'(e));
+      end
     end
     ttg_onehot_mux #(.N(ENTRIES), .W(TW)) u_rd (.sel(sel), .data(spec_entry), .out(rd_tag));
     assign rd_preg[r] = (|sel) ? to_global(rd_tag) : '0;
@@ -104,7 +116,7 @@ module ren_rat
     tag_t         val_norm, val_ck;
     for (genvar j = 0; j < N; j++) begin : g_hit
       logic match_e;
-      assign match_e     = alloc_cand[j] & (alloc_areg[j] == areg_t'(e));
+      assign match_e     = alloc_cand[j] & ((PRE_OH && use_wr_oh) ? wr_oh_in[j][e] : (alloc_areg[j] == areg_t'(e)));
       assign hit_norm[j] = fire[j] & match_e;
       assign hit_ck[j]   = ckpt_prefix[j] & match_e;
     end

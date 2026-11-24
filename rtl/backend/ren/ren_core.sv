@@ -57,8 +57,7 @@ module ren_core
   preg_t        rd_preg [NR];
   preg_t        dest_normal [N], src1_normal [N], src2_normal [N];
   preg_t        old_dest_preg [N], src1_preg [N], src2_preg [N], dest_preg [N];
-  areg_t        dest_areg [N], src1_areg [N], src2_areg [N];
-  logic [N-2:0] dest_en_older;    // INT-domain dest_en of every slot except the youngest
+  areg_t        dest_areg [N], src1_areg [N];
   logic [N-2:0] dest_en_any_older, dest_fp_older;
   preg_t        fp_dest [N], fp_src1 [N], fp_src2 [N], fp_src3 [N], fp_old [N];
   int_rat_t     ckpt_wr_rat, ckpt_rat;
@@ -101,29 +100,36 @@ module ren_core
 
   assign ren2rob_walking = walk_active;
 
+  logic                s1_empty, s2_take_new;
+  logic [RAT_NUM-1:0]  pipe_rd_oh_q [3*N];
+  logic [RAT_NUM-1:0]  pipe_wr_oh_q [N];
+  logic [N-1:0]        pipe_move_shape_q, pipe_is_branch_q;
+  logic [N-1:0]        pipe_hit_dest_q [N], pipe_hit_src1_q [N], pipe_hit_src2_q [N];
+
   ren_inst_pipe u_pipe (
-    .clk(clk), .rst_n(rst_n), .dec_valid(dec_valid), .dec_uop(dec_uop), .take_new(ren2dec_ready),
-    .kill(rob_flush | dec_mispred), .fire(fire), .clear_mask(dec_clear_mask), .valid(inst_valid), .inst(inst)
+    .clk(clk), .rst_n(rst_n), .dec_valid(dec_valid), .dec_uop(dec_uop),
+    .s1_take_new(ren2dec_ready), .s2_take_new(s2_take_new),
+    .kill(rob_flush | dec_mispred), .fire(fire), .clear_mask(dec_clear_mask),
+    .s1_empty(s1_empty), .valid(inst_valid), .inst(inst),
+    .rd_oh_q(pipe_rd_oh_q), .wr_oh_q(pipe_wr_oh_q),
+    .move_shape_q(pipe_move_shape_q), .is_branch_q(pipe_is_branch_q),
+    .raw_hit_dest_q(pipe_hit_dest_q), .raw_hit_src1_q(pipe_hit_src1_q), .raw_hit_src2_q(pipe_hit_src2_q)
   );
 
   // ---- field views of the pipeline register / commit entries ----
   for (genvar i = 0; i < N; i++) begin : g_view
     assign dest_areg[i]  = inst[i].dest_areg;
     assign src1_areg[i]  = inst[i].src1_areg;
-    assign src2_areg[i]  = inst[i].src2_areg;
     assign rd_areg[i]       = inst[i].dest_areg;
     assign rd_areg[N+i]     = inst[i].src1_areg;
     assign rd_areg[2*N+i]   = inst[i].src2_areg;
     assign dest_normal[i]   = rd_preg[i];
     assign src1_normal[i]   = rd_preg[N+i];
     assign src2_normal[i]   = rd_preg[2*N+i];
-    assign move_shape[i]    = ren_is_move_shape(inst[i].inst_type, inst[i].src2_is_imm, inst[i].is_word, inst[i].func3,
-                                                inst[i].imm,
-                                                inst[i].src1_en, inst[i].src1_is_pc, inst[i].src1_areg,
-                                                inst[i].dest_en, inst[i].dest_areg);
+    assign move_shape[i]    = pipe_move_shape_q[i];
     assign alloc_req[i]     = inst_valid[i] & inst[i].dest_en & ~inst[i].dest_fp & ~elim[i];
     assign rat_cand[i]      = inst_valid[i] & inst[i].dest_en & ~inst[i].dest_fp;
-    assign is_branch[i]     = (inst[i].inst_type == ITYPE_BR) | (inst[i].inst_type == ITYPE_JALR);
+    assign is_branch[i]     = pipe_is_branch_q[i];
 
     assign log_wr_entry[i] = '{
       dest_en:       inst[i].dest_en,
@@ -142,7 +148,6 @@ module ren_core
     assign rat_alloc_preg[i] = walk_active ? log_rd_slot[i].dest_preg  : dest_preg[i];
   end
   for (genvar i = 0; i < N - 1; i++) begin : g_older_view
-    assign dest_en_older[i]     = inst[i].dest_en & ~inst[i].dest_fp;
     assign dest_en_any_older[i] = inst[i].dest_en;
     assign dest_fp_older[i]     = inst[i].dest_fp;
   end
@@ -202,14 +207,15 @@ module ren_core
 
   ren_handshake u_hs (
     .inst_valid(inst_valid), .alloc_req(req_all), .alloc_valid(valid_all),
-    .log_ok(log_ok), .walk_active(walk_active), .dis_ready(dis_ready),
-    .flush(rob_flush), .mispred(dec_mispred), .out_valid(ren2dis_valid), .fire(fire), .ren2dec_ready(ren2dec_ready)
+    .log_ok(log_ok), .walk_active(walk_active), .s1_empty(s1_empty), .dis_ready(dis_ready),
+    .flush(rob_flush), .mispred(dec_mispred), .out_valid(ren2dis_valid), .fire(fire),
+    .s2_take_new(s2_take_new), .ren2dec_ready(ren2dec_ready)
   );
 
   // ---- rename (comb_rename) ----
   ren_dep_check u_dep (
-    .inst_valid(inst_valid[N-2:0]), .dest_en(dest_en_older), .dest_areg(dest_areg),
-    .src1_areg(src1_areg), .src2_areg(src2_areg),
+    .inst_valid(inst_valid[N-2:0]),
+    .raw_hit_dest(pipe_hit_dest_q), .raw_hit_src1(pipe_hit_src1_q), .raw_hit_src2(pipe_hit_src2_q),
     .alloc_reg(alloc_reg), .elim(elim), .dest_normal(dest_normal), .src1_normal(src1_normal), .src2_normal(src2_normal),
     .old_dest_preg(old_dest_preg), .src1_preg(src1_preg), .src2_preg(src2_preg), .dest_preg_out(dest_preg)
   );
@@ -283,9 +289,10 @@ module ren_core
   end
   ren_rank u_free_rank (.sel(free), .rank(free_rank), .total(free_total));
 
-  ren_rat u_rat (
-    .clk(clk), .rst_n(rst_n), .rd_areg(rd_areg), .rd_preg(rd_preg),
-    .alloc_cand(rat_alloc_cand), .fire(rat_fire), .alloc_areg(rat_alloc_areg), .alloc_preg(rat_alloc_preg),
+  ren_rat #(.PRE_OH(1'b1)) u_rat (
+    .clk(clk), .rst_n(rst_n), .rd_areg(rd_areg), .rd_oh_in(pipe_rd_oh_q), .rd_preg(rd_preg),
+    .alloc_cand(rat_alloc_cand), .fire(rat_fire), .alloc_areg(rat_alloc_areg),
+    .wr_oh_in(pipe_wr_oh_q), .use_wr_oh(~walk_active), .alloc_preg(rat_alloc_preg),
     .ckpt_wr_lane_oh(ckpt_wr_lane_oh),
     .reclaim(reclaim), .commit_areg(c_dest_areg), .commit_preg(c_dest_preg),
     .flush(rob_flush), .mispred(dec_mispred), .ckpt_hit(ckpt_rd_hit), .ckpt_rat(ckpt_rat),

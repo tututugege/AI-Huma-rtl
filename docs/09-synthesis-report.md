@@ -376,3 +376,20 @@ rv32 配置包（改动时在旧基线 `15af4b4` 上测）：`tlb_mmu` 159 → 6
 - **≥ 1.50 GHz（11 模块）**：`bpu_ctl` (≥2.50)、`exu_ctrl` / `dcache_s1` / `dcache_s2_ld` / `dcache_s2_st` / `icache_ctl` / `icache_itlb` (≥2.00)、`dispatch` / `tlb_mmu` (1.89)、`mul_unit` (1.85)、`pre_idu_queue` (1.82)、`div_unit` (1.67)、`rob` (1.64)、`idu` (1.54)（实际 14 模块 ≥ 1.54 GHz）。
 - **1.15 ~ 1.49 GHz（7 模块，接近 1.5 GHz 门槛）**：`dcache_wb` (1.49)、`axi_llc_bop` (1.47)、`isu` (1.37)、**`bpu_eval` (1.28，纯组合 1.47)**、**`bpu_spec` (1.20，纯组合 1.43)**、`dcache_pf` (1.18)、`ren` (1.16)、`dcache_mshr` (1.15 / reg2reg 1.18)（8 模块）。
 - **< 1.00 GHz（仅剩 1 模块）**：`lsu` (0.88 GHz) —— 第三轮聚焦 `lsu` 流水切分与 `ren` 两级重命名向全核 1.5 GHz 冲刺。
+
+## 17. 第三轮 TSMC 28nm HPC+ DC 时序优化（EXP-064，2026-11-24）
+
+同口径 Synopsys DC (`W-2024.09-SP2`, TSMC 28nm HPC+ `ssg0p81v125c`, 12T SVT+LVT, `CLK=0.50 ns / 2.0 GHz`, `compile_ultra`) 推进 `dcache_pf`、`dcache_mshr`、`lsu`（Wave 1+2，均 0 周期变化）与 `ren` 2-stage 流水化：
+
+| 模块 | DC WNS (ns) 改前 → 改后 | DC Fmax (GHz) 改前 → 改后 | 纯组合延迟 / reg2reg | DC 逻辑级数 | DC Area (um²) | 关键改动 |
+|---|---|---|---|---:|---:|---|
+| **`dcache_pf`** | **−0.35 → −0.24** | **1.18 → 1.35 (+14.4%)** | **0.70 ns (1.43 GHz)** | **53 → 43** | 151,660 | 0 周期变化：`dcache_pf_berti_gen` 16→1 锦标赛树 `gen_cand_t` 随路携带 `d`(7b)+`st`(2b)，并行预计算 `gen_vline_q[31:6] ± 1` 与 `xq_va_q` 27b 页标签比较，7b 有符号加法+6b 去重替代 32b 加法器 |
+| **`dcache_mshr`** | **−0.37 → −0.28** | **1.15 → 1.28 (+11.3%)** | **0.65 ns (1.54 GHz)** / reg2reg **−0.27 ns (1.30 GHz)** | **54 → 41** | **99,463 → 85,657 (−13.9%)** | 0 周期变化：并行一次性预展开 3 路 store 512b 行数据与 64b 字节选通（替代 16× `line_merge_n`）；`ax_req_*` 改并行 demand/all `ttg_first_set` + `ttg_onehot_mux` |
+| **`ren` (`ren_2s`)** | **−0.36 → −0.32** | **1.16 → 1.22 (+5.2%)** | 0.79 ns / reg2reg −0.32 ns（TNS −5,375） | **46 → 40** | 144,365 → 157,570 | 2 级流水化（`IDU → S1 → S2 → DISPATCH`，S1 预译码 RAT one-hot 地址与同组 RAW/WAW 矩阵）+ `ren_ckpt_ctl` 静态槽位预计算 + `ren_log` 8:1 旋转后移至 `bank_rd_q` 之后 + `ren_alloc_sel` 直接前缀 `ttg_popcount`；同步 `trace-model`（SPEC06 INT 386 点 `−1.07%`）；新顶路径仍在 S2（`ckpt_count_q → u_ckpt` 0.79 ns 与 `rd_oh_q → ren_elim_sel → u_rat` 0.78 ns），第四轮重平衡 S1/S2 切点 |
+| **`lsu` (Wave 1+2)** | **−0.64 → −0.53** | **0.88 → 0.97 (+10.2%)** | 0.98 ns (1.02 GHz) / TNS **−15.7k → −10.6k (−32.6%)** | 56 → 59 | **918,551 → 873,552 (−4.9%)** | 0 周期变化：`lp_pickn` 全切 `ttg_pick_k`；`lp_cam` 未旋转 `hi/lo` 拆分消 2× `rotr64` 与 `+ head`；`lp_rp` 预寄存 `rp_f_q[0..3]` 消 64:1 LDQ mux 并切断 `epoch_nx → dcl_req_id`；`lp_pkg` `rel12/rel32` 8B 块拆分；`lp_wb` `alive_unrot(count_q) & rotr64` 消 `sta_*` 瓶颈；新顶路径为 `ldq/st_q → lp_l1 → lp_cam → ldq/f_q[spec]`（0.98 ns），第四轮通过 `L0/L1` 流水拆拍攻克 |
+
+### 17.1 第三轮后全核 23 模块 TSMC 28nm DC 时序分布总览
+
+- **≥ 1.50 GHz（14 模块）**：`bpu_ctl` (≥2.50)、`exu_ctrl` / `dcache_s1` / `dcache_s2_ld` / `dcache_s2_st` / `icache_ctl` / `icache_itlb` (≥2.00)、`dispatch` / `tlb_mmu` (1.89)、`mul_unit` (1.85)、`pre_idu_queue` (1.82)、`div_unit` (1.67)、`rob` (1.64)、`idu` (1.54)。
+- **1.20 ~ 1.49 GHz（8 模块）**：`dcache_wb` (1.49)、`axi_llc_bop` (1.47)、`isu` (1.37)、**`dcache_pf` (1.35，纯组合 1.43)**、**`dcache_mshr` (1.28，reg2reg 1.30，纯组合 1.54)**、`bpu_eval` (1.28，纯组合 1.47)、**`ren` (1.22)**、`bpu_spec` (1.20，纯组合 1.43)。
+- **< 1.20 GHz（仅剩 1 模块）**：**`lsu` (0.97 GHz)** —— 22/23 模块已全部 ≥ 1.20 GHz（20/23 ≥ 1.28 GHz），第四轮聚焦 `lsu` `L0/L1` 流水拆拍与 `ren` S1/S2 切点重平衡。

@@ -85,10 +85,13 @@ module dcache_pf_berti_gen
   end
 
   // ---------------- 2. Generator 16->1 priority tournament (4-level binary tree) + step ----------------
+  // Carry d (7b) and st (2b) inside gen_cand_t to eliminate 16:1 muxes after the tournament tree.
   typedef struct packed {
     logic       v;
     logic [5:0] key;
     logic [3:0] idx;
+    logic [6:0] d;
+    logic [1:0] st;
   } gen_cand_t;
 
   function automatic gen_cand_t max_gen(input gen_cand_t a, input gen_cand_t b);
@@ -97,26 +100,42 @@ module dcache_pf_berti_gen
     else                                   return b;
   endfunction
 
-  logic       gen_act, gen_same_page, gen_step_sp, gen_step_xp;
-  logic [3:0] best_m;
+  logic        gen_act, gen_same_page, gen_step_sp, gen_step_xp;
+  logic [3:0]  best_m;
+  logic [6:0]  best_d;
+  logic [1:0]  best_st;
+  logic [25:0] vline_hi_p1, vline_hi_m1;
+  logic [6:0]  gen_lo_sum;
   logic [31:0] gen_t;
+
+  // Precompute upper page +/- 1 from registered gen_vline_q in parallel with the tournament tree
+  assign vline_hi_p1 = gen_vline_q[31:6] + 26'd1;
+  assign vline_hi_m1 = gen_vline_q[31:6] - 26'd1;
 
   always_comb begin
     gen_cand_t t0 [16], t1 [8], t2 [4], t3 [2];
     /* verilator lint_off UNUSEDSIGNAL */
     gen_cand_t t4;
     /* verilator lint_on UNUSEDSIGNAL */
-    gen_act  = (gen_left_q != 4'd0) && (|gen_mask_q);
+    gen_act = (gen_left_q != 4'd0) && (|gen_mask_q);
     for (int m = 0; m < 16; m++) begin
-      t0[m] = '{v: gen_mask_q[m], key: {(gen_st_q[m] == 2'd1), gen_cov_q[m]}, idx: 4'(m)};
+      t0[m] = '{v: gen_mask_q[m], key: {(gen_st_q[m] == 2'd1), gen_cov_q[m]},
+                idx: 4'(m), d: gen_d_q[m], st: gen_st_q[m]};
     end
     for (int i = 0; i < 8; i++) t1[i] = max_gen(t0[2*i], t0[2*i+1]);
     for (int i = 0; i < 4; i++) t2[i] = max_gen(t1[2*i], t1[2*i+1]);
     for (int i = 0; i < 2; i++) t3[i] = max_gen(t2[2*i], t2[2*i+1]);
-    t4     = max_gen(t3[0], t3[1]);
-    best_m = t4.v ? t4.idx : 4'd0;
-    gen_t         = gen_vline_q + {{25{gen_d_q[best_m][6]}}, gen_d_q[best_m]};
-    gen_same_page = (gen_t[31:6] == gen_vline_q[31:6]);
+    t4      = max_gen(t3[0], t3[1]);
+    best_m  = t4.v ? t4.idx : 4'd0;
+    best_d  = t4.v ? t4.d   : gen_d_q[0];
+    best_st = t4.v ? t4.st  : gen_st_q[0];
+
+    // Fast 7-bit low sum: best_d is signed 7-bit [-64..+63], gen_vline_q[5:0] is unsigned [0..63].
+    // gen_lo_sum[6] == 0 => same page; gen_lo_sum[6] == 1 => (best_d[6] ? page-1 : page+1).
+    gen_lo_sum    = {1'b0, gen_vline_q[5:0]} + best_d;
+    gen_same_page = !gen_lo_sum[6];
+    gen_t         = {gen_same_page ? gen_vline_q[31:6] : (best_d[6] ? vline_hi_m1 : vline_hi_p1),
+                     gen_lo_sum[5:0]};
     gen_step_sp   = gen_act && gen_same_page && !xa_pop;
     gen_step_xp   = gen_act && !gen_same_page;
 
@@ -126,8 +145,8 @@ module dcache_pf_berti_gen
       push_llc  = xa_p_llc[0];
     end else if (gen_step_sp) begin
       push_en   = 1'b1;
-      push_line = {gen_ppn_q, gen_t[5:0]};
-      push_llc  = (gen_st_q[best_m] == 2'd2);
+      push_line = {gen_ppn_q, gen_lo_sum[5:0]};
+      push_llc  = (best_st == 2'd2);
     end else begin
       push_en   = 1'b0;
       push_line = '0;
@@ -136,13 +155,22 @@ module dcache_pf_berti_gen
   end
 
   // ---------------- 3. xq next state: pop xq_pop (0..NLD), dedup + push cross-page candidate ----------------
+  // Pre-compare upper 27-bit page tags of xq_va_q against +/-1 page in parallel with the tournament tree!
+  logic [XQN-1:0] xq_pg_p1, xq_pg_m1;
+  always_comb begin
+    for (int i = 0; i < XQN; i++) begin
+      xq_pg_p1[i] = (xq_va_q[i][38:12] == {gen_vaneg_q, vline_hi_p1});
+      xq_pg_m1[i] = (xq_va_q[i][38:12] == {gen_vaneg_q, vline_hi_m1});
+    end
+  end
+
   logic [38:0]    xq_d_va [XQN];
   logic [XQN-1:0] xq_d_llc;
   logic [3:0]     xq_d_cnt;
 
   always_comb begin
     logic [38:0]    xp_va [XQN];
-    logic [XQN-1:0] xp_llc;
+    logic [XQN-1:0] xp_llc, xp_pg_p1, xp_pg_m1;
     logic [3:0]     n_p;
     logic [38:0]    new_va;
     logic           new_llc, dup;
@@ -151,15 +179,19 @@ module dcache_pf_berti_gen
     for (int i = 0; i < XQN; i++) begin
       logic [3:0] src;
       src = 4'(i) + {1'b0, xq_pop};
-      xp_va[i]  = (src < 4'(XQN)) ? xq_va_q[src[2:0]] : 39'd0;
-      xp_llc[i] = (src < 4'(XQN)) ? xq_llc_q[src[2:0]] : 1'b0;
+      xp_va[i]    = (src < 4'(XQN)) ? xq_va_q[src[2:0]]  : 39'd0;
+      xp_llc[i]   = (src < 4'(XQN)) ? xq_llc_q[src[2:0]] : 1'b0;
+      xp_pg_p1[i] = (src < 4'(XQN)) ? xq_pg_p1[src[2:0]] : 1'b0;
+      xp_pg_m1[i] = (src < 4'(XQN)) ? xq_pg_m1[src[2:0]] : 1'b0;
     end
 
     new_va  = {gen_vaneg_q, gen_t, 6'b0};
-    new_llc = (gen_st_q[best_m] == 2'd2);
+    new_llc = (best_st == 2'd2);
     dup     = 1'b0;
     for (int i = 0; i < XQN; i++) begin
-      if ((4'(i) < n_p) && (xp_va[i][38:6] == new_va[38:6])) dup = 1'b1;
+      logic pg_m;
+      pg_m = best_d[6] ? xp_pg_m1[i] : xp_pg_p1[i];
+      if ((4'(i) < n_p) && pg_m && (xp_va[i][11:6] == gen_lo_sum[5:0])) dup = 1'b1;
     end
 
     for (int i = 0; i < XQN; i++) begin

@@ -125,28 +125,45 @@ module dcache_mshr
     .tgt(tgt), .alloc_en(alloc_en), .alloc_line(alloc_line)
   );
 
+  // Pre-expand each store port's word(s) to a 512b line image & 64b byte mask ONCE (in parallel with u_alloc!)
+  logic [LINE_BITS-1:0]   st_line_data [NST];
+  logic [LINE_BITS/8-1:0] st_line_strb [NST];
+  always_comb begin
+    for (int p = 0; p < NST; p++) begin
+      st_line_data[p] = '0;
+      st_line_strb[p] = '0;
+      for (int b = 0; b < SBW; b++) if (req_strb[p][b]) begin
+        st_line_data[p][(req_word[p] * SBW + b) * 8 +: 8] = req_data[p][8*b +: 8];
+        st_line_strb[p][req_word[p] * SBW + b]            = 1'b1;
+      end
+      for (int b = 0; b < SBW; b++) if (req_l2[p].strb[b]) begin
+        st_line_data[p][(req_l2[p].word * SBW + b) * 8 +: 8] = req_l2[p].data[8*b +: 8];
+        st_line_strb[p][req_l2[p].word * SBW + b]            = 1'b1;
+      end
+    end
+  end
+
   // merged store data of every entry after this tick's store requests (store ports are request ports NLD..NSLOT-1)
   logic [MSHR_N-1:0]    mdirty_d;
   logic [LINE_BITS-1:0] mdata_d [MSHR_N];
   logic [LINE_BITS/8-1:0] mstrb_d [MSHR_N];
   logic [MSHR_N-1:0]    mupd;
-  logic [NST-1:0][WORD_W-1:0] qw1, qw2;
-  logic [NST-1:0][DW-1:0]       qd1, qd2;
-  logic [NST-1:0][SBW-1:0]        qs1, qs2;
-  logic [NST-1:0]             en_e;
   always_comb begin
-    for (int p = 0; p < NST; p++) begin
-      qw1[p] = req_word[p];  qd1[p] = req_data[p];  qs1[p] = req_strb[p];
-      qw2[p] = req_l2[p].word;  qd2[p] = req_l2[p].data;  qs2[p] = req_l2[p].strb;
-    end
     for (int e = 0; e < MSHR_N; e++) begin
+      logic [NST-1:0] en_e;
       mdirty_d[e] = alloc_en[e] ? 1'b0 : mdirty_q[e];
       mdata_d[e]  = alloc_en[e] ? '0 : mdata_q[e];
       mstrb_d[e]  = alloc_en[e] ? '0 : mstrb_q[e];
       mupd[e]     = alloc_en[e];
       for (int p = 0; p < NST; p++) en_e[p] = tgt[NLD+p][e];
-      mdata_d[e]  = line_merge_n(mdata_d[e], en_e, qw1, qd1, qs1, qw2, qd2, qs2);
-      mstrb_d[e]  = mstrb_d[e] | line_strb_n(en_e, qw1, qs1, qw2, qs2);
+      for (int p = 0; p < NST; p++) begin
+        if (en_e[p]) begin
+          mstrb_d[e] = mstrb_d[e] | st_line_strb[p];
+          for (int b = 0; b < LINE_BITS / 8; b++) begin
+            if (st_line_strb[p][b]) mdata_d[e][8*b +: 8] = st_line_data[p][8*b +: 8];
+          end
+        end
+      end
       if (|en_e) begin
         mdirty_d[e] = 1'b1;
         mupd[e]     = 1'b1;
@@ -181,8 +198,8 @@ module dcache_mshr
   end
 
   // ---------------------------------------------------------------- AXI outputs from the final state
-  logic [MSHR_N-1:0] valid_d, issued_d, send_in, send_oh, send_pass;
-  logic              send_any, hold_valid_b;
+  logic [MSHR_N-1:0] valid_d, issued_d, send_in, send_dem_oh, send_any_oh, send_oh;
+  logic              send_dem_any, send_any, hold_valid_b;
   logic [LINE_W-1:0] line_d [MSHR_N];
   always_comb begin
     for (int e = 0; e < MSHR_N; e++) begin
@@ -191,21 +208,17 @@ module dcache_mshr
       line_d[e]   = alloc_en[e] ? alloc_line[e] : line_q[e];
     end
     send_in      = valid_d & ~issued_d;
-    // demand misses go out before prefetches
-    send_pass    = |(send_in & ~pf_d) ? (send_in & ~pf_d) : send_in;
     hold_valid_b = hold_valid_a && !done_ok;
   end
-  ttg_first_set #(.N(MSHR_N)) u_send (.req(send_pass), .onehot(send_oh), .any(send_any));
+  // Run demand-only and all-entry first_set in parallel (demand misses go out before prefetches)
+  ttg_first_set #(.N(MSHR_N)) u_send_dem (.req(send_in & ~pf_d), .onehot(send_dem_oh), .any(send_dem_any));
+  ttg_first_set #(.N(MSHR_N)) u_send_any (.req(send_in),         .onehot(send_any_oh), .any(send_any));
+  assign send_oh = send_dem_any ? send_dem_oh : send_any_oh;
+  ttg_onehot_mux #(.N(MSHR_N), .W(LINE_W)) u_ax_line (.sel(send_oh), .data(line_d),    .out(ax_req_line));
+  ttg_onehot_mux #(.N(MSHR_N), .W(12))     u_ax_pc   (.sel(send_oh), .data(pc_hash_d), .out(ax_req_pc_hash));
+  ttg_onehot_to_idx #(.N(MSHR_N), .IDXW(MSHR_IDW)) u_ax_id (.onehot(send_oh), .idx(ax_req_id));
   always_comb begin
-    ax_req_valid   = send_any;
-    ax_req_line    = '0;
-    ax_req_id      = '0;
-    ax_req_pc_hash = 12'd0;
-    for (int e = 0; e < MSHR_N; e++) if (send_oh[e]) begin
-      ax_req_line    = line_d[e];
-      ax_req_id      = MSHR_IDW'(e);
-      ax_req_pc_hash = pc_hash_d[e];
-    end
+    ax_req_valid  = send_any;
     ax_resp_ready = ax_resp_valid ? (take_h || take_nf) : !hold_valid_b;
   end
 

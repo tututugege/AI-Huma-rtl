@@ -11,13 +11,15 @@ module lp_l1
   // new arrivals
   input  lp_agu_ld_t          ag [NLD],
   input  logic [NLD-1:0]      ag_acc,
+  input  logic [EPW-1:0]      ag_epoch [NLD],
+  input  logic [NLD-1:0]      ag_wait_b,
   input  lp_agu_st_t          sa [NST],
   input  logic [NST-1:0]      sa_acc,
   // replay registers
   input  logic [NRP-1:0]      rp_v,
   input  logic [LQW-1:0]      rp_ldq [NRP],
   input  logic [NRP-1:0]      rp_pipe,          // the entry of rp[r] is still PIPE
-  input  lp_ldq_t             rp_f [NRP],       // LDQ fields of the entry of rp[r]
+  input  lp_rp_ent_t          rp_f [NRP],       // pre-registered immutable LDQ fields of rp[r]
   input  logic                srp_v,
   input  logic [SQW-1:0]      srp_stq,
   input  logic                srp_ok,           // the srp store is alive, has an address, no translation and no fault
@@ -177,6 +179,9 @@ module lp_l1
           l1[k].snap_idx = ag[i].snap_idx;
           l1[k].snap_flag = ag[i].snap_flag;
           l1[k].lrsc = ag[i].lr;
+          l1[k].epoch = ag_epoch[i];
+          l1[k].second = 1'b0;
+          l1[k].wait_b = ag_wait_b[i];
         end
       end
       for (int r = 0; r < NRP; r++) begin
@@ -194,6 +199,9 @@ module lp_l1
           l1[k].paddr_reg = rp_f[r].paddr;
           l1[k].mmio_reg = rp_f[r].mmio;
           l1[k].lrsc = rp_f[r].lrsc;
+          l1[k].epoch = rp_f[r].epoch;
+          l1[k].second = rp_f[r].second;
+          l1[k].wait_b = rp_f[r].wait_b;
         end
       end
     end

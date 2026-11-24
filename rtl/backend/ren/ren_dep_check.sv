@@ -12,10 +12,9 @@ module ren_dep_check
   parameter int N = DECODE_WIDTH
 ) (
   input  logic [N-2:0] inst_valid,   // the youngest slot never produces for an older one
-  input  logic [N-2:0] dest_en,
-  input  areg_t        dest_areg [N],
-  input  areg_t        src1_areg [N],
-  input  areg_t        src2_areg [N],
+  input  logic [N-1:0] raw_hit_dest [N],    // pre-decoded in S1: dest_en[j] & ~dest_fp[j] & (dest_areg[i]==dest_areg[j])
+  input  logic [N-1:0] raw_hit_src1 [N],
+  input  logic [N-1:0] raw_hit_src2 [N],
   input  preg_t        alloc_reg [N],       // preg newly allocated to slot j (0 if none)
   input  logic [N-1:0] elim,                // slot is an eliminated move: its destination is its source register
   input  preg_t        dest_normal [N],     // RAT lookups (old_dest, src1, src2)
@@ -26,12 +25,6 @@ module ren_dep_check
   output preg_t        src2_preg [N],
   output preg_t        dest_preg_out [N]    // final destination register of each slot
 );
-
-  // older slot j can be bypassed from: valid and writes a register
-  logic [N-2:0] producer;     // the youngest slot is never an older producer
-  for (genvar j = 0; j < N - 1; j++) begin : g_prod
-    assign producer[j] = inst_valid[j] & dest_en[j];
-  end
 
   // Two-level non-recursive bypass (reuses ttg_first_set + ttg_onehot_mux):
   // Level 1: compute every slot's final destination preg in parallel with zero cross-lane chaining.
@@ -54,9 +47,9 @@ module ren_dep_check
     preg_t        val_dest, val_src1_alloc, val_src1, val_src2;
     for (genvar j = 0; j < N; j++) begin : g_older
       if (j < i) begin : g_yes
-        assign hit_dest[j] = producer[j] & (dest_areg[i] == dest_areg[j]);
-        assign hit_src1[j] = producer[j] & (src1_areg[i] == dest_areg[j]);
-        assign hit_src2[j] = producer[j] & (src2_areg[i] == dest_areg[j]);
+        assign hit_dest[j] = inst_valid[j] & raw_hit_dest[i][j];
+        assign hit_src1[j] = inst_valid[j] & raw_hit_src1[i][j];
+        assign hit_src2[j] = inst_valid[j] & raw_hit_src2[i][j];
       end else begin : g_no
         assign hit_dest[j] = 1'b0;
         assign hit_src1[j] = 1'b0;

@@ -123,7 +123,9 @@ module lp_core
   lp_stq_t         sq [SQ];
   logic [LQ-1:0]   empty_w, l2_ok, rs_ok, wbp3, wbp_m, pipe_r, wb3_r, wbp_r, pipe5, pipe8, empty8, dead_r, rdy9;
   logic [XLEN_BITS-1:0]     res_v [LQ];
+  /* verilator lint_off UNUSEDSIGNAL */
   logic [EPW-1:0]  epoch_nx [LQ];
+  /* verilator lint_on UNUSEDSIGNAL */
   logic [NLD-1:0]  ag_acc;
   logic            mi_v;
   logic [LQW-1:0]  mi_idx;
@@ -198,7 +200,7 @@ module lp_core
   assign wbp_sel = ((LP_CUT & 8) != 0) ? (((LP_CUT & 131072) != 0) ? (wbp_r | wbp_m) : wbp_r) : wbp3;  // F, FM
   lp_wb u_wb (
     .wbd_v(wbw_v), .wbd_idx(wbw_idx), .wbd_hasdata(wbw_hd), .wbd_data(wbw_data),
-    .ldq_q(ldq_q), .ldq_res(res_v), .wbp_vec(wbp_sel), .sq(sq), .alive_w(alive_w), .head_q(head_q),
+    .ldq_q(ldq_q), .ldq_res(res_v), .wbp_vec(wbp_sel), .sq(sq), .count_q(count_q), .head_q(head_q),
     .rsv_valid(rsv_valid_q), .rsv_addr(rsv_addr_q), .wb_go(wb_go), .wb_go_d(wb_go_d), .wb_go_s(wb_go_s),
     .sc_go(sc_go), .wp_v(wb_wp_v), .wp_idx(wb_wp_idx),
     .wb_valid(wb_valid), .wb_diag(wb_diag), .wb_result(wb_result), .wb_dest(wb_dest), .wb_br(wb_br),
@@ -215,21 +217,26 @@ module lp_core
   logic            l_hit [NLD], l_mmio [NLD];
   logic [31:0]     l_paddr [NLD];
   logic [NRP-1:0]  rp_cons, rp_pipe;
-  lp_ldq_t         rp_f [NRP];
+  lp_rp_ent_t      rp_f_q [NRP];
+  logic [EPW-1:0]  ag_epoch [NLD];
+  logic [NLD-1:0]  ag_wait_b;
   logic [NST-1:0]  s1_v, s1_replay, tl_s_miss;
   logic [SQW-1:0]  s1_stq [NST];
   logic            srp_cons, srp_ok, pf_any;
   always_comb begin
+    for (int i = 0; i < NLD; i++) begin
+      ag_epoch[i]  = ldq_q[agl[i].ldq].epoch;
+      ag_wait_b[i] = ldq_q[agl[i].ldq].wait_b;
+    end
     for (int r = 0; r < NRP; r++) begin
-      rp_f[r] = ldq_q[rp_ldq_q[r]];
       rp_pipe[r] = ((LP_CUT & 32) != 0) ? pipe_r[rp_ldq_q[r]] : pipe5[rp_ldq_q[r]];
     end
     srp_ok = alive_w[srp_stq_q] && sq[srp_stq_q].va_v && !sq[srp_stq_q].pa_v && !sq[srp_stq_q].pf;
   end
 
   lp_l1 u_l1 (
-    .ag(agl), .ag_acc(ag_acc), .sa(ags), .sa_acc(sa_acc),
-    .rp_v(rp_v_q), .rp_ldq(rp_ldq_q), .rp_pipe(rp_pipe), .rp_f(rp_f),
+    .ag(agl), .ag_acc(ag_acc), .ag_epoch(ag_epoch), .ag_wait_b(ag_wait_b), .sa(ags), .sa_acc(sa_acc),
+    .rp_v(rp_v_q), .rp_ldq(rp_ldq_q), .rp_pipe(rp_pipe), .rp_f(rp_f_q),
     .srp_v(srp_v_q), .srp_stq(srp_stq_q), .srp_ok(srp_ok), .srp_vaddr(sq[srp_stq_q].vaddr),
     .mmu_valid(mmu_valid), .mmu_paddr(mmu_paddr), .mmu_result(mmu_result), .mmu_entry(mmu_entry),
     .mmu_req_valid(mmu_req_valid), .mmu_req_vaddr(mmu_req_vaddr), .mmu_req_idx(mmu_req_idx), .mmu_req_st(mmu_req_st),
@@ -250,7 +257,7 @@ module lp_core
               .empty_w(empty_w), .ldq_q(ldq_q), .l1(l1), .unk_any(unk_any), .unk_rank(unk_rank),
               .sa_rank(sa_rank), .sa_voff(sa_voff), .sa_f3(sa_f3), .dis_ldw(dis_ldw), .spec_ok(spec_ok));
   lp_l1b u_l1b (.clk(clk), .l1(l1), .l_hit(l_hit), .l_mmio(l_mmio), .l_paddr(l_paddr), .l_tlb(l_tlb),
-                .ld_retry_busy(ld_retry_busy), .pipe8(pipe8_sel), .epoch_nx(epoch_nx), .head_q(head_q),
+                .ld_retry_busy(ld_retry_busy), .pipe8(pipe8_sel), .head_q(head_q),
                 .head_flag_q(head_flag_q), .count_q(count_q), .cv_va(cv_va), .cv_voff(cv_voff), .cv_f3(cv_f3), .sq(sq),
                 .spec_ok(spec_ok), .cam_en(cam_en), .cam_unk(cam_unk), .l1_launch(l1_launch),
                 .dcl_req_valid(dcl_req_valid), .dcl_req_addr(dcl_req_addr),
@@ -428,8 +435,8 @@ module lp_core
 
   lp_rp u_rp (.clk(clk), .rst_n(rst_n), .rdy9(rdy9),
               .empty8(((LP_CUT & 128) != 0) ? dead_r : empty8), .rp_cons(rp_cons), .srp_cons(srp_cons),
-              .trp_v(trp_v), .alive_post(alive_post), .alive_fl(alive_fl), .rp_v_q(rp_v_q),
-              .rp_ldq_q(rp_ldq_q), .rp_pick(rp_pick), .srp_v_q(srp_v_q), .srp_stq_q(srp_stq_q), .srp_take(srp_take));
+              .trp_v(trp_v), .alive_post(alive_post), .alive_fl(alive_fl), .ldq_q(ldq_q), .rp_v_q(rp_v_q),
+              .rp_ldq_q(rp_ldq_q), .rp_f_q(rp_f_q), .rp_pick(rp_pick), .srp_v_q(srp_v_q), .srp_stq_q(srp_stq_q), .srp_take(srp_take));
 
   // outputs to dispatch / ROB
   lp_out u_out (.empty_w(empty_w), .head_q(head_q), .head_flag_q(head_flag_q), .count_q(count_q), .ccount_q(ccount_q),

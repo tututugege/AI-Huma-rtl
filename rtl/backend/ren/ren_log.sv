@@ -68,16 +68,15 @@ module ren_log
     end
   end
 
-  // ---- read side: pre-registered 8-entry window read at rd_base_next (zero-cycle-change) ----
-  // Any entry written in cycle T-1 cannot be committed or walked in cycle T; re-reading entry_q
-  // every cycle guarantees rd_slot_q holds all written entries by cycle T+1 (earliest possible use).
+  // ---- read side: pre-registered 8-bank read at rd_base_next, rotated AFTER flip-flops ----
+  // Latching bank_rd_q[0..7] + base_bank_q moves the 8:1 rotation mux off the rd_base_next critical path!
   logic [LW-1:0] base_line, next_line;
-  logic [BW-1:0] base_bank;
+  logic [BW-1:0] base_bank, base_bank_q;
   logic [NL-1:0] base_oh, next_oh;
-  logic [NB-1:0] bb_oh;
+  logic [NB-1:0] bb_oh_q;
   logic [EW-1:0] bank_rd [NB];
-  logic [EW-1:0] rd_slot_d [NB];
-  logic [EW-1:0] rd_slot_q [NB];
+  logic [EW-1:0] bank_rd_q [NB];
+  logic [EW-1:0] rd_slot_rot [NB];
 
   assign base_line = rd_base_next[ROB_IDX_WIDTH-1:BW];
   assign next_line = base_line + LW'(1);
@@ -86,9 +85,6 @@ module ren_log
   for (genvar l = 0; l < NL; l++) begin : g_line_dec
     assign base_oh[l] = (base_line == LW'(l));
     assign next_oh[l] = (next_line == LW'(l));
-  end
-  for (genvar b = 0; b < NB; b++) begin : g_bank_dec
-    assign bb_oh[b] = (base_bank == BW'(b));
   end
 
   for (genvar b = 0; b < NB; b++) begin : g_rd_bank
@@ -101,19 +97,27 @@ module ren_log
     end
     assign rd_oh = use_next ? next_oh : base_oh;
     ttg_onehot_mux #(.N(NL), .W(EW)) u_rd (.sel(rd_oh), .data(entry_q[b]), .out(bank_rd[b]));
+    always_ff @(posedge clk) begin
+      bank_rd_q[b] <= bank_rd[b];
+    end
+  end
+
+  always_ff @(posedge clk) begin
+    base_bank_q <= base_bank;
+  end
+
+  for (genvar b = 0; b < NB; b++) begin : g_bank_dec
+    assign bb_oh_q[b] = (base_bank_q == BW'(b));
   end
 
   for (genvar k = 0; k < NB; k++) begin : g_rot
     logic [NB-1:0] slot_sel;
     packed_log_t   pe;
     for (genvar b = 0; b < NB; b++) begin : g_sel
-      assign slot_sel[b] = bb_oh[(b - k + NB) % NB];
+      assign slot_sel[b] = bb_oh_q[(b - k + NB) % NB];
     end
-    ttg_onehot_mux #(.N(NB), .W(EW)) u_rot (.sel(slot_sel), .data(bank_rd), .out(rd_slot_d[k]));
-    always_ff @(posedge clk) begin
-      rd_slot_q[k] <= rd_slot_d[k];
-    end
-    assign pe = packed_log_t'(rd_slot_q[k]);
+    ttg_onehot_mux #(.N(NB), .W(EW)) u_rot (.sel(slot_sel), .data(bank_rd_q), .out(rd_slot_rot[k]));
+    assign pe = packed_log_t'(rd_slot_rot[k]);
     assign rd_slot[k] = '{
       dest_en:       pe.dest_en,
       dest_fp:       pe.dest_fp,

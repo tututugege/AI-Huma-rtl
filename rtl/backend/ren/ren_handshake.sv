@@ -13,12 +13,14 @@ module ren_handshake
   input  logic [N-1:0] alloc_valid,
   input  logic [N-1:0] log_ok,        // lane fits in RenLog (and not walking)
   input  logic         walk_active,
+  input  logic         s1_empty,
   input  logic         dis_ready,
   input  logic         flush,
   input  logic         mispred,
   output logic [N-1:0] out_valid,     // ren2dis.valid
   output logic [N-1:0] fire,
-  output logic         ren2dec_ready
+  output logic         s2_take_new,   // advance S1 -> S2
+  output logic         ren2dec_ready  // accept next group from decode into S1
 );
 
   logic [N-1:0] alloc_fail;           // requested but not served, or RenLog full / walking
@@ -37,7 +39,8 @@ module ren_handshake
     assign fire[i]      = out_valid[i] & dis_ready;
   end
 
-  assign ren2dec_ready = (&(fire | ~inst_valid)) & ~flush & ~mispred & ~walk_active;
+  assign s2_take_new   = (&(fire | ~inst_valid)) & ~flush & ~mispred & ~walk_active;
+  assign ren2dec_ready = (s1_empty | s2_take_new) & ~flush & ~mispred;
 
 endmodule
 

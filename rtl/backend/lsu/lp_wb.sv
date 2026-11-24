@@ -16,7 +16,7 @@ module lp_wb
   input  logic [XLEN_BITS-1:0]         ldq_res [LQ],
   input  logic [LQ-1:0]       wbp_vec,
   input  lp_stq_t             sq [SQ],
-  input  logic [SQ-1:0]       alive_w,
+  input  logic [CNTW-1:0]     count_q,
   input  logic [SQW-1:0]      head_q,
   input  logic                rsv_valid,
   input  logic [31:0]         rsv_addr,
@@ -58,9 +58,9 @@ module lp_wb
   // LP_L2[6]: at most one SC completion per cycle (the pick is one find-first instead of NLD chained ones)
   localparam int KSC = ((LP_L2 & 64) != 0) ? 1 : NLD;
   // ---- picks: SC / STA in age order from the head, free ports, WBP loads in index order ----
-  logic [SQ-1:0]  sc_vec, st_vec, sc_rot, st_rot;
+  logic [SQ-1:0]  sc_vec, st_vec, sc_rot, st_rot, alive_unrot;
   /* verilator lint_off UNUSEDSIGNAL */  // primitive outputs not needed here
-  logic [SQ-1:0]  sc_oh [KSC], st_oh [NST];
+  logic [SQ-1:0]  sc_oh [KSC], st_oh [NST], st_oh_unrot [NST];
   logic [SQW-1:0] sc_ix [KSC], st_ix [NST];
   logic [KSC-1:0] sc_pv;
   logic [NST-1:0] st_pv;
@@ -75,16 +75,19 @@ module lp_wb
   /* verilator lint_on UNUSEDSIGNAL */
   logic [NLD-1:0] fr_pv, f2_pv;
   logic [NLD-1:0] sc_acc, wp_acc;
-  logic [SQW-1:0] sc_abs [NLD], st_abs [NST];
+  logic [SQW-1:0] sc_abs [NLD];
 
+  // Algebraic identity: rotr64(vec & rotl64(alive_unrot, head_q), head_q) == alive_unrot & rotr64(vec, head_q).
+  // Eliminates rotl64(alive_w) + rotr64 serial chain on count_q -> u_st -> sta_*!
   always_comb begin
     for (int j = 0; j < SQ; j++) begin
-      sc_vec[j] = sq[j].wbp && sq[j].lrsc && alive_w[j];
-      st_vec[j] = sq[j].wbp && !sq[j].lrsc && alive_w[j];
+      alive_unrot[j] = (CNTW'(j) < count_q);
+      sc_vec[j] = sq[j].wbp && sq[j].lrsc;
+      st_vec[j] = sq[j].wbp && !sq[j].lrsc;
     end
-    free1 = ~wbd_v;
-    sc_rot = SQ'(rotr64(64'(sc_vec), head_q));
-    st_rot = SQ'(rotr64(64'(st_vec), head_q));
+    free1  = ~wbd_v;
+    sc_rot = alive_unrot & SQ'(rotr64(64'(sc_vec), head_q));
+    st_rot = alive_unrot & SQ'(rotr64(64'(st_vec), head_q));
   end
   lp_pickn #(.N(SQ), .K(KSC)) u_sc (.vec(sc_rot), .onehot(sc_oh), .idx(sc_ix), .v(sc_pv));
   lp_pickn #(.N(SQ), .K(NST)) u_st (.vec(st_rot), .onehot(st_oh), .idx(st_ix), .v(st_pv));
@@ -101,7 +104,7 @@ module lp_wb
       sc_abs[m] = sc_ix[m] + head_q;
       if (sc_acc[m]) free2 = free2 & ~fr_oh[m];
     end
-    for (int m = 0; m < NST; m++) st_abs[m] = st_ix[m] + head_q;
+    for (int m = 0; m < NST; m++) st_oh_unrot[m] = SQ'(rotl64(64'(st_oh[m]), head_q));
     for (int m = 0; m < NLD; m++) wp_acc[m] = wp_pv[m] && f2_pv[m];
   end
 
@@ -195,7 +198,7 @@ module lp_wb
     for (int p = 0; p < NLD; p++) if (wbd_v[p]) wb_go_d[wbd_idx[p]] = 1'b1;
     wb_go_s = '0;
     sc_go = '0;
-    for (int m = 0; m < NST; m++) if (st_pv[m]) wb_go_s[st_abs[m]] = 1'b1;
+    for (int m = 0; m < NST; m++) if (st_pv[m]) wb_go_s = wb_go_s | st_oh_unrot[m];
     for (int m = 0; m < KSC; m++) begin
       if (sc_acc[m]) begin
         wb_go_s[sc_abs[m]] = 1'b1;
@@ -227,12 +230,30 @@ module lp_wb
     end
   end
 
+  typedef struct packed {
+    logic [XLEN_BITS-1:0] vaddr;
+    logic [BRW-1:0]       br_mask;
+    logic [ROBW-1:0]      rob_idx;
+    logic                 pf;
+  } lp_sta_wb_t;
+  lp_sta_wb_t sq_sta_v [SQ], sta_sel [NST];
+  always_comb begin
+    for (int j = 0; j < SQ; j++) begin
+      sq_sta_v[j].vaddr   = sq[j].vaddr;
+      sq_sta_v[j].br_mask = sq[j].br_mask;
+      sq_sta_v[j].rob_idx = sq[j].rob_idx;
+      sq_sta_v[j].pf      = sq[j].pf;
+    end
+  end
   for (genvar m = 0; m < NST; m++) begin : g_sta
+    ttg_onehot_mux #(.N(SQ), .W($bits(lp_sta_wb_t))) u_stamux (
+      .sel(st_oh_unrot[m]), .data(sq_sta_v), .out(sta_sel[m])
+    );
     assign sta_valid[m] = st_pv[m];
-    assign sta_vaddr[m] = sq[st_abs[m]].vaddr;
-    assign sta_br[m] = sq[st_abs[m]].br_mask;
-    assign sta_rob[m] = sq[st_abs[m]].rob_idx;
-    assign sta_pf[m] = sq[st_abs[m]].pf;
+    assign sta_vaddr[m] = sta_sel[m].vaddr;
+    assign sta_br[m]    = sta_sel[m].br_mask;
+    assign sta_rob[m]   = sta_sel[m].rob_idx;
+    assign sta_pf[m]    = sta_sel[m].pf;
   end
 
 endmodule

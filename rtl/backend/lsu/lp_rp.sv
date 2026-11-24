@@ -19,8 +19,10 @@ module lp_rp
   input  logic [SQ-1:0]       trp_v,
   input  logic [SQ-1:0]       alive_post,
   input  logic [SQ-1:0]       alive_fl,
+  input  lp_ldq_t             ldq_q [LQ],
   output logic [NRP-1:0]      rp_v_q,
   output logic [LQW-1:0]      rp_ldq_q [NRP],
+  output lp_rp_ent_t          rp_f_q [NRP],
   output logic [LQ-1:0]       rp_pick,
   output logic                srp_v_q,
   output logic [SQW-1:0]      srp_stq_q,
@@ -29,12 +31,36 @@ module lp_rp
 
   logic [LQW-1:0]  rp_ptr_q;
   logic [NRP-1:0]  rp_v_c, rp_take;
-  logic [LQ-1:0]   rdy_rot, rp_oh [NRP], rp_selo [NRP];
+  logic [LQ-1:0]   rdy_rot, rp_oh [NRP], rp_oh_unrot [NRP], rp_selo [NRP];
   logic [LQW-1:0]  rp_ix [NRP], rp_new [NRP];
   logic [NRP-1:0]  rp_pv;
   logic [LQW-1:0]  rp_ptr_d;
+  lp_rp_ent_t      ldq_rp_v [LQ], rp_cand_f [NRP], rp_new_f [NRP];
   assign rdy_rot = LQ'(rotr64(64'(rdy9), rp_ptr_q));
   lp_pickn #(.N(LQ), .K(NRP)) u_rp (.vec(rdy_rot), .onehot(rp_oh), .idx(rp_ix), .v(rp_pv));
+
+  // Select each candidate's immutable payload directly via one-hot mux (in parallel with nfb[r], no 64:1 binary mux!)
+  always_comb begin
+    for (int e = 0; e < LQ; e++) begin
+      ldq_rp_v[e].vaddr     = ldq_q[e].vaddr;
+      ldq_rp_v[e].func3     = ldq_q[e].func3;
+      ldq_rp_v[e].snap_idx  = ldq_q[e].snap_idx;
+      ldq_rp_v[e].snap_flag = ldq_q[e].snap_flag;
+      ldq_rp_v[e].pa_v      = ldq_q[e].pa_v;
+      ldq_rp_v[e].paddr     = ldq_q[e].paddr;
+      ldq_rp_v[e].mmio      = ldq_q[e].mmio;
+      ldq_rp_v[e].lrsc      = ldq_q[e].lrsc;
+      ldq_rp_v[e].epoch     = ldq_q[e].epoch;
+      ldq_rp_v[e].second    = ldq_q[e].second;
+      ldq_rp_v[e].wait_b    = ldq_q[e].wait_b;
+    end
+  end
+  for (genvar j = 0; j < NRP; j++) begin : g_rpf
+    assign rp_oh_unrot[j] = LQ'(rotl64(64'(rp_oh[j]), rp_ptr_q));
+    ttg_onehot_mux #(.N(LQ), .W($bits(lp_rp_ent_t))) u_mux (
+      .sel(rp_oh_unrot[j]), .data(ldq_rp_v), .out(rp_cand_f[j])
+    );
+  end
 
   // the j-th free register takes the j-th RDY entry (in rotated order); busy registers keep theirs
   logic [2:0] nfb [NRP];  // free registers before r
@@ -47,17 +73,19 @@ module lp_rp
       for (int k = 0; k < r; k++) nfb[r] = nfb[r] + 3'(!rp_v_c[k]);
       rp_take[r] = 1'b0;
       rp_new[r] = '0;
+      rp_new_f[r] = '0;
       rp_selo[r] = '0;
       for (int j = 0; j < NRP; j++) begin
         if (nfb[r] == 3'(j)) begin
-          rp_take[r] = !rp_v_c[r] && rp_pv[j];
-          rp_new[r] = rp_ix[j] + rp_ptr_q;
-          rp_selo[r] = rp_oh[j];
+          rp_take[r]  = !rp_v_c[r] && rp_pv[j];
+          rp_new[r]   = rp_ix[j] + rp_ptr_q;
+          rp_new_f[r] = rp_cand_f[j];
+          rp_selo[r]  = rp_oh_unrot[j];
         end
       end
     end
     for (int r = 0; r < NRP; r++) begin
-      if (rp_take[r]) rp_pick = rp_pick | rotl64(64'(rp_selo[r]), rp_ptr_q);
+      if (rp_take[r]) rp_pick = rp_pick | rp_selo[r];
       if (rp_take[r]) rp_ptr_d = rp_new[r] + LQW'(1);
     end
   end
@@ -70,7 +98,12 @@ module lp_rp
       rp_v_q <= rp_v_c | rp_take;
       rp_ptr_q <= rp_ptr_d;
     end
-    for (int r = 0; r < NRP; r++) if (rp_take[r]) rp_ldq_q[r] <= rp_new[r];
+    for (int r = 0; r < NRP; r++) begin
+      if (rp_take[r]) begin
+        rp_ldq_q[r] <= rp_new[r];
+        rp_f_q[r]   <= rp_new_f[r];
+      end
+    end
   end
 
   // STA replay register: store with a pending DTLB retry (after retire), taken when the register is free.  The pick
