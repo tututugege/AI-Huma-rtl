@@ -19,8 +19,8 @@ package ren_pkg;
   typedef logic [AREG_IDX_WIDTH-1:0] areg_t;
   typedef logic [BR_TAG_WIDTH-1:0] br_tag_t;
   typedef logic [BR_MASK_WIDTH-1:0] br_mask_t;
-  // move elimination: arch_cnt[p] = number of arch_RAT entries naming p (at most MOVE_ELIM_MAX_REFS: Ren::elim_refs_ok)
-  localparam int CNT_W = $clog2(MOVE_ELIM_MAX_REFS + 1);
+  // move elimination: arch_cnt[p] = number of arch_RAT entries naming p (at most RAT_NUM = 33 -> 6 bits, never overflows)
+  localparam int CNT_W = $clog2(RAT_NUM + 1);
   typedef logic [CNT_W-1:0] cnt_t;
   typedef preg_t [RAT_NUM-1:0] rat_t;
 

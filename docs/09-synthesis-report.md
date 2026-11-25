@@ -393,3 +393,18 @@ rv32 配置包（改动时在旧基线 `15af4b4` 上测）：`tlb_mmu` 159 → 6
 - **≥ 1.50 GHz（14 模块）**：`bpu_ctl` (≥2.50)、`exu_ctrl` / `dcache_s1` / `dcache_s2_ld` / `dcache_s2_st` / `icache_ctl` / `icache_itlb` (≥2.00)、`dispatch` / `tlb_mmu` (1.89)、`mul_unit` (1.85)、`pre_idu_queue` (1.82)、`div_unit` (1.67)、`rob` (1.64)、`idu` (1.54)。
 - **1.20 ~ 1.49 GHz（8 模块）**：`dcache_wb` (1.49)、`axi_llc_bop` (1.47)、`isu` (1.37)、**`dcache_pf` (1.35，纯组合 1.43)**、**`dcache_mshr` (1.28，reg2reg 1.30，纯组合 1.54)**、`bpu_eval` (1.28，纯组合 1.47)、**`ren` (1.22)**、`bpu_spec` (1.20，纯组合 1.43)。
 - **< 1.20 GHz（仅剩 1 模块）**：**`lsu` (0.97 GHz)** —— 22/23 模块已全部 ≥ 1.20 GHz（20/23 ≥ 1.28 GHz），第四轮聚焦 `lsu` `L0/L1` 流水拆拍与 `ren` S1/S2 切点重平衡。
+
+## 18. 第四轮 TSMC 28nm HPC+ DC 时序优化（EXP-065，2026-11-25）
+
+同口径 Synopsys DC (`W-2024.09-SP2`, TSMC 28nm HPC+ `ssg0p81v125c`, 12T SVT+LVT, `CLK=0.50 ns / 2.0 GHz`, `compile_ultra`) 主攻 `ren` S1/S2 重平衡与 `lsu` 并行 CAM + Bloom Filter + L2a/L2b 拆拍 + 零 29-bit 加法器 + `lp_wbuf` 拍平：
+
+| 模块 | DC WNS (ns) 改前 → 改后 | DC Fmax (GHz) 改前 → 改后 | 纯组合延迟 / TNS | DC 逻辑级数 | DC Area (um²) | 关键改动 |
+|---|---|---|---|---:|---:|---|
+| **`ren`** | **−0.32 → −0.10** | **1.22 → 1.67 (+36.9%)** | TNS **−5,375 → −1,330 (−75.3%)** | **40 → 26 (−35%)** | **157,570 → 156,632 (−0.6%)** | 取消 `MOVE_ELIM_MAX_REFS=7` 上限（`CNT_W=6` 永不溢出），删 `ren_elim_sel` 264×8b 比较器与 8×33b popcount 改复用 S1 `raw_hit_src1_q` + 3 级 Kogge-Stone 指针跳跃；`ren_rat`/`ren_core`/`ren_fp` 检查点写流水化 1 拍（0 周期变化）；`ren_arch_cnt` 简化归零判定 + 1 拍寄存 INT 空闲表回收（同步 `trace-model`） |
+| **`lsu`** | **−0.53 → −0.39** | **0.97 → 1.12 (+15.5%)**（较 R1 0.83 GHz **+34.9%**） | **0.85 ns (1.18 GHz)** / TNS **−10,579 → −8,988 (−15.2%)** | **56 → 49 (−12.5%)** | **873,552 → 840,182 (−3.8%)**（较 R1 −9.4%） | `lp_unc` 寄存 `mmio_out`；`stq_cam` 后移至 L2a 与 D-Cache 响应并行 + 256-bit 寄存 `stq_bloom_q`（`vaddr[10:3]`）防 `456.hmmer` STQ 排空饥饿；L2 拆 **L2a**（快路径+CAM）与 **L2b**（仅 ~7% STLF 命中打 1 拍 `PL2B`）；切断 `rs_busy→res_v→lp_wb` 假路径；FF 前一次性预计算 `paddr[31:3] ± 1` 消除 ~700 份 29-bit 加法器；`lp_wbuf` 零周期变化拍平取代 4 级串行 `lp_wbstep`（SPEC06 INT 386/386 合计 `−0.802%`） |
+
+### 18.1 第四轮后全核 23 模块 TSMC 28nm DC 时序分布总览
+
+- **≥ 1.50 GHz（15 模块）**：`bpu_ctl` (≥2.50)、`exu_ctrl` / `dcache_s1` / `dcache_s2_ld` / `dcache_s2_st` / `icache_ctl` / `icache_itlb` (≥2.00)、`dispatch` / `tlb_mmu` (1.89)、`mul_unit` (1.85)、`pre_idu_queue` (1.82)、**`ren` (1.67)**、`div_unit` (1.67)、`rob` (1.64)、`idu` (1.54)。
+- **1.20 ~ 1.49 GHz（7 模块）**：`dcache_wb` (1.49)、`axi_llc_bop` (1.47)、`isu` (1.37)、`dcache_pf` (1.35，纯组合 1.43)、`dcache_mshr` (1.28，reg2reg 1.30，纯组合 1.54)、`bpu_eval` (1.28，纯组合 1.47)、`bpu_spec` (1.20，纯组合 1.43)。
+- **1.12 ~ 1.19 GHz（仅剩 1 模块）**：**`lsu` (1.12 GHz，纯组合 1.18 GHz)** —— 全核 23/23 模块全部站上 **≥ 1.12 GHz**（22/23 ≥ 1.20 GHz，15/23 ≥ 1.54 GHz），`lsu` 残余 Top 10 齐平在 `−0.39 ns`（`u_ldq/f_q[blk] → f_q[result]` STLF 数据合并与 `dec_bcast_br_mask → u_rp/u_ldq`）。

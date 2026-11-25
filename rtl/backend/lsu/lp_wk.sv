@@ -26,9 +26,11 @@ module lp_wk
 );
 
   logic          b_sta, b_ret, b_sc, b_data, alive_b;
-  logic [NST-1:0] sta_m;
-  lp_conf_t      conf_k [NST], conf_0, conf;
-  logic [lsu_pkg::OW-1:0] off_k [NST], off_a;
+  /* verilator lint_off UNUSEDSIGNAL */  // v / stq already consumed by the match select
+  lp_sta_info_t  sel_sta;
+  /* verilator lint_on UNUSEDSIGNAL */
+  lp_conf_t      conf;
+  logic [lsu_pkg::OW-1:0] off_a;
   logic [XLEN_BITS-1:0]   inf_data, std_d;
   always_comb begin
     b_sta = ev_sta[blk];
@@ -36,25 +38,16 @@ module lp_wk
     b_sc = ev_sc[blk];
     b_data = ev_data[blk];
     alive_b = alive_post[blk] && !b_ret;
-    // Compute stlf_confirm & off_a for all NST sta_info lanes in parallel with sta_info[k].stq == blk
-    conf_0 = stlf_confirm(l_voff, l_paddr, l_func3, alive_b, 1'b0, 1'b0, 12'd0, 1'b0, 32'd0, 3'd0, 1'b0, 1'b0);
+    // Mux the single matching STA broadcast view first (1 copy of stlf_confirm_pre_s per LDQ entry, zero 29b adders!)
+    sel_sta = '0;
     for (int k = 0; k < NST; k++) begin
-      sta_m[k] = sta_info[k].v && (sta_info[k].stq == blk);
-      conf_k[k] = stlf_confirm(l_voff, l_paddr, l_func3, alive_b, sta_info[k].suppress, sta_info[k].va_v,
-                               sta_info[k].voff, sta_info[k].pa_v, sta_info[k].paddr, sta_info[k].func3,
-                               sta_info[k].data_v, sta_info[k].hold_sc);
-      off_k[k]  = l_paddr[lsu_pkg::OW-1:0] - sta_info[k].paddr[lsu_pkg::OW-1:0];
+      if (sta_info[k].v && (sta_info[k].stq == blk)) sel_sta = sta_info[k];
     end
-    conf     = conf_0;
-    off_a    = l_paddr[lsu_pkg::OW-1:0];
-    inf_data = '0;
-    for (int k = 0; k < NST; k++) begin
-      if (sta_m[k]) begin
-        conf     = conf_k[k];
-        off_a    = off_k[k];
-        inf_data = sta_info[k].data;
-      end
-    end
+    conf     = stlf_confirm_pre_s(l_voff, l_paddr, l_func3, alive_b, sel_sta.suppress, sel_sta.va_v,
+                                  sel_sta.voff, sel_sta.pa_v, sel_sta.paddr, sel_sta.paddr_p1, sel_sta.paddr_m1,
+                                  sel_sta.func3, sel_sta.data_v, sel_sta.hold_sc);
+    off_a    = l_paddr[lsu_pkg::OW-1:0] - sel_sta.paddr[lsu_pkg::OW-1:0];
+    inf_data = sel_sta.data;
     std_d = '0;
     for (int k = 0; k < NSD; k++) if (sdw[k].v && sdw[k].stq == blk) std_d = sdw[k].data;
   end

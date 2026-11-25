@@ -155,78 +155,164 @@ module lp_wbuf
   end
 
   // ---- insertion: the first NINS committed stores that the buffer has not handled yet ----
-  logic [SQ-1:0]   ins_vec, ins_rot;
-  /* verilator lint_off UNUSEDSIGNAL */  // primitive outputs not needed here
-  logic [SQ-1:0]   i_oh [NINS];
-  /* verilator lint_on UNUSEDSIGNAL */
-  logic [SQW-1:0]  i_pos [NINS];
-  logic [NINS-1:0] i_v;
+  // Unrotated hi/lo split avoids 64b barrel rotate + (i_pos + head_q) adder + 5->32 decoder.
+  logic [SQ-1:0]   ins_vec, ge_head, hi_vec, lo_vec;
+  logic [SQ-1:0]   hi_oh [NINS], lo_oh [NINS], sel_oh [NINS];
+  logic [NINS-1:0] hi_v, lo_v, i_v;
   always_comb begin
-    for (int j = 0; j < SQ; j++) ins_vec[j] = sq[j].cmt && !wbi_v[j];
-    ins_rot = SQ'(rotr64(64'(ins_vec), head_q));
+    for (int j = 0; j < SQ; j++) begin
+      ins_vec[j] = sq[j].cmt && !wbi_v[j];
+      ge_head[j] = (SQW'(j) >= head_q);
+    end
+    hi_vec = ins_vec & ge_head;
+    lo_vec = ins_vec & ~ge_head;
   end
-  lp_pickn #(.N(SQ), .K(NINS)) u_i (.vec(ins_rot), .onehot(i_oh), .idx(i_pos), .v(i_v));
+  ttg_pick_k #(.N(SQ), .K(NINS)) u_pk_hi (.req(hi_vec), .pick_oh(hi_oh), .valid(hi_v));
+  ttg_pick_k #(.N(SQ), .K(NINS)) u_pk_lo (.req(lo_vec), .pick_oh(lo_oh), .valid(lo_v));
 
-  logic [NINS-1:0] mk;
+  always_comb begin
+    // k = 0
+    sel_oh[0] = hi_v[0] ? hi_oh[0] : lo_oh[0];
+    i_v[0]    = hi_v[0] ? 1'b1     : lo_v[0];
+    // k = 1
+    sel_oh[1] = hi_v[1] ? hi_oh[1] : (hi_v[0] ? lo_oh[0] : lo_oh[1]);
+    i_v[1]    = hi_v[1] ? 1'b1     : (hi_v[0] ? lo_v[0]  : lo_v[1]);
+    // k = 2
+    sel_oh[2] = hi_v[2] ? hi_oh[2] : (hi_v[1] ? lo_oh[0] : (hi_v[0] ? lo_oh[1] : lo_oh[2]));
+    i_v[2]    = hi_v[2] ? 1'b1     : (hi_v[1] ? lo_v[0]  : (hi_v[0] ? lo_v[1]  : lo_v[2]));
+    // k = 3
+    sel_oh[3] = hi_v[3] ? hi_oh[3] : (hi_v[2] ? lo_oh[0] : (hi_v[1] ? lo_oh[1] : (hi_v[0] ? lo_oh[2] : lo_oh[3])));
+    i_v[3]    = hi_v[3] ? 1'b1     : (hi_v[2] ? lo_v[0]  : (hi_v[1] ? lo_v[1]  : (hi_v[0] ? lo_v[2]  : lo_v[3])));
+  end
+
   logic [SQW-1:0]  jk [NINS];
   wbi_t            sk [NINS];
-  wbs_t            ent_0, ent_n;
-  ltm_t            lt_0, lt_n;
-  wbb_t            b_0;
+  wbi_t            sq_wbi [SQ];
   always_comb begin
-    logic [NWB-1:0] yng;
-    for (int e = 0; e < NWB; e++) begin
-      ent_0[e] = ent_q[e];
-      ent_0[e].v = v_w[e] && !r_hit[e];
-      ent_0[e].st = issue[e] || (st_w[e] && !r_rep[e]);
-      lt_0[e] = lt_q[e];
+    for (int j = 0; j < SQ; j++) begin
+      sq_wbi[j].mmio  = sq[j].mmio;
+      sq_wbi[j].done  = sq[j].done;
+      sq_wbi[j].lrsc  = sq[j].lrsc;
+      sq_wbi[j].paddr = sq[j].paddr;
+      sq_wbi[j].data  = sq[j].data;
+      sq_wbi[j].f3    = sq[j].func3[1:0];
     end
-    b_0 = '0;
-    b_0.go = 1'b1;
-    for (int e = 0; e < NWB; e++) begin   // youngest registered entry
-      yng[e] = v_w[e];
-      for (int o = 0; o < NWB; o++) if (v_w[o] && lt_q[e][o]) yng[e] = 1'b0;
-      if (yng[e]) begin
-        b_0.tail = 2'(e);
-        b_0.tail_v = 1'b1;
-        b_0.t_mg = ent_q[e].mg;
-        b_0.t_two = ent_q[e].two;
-        b_0.t_line = ent_q[e].line;
+  end
+  for (genvar k = 0; k < NINS; k++) begin : g_sel
+    ttg_onehot_to_idx #(.N(SQ), .IDXW(SQW)) u_ix (.onehot(sel_oh[k]), .idx(jk[k]));
+    ttg_onehot_mux #(.N(SQ), .W($bits(wbi_t))) u_mx (.sel(sel_oh[k]), .data(sq_wbi), .out(sk[k]));
+  end
+
+  // Pre-compute free WB slots from ~v_w in parallel (lowest index first, exact match to lp_wbstep).
+  /* verilator lint_off UNUSEDSIGNAL */
+  logic [NWB-1:0] free_oh [NWB];
+  /* verilator lint_on UNUSEDSIGNAL */
+  logic [1:0]     free_idx [NWB];
+  logic [NWB-1:0] free_v;
+  lp_pickn #(.N(NWB), .K(NWB), .IW(2)) u_free (.vec(~v_w), .onehot(free_oh), .idx(free_idx), .v(free_v));
+
+  // Pre-compute all 6 pairwise 26-bit cache-line matches in parallel (off the 4-step control chain).
+  logic [NINS-1:0] same_line [NINS];
+  always_comb begin
+    for (int a = 0; a < NINS; a++) begin
+      same_line[a] = '0;
+      for (int b = a + 1; b < NINS; b++)
+        same_line[a][b] = (sk[a].paddr[31:6] == sk[b].paddr[31:6]);
+    end
+  end
+
+  // Flattened 4-step control-only plan (no 26b comparators or 240b payload muxes on the chain).
+  logic [NINS-1:0] mk;
+  logic [NINS-1:0] act_alloc, act_merge;
+  logic [1:0]      alloc_slot [NINS], merge_slot [NINS];
+  logic [NWB-1:0]  new_e;
+  always_comb begin
+    logic       go, open_v;
+    logic [1:0] open_k, open_slot;
+    logic [2:0] n_alloc;
+    go        = 1'b1;
+    open_v    = 1'b0;
+    open_k    = 2'd0;
+    open_slot = 2'd0;
+    n_alloc   = 3'd0;
+    mk        = '0;
+    act_alloc = '0;
+    act_merge = '0;
+    new_e     = '0;
+    for (int k = 0; k < NINS; k++) begin
+      alloc_slot[k] = 2'd0;
+      merge_slot[k] = 2'd0;
+      if (go && i_v[k]) begin
+        if (sk[k].mmio || sk[k].done) begin
+          mk[k] = 1'b1;
+        end else if (open_v && !sk[k].lrsc && same_line[open_k][k]) begin
+          act_merge[k]  = 1'b1;
+          merge_slot[k] = open_slot;
+          open_v        = 1'b0;
+          mk[k]         = 1'b1;
+        end else if (n_alloc < 3'(NWB) && free_v[n_alloc[1:0]]) begin
+          act_alloc[k]  = 1'b1;
+          alloc_slot[k] = free_idx[n_alloc[1:0]];
+          new_e[free_idx[n_alloc[1:0]]] = 1'b1;
+          open_v        = !sk[k].lrsc;
+          open_k        = 2'(k);
+          open_slot     = free_idx[n_alloc[1:0]];
+          n_alloc       = n_alloc + 3'd1;
+          mk[k]         = 1'b1;
+        end else begin
+          go = 1'b0;
+        end
       end
     end
   end
 
-  for (genvar k = 0; k < NINS; k++) begin : g_ins
-    wbs_t ent_o;
-    ltm_t lt_o;
-    /* verilator lint_off UNUSEDSIGNAL */  // the last step's batch state is not needed
-    wbb_t b_o;
-    /* verilator lint_on UNUSEDSIGNAL */
-    always_comb begin
-      jk[k] = i_pos[k] + head_q;
-      sk[k].mmio = sq[jk[k]].mmio;
-      sk[k].done = sq[jk[k]].done;
-      sk[k].lrsc = sq[jk[k]].lrsc;
-      sk[k].paddr = sq[jk[k]].paddr;
-      sk[k].data = sq[jk[k]].data;
-      sk[k].f3 = sq[jk[k]].func3[1:0];
-    end
-    if (k == 0) begin : g_first
-      lp_wbstep u_step (
-        .ent_i(ent_0), .lt_i(lt_0), .b_i(b_0), .ent_o(ent_o), .lt_o(lt_o), .b_o(b_o),
-        .v_reg(v_w), .pick_v(i_v[k]), .jk(jk[k]), .s(sk[k]), .mark(mk[k]));
-    end else begin : g_next
-      lp_wbstep u_step (
-        .ent_i(g_ins[k - 1].ent_o), .lt_i(g_ins[k - 1].lt_o), .b_i(g_ins[k - 1].b_o),
-        .ent_o(ent_o), .lt_o(lt_o), .b_o(b_o),
-        .v_reg(v_w), .pick_v(i_v[k]), .jk(jk[k]), .s(sk[k]), .mark(mk[k]));
-    end
-  end
-  assign ent_n = g_ins[NINS - 1].ent_o;
-  assign lt_n = g_ins[NINS - 1].lt_o;
+  // Single-level parallel payload + age-matrix update (replaces 4 cascaded lp_wbstep stages).
+  wbs_t ent_0, ent_n;
+  ltm_t lt_n;
   always_comb begin
+    for (int e = 0; e < NWB; e++) begin
+      ent_0[e]    = ent_q[e];
+      ent_0[e].v  = v_w[e] && !r_hit[e];
+      ent_0[e].st = issue[e] || (st_w[e] && !r_rep[e]);
+
+      ent_n[e] = ent_0[e];
+      if (new_e[e]) begin
+        ent_n[e].v   = 1'b1;
+        ent_n[e].st  = 1'b0;
+        ent_n[e].two = 1'b0;
+        for (int k = 0; k < NINS; k++) begin
+          if (act_alloc[k] && alloc_slot[k] == 2'(e)) begin
+            ent_n[e].mg   = !sk[k].lrsc;
+            ent_n[e].line = sk[k].paddr[31:6];
+            ent_n[e].m0   = jk[k];
+            ent_n[e].a0   = sk[k].paddr;
+            ent_n[e].d0   = sk[k].data;
+            ent_n[e].f0   = sk[k].f3;
+          end
+        end
+        for (int k = 1; k < NINS; k++) begin
+          if (act_merge[k] && merge_slot[k] == 2'(e)) begin
+            ent_n[e].two = 1'b1;
+            ent_n[e].m1  = jk[k];
+            ent_n[e].a1  = sk[k].paddr;
+            ent_n[e].d1  = sk[k].data;
+            ent_n[e].f1  = sk[k].f3;
+          end
+        end
+      end
+    end
+
+    // Age matrix: newly allocated slots are allocated in strictly increasing slot index order.
+    for (int o = 0; o < NWB; o++) begin
+      for (int e = 0; e < NWB; e++) begin
+        if (new_e[e])      lt_n[o][e] = v_w[o] || (new_e[o] && (o < e));
+        else if (new_e[o]) lt_n[o][e] = 1'b0;
+        else               lt_n[o][e] = lt_q[o][e];
+      end
+    end
+
     wb_mark = '0;
-    for (int k = 0; k < NINS; k++) if (mk[k]) wb_mark[jk[k]] = 1'b1;
+    for (int k = 0; k < NINS; k++) if (mk[k]) wb_mark |= sel_oh[k];
   end
 
   always_ff @(posedge clk) begin

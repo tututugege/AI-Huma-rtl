@@ -18,9 +18,11 @@ module lp_ldq
   input  logic                mm_go,
   input  logic [LQW-1:0]      mm_idx,
   input  logic [XLEN_BITS-1:0]         mm_data,
-  // P3 L2 decisions of the L1/L2 registers, DCache load responses
+  // P3 L2a/L2b decisions, DCache load responses
   input  lp_pl12_t            pl12 [NLD],
-  input  lp_l2dec_t           l2_dec [NLD],
+  input  lp_l2dec_t           l2a_dec [NLD],
+  input  lp_pl2b_t            pl2b [NLD],
+  input  lp_l2dec_t           l2b_dec [NLD],
   input  logic [NLD-1:0]      dcl_valid,
   input  logic [31:0]         dcl_req_id [NLD],
   input  logic [XLEN_BITS-1:0]         dcl_data [NLD],
@@ -119,13 +121,12 @@ module lp_ldq
     for (int e = 0; e < LQ; e++) ag_acc = ag_acc | ag_acc_e[e];
   end
 
-  // LP_L2[8]: wake-up of the load that parks at L2 in this cycle, evaluated per port (park information from the L1/L2
-  // register and the L2 decision) instead of per entry behind the L2 decision
+  // LP_L2[8]: wake-up of the STLF load that parks at L2b in this cycle (purely registered pl2b -> zero CAM on lp_wk!)
   lp_wk_t l2w [NLD];
   for (genvar p = 0; p < NLD; p++) begin : g_l2w
     if ((LP_L2 & 256) != 0) begin : g_on
-      lp_wk u_wk (.cause(3'(l2_dec[p].cause)), .blk(pl12[p].cand), .wt(l2_dec[p].wait_c[lsu_pkg::OW-1:0]),
-                  .l_voff(pl12[p].voff), .l_paddr(pl12[p].paddr), .l_func3(pl12[p].func3), .ev_sta(ev_sta),
+      lp_wk u_wk (.cause(3'(l2b_dec[p].cause)), .blk(pl2b[p].cand), .wt(l2b_dec[p].wait_c[lsu_pkg::OW-1:0]),
+                  .l_voff(pl2b[p].voff), .l_paddr(pl2b[p].paddr), .l_func3(pl2b[p].func3), .ev_sta(ev_sta),
                   .ev_data(ev_data), .ev_ret(ev_ret), .ev_sc(ev_sc), .alive_post(alive_post),
                   .sta_info(sta_info), .sdw(sdw), .o(l2w[p]));
     end else begin : g_off
@@ -162,14 +163,19 @@ module lp_ldq
         tl_tgt[p] = l1[p].v && l1[p].need_tlb && l1[p].ldq == LQW'(e);
         l1_tgt[p] = l1[p].v && l1[p].ldq == LQW'(e);
         if (wbd_v[p] && wbd_idx[p] == LQW'(e)) wb_d_data = wbd_data[p];
-        if (l1_tgt[p] && cam_en[p]) begin
-          sp_we = 1'b1;
-          sp_val = cam_unk[p];
-        end
         if (pl12[p].v && pl12[p].ldq == LQW'(e)) begin
           l2_v = 1'b1;
           l2_ep = pl12[p].epoch;
-          l2_dec_e = l2_dec[p];
+          l2_dec_e = l2a_dec[p];
+          if (cam_en[p]) begin
+            sp_we = 1'b1;
+            sp_val = cam_unk[p];
+          end
+        end
+        if (pl2b[p].v && pl2b[p].ldq == LQW'(e)) begin
+          l2_v = 1'b1;
+          l2_ep = pl2b[p].epoch;
+          l2_dec_e = l2b_dec[p];
           l2w_e = l2w[p];
         end
         // (the epoch is part of the match: a stale response of an earlier request of this entry on another port must not

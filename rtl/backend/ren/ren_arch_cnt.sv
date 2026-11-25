@@ -31,8 +31,7 @@ module ren_arch_cnt
   // ---- which slots free their old register ----
   for (genvar k = 0; k < C; k++) begin : g_slot
     logic [C-1:0]  inc_hit, dec_hit;
-    logic [CW-1:0] n_inc, n_dec;
-    logic [AW-1:0] after;
+    logic [CW-1:0] n_inc, n_dec, net_dec;
     for (genvar j = 0; j < C; j++) begin : g_older
       if (j <= k) begin : g_yes
         assign inc_hit[j] = reclaim[j] & (dest_preg[j] == old_preg[k]);
@@ -44,8 +43,9 @@ module ren_arch_cnt
     end
     ttg_popcount #(.N(C)) u_inc (.bits(inc_hit), .count(n_inc));
     ttg_popcount #(.N(C)) u_dec (.bits(dec_hit), .count(n_dec));
-    assign after = AW'(cnt_q[old_preg[k][IW-1:0]]) + AW'(n_inc) - AW'(n_dec);
-    assign free[k] = reclaim[k] & (after == '0);
+    // cnt_q[p] + n_inc - n_dec == 0  <=>  (n_dec >= n_inc) & (cnt_q[p] == n_dec - n_inc)
+    assign net_dec = n_dec - n_inc;
+    assign free[k] = reclaim[k] & (n_dec >= n_inc) & (cnt_q[old_preg[k][IW-1:0]] == cnt_t'(net_dec));
   end
 
   // ---- counters ----

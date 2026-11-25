@@ -21,9 +21,6 @@ module lp_wake
   input  lp_pl12_t            pl12 [NLD],
   input  logic [LQ-1:0]       l2_ok,                 // entry of the L1/L2 register still PIPE, same epoch
   input  lp_ldq_t             ldq_q [LQ],
-  /* verilator lint_off UNUSEDSIGNAL */  // only data_v / suppress of candidate store are read
-  input  lp_stq_t             sq [SQ],
-  /* verilator lint_on UNUSEDSIGNAL */
   input  logic [NLD-1:0]      wbd_v,                 // direct completions decided at L2 (before L3)
   input  logic [LQW-1:0]      wbd_idx [NLD],
   input  logic [NLD-1:0]      wbw_v,                 // write-back requests of this cycle (L3)
@@ -45,11 +42,10 @@ module lp_wake
     for (int k = 0; k < 2 * NLD; k++) wk_preg[k] = '0;
     spec_w = '0;
     for (int p = 0; p < NLD; p++) begin
-      // L2 speculative wake-up (d): L1D hit or STLF with store data ready
+      // L2 speculative wake-up (d): predicted L1D hit from registered pl12 (independent of L2 STQ CAM); cancelled next cycle if wrong
       if ((LP_L2 & 8) != 0) begin
         spec_w[p] = pl12[p].v && l2_ok[pl12[p].ldq] && pl12[p].tlb == TLB_HIT && !pl12[p].mmio &&
-                    (!pl12[p].cand_v || (sq[pl12[p].cand].data_v && !sq[pl12[p].cand].suppress)) &&
-                    !pl12[p].dcblk && !(MS && ldq_q[pl12[p].ldq].second) &&
+                    !pl12[p].dcblk && !pl12[p].bloom && !(MS && ldq_q[pl12[p].ldq].second) &&
                     ldq_q[pl12[p].ldq].dest_preg != '0 && !flush &&
                     !(mispred && (ldq_q[pl12[p].ldq].br_mask & dec_br_mask) != '0);
         wk_valid[p] = spec_w[p];

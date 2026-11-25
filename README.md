@@ -2,14 +2,14 @@
 
 AI-Huma 乱序 RISC-V 核的 SystemVerilog 实现。起点是把 tututugege 模拟器逐模块翻译过来（2026-11-04 完成，前端、后端、访存子系统、整核）；现在随项目自己的优化迭代，核参数来自 trace-model 的 `config.h`（`make cfg`）。可以在 Verilator 里整核闭环运行（核 + 访存子系统 + DDR/外设模型）。
 
-**当前状态（2026-11-24，EXP-064）**：
+**当前状态（2026-11-25，EXP-065）**：
 - `main` 仅维护 **`rv64gc` + `Sv39`**（`XLEN_BITS = 64`、`FP = 1`、`RVC_ENABLE = 1`）；`rv32` 已归档至分支 `rv32-legacy`。
 - **核心微架构**（与 `trace-model/include/config.h` 默认配置完全对齐）：
   - **前端**：块级 FTB + S2 Block-TAGE / 多表 ITT + 并行 2-Ahead B（2-taken）、4-Bank 1R1W ICache + 2 读口 ITLB、S2 确认 2-slot FDIP；
-  - **后端**：2 级流水重命名（`IDU → S1 → S2 → DISPATCH`、`MOVE_ELIM` 组内 1-hop 消除、稀疏 `K=4` 单写口检查点 + 本地 256×25b `ren_log` 8 宽前向 Walk）、`PRF=256 / ROB=256 / MAX_BR=32`、双 INT 发射队列 + 合并 MEM 队列 + 5 个物理 AGU、Radix-4 Booth 乘法 + 1× Radix-16 Early-out 变延迟除法（EXU 动态唤醒）+ 全套自研可综合 RV64FD FPU（默认仿真走 DPI、`SYNTHESIS` / `-DFPU_REAL` 走真 RTL）、Load L2 推测唤醒与取消、访存相关推测（`LSU_MEMSPEC`）与 STQ Write Buffer；
+  - **后端**：2 级流水重命名（`IDU → S1 → S2 → DISPATCH`、无上限 `CNT_W=6` 组内 1-hop `MOVE_ELIM`、1 拍流水化检查点写与 INT 空闲表回收、稀疏 `K=4` 单写口检查点 + 本地 256×25b `ren_log` 8 宽前向 Walk）、`PRF=256 / ROB=256 / MAX_BR=32`、双 INT 发射队列 + 合并 MEM 队列 + 5 个物理 AGU、Radix-4 Booth 乘法 + 1× Radix-16 Early-out 变延迟除法（EXU 动态唤醒）+ 全套自研可综合 RV64FD FPU（默认仿真走 DPI、`SYNTHESIS` / `-DFPU_REAL` 走真 RTL）、Load L2a 并行 STQ CAM + 256-bit STQ Bloom Filter + L2b STLF 拆拍 + Load L2 推测唤醒与取消、访存相关推测（`LSU_MEMSPEC`）与拍平 STQ Write Buffer；
   - **访存与缓存**：16-MSHR L1D + 4 级流水硬件 Berti 预取器、统一 L2 TLB（1024×4 1RW SRAM）+ 8 项大页 CAM + 16 项 Sv39 PWC、4 MiB LLC（SRRIP）+ BOP & Bingo 4KB 空间预取器。
 - **验证状态**：`lint_chip.sh` 0 警告/0 错误；`fm_gate.sh` **69/69 PASS（0 FM 不一致、69/69 与 `trace-model` / `ref_cycles.txt` 0 周期差）**；`rv64gc` + `Sv39` Linux 5.15 **26 窗检查点对齐（`s01..s26`，~1.326 亿指令）26/26 PASS、0 FM 不一致、26/26 PT/UP 指纹 100% 逐拍全等**。
-- **TSMC 28nm HPC+ DC 综合状态**（`ssg0p81v125c`, 12T SVT+LVT, `CLK=0.50 ns / 2.0 GHz`, `compile_ultra`，详见 [docs/09-synthesis-report.md](docs/09-synthesis-report.md) §15–17）：全核 23/23 核心模块已补齐实测数据，其中 **14/23 ≥ 1.54 GHz**、**20/23 ≥ 1.28 GHz**、**22/23 ≥ 1.20 GHz**，仅剩 `lsu`（`0.97 GHz`）低于 1.20 GHz。
+- **TSMC 28nm HPC+ DC 综合状态**（`ssg0p81v125c`, 12T SVT+LVT, `CLK=0.50 ns / 2.0 GHz`, `compile_ultra`，详见 [docs/09-synthesis-report.md](docs/09-synthesis-report.md) §15–18）：全核 23/23 核心模块全部突破 **1.12 GHz**（`ren` **1.67 GHz**、`lsu` **1.12 GHz** / 纯组合 `1.18 GHz`），其中 **15/23 ≥ 1.54 GHz**、**20/23 ≥ 1.28 GHz**、**22/23 ≥ 1.20 GHz**。
 - 每个原子模块的设计文档位于 `docs/modules/`（索引 `docs/05-module-tracker.md`），RTL 开发流程见总仓库 `docs/WORKFLOW.md` 第 7 节。
 
 - 文档入口：[docs/README.md](docs/README.md)（范围、编码规范、模块设计笔记、风险登记簿）；子系统笔记 `RTL_FE_NOTES.md`、`RTL_MEMSPEC_NOTES.md`、`RTL_WBUF_NOTES.md`、`RTL_INTEG_NOTES.md`

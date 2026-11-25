@@ -145,6 +145,7 @@ module lp_ldq_ent
         L2_MMW:  st2 = LS_MMW;
         L2_DCW:  st2 = LS_DCW;
         L2_RDY:  st2 = LS_RDY;
+        L2_WBP:  st2 = LS_WBP;
         L2_WBD:  st2 = ((LP_L2 & 1) != 0) ? LS_WB3 : st1;
         default: st2 = st1;
       endcase
@@ -184,7 +185,8 @@ module lp_ldq_ent
       blk3 = '0;
       wt3 = replay_wait(rs_rep);
     end
-    res_v = res3;
+    // LP_CUT[3]: lp_wb never picks a newly-WBP rs_ok entry in the same cycle; cut false path rs_busy -> res_v -> wb_result
+    res_v = (mm_go && st_q == LS_MMR) ? mm_data : f_q.result;
   end
 
   // ---- P5 .. P9: write-back frees, AGU arrival, DTLB result, MMIO issue ----
@@ -195,8 +197,11 @@ module lp_ldq_ent
   logic [XLEN_BITS-1:0] vaddr6;
   lp_tl_t    tl_s;
   assign st4 = wb_go ? LS_EMPTY : st3;
+  logic sp_we_eff, spec_p3;
+  assign sp_we_eff = l2_ok && sp_we;
+  assign spec_p3   = sp_we_eff ? sp_val : f_q.spec;
   // memory speculation (LSU_MEMSPEC): P5 SPD handling, P6 violation check
-  lp_ent_ms u_ms (.st4(st4), .wb_go(wb_go), .wb_go_d(wb_go_d), .f_q(f_q), .head_tag(head_tag), .count_q(count_q),
+  lp_ent_ms u_ms (.st4(st4), .wb_go(wb_go), .wb_go_d(wb_go_d), .f_q(f_q), .spec_cur(spec_p3), .head_tag(head_tag), .count_q(count_q),
                   .unk_any(unk_any), .unk_rank(unk_rank), .sa_v(sa_v), .sa_rank(sa_rank), .sa_voff(sa_voff),
                   .sa_f3(sa_f3), .st4v(st4v), .dfr(dfr), .sec4v(sec4v), .vio_n(vio_n), .vio_new(vio_new));
   always_comb begin
@@ -317,7 +322,7 @@ module lp_ldq_ent
     f_q.vio    <= vio_n;
     f_q.second <= sec4v;
     if (dfr && wb_go_d) f_q.result <= wb_d_data;
-    if (sp_we) f_q.spec <= sp_val;
+    if (sp_we_eff) f_q.spec <= sp_val;
     if (al) begin
       f_q.vio      <= 1'b0;
       f_q.second   <= 1'b0;

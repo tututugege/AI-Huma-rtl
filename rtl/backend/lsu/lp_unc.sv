@@ -14,6 +14,9 @@ module lp_unc
   output logic                valid_q,
   output logic                is_load_q,
   output logic [SQW-1:0]      idx_q,             // LDQ index for a load, STQ index for a store
+  output logic [31:0]         addr_q,
+  output logic [XLEN_BITS-1:0] wdata_q,
+  output logic [2:0]          func3_q,
   output logic                valid_post_resp,   // after the response (value seen by the MMIO load issue)
   input  logic                ld_set,
   input  logic [31:0]         ld_addr,
@@ -37,10 +40,6 @@ module lp_unc
   output logic [XLEN_BITS-1:0]         wdata_o,
   output logic [2:0]          func3_o
 );
-
-  logic [31:0] addr_q;
-  logic [XLEN_BITS-1:0] wdata_q;
-  logic [2:0]  func3_q;
 
   logic        v2, is_load2, v_flush, v_kill;
   logic [31:0] addr2;

@@ -35,7 +35,8 @@ module ren_rat
   input  logic              use_wr_oh,
   /* verilator lint_on UNUSEDSIGNAL */
   input  preg_t             alloc_preg [N],
-  // single checkpoint lane (one-hot) selected by ren_ckpt_ctl
+  // single checkpoint lane (one-hot) selected by ren_ckpt_ctl; snapshot is pipelined by 1 cycle
+  input  logic              ckpt_wr_en,
   input  logic [N-1:0]      ckpt_wr_lane_oh,
   // arch RAT writes from commit
   input  logic [C-1:0]      reclaim,
@@ -46,9 +47,8 @@ module ren_rat
   input  logic              mispred,
   input  logic              ckpt_hit,         // 1: restore ckpt_rat; 0: restore arch_d (then walk)
   input  logic [ENTRIES-1:0][TW-1:0] ckpt_rat,
-  // single checkpoint snapshot (after lanes 0..ckpt_lane)
-  output logic [ENTRIES-1:0][TW-1:0] ckpt_wr_rat,
-  output logic [ENTRIES-1:0][PRF_IDX_WIDTH-1:0] spec_rat            // spec RAT as of the start of the cycle
+  // single checkpoint snapshot (pipelined 1 cycle: valid on T+1 for u_ckpt write)
+  output logic [ENTRIES-1:0][TW-1:0] ckpt_wr_rat
 );
 
   typedef logic [TW-1:0] tag_t;
@@ -79,7 +79,6 @@ module ren_rat
 
   for (genvar e = 0; e < ENTRIES; e++) begin : g_entry_view
     assign spec_entry[e] = spec_q[e];
-    assign spec_rat[e]   = to_global(spec_q[e]);
   end
   for (genvar j = 0; j < N; j++) begin : g_alloc_tag
     assign alloc_tag[j] = to_local(alloc_preg[j]);
@@ -103,13 +102,28 @@ module ren_rat
     assign rd_preg[r] = (|sel) ? to_global(rd_tag) : '0;
   end
 
-  // ---- prefix mask for the single checkpoint lane: ckpt_prefix[j] = (j <= ckpt_lane) ----
-  logic [N-1:0] ckpt_prefix;
-  for (genvar j = 0; j < N; j++) begin : g_ck_pref
-    assign ckpt_prefix[j] = |ckpt_wr_lane_oh[N-1:j];
+  // ---- 1-cycle pipelined checkpoint snapshot (branch cannot mispredict at T+1, so T+1 write is 0-cycle transparent) ----
+  ent_t         ck_spec_q;
+  logic [N-1:0] ck_lane_oh_q, ck_alloc_cand_q;
+  areg_t        ck_alloc_areg_q [N];
+  tag_t         ck_alloc_tag_q [N];
+
+  always_ff @(posedge clk) begin
+    if (ckpt_wr_en) begin
+      ck_spec_q       <= spec_q;
+      ck_lane_oh_q    <= ckpt_wr_lane_oh;
+      ck_alloc_cand_q <= alloc_cand;
+      ck_alloc_areg_q <= alloc_areg;
+      ck_alloc_tag_q  <= alloc_tag;
+    end
   end
 
-  // ---- normal next spec RAT (1 copy) and single checkpoint RAT (1 copy) ----
+  logic [N-1:0] ckpt_prefix;
+  for (genvar j = 0; j < N; j++) begin : g_ck_pref
+    assign ckpt_prefix[j] = |ck_lane_oh_q[N-1:j];
+  end
+
+  // ---- normal next spec RAT (T) and pipelined checkpoint RAT (T+1) ----
   for (genvar e = 0; e < ENTRIES; e++) begin : g_spec_wr
     logic [N-1:0] hit_norm, hit_ck;
     logic         any_norm, any_ck;
@@ -118,12 +132,12 @@ module ren_rat
       logic match_e;
       assign match_e     = alloc_cand[j] & ((PRE_OH && use_wr_oh) ? wr_oh_in[j][e] : (alloc_areg[j] == areg_t'(e)));
       assign hit_norm[j] = fire[j] & match_e;
-      assign hit_ck[j]   = ckpt_prefix[j] & match_e;
+      assign hit_ck[j]   = ckpt_prefix[j] & ck_alloc_cand_q[j] & (ck_alloc_areg_q[j] == areg_t'(e));
     end
-    ren_last_write #(.N(N), .W(TW)) u_lw_norm (.hit(hit_norm), .data(alloc_tag), .any(any_norm), .value(val_norm));
-    ren_last_write #(.N(N), .W(TW)) u_lw_ck   (.hit(hit_ck),   .data(alloc_tag), .any(any_ck),   .value(val_ck));
+    ren_last_write #(.N(N), .W(TW)) u_lw_norm (.hit(hit_norm), .data(alloc_tag),      .any(any_norm), .value(val_norm));
+    ren_last_write #(.N(N), .W(TW)) u_lw_ck   (.hit(hit_ck),   .data(ck_alloc_tag_q), .any(any_ck),   .value(val_ck));
     assign spec_norm[e]   = any_norm ? val_norm : spec_q[e];
-    assign ckpt_wr_rat[e] = any_ck   ? val_ck   : spec_q[e];
+    assign ckpt_wr_rat[e] = any_ck   ? val_ck   : ck_spec_q[e];
   end
 
   // ---- arch RAT: commit writes, later commit slot wins ----

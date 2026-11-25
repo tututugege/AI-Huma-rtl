@@ -1,8 +1,8 @@
-// Ref: back-end/Lsu/RealLsuPipe.cpp  RealLsu (comb_stlf_p partial CAM, comb_lsu2dcache_ldq_p, L1/L2 register)
+// Ref: back-end/Lsu/RealLsuPipe.cpp  RealLsu (comb_lsu2dcache_ldq_p, L1/L2 register; STQ CAM moved to L2)
 `default_nettype none
 
-// Second half of L1: partial STLF CAM of every load slot, the DCache read request (qualified by the CAM and by the
-// hidden-retry bit of the port) and the L1/L2 register.
+// Second half of L1: unconditional DCache read launch (qualified only by hit, !mmio, !ld_retry_busy)
+// and the L1/L2 pipeline register. STQ CAM runs in parallel at L2 on registered pl12_q and sq.
 module lp_l1b
   import ttg_cfg_pkg::*;
   import lp_pkg::*;
@@ -14,17 +14,9 @@ module lp_l1b
   input  logic [31:0]         l_paddr [NLD],
   input  logic [1:0]          l_tlb [NLD],
   input  logic [NLD-1:0]      ld_retry_busy,
+  input  logic [255:0]        stq_bloom_q,     // 256-bit registered bloom filter of STQ vaddr[10:3]
   input  logic [LQ-1:0]       pipe8,
-  input  logic [SQW-1:0]      head_q,
-  input  logic                head_flag_q,
-  input  logic [CNTW-1:0]     count_q,
-  input  logic [SQ-1:0]       cv_va,
-  input  logic [11:0]         cv_voff [SQ],
-  input  logic [2:0]          cv_f3 [SQ],
-  input  lp_stq_t             sq [SQ],
   input  logic [NLD-1:0]      spec_ok,         // memory speculation: the load of slot k may pass unknown-address stores
-  output logic [NLD-1:0]      cam_en,          // slot k wrote its CAM result: spec flag update
-  output logic [NLD-1:0]      cam_unk,
   output logic [NLD-1:0]      l1_launch,
   output logic [NLD-1:0]      dcl_req_valid,
   output logic [31:0]         dcl_req_addr [NLD],
@@ -32,60 +24,45 @@ module lp_l1b
   output lp_pl12_t            pl12_q [NLD]
 );
 
-  logic            cam_v [NLD];
-  logic [SQW-1:0]  cam_i [NLD];
-  logic [NLD-1:0]  ok8, dcblk;
-  for (genvar k = 0; k < NLD; k++) begin : g_cam
-    logic en;
-    logic cv, cu;
-    logic [SQW-1:0] ci;
-    assign en = l1[k].v && l_hit[k] && !l_mmio[k];
-    // the full-address compare only exists for a replay whose paddr is known (full = !need_tlb): it reads the register, not the DTLB response
-    // (l_paddr is the response or that register: a structural path from the DTLB into the CAM that is never used)
-    lp_cam u_cam (.voff(l1[k].vaddr[11:0]), .func3(l1[k].func3), .paddr(l1[k].paddr_reg), .full(!l1[k].need_tlb),
-                  .snap_idx(l1[k].snap_idx), .snap_flag(l1[k].snap_flag), .head(head_q), .head_flag(head_flag_q),
-                  .count(count_q), .cv_va(cv_va), .cv_voff(cv_voff), .cv_f3(cv_f3), .sq(sq),
-                  .spec_ok(spec_ok[k]), .cand_v(cv), .cand(ci), .unk(cu));
-    assign cam_en[k] = en;
-    assign cam_unk[k] = cu;
-    assign cam_v[k] = en && cv;
-    assign cam_i[k] = ci;
-  end
+  logic [NLD-1:0] ok8, dcblk, bloom_hit;
 
   always_comb begin
     for (int k = 0; k < NLD; k++) begin
-      ok8[k] = l1[k].v && pipe8[l1[k].ldq];
-      dcblk[k] = l_hit[k] && !l_mmio[k] && !cam_v[k] && ld_retry_busy[k];
-      l1_launch[k] = l1[k].v && l_hit[k] && !l_mmio[k] && !cam_v[k] && !ld_retry_busy[k];
+      ok8[k]           = l1[k].v && pipe8[l1[k].ldq];
+      bloom_hit[k]     = !l1[k].replay && stq_bloom_q[l1[k].vaddr[10:3]];
+      dcblk[k]         = l_hit[k] && !l_mmio[k] && ld_retry_busy[k];
+      l1_launch[k]     = l1[k].v && l_hit[k] && !l_mmio[k] && !ld_retry_busy[k] && !bloom_hit[k];
       dcl_req_valid[k] = ok8[k] && l1_launch[k];
-      dcl_req_addr[k] = l_paddr[k];
-      // When dcl_req_valid[k]==1, epoch_nx[ldq] is always pre-launch epoch + 1 (breaks cam -> l1_launch -> epoch_nx -> req_id!)
-      dcl_req_id_o[k] = 31'({l1[k].epoch + EPW'(1), l1[k].ldq});
+      dcl_req_addr[k]  = l_paddr[k];
+      dcl_req_id_o[k]  = 31'({l1[k].epoch + EPW'(1), l1[k].ldq});
     end
   end
 
   lp_pl12_t pl12_d [NLD];
   always_comb begin
     for (int k = 0; k < NLD; k++) begin
-      pl12_d[k] = '0;
-      pl12_d[k].v = ok8[k];
-      pl12_d[k].ldq = l1[k].ldq;
-      pl12_d[k].epoch = l1[k].epoch + EPW'(ok8[k] && l1_launch[k]);
-      pl12_d[k].tlb = l_tlb[k];
-      pl12_d[k].mmio = l_mmio[k];
-      pl12_d[k].cand_v = cam_v[k];
-      pl12_d[k].cand = cam_i[k];
-      pl12_d[k].dcblk = dcblk[k];
-      pl12_d[k].paddr = l_paddr[k];
-      pl12_d[k].voff = l1[k].vaddr[11:0];
-      pl12_d[k].func3 = l1[k].func3;
+      pl12_d[k]           = '0;
+      pl12_d[k].v         = ok8[k];
+      pl12_d[k].ldq       = l1[k].ldq;
+      pl12_d[k].epoch     = l1[k].epoch + EPW'(ok8[k] && l1_launch[k]);
+      pl12_d[k].tlb       = l_tlb[k];
+      pl12_d[k].mmio      = l_mmio[k];
+      pl12_d[k].dcblk     = dcblk[k];
+      pl12_d[k].bloom     = l_hit[k] && !l_mmio[k] && !ld_retry_busy[k] && bloom_hit[k];
+      pl12_d[k].paddr     = l_paddr[k];
+      pl12_d[k].paddr_p1  = l_paddr[k][31:3] + 29'd1;
+      pl12_d[k].paddr_m1  = l_paddr[k][31:3] - 29'd1;
+      pl12_d[k].voff      = l1[k].vaddr[11:0];
+      pl12_d[k].func3     = l1[k].func3;
+      pl12_d[k].snap_idx  = l1[k].snap_idx;
+      pl12_d[k].snap_flag = l1[k].snap_flag;
+      pl12_d[k].spec_ok   = spec_ok[k];
     end
   end
 
   always_ff @(posedge clk) begin
     for (int k = 0; k < NLD; k++) pl12_q[k] <= pl12_d[k];
   end
-
 
 endmodule
 

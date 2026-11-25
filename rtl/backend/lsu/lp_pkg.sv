@@ -71,7 +71,7 @@ package lp_pkg;
   } lp_rc_t;
 
   typedef enum logic [2:0] {
-    L2_NONE = 3'd0, L2_WBD, L2_PARK, L2_MMW, L2_DCW, L2_RDY
+    L2_NONE = 3'd0, L2_WBD, L2_PARK, L2_MMW, L2_DCW, L2_RDY, L2_WBP
   } lp_l2act_t;
 
   localparam logic [1:0] RT_HIT = 2'd0, RT_CONFLICT = 2'd1, RT_MSHR_HIT = 2'd2, RT_MSHR_FULL = 2'd3;
@@ -106,13 +106,30 @@ package lp_pkg;
     logic [EPW-1:0]  epoch;
     logic [1:0]      tlb;
     logic            mmio;
-    logic            cand_v;
-    logic [SQW-1:0]  cand;
     logic            dcblk;
+    logic            bloom;        // DCache launch suppressed by 256-bit STQ word bloom filter (first pass only)
     logic [31:0]     paddr;        // RTL: carried so that L2 does not read the LDQ
+    logic [28:0]     paddr_p1;     // precomputed paddr[31:3] + 1 (eliminates 29b adders in lp_cam / lp_l2)
+    logic [28:0]     paddr_m1;     // precomputed paddr[31:3] - 1
     logic [11:0]     voff;
     logic [2:0]      func3;
+    logic [SQW-1:0]  snap_idx;     // carried for L2a STQ CAM
+    logic            snap_flag;
+    logic            spec_ok;
   } lp_pl12_t;
+
+  // L2a -> L2b pipeline register (STLF-only: decouples 64-entry STQ CAM from stlf_confirm + lp_wk)
+  typedef struct packed {
+    logic            v;
+    logic [LQW-1:0]  ldq;
+    logic [EPW-1:0]  epoch;
+    logic [SQW-1:0]  cand;
+    logic [31:0]     paddr;
+    logic [28:0]     paddr_p1;
+    logic [28:0]     paddr_m1;
+    logic [11:0]     voff;
+    logic [2:0]      func3;
+  } lp_pl2b_t;
 
   // one L1 slot of this cycle
   typedef struct packed {
@@ -219,6 +236,8 @@ package lp_pkg;
     logic [2:0]      func3;
     logic            pa_v;
     logic [31:0]     paddr;
+    logic [28:0]     paddr_p1;     // precomputed paddr[31:3] + 1 before sta_info_q FF (eliminates 192x 29b adders in lp_wk)
+    logic [28:0]     paddr_m1;     // precomputed paddr[31:3] - 1 before sta_info_q FF
     logic            data_v;
     logic            hold_sc;      // lrsc && !sc_pass
     logic            suppress;
@@ -421,6 +440,99 @@ package lp_pkg;
       return CF_NOADDR;
     end
     r = ((LP_L2 & 2048) != 0) ? rel32s(lpaddr, lf, s_paddr, sf) : rel32(lpaddr, lf, s_paddr, sf);
+    if (r == 2'd0) return CF_REPLAY;
+    if (r == 2'd2) return CF_HOLD;
+    if (!s_data_v) return CF_DATA;
+    if (s_hold_sc) return CF_HOLD;
+    return CF_FWD;
+  endfunction
+
+  // Zero-29b-adder rel32 variants using pre-registered paddr[31:3] +/- 1 from store side (lp_wk) or load side (lp_l2)
+  function automatic logic [1:0] rel32_pre_s(input logic [31:0] lo, input logic [2:0] lf,
+                                             input logic [31:0] so, input logic [28:0] so_p1, input logic [28:0] so_m1,
+                                             input logic [2:0] sf);
+    logic [28:0]       ul, us;
+    logic              eq0, s_is_l1, l_is_s1, cov0, covm, c0, c1, cm, cov, ovl;
+    logic signed [5:0] dl, lw, sw;
+    ul      = lo[31:3];
+    us      = so[31:3];
+    eq0     = (ul == us);
+    s_is_l1 = (ul == so_m1) && (us != 29'd0);
+    l_is_s1 = (ul == so_p1) && !(&us);
+    lw      = $signed({2'b00, 4'(ld_width13(lf))});
+    sw      = $signed({2'b00, 4'(ld_width13(sf))});
+    dl      = $signed({3'b000, so[2:0]}) - $signed({3'b000, lo[2:0]});
+    cov0    = (dl <= 6'sd0) && (dl + sw >= lw);
+    covm    = (dl - 6'sd8 + sw >= lw);
+    cov     = (eq0 && cov0) || (l_is_s1 && covm);
+    c0      = (dl > -sw) && (dl < lw);
+    c1      = (dl + 6'sd8 < lw);
+    cm      = (dl - 6'sd8 > -sw);
+    ovl     = (eq0 && c0) || (s_is_l1 && c1) || (l_is_s1 && cm);
+    if (cov) return 2'd1;
+    else if (!ovl) return 2'd0;
+    else return 2'd2;
+  endfunction
+
+  function automatic logic [1:0] rel32_pre_l(input logic [31:0] lo, input logic [28:0] lo_p1, input logic [28:0] lo_m1,
+                                             input logic [2:0] lf, input logic [31:0] so, input logic [2:0] sf);
+    logic [28:0]       ul, us;
+    logic              eq0, s_is_l1, l_is_s1, cov0, covm, c0, c1, cm, cov, ovl;
+    logic signed [5:0] dl, lw, sw;
+    ul      = lo[31:3];
+    us      = so[31:3];
+    eq0     = (ul == us);
+    s_is_l1 = (us == lo_p1) && !(&ul);
+    l_is_s1 = (us == lo_m1) && (ul != 29'd0);
+    lw      = $signed({2'b00, 4'(ld_width13(lf))});
+    sw      = $signed({2'b00, 4'(ld_width13(sf))});
+    dl      = $signed({3'b000, so[2:0]}) - $signed({3'b000, lo[2:0]});
+    cov0    = (dl <= 6'sd0) && (dl + sw >= lw);
+    covm    = (dl - 6'sd8 + sw >= lw);
+    cov     = (eq0 && cov0) || (l_is_s1 && covm);
+    c0      = (dl > -sw) && (dl < lw);
+    c1      = (dl + 6'sd8 < lw);
+    cm      = (dl - 6'sd8 > -sw);
+    ovl     = (eq0 && c0) || (s_is_l1 && c1) || (l_is_s1 && cm);
+    if (cov) return 2'd1;
+    else if (!ovl) return 2'd0;
+    else return 2'd2;
+  endfunction
+
+  function automatic lp_conf_t stlf_confirm_pre_s(input logic [11:0] lvoff, input logic [31:0] lpaddr, input logic [2:0] lf,
+                                                  input logic alive, input logic s_suppress, input logic s_va_v,
+                                                  input logic [11:0] s_voff, input logic s_pa_v, input logic [31:0] s_paddr,
+                                                  input logic [28:0] s_paddr_p1, input logic [28:0] s_paddr_m1,
+                                                  input logic [2:0] sf, input logic s_data_v, input logic s_hold_sc);
+    logic [1:0] r;
+    if (!alive || s_suppress) return CF_REPLAY;
+    if (!s_va_v) return CF_NOADDR;
+    if (!s_pa_v) begin
+      if (rel12(lvoff, lf, s_voff, sf) == 2'd0) return CF_REPLAY;
+      return CF_NOADDR;
+    end
+    r = rel32_pre_s(lpaddr, lf, s_paddr, s_paddr_p1, s_paddr_m1, sf);
+    if (r == 2'd0) return CF_REPLAY;
+    if (r == 2'd2) return CF_HOLD;
+    if (!s_data_v) return CF_DATA;
+    if (s_hold_sc) return CF_HOLD;
+    return CF_FWD;
+  endfunction
+
+  function automatic lp_conf_t stlf_confirm_pre_l(input logic [11:0] lvoff, input logic [31:0] lpaddr,
+                                                  input logic [28:0] lpaddr_p1, input logic [28:0] lpaddr_m1,
+                                                  input logic [2:0] lf, input logic alive, input logic s_suppress,
+                                                  input logic s_va_v, input logic [11:0] s_voff, input logic s_pa_v,
+                                                  input logic [31:0] s_paddr, input logic [2:0] sf,
+                                                  input logic s_data_v, input logic s_hold_sc);
+    logic [1:0] r;
+    if (!alive || s_suppress) return CF_REPLAY;
+    if (!s_va_v) return CF_NOADDR;
+    if (!s_pa_v) begin
+      if (rel12(lvoff, lf, s_voff, sf) == 2'd0) return CF_REPLAY;
+      return CF_NOADDR;
+    end
+    r = rel32_pre_l(lpaddr, lpaddr_p1, lpaddr_m1, lf, s_paddr, sf);
     if (r == 2'd0) return CF_REPLAY;
     if (r == 2'd2) return CF_HOLD;
     if (!s_data_v) return CF_DATA;

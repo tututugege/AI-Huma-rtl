@@ -58,7 +58,6 @@ module ren_fp
   fp_ptr_t      free_count, head, head_after [N], head_next, head_last, ckpt_wr_head, ckpt_head;
   logic         any_fire;
   ent_t         ckpt_wr_rat, ckpt_rat;
-  logic [FP_ARF_NUM-1:0][PRF_IDX_WIDTH-1:0] spec_rat;
   logic [CW-1:0] free_rank [C];
   logic [CW-1:0] free_total;
   logic [RW-1:0] ckpt_wr_rat_flat, ckpt_rat_flat;
@@ -105,10 +104,10 @@ module ren_fp
     .clk(clk), .rst_n(rst_n), .rd_areg(rd_areg), .rd_oh_in(fp_rd_oh_zero), .rd_preg(rd_preg),
     .alloc_cand(rat_alloc_cand), .fire(rat_fire), .alloc_areg(rat_alloc_areg),
     .wr_oh_in(fp_wr_oh_zero), .use_wr_oh(1'b0), .alloc_preg(rat_alloc_preg),
-    .ckpt_wr_lane_oh(ckpt_wr_lane_oh),
+    .ckpt_wr_en(ckpt_wr_en), .ckpt_wr_lane_oh(ckpt_wr_lane_oh),
     .reclaim(reclaim), .commit_areg(c_dest_areg), .commit_preg(c_dest_preg),
     .flush(rob_flush), .mispred(dec_mispred), .ckpt_hit(ckpt_rd_hit), .ckpt_rat(ckpt_rat),
-    .ckpt_wr_rat(ckpt_wr_rat), .spec_rat(spec_rat)
+    .ckpt_wr_rat(ckpt_wr_rat)
   );
 
   ren_alloc_sel u_alloc (
@@ -155,20 +154,30 @@ module ren_fp
   );
   assign ckpt_wr_rat_flat = ckpt_wr_rat;
 
+  // 1-cycle pipelined checkpoint write (matches ren_rat's 1-cycle ckpt_wr_rat)
+  logic          ckpt_wr_en_q;
+  logic [KW-1:0] ckpt_wr_slot_q;
+  fp_ptr_t       ckpt_wr_head_q;
+  always_ff @(posedge clk) begin
+    if (!rst_n) begin
+      ckpt_wr_en_q <= 1'b0;
+    end else begin
+      ckpt_wr_en_q <= ckpt_wr_en;
+      if (ckpt_wr_en) begin
+        ckpt_wr_slot_q <= ckpt_wr_slot;
+        ckpt_wr_head_q <= ckpt_wr_head;
+      end
+    end
+  end
+
   ren_ckpt #(.RW(RW), .HW(FP_PTR_W)) u_ckpt (
     .clk(clk), .rst_n(rst_n),
-    .wr_en(ckpt_wr_en), .wr_slot(ckpt_wr_slot),
-    .wr_rat(ckpt_wr_rat_flat), .wr_head(ckpt_wr_head),
+    .wr_en(ckpt_wr_en_q), .wr_slot(ckpt_wr_slot_q),
+    .wr_rat(ckpt_wr_rat_flat), .wr_head(ckpt_wr_head_q),
     .rd_slot(ckpt_rd_slot), .rd_rat(ckpt_rat_flat), .rd_head(ckpt_head)
   );
 
   assign ckpt_rat = ent_t'(ckpt_rat_flat);
-
-  // waiver: the spec RAT view is not needed here
-  /* verilator lint_off UNUSEDSIGNAL */
-  logic unused_spec;
-  assign unused_spec = ^spec_rat;
-  /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule
 

@@ -1,9 +1,8 @@
-// Ref: back-end/Lsu/RealLsuPipe.cpp  RealLsu (stq_cam: partial-address CAM over the STQ, one per load port)
+// Ref: back-end/Lsu/RealLsuPipe.cpp  RealLsu (stq_cam: full/partial-address CAM over the registered STQ, one per load port at L2)
 `default_nettype none
 
-// L1 partial STLF CAM of one load slot: 64 parallel comparators; result = the youngest older store that may conflict
-// (unknown address always conflicts; page offset + size compare, or the full physical address for a replay whose
-// store already has a physical address).  Registers only (plus the STA arrival bypass folded into the cv_* view).
+// L2 STLF CAM of one load slot: 64 parallel comparators over purely registered STQ state; result = the youngest older
+// store that may conflict (full 32-bit physical address compare whenever sq[j].pa_v, else 12-bit page offset).
 module lp_cam
   import ttg_cfg_pkg::*;
   import lp_pkg::*;
@@ -11,19 +10,20 @@ module lp_cam
   input  logic [11:0]         voff,
   input  logic [2:0]          func3,
   input  logic [31:0]         paddr,
-  input  logic                full,
+  input  logic [28:0]         paddr_p1,  // precomputed paddr[31:3] + 1 (eliminates 512x 29b adders across 4 CAMs)
+  input  logic [28:0]         paddr_m1,  // precomputed paddr[31:3] - 1
   input  logic [SQW-1:0]      snap_idx,
   input  logic                snap_flag,
   input  logic [SQW-1:0]      head,
   input  logic                head_flag,
   input  logic [CNTW-1:0]     count,
-  input  logic [SQ-1:0]       cv_va,
-  input  logic [11:0]         cv_voff [SQ],
-  input  logic [2:0]          cv_f3 [SQ],
+  /* verilator lint_off UNUSEDSIGNAL */  // only va_v / vaddr[11:0] / pa_v / paddr / func3 / suppress are read
   input  lp_stq_t             sq [SQ],
+  /* verilator lint_on UNUSEDSIGNAL */
   input  logic                spec_ok,   // memory speculation: the load passes unknown-address stores
   output logic                cand_v,
   output logic [SQW-1:0]      cand,
+  output logic [SQ-1:0]       cand_oh,
   output logic                unk        // an older store younger than the candidate was passed with an unknown address
 );
 
@@ -36,7 +36,6 @@ module lp_cam
   logic            any_hi, any_lo, unk_lo_young, unk_hi_young;
 
   // Unrotated split around head: hi = [head..SQ-1], lo = [0..head-1] (every entry in lo is younger than hi).
-  // Eliminates both 64-bit barrel shifters (rotr64) AND the final (+ head) adder from the CAM critical path!
   always_comb begin
     dst_t   = {snap_flag, snap_idx} - {head_flag, head};
     older   = (CNTW'(dst_t) > count) ? count : CNTW'(dst_t);
@@ -49,11 +48,11 @@ module lp_cam
 
   for (genvar j = 0; j < SQ; j++) begin : g_cmp
     logic ov_full, ov_part;
-    lp_ovl #(.W(32)) u_full (.lo(paddr), .lf(func3), .so(sq[j].paddr), .sf(sq[j].func3), .ovl(ov_full));
-    lp_ovl #(.W(12)) u_part (.lo(voff), .lf(func3), .so(cv_voff[j]), .sf(cv_f3[j]), .ovl(ov_part));
+    assign ov_full = (rel32_pre_l(paddr, paddr_p1, paddr_m1, func3, sq[j].paddr, sq[j].func3) != 2'd0);
+    lp_ovl #(.W(12)) u_part (.lo(voff), .lf(func3), .so(sq[j].vaddr[11:0]), .sf(sq[j].func3), .ovl(ov_part));
     assign raw_hit[j] = !sq[j].suppress &&
-                        (!cv_va[j] ? !(MS && spec_ok) : ((full && sq[j].pa_v) ? ov_full : ov_part));
-    assign raw_unk[j] = !sq[j].suppress && !cv_va[j];
+                        (!sq[j].va_v ? !(MS && spec_ok) : (sq[j].pa_v ? ov_full : ov_part));
+    assign raw_unk[j] = !sq[j].suppress && !sq[j].va_v;
   end
 
   assign hit_hi = mask_hi & raw_hit;
@@ -74,6 +73,7 @@ module lp_cam
   lp_ffs_p #(.N(SQ)) u_lo (.req(hit_lo_rev), .onehot(last_lo_rev), .any(any_lo), .pre(lo_ge));
   assign cand_v  = any_lo || any_hi;
   assign last_oh = any_lo ? last_lo_oh : last_hi_oh;
+  assign cand_oh = last_oh;
   ttg_onehot_to_idx #(.N(SQ)) u_idx (.onehot(last_oh), .idx(cand));
 
   assign unk_lo_young = |(unk_lo_rev & ~lo_ge);

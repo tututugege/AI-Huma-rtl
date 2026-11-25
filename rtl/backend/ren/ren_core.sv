@@ -48,7 +48,6 @@ module ren_core
   // waiver (reviewed): only consumed by ren_elim_sel, which exists when MOVE_ELIM != 0
   /* verilator lint_off UNUSEDSIGNAL */
   logic [N-1:0] move_shape;
-  rat_t         spec_rat;
   /* verilator lint_on UNUSEDSIGNAL */
   ren_inst_t    inst [N];
   preg_t        window [N], alloc_reg [N], free_count, head;
@@ -57,8 +56,7 @@ module ren_core
   preg_t        rd_preg [NR];
   preg_t        dest_normal [N], src1_normal [N], src2_normal [N];
   preg_t        old_dest_preg [N], src1_preg [N], src2_preg [N], dest_preg [N];
-  areg_t        dest_areg [N], src1_areg [N];
-  logic [N-2:0] dest_en_any_older, dest_fp_older;
+  areg_t        dest_areg [N];
   preg_t        fp_dest [N], fp_src1 [N], fp_src2 [N], fp_src3 [N], fp_old [N];
   int_rat_t     ckpt_wr_rat, ckpt_rat;
   // sparse checkpoint & local ren_log & walk
@@ -119,7 +117,6 @@ module ren_core
   // ---- field views of the pipeline register / commit entries ----
   for (genvar i = 0; i < N; i++) begin : g_view
     assign dest_areg[i]  = inst[i].dest_areg;
-    assign src1_areg[i]  = inst[i].src1_areg;
     assign rd_areg[i]       = inst[i].dest_areg;
     assign rd_areg[N+i]     = inst[i].src1_areg;
     assign rd_areg[2*N+i]   = inst[i].src2_areg;
@@ -146,10 +143,6 @@ module ren_core
     assign rat_fire[i]       = walk_active ? walk_slot_en[i]           : fire[i];
     assign rat_alloc_areg[i] = walk_active ? log_rd_slot[i].dest_areg  : dest_areg[i];
     assign rat_alloc_preg[i] = walk_active ? log_rd_slot[i].dest_preg  : dest_preg[i];
-  end
-  for (genvar i = 0; i < N - 1; i++) begin : g_older_view
-    assign dest_en_any_older[i] = inst[i].dest_en;
-    assign dest_fp_older[i]     = inst[i].dest_fp;
   end
   for (genvar k = 0; k < C; k++) begin : g_commit_view
     assign c_valid[k]          = commit[k].valid;
@@ -190,8 +183,7 @@ module ren_core
   // ---- move elimination: which moves are renamed away (Ren::elim_refs_ok) ----
   if (MOVE_ELIM != 0) begin : g_elim
     ren_elim_sel u_elim (
-      .inst_valid(inst_valid), .move_shape(move_shape), .dest_en(dest_en_any_older), .dest_fp(dest_fp_older),
-      .dest_areg(dest_areg), .src1_areg(src1_areg), .src1_rat(src1_normal), .spec_rat(spec_rat), .elim(elim)
+      .inst_valid(inst_valid), .move_shape(move_shape), .raw_hit_src1(pipe_hit_src1_q), .elim(elim)
     );
   end else begin : g_no_elim
     assign elim = '0;
@@ -287,16 +279,27 @@ module ren_core
   end else begin : g_no_cnt
     assign free = reclaim;
   end
-  ren_rank u_free_rank (.sel(free), .rank(free_rank), .total(free_total));
+  // 1-cycle pipelined INT free-list reclaim (decouples ren_arch_cnt from ren_free_list write)
+  logic [C-1:0] free_q;
+  preg_t        reclaim_preg_q [C];
+  always_ff @(posedge clk) begin
+    if (!rst_n) begin
+      free_q <= '0;
+    end else begin
+      free_q         <= free;
+      reclaim_preg_q <= c_old_dest_preg;
+    end
+  end
+  ren_rank u_free_rank (.sel(free_q), .rank(free_rank), .total(free_total));
 
   ren_rat #(.PRE_OH(1'b1)) u_rat (
     .clk(clk), .rst_n(rst_n), .rd_areg(rd_areg), .rd_oh_in(pipe_rd_oh_q), .rd_preg(rd_preg),
     .alloc_cand(rat_alloc_cand), .fire(rat_fire), .alloc_areg(rat_alloc_areg),
     .wr_oh_in(pipe_wr_oh_q), .use_wr_oh(~walk_active), .alloc_preg(rat_alloc_preg),
-    .ckpt_wr_lane_oh(ckpt_wr_lane_oh),
+    .ckpt_wr_en(ckpt_wr_en), .ckpt_wr_lane_oh(ckpt_wr_lane_oh),
     .reclaim(reclaim), .commit_areg(c_dest_areg), .commit_preg(c_dest_preg),
     .flush(rob_flush), .mispred(dec_mispred), .ckpt_hit(ckpt_rd_hit), .ckpt_rat(ckpt_rat),
-    .ckpt_wr_rat(ckpt_wr_rat), .spec_rat(spec_rat)
+    .ckpt_wr_rat(ckpt_wr_rat)
   );
 
   ren_last_write #(.N(N), .W(PRF_IDX_WIDTH)) u_head_next (
@@ -306,8 +309,8 @@ module ren_core
                                  : (any_fire ? head_last : head);
 
   ren_free_list u_fl (
-    .clk(clk), .rst_n(rst_n), .head_next(head_next), .reclaim(free), .reclaim_rank(free_rank),
-    .reclaim_total(free_total), .alloc_commit_total(alloc_commit_total), .reclaim_preg(c_old_dest_preg),
+    .clk(clk), .rst_n(rst_n), .head_next(head_next), .reclaim(free_q), .reclaim_rank(free_rank),
+    .reclaim_total(free_total), .alloc_commit_total(alloc_commit_total), .reclaim_preg(reclaim_preg_q),
     .flush(rob_flush), .mispred(dec_mispred), .ckpt_hit(ckpt_rd_hit),
     .ckpt_head(ckpt_head), .window(window), .free_count(free_count), .head(head)
   );
@@ -324,10 +327,26 @@ module ren_core
     .sel(ckpt_wr_lane_oh), .data(head_after_lo), .out(ckpt_wr_head)
   );
 
+  // 1-cycle pipelined checkpoint write (matches ren_rat's 1-cycle ckpt_wr_rat)
+  logic             ckpt_wr_en_q;
+  logic [KW-1:0]    ckpt_wr_slot_q;
+  logic [INT_TW-1:0] ckpt_wr_head_q;
+  always_ff @(posedge clk) begin
+    if (!rst_n) begin
+      ckpt_wr_en_q <= 1'b0;
+    end else begin
+      ckpt_wr_en_q <= ckpt_wr_en;
+      if (ckpt_wr_en) begin
+        ckpt_wr_slot_q <= ckpt_wr_slot;
+        ckpt_wr_head_q <= ckpt_wr_head;
+      end
+    end
+  end
+
   ren_ckpt #(.RW(RAT_NUM * INT_TW), .HW(INT_TW)) u_ckpt (
     .clk(clk), .rst_n(rst_n),
-    .wr_en(ckpt_wr_en), .wr_slot(ckpt_wr_slot),
-    .wr_rat(ckpt_wr_rat), .wr_head(ckpt_wr_head),
+    .wr_en(ckpt_wr_en_q), .wr_slot(ckpt_wr_slot_q),
+    .wr_rat(ckpt_wr_rat), .wr_head(ckpt_wr_head_q),
     .rd_slot(ckpt_rd_slot), .rd_rat(ckpt_rat), .rd_head(ckpt_head_lo)
   );
   assign ckpt_head = preg_t'(ckpt_head_lo);

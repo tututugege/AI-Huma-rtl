@@ -19,6 +19,7 @@ module lp_ent_ms
   /* verilator lint_off UNUSEDSIGNAL */  // the entry view: only the speculation fields are read
   input  lp_ldq_t             f_q,
   /* verilator lint_on UNUSEDSIGNAL */
+  input  logic                spec_cur,  // f_q.spec updated by P3 (L2 CAM) before P6 violation check
   input  logic [SQW:0]        head_tag,
   input  logic [CNTW-1:0]     count_q,
   input  logic                unk_any,   // some store of the STQ ring has no address yet
@@ -52,7 +53,7 @@ module lp_ent_ms
       rel = st4r == LS_SPD && !(wb_go && !wb_go_d) && (!unk_any || older_e <= CNTW'(unk_rank));
       if (rel) st4r = LS_WBP;
       sec4 = f_q.second || (dfr && f_q.vio) || rel;
-      v_elig = f_q.spec && !f_q.vio && !sec4 &&
+      v_elig = spec_cur && !f_q.vio && !sec4 &&
                (st4r == LS_PIPE || st4r == LS_DCW || st4r == LS_WBP || st4r == LS_WB3 || st4r == LS_SPD ||
                 st4r == LS_RPW);   // RPW: a parked load forwards from its blocker when woken, no second CAM pass
       for (int k = 0; k < NST; k++) ovl[k] = sa_v[k] && CNTW'(sa_rank[k]) < older_e && ov12[k];
@@ -64,7 +65,7 @@ module lp_ent_ms
   end else begin : g_off
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused;
-    assign unused = wb_go ^ wb_go_d ^ (^f_q) ^ (^head_tag) ^ (^count_q) ^ unk_any ^ (^unk_rank) ^ (^sa_v);
+    assign unused = wb_go ^ wb_go_d ^ (^f_q) ^ spec_cur ^ (^head_tag) ^ (^count_q) ^ unk_any ^ (^unk_rank) ^ (^sa_v);
     /* verilator lint_on UNUSEDSIGNAL */
     assign st4v = st4;
     assign dfr = 1'b0;

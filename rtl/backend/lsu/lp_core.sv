@@ -136,41 +136,52 @@ module lp_core
   logic [CNTW-1:0] count_q, ccount_q, count_flushed;
   logic [SQ-1:0]   alive_w, win4, win13, alive_post, alive_fl, cm_go, al_v, ev_ret, done_q_v;
   logic [SQ-1:0][NDIS-1:0] al_slot;
-  logic [SQ-1:0]   cv_va, done_v, trp_v, d_elig, d_rdy, sd_acc;
+  /* verilator lint_off UNUSEDSIGNAL */  // cv_* kept in lp_stq; L2 CAM reads registered sq directly
+  logic [SQ-1:0]   cv_va;
   logic [11:0]     cv_voff [SQ];
   logic [2:0]      cv_f3 [SQ];
+  /* verilator lint_on UNUSEDSIGNAL */
+  logic [SQ-1:0]   done_v, trp_v, d_elig, d_rdy, sd_acc;
   lp_sta_info_t    vw [SQ];
   logic [NST-1:0]  sa_acc;
 
   // ------------------------------------------------------------------ uncached unit, reservation
+  /* verilator lint_off UNUSEDSIGNAL */  // combinational *_o kept for lp_unc debug; per_* uses registered *_q
   logic            unc_valid_q, unc_is_load_q, unc_valid_post_resp, unc_valid_pre_st, unc_valid_o, unc_is_load_o;
   logic [SQW-1:0]  unc_idx_q;
-  logic [31:0] unc_addr_o;  logic [XLEN_BITS-1:0] unc_wdata_o;
-  logic [2:0]      unc_func3_o;
+  logic [31:0]     unc_addr_q, unc_addr_o;
+  logic [XLEN_BITS-1:0] unc_wdata_q, unc_wdata_o;
+  logic [2:0]      unc_func3_q, unc_func3_o;
+  /* verilator lint_on UNUSEDSIGNAL */
   logic            rsv_valid_q;
   logic [31:0]     rsv_addr_q;
   logic            resp_fire;
   assign resp_fire = periph_is_mmio && unc_valid_q;
 
-  // ------------------------------------------------------------------ L2 and DCache responses (P3)
-  lp_l2dec_t       l2_dec [NLD];
+  // ------------------------------------------------------------------ L2a / L2b and DCache responses (P3)
+  lp_pl2b_t        pl2b_q [NLD];
+  lp_l2dec_t       l2a_dec [NLD], l2b_dec [NLD];
   logic [XLEN_BITS-1:0]     fwd_data [NLD];
-  logic [NLD-1:0]  wbd_l2, rs_dir, wbd_v, wbd_hasdata;
+  logic [NLD-1:0]  wbd_l2a, wbd_l2b, wbd_l2, rs_dir, wbd_v, wbd_hasdata, cam_en, cam_unk;
   logic [LQW-1:0]  rs_idx [NLD], wbd_idx [NLD];
   logic [XLEN_BITS-1:0]     wbd_data [NLD];
-  lp_l2 u_l2 (.pl12(pl12_q), .sq(sq), .alive_w(alive_w), .dec(l2_dec), .fwd_data(fwd_data));
+  lp_l2 u_l2 (.clk(clk), .rst_n(rst_n), .pl12(pl12_q), .l2_ok(l2_ok), .sq(sq),
+              .head_q(head_q), .head_flag_q(head_flag_q), .count_q(count_q), .alive_w(alive_w),
+              .pl2b_q(pl2b_q), .cam_en(cam_en), .cam_unk(cam_unk),
+              .dec_a(l2a_dec), .dec_b(l2b_dec), .wbd_l2b(wbd_l2b), .fwd_data(fwd_data));
 
   always_comb begin
     for (int p = 0; p < NLD; p++) begin
       rs_idx[p] = dcl_req_id[p][LQW-1:0];
-      wbd_l2[p] = l2_dec[p].act == L2_WBD && l2_ok[pl12_q[p].ldq];
-      rs_dir[p] = dcl_valid[p] && !dcl_req_id[p][31] && rs_ok[rs_idx[p]] && dcl_replay[p] == RT_HIT && !wbd_l2[p];
-      wbd_v[p] = wbd_l2[p] || rs_dir[p];
-      wbd_idx[p] = wbd_l2[p] ? pl12_q[p].ldq : rs_idx[p];
-      wbd_hasdata[p] = wbd_l2[p] ? (pl12_q[p].tlb != TLB_PF) : 1'b1;
-      wbd_data[p] = wbd_l2[p] ? fwd_data[p]
-                              : lsu_pkg::extract_data(dcl_data[p], ldq_q[rs_idx[p]].paddr[lsu_pkg::OW-1:0],
-                                                    ldq_q[rs_idx[p]].func3);
+      wbd_l2a[p] = (l2a_dec[p].act == L2_WBD) && l2_ok[pl12_q[p].ldq];
+      wbd_l2[p]  = wbd_l2b[p] || wbd_l2a[p];
+      rs_dir[p]  = dcl_valid[p] && !dcl_req_id[p][31] && rs_ok[rs_idx[p]] && dcl_replay[p] == RT_HIT && !wbd_l2[p];
+      wbd_v[p]   = wbd_l2[p] || rs_dir[p];
+      wbd_idx[p] = wbd_l2b[p] ? pl2b_q[p].ldq : (wbd_l2a[p] ? pl12_q[p].ldq : rs_idx[p]);
+      wbd_hasdata[p] = wbd_l2b[p] ? 1'b1 : (wbd_l2a[p] ? 1'b0 : 1'b1);
+      wbd_data[p] = wbd_l2b[p] ? fwd_data[p]
+                               : lsu_pkg::extract_data(dcl_data[p], ldq_q[rs_idx[p]].paddr[lsu_pkg::OW-1:0],
+                                                     ldq_q[rs_idx[p]].func3);
     end
   end
 
@@ -184,7 +195,7 @@ module lp_core
               .wbd_data(wbd_data), .wb3_r(wb3_r), .wbw_v(wbw_v), .wbw_idx(wbw_idx), .wbw_hd(wbw_hd),
               .wbw_data(wbw_data));
   lp_wake u_wake (.clk(clk), .rst_n(rst_n), .flush(rb_flush), .mispred(dec_mispred), .dec_br_mask(dec_br_mask),
-                  .pl12(pl12_q), .l2_ok(l2_ok), .ldq_q(ldq_q), .sq(sq), .wbd_v(wbd_v), .wbd_idx(wbd_idx),
+                  .pl12(pl12_q), .l2_ok(l2_ok), .ldq_q(ldq_q), .wbd_v(wbd_v), .wbd_idx(wbd_idx),
                   .wbw_v(wbw_v), .wbw_idx(wbw_idx), .wp_v(wb_wp_v), .wp_idx(wb_wp_idx),
                   .wk_valid(o_wk_valid), .wk_preg(o_wk_preg), .cn_valid(o_cn_valid), .cn_preg(o_cn_preg));
 
@@ -246,7 +257,7 @@ module lp_core
     .pf_xq_pop, .pf_xans_v, .pf_xans_line, .pf_xans_llc, .dtlb_pf_page_set, .dtlb_pf_page_vpn);
 
   // memory speculation (LSU_MEMSPEC): store-queue views, wait table, per-slot permission to pass unknown stores
-  logic [NLD-1:0]  l1_launch, cam_en, cam_unk, spec_ok;
+  logic [NLD-1:0]  l1_launch, spec_ok;
   logic            unk_any;
   logic [SQW-1:0]  unk_rank, sa_rank [NST];
   logic [11:0]     sa_voff [NST];
@@ -256,11 +267,25 @@ module lp_core
   lp_ms u_ms (.clk(clk), .rst_n(rst_n), .sq(sq), .head_q(head_q), .ags(ags), .dis_ld(dis_ld), .vio_new(vio_new),
               .empty_w(empty_w), .ldq_q(ldq_q), .l1(l1), .unk_any(unk_any), .unk_rank(unk_rank),
               .sa_rank(sa_rank), .sa_voff(sa_voff), .sa_f3(sa_f3), .dis_ldw(dis_ldw), .spec_ok(spec_ok));
+  // 256-bit registered STQ word-address bloom filter (vaddr[10:3]) for L1 speculative DCache launch gating
+  logic [255:0] stq_bloom_q, stq_bloom_d;
+  always_comb begin
+    stq_bloom_d = '0;
+    for (int j = 0; j < SQ; j++) begin
+      if (alive_w[j] && sq[j].va_v && !sq[j].suppress) stq_bloom_d[sq[j].vaddr[10:3]] = 1'b1;
+    end
+    for (int k = 0; k < NST; k++) begin
+      if (sa_acc[k]) stq_bloom_d[ags[k].vaddr[10:3]] = 1'b1;
+    end
+  end
+  always_ff @(posedge clk) begin
+    if (!rst_n) stq_bloom_q <= '0;
+    else        stq_bloom_q <= stq_bloom_d;
+  end
+
   lp_l1b u_l1b (.clk(clk), .l1(l1), .l_hit(l_hit), .l_mmio(l_mmio), .l_paddr(l_paddr), .l_tlb(l_tlb),
-                .ld_retry_busy(ld_retry_busy), .pipe8(pipe8_sel), .head_q(head_q),
-                .head_flag_q(head_flag_q), .count_q(count_q), .cv_va(cv_va), .cv_voff(cv_voff), .cv_f3(cv_f3), .sq(sq),
-                .spec_ok(spec_ok), .cam_en(cam_en), .cam_unk(cam_unk), .l1_launch(l1_launch),
-                .dcl_req_valid(dcl_req_valid), .dcl_req_addr(dcl_req_addr),
+                .ld_retry_busy(ld_retry_busy), .stq_bloom_q(stq_bloom_q), .pipe8(pipe8_sel), .spec_ok(spec_ok),
+                .l1_launch(l1_launch), .dcl_req_valid(dcl_req_valid), .dcl_req_addr(dcl_req_addr),
                 .dcl_req_id_o(dcl_req_id_o), .pl12_q(pl12_q));
 
   for (genvar k = 0; k < NLD; k++) begin : g_rpl  // EXP-009/048: replay flag, load PC, and Sv39 VA for Berti
@@ -277,6 +302,8 @@ module lp_core
       sta_info[k] = vw[s1_stq[k]];
       sta_info[k].v = s1_v[k] && (!s1_replay[k] || tl_s[k].hit || tl_s[k].pf);
       sta_info[k].stq = s1_stq[k];
+      sta_info[k].paddr_p1 = sta_info[k].paddr[31:3] + 29'd1;
+      sta_info[k].paddr_m1 = sta_info[k].paddr[31:3] - 29'd1;
       if (sta_info[k].v) ev_sta[s1_stq[k]] = 1'b1;
     end
   end
@@ -367,7 +394,8 @@ module lp_core
     .clk(clk), .rst_n(rst_n), .flush(rb_flush), .mispred(dec_mispred), .dec_br_mask(dec_br_mask),
     .clear_mask(dec_clear_mask),
     .mm_go(resp_fire && unc_is_load_q), .mm_idx(unc_idx_q), .mm_data(periph_rdata),
-    .pl12(pl12_q), .l2_dec(l2_dec), .dcl_valid(dcl_valid), .dcl_req_id(dcl_req_id), .dcl_data(dcl_data),
+    .pl12(pl12_q), .l2a_dec(l2a_dec), .pl2b(pl2b_q), .l2b_dec(l2b_dec),
+    .dcl_valid(dcl_valid), .dcl_req_id(dcl_req_id), .dcl_data(dcl_data),
     .dcl_replay(dcl_replay), .rs_busy(wbd_l2),
     .wb_go(wb_go), .wb_go_d(wb_go_d), .wbd_v(wbw_v), .wbd_idx(wbw_idx), .wbd_data(wbw_data), .agl(agl), .l1(l1),
     .tl_l(tl_l), .l1_launch(l1_launch),
@@ -407,7 +435,8 @@ module lp_core
 
   lp_unc u_unc (
     .clk(clk), .rst_n(rst_n), .resp_fire(resp_fire), .valid_q(unc_valid_q), .is_load_q(unc_is_load_q),
-    .idx_q(unc_idx_q), .valid_post_resp(unc_valid_post_resp),
+    .idx_q(unc_idx_q), .addr_q(unc_addr_q), .wdata_q(unc_wdata_q), .func3_q(unc_func3_q),
+    .valid_post_resp(unc_valid_post_resp),
     .ld_set(mi_v && !unc_valid_post_resp), .ld_addr(mi_addr), .ld_func3(mi_func3), .ld_idx(mi_idx),
     .flush(rb_flush), .mispred(dec_mispred), .ld_empty(((LP_CUT & 16384) != 0) ? dead_r : empty8),
     .st_mmw(st_mmw), .alive_flushed(alive_flushed),
@@ -422,11 +451,14 @@ module lp_core
     alive_flushed = SQ'(rotl64(64'(flushed_mask), head_q));
   end
 
-  assign per_is_mmio = periph_ready && unc_valid_o;
-  assign per_wen = periph_ready && unc_valid_o && !unc_is_load_o;
-  assign per_addr = unc_addr_o;
-  assign per_wdata = unc_wdata_o;
-  assign per_func3 = unc_func3_o;
+  // Registered MMIO output (breaks rob_commit -> u_ptr -> u_stq -> u_drain -> u_unc -> per_addr critical path)
+  logic unc_send;
+  assign unc_send    = periph_ready && unc_valid_post_resp && !(unc_is_load_q && (rb_flush || dec_mispred));
+  assign per_is_mmio = unc_send;
+  assign per_wen     = unc_send && !unc_is_load_q;
+  assign per_addr    = unc_addr_q;
+  assign per_wdata   = unc_wdata_q;
+  assign per_func3   = unc_func3_q;
 
   lp_rsv u_rsvm (.clk(clk), .rst_n(rst_n), .lr1_v(lr1_v), .lr1_addr(lr1_addr), .lr1_br(lr1_br), .sc_clr(sc_clr),
                  .lr2_v(lr2_v), .lr2_addr(lr2_addr), .lr2_br(lr2_br), .pf_any(pf_any), .mispred(dec_mispred),
