@@ -5,6 +5,7 @@
 // traps) return 0 with no flags and fp_dpi_bad = 1.
 #include <cstdint>
 #include <cstdlib>
+#include <mutex>
 
 extern "C" {
 #include "softfloat.h"
@@ -85,6 +86,10 @@ struct Out { uint64_t res = 0; uint32_t flags = 0; bool bad = false; };
 
 Out compute(uint32_t op5, uint32_t funct3, uint32_t f7rs2, uint64_t a64, uint64_t b64, uint64_t c64, uint64_t xi,
             uint32_t frm, uint32_t xlen) {
+  // Berkeley softfloat uses global (non-thread-local) softfloat_roundingMode / softfloat_exceptionFlags;
+  // serialize DPI calls so Verilator --threads N worker threads cannot race on rounding mode.
+  static std::mutex g_sf_mtx;
+  std::lock_guard<std::mutex> lk(g_sf_mtx);
   Out o;
   const uint32_t opcode = (op5 << 2) | 3u;
   const uint32_t funct7 = (f7rs2 >> 5) & 0x7Fu, rs2 = f7rs2 & 0x1Fu, fmt = funct7 & 3u, funct5 = funct7 >> 2;

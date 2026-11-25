@@ -194,11 +194,9 @@ package isu_pkg;
       default: return 1;
     endcase
   endfunction
-  // FP register-file write latency of a class (the divide classes finish one cycle after their wake-up latency; the FP write
-  // happens at the latency); 0 for a class that does not write the FP file
+  // FP register-file write latency of a class (= completion offset wb_cls_off(c)); 0 for a class that does not write FP
   function automatic int fp_cls_lat(input int c);
     if (!FP_EN || c < 4) return 0;
-    else if (c <= 7) return wb_cls_off(c) - 1;
     else return wb_cls_off(c);
   endfunction
   // can issue port p complete a uop of class c (its capability includes the class's unit)

@@ -175,13 +175,20 @@ module lp_core
   always_comb begin
     for (int p = 0; p < NLD; p++) begin
       rs_idx[p] = dcl_req_id[p][LQW-1:0];
-      wbd_l2a[p] = (l2a_dec[p].act == L2_WBD) && l2_ok[pl12_q[p].ldq];
-      wbd_l2[p]  = wbd_l2b[p] || wbd_l2a[p];
-      rs_dir[p]  = dcl_valid[p] && !dcl_req_id[p][31] && rs_ok[rs_idx[p]] && dcl_replay[p] == RT_HIT && !wbd_l2[p];
+      // Per-port epoch qualification: a stale response/L2 slot for the same ldq index on another port must not
+      // piggyback on the live entry's rs_ok/l2_ok bit.
+      wbd_l2a[p] = (l2a_dec[p].act == L2_WBD) && l2_ok[pl12_q[p].ldq] &&
+                   (pl12_q[p].epoch == ldq_q[pl12_q[p].ldq].epoch);
+      wbd_l2[p]  = (wbd_l2b[p] && (pl2b_q[p].epoch == ldq_q[pl2b_q[p].ldq].epoch)) || wbd_l2a[p];
+      rs_dir[p]  = dcl_valid[p] && !dcl_req_id[p][31] && rs_ok[rs_idx[p]] &&
+                   (dcl_req_id[p][LQW +: EPW] == ldq_q[rs_idx[p]].epoch) &&
+                   dcl_replay[p] == RT_HIT && !wbd_l2[p];
       wbd_v[p]   = wbd_l2[p] || rs_dir[p];
-      wbd_idx[p] = wbd_l2b[p] ? pl2b_q[p].ldq : (wbd_l2a[p] ? pl12_q[p].ldq : rs_idx[p]);
-      wbd_hasdata[p] = wbd_l2b[p] ? 1'b1 : (wbd_l2a[p] ? 1'b0 : 1'b1);
-      wbd_data[p] = wbd_l2b[p] ? fwd_data[p]
+      wbd_idx[p] = (wbd_l2b[p] && (pl2b_q[p].epoch == ldq_q[pl2b_q[p].ldq].epoch))
+                   ? pl2b_q[p].ldq : (wbd_l2a[p] ? pl12_q[p].ldq : rs_idx[p]);
+      wbd_hasdata[p] = (wbd_l2b[p] && (pl2b_q[p].epoch == ldq_q[pl2b_q[p].ldq].epoch))
+                       ? 1'b1 : (wbd_l2a[p] ? 1'b0 : 1'b1);
+      wbd_data[p] = (wbd_l2b[p] && (pl2b_q[p].epoch == ldq_q[pl2b_q[p].ldq].epoch)) ? fwd_data[p]
                                : lsu_pkg::extract_data(dcl_data[p], ldq_q[rs_idx[p]].paddr[lsu_pkg::OW-1:0],
                                                      ldq_q[rs_idx[p]].func3);
     end

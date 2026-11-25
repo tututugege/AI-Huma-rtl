@@ -25,7 +25,7 @@ module isu_fp_gate
   output logic [NC-1:0] gate_ok         // candidate may issue (not an FP write, or a port is free in its cycle)
 );
 
-  localparam int DEPTH = FP_EN ? FP_FSQRT_D_LAT : 2;
+  localparam int DEPTH = FP_EN ? (FP_FSQRT_D_LAT + 1) : 2;
   localparam int CNT_W = $clog2(P + 2);
 
   // busy_q[d] = number of reserved FP write ports (d + 1) cycles from now (d = 0 .. DEPTH - 1)
@@ -89,7 +89,13 @@ module isu_fp_gate
         logic          any_c, two_c;
         for (genvar j = 0; j < NC; j++) begin : g_j
           if (j < k) begin : g_lt
-            assign hit_c[j] = req[j] & cand_cls_1h[j][c];
+            // Match all shared classes c2 with same WB latency as c (e.g. FMISC cls 9 & I2F cls 10 both lat=2)
+            always_comb begin
+              hit_c[j] = 1'b0;
+              for (int c2 = 8; c2 <= 10; c2++)
+                if (fp_cls_lat(c) > 0 && fp_cls_lat(c2) == fp_cls_lat(c))
+                  hit_c[j] = hit_c[j] | (req[j] & cand_cls_1h[j][c2]);
+            end
           end else begin : g_ge
             assign hit_c[j] = 1'b0;
           end

@@ -163,7 +163,7 @@ module lp_ldq
         tl_tgt[p] = l1[p].v && l1[p].need_tlb && l1[p].ldq == LQW'(e);
         l1_tgt[p] = l1[p].v && l1[p].ldq == LQW'(e);
         if (wbd_v[p] && wbd_idx[p] == LQW'(e)) wb_d_data = wbd_data[p];
-        if (pl12[p].v && pl12[p].ldq == LQW'(e)) begin
+        if (pl12[p].v && pl12[p].ldq == LQW'(e) && pl12[p].epoch == q_o[e].epoch) begin
           l2_v = 1'b1;
           l2_ep = pl12[p].epoch;
           l2_dec_e = l2a_dec[p];
@@ -172,7 +172,7 @@ module lp_ldq
             sp_val = cam_unk[p];
           end
         end
-        if (pl2b[p].v && pl2b[p].ldq == LQW'(e)) begin
+        if (pl2b[p].v && pl2b[p].ldq == LQW'(e) && pl2b[p].epoch == q_o[e].epoch) begin
           l2_v = 1'b1;
           l2_ep = pl2b[p].epoch;
           l2_dec_e = l2b_dec[p];
