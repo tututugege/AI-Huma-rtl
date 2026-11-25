@@ -165,6 +165,7 @@ RTL 里有、模型里没有的（模型从 trace / 函数模型取得这些，R
 
 - **门禁**：`scripts/fm_gate.sh` 67 个程序，每条提交对比函数模型，周期对 `scripts/ref_cycles_memiq6_nr_int2_ev5.txt`（模型同配置生成）：67/67 通过，周期逐个相等。测试台从 `u_rob` 的提交端口取提交（`tb/soc/soc_tb.cpp` 里读 `u_rob` 的 `rob_commit_*`）。
 - **PMU**：`scripts/pmu_parity.sh` 比较 RTL 与模型的一级事件总数（含 `COMMIT_*`、`CYC_COMMIT_*`、`BR_MISPRED`、`FLUSH_*`），与 ROB 的提交行为直接相关。
+- **SVA 断言与覆盖（`SOC_SVA=1`）**：`sva/sva_rob.sv` 通过 `bind` 挂载至 `rob_core_cpt`（零综合污染），检查 `count_q <= ROB_NUM`、`rob2dis_empty`/`rob2dis_free` 一致性、`head_oh_q`/`hb_oh_q` one-hot、`commit_valid` 连续前缀、flush/异常/中断单发射约束，并带 5 个功能 cover（ROB 满、8 宽提交、flush、mispred、异步中断）。
 - **Lint**：`scripts/lint_chip.sh` 0 告警。
 - **没有模块级的独立测试**：旧体系的 trace 回放和变异检查已随 `spec/` 退役，目前 ROB 靠整核逐拍周期相等和 Linux 启动保证。**待补**：（1）给紧凑核的退休判决（信用、前缀、单独退休）补一个新旧并排的随机测试，改深度时用；（2）行式 ROB 要么删除，要么补一次门禁。
 

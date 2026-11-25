@@ -1,38 +1,32 @@
-# 06 正确性原则（2026-11-04 起）
+# 06 正确性原则（现行 rv64gc 标准）
 
-早期版本的目标是和 C++ 参考模型"逐拍一致"，验证手段是逐模块锁步、trace 回放和变异检查。RTL 现在要自己迭代（改流水线、队列、预测器、缓存），逐拍一致不再成立，那套体系已退役（代码在标签 `legacy-reference`）。
+> 历史锁步/trace 回放体系已于 2026-11-04 退役（见 `legacy-reference` 标签）；`rv32` 已归档至 `rv32-legacy` 分支。本文件只保留当前 `main`（`rv64gc` + `Sv39`）的有效规则。
 
-## 现在的规则
+## 1. 现行正确性标准
 
-1. **正确性 = 架构行为与 function-model 一致。** 整核测试平台（`tb/soc`，`SOC_FM=1` 构建、`SOC_TB_FM=1` 运行）让 function-model 每提交一条指令就执行一条，比较提交 PC 和目的寄存器的值；设备/计数器读值取 RTL 的；中断按 RTL 的 `mcause`/特权级强制注入。与微架构、时序无关，RTL 怎么改都有效。
-2. **周期数、IPC 是性能指标**，不是正确性门禁。`scripts/ref_cycles.txt` 是 trace-model 在当前配置下的周期（模型设 `LSU_PIPE_NOWD=1`，因为 RTL 没有 LDQ/STQ 看门狗）；**合入 main 时 RTL 与它逐个相等**（`fm_gate.sh` 报告不同的个数，现为 0），平时开发用 `scripts/cmp_trace_model.sh` 看差距、`first_diff.sh` 找第一处分歧。
-3. **整机门禁**：`fm_gate.sh` 的 69 个程序（gate + vm + directed + dhrystone/coremark，rv32）逐条提交一致；Linux 从复位启动到登录（rv32 约 1.6 亿周期、rv64 约 1.3 亿周期，逐条对比 0 不一致，需 `SOC_TB_SEMIHOST=1` 和 `-DTTG_EBREAK_TRAP` 构建）；rv64 另跑 53 个 cpu-tests（手工，`SOC_XLEN=64`），dhrystone / coremark 输出正确。
-4. **尚未覆盖（要补）**：store 的地址/数据、CSR 写值、内存内容的对比（逐条对比只比 PC 和目的寄存器值）；SPEC 在 RTL 上的运行；时序综合；形式检查；rv64 的 F/D、C。登记在 [08-risk-register.md](08-risk-register.md)。
-5. **模块级测试**：以后每个模块对着一个简单的功能模型做随机自检（不再对着周期精确的旧模型）；`tests/fpu`（对 softfloat 和门级网表）、`tests/common`（原语穷举）保留。
+1. **架构正确性 = 逐条提交与 `function-model` 一致**（`tb/soc`，`SOC_FM=1` 构建、`SOC_TB_FM=1` 运行）：
+   - 默认模式比较每条提交的 PC、整数/浮点目的寄存器、RAM store 地址与数据、设备 load 计数；
+   - **严格模式（`SOC_TB_FM_STRICT=1`）**额外比较 MMIO/跨字 store 数据以及每次提交周期边界的 `privilege` + 18 个架构 CSR（含 `fcsr`）；
+   - `function-model` 本身通过 `Spike`（`--diff`）对拍验证（详见 `rtl/tools/fuzz/README.md` 与 `docs/SERVER.md`）。
+2. **周期数是性能与对齐指标**：
+   - `scripts/ref_cycles.txt` 为当前默认配置下 `trace-model` 的参考周期（模型默认配置 = RTL 配置，无需任何环境变量）；
+   - **合入 `main` 时**要求 `fm_gate.sh` 全部程序逐条对比 0 不一致、SVA 0 报错、且周期与 `ref_cycles.txt` 逐个相等。
+3. **现行整机与合规门禁**：
+   - **基础门禁**：`scripts/fm_gate.sh`（程序列表以 `scripts/ref_cycles.txt` 为准，支持 `SOC_SVA=1`、`SOC_XINIT_UNIQUE=1`、`SOC_TB_FM_STRICT=1`）；
+   - **官方 ISA 合规**：`scripts/riscv_tests_gate.sh`（RV64 官方 `ui`/`um`/`ua`/`uf`/`ud`/`uc`/`uzba`/`uzbb`/`uzbc`/`uzbs`，跳过不支持的非对齐 `rv64ui-ma_data`）；
+   - **随机压力（Fuzzer）**：`tools/fuzz/fuzz_run.py`（支持 `--tb` 对拍 RTL 与 `--spike-fm` 对拍 Spike，配合 `minimize.py` 自动缩减）；
+   - **Linux 回归**：开发期跑 `scripts/linux_segments_cmp.sh`（26 窗并行对拍 + PT/UP 指纹），合入前跑 `scripts/linux_gate.sh`（从复位全程到 `rv64 login:`）。
+4. **模块级测试**：
+   - 算术/原语单元保留独立对拍：`scripts/mul_check.sh`、`scripts/div_check.sh`、`scripts/fp_synth_check.sh`、`tests/common_prims/run.sh`；
+   - 组合逻辑降深度改写须配新旧等价测试或 Yosys 形式等价（CEC）。
 
-## 已知的 model 与 RTL 不一致点（周期层面，已查清，不修）
+## 2. 已知可解释的周期微差规律
 
-周期数只是性能指标，不是门禁；但下面这些差异已经查清根因，以后在 model 与 RTL 的周期对比里看到误差，先对照这张表，看是不是这些原因。
+- **错路取指读到被修改数据区**：`trace-model` 读功能内存最新值，RTL 经 LLC/DDR 读未同步旧值，可能产生 1~2 拍周期差（不属硬件 bug）。
+- **变延迟 Early-out DIV 错路操作数**：wrong-path 上模型无真实脏操作数（固定 2 拍），RTL 用寄存器堆脏值算 `clz`（2..17 拍），极少数错路 DIV 可能在写回仲裁差 1 拍。
 
-| 编号 | 程序 / 场景 | 现象 | 根因 | 处理 |
-| --- | --- | --- | --- | --- |
-| K-1 | `memory-stress-small`（`LP_L2=0`） | RTL 344,807 对模型 344,808（RTL 少 1 拍）；`LP_L2=1907/1915` 时不出现，原因不明（判断为时序巧合）。**合入 main 的默认配置（分级 LSU、`LP_L2=1907`、预取器开/关、移动消除开）下已不出现**：整核周期与模型逐个相等（当时 67/67，现 69/69）（预取开 memory-stress-small 330,652，预取关 345,364），记录保留是因为 `LP_L2=0` 的配置仍会出现，且根因（错误路径取指的数据语义）没有改动 | 数组 `a[]` 紧跟在代码后面，程序末尾 `ret` 被预测到 `0x80000300`，前端在错误路径上把数据当指令取。模型取指读功能内存（`a[]` 的最终值），RTL 经 LLC/DDR 取指、无 I/D 一致性（`a[]` 的初始值）；两边垃圾指令流不同，整数发射队列按槽位选，端口争用不同，最后一条真实指令发射差 2 拍、提交差 1 拍。因果已验证：让模型读到 RTL 的初始值后 344,808 变 344,807，1,081,437 个提交的周期和 pc 全部一致 | 不修模型也不改 RTL；`LP_L2=0` 下比较时把这个程序的期望值记为 344,807；详见 [analysis/lsu-pipe.md](analysis/lsu-pipe.md) 第 11 节 |
+## 3. 定位分歧工具
 
-**一般规律（可用来解释以后的小误差）**：只要错误路径取指会读到“代码之后的数据区”，或被读的指令字在运行中被 store 改写过，模型（读最新值）和 RTL（读 LLC/DDR 里可能还是旧值）取到的错误路径指令就会不同，造成几拍的周期差，而这和 LSU、BPU 的逻辑无关。
-
-## rv64 周期差的教训（2026-11-12）
-
-rv64 `crc32`、`memory-stress` 曾与模型差几十周期，根因不是 RTL：模型的 LSU 看门狗（`RealLsuPipe.cpp` `wd == 63`）在 63 周期后重发 store，RTL 没有看门狗。模型加 `LSU_PIPE_NOWD=1` 后 rv64 53/53 周期一致。比较 RTL 与模型周期时总要设它。
-
-## 找第一个不一致的点：`scripts/align_check.sh`
-
-周期不等时先用它定位，再决定是否值得逐周期对打印。`bash scripts/align_check.sh <prog.bin> [soc_tb] [trace-model 模拟器]`（环境变量 `BIN` 指纹分箱周期、`IV` PMU 区间、`DRILL=1` 自动下钻；模型要用和 RTL 相同的配置运行，例如 `LSU_PIPE_NOWD=1`），两边各自输出，脚本只比对：
-
-1. **PMU 时间序列**：每 `IV` 周期各第一档事件的增量（模型 `PMU=1 PMU_INTERVAL`，RTL 测试平台 `SOC_TB_PMU_IV`）。第一个不同的区间说明哪个子系统先出问题、在哪段周期内。
-2. **指纹**（`trace-model/front-end/BPU/fpr.h`，RTL 测试平台包含的是同一个头文件）：每 `BIN` 周期一个箱，记 PTAB 写入（`PT`：块基址、下一地址、方向掩码）和预测表更新（`UP`：pc、方向、类型、目标、预测元数据、16 位标志）的个数和交换律哈希（同一周期内的顺序不影响）。第一个个数或哈希不同的箱就是该流的第一个分歧；`DRILL=1` 会用 `FPR_DUMP=<from>:<to>` 重跑两边并并排打印该窗口里的原始事件。
-
-两边的事件周期是同一个口径（RTL 的 PMU `CYCLES` 计数，第一个复位后周期为 0；模型用自己的周期减 1）。RTL 侧只读内部信号（`tb/soc/pmu_public.vlt`），不加 RTL 代码。rv32 和 rv64 的 RTL 都支持（更新队列项的位偏移由 `kXlen` 推出，布局见 `soc_tb.cpp` 里的注释；`upd_ent_t` 改字段时要同步）。要加新的指纹流，在 `fpr.h` 加一个函数，模型和测试平台各调用一次。
-
-## 历史（仅供查阅）
-
-"有意义的行为逐拍一致"、"被覆盖的瞬态不复刻"、边界信号逐拍比较等原则只在旧体系下有意义，见标签 `legacy-reference` 下的本文件。
+- `scripts/align_check.sh <prog.bin> [soc_tb] [trace-model]`：对比每区间 PMU 一级事件与 BPU `PT`/`UP` 指纹（`DRILL=1` 自动下钻窗口）；
+- `scripts/first_diff.sh`：定位第一处提交 PC/周期分歧；
+- `SOC_TB_VCD=<起>:<止>:<文件>` + `scripts/vcd_query.py`：按需抓局部波形。

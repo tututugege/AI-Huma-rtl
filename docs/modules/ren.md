@@ -156,6 +156,7 @@ RTL 与模型的实现差别（行为等价）：
 ## 8. 验证
 
 - **门禁**：`scripts/fm_gate.sh` 67 个程序，每条提交对比函数模型，周期对 `scripts/ref_cycles_memiq6_nr_int2_ev5.txt`（模型同配置生成）：67/67 通过，周期逐个相等。
+- **SVA 断言与覆盖（`SOC_SVA=1`）**：`sva/sva_ren.sv` 通过 `bind` 挂载至 `ren_core`（零综合污染），检查 `free_count <= PRF_NUM`、`walk_active` 期间禁止普通 rename `fire`、`alloc_valid -> alloc_req`，并带 5 个功能 cover（满 8 宽 fire、forward walk、移动消除、flush、mispred）。
 - **Lint**：`scripts/lint_chip.sh` 0 告警。
 - **没有模块级的独立测试**。旧体系（`spec/` 的 trace 回放、随机 trace、变异检查）已退役；`tests/` 里没有针对 ren 的测试。目前正确性靠整核周期逐拍相等和 Linux 启动。**待补**：给移动消除的判定、空闲表和 `arch_cnt` 的释放逻辑补新旧并排的随机测试，改深度时用；最好有一个覆盖"同拍退休、冲刷、误预测"的专门用例（模型里这是断言，RTL 里没有）。
 

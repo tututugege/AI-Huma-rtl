@@ -39,11 +39,12 @@ docs/        本目录（模块设计笔记在 modules/）
 rtl/         所有 RTL（common/ backend/ frontend/ memsys/ core/ pmu/），说明见 rtl/README.md
 harness/     tools/（gen_cfg_pkg 配置包生成器、iogen、svlint）、include/trace_format.h（测试平台用）
 tb/          整核测试平台（soc/）及独立单元对拍平台（mul/、div/、fp_synth/、fp_dpi/、fe_clean_eq/）
-tools/       gen_soc_probe、gen_skipmask（测试平台构建用）、ckpt2image、lint_back_top.sh、toplint.sh
+tools/       gen_soc_probe、gen_skipmask（测试平台构建用）、ckpt2image、lint_back_top.sh、toplint.sh、fuzz/（RV64GC 随机 Fuzzer）
+sva/         非侵入式 SVA bind 断言与覆盖框架（`SOC_SVA=1` 挂载，零综合污染）
 tests/       专项测试：common/、common_prims/、dcache/、fp_*/、pmu/、ren_elim_sel/、rv64/、wb_gate/
 scripts/     索引见 scripts/README.md
-programs/    缩短版 dhrystone/coremark 及源码（programs/big）
+programs/    缩短版 dhrystone/coremark（programs/big）与定向短测试（programs/directed）
 build/       构建产物（不入库）
 ```
 
-测试程序二进制取自 `~/personal/AI-Huma/trace-model/build/{tests,vm}`；Linux 镜像在 `~/personal/AI-Huma-data/linux/`（rv64 在 `linux_rv64/`）（生成方法见 function-model `linux/README.md`）。
+测试程序默认由本仓库构建于 `build/progs/`；Linux 镜像本机位于 `~/rv64spec/linux_j.bin`，集群 26 窗检查点库位于 `/nfs_global/S/houruyao/linux_ckpt_rv64gc/`（详见总仓 [docs/SERVER.md](../../docs/SERVER.md)）。

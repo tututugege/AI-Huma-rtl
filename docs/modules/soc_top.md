@@ -77,6 +77,8 @@ depth 待测（由协调者补）。本模块只有连线，没有逻辑；整�
 ## 8. 验证
 
 - **门禁**：`scripts/fm_gate.sh <soc_tb> <outdir>`：67 个程序，每条提交对比函数模型（`SOC_FM=1` 构建）；周期对 `scripts/ref_cycles_memiq6_nr_int2_ev5.txt`（模型同配置生成）。构建：`SOC_FM=1 SOC_OUT=<绝对路径> bash tb/soc/build.sh`。
+- **SVA 断言与覆盖（`SOC_SVA=1`）**：`sva/sva_axi_ddr.sv` 通过 `bind` 挂载至 `soc_top`（零综合污染），检查外部 DDR AXI4 主口 AR/AW/W 通道 `valid` 稳定性规则，并带 5 个通道握手 cover（AR/AW/W/R/B；`programs/directed/llc_ddr_wb.S` 已打通 AW/W/B 92 次）。
+- **构建与运行期验证开关**：`tb/soc/build.sh` 支持 `SOC_ASSERT=1`、`SOC_SVA=1`、`SOC_XINIT_UNIQUE=1`、`SOC_COV=1|all`（默认全关）；运行期支持 `SOC_TB_FM_STRICT=1`（MMIO/跨字 store + 18 架构 CSR + 特权级对比）与 `SOC_TB_COV_OUT`。
 - **Lint**：`scripts/lint_chip.sh`（以 `soc_top` 为顶，整芯片 Verilator `-Wall`）。
 - **冒烟**：`scripts/soc_smoke.sh`（周期对 `scripts/ref_cycles.txt`）、`scripts/cmp_trace_model.sh`（整程序周期与提交数对模型）。
 - **Linux 启动门禁**：`scripts/build_soc64_linux.sh`（rv64 测试平台，逐条对比，默认 4 个仿真线程）、`scripts/linux_gate.sh`（全程）、`scripts/linux_segments_cmp.sh`（并行窗口）。

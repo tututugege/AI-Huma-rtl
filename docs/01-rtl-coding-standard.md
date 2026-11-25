@@ -108,7 +108,7 @@ end
 
 ## 8. 每个模块必须附带
 
-1. `spec/<module>.io`：接口规格（格式见 [03-harness.md](history/03-harness.md) 第 2 节）。
+1. `rtl/docs/modules/<module>.md`：模块设计文档（模板见 `docs/modules/isu.md`；旧体系 `spec/<module>.io` 已退役）。
 2. （旧体系）参考模型里的录制点——已退役。
 3. `make lint`、`scripts/lint_chip.sh` 干净（0 警告），`scripts/fm_gate.sh` 通过（旧体系的 `replay.sh` 已退役）。
 4. （旧体系）至少 3 个变异体检查——已不再要求。
