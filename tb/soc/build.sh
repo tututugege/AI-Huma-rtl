@@ -25,7 +25,7 @@ if [ "${DS3:-1}" != 0 ]; then
   DS3_DIR=$(cd "${DS3_DIR:-$TM_DIR/third_party/DRAMsim3}" 2>/dev/null && pwd) || { echo "DRAMsim3 not found (run 'git submodule update --init third_party/DRAMsim3' in $TM_DIR, or DS3=0)"; exit 1; }
   DS3_LIB=${DS3_LIB:-$TM_DIR/build_dramsim3/libdramsim3.a}
   [ -f "$DS3_LIB" ] || { (cd "$TM_DIR" && { command -v gmake >/dev/null && gmake dramsim3 || make dramsim3; }) || exit 1; }
-  DS3FLAGS="$DS3FLAGS -DSIM_DDR_DS3 -I$DS3_DIR/src -DDS3_CFG_PATH=$DS3_DIR/configs/DDR4_8Gb_x16_3200.ini"
+  DS3FLAGS="$DS3FLAGS -DSIM_DDR_DS3 -I$DS3_DIR/src -DDS3_CFG_PATH=$DS3_DIR/configs/DDR4_8Gb_x8_3200.ini"
   DS3LD="$DS3_LIB"
 fi
 # F/D (FPRF_NUM > 0 in the config): the FP units compute through DPI-C (tb/fp_dpi/fp_dpi.cpp, Berkeley softfloat of the function model)
