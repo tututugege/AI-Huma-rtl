@@ -368,11 +368,11 @@ long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
       auto *R = top->rootp;
 #define LSUP(n) R->soc_top__DOT__u_core__DOT__u_back__DOT__u_lsu__DOT__u_pipe__DOT__##n
       std::fprintf(stderr, "E t=%llu wb:", (unsigned long long)cycles + 1);
-      for (int p = 0; p < LSU_LDU_COUNT; ++p) if (LSUP(lsu2exe_wb_req_valid) >> p & 1) std::fprintf(stderr, " %d=r%d/p%d/e%d/b%llx", p, (int)LSUP(lsu2exe_wb_req_uop_rob_idx)[p], (int)LSUP(lsu2exe_wb_req_uop_dest_preg)[p], (int)(LSUP(lsu2exe_wb_req_uop_dest_en) >> p & 1), (unsigned long long)LSUP(lsu2exe_wb_req_uop_br_mask)[p]),
+      for (int p = 0; p < LSU_LDU_COUNT; ++p) if (LSUP(lsu2exe_wb_req_valid) >> p & 1) std::fprintf(stderr, " %d=r%d/p%d/e%d/f%d", p, (int)LSUP(lsu2exe_wb_req_uop_rob_idx)[p], (int)LSUP(lsu2exe_wb_req_uop_dest_preg)[p], (int)(LSUP(lsu2exe_wb_req_uop_dest_en) >> p & 1), (int)(LSUP(lsu2exe_wb_req_uop_rob_flag) >> p & 1)),
         std::fprintf(stderr, "/v%x/d%x/f%d%d", (unsigned)LSUP(lsu2exe_wb_req_uop_result)[p], (unsigned)LSUP(lsu2exe_wb_req_uop_diag_val)[p],
                      (int)(LSUP(lsu2exe_wb_req_uop_page_fault_load) >> p & 1), (int)(LSUP(lsu2exe_wb_req_uop_page_fault_store) >> p & 1));
       std::fprintf(stderr, " sta:");
-      for (int p = 0; p < LSU_STA_COUNT; ++p) if (LSUP(lsu2exe_sta_wb_req_valid) >> p & 1) std::fprintf(stderr, " %d=r%d/b%llx", p, (int)LSUP(lsu2exe_sta_wb_req_uop_rob_idx)[p], (unsigned long long)LSUP(lsu2exe_sta_wb_req_uop_br_mask)[p]),
+      for (int p = 0; p < LSU_STA_COUNT; ++p) if (LSUP(lsu2exe_sta_wb_req_valid) >> p & 1) std::fprintf(stderr, " %d=r%d/f%d", p, (int)LSUP(lsu2exe_sta_wb_req_uop_rob_idx)[p], (int)(LSUP(lsu2exe_sta_wb_req_uop_rob_flag) >> p & 1)),
         std::fprintf(stderr, "/v%x/d%x/f%d", (unsigned)LSUP(lsu2exe_sta_wb_req_uop_result)[p], (unsigned)LSUP(lsu2exe_sta_wb_req_uop_diag_val)[p],
                      (int)(LSUP(lsu2exe_sta_wb_req_uop_page_fault_store) >> p & 1));
       std::fprintf(stderr, " dl:");
@@ -488,10 +488,10 @@ long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
           // SimCpu::commit_sync: a committing store applies its device effect (PeripheralModel::on_commit_store) from the STQ entry
           if (top->rob_commit_commit_entry_uop_type[i] == kInstStore && !ttg_getbit(top->rob_commit_commit_entry_uop_page_fault_store, i)) {
             // lp_pkg::lp_stq_t (packed, first field = MSB): va_v pa_v data_v pf mmio lrsc sc_pass suppress trp wbp wbd cmt iss mmw done
-            // vaddr paddr data func3 dest_preg rob_idx rob_flag br_mask rtype[2] rwait[3]
+            // vaddr paddr data func3 dest_preg rob_idx rob_flag rtype[2] rwait[3]
             const auto &fld = top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__u_lsu__DOT__u_pipe__DOT__u_core__DOT__sq[top->rob_commit_commit_entry_uop_stq_idx[i]];
             auto bits = [&](int lo, int w) { uint64_t v = 0; for (int b = 0; b < w; ++b) { int k = lo + b; v |= uint64_t((fld[k / 32] >> (k % 32)) & 1u) << b; } return v; };
-            constexpr int kRtype = 3, kBr = kRtype + 2, kRobFlag = kBr + kCfg_BR_MASK_WIDTH, kRobIdx = kRobFlag + 1, kDest = kRobIdx + kCfg_ROB_IDX_WIDTH,
+            constexpr int kRtype = 3, kRobFlag = kRtype + 2, kRobIdx = kRobFlag + 1, kDest = kRobIdx + kCfg_ROB_IDX_WIDTH,
                           kFunc3 = kDest + kCfg_PRF_IDX_WIDTH, kData = kFunc3 + 3, kPaddr = kData + kXlen, kVaddr = kPaddr + 32, kDone = kVaddr + kXlen;
             // flags above done (LSB first): done mmw iss cmt wbd wbp trp suppress sc_pass lrsc mmio pf data_v pa_v va_v
             constexpr int kSuppress = kDone + 7, kDataV = kDone + 12, kPaV = kDone + 13;

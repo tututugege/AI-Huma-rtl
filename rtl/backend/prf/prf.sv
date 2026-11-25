@@ -10,8 +10,8 @@ module prf import ttg_cfg_pkg::*; import fp_pkg::*; #(
   input  logic clk,
   input  logic rst_n,
   input  logic dec_bcast_mispred,
-  input  logic [BR_MASK_WIDTH-1:0] dec_bcast_br_mask,
-  input  logic [BR_MASK_WIDTH-1:0] dec_bcast_clear_mask,
+  input  logic [ROB_IDX_WIDTH-1:0] dec_bcast_redirect_rob_idx,
+  input  logic dec_bcast_redirect_rob_flag,
   input  logic rob_bcast_flush,
   input  logic [ISSUE_WIDTH-1:0] iss2prf_iss_entry_valid,
   input  logic [PRF_IDX_WIDTH-1:0] iss2prf_iss_entry_uop_dest_preg [ISSUE_WIDTH],
@@ -35,8 +35,6 @@ module prf import ttg_cfg_pkg::*; import fp_pkg::*; #(
   input  logic [2:0] iss2prf_iss_entry_uop_func3 [ISSUE_WIDTH],
   input  logic [6:0] iss2prf_iss_entry_uop_func7 [ISSUE_WIDTH],
   input  logic [31:0] iss2prf_iss_entry_uop_imm [ISSUE_WIDTH],
-  input  logic [BR_TAG_WIDTH-1:0] iss2prf_iss_entry_uop_br_id [ISSUE_WIDTH],
-  input  logic [BR_MASK_WIDTH-1:0] iss2prf_iss_entry_uop_br_mask [ISSUE_WIDTH],
   input  logic [CSR_IDX_WIDTH-1:0] iss2prf_iss_entry_uop_csr_idx [ISSUE_WIDTH],
   input  logic [ROB_IDX_WIDTH-1:0] iss2prf_iss_entry_uop_rob_idx [ISSUE_WIDTH],
   input  logic [STQ_IDX_WIDTH-1:0] iss2prf_iss_entry_uop_stq_idx [ISSUE_WIDTH],
@@ -54,7 +52,8 @@ module prf import ttg_cfg_pkg::*; import fp_pkg::*; #(
   /* verilator lint_off UNUSEDSIGNAL */   // waiver: unused without F/D
   input  logic [FW-1:0] exe2prf_entry_uop_fresult [WB_LANES],
   /* verilator lint_on UNUSEDSIGNAL */
-  input  logic [BR_MASK_WIDTH-1:0] exe2prf_entry_uop_br_mask [WB_LANES],
+  input  logic [ROB_IDX_WIDTH-1:0] exe2prf_entry_uop_rob_idx [WB_LANES],
+  input  logic [WB_LANES-1:0] exe2prf_entry_uop_rob_flag,
   input  logic [WB_LANES-1:0] exe2prf_entry_uop_dest_en,
   input  logic [UOP_TYPE_WIDTH-1:0] exe2prf_entry_uop_op [WB_LANES],
   // LSU write-back requests of this cycle as a bypass source (LP_L2 speculative wake-up: the consumer reads the load
@@ -96,8 +95,6 @@ module prf import ttg_cfg_pkg::*; import fp_pkg::*; #(
   output logic [2:0] prf2exe_iss_entry_uop_func3 [ISSUE_WIDTH],
   output logic [6:0] prf2exe_iss_entry_uop_func7 [ISSUE_WIDTH],
   output logic [31:0] prf2exe_iss_entry_uop_imm [ISSUE_WIDTH],
-  output logic [BR_TAG_WIDTH-1:0] prf2exe_iss_entry_uop_br_id [ISSUE_WIDTH],
-  output logic [BR_MASK_WIDTH-1:0] prf2exe_iss_entry_uop_br_mask [ISSUE_WIDTH],
   output logic [CSR_IDX_WIDTH-1:0] prf2exe_iss_entry_uop_csr_idx [ISSUE_WIDTH],
   output logic [ROB_IDX_WIDTH-1:0] prf2exe_iss_entry_uop_rob_idx [ISSUE_WIDTH],
   output logic [STQ_IDX_WIDTH-1:0] prf2exe_iss_entry_uop_stq_idx [ISSUE_WIDTH],
@@ -117,7 +114,8 @@ module prf import ttg_cfg_pkg::*; import fp_pkg::*; #(
   logic [WL-1:0]             wb_wen_q, wb_is_load_q;
   logic [PRF_IDX_WIDTH-1:0]  wb_dest_preg_q [WL];
   logic [XLEN_BITS-1:0]      wb_result_q    [WL];
-  logic [BR_MASK_WIDTH-1:0]  wb_br_mask_q   [WL];
+  logic [ROB_IDX_WIDTH-1:0]  wb_rob_idx_q   [WL];
+  logic [WL-1:0]             wb_rob_flag_q;
   logic [PRF_NUM-1:0]        reg_wr_en;
   logic [XLEN_BITS-1:0]      reg_wr_data  [PRF_NUM];
   logic [ALU_NUM-1:0]        alu_valid_vec, alu_src1_is_pc_vec;
@@ -232,8 +230,6 @@ module prf import ttg_cfg_pkg::*; import fp_pkg::*; #(
     assign prf2exe_iss_entry_uop_func3[i] = iss2prf_iss_entry_uop_func3[i];
     assign prf2exe_iss_entry_uop_func7[i] = iss2prf_iss_entry_uop_func7[i];
     assign prf2exe_iss_entry_uop_imm[i] = iss2prf_iss_entry_uop_imm[i];
-    assign prf2exe_iss_entry_uop_br_id[i] = iss2prf_iss_entry_uop_br_id[i];
-    assign prf2exe_iss_entry_uop_br_mask[i] = iss2prf_iss_entry_uop_br_mask[i];
     assign prf2exe_iss_entry_uop_csr_idx[i] = iss2prf_iss_entry_uop_csr_idx[i];
     assign prf2exe_iss_entry_uop_rob_idx[i] = iss2prf_iss_entry_uop_rob_idx[i];
     assign prf2exe_iss_entry_uop_stq_idx[i] = iss2prf_iss_entry_uop_stq_idx[i];
@@ -274,15 +270,16 @@ module prf import ttg_cfg_pkg::*; import fp_pkg::*; #(
     .clk, .rst_n,
     .flush            (rob_bcast_flush),
     .bcast_mispred    (dec_bcast_mispred),
-    .bcast_br_mask    (dec_bcast_br_mask),
-    .bcast_clear_mask (dec_bcast_clear_mask),
+    .bcast_rob_idx    (dec_bcast_redirect_rob_idx),
+    .bcast_rob_flag   (dec_bcast_redirect_rob_flag),
     .exe_valid        (exe_valid_vec),
     .exe_dest_en      (exe_dest_en_vec),
     .exe_is_load      (exe_is_load_vec),
     .exe_dest_preg    (exe2prf_entry_uop_dest_preg),
     .exe_result       (exe2prf_entry_uop_result),
-    .exe_br_mask      (exe2prf_entry_uop_br_mask),
-    .wb_wen_q, .wb_is_load_q, .wb_dest_preg_q, .wb_result_q, .wb_br_mask_q
+    .exe_rob_idx      (exe2prf_entry_uop_rob_idx),
+    .exe_rob_flag     (exe2prf_entry_uop_rob_flag),
+    .wb_wen_q, .wb_is_load_q, .wb_dest_preg_q, .wb_result_q, .wb_rob_idx_q, .wb_rob_flag_q
   );
 
   // ---- register file + write ports ----
@@ -505,9 +502,11 @@ module prf import ttg_cfg_pkg::*; import fp_pkg::*; #(
     .wb_wen         (wb_wen_q),
     .wb_is_load     (wb_is_load_q),
     .wb_dest_preg   (wb_dest_preg_q),
-    .wb_br_mask     (wb_br_mask_q),
+    .wb_rob_idx     (wb_rob_idx_q),
+    .wb_rob_flag    (wb_rob_flag_q),
     .bcast_mispred  (dec_bcast_mispred),
-    .bcast_br_mask  (dec_bcast_br_mask),
+    .bcast_rob_idx  (dec_bcast_redirect_rob_idx),
+    .bcast_rob_flag (dec_bcast_redirect_rob_flag),
     .wake_valid     (wake_valid_vec),
     .wake_preg      (prf_awake_wake_preg)
   );

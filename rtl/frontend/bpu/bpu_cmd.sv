@@ -13,6 +13,8 @@ module bpu_cmd import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*
   input  logic        s0_go,
   input  logic        s0_paired,
   input  logic [XLEN_BITS-1:0] pc,
+  input  logic [XLEN_BITS-1:0] s0_base,
+  input  logic [XLEN_BITS-1:0] s0_b_base,
   input  logic [XLEN_BITS-1:0] refetch_address,
   /* verilator lint_off UNUSEDSIGNAL */
   input  pred_t       g0,
@@ -66,7 +68,15 @@ module bpu_cmd import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*
   output logic [1:0]  rr_op,
   output logic [XLEN_BITS-1:0] rr_val,
   output logic [1:0]  rr_op2,
-  output logic [XLEN_BITS-1:0] rr_val2
+  output logic [XLEN_BITS-1:0] rr_val2,
+  // IMLI 2-bit ops (0=hold, 1=inc_sat, 2=zero) & checkpoint values
+  output logic [1:0]  i1_op,
+  output logic [7:0]  i_ck,
+  output logic [1:0]  i2_op,
+  output logic [1:0]  i3_op,
+  output logic [1:0]  ir1_op,
+  output logic [7:0]  ir_ck,
+  output logic [1:0]  g0_i_op
 );
 
   localparam bit FAST    = (FE_RFAST & 1) != 0 || FE_BFAST != 0;
@@ -83,12 +93,13 @@ module bpu_cmd import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*
   /* verilator lint_off UNUSEDSIGNAL */
   pred_t                o_out;
   /* verilator lint_on UNUSEDSIGNAL */
-  logic [XLEN_BITS-1:0] s0_next;
+  logic [XLEN_BITS-1:0] s0_next, d_obase;
 
   always_comb begin
     rf_taken = (rf_type == BR_DIRECT) ? (refetch_address != rf_pc + (rf_is_rvc ? XLEN_BITS'(2) : XLEN_BITS'(4))) : 1'b1;
-    o_ck     = (ovr_a || !d_pair) ? r1.ck : r1.ck_b;
-    o_out    = (ovr_a || !d_pair) ? fin   : fin_b;
+    o_ck     = (ovr_a || !d_pair) ? r1.ck   : r1.ck_b;
+    o_out    = (ovr_a || !d_pair) ? fin     : fin_b;
+    d_obase  = (ovr_a || !d_pair) ? r1.base : r1.base_b;
   end
 
   always_comb begin
@@ -191,6 +202,43 @@ module bpu_cmd import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*
       rr_op   = (rf_type == BR_CALL || rf_type == BR_ICALL) ? 2'd1 : (rf_type == BR_RET) ? 2'd2 : 2'd0;
       rr_val  = rf_pc + (rf_is_rvc ? XLEN_BITS'(2) : XLEN_BITS'(4));
     end
+  end
+
+  // IMLI commands (matching BPU_pipe.h upd_imli sites)
+  always_comb begin
+    g0_i_op = imli_op_of(g0.ty, g0.taken, s0_base, g0.next, 1'b0);
+    i_ck    = o_ck.imli;
+    i1_op   = 2'd0;
+    if (refetch) begin
+      if (pd_restore) begin
+        i_ck  = pd_ck.imli;
+        i1_op = 2'd0;
+      end else if (rep_ok) begin
+        i_ck  = rf_ck_rec.imli;
+        i1_op = imli_op_of(rf_type, rf_taken, rf_pc, refetch_address, 1'b1);
+      end
+    end else if (ovr) begin
+      i_ck  = o_ck.imli;
+      i1_op = imli_op_of(o_out.ty, o_out.taken, d_obase, o_out.next, 1'b0);
+    end else if (l1_ov) begin
+      i_ck  = r0.ck.imli;
+      i1_op = imli_op_of(g1.ty, g1.taken, r0.base, g1.next, 1'b0);
+    end else if (issue && !BFANY) begin
+      i1_op = g0_i_op;
+    end
+
+    ir_ck  = o_ck.imli;
+    ir1_op = 2'd0;
+    if (pd_restore) begin
+      ir_ck  = pd_ck.imli;
+      ir1_op = 2'd0;
+    end else if (rep_ok) begin
+      ir_ck  = rf_ck_rec.imli;
+      ir1_op = imli_op_of(rf_type, rf_taken, rf_pc, refetch_address, 1'b1);
+    end
+
+    i2_op = (BFANY ? s0_go : (REFONLY && refetch && s0_go)) ? g0_i_op : 2'd0;
+    i3_op = (s0_go && s0_paired) ? imli_op_of(g0_b.ty, g0_b.taken, s0_b_base, g0_b.next, 1'b0) : 2'd0;
   end
 
 endmodule

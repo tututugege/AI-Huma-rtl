@@ -43,8 +43,8 @@ module isu_iq_store
   input  logic [SIZE-1:0]          issue_clear,    // slots granted this cycle
   input  logic                     flush_all,
   input  logic                     flush_br,       // misprediction without a global flush
-  input  logic [BR_MASK_WIDTH-1:0] flush_br_mask,
-  input  logic [BR_MASK_WIDTH-1:0] clear_mask,
+  input  logic [ROB_IDX_WIDTH-1:0] flush_rob_idx,
+  input  logic                     flush_rob_flag,
   // registered view (what select and the PRF read this cycle)
   output logic [SIZE-1:0]          slot_valid,
   output logic [SIZE-1:0]          slot_ready,
@@ -83,7 +83,7 @@ module isu_iq_store
   logic [DW-1:0] enq_killed;
   for (genvar w = 0; w < DW; w++) begin : g_pack
     assign enq_bits[w]   = enq_uop[w];
-    assign enq_killed[w] = flush_br && ((enq_uop[w].br_mask & flush_br_mask) != '0);
+    assign enq_killed[w] = flush_br && isu_rob_younger(enq_uop[w].rob_idx, enq_uop[w].rob_flag, flush_rob_idx, flush_rob_flag);
   end
 
   for (genvar i = 0; i < SIZE; i++) begin : g_slot
@@ -221,10 +221,9 @@ module isu_iq_store
     // Ref: IssueQueue::enqueue / comb_wakeup / commit_issue / flush_br / clear_br / flush_all
     // Evaluate branch kill in parallel with u_alloc / u_new (enq_killed per lane, old_killed from uop_q)
     always_comb begin
-      old_killed    = flush_br && ((uop_q.br_mask & flush_br_mask) != '0);
-      uop_d         = write ? isu_uop_t'(new_bits) : uop_q;
-      valid_d       = ((|(hit & ~enq_killed)) || (valid_q && !issue_clear[i] && !old_killed)) && !flush_all;
-      uop_d.br_mask = uop_d.br_mask & ~clear_mask;
+      old_killed = flush_br && isu_rob_younger(uop_q.rob_idx, uop_q.rob_flag, flush_rob_idx, flush_rob_flag);
+      uop_d      = write ? isu_uop_t'(new_bits) : uop_q;
+      valid_d    = ((|(hit & ~enq_killed)) || (valid_q && !issue_clear[i] && !old_killed)) && !flush_all;
     end
 
     always_ff @(posedge clk) begin

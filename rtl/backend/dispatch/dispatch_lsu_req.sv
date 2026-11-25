@@ -1,8 +1,6 @@
 // Ref: back-end/Dispatch.cpp  Dispatch::comb_fire (steps 3 and 4: STQ / LDQ allocation requests)
 `default_nettype none
 
-// Drives the LSU allocation ports for the lanes that fired: the store (or load) granted request port k
-// in comb_alloc sends its ROB index, branch mask and queue metadata on port k.
 module dispatch_lsu_req
   import ttg_cfg_pkg::*;
   import dis_pkg::*;
@@ -10,62 +8,51 @@ module dispatch_lsu_req
   input  logic [NUM_SLOTS-1:0] fire,
   input  logic [STQ_PORTS-1:0]      st_port_sel [NUM_SLOTS],
   input  logic [LDQ_PORTS-1:0]      ld_port_sel [NUM_SLOTS],
-  input  dis_inst_t                 inst        [NUM_SLOTS],   // for br_mask, func3
+  input  dis_inst_t                 inst        [NUM_SLOTS],   // for func3
   input  dis_res_t                  res         [NUM_SLOTS],
   input  logic [LSU_MDP_BITS-1:0]   mdp         [NUM_SLOTS],
   input  logic [31:0]               pc          [NUM_SLOTS],
   output logic [STQ_PORTS-1:0] st_req,
-  output logic [BR_MASK_WIDTH-1:0]  st_br_mask  [STQ_PORTS],
   output logic [2:0]                st_func3    [STQ_PORTS],
   output logic [ROB_IDX_WIDTH-1:0]  st_rob_idx  [STQ_PORTS],
   output logic [STQ_PORTS-1:0] st_rob_flag,
   output logic [STQ_PORTS-1:0] st_stq_flag,
   output logic [LDQ_PORTS-1:0] ld_req,
   output logic [LDQ_IDX_WIDTH-1:0]  ld_idx      [LDQ_PORTS],
-  output logic [BR_MASK_WIDTH-1:0]  ld_br_mask  [LDQ_PORTS],
   output logic [ROB_IDX_WIDTH-1:0]  ld_rob_idx  [LDQ_PORTS],
   output logic [LDQ_PORTS-1:0] ld_rob_flag,
   output logic [LSU_MDP_BITS-1:0]   ld_mdp      [LDQ_PORTS],
   output logic [31:0]               ld_pc       [LDQ_PORTS]
 );
 
-  // Ref: Dispatch::comb_fire step 3 (STQ ports)
   for (genvar k = 0; k < STQ_PORTS; k++) begin : g_stq_port
     logic [NUM_SLOTS-1:0] owner;
-    logic [BR_MASK_WIDTH-1:0] sel_br_mask [NUM_SLOTS];
     logic [ROB_IDX_WIDTH + 3 + 2 - 1:0] sel_meta [NUM_SLOTS];   // {rob_idx, func3, rob_flag, stq_flag}
     logic [ROB_IDX_WIDTH + 3 + 2 - 1:0] meta;
     always_comb begin
       for (int i = 0; i < NUM_SLOTS; i++) begin
-        owner[i]       = fire[i] && st_port_sel[i][k];
-        sel_br_mask[i] = inst[i].br_mask;
-        sel_meta[i]    = {res[i].rob_idx, inst[i].func3, res[i].rob_flag, res[i].stq_flag};
+        owner[i]    = fire[i] && st_port_sel[i][k];
+        sel_meta[i] = {res[i].rob_idx, inst[i].func3, res[i].rob_flag, res[i].stq_flag};
       end
       st_req[k] = |owner;
     end
-    ttg_onehot_mux #(.N(NUM_SLOTS), .W(BR_MASK_WIDTH)) u_br (.sel(owner), .data(sel_br_mask), .out(st_br_mask[k]));
     ttg_onehot_mux #(.N(NUM_SLOTS), .W(ROB_IDX_WIDTH + 5)) u_meta (.sel(owner), .data(sel_meta), .out(meta));
     always_comb begin
       {st_rob_idx[k], st_func3[k], st_rob_flag[k], st_stq_flag[k]} = meta;
     end
   end
 
-  // Ref: Dispatch::comb_fire step 4 (LDQ ports)
   for (genvar k = 0; k < LDQ_PORTS; k++) begin : g_ldq_port
     logic [NUM_SLOTS-1:0] owner;
-    logic [BR_MASK_WIDTH-1:0] sel_br_mask [NUM_SLOTS];
-    // {ldq_idx, rob_idx, rob_flag, mdp, pc}
     logic [LDQ_IDX_WIDTH + ROB_IDX_WIDTH + 1 + LSU_MDP_BITS + 32 - 1:0] sel_meta [NUM_SLOTS];
     logic [LDQ_IDX_WIDTH + ROB_IDX_WIDTH + 1 + LSU_MDP_BITS + 32 - 1:0] meta;
     always_comb begin
       for (int i = 0; i < NUM_SLOTS; i++) begin
-        owner[i]       = fire[i] && ld_port_sel[i][k];
-        sel_br_mask[i] = inst[i].br_mask;
-        sel_meta[i]    = {res[i].ldq_idx, res[i].rob_idx, res[i].rob_flag, mdp[i], pc[i]};
+        owner[i]    = fire[i] && ld_port_sel[i][k];
+        sel_meta[i] = {res[i].ldq_idx, res[i].rob_idx, res[i].rob_flag, mdp[i], pc[i]};
       end
       ld_req[k] = |owner;
     end
-    ttg_onehot_mux #(.N(NUM_SLOTS), .W(BR_MASK_WIDTH)) u_br (.sel(owner), .data(sel_br_mask), .out(ld_br_mask[k]));
     ttg_onehot_mux #(.N(NUM_SLOTS), .W(LDQ_IDX_WIDTH + ROB_IDX_WIDTH + 1 + LSU_MDP_BITS + 32)) u_meta (
       .sel(owner), .data(sel_meta), .out(meta));
     always_comb begin

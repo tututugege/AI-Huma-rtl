@@ -22,8 +22,8 @@ module isu_wake_src
   /* verilator lint_on UNUSEDSIGNAL */
   input  logic                     flush_all,
   input  logic                     flush_br,
-  input  logic [BR_MASK_WIDTH-1:0] flush_br_mask,
-  input  logic [BR_MASK_WIDTH-1:0] clear_mask,
+  input  logic [ROB_IDX_WIDTH-1:0] flush_rob_idx,
+  input  logic                     flush_rob_flag,
   output logic [WAKE_NUM-1:0]      wake_valid,
   output logic [PRF_IDX_WIDTH-1:0] wake_preg [WAKE_NUM],
   // Per-ALU-lane registered EXU bypass wake-up (MUL on lanes 0,2; DIV on lanes 1,3) for wakeup-driven bypass masks
@@ -43,16 +43,18 @@ module isu_wake_src
   // ---- delayed-wake requests: granted uops with a destination whose op class has latency > 1 ----
   logic [MUL_UNITS-1:0]     mul_req_valid;
   logic [PRF_IDX_WIDTH-1:0] mul_req_preg [MUL_UNITS];
-  logic [BR_MASK_WIDTH-1:0] mul_req_mask [MUL_UNITS];
+  logic [ROB_IDX_WIDTH-1:0] mul_req_rob_idx [MUL_UNITS];
+  logic [MUL_UNITS-1:0]     mul_req_rob_flag;
 
   // Only a port whose capability includes the class can be granted such a uop, so requests come from those ports only.
   for (genvar p = 0; p < ISSUE_WIDTH; p++) begin : g_port
     if (port_has(MASK_MUL, p)) begin : g_mul
       localparam int R = port_rank(MASK_MUL, p);
-      assign mul_req_valid[R] = (MUL_DELAYED != 0) && grant_valid[p] && grant_uop[p].dest_en &&
-                                (grant_uop[p].op == op_t'(UOP_MUL));
-      assign mul_req_preg[R]  = grant_uop[p].dest_preg;
-      assign mul_req_mask[R]  = grant_uop[p].br_mask;
+      assign mul_req_valid[R]    = (MUL_DELAYED != 0) && grant_valid[p] && grant_uop[p].dest_en &&
+                                   (grant_uop[p].op == op_t'(UOP_MUL));
+      assign mul_req_preg[R]     = grant_uop[p].dest_preg;
+      assign mul_req_rob_idx[R]  = grant_uop[p].rob_idx;
+      assign mul_req_rob_flag[R] = grant_uop[p].rob_flag;
     end
     // fast wake-up: single-cycle uop with a destination (ports that can issue ALU ops own a fast channel)
     if (port_has(MASK_ALU, p)) begin : g_fast
@@ -70,7 +72,8 @@ module isu_wake_src
   if (FP_EN) begin : g_fp
     logic [FP_REQ_UNITS-1:0]  fp_req_valid;
     logic [PRF_IDX_WIDTH-1:0] fp_req_preg [FP_REQ_UNITS];
-    logic [BR_MASK_WIDTH-1:0] fp_req_mask [FP_REQ_UNITS];
+    logic [ROB_IDX_WIDTH-1:0] fp_req_rob_idx [FP_REQ_UNITS];
+    logic [FP_REQ_UNITS-1:0]  fp_req_rob_flag;
     logic [FP_COUNT_W-1:0]    fp_req_count [FP_REQ_UNITS];
     for (genvar p = 0; p < ISSUE_WIDTH; p++) begin : g_port
       if (port_has(MASK_FPD, p)) begin : g_req
@@ -80,10 +83,11 @@ module isu_wake_src
         assign lat       = fp_latency(grant_uop[p].op, grant_uop[p].func7);
         assign is_fp_op  = (grant_uop[p].op == op_t'(UOP_FMA)) || (grant_uop[p].op == op_t'(UOP_FMISC)) ||
                            (grant_uop[p].op == op_t'(UOP_FDIV)) || (grant_uop[p].op == op_t'(UOP_I2F));
-        assign fp_req_valid[R] = grant_valid[p] && grant_uop[p].dest_en && is_fp_op;
-        assign fp_req_preg[R]  = grant_uop[p].dest_preg;
-        assign fp_req_mask[R]  = grant_uop[p].br_mask;
-        assign fp_req_count[R] = FP_COUNT_W'(lat - (FP_COUNT_W+1)'(1));
+        assign fp_req_valid[R]    = grant_valid[p] && grant_uop[p].dest_en && is_fp_op;
+        assign fp_req_preg[R]     = grant_uop[p].dest_preg;
+        assign fp_req_rob_idx[R]  = grant_uop[p].rob_idx;
+        assign fp_req_rob_flag[R] = grant_uop[p].rob_flag;
+        assign fp_req_count[R]    = FP_COUNT_W'(lat - (FP_COUNT_W+1)'(1));
       end
     end
 
@@ -95,7 +99,7 @@ module isu_wake_src
     logic [PRF_IDX_WIDTH-1:0]     fp_slot_preg [FP_TOT_SLOTS];
     for (genvar r = 0; r < FP_REQ_UNITS; r++) begin : g_fp_port
       logic [PRF_IDX_WIDTH-1:0] p_preg [1];
-      logic [BR_MASK_WIDTH-1:0] p_mask [1];
+      logic [ROB_IDX_WIDTH-1:0] p_ridx [1];
       logic [FP_COUNT_W-1:0]    p_cnt  [1];
       logic [FP_PORT_SLOTS-1:0] p_wv;
       logic [PRF_IDX_WIDTH-1:0] p_wp [FP_PORT_SLOTS];
@@ -103,12 +107,13 @@ module isu_wake_src
       logic [FP_PORT_SLOTS-1:0] p_wl;
       /* verilator lint_on UNUSEDSIGNAL */
       assign p_preg[0] = fp_req_preg[r];
-      assign p_mask[0] = fp_req_mask[r];
+      assign p_ridx[0] = fp_req_rob_idx[r];
       assign p_cnt[0]  = fp_req_count[r];
       isu_wake_iter #(.SLOTS(FP_PORT_SLOTS), .NREQ(1), .CW(FP_COUNT_W)) u_fp (
-        .clk(clk), .rst_n(rst_n), .req_valid(fp_req_valid[r]), .req_preg(p_preg), .req_br_mask(p_mask),
+        .clk(clk), .rst_n(rst_n), .req_valid(fp_req_valid[r]), .req_preg(p_preg),
+        .req_rob_idx(p_ridx), .req_rob_flag(fp_req_rob_flag[r]),
         .req_countdown(p_cnt), .req_lane(1'b0),
-        .flush_all(flush_all), .flush_br(flush_br), .flush_br_mask(flush_br_mask), .clear_mask(clear_mask),
+        .flush_all(flush_all), .flush_br(flush_br), .flush_rob_idx(flush_rob_idx), .flush_rob_flag(flush_rob_flag),
         .wake_valid(p_wv), .wake_preg(p_wp), .wake_lane(p_wl));
       for (genvar s = 0; s < FP_PORT_SLOTS; s++) begin : g_s
         assign fp_slot_valid[r * FP_PORT_SLOTS + s] = p_wv[s];
@@ -143,9 +148,10 @@ module isu_wake_src
   end
 
   isu_wake_mul #(.SLOTS(MUL_UNITS), .NREQ(MUL_UNITS)) u_mul (
-    .clk(clk), .rst_n(rst_n), .req_valid(mul_req_valid), .req_preg(mul_req_preg), .req_br_mask(mul_req_mask),
+    .clk(clk), .rst_n(rst_n), .req_valid(mul_req_valid), .req_preg(mul_req_preg),
+    .req_rob_idx(mul_req_rob_idx), .req_rob_flag(mul_req_rob_flag),
     .req_lane(mul_req_lane),
-    .flush_all(flush_all), .flush_br(flush_br), .flush_br_mask(flush_br_mask), .clear_mask(clear_mask),
+    .flush_all(flush_all), .flush_br(flush_br), .flush_rob_idx(flush_rob_idx), .flush_rob_flag(flush_rob_flag),
     .wake_valid(mul_wake_valid), .wake_preg(mul_wake_preg), .wake_lane(mul_wake_lane));
 
   for (genvar k = 0; k < MUL_UNITS; k++) begin : g_mul_out

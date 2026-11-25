@@ -31,8 +31,8 @@ module lp_wb
   output logic [XLEN_BITS-1:0]         wb_diag [NLD],
   output logic [XLEN_BITS-1:0]         wb_result [NLD],
   output logic [PRFW-1:0]     wb_dest [NLD],
-  output logic [BRW-1:0]      wb_br [NLD],
   output logic [ROBW-1:0]     wb_rob [NLD],
+  output logic [NLD-1:0]      wb_rob_flag,
   output logic [NLD-1:0]      wb_dest_en,
   output logic [NLD-1:0]      wb_pf_load,
   output logic [NLD-1:0]      wb_pf_store,
@@ -42,17 +42,19 @@ module lp_wb
   // STA write-back ports
   output logic [NST-1:0]      sta_valid,
   output logic [XLEN_BITS-1:0]         sta_vaddr [NST],
-  output logic [BRW-1:0]      sta_br [NST],
   output logic [ROBW-1:0]     sta_rob [NST],
+  output logic [NST-1:0]      sta_rob_flag,
   output logic [NST-1:0]      sta_pf,
   // LR/SC reservation effects (in order: direct LR arms, SC clears, WBP LR arms)
   output logic                lr1_v,
   output logic [31:0]         lr1_addr,
-  output logic [BRW-1:0]      lr1_br,
+  output logic [ROBW-1:0]     lr1_rob_idx,
+  output logic                lr1_rob_flag,
   output logic                sc_clr,
   output logic                lr2_v,
   output logic [31:0]         lr2_addr,
-  output logic [BRW-1:0]      lr2_br
+  output logic [ROBW-1:0]     lr2_rob_idx,
+  output logic                lr2_rob_flag
 );
 
   // LP_L2[6]: at most one SC completion per cycle (the pick is one find-first instead of NLD chained ones)
@@ -155,8 +157,8 @@ module lp_wb
       wb_diag[p] = '0;
       wb_result[p] = '0;
       wb_dest[p] = '0;
-      wb_br[p] = '0;
       wb_rob[p] = '0;
+      wb_rob_flag[p] = 1'b0;
       wb_dest_en[p] = 1'b0;
       wb_pf_load[p] = 1'b0;
       wb_pf_store[p] = 1'b0;
@@ -172,8 +174,8 @@ module lp_wb
         wb_result[p] = ldq_q[ld_i[p]].pf ? ldq_q[ld_i[p]].vaddr : ld_res[p];
         // a faulting load does not write its destination (architecturally rd is unchanged; like the SC fault below)
         wb_dest[p] = ldq_q[ld_i[p]].pf ? PRFW'(0) : ldq_q[ld_i[p]].dest_preg;
-        wb_br[p] = ldq_q[ld_i[p]].br_mask;
         wb_rob[p] = ldq_q[ld_i[p]].rob_idx;
+        wb_rob_flag[p] = ldq_q[ld_i[p]].rob_flag;
         wb_dest_en[p] = !ldq_q[ld_i[p]].pf && ldq_q[ld_i[p]].dest_preg != '0;
         wb_pf_load[p] = ldq_q[ld_i[p]].pf;
       end else if (kind_sc[p]) begin
@@ -182,8 +184,8 @@ module lp_wb
                                           : ((rsv_valid && rsv_addr == sq[sc_idx_p[p]].paddr)
                                              ? XLEN_BITS'(0) : XLEN_BITS'(1));
         wb_dest[p] = sq[sc_idx_p[p]].pf ? PRFW'(0) : sq[sc_idx_p[p]].dest_preg;
-        wb_br[p] = sq[sc_idx_p[p]].br_mask;
         wb_rob[p] = sq[sc_idx_p[p]].rob_idx;
+        wb_rob_flag[p] = sq[sc_idx_p[p]].rob_flag;
         wb_dest_en[p] = !sq[sc_idx_p[p]].pf && sq[sc_idx_p[p]].dest_preg != '0;
         wb_pf_store[p] = sq[sc_idx_p[p]].pf;
       end
@@ -211,49 +213,53 @@ module lp_wb
   always_comb begin
     lr1_v = 1'b0;
     lr1_addr = '0;
-    lr1_br = '0;
+    lr1_rob_idx = '0;
+    lr1_rob_flag = 1'b0;
     lr2_v = 1'b0;
     lr2_addr = '0;
-    lr2_br = '0;
+    lr2_rob_idx = '0;
+    lr2_rob_flag = 1'b0;
     sc_clr = |sc_go;
     for (int p = 0; p < NLD; p++) begin
       if (wbd_v[p] && ldq_q[wbd_idx[p]].lrsc && !ldq_q[wbd_idx[p]].pf) begin
         lr1_v = 1'b1;
         lr1_addr = ldq_q[wbd_idx[p]].paddr;
-        lr1_br = ldq_q[wbd_idx[p]].br_mask;
+        lr1_rob_idx = ldq_q[wbd_idx[p]].rob_idx;
+        lr1_rob_flag = ldq_q[wbd_idx[p]].rob_flag;
       end
       if (kind_wp[p] && ldq_q[wp_idx_p[p]].lrsc && !ldq_q[wp_idx_p[p]].pf) begin
         lr2_v = 1'b1;
         lr2_addr = ldq_q[wp_idx_p[p]].paddr;
-        lr2_br = ldq_q[wp_idx_p[p]].br_mask;
+        lr2_rob_idx = ldq_q[wp_idx_p[p]].rob_idx;
+        lr2_rob_flag = ldq_q[wp_idx_p[p]].rob_flag;
       end
     end
   end
 
   typedef struct packed {
     logic [XLEN_BITS-1:0] vaddr;
-    logic [BRW-1:0]       br_mask;
     logic [ROBW-1:0]      rob_idx;
+    logic                 rob_flag;
     logic                 pf;
   } lp_sta_wb_t;
   lp_sta_wb_t sq_sta_v [SQ], sta_sel [NST];
   always_comb begin
     for (int j = 0; j < SQ; j++) begin
-      sq_sta_v[j].vaddr   = sq[j].vaddr;
-      sq_sta_v[j].br_mask = sq[j].br_mask;
-      sq_sta_v[j].rob_idx = sq[j].rob_idx;
-      sq_sta_v[j].pf      = sq[j].pf;
+      sq_sta_v[j].vaddr    = sq[j].vaddr;
+      sq_sta_v[j].rob_idx  = sq[j].rob_idx;
+      sq_sta_v[j].rob_flag = sq[j].rob_flag;
+      sq_sta_v[j].pf       = sq[j].pf;
     end
   end
   for (genvar m = 0; m < NST; m++) begin : g_sta
     ttg_onehot_mux #(.N(SQ), .W($bits(lp_sta_wb_t))) u_stamux (
       .sel(st_oh_unrot[m]), .data(sq_sta_v), .out(sta_sel[m])
     );
-    assign sta_valid[m] = st_pv[m];
-    assign sta_vaddr[m] = sta_sel[m].vaddr;
-    assign sta_br[m]    = sta_sel[m].br_mask;
-    assign sta_rob[m]   = sta_sel[m].rob_idx;
-    assign sta_pf[m]    = sta_sel[m].pf;
+    assign sta_valid[m]    = st_pv[m];
+    assign sta_vaddr[m]    = sta_sel[m].vaddr;
+    assign sta_rob[m]      = sta_sel[m].rob_idx;
+    assign sta_rob_flag[m] = sta_sel[m].rob_flag;
+    assign sta_pf[m]       = sta_sel[m].pf;
   end
 
 endmodule

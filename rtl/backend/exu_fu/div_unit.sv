@@ -1,52 +1,51 @@
 // Ref: back-end/Exu/include/Fu.h  DivUnit (IterativeFU, variable-latency Radix-16 early-out divider)
 `default_nettype none
 
-// One divider FU = iterative control skeleton (exu_iter_ctl) + Radix-16 early-out datapath (div_core) + payload regs.
-// Exports wb_next / wake_valid / wake_preg (registered-only, 1 cycle before completion) so EXU reserves Port 1 wb
-// and ISU wakes consumers without fixed-latency countdown slots.
 module div_unit
   import ttg_cfg_pkg::*;
   import exu_fu_pkg::*;
 #(
   parameter int LAT = DIV_MAX_LATENCY
 ) (
-  input  logic                       clk,
-  input  logic                       rst_n,
-  input  logic                       en,
-  input  logic                       consume,
-  input  logic                       flush,
-  input  logic [BR_MASK_WIDTH-1:0]   flush_mask,
-  input  logic [BR_MASK_WIDTH-1:0]   clear_mask,
-  input  logic [1:0]                 func3,
-  input  logic                       is_word,
-  input  logic [XLEN_BITS-1:0]       src1_rdata,
-  input  logic [XLEN_BITS-1:0]       src2_rdata,
-  input  logic [ROB_IDX_WIDTH-1:0]   rob_idx,
-  input  logic [PRF_IDX_WIDTH-1:0]   dest_preg,
-  input  logic                       dest_en,
-  input  logic [BR_MASK_WIDTH-1:0]   br_mask,
-  output logic                       complete,
-  output logic                       ready,
-  output logic                       wb_next,
-  output logic                       wake_valid,
-  output logic [PRF_IDX_WIDTH-1:0]   wake_preg,
-  output logic [XLEN_BITS-1:0]       result,
-  output logic [ROB_IDX_WIDTH-1:0]   done_rob_idx,
-  output logic [PRF_IDX_WIDTH-1:0]   done_dest_preg,
-  output logic                       done_dest_en,
-  output logic [BR_MASK_WIDTH-1:0]   done_br_mask
+  input  logic                     clk,
+  input  logic                     rst_n,
+  input  logic                     en,
+  input  logic                     consume,
+  input  logic                     flush_all,
+  input  logic                     flush_br,
+  input  logic [ROB_IDX_WIDTH-1:0] flush_rob_idx,
+  input  logic                     flush_rob_flag,
+  input  logic [1:0]               func3,
+  input  logic                     is_word,
+  input  logic [XLEN_BITS-1:0]     src1_rdata,
+  input  logic [XLEN_BITS-1:0]     src2_rdata,
+  input  logic [ROB_IDX_WIDTH-1:0] rob_idx,
+  input  logic                     rob_flag,
+  input  logic [PRF_IDX_WIDTH-1:0] dest_preg,
+  input  logic                     dest_en,
+  output logic                     complete,
+  output logic                     ready,
+  output logic                     wb_next,
+  output logic                     wake_valid,
+  output logic [PRF_IDX_WIDTH-1:0] wake_preg,
+  output logic [XLEN_BITS-1:0]     result,
+  output logic [ROB_IDX_WIDTH-1:0] done_rob_idx,
+  output logic                     done_rob_flag,
+  output logic [PRF_IDX_WIDTH-1:0] done_dest_preg,
+  output logic                     done_dest_en
 );
 
-  localparam int CW = 5;   // lat_m1 in 1..16 (fits in 5 bits)
+  localparam int CW = 5;
 
   logic       accept, run;
   logic [4:0] lat_m1;
 
   exu_iter_ctl #(.CW(CW)) u_ctl (
-    .clk(clk), .rst_n(rst_n), .flush(flush), .flush_mask(flush_mask), .clear_mask(clear_mask),
-    .en(en), .consume(consume), .en_br_mask(br_mask),
+    .clk(clk), .rst_n(rst_n), .flush_all(flush_all), .flush_br(flush_br),
+    .flush_rob_idx(flush_rob_idx), .flush_rob_flag(flush_rob_flag),
+    .en(en), .consume(consume), .en_rob_idx(rob_idx), .en_rob_flag(rob_flag),
     .lat_m1(lat_m1),
-    .accept(accept), .run(run), .complete(complete), .wb_next(wb_next), .ready(ready), .done_br_mask(done_br_mask)
+    .accept(accept), .run(run), .complete(complete), .wb_next(wb_next), .ready(ready), .done_rob_flag(done_rob_flag)
   );
 
   div_core #(.LAT(LAT)) u_core (
@@ -54,7 +53,6 @@ module div_unit
     .src1_rdata(src1_rdata), .src2_rdata(src2_rdata), .lat_m1(lat_m1), .result(result)
   );
 
-  // payload of the uop in flight: captured when it is accepted
   logic [ROB_IDX_WIDTH-1:0] rob_idx_q;
   logic [PRF_IDX_WIDTH-1:0] dest_preg_q;
   logic                     dest_en_q;

@@ -16,19 +16,65 @@ package bpu_stage_pkg;
   localparam int EPOCH_W   = 8;
   localparam int LANE_W    = $clog2(NLANE);
 
+  // ---- Batch 2: S2 8-table ExBlockTage + S2 StatCorrector history constants ----
+  localparam int EX_TN     = 8;
+  localparam int EX_FH_K   = 3;
+  localparam int EX_FH_W   = 12;
+  localparam int SC_GEHL_N = 4;
+  localparam int SC_FH_W   = 9;
+
+  function automatic int unsigned ex_ghr_len(input int i);
+    case (i)
+      0: return 5;
+      1: return 11;
+      2: return 22;
+      3: return 44;
+      4: return 89;
+      5: return 178;
+      6: return 356;
+      default: return 712;
+    endcase
+  endfunction
+
+  function automatic int unsigned ex_fh_len(input int k);
+    case (k)
+      0: return 12;
+      1: return 11;
+      default: return 10;
+    endcase
+  endfunction
+
+  function automatic int unsigned sc_ghr_len(input int g);
+    case (g)
+      0: return 4;
+      1: return 10;
+      2: return 20;
+      default: return 40;
+    endcase
+  endfunction
+
   // ---- history ring + folded histories, RAS ----
-  typedef logic [FH_K-1:0][TN-1:0][FH_W-1:0] fh_t;
+  typedef logic [FH_K-1:0][TN-1:0][FH_W-1:0]          fh_t;
+  typedef logic [EX_FH_K-1:0][EX_TN-1:0][EX_FH_W-1:0] ex_fh_t;
+  typedef logic [SC_GEHL_N-1:0][SC_FH_W-1:0]          sc_fh_t;
   typedef struct packed {
     logic [HR_BITS-1:0]  ring;
     logic [HR_PTR_W-1:0] head;
     fh_t                 fh;
+    ex_fh_t              ex_fh;
+    sc_fh_t              sc_fh;
   } hist_t;
   typedef struct packed {
     logic [RAS_DEPTH-1:0][XLEN_BITS-1:0] st;
     logic [RAS_PTR_W-1:0]                ptr;
     logic [RAS_CNT_W-1:0]                cnt;
   } rasc_t;
-  typedef struct packed { logic [HR_PTR_W-1:0] head; fh_t fh; } hist_ck_t;
+  typedef struct packed {
+    logic [HR_PTR_W-1:0] head;
+    fh_t                 fh;
+    ex_fh_t              ex_fh;
+    sc_fh_t              sc_fh;
+  } hist_ck_t;
   typedef struct packed {
     logic [RASQ_W-1:0]    tosr;
     logic [RASQ_W-1:0]    tosw;
@@ -36,7 +82,11 @@ package bpu_stage_pkg;
     logic [XLEN_BITS-1:0] top;
   } ras_ck_t;
   localparam int RCK_W = 2 * RASQ_W + RAS_CNT_W;
-  typedef struct packed { hist_ck_t h; ras_ck_t r; } ck_t;
+  typedef struct packed {
+    hist_ck_t   h;
+    ras_ck_t    r;
+    logic [7:0] imli;
+  } ck_t;
 
   // ---- block prediction summary shared by S0 / S1 / S2 ----
   typedef struct packed {
@@ -114,10 +164,11 @@ package bpu_stage_pkg;
   // ---- history ring ----
   function automatic hist_t hist_push(input hist_t h, input logic dir);
     hist_t n;
-    logic [FH_W-1:0] v;
-    logic [FH_W-1:0] msk;
-    logic            hi;
-    logic            old_bit;
+    logic [FH_W-1:0]    v, msk;
+    logic [EX_FH_W-1:0] ev, emsk;
+    logic [SC_FH_W-1:0] sv, smsk;
+    logic               hi;
+    logic               old_bit;
     n = h;
     for (int k = 0; k < FH_K; k++) begin
       for (int i = 0; i < TN; i++) begin
@@ -129,6 +180,26 @@ package bpu_stage_pkg;
         v       = v ^ (FH_W'(old_bit) << (ghr_len(i) % fh_len(k, i)));
         n.fh[k][i] = v;
       end
+    end
+    for (int k = 0; k < EX_FH_K; k++) begin
+      emsk = EX_FH_W'((32'd1 << ex_fh_len(k)) - 32'd1);
+      for (int i = 0; i < EX_TN; i++) begin
+        ev      = h.ex_fh[k][i];
+        hi      = ev[ex_fh_len(k) - 1];
+        old_bit = h.ring[HR_PTR_W'(h.head - HR_PTR_W'(ex_ghr_len(i)))];
+        ev      = ((ev << 1) & emsk) | EX_FH_W'(dir ^ hi);
+        ev      = ev ^ (EX_FH_W'(old_bit) << (ex_ghr_len(i) % ex_fh_len(k)));
+        n.ex_fh[k][i] = ev;
+      end
+    end
+    smsk = SC_FH_W'((32'd1 << SC_FH_W) - 32'd1);
+    for (int g = 0; g < SC_GEHL_N; g++) begin
+      sv      = h.sc_fh[g];
+      hi      = sv[SC_FH_W - 1];
+      old_bit = h.ring[HR_PTR_W'(h.head - HR_PTR_W'(sc_ghr_len(g)))];
+      sv      = ((sv << 1) & smsk) | SC_FH_W'(dir ^ hi);
+      sv      = sv ^ (SC_FH_W'(old_bit) << (sc_ghr_len(g) % SC_FH_W));
+      n.sc_fh[g] = sv;
     end
     n.ring[h.head] = dir;
     n.head         = h.head + HR_PTR_W'(1);
@@ -144,10 +215,31 @@ package bpu_stage_pkg;
 
   function automatic hist_t hist_restore(input hist_t h, input hist_ck_t c);
     hist_t n;
-    n      = h;
-    n.head = c.head;
-    n.fh   = c.fh;
+    n       = h;
+    n.head  = c.head;
+    n.fh    = c.fh;
+    n.ex_fh = c.ex_fh;
+    n.sc_fh = c.sc_fh;
     return n;
+  endfunction
+
+  // IMLI op encoding: 0 = hold, 1 = saturating increment, 2 = reset to 0
+  function automatic logic [1:0] imli_op_of(input logic [2:0] ty, input logic taken,
+                                            input logic [XLEN_BITS-1:0] br_pc, input logic [XLEN_BITS-1:0] tgt,
+                                            input logic reset_on_nt);
+    if (ty == BR_DIRECT) begin
+      if (taken) return (tgt < br_pc) ? 2'd1 : 2'd2;
+      else if (reset_on_nt) return 2'd2;
+    end
+    return 2'd0;
+  endfunction
+
+  function automatic logic [7:0] imli_apply(input logic [7:0] imli, input logic [1:0] op);
+    case (op)
+      2'd1:    return (imli < 8'd255) ? (imli + 8'd1) : 8'd255;
+      2'd2:    return 8'd0;
+      default: return imli;
+    endcase
   endfunction
 
   // ---- RAS ----

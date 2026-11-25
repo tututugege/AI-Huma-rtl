@@ -47,9 +47,13 @@ package lp_pkg;
   localparam int RWW  = 3;                  // replay countdown
   localparam int ROBW = ROB_IDX_WIDTH;
   localparam int PRFW = PRF_IDX_WIDTH;
-  localparam int BRW  = BR_MASK_WIDTH;
   localparam int LINEW = 32 - DCACHE_OFFSET_BITS;
   localparam logic [RWW-1:0] RWAIT = RWW'(LSU_PEPLAY_WAIT_CYCLES);
+
+  function automatic logic lp_rob_younger(input logic [ROBW-1:0] a_idx, input logic a_flag,
+                                          input logic [ROBW-1:0] b_idx, input logic b_flag);
+    return (a_flag == b_flag) ? (a_idx > b_idx) : (a_idx < b_idx);
+  endfunction
 
   // LDQ entry state
   typedef enum logic [3:0] {
@@ -213,7 +217,6 @@ package lp_pkg;
     logic [LQW-1:0]  ldq;
     logic [ROBW-1:0] rob_idx;
     logic            rob_flag;
-    logic [BRW-1:0]  br_mask;
     logic [MDPW-1:0] mdp;          // wait-table index of the load PC (memory speculation)
     logic [31:0]     pc;
     logic            wait_b;       // wait-table bit read at dispatch: this load does not pass unknown-address stores
@@ -223,7 +226,6 @@ package lp_pkg;
     logic            v;
     logic [ROBW-1:0] rob_idx;
     logic            rob_flag;
-    logic [BRW-1:0]  br_mask;
     logic [2:0]      func3;
   } lp_dis_st_t;
 
@@ -255,7 +257,6 @@ package lp_pkg;
     logic [PRFW-1:0] dest_preg;
     logic [ROBW-1:0] rob_idx;
     logic            rob_flag;
-    logic [BRW-1:0]  br_mask;
     logic [1:0]      rtype;
     logic [RWW-1:0]  rwait;
   } lp_stq_t;
@@ -289,7 +290,6 @@ package lp_pkg;
   typedef struct packed {
     logic [ROBW-1:0] rob_idx;
     logic            rob_flag;
-    logic [BRW-1:0]  br_mask;
     logic [PRFW-1:0] dest_preg;
     logic [2:0]      func3;
     logic [XLEN_BITS-1:0] vaddr;

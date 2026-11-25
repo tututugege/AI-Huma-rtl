@@ -26,6 +26,9 @@ module bpu_ftb_brq import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
   output logic                    upd_en,
   output logic [XLEN_BITS-1:0]    upd_start,
   output fh_t                     upd_fh,
+  output ex_fh_t                  upd_ex_fh,
+  output sc_fh_t                  upd_sc_fh,
+  output logic [7:0]              upd_imli,
   output logic                    upd_ah_v,
   output logic                    upd_ah_kind,
   output logic [XLEN_BITS-1:0]    upd_ah_key_base,
@@ -102,6 +105,9 @@ module bpu_ftb_brq import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
 
     upd_start         = rc.base;
     upd_fh            = rc.fh;
+    upd_ex_fh         = rc.ex_fh;
+    upd_sc_fh         = rc.sc_fh;
+    upd_imli          = rc.imli;
     upd_ah_v          = rc.ah_v;
     upd_ah_kind       = rc.ah_kind;
     upd_ah_key_base   = rc.ah_key_base;

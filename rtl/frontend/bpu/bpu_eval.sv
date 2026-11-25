@@ -25,10 +25,13 @@ module bpu_eval import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
   input  blk_t                    r1_q,
   input  ftb_ix_t                 r1_ix_q,
   input  ftb_ix_t                 r1_ix_b_q,
+  input  ex_tage_ix_t             r1_ex_ix_q,
+  input  ex_tage_ix_t             r1_ex_ix_b_q,
   input  ftb_s1_raw_t             s1_raw,
   input  ftb_s1_raw_t             r1_raw_q,
   input  ftb_s1_raw_t             r1_raw_b_q,
-  input  logic                    s2_prefer_alt,
+  input  logic [15:0][3:0]        s2_use_alt,
+  input  logic [15:0][5:0]        s2_sc_thres,
   input  logic                    d_pair,
   input  logic [FTB_BLK_ID_W-1:0] blk_seq_q,
   // S0 outputs
@@ -180,7 +183,7 @@ module bpu_eval import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
   // ---- S1 fallback guess & S2 final select (Block A + Block B) ----
   logic [XLEN_BITS-1:0] s2_bnd;
   logic [FTB_SLOTS-1:0] s2_dirs, s2_b_dirs;
-  ftb_tage_pred_t       s2_tp [FTB_SLOTS], s2_b_tp [FTB_SLOTS];
+  ex_tage_pred_t        s2_tp [FTB_SLOTS], s2_b_tp [FTB_SLOTS];
   ftb_itt_sel_t         s2_itt, s2_b_itt;
   ftb_eval_res_t        s1_eval, s2_eval, s2_b_eval;
   logic [NLANE-1:0]     a_pred_dir, a_alt_pred, b_pred_dir, b_alt_pred;
@@ -193,10 +196,14 @@ module bpu_eval import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
 
     s2_bnd = block_bnd(r1_q.base);
     for (int k = 0; k < FTB_SLOTS; k++) begin
-      s2_tp[k]     = ftb_tage_select(r1_ix_q, r1_raw_q.s2_tage_raw[k], 1'b0, 2'd0, s2_prefer_alt);
-      s2_dirs[k]   = s2_tp[k].pred;
-      s2_b_tp[k]   = ftb_tage_select(r1_ix_b_q, r1_raw_b_q.s2_tage_raw[k], 1'b0, 2'd0, s2_prefer_alt);
-      s2_b_dirs[k] = s2_b_tp[k].pred;
+      s2_tp[k]     = ex_tage_select(r1_ex_ix_q, r1_raw_q.s2_tage_raw[k], s2_use_alt);
+      s2_dirs[k]   = sc_select_slot(r1_ex_ix_q.w, r1_raw_q.s2_sc_raw[k],
+                                    s2_tp[k].pred, s2_tp[k].pcpn < 4'(EX_TN),
+                                    s2_tp[k].prov_cnt, s2_tp[k].base_cnt, s2_sc_thres);
+      s2_b_tp[k]   = ex_tage_select(r1_ex_ix_b_q, r1_raw_b_q.s2_tage_raw[k], s2_use_alt);
+      s2_b_dirs[k] = sc_select_slot(r1_ex_ix_b_q.w, r1_raw_b_q.s2_sc_raw[k],
+                                    s2_b_tp[k].pred, s2_b_tp[k].pcpn < 4'(EX_TN),
+                                    s2_b_tp[k].prov_cnt, s2_b_tp[k].base_cnt, s2_sc_thres);
     end
     s2_itt    = ftb_itt_select(r1_ix_q, r1_raw_q.itt_raw);
     s2_eval   = ftb_eval_ent(r1_q.base, s2_bnd, r1_raw_q.ent, r1_raw_q.ftb_hit, 1'b1, s2_dirs,
@@ -223,7 +230,9 @@ module bpu_eval import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
         if (r1_raw_q.ent.s[k].valid && ({1'b0, r1_raw_q.ent.s[k].offset} < s2_ns)) begin
           a_pred_dir[r1_raw_q.ent.s[k].offset] = s2_eval.slot_tk[k];
           a_alt_pred[r1_raw_q.ent.s[k].offset] = s2_tp[k].alt;
-          a_pcpn[r1_raw_q.ent.s[k].offset]     = s2_tp[k].pcpn;
+          a_pcpn[r1_raw_q.ent.s[k].offset]     = (s2_tp[k].pcpn < 4'(EX_TN))
+              ? ((s2_tp[k].pcpn >= 4'(TN)) ? PCPN_W'(TN - 1) : PCPN_W'(s2_tp[k].pcpn))
+              : PCPN_W'(TN);
         end
       end
     end
@@ -232,7 +241,9 @@ module bpu_eval import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
         if (r1_raw_b_q.ent.s[k].valid && ({1'b0, r1_raw_b_q.ent.s[k].offset} < s2_bns)) begin
           b_pred_dir[r1_raw_b_q.ent.s[k].offset] = s2_b_eval.slot_tk[k];
           b_alt_pred[r1_raw_b_q.ent.s[k].offset] = s2_b_tp[k].alt;
-          b_pcpn[r1_raw_b_q.ent.s[k].offset]     = s2_b_tp[k].pcpn;
+          b_pcpn[r1_raw_b_q.ent.s[k].offset]     = (s2_b_tp[k].pcpn < 4'(EX_TN))
+              ? ((s2_b_tp[k].pcpn >= 4'(TN)) ? PCPN_W'(TN - 1) : PCPN_W'(s2_b_tp[k].pcpn))
+              : PCPN_W'(TN);
         end
       end
     end
@@ -254,7 +265,8 @@ module bpu_eval import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
 
   /* verilator lint_off UNUSEDSIGNAL */
   logic unused_eval;
-  assign unused_eval = ^{r0_q, r1_q, r1_ix_q, r1_ix_b_q, s1_raw, ah_eval.slot_tk, u0_eval.slot_tk,
+  assign unused_eval = ^{r0_q, r1_q, r1_ix_q, r1_ix_b_q, r1_ex_ix_q, r1_ex_ix_b_q, s1_raw,
+                         ah_eval.slot_tk, u0_eval.slot_tk,
                          ah2_eval.slot_tk, u0_b_eval, s1_eval.slot_tk, ftb0_b_hit, ftb0_b_ent,
                          ah_tp[0].alt, ah_tp[0].pcpn, ah_tp[0].used_alt,
                          ah2_tp[0].alt, ah2_tp[0].pcpn, ah2_tp[0].used_alt,

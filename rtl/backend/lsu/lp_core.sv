@@ -12,6 +12,8 @@ module lp_core
   input  logic [4:0]          cm_type [NCM],
   input  logic [4:0]          cm_amo_op [NCM],
   input  logic [SQW-1:0]      cm_stq_idx [NCM],
+  input  logic [ROBW-1:0]     cm_rob_idx [NCM],
+  input  logic [NCM-1:0]      cm_rob_flag,
   input  logic                rb_flush,
   input  logic                rb_flush_now,   // the flush decided in this cycle: qualifies the store commits
   input  logic                rb_head_valid,
@@ -19,8 +21,8 @@ module lp_core
   input  logic                rb_hi_valid,
   input  logic [ROBW-1:0]     rb_hi_rob_idx,
   input  logic                dec_mispred,
-  input  logic [BRW-1:0]      dec_br_mask,
-  input  logic [BRW-1:0]      dec_clear_mask,
+  input  logic [ROBW-1:0]     dec_rob_idx,
+  input  logic                dec_rob_flag,
   // dispatch, EXU
   input  lp_dis_ld_t          dis_ld [NDIS],
   input  lp_dis_st_t          dis_st [NDIS],
@@ -64,8 +66,8 @@ module lp_core
   output logic [XLEN_BITS-1:0]         wb_diag [NLD],
   output logic [XLEN_BITS-1:0]         wb_result [NLD],
   output logic [PRFW-1:0]     wb_dest [NLD],
-  output logic [BRW-1:0]      wb_br [NLD],
   output logic [ROBW-1:0]     wb_rob [NLD],
+  output logic [NLD-1:0]      wb_rob_flag,
   output logic [NLD-1:0]      wb_dest_en,
   output logic [NLD-1:0]      wb_pf_load,
   output logic [NLD-1:0]      wb_pf_store,
@@ -74,8 +76,8 @@ module lp_core
   output logic [NLD-1:0]      wb_isw,
   output logic [NST-1:0]      sta_valid,
   output logic [XLEN_BITS-1:0]         sta_vaddr [NST],
-  output logic [BRW-1:0]      sta_br [NST],
   output logic [ROBW-1:0]     sta_rob [NST],
+  output logic [NST-1:0]      sta_rob_flag,
   output logic [NST-1:0]      sta_pf,
   output logic                per_is_mmio,
   output logic                per_wen,
@@ -194,7 +196,8 @@ module lp_core
   lp_l3 u_l3 (.clk(clk), .rst_n(rst_n), .wbd_v(wbd_v), .wbd_idx(wbd_idx), .wbd_hasdata(wbd_hasdata),
               .wbd_data(wbd_data), .wb3_r(wb3_r), .wbw_v(wbw_v), .wbw_idx(wbw_idx), .wbw_hd(wbw_hd),
               .wbw_data(wbw_data));
-  lp_wake u_wake (.clk(clk), .rst_n(rst_n), .flush(rb_flush), .mispred(dec_mispred), .dec_br_mask(dec_br_mask),
+  lp_wake u_wake (.clk(clk), .rst_n(rst_n), .flush(rb_flush), .mispred(dec_mispred),
+                  .dec_rob_idx(dec_rob_idx), .dec_rob_flag(dec_rob_flag),
                   .pl12(pl12_q), .l2_ok(l2_ok), .ldq_q(ldq_q), .wbd_v(wbd_v), .wbd_idx(wbd_idx),
                   .wbw_v(wbw_v), .wbw_idx(wbw_idx), .wp_v(wb_wp_v), .wp_idx(wb_wp_idx),
                   .wk_valid(o_wk_valid), .wk_preg(o_wk_preg), .cn_valid(o_cn_valid), .cn_preg(o_cn_preg));
@@ -204,7 +207,8 @@ module lp_core
   logic [SQ-1:0]   wb_go_s, sc_go;
   logic            lr1_v, sc_clr, lr2_v;
   logic [31:0]     lr1_addr, lr2_addr;
-  logic [BRW-1:0]  lr1_br, lr2_br;
+  logic [ROBW-1:0] lr1_rob_idx, lr2_rob_idx;
+  logic            lr1_rob_flag, lr2_rob_flag;
 
   logic [LQ-1:0]   wbp_sel, pipe8_sel;
   assign pipe8_sel = ((LP_CUT & 65536) != 0) ? ~dead_r : pipe8;
@@ -214,12 +218,13 @@ module lp_core
     .ldq_q(ldq_q), .ldq_res(res_v), .wbp_vec(wbp_sel), .sq(sq), .count_q(count_q), .head_q(head_q),
     .rsv_valid(rsv_valid_q), .rsv_addr(rsv_addr_q), .wb_go(wb_go), .wb_go_d(wb_go_d), .wb_go_s(wb_go_s),
     .sc_go(sc_go), .wp_v(wb_wp_v), .wp_idx(wb_wp_idx),
-    .wb_valid(wb_valid), .wb_diag(wb_diag), .wb_result(wb_result), .wb_dest(wb_dest), .wb_br(wb_br),
-    .wb_rob(wb_rob), .wb_dest_en(wb_dest_en), .wb_pf_load(wb_pf_load), .wb_pf_store(wb_pf_store),
+    .wb_valid(wb_valid), .wb_diag(wb_diag), .wb_result(wb_result), .wb_dest(wb_dest),
+    .wb_rob(wb_rob), .wb_rob_flag(wb_rob_flag), .wb_dest_en(wb_dest_en), .wb_pf_load(wb_pf_load),
+    .wb_pf_store(wb_pf_store),
     .wb_defer(wb_defer), .wb_flushp(wb_flushp), .wb_isw(wb_isw),
-    .sta_valid(sta_valid), .sta_vaddr(sta_vaddr), .sta_br(sta_br), .sta_rob(sta_rob), .sta_pf(sta_pf),
-    .lr1_v(lr1_v), .lr1_addr(lr1_addr), .lr1_br(lr1_br), .sc_clr(sc_clr),
-    .lr2_v(lr2_v), .lr2_addr(lr2_addr), .lr2_br(lr2_br));
+    .sta_valid(sta_valid), .sta_vaddr(sta_vaddr), .sta_rob(sta_rob), .sta_rob_flag(sta_rob_flag), .sta_pf(sta_pf),
+    .lr1_v(lr1_v), .lr1_addr(lr1_addr), .lr1_rob_idx(lr1_rob_idx), .lr1_rob_flag(lr1_rob_flag), .sc_clr(sc_clr),
+    .lr2_v(lr2_v), .lr2_addr(lr2_addr), .lr2_rob_idx(lr2_rob_idx), .lr2_rob_flag(lr2_rob_flag));
 
   // ------------------------------------------------------------------ L1 (P6 .. P9, P12)
   lp_l1in_t        l1 [NLD];
@@ -342,11 +347,13 @@ module lp_core
 
   // ------------------------------------------------------------------ queues
   logic [LQ-1:0] rp_pick;
-  logic [BRW-1:0] br_al [SQ];
+  logic [ROBW-1:0] sq_rob_idx [SQ];
+  logic [SQ-1:0]   sq_rob_flag;
   logic [SQ-1:0] srp_take;
   always_comb begin
     for (int j = 0; j < SQ; j++) begin
-      br_al[j] = sq[j].br_mask;   // (a mispredict cycle has no allocation: the registered masks are what the cut looks at)
+      sq_rob_idx[j]  = sq[j].rob_idx;
+      sq_rob_flag[j] = sq[j].rob_flag;
     end
   end
 
@@ -364,9 +371,11 @@ module lp_core
     assign done_q_v[j] = sq[j].done;
   end
   lp_ptr u_ptr (
-    .clk(clk), .rst_n(rst_n), .flush(rb_flush), .mispred(dec_mispred), .dec_br_mask(dec_br_mask),
+    .clk(clk), .rst_n(rst_n), .flush(rb_flush), .mispred(dec_mispred),
+    .dec_rob_idx(dec_rob_idx), .dec_rob_flag(dec_rob_flag),
     .cm_valid(cm_valid), .cm_type(cm_type), .cm_amo_op(cm_amo_op), .cm_stq_idx(cm_stq_idx), .wbd_vec(wbd_vec),
-    .cm_go(cm_go), .al_req(st_al_req), .al_v(al_v), .al_slot(al_slot), .br_al(br_al), .done_vec(done_v),
+    .cm_go(cm_go), .al_req(st_al_req), .al_v(al_v), .al_slot(al_slot),
+    .sq_rob_idx(sq_rob_idx), .sq_rob_flag(sq_rob_flag), .done_vec(done_v),
     .done_q_vec(done_q_v),
     .ev_ret(ev_ret), .head_q(head_q), .head_flag_q(head_flag_q), .count_q(count_q), .ccount_q(ccount_q),
     .alive_w(alive_w), .win4(win4), .win13(win13), .alive_post(alive_post),
@@ -378,7 +387,7 @@ module lp_core
   assign fill_en = fill_valid;
 
   lp_stq u_stq (
-    .clk(clk), .rst_n(rst_n), .rb_flush(rb_flush_now), .clear_mask(dec_clear_mask), .head_q(head_q), .alive_w(alive_w),
+    .clk(clk), .rst_n(rst_n), .rb_flush(rb_flush_now), .head_q(head_q),
     .win4(win4), .win13(win13), .cm_go(cm_go),
     .mm_done(resp_fire && !unc_is_load_q), .mm_idx(unc_idx_q),
     .dcs_valid(dcs_valid), .dcs_req_id(dcs_req_id), .dcs_replay(dcs_replay), .fill_v(fill_en), .fill_line(fill_line),
@@ -391,8 +400,8 @@ module lp_core
     .d_elig(d_elig), .d_rdy(d_rdy), .sd_acc(sd_acc), .sa_acc(sa_acc));
 
   lp_ldq u_ldq (
-    .clk(clk), .rst_n(rst_n), .flush(rb_flush), .mispred(dec_mispred), .dec_br_mask(dec_br_mask),
-    .clear_mask(dec_clear_mask),
+    .clk(clk), .rst_n(rst_n), .flush(rb_flush), .mispred(dec_mispred),
+    .dec_rob_idx(dec_rob_idx), .dec_rob_flag(dec_rob_flag),
     .mm_go(resp_fire && unc_is_load_q), .mm_idx(unc_idx_q), .mm_data(periph_rdata),
     .pl12(pl12_q), .l2a_dec(l2a_dec), .pl2b(pl2b_q), .l2b_dec(l2b_dec),
     .dcl_valid(dcl_valid), .dcl_req_id(dcl_req_id), .dcl_data(dcl_data),
@@ -460,10 +469,14 @@ module lp_core
   assign per_wdata   = unc_wdata_q;
   assign per_func3   = unc_func3_q;
 
-  lp_rsv u_rsvm (.clk(clk), .rst_n(rst_n), .lr1_v(lr1_v), .lr1_addr(lr1_addr), .lr1_br(lr1_br), .sc_clr(sc_clr),
-                 .lr2_v(lr2_v), .lr2_addr(lr2_addr), .lr2_br(lr2_br), .pf_any(pf_any), .mispred(dec_mispred),
-                 .dec_br_mask(dec_br_mask), .clear_mask(dec_clear_mask), .rsv_valid_q(rsv_valid_q),
-                 .rsv_addr_q(rsv_addr_q));
+  lp_rsv u_rsvm (.clk(clk), .rst_n(rst_n),
+                 .cm_valid(cm_valid), .cm_rob_idx(cm_rob_idx), .cm_rob_flag(cm_rob_flag),
+                 .lr1_v(lr1_v), .lr1_addr(lr1_addr), .lr1_rob_idx(lr1_rob_idx), .lr1_rob_flag(lr1_rob_flag),
+                 .sc_clr(sc_clr),
+                 .lr2_v(lr2_v), .lr2_addr(lr2_addr), .lr2_rob_idx(lr2_rob_idx), .lr2_rob_flag(lr2_rob_flag),
+                 .pf_any(pf_any), .mispred(dec_mispred),
+                 .dec_rob_idx(dec_rob_idx), .dec_rob_flag(dec_rob_flag),
+                 .rsv_valid_q(rsv_valid_q), .rsv_addr_q(rsv_addr_q));
 
   lp_rp u_rp (.clk(clk), .rst_n(rst_n), .rdy9(rdy9),
               .empty8(((LP_CUT & 128) != 0) ? dead_r : empty8), .rp_cons(rp_cons), .srp_cons(srp_cons),

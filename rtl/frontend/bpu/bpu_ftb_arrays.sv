@@ -17,18 +17,25 @@ module bpu_ftb_arrays import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage
   output ftb_ah_raw_t          ah2_rd_raw,
   output logic                 ah_prefer_alt,
   output logic                 ah2_prefer_alt,
-  // S1 dual lookup (Main FTB + S2 Block-TAGE + S2 Block-ITT for Block A & Block B)
+  // S1 dual lookup (Main FTB + S2 ExBlockTage + S2 SC + S2 Block-ITT for Block A & Block B)
   input  logic [XLEN_BITS-1:0] s1_base,
   input  ftb_ix_t              s1_ix,
+  input  ex_tage_ix_t          s1_ex_ix,
+  input  sc_ix_t               s1_sc_ix,
   input  logic [XLEN_BITS-1:0] s1_b_base,
   input  ftb_ix_t              s1_b_ix,
+  input  ex_tage_ix_t          s1_b_ex_ix,
+  input  sc_ix_t               s1_b_sc_ix,
   output ftb_s1_raw_t          s1_raw,
   output ftb_s1_raw_t          s1_b_raw,
-  output logic                 s2_prefer_alt,
+  output logic [15:0][3:0]     s2_use_alt,
+  output logic [15:0][5:0]     s2_sc_thres,
   // Single-branch commit training (BRQ_W=1)
   input  logic                 upd_en,
   input  logic [XLEN_BITS-1:0] upd_start,
   input  ftb_ix_t              upd_ix,
+  input  ex_tage_ix_t          upd_ex_ix,
+  input  sc_ix_t               upd_sc_ix,
   input  logic                 upd_ah_v,
   input  logic                 upd_ah_kind, // 0 = 1-ahead A (aftb), 1 = 2-ahead B (aftb2)
   input  logic [XLEN_BITS-1:0] upd_ah_key_base,
@@ -84,14 +91,31 @@ module bpu_ftb_arrays import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage
     .clr_en, .clr_base, .clr_pc
   );
 
-  bpu_ftb_tage #(.N_ENT(FTB_S2_TAGE_N), .HAS_BASE(1'b1), .USE_LIVE_PRED(1'b0), .HAS_RD2(1'b1)) u_s2_tage (
+  logic       s2_upd_en, s2_live_pred, s2_live_prov_hit;
+  logic [2:0] s2_live_prov_cnt;
+  logic [1:0] s2_live_base_cnt;
+  assign s2_upd_en = upd_en && (upd_br.br_type == BR_DIRECT) && ftb1_sl_v;
+
+  bpu_ftb_ex_tage u_s2_tage (
     .clk, .rst_n,
-    .rd_ix(s1_ix), .rd2_ix(s1_b_ix), .rd_raw(s1_raw.s2_tage_raw), .rd2_raw(s1_b_raw.s2_tage_raw),
-    .prefer_alt(s2_prefer_alt),
-    .upd_en(upd_en && (upd_br.br_type == BR_DIRECT) && ftb1_sl_v),
-    .upd_ix, .upd_sl(ftb1_sl_idx), .upd_real_dir(upd_br.actual_dir),
-    .upd_pred_dir(upd_br.pred_dir), .upd_alt_pred(upd_br.alt_pred), .upd_pcpn(upd_br.pcpn),
-    .upd_base_ctr(2'd0)
+    .rd_ix(s1_ex_ix), .rd2_ix(s1_b_ex_ix),
+    .rd_raw(s1_raw.s2_tage_raw), .rd2_raw(s1_b_raw.s2_tage_raw),
+    .use_alt_o(s2_use_alt),
+    .upd_en(s2_upd_en),
+    .upd_ix(upd_ex_ix), .upd_sl(ftb1_sl_idx), .upd_real_dir(upd_br.actual_dir),
+    .upd_live_pred(s2_live_pred), .upd_live_prov_hit(s2_live_prov_hit),
+    .upd_live_prov_cnt(s2_live_prov_cnt), .upd_live_base_cnt(s2_live_base_cnt)
+  );
+
+  bpu_ftb_sc u_s2_sc (
+    .clk, .rst_n,
+    .rd_ix(s1_sc_ix), .rd2_ix(s1_b_sc_ix),
+    .rd_raw(s1_raw.s2_sc_raw), .rd2_raw(s1_b_raw.s2_sc_raw),
+    .thres_o(s2_sc_thres),
+    .upd_en(s2_upd_en),
+    .upd_ix(upd_sc_ix), .upd_sl(ftb1_sl_idx), .upd_real_dir(upd_br.actual_dir),
+    .upd_tage_pred(s2_live_pred), .upd_prov_hit(s2_live_prov_hit),
+    .upd_prov_cnt(s2_live_prov_cnt), .upd_base_cnt(s2_live_base_cnt)
   );
 
   bpu_ftb_itt #(.N_ENT(FTB_ITT_N), .HAS_RD2(1'b1)) u_s2_itt (

@@ -12,8 +12,8 @@ module lp_ldq
   input  logic                rst_n,
   input  logic                flush,
   input  logic                mispred,
-  input  logic [BRW-1:0]      dec_br_mask,
-  input  logic [BRW-1:0]      clear_mask,
+  input  logic [ROBW-1:0]     dec_rob_idx,
+  input  logic                dec_rob_flag,
   // P2 MMIO response
   input  logic                mm_go,
   input  logic [LQW-1:0]      mm_idx,
@@ -193,7 +193,7 @@ module lp_ldq
     end
 
     lp_ldq_ent #(.IDX(e)) u_ent (
-      .clk(clk), .rst_n(rst_n), .flush(flush), .mispred(mispred), .dec_br_mask(dec_br_mask), .clear_mask(clear_mask),
+      .clk(clk), .rst_n(rst_n), .flush(flush), .mispred(mispred), .dec_rob_idx(dec_rob_idx), .dec_rob_flag(dec_rob_flag),
       .mm_go(mm_go && mm_idx == LQW'(e)), .mm_data(mm_data),
       .l2_v(l2_v), .l2_ep(l2_ep), .l2_dec(l2_dec_e), .l2_ok(l2_ok[e]),
       .rs_v(rs_v), .rs_ep(rs_ep), .rs_hit(rs_hit_e), .rs_rep(rs_rep_e), .rs_raw(rs_raw_e), .rs_busy(rs_busy_e),

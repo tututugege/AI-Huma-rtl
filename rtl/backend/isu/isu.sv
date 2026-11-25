@@ -34,8 +34,6 @@ module isu
   input  logic [2:0] dis2iss_req_uop_func3 [IQ_NUM][IQ_DISPATCH_WIDTH],
   input  logic [6:0] dis2iss_req_uop_func7 [IQ_NUM][IQ_DISPATCH_WIDTH],
   input  logic [31:0] dis2iss_req_uop_imm [IQ_NUM][IQ_DISPATCH_WIDTH],
-  input  logic [BR_TAG_WIDTH-1:0] dis2iss_req_uop_br_id [IQ_NUM][IQ_DISPATCH_WIDTH],
-  input  logic [BR_MASK_WIDTH-1:0] dis2iss_req_uop_br_mask [IQ_NUM][IQ_DISPATCH_WIDTH],
   input  logic [CSR_IDX_WIDTH-1:0] dis2iss_req_uop_csr_idx [IQ_NUM][IQ_DISPATCH_WIDTH],
   input  logic [ROB_IDX_WIDTH-1:0] dis2iss_req_uop_rob_idx [IQ_NUM][IQ_DISPATCH_WIDTH],
   input  logic [STQ_IDX_WIDTH-1:0] dis2iss_req_uop_stq_idx [IQ_NUM][IQ_DISPATCH_WIDTH],
@@ -56,8 +54,8 @@ module isu
   input  logic [PRF_IDX_WIDTH-1:0] exe2iss_div_wake_preg,
   input  logic rob_bcast_flush,
   input  logic dec_bcast_mispred,
-  input  logic [BR_MASK_WIDTH-1:0] dec_bcast_br_mask,
-  input  logic [BR_MASK_WIDTH-1:0] dec_bcast_clear_mask,
+  input  logic [ROB_IDX_WIDTH-1:0] dec_bcast_redirect_rob_idx,
+  input  logic dec_bcast_redirect_rob_flag,
   // outputs
   output logic [READY_NUM_W-1:0] iss2dis_ready_num [IQ_NUM],
   output logic [ISSUE_WIDTH-1:0] iss2prf_iss_entry_valid,
@@ -81,8 +79,6 @@ module isu
   output logic [2:0] iss2prf_iss_entry_uop_func3 [ISSUE_WIDTH],
   output logic [6:0] iss2prf_iss_entry_uop_func7 [ISSUE_WIDTH],
   output logic [31:0] iss2prf_iss_entry_uop_imm [ISSUE_WIDTH],
-  output logic [BR_TAG_WIDTH-1:0] iss2prf_iss_entry_uop_br_id [ISSUE_WIDTH],
-  output logic [BR_MASK_WIDTH-1:0] iss2prf_iss_entry_uop_br_mask [ISSUE_WIDTH],
   output logic [CSR_IDX_WIDTH-1:0] iss2prf_iss_entry_uop_csr_idx [ISSUE_WIDTH],
   output logic [ROB_IDX_WIDTH-1:0] iss2prf_iss_entry_uop_rob_idx [ISSUE_WIDTH],
   output logic [STQ_IDX_WIDTH-1:0] iss2prf_iss_entry_uop_stq_idx [ISSUE_WIDTH],
@@ -138,7 +134,7 @@ module isu
     .exe_div_wake_valid(exe2iss_div_wake_valid), .exe_div_wake_preg(exe2iss_div_wake_preg),
     .cand_valid(cand_valid_all), .grant_valid(grant_valid), .grant_uop(grant_uop),
     .flush_all(rob_bcast_flush), .flush_br(flush_br),
-    .flush_br_mask(dec_bcast_br_mask), .clear_mask(dec_bcast_clear_mask),
+    .flush_rob_idx(dec_bcast_redirect_rob_idx), .flush_rob_flag(dec_bcast_redirect_rob_flag),
     .wake_valid(wake_valid), .wake_preg(wake_preg),
     .slow_exu_valid(slow_exu_valid), .slow_exu_preg(slow_exu_preg),
     .fp_raw_valid(fp_raw_valid), .fp_raw_preg(fp_raw_preg));
@@ -340,8 +336,6 @@ module isu
           func3: dis2iss_req_uop_func3[q][w],
           func7: dis2iss_req_uop_func7[q][w],
           imm: dis2iss_req_uop_imm[q][w],
-          br_id: dis2iss_req_uop_br_id[q][w],
-          br_mask: dis2iss_req_uop_br_mask[q][w],
           csr_idx: dis2iss_req_uop_csr_idx[q][w],
           rob_idx: dis2iss_req_uop_rob_idx[q][w],
           stq_idx: dis2iss_req_uop_stq_idx[q][w],
@@ -392,7 +386,7 @@ module isu
       .fu_ready(fu_ready), .gate_ok(g_gate_ok), .cls_free(g_cls_free),
       .fp_free1_cls(fp_free1_cls), .fp_free2_cls(fp_free2_cls),
       .issue_block(issue_block), .flush_all(rob_bcast_flush), .flush_br(flush_br),
-      .flush_br_mask(dec_bcast_br_mask), .clear_mask(dec_bcast_clear_mask),
+      .flush_rob_idx(dec_bcast_redirect_rob_idx), .flush_rob_flag(dec_bcast_redirect_rob_flag),
       .cancel_valid(lsu2iss_cancel_valid), .cancel_preg(lsu2iss_cancel_preg),
       .free_slots(free_slots), .cand_valid(g_cand), .grant_valid(g_valid),
       .grant_uop(g_uop), .grant_src1_byp(g_byp1), .grant_src2_byp(g_byp2),
@@ -422,8 +416,6 @@ module isu
     assign iss2prf_iss_entry_uop_func3[p] = grant_uop[p].func3;
     assign iss2prf_iss_entry_uop_func7[p] = grant_uop[p].func7;
     assign iss2prf_iss_entry_uop_imm[p] = grant_uop[p].imm;
-    assign iss2prf_iss_entry_uop_br_id[p] = grant_uop[p].br_id;
-    assign iss2prf_iss_entry_uop_br_mask[p] = grant_uop[p].br_mask;
     assign iss2prf_iss_entry_uop_csr_idx[p] = grant_uop[p].csr_idx;
     assign iss2prf_iss_entry_uop_rob_idx[p] = grant_uop[p].rob_idx;
     assign iss2prf_iss_entry_uop_stq_idx[p] = grant_uop[p].stq_idx;

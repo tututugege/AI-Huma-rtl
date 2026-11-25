@@ -19,7 +19,6 @@ package lsu_pkg;
   localparam int NCM  = COMMIT_WIDTH;
   localparam int ROBW = ROB_IDX_WIDTH;
   localparam int PRFW = PRF_IDX_WIDTH;
-  localparam int BRW  = BR_MASK_WIDTH;
   localparam int RN   = LDQ_SIZE;                // all six queues are rings of this size
   localparam int RIW  = LDQ_IDX_WIDTH;
   localparam int RCW  = RIW + 1;
@@ -58,6 +57,11 @@ package lsu_pkg;
     return {1'b0, RIW'(idx - head)} < count;
   endfunction
 
+  function automatic logic lsu_rob_younger(input logic [ROBW-1:0] a_idx, input logic a_flag,
+                                           input logic [ROBW-1:0] b_idx, input logic b_flag);
+    return (a_flag == b_flag) ? (a_idx > b_idx) : (a_idx < b_idx);
+  endfunction
+
   // ---- per-slot / per-entry bundles (all packed) ----
   // LDQ entry data fields (the state machine and `result` are held separately, see lsu_ldq_ent)
   typedef struct packed {
@@ -66,7 +70,6 @@ package lsu_pkg;
     logic [PRFW-1:0] dest;
     logic [ROBW-1:0] rob_idx;
     logic            rob_flag;
-    logic [BRW-1:0]  br_mask;
     logic [SQW-1:0]  snap_idx;
     logic            snap_flag;
     logic [1:0]      replay;
@@ -80,7 +83,6 @@ package lsu_pkg;
     logic [PRFW-1:0] dest;
     logic [ROBW-1:0] rob_idx;
     logic            rob_flag;
-    logic [BRW-1:0]  br_mask;
     logic [1:0]      replay;
     logic            data_valid, paddr_valid, pf, suppress, mmio, lrsc, sc_pass;
   } stq_fld_t;
@@ -96,7 +98,7 @@ package lsu_pkg;
   typedef struct packed { logic stlf, fin, retry; } ldq_tw_t;                                    // I2
   typedef struct packed { logic chg; ld_state_t new_st; logic res_we; logic [31:0] res; } ldq_sf_t;   // J
   typedef struct packed {                                                                          // K
-    logic go; logic [ROBW-1:0] rob_idx; logic rob_flag; logic [BRW-1:0] br_mask;
+    logic go; logic [ROBW-1:0] rob_idx; logic rob_flag;
   } ldq_al_t;
 
   // STQ events
@@ -108,7 +110,7 @@ package lsu_pkg;
   typedef struct packed { logic go; logic [1:0] res; logic [31:0] paddr; } stq_tr_t;            // I1
   typedef struct packed { logic done, retry; } stq_tw_t;                                         // I2
   typedef struct packed {                                                                          // K
-    logic go; logic [ROBW-1:0] rob_idx; logic rob_flag; logic [BRW-1:0] br_mask;
+    logic go; logic [ROBW-1:0] rob_idx; logic rob_flag;
   } stq_al_t;
   typedef struct packed { logic iss, sup, mm, dec; } stq_is_t;                                   // N
 

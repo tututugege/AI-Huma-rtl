@@ -17,7 +17,8 @@ module lp_wake
   input  logic                rst_n,
   input  logic                flush,
   input  logic                mispred,
-  input  logic [BRW-1:0]      dec_br_mask,
+  input  logic [ROBW-1:0]     dec_rob_idx,
+  input  logic                dec_rob_flag,
   input  lp_pl12_t            pl12 [NLD],
   input  logic [LQ-1:0]       l2_ok,                 // entry of the L1/L2 register still PIPE, same epoch
   input  lp_ldq_t             ldq_q [LQ],
@@ -47,7 +48,8 @@ module lp_wake
         spec_w[p] = pl12[p].v && l2_ok[pl12[p].ldq] && pl12[p].tlb == TLB_HIT && !pl12[p].mmio &&
                     !pl12[p].dcblk && !pl12[p].bloom && !(MS && ldq_q[pl12[p].ldq].second) &&
                     ldq_q[pl12[p].ldq].dest_preg != '0 && !flush &&
-                    !(mispred && (ldq_q[pl12[p].ldq].br_mask & dec_br_mask) != '0);
+                    !(mispred && lp_rob_younger(ldq_q[pl12[p].ldq].rob_idx, ldq_q[pl12[p].ldq].rob_flag,
+                                                dec_rob_idx, dec_rob_flag));
         wk_valid[p] = spec_w[p];
         wk_preg[p] = ldq_q[pl12[p].ldq].dest_preg;
       end
@@ -60,7 +62,8 @@ module lp_wake
         wk_valid[NLD + p] = ld_wb_v && !(MS && ldq_q[ld_wb_i].second) &&
                             !ldq_q[ld_wb_i].pf &&
                             ldq_q[ld_wb_i].dest_preg != '0 && !flush &&
-                            !(mispred && (ldq_q[ld_wb_i].br_mask & dec_br_mask) != '0);
+                            !(mispred && lp_rob_younger(ldq_q[ld_wb_i].rob_idx, ldq_q[ld_wb_i].rob_flag,
+                                                        dec_rob_idx, dec_rob_flag));
         wk_preg[NLD + p] = ldq_q[ld_wb_i].dest_preg;
       end
     end

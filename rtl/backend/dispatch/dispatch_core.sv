@@ -39,14 +39,12 @@ module dispatch_core
   input  logic [LDQ_IDX_WIDTH-1:0]      ldq_alloc_idx   [LDQ_PORTS],
   input  logic [LDQ_PORTS-1:0] ldq_alloc_valid,
   output logic [STQ_PORTS-1:0] st_req,
-  output logic [BR_MASK_WIDTH-1:0]      st_br_mask  [STQ_PORTS],
   output logic [2:0]                    st_func3    [STQ_PORTS],
   output logic [ROB_IDX_WIDTH-1:0]      st_rob_idx  [STQ_PORTS],
   output logic [STQ_PORTS-1:0] st_rob_flag,
   output logic [STQ_PORTS-1:0] st_stq_flag,
   output logic [LDQ_PORTS-1:0] ld_req,
   output logic [LDQ_IDX_WIDTH-1:0]      ld_idx      [LDQ_PORTS],
-  output logic [BR_MASK_WIDTH-1:0]      ld_br_mask  [LDQ_PORTS],
   output logic [ROB_IDX_WIDTH-1:0]      ld_rob_idx  [LDQ_PORTS],
   output logic [LDQ_PORTS-1:0] ld_rob_flag,
   output logic [LSU_MDP_BITS-1:0]       ld_mdp      [LDQ_PORTS],
@@ -56,14 +54,13 @@ module dispatch_core
   input  logic [NUM_WAKE-1:0] wake_valid,
   input  logic [PRF_IDX_WIDTH-1:0]      wake_preg  [NUM_WAKE],
   input  logic                          rob_flush,
-  input  logic                          dec_mispred,
-  input  logic [BR_MASK_WIDTH-1:0]      dec_clear_mask
+  input  logic                          dec_mispred
 );
 
   // ---- register stage and static classification ----
   logic [NUM_SLOTS-1:0] inst_valid;
   dis_inst_t  inst_q     [NUM_SLOTS];
-  dis_inst_t  alloc_inst [NUM_SLOTS];   // inst_alloc[]: br_mask cleaned
+  dis_inst_t  alloc_inst [NUM_SLOTS];
   dis_class_t cls        [NUM_SLOTS];
   logic [NUM_SLOTS-1:0] is_load;
   logic [NUM_SLOTS-1:0] is_store;
@@ -73,8 +70,7 @@ module dispatch_core
 
   always_comb begin
     for (int i = 0; i < NUM_SLOTS; i++) begin
-      alloc_inst[i] = inst_q[i];
-      alloc_inst[i].br_mask = inst_q[i].br_mask & ~dec_clear_mask;
+      alloc_inst[i]  = inst_q[i];
       cls[i]         = dis_classify(inst_q[i].itype, inst_q[i].func7[6:2], inst_q[i].fp_cls);
       is_load[i]     = cls[i].is_load;
       is_store[i]    = cls[i].is_store;
@@ -172,7 +168,6 @@ module dispatch_core
                    src1_is_pc: alloc_inst[i].src1_is_pc, src2_is_imm: alloc_inst[i].src2_is_imm,
                    is_word: alloc_inst[i].is_word,
                    func3: alloc_inst[i].func3, func7: alloc_inst[i].func7, imm: alloc_inst[i].imm,
-                   br_id: alloc_inst[i].br_id, br_mask: alloc_inst[i].br_mask,
                    csr_idx: alloc_inst[i].csr_idx, rob_idx: res[i].rob_idx, stq_idx: res[i].stq_idx,
                    stq_flag: res[i].stq_flag, ldq_idx: res[i].ldq_idx, rob_flag: res[i].rob_flag,
                    op: UOP_ADD};
@@ -238,9 +233,9 @@ module dispatch_core
   end
   dispatch_lsu_req u_lsu_req (
     .fire(dis_fire), .st_port_sel(st_port_sel), .ld_port_sel(ld_port_sel), .inst(alloc_inst), .res(res), .mdp(inst_mdp), .pc(inst_pc),
-    .st_req(st_req), .st_br_mask(st_br_mask), .st_func3(st_func3), .st_rob_idx(st_rob_idx),
+    .st_req(st_req), .st_func3(st_func3), .st_rob_idx(st_rob_idx),
     .st_rob_flag(st_rob_flag), .st_stq_flag(st_stq_flag), .ld_req(ld_req), .ld_idx(ld_idx),
-    .ld_br_mask(ld_br_mask), .ld_rob_idx(ld_rob_idx), .ld_rob_flag(ld_rob_flag), .ld_mdp(ld_mdp), .ld_pc(ld_pc));
+    .ld_rob_idx(ld_rob_idx), .ld_rob_flag(ld_rob_flag), .ld_mdp(ld_mdp), .ld_pc(ld_pc));
 
   logic [NUM_SLOTS-1:0] busy_set_valid;
   logic [PRF_IDX_WIDTH-1:0] busy_set_preg  [NUM_SLOTS];
@@ -270,7 +265,7 @@ module dispatch_core
 
   dispatch_inst_stage u_inst_stage (
     .clk(clk), .rst_n(rst_n), .kill(rob_flush || dec_mispred), .ready(dis2ren_ready),
-    .clear_mask(dec_clear_mask), .ren_valid(ren_valid), .ren_inst(ren_inst), .fire(dis_fire),
+    .ren_valid(ren_valid), .ren_inst(ren_inst), .fire(dis_fire),
     .alloc_src1_busy(busy1), .alloc_src2_busy(busy2), .alloc_src3_busy(busy3),
     .woken1(woken1), .woken2(woken2), .woken3(woken3),
     .valid_q(inst_valid), .inst_q(inst_q));

@@ -78,6 +78,11 @@ module bpu_ftb_tab import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
     .clk, .rst_n, .rd_addr, .rd_data, .wr_en, .wr_addr, .wr_data
   );
 
+  // Forward-declared lookup/update signals used by g_bbase
+  logic [SET_W-1:0]         rd_set0, upd_set;
+  logic                     do_upd;
+  logic [WAY_W-1:0]         sel_w;
+
   // Optional parallel b_base array for 2-Ahead B (STORE_B_BASE=1)
   typedef logic [WAYS-1:0][XLEN_BITS-1:0] bbase_set_t;
   bbase_set_t bbase_rd_upd;
@@ -116,7 +121,6 @@ module bpu_ftb_tab import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
   end
 
   // ---- Lookup read ----
-  logic [SET_W-1:0]         rd_set0;
   logic [FTB_MAX_TAG_W-1:0] rd_tag_v;
 
   assign rd_addr[0] = rd_set0;
@@ -163,11 +167,10 @@ module bpu_ftb_tab import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
   end
 
   // ---- Update RMW ----
-  logic [SET_W-1:0]         upd_set;
   logic [FTB_MAX_TAG_W-1:0] upd_tag;
   logic                     tgt_ok;
-  logic                     hit_found, inv_found, do_upd;
-  logic [WAY_W-1:0]         hit_w, inv_w, lru_w, sel_w;
+  logic                     hit_found, inv_found;
+  logic [WAY_W-1:0]         hit_w, inv_w, lru_w;
   logic [2:0]               max_lru, old_lru;
   ftb_ent_t                 cur_ent;
   ftb_upsert_res_t          up_res;

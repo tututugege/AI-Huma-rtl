@@ -48,8 +48,8 @@ module isu_iq
   input  logic                     issue_block,     // rob flush or misprediction this cycle
   input  logic                     flush_all,
   input  logic                     flush_br,
-  input  logic [BR_MASK_WIDTH-1:0] flush_br_mask,
-  input  logic [BR_MASK_WIDTH-1:0] clear_mask,
+  input  logic [ROB_IDX_WIDTH-1:0] flush_rob_idx,
+  input  logic                     flush_rob_flag,
   output logic [READY_NUM_W-1:0]   free_slots,      // registered occupancy, as seen by dispatch
   output logic [NP-1:0]            cand_valid,      // port's pick passes FU readiness and issue block (before the gate)
   output logic [NP-1:0]            grant_valid,
@@ -396,8 +396,8 @@ module isu_iq
     .slow_exu_valid(slow_exu_valid), .slow_exu_preg(slow_exu_preg),
     .fast_valid(fast_valid), .fast_preg(fast_preg),
     .cancel_valid(cancel_valid), .cancel_preg(cancel_preg),
-    .issue_clear(granted_slot), .flush_all(flush_all), .flush_br(flush_br), .flush_br_mask(flush_br_mask),
-    .clear_mask(clear_mask),
+    .issue_clear(granted_slot), .flush_all(flush_all), .flush_br(flush_br),
+    .flush_rob_idx(flush_rob_idx), .flush_rob_flag(flush_rob_flag),
     .slot_valid(slot_valid), .slot_ready(slot_ready), .slot_uop(slot_uop),
     .slot_byp1(slot_byp1), .slot_byp2(slot_byp2));
 

@@ -19,15 +19,16 @@ module mul_pipe
 ) (
   input  logic                     clk,
   input  logic                     rst_n,
-  input  logic                     flush,
-  input  logic [BR_MASK_WIDTH-1:0] flush_mask,
-  input  logic [BR_MASK_WIDTH-1:0] clear_mask,
+  input  logic                     flush_all,
+  input  logic                     flush_br,
+  input  logic [ROB_IDX_WIDTH-1:0] flush_rob_idx,
+  input  logic                     flush_rob_flag,
   input  logic                     en,
   input  logic                     consume,
-  input  UOP_T                  en_uop,
+  input  UOP_T                     en_uop,
   output logic                     complete,
   output logic                     ready,
-  output UOP_T                  done_uop
+  output UOP_T                     done_uop
 );
 
   localparam int RW = $clog2(DEPTH);
@@ -48,24 +49,18 @@ module mul_pipe
   logic [RW-1:0]    rem_q [DEPTH];
   logic [RW-1:0]    rem_d [DEPTH];
 
-  // ---- kill / clear / complete ----
+  // ---- kill / complete ----
   logic [DEPTH-1:0] kill, surv, ripe;
-  UOP_T          uop_c [DEPTH];            // survivors with clear_mask applied
   logic [UW-1:0]    uop_c_bits [DEPTH];
-  logic [RW-1:0]    rem_n [DEPTH];            // rem one cycle later
-  logic             flush_all;
+  logic [RW-1:0]    rem_n [DEPTH];
 
-  // Ref: FixedLatencyFU::comb_ctrl
   always_comb begin
-    flush_all = &flush_mask;
     for (int i = 0; i < DEPTH; i++) begin
-      kill[i]  = valid_q[i] && flush && (flush_all || (|(uop_q[i].br_mask & flush_mask)));
-      surv[i]  = valid_q[i] && !kill[i];
-      ripe[i]  = (rem_q[i] == '0);
-      rem_n[i] = ripe[i] ? '0 : rem_q[i] - RW'(1);
-      uop_c[i]         = uop_q[i];
-      uop_c[i].br_mask = uop_q[i].br_mask & ~clear_mask;
-      uop_c_bits[i]    = UW'(uop_c[i]);
+      kill[i]       = valid_q[i] && (flush_all || (flush_br && fu_rob_younger(uop_q[i].rob_idx, uop_q[i].rob_flag, flush_rob_idx, flush_rob_flag)));
+      surv[i]       = valid_q[i] && !kill[i];
+      ripe[i]       = (rem_q[i] == '0);
+      rem_n[i]      = ripe[i] ? '0 : rem_q[i] - RW'(1);
+      uop_c_bits[i] = UW'(uop_q[i]);
     end
   end
 

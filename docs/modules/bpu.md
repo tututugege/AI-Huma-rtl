@@ -7,7 +7,11 @@ status: 整核周期与模型逐个相等（EXP-062：`bpu_spec` 3 级 Kogge-Sto
 depth: 197 层 / 410,093 单元（Yosys 整块 `bpu`）；**TSMC 28nm HPC+ DC `ssg0p81v125c` `0.50ns`（EXP-062）：`bpu_spec` `WNS -0.87→-0.66 ns`（`0.73→0.86 GHz`, `69→41 lvl`, `156,084 um²`），`bpu_eval` `-0.69 ns`（`0.84 GHz`, `69 lvl`），`bpu_ctl` `+0.10 ns`（`≥2.50 GHz`, `13 lvl`），见 09-synthesis-report 第 15 节**
 ---
 
-# bpu 设计文档（块级 2-Taken + 1-Ahead A / 2-Ahead B 分支预测单元，EXP-051/052）
+# bpu 设计文档（块级 2-Taken + 1-Ahead A / 2-Ahead B + S2 8 表长历史 TAGE & SC，EXP-067）
+
+> **EXP-067 S2 预测器升级（零 S0/S1 关键路径影响）**：
+> - **S2 8 表长历史 Block-TAGE（`bpu_ftb_ex_tage.sv`）**：将 S2 `s2_tage` 升级为 8 张几何历史表（`EX_TN=8`，长度 `{5, 11, 22, 44, 89, 178, 356, 712}`，每表 `4096 × 4` 槽，11-bit tag，修复 `weak = (cnt==3 || cnt==4)` + 16 项 per-PC `use_alt`），复用原生 1024-bit `HistRing` 并增量维护折叠历史 `ex_fh[3][8]`（提交态 `arch_sr_q` 同步拓宽至 720-bit）；1-Ahead A / 2-Ahead B 与 ITT 保持原 4 表 `fh[3][4]` 不变；
+> - **S2 统计校正器（`bpu_ftb_sc.sv`）**：在 S2 新增硬件忠实版 SC（`Bias 64×4-way` + 4 张全局 `GEHL 512`（历史 `{4, 10, 20, 40}`，`sc_fh[4]`）+ `IMLI 256`（8-bit 饱和后向条件循环计数器）+ `Local 256` + `LHT 64×10b` + 16 项动态阈值 `thres`）；S1 同步读出全部 7 路原始表项（含 4 路 `bias`）寄存至 S2，S2 仅做 4:1 多路选择 + 7 项加法与阈值比较；提交侧与 `s2_tage` 共享单分支端口（`BRQ_W=1`，live pred）。
 
 > **EXP-053 前端结构清理（Phase 1）优化**：
 > - `bpu_eval.sv`：将 `ftb_eval_ent` 改为并行求值（并用 6 位差 `(6'(bnd[5:0]) - 6'(base[5:0])) >> 1` 加固错路奇地址 `nslots`）；
@@ -131,6 +135,7 @@ depth: 197 层 / 410,093 单元（Yosys 整块 `bpu`）；**TSMC 28nm HPC+ DC `s
 
 ## 10. 变更记录
 
+- 2026-11-25（`rtl/rob-ptr-bpu`，S2 `ExBlockTage(4096×8)` + `StatCorrector`）：新增 `bpu_ftb_ex_tage.sv`（8 表几何历史 `{5,11,22,44,89,178,356,712}`、4096×4 槽、11-bit tag、16 项 per-PC `use_alt`）与 `bpu_ftb_sc.sv`（Bias 64×4 + 4×GEHL 512 + IMLI 256 + Local 256 + LHT 64×10b + 16 项 `thres`），`bpu_spec` `arch_sr_q` 拓宽至 720-bit 并增量维护 `ex_fh[3][8]` / `sc_fh[4]` / `imli[7:0]`，S0/S1 关键路径零变化；验证：`lint_chip` 0、`fm_gate` **69/69 PASS（0 周期差）**、`rv64gc` Linux **26/26 窗 PT/UP 100% 全等**，连同 `rob_ptr` 在 2 GHz SPEC06 INT 386/386 取得 **+1.90%**（`13.87 → 14.13 /GHz`）。
 - 2026-11-24（`rtl/timing-opt2`，EXP-063 第二轮 28nm DC 时序优化）：
   - **2-Ahead B 与 Block A 真并行**（`bpu_types_pkg` / `bpu_ftb_tab` / `bpu_ftb_arrays` / `bpu_ftb_brq` / `bpu_eval` / `bpu`）：`aftb2` 开启 `STORE_B_BASE=1` 存 `b_base`、`ftb_rec_t` 存 `ah_a_base`，2-Ahead B 改为以 `(key_base, s0_base)` 索引与 Block A 并行评估并在末尾校验 `ah2_b_base == s0_b_base` 与 `b_truncated`，删除串行 `u0_b` 回退，`bpu_eval` 改用并行 `ttg_first_set` 选路与 6-bit 快速 `s0_b_bnd`；DC 28nm `bpu_eval` **0.84 → 1.28 GHz (+52.4%)**（WNS `−0.69 → −0.28 ns`，纯组合 `0.68 ns / 1.47 GHz`，69→49 级，面积 `25,652 → 23,911 um²`）。
   - **`bpu_spec` `M_ARCH` 改为寄存恢复**：重定向回退至架构态时直接读寄存态 `arch_sr_q / arch_fh_q / aras_q`（切断 `commit br_type[0..7] → aras_d → spec_a_ras_top` 关键路径）；DC 28nm `bpu_spec` **0.86 → 1.20 GHz (+39.5%)**（WNS `−0.66 → −0.33 ns`，纯组合 `0.70 ns / 1.43 GHz`，`reg2reg −0.32 ns / 1.22 GHz`，面积 `156k → 142k um²`）。

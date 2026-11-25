@@ -1,35 +1,33 @@
 // Ref: back-end/Isu.cpp  Isu::comb_calc_latency_next / comb_flush (div_wake_slots, fp_wake_slots)
 `default_nettype none
 
-// Countdown wake-up slots for iterative units (DIV, FP). A slot broadcasts its dest preg when its countdown reaches 0
-// and is free again in the same cycle (a new issue can take it). Killed by branch mask / global flush;
-// resolved-branch bits are cleared from the mask.
 module isu_wake_iter
   import ttg_cfg_pkg::*;
   import isu_pkg::*;
 #(
   parameter int SLOTS = 2,
   parameter int NREQ  = 2,
-  parameter int CW    = COUNT_W        // countdown width (the FP slots count up to FP_COUNT_MAX - 1)
+  parameter int CW    = COUNT_W
 ) (
   input  logic                     clk,
   input  logic                     rst_n,
-  // allocation requests = uops granted this cycle that need a delayed wake-up
   input  logic [NREQ-1:0]          req_valid,
   input  logic [PRF_IDX_WIDTH-1:0] req_preg [NREQ],
-  input  logic [BR_MASK_WIDTH-1:0] req_br_mask [NREQ],
+  input  logic [ROB_IDX_WIDTH-1:0] req_rob_idx [NREQ],
+  input  logic [NREQ-1:0]          req_rob_flag,
   input  logic [CW-1:0]            req_countdown [NREQ],
-  input  logic [NREQ-1:0]          req_lane,       // optional 1-bit source-port tag (DIV: 0=lane 1, 1=lane 3)
+  input  logic [NREQ-1:0]          req_lane,
   input  logic                     flush_all,
   input  logic                     flush_br,
-  input  logic [BR_MASK_WIDTH-1:0] flush_br_mask,
-  input  logic [BR_MASK_WIDTH-1:0] clear_mask,
+  input  logic [ROB_IDX_WIDTH-1:0] flush_rob_idx,
+  input  logic                     flush_rob_flag,
   output logic [SLOTS-1:0]         wake_valid,
   output logic [PRF_IDX_WIDTH-1:0] wake_preg [SLOTS],
   output logic [SLOTS-1:0]         wake_lane
 );
 
-  localparam int DW = 1 + PRF_IDX_WIDTH + BR_MASK_WIDTH + CW;
+  localparam int RPW = 1 + ROB_IDX_WIDTH;
+  localparam int DW  = 1 + PRF_IDX_WIDTH + RPW + CW;
 
   logic [SLOTS-1:0] slot_free;
   logic [SLOTS-1:0] alloc_slot [NREQ];
@@ -37,8 +35,8 @@ module isu_wake_iter
   logic [NREQ-1:0]  req_killed;
 
   for (genvar r = 0; r < NREQ; r++) begin : g_req
-    assign req_bits[r]   = {req_lane[r], req_preg[r], req_br_mask[r], req_countdown[r]};
-    assign req_killed[r] = flush_br && ((req_br_mask[r] & flush_br_mask) != '0);
+    assign req_bits[r]   = {req_lane[r], req_preg[r], req_rob_flag[r], req_rob_idx[r], req_countdown[r]};
+    assign req_killed[r] = flush_br && isu_rob_younger(req_rob_idx[r], req_rob_flag[r], flush_rob_idx, flush_rob_flag);
   end
 
   if (NREQ == 1) begin : g_alloc1
@@ -58,10 +56,10 @@ module isu_wake_iter
     logic                     lane_q, lane_d;
     logic [CW-1:0]            count_q, count_d;
     logic [PRF_IDX_WIDTH-1:0] preg_q, preg_d;
-    logic [BR_MASK_WIDTH-1:0] mask_q, mask_d;
+    logic [RPW-1:0]           rptr_q, rptr_d;
     logic [NREQ-1:0]          hit;
     logic [DW-1:0]            new_bits;
-    logic                     counting;      // still has cycles to go, keeps the slot
+    logic                     counting;
     logic                     old_killed;
 
     for (genvar r = 0; r < NREQ; r++) begin : g_hit
@@ -73,27 +71,25 @@ module isu_wake_iter
       ttg_onehot_mux #(.N(NREQ), .W(DW)) u_new (.sel(hit), .data(req_bits), .out(new_bits));
     end
 
-    assign counting   = valid_q && (count_q != '0);
+    assign counting     = valid_q && (count_q != '0);
     assign slot_free[j] = !counting;
-    assign old_killed = flush_br && ((mask_q & flush_br_mask) != '0);
+    assign old_killed   = flush_br && isu_rob_younger(rptr_q[ROB_IDX_WIDTH-1:0], rptr_q[ROB_IDX_WIDTH],
+                                                      flush_rob_idx, flush_rob_flag);
 
-    // Ref: Isu::comb_calc_latency_next, Isu::comb_flush (kill check evaluated in parallel with req_valid).
-    // When NREQ == 1, a free slot (!counting) is dead if !req_valid[0], so payload regs can load on first_free[j]
-    // directly without waiting for req_valid[0]; only valid_d depends on req_valid[0].
     always_comb begin
       if (NREQ == 1) begin
         valid_d = (req_valid[0] && !req_killed[0] && !flush_all && alloc_slot[0][j]) ||
                   (counting && !old_killed && !flush_all);
         lane_d  = slot_free[j] ? new_bits[DW-1] : lane_q;
         count_d = slot_free[j] ? new_bits[CW-1:0] : (count_q - CW'(1));
-        preg_d  = slot_free[j] ? new_bits[(CW + BR_MASK_WIDTH) +: PRF_IDX_WIDTH] : preg_q;
-        mask_d  = (slot_free[j] ? new_bits[CW +: BR_MASK_WIDTH] : mask_q) & ~clear_mask;
+        preg_d  = slot_free[j] ? new_bits[(CW + RPW) +: PRF_IDX_WIDTH] : preg_q;
+        rptr_d  = slot_free[j] ? new_bits[CW +: RPW] : rptr_q;
       end else begin
         valid_d = ((|(hit & ~req_killed)) || (counting && !old_killed)) && !flush_all;
         lane_d  = (|hit) ? new_bits[DW-1] : lane_q;
         count_d = (|hit) ? new_bits[CW-1:0] : (count_q - CW'(1));
-        preg_d  = (|hit) ? new_bits[(CW + BR_MASK_WIDTH) +: PRF_IDX_WIDTH] : preg_q;
-        mask_d  = ((|hit) ? new_bits[CW +: BR_MASK_WIDTH] : mask_q) & ~clear_mask;
+        preg_d  = (|hit) ? new_bits[(CW + RPW) +: PRF_IDX_WIDTH] : preg_q;
+        rptr_d  = (|hit) ? new_bits[CW +: RPW] : rptr_q;
       end
     end
 
@@ -103,13 +99,13 @@ module isu_wake_iter
         lane_q  <= 1'b0;
         count_q <= '0;
         preg_q  <= '0;
-        mask_q  <= '0;
+        rptr_q  <= '0;
       end else begin
         valid_q <= valid_d;
         lane_q  <= lane_d;
         count_q <= count_d;
         preg_q  <= preg_d;
-        mask_q  <= mask_d;
+        rptr_q  <= rptr_d;
       end
     end
 

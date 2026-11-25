@@ -1,13 +1,8 @@
 // Ref: front-end/BPU/BPU_pipe.h  HistRing::push (parallel n-symbol push, zero variable modulo)
 `default_nettype none
 
-// Pushes sym_n (0..MAX_SYM) 3-bit history symbols (n = 3*sym_n bits) into the ring and 12 folded histories.
-//   d[u] is the bit pushed u pushes before the last one (d[0] = newest); d[u] = 0 for u >= 3*sym_n.
-//   - Outgoing window bit raw_o[j] (for 0 <= j < n_bits) is ring_new[head - ghr_len(i) + j]:
-//     * for j < ghr_len(i), it comes directly from h.ring[head - ghr_len(i) + j] (independent of ring_new!);
-//     * for j >= ghr_len(i), it comes directly from din_of[j - ghr_len(i)] (also independent of ring_new!).
-//     Thus ring_new and all 12 folded histories compute completely in parallel for both spec (MAX_SYM=4) and arch (MAX_SYM=8).
-//   - Folded-history rotation uses compile-time constant case over sym_n (zero hardware divider/modulo).
+// Pushes sym_n (0..MAX_SYM) 3-bit history symbols (n = 3*sym_n bits) into the ring and all folded histories
+// (4-table ahead fh, 8-table S2 ExBlockTage ex_fh, and 4-table S2 SC sc_fh).
 module bpu_hist_vec import bpu_pkg::*; import bpu_stage_pkg::*; #(
   parameter int MAX_SYM = 8,
   parameter int DW      = 24
@@ -45,11 +40,61 @@ module bpu_hist_vec import bpu_pkg::*; import bpu_stage_pkg::*; #(
     endcase
   endfunction
 
+  function automatic logic [EX_FH_W-1:0] rotl_const_ex(input logic [EX_FH_W-1:0] x, input int unsigned a,
+                                                       input int unsigned len);
+    logic [EX_FH_W-1:0] msk;
+    msk = EX_FH_W'((32'd1 << len) - 32'd1);
+    return a == 0 ? x : (((x << a) | (x >> (len - a))) & msk);
+  endfunction
+
+  function automatic logic [EX_FH_W-1:0] rotl_sym_ex(input logic [EX_FH_W-1:0] x, input logic [3:0] sn,
+                                                     input int unsigned len);
+    case (sn)
+      4'd1:    return rotl_const_ex(x,  3 % len, len);
+      4'd2:    return rotl_const_ex(x,  6 % len, len);
+      4'd3:    return rotl_const_ex(x,  9 % len, len);
+      4'd4:    return rotl_const_ex(x, 12 % len, len);
+      4'd5:    return rotl_const_ex(x, 15 % len, len);
+      4'd6:    return rotl_const_ex(x, 18 % len, len);
+      4'd7:    return rotl_const_ex(x, 21 % len, len);
+      4'd8:    return rotl_const_ex(x, 24 % len, len);
+      4'd9:    return rotl_const_ex(x, 27 % len, len);
+      4'd10:   return rotl_const_ex(x, 30 % len, len);
+      4'd11:   return rotl_const_ex(x, 33 % len, len);
+      4'd12:   return rotl_const_ex(x, 36 % len, len);
+      default: return x;
+    endcase
+  endfunction
+
+  function automatic logic [SC_FH_W-1:0] rotl_const_sc(input logic [SC_FH_W-1:0] x, input int unsigned a);
+    return a == 0 ? x : ((x << a) | (x >> (SC_FH_W - a)));
+  endfunction
+
+  function automatic logic [SC_FH_W-1:0] rotl_sym_sc(input logic [SC_FH_W-1:0] x, input logic [3:0] sn);
+    case (sn)
+      4'd1:    return rotl_const_sc(x, 3);
+      4'd2:    return rotl_const_sc(x, 6);
+      4'd3:    return x;
+      4'd4:    return rotl_const_sc(x, 3);
+      4'd5:    return rotl_const_sc(x, 6);
+      4'd6:    return x;
+      4'd7:    return rotl_const_sc(x, 3);
+      4'd8:    return rotl_const_sc(x, 6);
+      4'd9:    return x;
+      4'd10:   return rotl_const_sc(x, 3);
+      4'd11:   return rotl_const_sc(x, 6);
+      4'd12:   return x;
+      default: return x;
+    endcase
+  endfunction
+
   logic [5:0]          n_bits;
   logic [HR_PTR_W-1:0] head_new;
   logic [NW-1:0]       keep, din, din_of;
   logic [HR_BITS-1:0]  ring_new;
   logic [NW-1:0]       outw [TN];
+  logic [NW-1:0]       ex_outw [EX_TN];
+  logic [NW-1:0]       sc_outw [SC_GEHL_N];
 
   assign n_bits   = {2'b0, sym_n} + {1'b0, sym_n, 1'b0}; // 3 * sym_n (0..36)
   assign head_new = h.head + HR_PTR_W'(n_bits);
@@ -59,7 +104,6 @@ module bpu_hist_vec import bpu_pkg::*; import bpu_stage_pkg::*; #(
       keep[u] = (6'(u) < n_bits);
       din[u]  = d[u] && keep[u];
     end
-    // Oldest-first bit order: din_of[j] is written to ring[(h.head + j) & (HR_BITS-1)] for j < n_bits
     din_of = '0;
     for (int c = 1; c <= MAX_SYM; c++) begin
       if (sym_n == 4'(c)) begin
@@ -68,7 +112,6 @@ module bpu_hist_vec import bpu_pkg::*; import bpu_stage_pkg::*; #(
     end
   end
 
-  // Single left-shift circular ring update (zero subtraction / right-shift barrel shifter)
   always_comb begin
     logic [HR_BITS + NW - 2 : 0] e_sh, m_sh;
     logic [HR_BITS-1:0]          ring_e, ring_m;
@@ -79,9 +122,6 @@ module bpu_hist_vec import bpu_pkg::*; import bpu_stage_pkg::*; #(
     ring_new = (h.ring & ~ring_m) | ring_e;
   end
 
-  // Outgoing window bits computed completely in parallel with ring_new:
-  //   j < ghr_len(i) -> h.ring[(h.head - ghr_len(i) + j) mod HR_BITS]
-  //   j >= ghr_len(i) -> din_of[j - ghr_len(i)] (bit written earlier in the same multi-symbol push)
   logic [HR_BITS + NW - 2 : 0] ring_ext;
   assign ring_ext = {h.ring[NW-2:0], h.ring};
 
@@ -101,9 +141,38 @@ module bpu_hist_vec import bpu_pkg::*; import bpu_stage_pkg::*; #(
         end
       end
     end
+    for (int i = 0; i < EX_TN; i++) begin
+      logic [HR_PTR_W-1:0] rbase;
+      logic [NW-1:0]       raw_o;
+      rbase = h.head - HR_PTR_W'(ex_ghr_len(i));
+      raw_o = ring_ext[{1'b0, rbase} +: NW];
+      for (int j = 0; j < NW; j++) begin
+        if (j >= ex_ghr_len(i)) raw_o[j] = din_of[j - ex_ghr_len(i)];
+      end
+      ex_outw[i] = '0;
+      for (int c = 1; c <= MAX_SYM; c++) begin
+        if (sym_n == 4'(c)) begin
+          for (int u = 0; u < 3 * c; u++) ex_outw[i][u] = raw_o[3 * c - 1 - u];
+        end
+      end
+    end
+    for (int g = 0; g < SC_GEHL_N; g++) begin
+      logic [HR_PTR_W-1:0] rbase;
+      logic [NW-1:0]       raw_o;
+      rbase = h.head - HR_PTR_W'(sc_ghr_len(g));
+      raw_o = ring_ext[{1'b0, rbase} +: NW];
+      for (int j = 0; j < NW; j++) begin
+        if (j >= sc_ghr_len(g)) raw_o[j] = din_of[j - sc_ghr_len(g)];
+      end
+      sc_outw[g] = '0;
+      for (int c = 1; c <= MAX_SYM; c++) begin
+        if (sym_n == 4'(c)) begin
+          for (int u = 0; u < 3 * c; u++) sc_outw[g][u] = raw_o[3 * c - 1 - u];
+        end
+      end
+    end
   end
 
-  // Folded histories: compile-time constant rotations + parallel XOR tree
   always_comb begin
     h_next      = h;
     h_next.ring = ring_new;
@@ -119,18 +188,40 @@ module bpu_hist_vec import bpu_pkg::*; import bpu_stage_pkg::*; #(
         h_next.fh[k][i] = acc;
       end
     end
+    for (int k = 0; k < EX_FH_K; k++) begin
+      for (int i = 0; i < EX_TN; i++) begin
+        logic [EX_FH_W-1:0] acc;
+        acc = rotl_sym_ex(h.ex_fh[k][i], sym_n, ex_fh_len(k));
+        for (int u = 0; u < NW; u++) begin
+          acc = acc ^ rotl_const_ex(EX_FH_W'(din[u]) ^ (EX_FH_W'(ex_outw[i][u]) << (ex_ghr_len(i) % ex_fh_len(k))),
+                                    u % ex_fh_len(k), ex_fh_len(k));
+        end
+        h_next.ex_fh[k][i] = acc;
+      end
+    end
+    for (int g = 0; g < SC_GEHL_N; g++) begin
+      logic [SC_FH_W-1:0] acc;
+      acc = rotl_sym_sc(h.sc_fh[g], sym_n);
+      for (int u = 0; u < NW; u++) begin
+        acc = acc ^ rotl_const_sc(SC_FH_W'(din[u]) ^ (SC_FH_W'(sc_outw[g][u]) << (sc_ghr_len(g) % SC_FH_W)),
+                                  u % SC_FH_W);
+      end
+      h_next.sc_fh[g] = acc;
+    end
   end
 `else
-  // Fast simulation path (bit-identical to parallel synthesis path above, verified by tb/fe_clean_eq)
+  // Fast simulation path (bit-identical to parallel synthesis path above)
   always_comb begin
     localparam int BIDXW = $clog2(DW);
-    logic [5:0]      nb;
+    logic [5:0]         nb;
     /* verilator lint_off UNUSEDSIGNAL */
-    logic [5:0]      bidx;
+    logic [5:0]         bidx;
     /* verilator lint_on UNUSEDSIGNAL */
-    logic            b, ob;
-    int unsigned     fl, gl;
-    logic [FH_W-1:0] msk, v;
+    logic               b, ob;
+    int unsigned        fl, gl;
+    logic [FH_W-1:0]    msk, v;
+    logic [EX_FH_W-1:0] emsk, ev;
+    logic [SC_FH_W-1:0] sv;
     h_next = h;
     nb     = {2'b0, sym_n} + {1'b0, sym_n, 1'b0};
     bidx   = '0;
@@ -140,6 +231,9 @@ module bpu_hist_vec import bpu_pkg::*; import bpu_stage_pkg::*; #(
     gl     = 0;
     msk    = '0;
     v      = '0;
+    emsk   = '0;
+    ev     = '0;
+    sv     = '0;
     for (int j = 0; j < NW; j++) begin
       if (6'(j) < nb) begin
         bidx = nb - 6'd1 - 6'(j);
@@ -157,6 +251,26 @@ module bpu_hist_vec import bpu_pkg::*; import bpu_stage_pkg::*; #(
             v   = v ^ (FH_W'(ob) << (gl % fl));
             h_next.fh[k][i] = v & msk;
           end
+        end
+        for (int k = 0; k < EX_FH_K; k++) begin
+          fl   = ex_fh_len(k);
+          emsk = EX_FH_W'((32'd1 << fl) - 32'd1);
+          for (int i = 0; i < EX_TN; i++) begin
+            gl = ex_ghr_len(i);
+            ob = h_next.ring[h_next.head - HR_PTR_W'(gl + 1)];
+            ev = ((h_next.ex_fh[k][i] << 1) | (h_next.ex_fh[k][i] >> (fl - 1))) & emsk;
+            ev = ev ^ EX_FH_W'(b);
+            ev = ev ^ (EX_FH_W'(ob) << (gl % fl));
+            h_next.ex_fh[k][i] = ev & emsk;
+          end
+        end
+        for (int g = 0; g < SC_GEHL_N; g++) begin
+          gl = sc_ghr_len(g);
+          ob = h_next.ring[h_next.head - HR_PTR_W'(gl + 1)];
+          sv = ((h_next.sc_fh[g] << 1) | (h_next.sc_fh[g] >> (SC_FH_W - 1)));
+          sv = sv ^ SC_FH_W'(b);
+          sv = sv ^ (SC_FH_W'(ob) << (gl % SC_FH_W));
+          h_next.sc_fh[g] = sv;
         end
       end
     end

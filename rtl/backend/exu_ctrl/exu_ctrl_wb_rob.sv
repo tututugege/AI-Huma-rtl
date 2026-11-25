@@ -12,7 +12,8 @@ module exu_ctrl_wb_rob
 (
   input  logic                      flush,
   input  logic                      mispred,
-  input  logic [BR_MASK_WIDTH-1:0]  kill_mask,
+  input  logic [ROB_IDX_WIDTH-1:0]  kill_rob_idx,
+  input  logic                      kill_rob_flag,
   // winners of the load/store-address ports (6..13) are never reported from here: those report Lsu write-back
   /* verilator lint_off UNUSEDSIGNAL */
   input  logic [ISSUE_WIDTH-1:0]    win_valid,
@@ -43,7 +44,8 @@ module exu_ctrl_wb_rob
       // write-back of a load / SC / store-address: dropped when flushed or killed by the mispredicted branch
       localparam int I = IS_LD ? (p - IQ_LD_PORT_BASE) : (p - IQ_STA_PORT_BASE);
       logic dropped;
-      assign dropped = flush || xc_killed(mispred, IS_LD ? ld_wb[I].br_mask : sta_wb[I].br_mask, kill_mask);
+      assign dropped = flush || xc_killed(mispred, IS_LD ? ld_wb[I].rob_idx : sta_wb[I].rob_idx,
+                                          IS_LD ? ld_wb[I].rob_flag : sta_wb[I].rob_flag, kill_rob_idx, kill_rob_flag);
       assign valid[p]            = (IS_LD ? ld_wb[I].valid : sta_wb[I].valid) && !dropped;
       assign rob_idx[p]          = IS_LD ? ld_wb[I].rob_idx : sta_wb[I].rob_idx;
       assign op[p]               = IS_LD ? XC_OP_W'(XC_UOP_LOAD) : XC_OP_W'(XC_UOP_STA);

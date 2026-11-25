@@ -246,10 +246,10 @@ package exu_ctrl_pkg;
   localparam int CSR_FU = 2;                  // the only CSR FU (fu_idx 2, port 0); checked in exu_ctrl.sv
   localparam int CSR_PORT = 0;
 
-  // the instruction's br_mask intersects the mispredicted branch (Exu.cpp is_br_killed)
-  function automatic logic xc_killed(logic mispred, logic [BR_MASK_WIDTH-1:0] br_mask,
-                                     logic [BR_MASK_WIDTH-1:0] kill_mask);
-    return mispred && ((br_mask & kill_mask) != '0);
+  // instruction is strictly younger than the mispredicted branch (Exu.cpp is_br_killed)
+  function automatic logic xc_killed(logic mispred, logic [ROB_IDX_WIDTH-1:0] rob_idx, logic rob_flag,
+                                     logic [ROB_IDX_WIDTH-1:0] kill_rob_idx, logic kill_rob_flag);
+    return mispred && ((rob_flag == kill_rob_flag) ? (rob_idx > kill_rob_idx) : (rob_idx < kill_rob_idx));
   endfunction
 
   // instruction o is older than instruction y: the 8-bit {rob_flag, rob_idx} age gap y - o lies in (0, ROB_NUM)
@@ -283,8 +283,6 @@ package exu_ctrl_pkg;
     logic [2:0]               func3;
     logic [6:0]               func7;
     logic [31:0]              imm;
-    logic [BR_TAG_WIDTH-1:0]  br_id;
-    logic [BR_MASK_WIDTH-1:0] br_mask;
     logic [ROB_IDX_WIDTH-1:0] rob_idx;
     logic [STQ_IDX_WIDTH-1:0] stq_idx;
     logic                     stq_flag;
@@ -303,8 +301,8 @@ package exu_ctrl_pkg;
     logic                     illegal;
     logic [PRF_IDX_WIDTH-1:0] dest_preg;
     logic                     dest_en;
-    logic [BR_MASK_WIDTH-1:0] br_mask;
     logic [ROB_IDX_WIDTH-1:0] rob_idx;
+    logic                     rob_flag;
     logic [XLEN_BITS-1:0]              diag_val;
     logic                     mispred;
     logic                     br_taken;
@@ -319,14 +317,12 @@ package exu_ctrl_pkg;
     logic                     illegal;
     logic [PRF_IDX_WIDTH-1:0] dest_preg;
     logic                     dest_en;
-    logic [BR_MASK_WIDTH-1:0] br_mask;
     xc_op_t                   op;
     logic [ROB_IDX_WIDTH-1:0] rob_idx;
     logic                     rob_flag;
     logic [XLEN_BITS-1:0]              diag_val;
     logic                     mispred;
     logic                     br_taken;
-    logic [BR_TAG_WIDTH-1:0]  br_id;
     logic [FTQ_IDX_WIDTH-1:0] ftq_idx;
     logic [FTQ_OFFSET_WIDTH-1:0] ftq_offset;
     logic [XLEN_BITS-1:0]      pc; // pc of the instruction (the mispredicted branch: BPU history repair)
@@ -345,8 +341,8 @@ package exu_ctrl_pkg;
     logic [XLEN_BITS-1:0]              diag_val;
     logic [XLEN_BITS-1:0]              result;
     logic [PRF_IDX_WIDTH-1:0] dest_preg;
-    logic [BR_MASK_WIDTH-1:0] br_mask;
     logic [ROB_IDX_WIDTH-1:0] rob_idx;
+    logic                     rob_flag;
     logic                     dest_en;
     logic                     page_fault_load;
     logic                     page_fault_store;

@@ -408,3 +408,15 @@ rv32 配置包（改动时在旧基线 `15af4b4` 上测）：`tlb_mmu` 159 → 6
 - **≥ 1.50 GHz（15 模块）**：`bpu_ctl` (≥2.50)、`exu_ctrl` / `dcache_s1` / `dcache_s2_ld` / `dcache_s2_st` / `icache_ctl` / `icache_itlb` (≥2.00)、`dispatch` / `tlb_mmu` (1.89)、`mul_unit` (1.85)、`pre_idu_queue` (1.82)、**`ren` (1.67)**、`div_unit` (1.67)、`rob` (1.64)、`idu` (1.54)。
 - **1.20 ~ 1.49 GHz（7 模块）**：`dcache_wb` (1.49)、`axi_llc_bop` (1.47)、`isu` (1.37)、`dcache_pf` (1.35，纯组合 1.43)、`dcache_mshr` (1.28，reg2reg 1.30，纯组合 1.54)、`bpu_eval` (1.28，纯组合 1.47)、`bpu_spec` (1.20，纯组合 1.43)。
 - **1.12 ~ 1.19 GHz（仅剩 1 模块）**：**`lsu` (1.12 GHz，纯组合 1.18 GHz)** —— 全核 23/23 模块全部站上 **≥ 1.12 GHz**（22/23 ≥ 1.20 GHz，15/23 ≥ 1.54 GHz），`lsu` 残余 Top 10 齐平在 `−0.39 ns`（`u_ldq/f_q[blk] → f_q[result]` STLF 数据合并与 `dec_bcast_br_mask → u_rp/u_ldq`）。
+
+## 19. 方案 C（9-bit `rob_ptr` 循环年龄冲刷 + `IQ_BR=64`）TSMC 28nm HPC+ DC 综合结果（EXP-068，2026-11-25）
+
+同口径 Synopsys DC (`W-2024.09-SP2`, TSMC 28nm HPC+ `ssg0p81v125c`, 12T SVT+LVT, `CLK=0.50 ns / 2.0 GHz`, `compile_ultra`) 评估全后端删除 32-bit `br_mask`/`clear_mask`/`br_id` 改用 9-bit `{rob_flag, rob_idx}` 循环年龄冲刷并将 `IQ_BR_SIZE` 由 32 扩至 64 后的受影响核心后端模块：
+
+| 模块 | DC WNS (ns) 改前 → 改后 | DC Fmax (GHz) 改前 → 改后 | 纯组合延迟 / TNS | DC 逻辑级数 | DC Area (um²) | 关键变化 |
+|---|---|---|---|---:|---:|---|
+| **`idu`** | **−0.15 → 0.00 (MET)** | **1.54 → 2.70 (+75.3%)** | **0.37 ns** / TNS **0** | **35 → 14 (−60.0%)** | **18,196 → 1,994 (−89.0%)** | 删除 5 个分支标签子模块（`idu_br_alloc/group/state/cp`、`idu_fire_ctl`），面积缩小 **9.1×**、完全 MET（Yosys `66 → 19` 层、`31,607 → 6,595` cells） |
+| **`isu`** | **−0.23 → −0.23** | **1.37 → 1.37 (持平)** | **0.64 ns** / TNS `−5,096` | 41 | **608,221 → 598,408 (−1.6%)** | 尽管 `IQ_BR_SIZE` 翻倍（32 → 64），全 6 个发射队列删除 32-bit `br_mask` 后面积仍净降 **9.8k um²**、频率零回退 |
+| **`lsu`** | **−0.39 → −0.39** | **1.12 → 1.12 (持平)** | **0.84 ns (1.19 GHz)** / TNS **−8,988 → −7,496 (−16.6%)** | **49 → 43 (−12.2%)** | **840,182 → 758,236 (−9.8%)** | 消除 `dec_bcast_br_mask → u_rp/u_ldq` 广播与 LDQ/STQ/LR-SC 全部 `br_mask` 位，面积净省 **81.9k um²**、TNS 降 **16.6%**、频率零回退 |
+
+- **三模块合计后端面积净省 `107,960 um²`**，全核 23 模块中 **≥ 2.00 GHz 模块由 7 个增至 8 个**（新增 `idu` 2.70 GHz），全核短板频率维持 `1.12 GHz` 零回退。

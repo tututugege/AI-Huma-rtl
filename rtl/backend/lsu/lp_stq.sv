@@ -10,9 +10,7 @@ module lp_stq
   input  logic                clk,
   input  logic                rst_n,
   input  logic                rb_flush,
-  input  logic [BRW-1:0]      clear_mask,
   input  logic [SQW-1:0]      head_q,
-  input  logic [SQ-1:0]       alive_w,
   input  logic [SQ-1:0]       win4,
   input  logic [SQ-1:0]       win13,
   input  logic [SQ-1:0]       cm_go,
@@ -115,7 +113,7 @@ module lp_stq
     end
 
     lp_stq_ent #(.IDX(j)) u_ent (
-      .clk(clk), .rst_n(rst_n), .rb_flush(rb_flush), .clear_mask(clear_mask), .alive_w(alive_w[j]),
+      .clk(clk), .rst_n(rst_n), .rb_flush(rb_flush),
       .cm_go(cm_go[j]), .mm_done(mm_done && mm_idx == SQW'(j)),
       .rsp_v(rsp_v), .rsp_rep(rsp_rep), .win4(win4[j]), .fill_v(fill_v), .fill_line(fill_line),
       .full_ok(full_ok[j]), .full_cand(full_cand[j]),

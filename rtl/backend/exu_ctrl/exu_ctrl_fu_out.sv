@@ -53,8 +53,8 @@ module exu_ctrl_fu_out
   output logic [XLEN_BITS-1:0] exu2fu_mc_src2_rdata [N_MC],
   output logic [PRF_IDX_WIDTH-1:0] exu2fu_mc_dest_preg [N_MC],
   output logic [N_MC-1:0] exu2fu_mc_dest_en,
-  output logic [BR_MASK_WIDTH-1:0] exu2fu_mc_br_mask [N_MC],
   output logic [ROB_IDX_WIDTH-1:0] exu2fu_mc_rob_idx [N_MC],
+  output logic [N_MC-1:0] exu2fu_mc_rob_flag,
   // F/D units (dummy entry 0 without F/D)
   output logic [N_FPU-1:0] exu2fu_fp_en,
   output logic [N_FPU-1:0] exu2fu_fp_consume,
@@ -67,8 +67,8 @@ module exu_ctrl_fu_out
   output logic [FW-1:0] exu2fu_fp_fsrc3 [N_FPU],
   output logic [PRF_IDX_WIDTH-1:0] exu2fu_fp_dest_preg [N_FPU],
   output logic [N_FPU-1:0] exu2fu_fp_dest_en,
-  output logic [BR_MASK_WIDTH-1:0] exu2fu_fp_br_mask [N_FPU],
-  output logic [ROB_IDX_WIDTH-1:0] exu2fu_fp_rob_idx [N_FPU]
+  output logic [ROB_IDX_WIDTH-1:0] exu2fu_fp_rob_idx [N_FPU],
+  output logic [N_FPU-1:0] exu2fu_fp_rob_flag
 );
 
   for (genvar i = 0; i < ALU_NUM; i++) begin : g_alu
@@ -131,8 +131,8 @@ module exu_ctrl_fu_out
     assign exu2fu_mc_src2_rdata[i] = fu_inst[FU].src2_rdata;
     assign exu2fu_mc_dest_preg[i]  = fu_inst[FU].dest_preg;
     assign exu2fu_mc_dest_en[i]    = fu_inst[FU].dest_en;
-    assign exu2fu_mc_br_mask[i]    = fu_inst[FU].br_mask;
     assign exu2fu_mc_rob_idx[i]    = fu_inst[FU].rob_idx;
+    assign exu2fu_mc_rob_flag[i]   = fu_inst[FU].rob_flag;
   end
 
   if (FP_EN) begin : g_fp
@@ -149,8 +149,8 @@ module exu_ctrl_fu_out
       assign exu2fu_fp_fsrc3[i]      = fu_inst[FU].fsrc3;
       assign exu2fu_fp_dest_preg[i]  = fu_inst[FU].dest_preg;
       assign exu2fu_fp_dest_en[i]    = fu_inst[FU].dest_en;
-      assign exu2fu_fp_br_mask[i]    = fu_inst[FU].br_mask;
       assign exu2fu_fp_rob_idx[i]    = fu_inst[FU].rob_idx;
+      assign exu2fu_fp_rob_flag[i]   = fu_inst[FU].rob_flag;
     end
   end else begin : g_no_fp
     assign exu2fu_fp_en = '0;
@@ -164,8 +164,8 @@ module exu_ctrl_fu_out
     assign exu2fu_fp_fsrc3 = '{default: '0};
     assign exu2fu_fp_dest_preg = '{default: '0};
     assign exu2fu_fp_dest_en = '0;
-    assign exu2fu_fp_br_mask = '{default: '0};
     assign exu2fu_fp_rob_idx = '{default: '0};
+    assign exu2fu_fp_rob_flag = '0;
   end
 
 endmodule

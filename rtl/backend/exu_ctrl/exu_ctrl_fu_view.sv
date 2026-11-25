@@ -32,22 +32,20 @@ module exu_ctrl_fu_view
         done.illegal   = fu_res[f].illegal;
         done.dest_preg = fu_res[f].dest_preg;
         done.dest_en   = fu_res[f].dest_en;
-        done.br_mask   = fu_res[f].br_mask;
         done.rob_idx   = fu_res[f].rob_idx;
+        done.rob_flag  = fu_res[f].rob_flag;
         done.op        = MC_OP;
       end else begin
         done.complete  = fu_en[f];
         done.result    = fu_res[f].result;
         done.dest_preg = fu_inst[f].dest_preg;
         done.dest_en   = fu_inst[f].dest_en;
-        done.br_mask   = fu_inst[f].br_mask;
         done.op        = fu_inst[f].op;
         done.rob_idx   = fu_inst[f].rob_idx;
         done.rob_flag  = fu_inst[f].rob_flag;
         done.diag_val  = fu_res[f].diag_val;
         done.mispred   = fu_res[f].mispred;
         done.br_taken  = fu_res[f].br_taken;
-        done.br_id     = fu_inst[f].br_id;
         done.ftq_idx    = fu_inst[f].ftq_idx;
         done.ftq_offset = fu_inst[f].ftq_offset;
         done.pc        = fu_inst[f].pc;

@@ -17,8 +17,6 @@ package ren_pkg;
 
   typedef logic [PRF_IDX_WIDTH-1:0] preg_t;
   typedef logic [AREG_IDX_WIDTH-1:0] areg_t;
-  typedef logic [BR_TAG_WIDTH-1:0] br_tag_t;
-  typedef logic [BR_MASK_WIDTH-1:0] br_mask_t;
   // move elimination: arch_cnt[p] = number of arch_RAT entries naming p (at most RAT_NUM = 33 -> 6 bits, never overflows)
   localparam int CNT_W = $clog2(RAT_NUM + 1);
   typedef logic [CNT_W-1:0] cnt_t;
@@ -55,8 +53,6 @@ package ren_pkg;
     logic [2:0] func3;
     logic [6:0] func7;
     logic [31:0] imm;
-    br_tag_t br_id;
-    br_mask_t br_mask;
     logic [CSR_IDX_WIDTH-1:0] csr_idx;
     logic page_fault_inst;
     logic pf_inst_hi;
@@ -91,8 +87,6 @@ package ren_pkg;
     logic [2:0] func3;
     logic [6:0] func7;
     logic [31:0] imm;
-    br_tag_t br_id;
-    br_mask_t br_mask;
     logic [CSR_IDX_WIDTH-1:0] csr_idx;
     logic page_fault_inst;
     logic pf_inst_hi;

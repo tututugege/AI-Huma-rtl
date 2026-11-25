@@ -20,9 +20,10 @@ module fp_div_unit
   input  logic                       rst_n,
   input  logic                       en,
   input  logic                       consume,
-  input  logic                       flush,
-  input  logic [BR_MASK_WIDTH-1:0]   flush_mask,
-  input  logic [BR_MASK_WIDTH-1:0]   clear_mask,
+  input  logic                       flush_all,
+  input  logic                       flush_br,
+  input  logic [ROB_IDX_WIDTH-1:0]   flush_rob_idx,
+  input  logic                       flush_rob_flag,
   input  logic [2:0]                 func3,
   input  logic [6:0]                 func7,
   input  logic [31:0]                imm,
@@ -32,18 +33,18 @@ module fp_div_unit
   input  logic [63:0]                fsrc3,
   input  logic [2:0]                 frm,
   input  logic [ROB_IDX_WIDTH-1:0]   rob_idx,
+  input  logic                       rob_flag,
   input  logic [PRF_IDX_WIDTH-1:0]   dest_preg,
   input  logic                       dest_en,
-  input  logic [BR_MASK_WIDTH-1:0]   br_mask,
   output logic                       complete,
   output logic                       ready,
   output logic [63:0]                fresult,
   output logic [4:0]                 fflags,
   output logic                       illegal,
   output logic [ROB_IDX_WIDTH-1:0]   done_rob_idx,
+  output logic                       done_rob_flag,
   output logic [PRF_IDX_WIDTH-1:0]   done_dest_preg,
-  output logic                       done_dest_en,
-  output logic [BR_MASK_WIDTH-1:0]   done_br_mask
+  output logic                       done_dest_en
 );
 
   logic accept;
@@ -52,10 +53,11 @@ module fp_div_unit
   /* verilator lint_on UNUSEDSIGNAL */
 
   exu_iter_ctl #(.CW(FP_LAT_W)) u_ctl (
-    .clk(clk), .rst_n(rst_n), .flush(flush), .flush_mask(flush_mask), .clear_mask(clear_mask),
-    .en(en), .consume(consume), .en_br_mask(br_mask),
+    .clk(clk), .rst_n(rst_n), .flush_all(flush_all), .flush_br(flush_br),
+    .flush_rob_idx(flush_rob_idx), .flush_rob_flag(flush_rob_flag),
+    .en(en), .consume(consume), .en_rob_idx(rob_idx), .en_rob_flag(rob_flag),
     .lat_m1(FP_LAT_W'(fp_div_latency(func7) - 1)),
-    .accept(accept), .run(run), .complete(complete), .wb_next(unused_wb_next), .ready(ready), .done_br_mask(done_br_mask)
+    .accept(accept), .run(run), .complete(complete), .wb_next(unused_wb_next), .ready(ready), .done_rob_flag(done_rob_flag)
   );
 
   if (!SYNTH_FPU) begin : g_dpi

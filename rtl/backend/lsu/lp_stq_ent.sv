@@ -13,8 +13,6 @@ module lp_stq_ent
   input  logic                clk,
   input  logic                rst_n,
   input  logic                rb_flush,
-  input  logic [BRW-1:0]      clear_mask,
-  input  logic                alive_w,           // inside [head, head + count) at the start of the cycle
   // P1 commit
   input  logic                cm_go,
   // P2 MMIO store response
@@ -241,7 +239,6 @@ module lp_stq_ent
       ent_q.dest_preg <= '0;
       ent_q.rob_idx <= al_d.rob_idx;
       ent_q.rob_flag <= al_d.rob_flag;
-      ent_q.br_mask <= al_d.br_mask;
       ent_q.rtype <= '0;
       ent_q.rwait <= '0;
     end else begin
@@ -258,7 +255,6 @@ module lp_stq_ent
       ent_q.data <= data6;
       ent_q.func3 <= f3_6;
       if (sa_any) ent_q.dest_preg <= sta_s.dest;
-      if (alive_w) ent_q.br_mask <= ent_q.br_mask & ~clear_mask;
       ent_q.rtype <= rt4;
       ent_q.rwait <= rw13;
     end

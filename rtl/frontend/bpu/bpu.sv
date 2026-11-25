@@ -67,6 +67,8 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
   logic [XLEN_BITS-1:0]    pc_q, pc_d;
   blk_t                    r0_q, r0_d, r1_q, r1_d;
   ftb_ix_t                 r0_ix_q, r1_ix_q, r0_ix_b_q, r1_ix_b_q;
+  ex_tage_ix_t             r0_ex_ix_q, r1_ex_ix_q, r0_ex_ix_b_q, r1_ex_ix_b_q;
+  sc_ix_t                  r0_sc_ix_q, r0_sc_ix_b_q;
   ftb_s1_raw_t             r1_raw_q, r1_raw_b_q;
   ftb_ah_pipe_t            ah_pipe_q  [2];
   ftb_ah_pipe_t            ah_pipe_d  [2];
@@ -80,8 +82,10 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
   logic                spec_ras_nonempty, spec1_ras_nonempty, s0_ras_nonempty, spec_a_ras_nonempty;
   logic [XLEN_BITS-1:0] spec_ras_top, spec1_ras_top, s0_ras_top, spec_a_ras_top;
   fh_t                 spec_fh, spec1_fh, s0_fh, spec_a_fh;
-  logic [XLEN_BITS-1:0] s0_base, s0_bnd, pc1;
+  logic [XLEN_BITS-1:0] s0_base, s0_b_base, s0_bnd, pc1;
   ftb_ix_t             s0_ix, s0_b_ix, ah_rd_ix;
+  ex_tage_ix_t         s0_ex_ix, s0_b_ex_ix;
+  sc_ix_t              s0_sc_ix, s0_b_sc_ix;
   logic [XLEN_BITS-1:0] ah_rd_base;
   fh_t                 ah_rd_fh;
 
@@ -100,8 +104,12 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
       s0_ras_top      = spec_ras_top;
       s0_fh           = spec_fh;
     end
-    s0_bnd = block_bnd(s0_base);
-    s0_ix  = ftb_make_index(s0_base, s0_fh);
+    s0_bnd     = block_bnd(s0_base);
+    s0_ix      = ftb_make_index(s0_base, s0_fh);
+    s0_ex_ix   = ftb_make_ex_tage_index(s0_base, s0_ck.h.ex_fh);
+    s0_sc_ix   = ftb_make_sc_index(s0_base, s0_ck.h.sc_fh, s0_ck.imli);
+    s0_b_ex_ix = ftb_make_ex_tage_index(s0_b_base, spec_a_ck.h.ex_fh);
+    s0_b_sc_ix = ftb_make_sc_index(s0_b_base, spec_a_ck.h.sc_fh, spec_a_ck.imli);
   end
 
   // ---- Control flags ----
@@ -148,19 +156,28 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
   logic                    upd_en, upd_ah_v, upd_ah_kind;
   logic [XLEN_BITS-1:0]    upd_start, upd_ah_key_base, upd_ah_a_base, upd_pc;
   fh_t                     upd_fh, upd_ah_key_fh;
+  ex_fh_t                  upd_ex_fh;
+  sc_fh_t                  upd_sc_fh;
+  logic [7:0]              upd_imli;
   ftb_br_upd_t             upd_br;
   ftb_ix_t                 upd_ix, upd_ah_ix;
+  ex_tage_ix_t             upd_ex_ix;
+  sc_ix_t                  upd_sc_ix;
   ftb_rec_t                rec_wr_data, rec_wr_b_data;
 
   always_comb begin
     upd_ix    = ftb_make_index(upd_start, upd_fh);
+    upd_ex_ix = ftb_make_ex_tage_index(upd_start, upd_ex_fh);
+    upd_sc_ix = ftb_make_sc_index(upd_start, upd_sc_fh, upd_imli);
     upd_ah_ix = ftb_make_ah_index(upd_ah_key_base, upd_ah_kind ? upd_ah_a_base : upd_start, upd_ah_key_fh);
     rec_wr_data = '{
       valid: 1'b1, id: blk_seq_q, base: r1_q.base, fh: r1_q.ck.h.fh,
+      ex_fh: r1_q.ck.h.ex_fh, sc_fh: r1_q.ck.h.sc_fh, imli: r1_q.ck.imli,
       ah_v: r1_q.ah_v, ah_kind: 1'b0, ah_key_base: r1_q.ah_key_base, ah_a_base: '0, ah_key_fh: r1_q.ah_key_fh
     };
     rec_wr_b_data = '{
       valid: 1'b1, id: seq1, base: r1_q.base_b, fh: r1_q.ck_b.h.fh,
+      ex_fh: r1_q.ck_b.h.ex_fh, sc_fh: r1_q.ck_b.h.sc_fh, imli: r1_q.ck_b.imli,
       ah_v: r1_q.ah_v_b, ah_kind: 1'b1, ah_key_base: r1_q.ah_key_base_b, ah_a_base: r1_q.base, ah_key_fh: r1_q.ah_key_fh_b
     };
   end
@@ -171,16 +188,19 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
     .rec_wr_b_en(d_pair), .rec_wr_b_addr(seq1[FTB_REC_W-1:0]), .rec_wr_b_data,
     .upd_valid, .base_pc, .actual_dir, .upd_is_rvc, .br_type, .target, .pred_dir, .alt_pred, .pcpn,
     .blk_id,
-    .upd_en, .upd_start, .upd_fh, .upd_ah_v, .upd_ah_kind, .upd_ah_key_base, .upd_ah_a_base, .upd_ah_key_fh, .upd_br, .upd_pc,
+    .upd_en, .upd_start, .upd_fh, .upd_ex_fh, .upd_sc_fh, .upd_imli,
+    .upd_ah_v, .upd_ah_kind, .upd_ah_key_base, .upd_ah_a_base, .upd_ah_key_fh, .upd_br, .upd_pc,
     .commit_upd_free, .commit_tq_free
   );
 
   // ---- Predictor arrays ----
-  logic        ftb0_hit, ftb0_b_hit, s2_prefer_alt, ah_prefer_alt, ah2_prefer_alt;
-  ftb_ent_t    ftb0_ent, ftb0_b_ent;
-  ftb_ah_raw_t ah_rd_raw, ah2_rd_raw;
-  ftb_s1_raw_t s1_raw, s1_b_raw;
-  logic [XLEN_BITS-1:0] s0_b_base, clr_base_eff;
+  logic             ftb0_hit, ftb0_b_hit, ah_prefer_alt, ah2_prefer_alt;
+  logic [15:0][3:0] s2_use_alt;
+  logic [15:0][5:0] s2_sc_thres;
+  ftb_ent_t         ftb0_ent, ftb0_b_ent;
+  ftb_ah_raw_t      ah_rd_raw, ah2_rd_raw;
+  ftb_s1_raw_t      s1_raw, s1_b_raw;
+  logic [XLEN_BITS-1:0] clr_base_eff;
 
   assign clr_base_eff = (pd_nb_base != '0) ? pd_nb_base : pd_base;
 
@@ -189,9 +209,11 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
     .s0_base, .s0_b_base, .ah_rd_base, .ah_rd_ix,
     .ftb0_hit, .ftb0_ent, .ftb0_b_hit, .ftb0_b_ent,
     .ah_rd_raw, .ah2_rd_raw, .ah_prefer_alt, .ah2_prefer_alt,
-    .s1_base(r0_q.base), .s1_ix(r0_ix_q), .s1_b_base(r0_q.base_b), .s1_b_ix(r0_ix_b_q),
-    .s1_raw, .s1_b_raw, .s2_prefer_alt,
-    .upd_en, .upd_start, .upd_ix, .upd_ah_v, .upd_ah_kind, .upd_ah_key_base, .upd_ah_a_base, .upd_ah_ix, .upd_br,
+    .s1_base(r0_q.base), .s1_ix(r0_ix_q), .s1_ex_ix(r0_ex_ix_q), .s1_sc_ix(r0_sc_ix_q),
+    .s1_b_base(r0_q.base_b), .s1_b_ix(r0_ix_b_q), .s1_b_ex_ix(r0_ex_ix_b_q), .s1_b_sc_ix(r0_sc_ix_b_q),
+    .s1_raw, .s1_b_raw, .s2_use_alt, .s2_sc_thres,
+    .upd_en, .upd_start, .upd_ix, .upd_ex_ix, .upd_sc_ix,
+    .upd_ah_v, .upd_ah_kind, .upd_ah_key_base, .upd_ah_a_base, .upd_ah_ix, .upd_br,
     .clr_en(pd_valid && pd_nb_valid && pdq_have), .clr_base(clr_base_eff), .clr_pc(pd_nb_pc)
   );
 
@@ -208,7 +230,8 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
     .ah_pipe0(ah_pipe_q[0]), .ah2_pipe0(ah2_pipe_q[0]),
     .ftb0_hit, .ftb0_ent, .ftb0_b_hit, .ftb0_b_ent,
     .ah_prefer_alt, .ah2_prefer_alt,
-    .r0_q, .r1_q, .r1_ix_q, .r1_ix_b_q, .s1_raw, .r1_raw_q, .r1_raw_b_q, .s2_prefer_alt,
+    .r0_q, .r1_q, .r1_ix_q, .r1_ix_b_q, .r1_ex_ix_q, .r1_ex_ix_b_q,
+    .s1_raw, .r1_raw_q, .r1_raw_b_q, .s2_use_alt, .s2_sc_thres,
     .d_pair, .blk_seq_q,
     .ah_src_v, .ah_hit, .g0, .s0_b_base, .s0_b_bnd, .s0_a_len, .s0_b_len, .g0_b, .s0_paired,
     .s0_b_ix, .ah_rd_base, .ah_rd_fh, .ah_rd_ix,
@@ -219,6 +242,8 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
   // ---- Control, speculative history/RAS, PDCKPT ----
   logic [1:0]  h_mode, h_push_n, r_mode, r_op, r_op2, r2_op, r3_op;
   logic [1:0]  hr_mode, hr_push_n, rr_mode, rr_op, rr_op2;
+  logic [1:0]  i1_op, i2_op, i3_op, ir1_op, g0_i_op;
+  logic [7:0]  i_ck, ir_ck;
   hist_ck_t    h_ck, hr_ck;
   logic        h2_en, h3_en;
   logic [5:0]  h_push_bits, hr_push_bits;
@@ -235,12 +260,13 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
 
   bpu_cmd u_cmd (
     .refetch, .pd_restore, .rep_ok, .ovr, .ovr_a, .d_pair, .l1_ov, .issue, .s0_go, .s0_paired,
-    .pc(pc_q), .refetch_address, .g0, .g0_b, .g1, .fin, .fin_b, .r0(r0_q), .r1(r1_q),
+    .pc(pc_q), .s0_base, .s0_b_base, .refetch_address, .g0, .g0_b, .g1, .fin, .fin_b, .r0(r0_q), .r1(r1_q),
     .pd_ck, .pd_hn, .pd_hbits, .pd_ras_op, .pd_ras_val, .pd_ras_op2, .pd_ras_val2,
     .rf_ck_rec(rf_rc.ck), .rf_type, .rf_pc, .rf_is_rvc,
     .h_mode, .h_ck, .h_push_n, .h_push_bits, .r_mode, .r_ck, .r_op, .r_val, .r_op2, .r_val2, .pc1,
     .h2_en, .h2_bits, .r2_op, .r2_val, .h3_en, .h3_bits, .r3_op, .r3_val, .pc_d,
-    .hr_mode, .hr_ck, .hr_push_n, .hr_push_bits, .rr_mode, .rr_ck, .rr_op, .rr_val, .rr_op2, .rr_val2
+    .hr_mode, .hr_ck, .hr_push_n, .hr_push_bits, .rr_mode, .rr_ck, .rr_op, .rr_val, .rr_op2, .rr_val2,
+    .i1_op, .i_ck, .i2_op, .i3_op, .ir1_op, .ir_ck, .g0_i_op
   );
 
   bpu_spec u_spec (
@@ -251,7 +277,8 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
     .spec1_ck, .spec1_ras_nonempty, .spec1_ras_top, .spec1_fh,
     .spec_a_ck, .spec_a_ras_nonempty, .spec_a_ras_top, .spec_a_fh,
     .refetch, .issue, .g0_h_en(g0.taken), .g0_h_bits(g0.hbits), .g0_r_op(g0.ras_op), .g0_r_val(g0.ras_val),
-    .hr_mode, .hr_ck, .hr_push_n, .hr_push_bits, .rr_mode, .rr_ck, .rr_op, .rr_val, .rr_op2, .rr_val2
+    .hr_mode, .hr_ck, .hr_push_n, .hr_push_bits, .rr_mode, .rr_ck, .rr_op, .rr_val, .rr_op2, .rr_val2,
+    .i1_op, .i_ck, .i2_op, .i3_op, .ir1_op, .ir_ck, .g0_i_op
   );
 
   bpu_pdq u_pdq (
@@ -353,12 +380,18 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
   end
 
   always_ff @(posedge clk) begin
-    r0_ix_q    <= s0_ix;
-    r1_ix_q    <= r0_ix_q;
-    r0_ix_b_q  <= s0_b_ix;
-    r1_ix_b_q  <= r0_ix_b_q;
-    r1_raw_q   <= s1_raw;
-    r1_raw_b_q <= s1_b_raw;
+    r0_ix_q      <= s0_ix;
+    r1_ix_q      <= r0_ix_q;
+    r0_ix_b_q    <= s0_b_ix;
+    r1_ix_b_q    <= r0_ix_b_q;
+    r0_ex_ix_q   <= s0_ex_ix;
+    r1_ex_ix_q   <= r0_ex_ix_q;
+    r0_ex_ix_b_q <= s0_b_ex_ix;
+    r1_ex_ix_b_q <= r0_ex_ix_b_q;
+    r0_sc_ix_q   <= s0_sc_ix;
+    r0_sc_ix_b_q <= s0_b_sc_ix;
+    r1_raw_q     <= s1_raw;
+    r1_raw_b_q   <= s1_b_raw;
   end
 
   assign icache_read_valid          = s0_go;

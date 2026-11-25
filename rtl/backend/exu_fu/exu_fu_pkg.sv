@@ -72,22 +72,27 @@ package exu_fu_pkg;
 
   // ---- payload of a multi-cycle FU entry: the ExuInst fields the Exu consumers read for a MUL/DIV uop
   //      (to_exe_prf_wb_uop / to_exu_rob_uop; every other ExuInst field of a MUL/DIV is constant 0 or unread) ----
+  function automatic logic fu_rob_younger(input logic [ROB_IDX_WIDTH-1:0] a_idx, input logic a_flag,
+                                          input logic [ROB_IDX_WIDTH-1:0] b_idx, input logic b_flag);
+    return (a_flag == b_flag) ? (a_idx > b_idx) : (a_idx < b_idx);
+  endfunction
+
   typedef struct packed {
-    logic [XLEN_BITS-1:0]                result;
-    logic [ROB_IDX_WIDTH-1:0]   rob_idx;
-    logic [PRF_IDX_WIDTH-1:0]   dest_preg;
-    logic                       dest_en;
-    logic [BR_MASK_WIDTH-1:0]   br_mask;
+    logic [XLEN_BITS-1:0]     result;
+    logic [ROB_IDX_WIDTH-1:0] rob_idx;
+    logic                     rob_flag;
+    logic [PRF_IDX_WIDTH-1:0] dest_preg;
+    logic                     dest_en;
   } fu_uop_t;
   // payload of an F/D unit entry: the 64-bit FP register value (or the integer result in its low bits), the flags
   typedef struct packed {
-    logic [63:0]                fresult;
-    logic [4:0]                 fflags;
-    logic                       illegal;
-    logic [ROB_IDX_WIDTH-1:0]   rob_idx;
-    logic [PRF_IDX_WIDTH-1:0]   dest_preg;
-    logic                       dest_en;
-    logic [BR_MASK_WIDTH-1:0]   br_mask;
+    logic [63:0]              fresult;
+    logic [4:0]               fflags;
+    logic                     illegal;
+    logic [ROB_IDX_WIDTH-1:0] rob_idx;
+    logic                     rob_flag;
+    logic [PRF_IDX_WIDTH-1:0] dest_preg;
+    logic                     dest_en;
   } fp_uop_t;
 
 endpackage

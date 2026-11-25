@@ -36,6 +36,11 @@ package isu_pkg;
   localparam int IQ_FP = 4;
   localparam int IQ_INT1 = 5;                               // the second integer queue (the six ALU ports are split over the two integer queues)
   localparam int IQ_DISPATCH_WIDTH = DECODE_WIDTH;          // enqueue lanes per IQ
+
+  function automatic logic isu_rob_younger(input logic [ROB_IDX_WIDTH-1:0] a_idx, input logic a_flag,
+                                           input logic [ROB_IDX_WIDTH-1:0] b_idx, input logic b_flag);
+    return (a_flag == b_flag) ? (a_idx > b_idx) : (a_idx < b_idx);
+  endfunction
   localparam int WAKE_NUM = MAX_WAKEUP_PORTS;               // iss_awake channels
   localparam int READY_NUM_W = IQ_READY_NUM_WIDTH;          // iss2dis.ready_num width
 
@@ -264,8 +269,6 @@ package isu_pkg;
     logic [2:0]                  func3;
     logic [6:0]                  func7;
     logic [31:0]                 imm;
-    logic [BR_TAG_WIDTH-1:0]     br_id;
-    logic [BR_MASK_WIDTH-1:0]    br_mask;
     logic [CSR_IDX_WIDTH-1:0]    csr_idx;
     logic [ROB_IDX_WIDTH-1:0]    rob_idx;
     logic [STQ_IDX_WIDTH-1:0]    stq_idx;

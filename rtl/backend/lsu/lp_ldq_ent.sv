@@ -14,8 +14,8 @@ module lp_ldq_ent
   input  logic                rst_n,
   input  logic                flush,
   input  logic                mispred,
-  input  logic [BRW-1:0]      dec_br_mask,
-  input  logic [BRW-1:0]      clear_mask,
+  input  logic [ROBW-1:0]     dec_rob_idx,
+  input  logic                dec_rob_flag,
   // P2 MMIO response
   input  logic                mm_go,
   input  logic [XLEN_BITS-1:0]         mm_data,
@@ -226,16 +226,18 @@ module lp_ldq_ent
   end
 
   // ---- P10 / P11: allocation, flush ----
-  lp_ld_st_t   st7, st8;
-  logic [BRW-1:0] br7;
-  logic        kill;
+  lp_ld_st_t        st7, st8;
+  logic [ROBW-1:0]  ridx7;
+  logic             rflg7;
+  logic             kill;
   always_comb begin
-    st7 = al ? LS_ALLOC : st6;
-    br7 = al ? al_d.br_mask : f_q.br_mask;
-    kill = flush || (mispred && st7 != LS_EMPTY && (br7 & dec_br_mask) != '0);
-    st8 = kill ? LS_EMPTY : st7;
+    st7   = al ? LS_ALLOC : st6;
+    ridx7 = al ? al_d.rob_idx : f_q.rob_idx;
+    rflg7 = al ? al_d.rob_flag : f_q.rob_flag;
+    kill  = flush || (mispred && st7 != LS_EMPTY && lp_rob_younger(ridx7, rflg7, dec_rob_idx, dec_rob_flag));
+    st8   = kill ? LS_EMPTY : st7;
     empty8 = st8 == LS_EMPTY;
-    dead_r = flush || (mispred && st_q != LS_EMPTY && (f_q.br_mask & dec_br_mask) != '0);
+    dead_r = flush || (mispred && st_q != LS_EMPTY && lp_rob_younger(f_q.rob_idx, f_q.rob_flag, dec_rob_idx, dec_rob_flag));
     pipe8 = st8 == LS_PIPE;
     // LP_CUT[16]: an entry targeted by an L1 slot is in PIPE; only the flush kill can change that
     epoch_nx = f_q.epoch + EPW'(al) +
@@ -308,12 +310,8 @@ module lp_ldq_ent
     else        st_q <= st_d;
   end
 
-  logic [BRW-1:0] br_d;
-  assign br_d = al ? al_d.br_mask : (st_q != LS_EMPTY ? f_q.br_mask & ~clear_mask : f_q.br_mask);
-
   always_ff @(posedge clk) begin
     f_q.epoch  <= epoch_nx;
-    f_q.br_mask <= br_d;
     f_q.rcause <= rc9;
     f_q.blk    <= blk3;
     f_q.rwait  <= wt9;

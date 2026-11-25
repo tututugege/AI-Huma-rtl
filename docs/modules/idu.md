@@ -3,31 +3,28 @@ module: idu
 area: backend
 rtl: rtl/backend/idu
 model: trace-model back-end/Idu.cpp、back-end/include/Idu.h（调度单元 `back.idu`，类 `Idu`，阶段 `comb_decode`、`comb_fire`）
-status: 整核周期与模型逐个相等（fm_gate 68/68，0 周期偏差）
-depth: 66 层（idu，单模块综合，2026-11-21，`SYNTH_ABC="strash;balance;map"`，31,607 cells）
+status: 整核周期与模型逐个相等（`fm_gate` 69/69 PASS、0 周期偏差，Linux 26/26 窗 PT/UP 100% 全等）
+depth: **19 层 / 6,595 cells**（Yosys `strash;balance;map`，较 `main` 66 层 / 31,607 cells 降 **−79.1%**）；**TSMC 28nm HPC+ DC (`ssg0p81v125c`, `0.50ns`)：14 级 / 0.37 ns（2.70 GHz）/ WNS 0.00 ns / 1,994.2 µm²（较 `main` 18,195.6 µm² 面积 −89.0%）**
 ---
 
 # idu 设计文档
 
 ## 1. 职责
 
-译码单元（IDU）：把指令缓冲（`pre_idu_queue`）发来的最老 8 条指令译成 uop 字段，给每个分支分配分支标签（branch tag）并算分支掩码，同时是整个后端的"分支结果广播站"。每拍：
+译码单元（IDU）：把指令缓冲（`pre_idu_queue`）发来的最老 8 条指令译成 uop 字段，同时是整个后端的"分支误预测广播站"。自方案 C（9-bit `rob_ptr` 循环年龄冲刷）落地后，IDU **不再分配分支标签（`br_id`）或维护 `br_mask` / `clear_mask`**：
 
 1. 译码：每个 lane 把一个 32 位指令字译成类型、源 / 目的寄存器号、立即数、功能码、是否非法等字段（`dec2ren`）；取指缺页的指令变成一条带缺页标志的 NOP（`diag_val` 里放指令字）；
-2. 分支标签与掩码：每条分支（BR 或 JALR，JAL 不占）从空闲标签里取一个；每条指令带一个 `br_mask`，每一位对应一个还没解决的更老的分支，younger 依赖所有更老的未解决分支，分支本身不依赖自己的位；空闲标签用完就在那条分支处截断这一组（之后的 lane 本拍不出）；
-3. 握手：重命名接收这一组（`ren2dec.ready`），所有有效 lane 就被消耗（`idu_consume.fire`）；冲刷或误预测那一拍什么都不消耗；
-4. 广播分支结果（`dec_bcast`）：上一拍 EXU 报来的误预测、被预测错的分支标签、已解决分支的清除掩码，寄存一拍后广播给所有模块；
-5. 维护标签状态：空闲标签位图、"在飞分支"掩码 `now_br_mask`、每个标签分配时的掩码快照（用于误预测时找出比这条分支年轻的那些标签）。
+2. 握手：重命名接收这一组（`ren2dec.ready`），所有有效 lane 就被消耗（`idu_consume.fire`）；冲刷或误预测那一拍什么都不消耗；
+3. 广播分支结果（`dec_bcast`）：上一拍 EXU 报来的误预测及 9-bit ROB 指针 `{redirect_rob_flag, redirect_rob_idx}`，寄存一拍后广播给后端各模块，用于循环年龄比较（`(a_flag == b_flag) ? (a_idx > b_idx) : (a_idx < b_idx)`）。
 
-模型对应一个调度单元 `back.idu`（`Idu::comb_decode` = 先 `branch()` 再 `decode()`；`Idu::comb_fire` = 握手）。RTL 的子模块边界是为综合划的，模型里没有对应的类。
+模型对应一个调度单元 `back.idu`（`Idu::comb_decode` = 先 `branch()` 再 `decode()`；`Idu::comb_fire` = 握手）。RTL 删除了 `idu_br_alloc` / `idu_br_group` / `idu_br_state` / `idu_br_cp` / `idu_fire_ctl`，仅保留 8 路 `idu_decoder` + `idu_br_latch` + `idu_bcast`。
 
 ## 2. 配置（`ttg_cfg_pkg`，现行默认）
 
 | 项 | 值 | 常量 |
 | --- | --- | --- |
 | lane 数 | 8 | `DECODE_WIDTH` |
-| 分支标签 | 32 个，标签 0 表示"不是分支"，从不分配；实际可用 31 个 | `BR_MASK_WIDTH = 32`、`MAX_BR_NUM = 32`、`BR_TAG_WIDTH = 5` |
-| 每拍最多分配的标签数 | 8（= lane 数） | `MAX_BR_PER_CYCLE` |
+| 分支冲刷机制 | 9-bit `rob_ptr`（`{rob_flag, rob_idx}`）循环年龄比较（已彻底删除 `br_id` / `br_mask` / `clear_mask`） | `ROB_IDX_WIDTH = 8` |
 | 指令字宽度 | 32（压缩指令在前端展开后才进入） | `pre_issue_entries_inst[31:0]`；展开在 `rtl/frontend/rvc_expand.sv` |
 | 译码类别 | 40 类（含"非法"）；无 FP 时 FP 类全零 | `idu_ctrl_decode` 的 `NCLS = 40` |
 | F/D | 开 | `FPRF_NUM != 0` |
@@ -35,52 +32,39 @@ depth: 66 层（idu，单模块综合，2026-11-21，`SYNTH_ABC="strash;balance;
 
 ## 3. 接口
 
-信号组按模型的 `in` / `out` 命名；顶层 `idu.sv` 把 8 个 lane 的译码器、标签分配、状态、广播连起来。
+信号组按模型的 `in` / `out` 命名；顶层 `idu.sv` 连接 8 路译码器、`idu_br_latch` 与 `idu_bcast`。
 
 | 方向 | 信号组 | 含义 |
 | --- | --- | --- |
 | 入 | `pre_issue_entries_{valid, inst, page_fault_inst, ftq_idx, ftq_offset, ftq_is_last}[8]` | 指令缓冲发来的最老 8 条 |
 | 入 | `ren2dec_ready` | 重命名可以接收这一组 |
 | 入 | `rob_bcast_flush` | 全局冲刷（`FLUSH_REG` 后晚一拍，docs/FLUSH_REG.md） |
-| 入 | `exu2id_{mispred, redirect_pc, redirect_rob_idx, br_id, ftq_idx, br_pc, br_is_rvc, clear_mask}` | EXU 的分支结果；寄存一拍后才使用 |
-| 出 | `dec2ren_valid[8]`、`dec2ren_uop_*[8]` | 译码结果，含 `br_id`、`br_mask` |
+| 入 | `exu2id_{mispred, redirect_pc, redirect_rob_idx, redirect_rob_flag, ftq_idx, ftq_offset, br_pc, br_is_rvc}` | EXU 的分支结果；寄存一拍后才使用 |
+| 出 | `dec2ren_valid[8]`、`dec2ren_uop_*[8]` | 译码结果（不含 `br_id` / `br_mask`） |
 | 出 | `idu_consume_fire[8]` | 本拍消耗了哪些 lane（指令缓冲据此弹出） |
-| 出 | `dec_bcast_{mispred, br_mask, br_id, redirect_rob_idx, clear_mask}` | 分支结果广播：`br_mask = 1 << br_id`；`clear_mask` 包含被预测错的分支自己的位，接收方先处理冲刷再清除 |
-| 出 | `br_latch_{mispred, redirect_pc, ftq_idx, br_pc, is_rvc}` | 寄存后的分支结果，直接给 `back_top` / `pre_idu_queue` / 前端重定向用（模型里是 `idu_br_latch`） |
+| 出 | `dec_bcast_{mispred, redirect_rob_idx, redirect_rob_flag}` | 分支误预测与 9-bit ROB 指针广播，供下游做循环年龄冲刷 |
+| 出 | `br_latch_{mispred, redirect_pc, ftq_idx, ftq_offset, br_pc, is_rvc}` | 寄存后的分支结果，直接给 `back_top` / `pre_idu_queue` / 前端重定向用 |
 
 没有输出 `is_rvc` 和 `mdp`：这两项在分派前再向 FTQ 读（见 dispatch.md / pre_idu_queue.md）。
 
 ## 4. 结构
 
 ```
- pre_issue[8] ─► idu_decoder × 8（idu_ctrl_decode: 类别一热 + ROM；idu_imm_gen: 立即数）
-                     │  is_branch
-                     ▼
- idu_br_state : tag_free（空闲标签位图）、now_br_mask   ──► idu_br_alloc : 最低 8 个空闲标签，各一个一热
-                     │                                        │
-                     ▼                                        ▼
-               idu_br_group : 第 k 条分支取第 k 个标签；lane_valid（遇到没标签的分支就截断）；br_mask 前缀或
-                     │
- idu_fire_ctl : fire = lane_valid & 重命名 ready & !冲刷 & !latch_mispred；已 fire 分支的标签
- idu_br_cp    : 每个标签分配时的掩码快照（写 8 路、读 1 路）
- idu_br_latch : EXU 结果寄存一拍（冲刷时清）  ──►  idu_bcast : 广播
+ pre_issue[8] ─► idu_decoder × 8（idu_ctrl_decode: 类别一热 + ROM；idu_imm_gen: 立即数）─► dec2ren[8]
+                 consume_fire[i] = pre_issue[i].valid & ren2dec_ready & !rob_bcast_flush & !latch_mispred
+ exu2id       ─► idu_br_latch（EXU 结果寄存一拍，冲刷时清）─► idu_bcast（广播 dec_bcast）
 ```
 
-| 文件 | 行数 | 职责 |
-| --- | --- | --- |
-| `idu.sv` | 173 | 顶层：连接各子块；`clear_eff`（去掉标签 0）、`base_mask = now_br_mask & ~latch_clear_mask` |
-| `idu_decoder.sv` | 104 | 一个 lane 的译码：包装控制字和立即数，取指缺页时变 NOP |
-| `idu_ctrl_decode.sv` | 279 | 控制字：先把操作码 / funct 分成 40 个互斥类别（一热），每个控制位是对常量表 ROM（22 位一行）的一次与或选择；FP 的类别表另有一份 |
-| `idu_imm_gen.sv` | 35 | 各种格式的立即数（U、J、I、B、S、CSR 的 rs1 字段、F/D 的指令位）用一热选择 |
-| `idu_br_alloc.sv` | 28 | 从空闲标签里取最低的 8 个，8 级"取最低位"串联 |
-| `idu_br_group.sv` | 59 | 每个 lane 数"前面有几条分支"取标签、判截断、算 `br_mask` |
-| `idu_fire_ctl.sv` | 37 | 消耗握手；已 fire 的分支标签 |
-| `idu_br_state.sv` | 61 | 空闲标签和在飞分支掩码的次态 |
-| `idu_br_cp.sv` | 56 | 掩码快照表 |
-| `idu_br_latch.sv` | 77 | EXU 分支结果的一拍寄存 |
-| `idu_bcast.sv` | 29 | 广播（寄存值直接转出，`br_mask` 由 `br_id` 译码） |
+| 文件 | 职责 |
+| --- | --- |
+| `idu.sv` | 顶层：连接 8 路译码器、`idu_br_latch`、`idu_bcast` 与 `consume_fire` |
+| `idu_decoder.sv` | 一个 lane 的译码：包装控制字和立即数，取指缺页时变 NOP |
+| `idu_ctrl_decode.sv` | 控制字：40 个互斥类别（一热）+ 常量表 ROM（22 位一行） |
+| `idu_imm_gen.sv` | 各种格式的立即数一热选择 |
+| `idu_br_latch.sv` | EXU 分支结果的一拍寄存（含 `redirect_rob_idx` / `redirect_rob_flag` / `ftq_offset`） |
+| `idu_bcast.sv` | 广播寄存后的 `mispred` / `redirect_rob_idx` / `redirect_rob_flag` |
 
-状态：`tag_free_q[32]`、`now_mask_q[32]`、快照表 `entry_q[1..31]`（每项 32 位；0 项恒为 0）、`br_latch` 一组寄存器（`mispred`、`clear_mask`、`redirect_pc`、`redirect_rob_idx`、`br_id`、`ftq_idx`、`br_pc`、`br_is_rvc`）。译码本身没有状态。
+状态：仅保留 `br_latch` 一组寄存信号，译码本身无状态（原 `idu_br_alloc` / `idu_br_group` / `idu_br_state` / `idu_br_cp` / `idu_fire_ctl` 已全部删除）。
 
 ## 5. 一拍内的数据流
 
@@ -165,6 +149,7 @@ RTL 与模型保持一致的细节（读模型时容易误判）：
 
 ## 10. 变更记录
 
+- 2026-11-25（`rtl/rob-ptr-bpu`，方案 C 9-bit `rob_ptr` 冲刷）：彻底删除 `br_id` / `br_mask` / `clear_mask` 及 5 个分支标签子模块（`idu_br_alloc` / `idu_br_group` / `idu_br_state` / `idu_br_cp` / `idu_fire_ctl`），`idu_br_latch` / `idu_bcast` 透传 `{redirect_rob_flag, redirect_rob_idx}`；Yosys **19 层 / 6,595 cells**（原 66 层 / 31,607 cells），TSMC 28nm DC **14 级 / 0.37 ns（2.70 GHz）/ WNS 0.00 ns / 1,994.2 µm²**（较 `main` 18,195.6 µm² **−89.0%**）；`lint_chip` 0、`fm_gate` 69/69（0 周期差）、Linux 26/26 窗 PT/UP 100% 全等。
 - 2026-11-21（`rtl/move-elim-1hop`，EXP-052）：`idu_decoder` 新增 `c_mv_canon`，将 `add rd, x0, rs2`（含全部展开后的 `c.mv`）规范化为 `addi rd, rs2, 0` 供 `ren` 移动消除识别；`eda-08` Yosys 深度 66 层（31,607 cells），`lint_chip` 0、`fm_gate` 68/68（0 周期偏差）。
 - 2026-11-21（`rtl/fe-2fetch-2taken`，EXP-051 里程碑 B）：`idu` 与 `idu_br_latch` 新增 4 位 `exu2id_ftq_offset` → `br_latch_ftq_offset` 寄存透传，供 `pre_idu_ftq_bpu` 按精确 `ftq_offset` 索引双块 FTQ 修复记录；通过 `lint_chip` 0、`fm_gate` 68/68（0 周期偏差）与 Linux 27 窗对齐。
 - `git log --oneline 261bd67..HEAD -- rtl/backend/idu`：本分支没有对本模块的提交；FLUSH_REG（`803692f`）只改了 `back_top` 的连线，使 `rob_bcast_flush` 到本模块晚一拍。更早：见 git 历史。

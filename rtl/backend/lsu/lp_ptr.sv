@@ -14,7 +14,8 @@ module lp_ptr
   input  logic                rst_n,
   input  logic                flush,
   input  logic                mispred,
-  input  logic [BRW-1:0]      dec_br_mask,
+  input  logic [ROBW-1:0]     dec_rob_idx,
+  input  logic                dec_rob_flag,
   // P1 commit
   input  logic [NCM-1:0]      cm_valid,
   input  logic [4:0]          cm_type [NCM],
@@ -26,8 +27,9 @@ module lp_ptr
   input  logic [NDIS-1:0]     al_req,
   output logic [SQ-1:0]       al_v,
   output logic [SQ-1:0][NDIS-1:0] al_slot,
-  // P11 mispredict cut (entry br_mask after the allocation)
-  input  logic [BRW-1:0]      br_al [SQ],
+  // P11 mispredict cut (entry ROB pointer)
+  input  logic [ROBW-1:0]     sq_rob_idx [SQ],
+  input  logic [SQ-1:0]       sq_rob_flag,
   // P14 retire
   input  logic [SQ-1:0]       done_vec,
   input  logic [SQ-1:0]       done_q_vec,    // done bits as registered (retire reads them with LP_CUT[1])
@@ -138,14 +140,13 @@ module lp_ptr
   // LP_CUT[8]: committed stores are never cut (a mispredict only cuts younger stores; ccount_cm <= count_q <= count_al)
   assign ccount_flushed = (flush && ((LP_CUT & 256) == 0)) ? keep_committed : ccount_cm;
   for (genvar s = 0; s < SQ; s++) begin : g_hit
-    assign hit_slot[s] = (br_al[s] & dec_br_mask) != '0;
+    assign hit_slot[s] = lp_rob_younger(sq_rob_idx[s], sq_rob_flag[s], dec_rob_idx, dec_rob_flag);
   end
   assign hit_rot = rotr64(64'(hit_slot), head_q);
-  // LP_L2[10]: the first hit is searched over all positions (no count in front of the search) and compared with
-  // count_flushed afterwards.  Equivalent: only positions below count_al hold live entries, so a live hit always
-  // comes before any stale one; a first hit at or above count_flushed means no hit inside the window.
+  // LP_L2[10]: the first hit is searched over all uncommitted positions (rank >= ccount_cm) and compared with
+  // count_fm afterwards.  Only uncommitted entries are eligible for mispredict cut (immune to ROB wraparound).
   for (genvar j = 0; j < SQ; j++) begin : g_pos
-    assign hit_pos[j] = hit_rot[j] && (((LP_L2 & 1024) != 0) || count_fm > CNTW'(j));
+    assign hit_pos[j] = hit_rot[j] && (CNTW'(j) >= ccount_cm) && (((LP_L2 & 1024) != 0) || count_fm > CNTW'(j));
   end
   lp_ffs #(.N(SQ)) u_first (.req(hit_pos), .onehot(hit_first), .any(any_hit));
   logic [SQW-1:0] first_ix;
@@ -198,15 +199,17 @@ module lp_ptr
   // LP_CUT[13]: the drain only sees stores committed at the start of the cycle
   assign win13 = ring_mask(head_q, ((LP_CUT & 8192) != 0) ? (ccount_q > count_q ? count_q : ccount_q) : committed);
   // LP_CUT[12]: the same window without the count chain: alive at the start, not retired, not cut by the mispredict
-  // (a cut removes every entry whose br_mask hits: younger entries carry the bit), not above the committed window
-  // on a flush
+  // (only uncommitted entries younger than dec_rob_ptr are cut), not above the committed window on a flush
+  logic [SQ-1:0] cmt_mask, uncmt_hit_slot;
+  assign cmt_mask       = ring_mask(head_q, ccount_cm);
+  assign uncmt_hit_slot = hit_slot & ~cmt_mask;
   assign alive_post = ((LP_CUT & 4096) != 0)
-                      ? (alive_w & ~ev_ret & ~(mispred ? hit_slot : '0) &
-                         (flush ? ring_mask(head_q, ccount_cm) : '1))
+                      ? (alive_w & ~ev_ret & ~(mispred ? uncmt_hit_slot : '0) &
+                         (flush ? cmt_mask : '1))
                       : ring_mask(head_d, count_d);
   // LP_CUT[15]: the same without the count chain (entries allocated in this cycle are not looked up through this view)
   assign alive_fl = ((LP_CUT & 32768) != 0)
-                    ? (alive_w & ~(mispred ? hit_slot : '0) & (flush ? ring_mask(head_q, ccount_cm) : '1))
+                    ? (alive_w & ~(mispred ? uncmt_hit_slot : '0) & (flush ? cmt_mask : '1))
                     : ring_mask(head_q, count_fl);
 
   always_ff @(posedge clk) begin

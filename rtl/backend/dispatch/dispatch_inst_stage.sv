@@ -12,7 +12,6 @@ module dispatch_inst_stage
   input  logic                       rst_n,
   input  logic                       kill,        // rob_bcast.flush | dec_bcast.mispred
   input  logic                       ready,       // dis2ren.ready: accept a new group from rename
-  input  logic [BR_MASK_WIDTH-1:0]   clear_mask,  // resolved-branch bits to drop from every br_mask
   input  logic [NUM_SLOTS-1:0] ren_valid,
   input  dis_inst_t                  ren_inst  [NUM_SLOTS],
   input  logic [NUM_SLOTS-1:0] fire,
@@ -41,9 +40,7 @@ module dispatch_inst_stage
       held_inst.src1_busy = alloc_src1_busy[i] && !(inst_q[i].src1_en && woken1[i]);
       held_inst.src2_busy = alloc_src2_busy[i] && !(inst_q[i].src2_en && woken2[i]);
       held_inst.src3_busy = alloc_src3_busy[i] && !(inst_q[i].src3_en && woken3[i]);
-      held_inst.br_mask   = inst_q[i].br_mask & ~clear_mask;
       new_inst = ren_inst[i];
-      new_inst.br_mask = ren_inst[i].br_mask & ~clear_mask;
     end
 
     // Ref: Dispatch::comb_pipeline. Payload is only meaningful while valid: always take the new group

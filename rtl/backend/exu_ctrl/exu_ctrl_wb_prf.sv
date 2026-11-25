@@ -22,7 +22,8 @@ module exu_ctrl_wb_prf
   output logic [PRF_IDX_WIDTH-1:0]  entry_dest_preg [WB_LANES],
   output logic [XLEN_BITS-1:0]      entry_result    [WB_LANES],
   output logic [FW-1:0]             entry_fresult   [WB_LANES],   // F/D: 64-bit result of an FP-register write
-  output logic [BR_MASK_WIDTH-1:0]  entry_br_mask   [WB_LANES],
+  output logic [ROB_IDX_WIDTH-1:0]  entry_rob_idx   [WB_LANES],
+  output logic [WB_LANES-1:0]       entry_rob_flag,
   output logic [WB_LANES-1:0]       entry_dest_en,
   output logic [XC_OP_W-1:0]        entry_op        [WB_LANES]
 );
@@ -40,7 +41,8 @@ module exu_ctrl_wb_prf
       assign entry_result[l]    = ld_wb[K].result;
       // flw: NaN-boxed (fld on rv64 returns the whole word)
       assign entry_fresult[l]   = fp_load_data(ld_wb[K].result, ld_wb[K].is_w);
-      assign entry_br_mask[l]   = ld_wb[K].br_mask;
+      assign entry_rob_idx[l]   = ld_wb[K].rob_idx;
+      assign entry_rob_flag[l]  = ld_wb[K].rob_flag;
       assign entry_dest_en[l]   = ld_wb[K].dest_en;
       assign entry_op[l]        = XC_OP_W'(XC_UOP_LOAD);
     end else begin : g_win
@@ -53,7 +55,8 @@ module exu_ctrl_wb_prf
         assign entry_result[l]  = win[P].result;
       end
       assign entry_fresult[l]   = win[P].fresult;
-      assign entry_br_mask[l]   = win[P].br_mask;
+      assign entry_rob_idx[l]   = win[P].rob_idx;
+      assign entry_rob_flag[l]  = win[P].rob_flag;
       assign entry_dest_en[l]   = win[P].dest_en;
       assign entry_op[l]        = win[P].op;
     end

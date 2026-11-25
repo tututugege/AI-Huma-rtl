@@ -27,8 +27,6 @@ module ren
   input  logic [2:0] dec2ren_uop_func3 [DECODE_WIDTH],
   input  logic [6:0] dec2ren_uop_func7 [DECODE_WIDTH],
   input  logic [31:0] dec2ren_uop_imm [DECODE_WIDTH],
-  input  logic [BR_TAG_WIDTH-1:0] dec2ren_uop_br_id [DECODE_WIDTH],
-  input  logic [BR_MASK_WIDTH-1:0] dec2ren_uop_br_mask [DECODE_WIDTH],
   input  logic [CSR_IDX_WIDTH-1:0] dec2ren_uop_csr_idx [DECODE_WIDTH],
   input  logic [DECODE_WIDTH-1:0] dec2ren_uop_page_fault_inst,
   input  logic [DECODE_WIDTH-1:0] dec2ren_uop_pf_inst_hi,
@@ -41,7 +39,6 @@ module ren
   input  logic [2:0] dec2ren_uop_fp_cls [DECODE_WIDTH],
   input  logic dec_bcast_mispred,
   input  logic [ROB_IDX_WIDTH-1:0] dec_bcast_redirect_rob_idx,
-  input  logic [BR_MASK_WIDTH-1:0] dec_bcast_clear_mask,
   input  logic dis2ren_ready,
   input  logic rob_bcast_flush,
   input  logic rob_bcast_interrupt,
@@ -72,8 +69,6 @@ module ren
   output logic [2:0] ren2dis_uop_func3 [DECODE_WIDTH],
   output logic [6:0] ren2dis_uop_func7 [DECODE_WIDTH],
   output logic [31:0] ren2dis_uop_imm [DECODE_WIDTH],
-  output logic [BR_TAG_WIDTH-1:0] ren2dis_uop_br_id [DECODE_WIDTH],
-  output logic [BR_MASK_WIDTH-1:0] ren2dis_uop_br_mask [DECODE_WIDTH],
   output logic [CSR_IDX_WIDTH-1:0] ren2dis_uop_csr_idx [DECODE_WIDTH],
   output logic [DECODE_WIDTH-1:0] ren2dis_uop_page_fault_inst,
   output logic [DECODE_WIDTH-1:0] ren2dis_uop_pf_inst_hi,
@@ -117,8 +112,6 @@ diag_val: dec2ren_uop_diag_val[i],
                           func3: dec2ren_uop_func3[i],
                           func7: dec2ren_uop_func7[i],
                           imm: dec2ren_uop_imm[i],
-                          br_id: dec2ren_uop_br_id[i],
-                          br_mask: dec2ren_uop_br_mask[i],
                           csr_idx: dec2ren_uop_csr_idx[i],
                           page_fault_inst: dec2ren_uop_page_fault_inst[i],
                           pf_inst_hi: dec2ren_uop_pf_inst_hi[i],
@@ -147,8 +140,6 @@ diag_val: dec2ren_uop_diag_val[i],
     assign ren2dis_uop_func3[i] = out_uop[i].func3;
     assign ren2dis_uop_func7[i] = out_uop[i].func7;
     assign ren2dis_uop_imm[i] = out_uop[i].imm;
-    assign ren2dis_uop_br_id[i] = out_uop[i].br_id;
-    assign ren2dis_uop_br_mask[i] = out_uop[i].br_mask;
     assign ren2dis_uop_csr_idx[i] = out_uop[i].csr_idx;
     assign ren2dis_uop_page_fault_inst[i] = out_uop[i].page_fault_inst;
     assign ren2dis_uop_pf_inst_hi[i] = out_uop[i].pf_inst_hi;
@@ -177,7 +168,6 @@ diag_val: dec2ren_uop_diag_val[i],
   ren_core u_core (
     .clk(clk), .rst_n(rst_n), .dec_valid(dec_valid), .dec_uop(dec_uop),
     .dec_mispred(dec_bcast_mispred), .dec_redirect_rob_idx(dec_bcast_redirect_rob_idx),
-    .dec_clear_mask(dec_bcast_clear_mask),
     .dis_ready(dis2ren_ready), .rob_flush(rob_bcast_flush), .rob_interrupt(rob_bcast_interrupt),
     .commit(commit), .ren2dec_ready(ren2dec_ready), .ren2rob_walking(ren2rob_walking),
     .ren2dis_valid(out_valid), .ren2dis_uop(out_uop), .commit_dest_preg(ren_commit_dest_preg)

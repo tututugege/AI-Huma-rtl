@@ -19,7 +19,6 @@ module ren_inst_pipe
   input  logic                s2_take_new,  // advance S1 -> S2
   input  logic                kill,         // flush or mispredict: drop both S1 and S2
   input  logic [N-1:0]        fire,
-  input  br_mask_t            clear_mask,   // resolved-branch bits to clear from every br_mask
   output logic                s1_empty,
   output logic [N-1:0]        valid,
   output ren_inst_t           inst [N],
@@ -41,8 +40,7 @@ module ren_inst_pipe
 
   always_comb begin
     for (int i = 0; i < N; i++) begin
-      s1_inst_d[i]         = s1_take_new ? dec_uop[i] : s1_inst_q[i];
-      s1_inst_d[i].br_mask = s1_inst_d[i].br_mask & ~clear_mask;
+      s1_inst_d[i] = s1_take_new ? dec_uop[i] : s1_inst_q[i];
     end
     if (kill)             s1_valid_d = '0;
     else if (s1_take_new) s1_valid_d = dec_valid;
@@ -90,9 +88,8 @@ module ren_inst_pipe
 
   always_comb begin
     for (int i = 0; i < N; i++) begin
-      inst[i]           = inst_q[i];
-      inst_d[i]         = s2_take_new ? s1_inst_q[i] : inst_q[i];
-      inst_d[i].br_mask = inst_d[i].br_mask & ~clear_mask;
+      inst[i]   = inst_q[i];
+      inst_d[i] = s2_take_new ? s1_inst_q[i] : inst_q[i];
     end
     if (kill)             valid_d = '0;
     else if (s2_take_new) valid_d = s1_valid_q;

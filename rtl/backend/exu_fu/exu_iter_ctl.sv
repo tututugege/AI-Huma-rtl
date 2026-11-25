@@ -1,71 +1,67 @@
 // Ref: back-end/Exu/include/AbstractFU.h  IterativeFU (busy / done_cycle / comb_ctrl / comb_issue / comb_consume)
 `default_nettype none
 
-// Control skeleton of a non-pipelined multi-cycle FU (DIV; the FPU reuses it with a per-op latency).  One uop at a
-// time: `accept` loads the uop, the FU stays busy for `lat_m1 + 1` cycles, complete stays high until the Exu consumes
-// the result.  `cnt` is the C++ `done_cycle - sim_time` (the accept cycle has done - now = latency, the next cycle
-// latency - 1, ...); complete means cnt == 0.  Per cycle:
-//   1. kill     : flush removes the in-flight uop (all-ones flush_mask, or a shared br_mask bit)
-//   2. clear    : clear_mask bits are removed from the in-flight uop's br_mask
-//   3. accept   : en loads a new uop if the FU is not busy *before* this cycle's consume
-//   4. complete : the in-flight uop has reached cnt == 0; consume releases the FU
-//   5. ready    : the FU is idle after consume and accept
-// `run` tells the datapath to advance one iteration (busy and not yet finished).
 module exu_iter_ctl
   import ttg_cfg_pkg::*;
+  import exu_fu_pkg::*;
 #(
-  parameter int CW = 4                      // width of the latency counter: latency <= 2**CW
+  parameter int CW = 4
 ) (
   input  logic                     clk,
   input  logic                     rst_n,
-  input  logic                     flush,
-  input  logic [BR_MASK_WIDTH-1:0] flush_mask,
-  input  logic [BR_MASK_WIDTH-1:0] clear_mask,
+  input  logic                     flush_all,
+  input  logic                     flush_br,
+  input  logic [ROB_IDX_WIDTH-1:0] flush_rob_idx,
+  input  logic                     flush_rob_flag,
   input  logic                     en,
   input  logic                     consume,
-  input  logic [CW-1:0]            lat_m1,    // latency - 1 of the uop being accepted (cycles still to wait next cycle)
-  input  logic [BR_MASK_WIDTH-1:0] en_br_mask,
+  input  logic [CW-1:0]            lat_m1,
+  input  logic [ROB_IDX_WIDTH-1:0] en_rob_idx,
+  input  logic                     en_rob_flag,
   output logic                     accept,
   output logic                     run,
   output logic                     complete,
-  output logic                     wb_next,   // registered-only: completes next cycle (cnt_q == 1 && busy_q)
+  output logic                     wb_next,
   output logic                     ready,
-  output logic [BR_MASK_WIDTH-1:0] done_br_mask
+  output logic                     done_rob_flag
 );
 
   logic                     busy_q, busy_d;
   logic [CW-1:0]            cnt_q, cnt_d;
-  logic [BR_MASK_WIDTH-1:0] br_mask_q, br_mask_d;
+  logic [ROB_IDX_WIDTH-1:0] rob_idx_q, rob_idx_d;
+  logic                     rob_flag_q, rob_flag_d;
 
   logic kill, live, pop, finished;
 
-  // Ref: IterativeFU::comb_ctrl / comb_issue / comb_consume
   always_comb begin
-    kill     = busy_q && flush && ((&flush_mask) || (|(br_mask_q & flush_mask)));
-    live     = busy_q && !kill;
-    finished = (cnt_q == '0);
-    complete = live && finished;
-    wb_next  = busy_q && (cnt_q == CW'(1));
-    accept   = en && !live;                       // busy is tested before consume releases the FU
-    pop      = consume && complete;
-    run      = live && !finished;
-    done_br_mask = br_mask_q & ~clear_mask;       // the uop shown at complete has seen this cycle's clear
+    kill          = busy_q && (flush_all || (flush_br && fu_rob_younger(rob_idx_q, rob_flag_q, flush_rob_idx, flush_rob_flag)));
+    live          = busy_q && !kill;
+    finished      = (cnt_q == '0);
+    complete      = live && finished;
+    wb_next       = busy_q && (cnt_q == CW'(1));
+    accept        = en && !live;
+    pop           = consume && complete;
+    run           = live && !finished;
+    done_rob_flag = rob_flag_q;
 
-    busy_d    = accept || (live && !pop);
-    cnt_d     = accept ? lat_m1 : (finished ? '0 : cnt_q - CW'(1));
-    br_mask_d = accept ? en_br_mask : done_br_mask;
-    ready     = !busy_d;
+    busy_d     = accept || (live && !pop);
+    cnt_d      = accept ? lat_m1 : (finished ? '0 : cnt_q - CW'(1));
+    rob_idx_d  = accept ? en_rob_idx  : rob_idx_q;
+    rob_flag_d = accept ? en_rob_flag : rob_flag_q;
+    ready      = !busy_d;
   end
 
   always_ff @(posedge clk) begin
     if (!rst_n) begin
-      busy_q    <= 1'b0;
-      cnt_q     <= '0;
-      br_mask_q <= '0;
+      busy_q     <= 1'b0;
+      cnt_q      <= '0;
+      rob_idx_q  <= '0;
+      rob_flag_q <= 1'b0;
     end else begin
-      busy_q    <= busy_d;
-      cnt_q     <= cnt_d;
-      br_mask_q <= br_mask_d;
+      busy_q     <= busy_d;
+      cnt_q      <= cnt_d;
+      rob_idx_q  <= rob_idx_d;
+      rob_flag_q <= rob_flag_d;
     end
   end
 

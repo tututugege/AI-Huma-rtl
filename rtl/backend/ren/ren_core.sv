@@ -22,7 +22,6 @@ module ren_core
   // dec_bcast / rob_bcast / dis2ren
   input  logic                     dec_mispred,
   input  logic [ROB_IDX_WIDTH-1:0] dec_redirect_rob_idx,
-  input  br_mask_t                 dec_clear_mask,
   input  logic                     dis_ready,
   input  logic                     rob_flush,
   input  logic                     rob_interrupt,
@@ -107,7 +106,7 @@ module ren_core
   ren_inst_pipe u_pipe (
     .clk(clk), .rst_n(rst_n), .dec_valid(dec_valid), .dec_uop(dec_uop),
     .s1_take_new(ren2dec_ready), .s2_take_new(s2_take_new),
-    .kill(rob_flush | dec_mispred), .fire(fire), .clear_mask(dec_clear_mask),
+    .kill(rob_flush | dec_mispred), .fire(fire),
     .s1_empty(s1_empty), .valid(inst_valid), .inst(inst),
     .rd_oh_q(pipe_rd_oh_q), .wr_oh_q(pipe_wr_oh_q),
     .move_shape_q(pipe_move_shape_q), .is_branch_q(pipe_is_branch_q),
@@ -247,8 +246,8 @@ module ren_core
                               src2_en: inst[i].src2_en, is_atomic: inst[i].is_atomic,
                               src1_is_pc: inst[i].src1_is_pc, src2_is_imm: inst[i].src2_is_imm,
                               is_word: inst[i].is_word,
-                              func3: inst[i].func3, func7: inst[i].func7, imm: inst[i].imm, br_id: inst[i].br_id,
-                              br_mask: inst[i].br_mask, csr_idx: inst[i].csr_idx,
+                              func3: inst[i].func3, func7: inst[i].func7, imm: inst[i].imm,
+                              csr_idx: inst[i].csr_idx,
                               page_fault_inst: inst[i].page_fault_inst, pf_inst_hi: inst[i].pf_inst_hi,
                               illegal_inst: inst[i].illegal_inst,
                               dest_preg: inst[i].dest_fp ? fp_dest[i] : dest_preg[i],

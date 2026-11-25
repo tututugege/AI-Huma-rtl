@@ -1,8 +1,6 @@
 // Ref: back-end/Isu.cpp  Isu::comb_calc_latency_next / comb_flush (mul_wake_pipe)
 `default_nettype none
 
-// Fixed-latency wake-up pipe for MUL: a granted MUL enters stage 0 and moves one stage per cycle;
-// the last stage broadcasts its dest preg. Killed by branch mask / global flush, mask bits cleared on resolve.
 module isu_wake_mul
   import ttg_cfg_pkg::*;
   import isu_pkg::*;
@@ -15,39 +13,40 @@ module isu_wake_mul
   input  logic                     rst_n,
   input  logic [NREQ-1:0]          req_valid,
   input  logic [PRF_IDX_WIDTH-1:0] req_preg [NREQ],
-  input  logic [BR_MASK_WIDTH-1:0] req_br_mask [NREQ],
-  input  logic [NREQ-1:0]          req_lane,       // 0 = first MUL port (lane 0), 1 = second MUL port (lane 2)
+  input  logic [ROB_IDX_WIDTH-1:0] req_rob_idx [NREQ],
+  input  logic [NREQ-1:0]          req_rob_flag,
+  input  logic [NREQ-1:0]          req_lane,
   input  logic                     flush_all,
   input  logic                     flush_br,
-  input  logic [BR_MASK_WIDTH-1:0] flush_br_mask,
-  input  logic [BR_MASK_WIDTH-1:0] clear_mask,
+  input  logic [ROB_IDX_WIDTH-1:0] flush_rob_idx,
+  input  logic                     flush_rob_flag,
   output logic [SLOTS-1:0]         wake_valid,
   output logic [PRF_IDX_WIDTH-1:0] wake_preg [SLOTS],
   output logic [SLOTS-1:0]         wake_lane
 );
 
-  localparam int DW = 1 + PRF_IDX_WIDTH + BR_MASK_WIDTH;
+  localparam int RPW = 1 + ROB_IDX_WIDTH;
+  localparam int DW  = 1 + PRF_IDX_WIDTH + RPW;
 
   logic [SLOTS-1:0] alloc_slot [NREQ];
   logic [DW-1:0]    req_bits [NREQ];
-  logic [DW-1:0]    stage_bits  [DEPTH][SLOTS];      // {lane, preg, br_mask} per stage / slot (registered)
+  logic [DW-1:0]    stage_bits  [DEPTH][SLOTS];
   logic [SLOTS-1:0] stage_valid [DEPTH];
 
   for (genvar r = 0; r < NREQ; r++) begin : g_req
-    assign req_bits[r] = {req_lane[r], req_preg[r], req_br_mask[r]};
+    assign req_bits[r] = {req_lane[r], req_preg[r], req_rob_flag[r], req_rob_idx[r]};
   end
 
-  // stage 0 starts empty each cycle, so the k-th request takes slot k
   isu_alloc_chain #(.NREQ(NREQ), .NSLOT(SLOTS)) u_alloc (
     .clk(clk), .req(req_valid), .free({SLOTS{1'b1}}), .slot_onehot(alloc_slot));
 
   for (genvar s = 0; s < DEPTH; s++) begin : g_stage
     for (genvar j = 0; j < SLOTS; j++) begin : g_slot
-      logic                     valid_q, valid_d;
-      logic [DW-1:0]            bits_q, bits_d;
-      logic                     enter_valid;       // what arrives in this stage this cycle
-      logic [DW-1:0]            enter_bits;
-      logic                     killed;
+      logic          valid_q, valid_d;
+      logic [DW-1:0] bits_q;
+      logic          enter_valid;
+      logic [DW-1:0] enter_bits;
+      logic          killed;
 
       if (s == 0) begin : g_first
         logic [NREQ-1:0] hit;
@@ -61,11 +60,10 @@ module isu_wake_mul
         assign enter_bits  = stage_bits[s - 1][j];
       end
 
-      // Ref: Isu::comb_flush
       always_comb begin
-        killed  = flush_br && ((enter_bits[BR_MASK_WIDTH-1:0] & flush_br_mask) != '0);   // mask before the clear
+        killed  = flush_br && isu_rob_younger(enter_bits[ROB_IDX_WIDTH-1:0], enter_bits[ROB_IDX_WIDTH],
+                                              flush_rob_idx, flush_rob_flag);
         valid_d = enter_valid && !flush_all && !killed;
-        bits_d  = {enter_bits[DW-1 -: (1 + PRF_IDX_WIDTH)], enter_bits[BR_MASK_WIDTH-1:0] & ~clear_mask};
       end
 
       always_ff @(posedge clk) begin
@@ -74,7 +72,7 @@ module isu_wake_mul
           bits_q  <= '0;
         end else begin
           valid_q <= valid_d;
-          bits_q  <= bits_d;
+          bits_q  <= enter_bits;
         end
       end
       assign stage_valid[s][j] = valid_q;
@@ -85,7 +83,7 @@ module isu_wake_mul
   for (genvar j = 0; j < SLOTS; j++) begin : g_out
     assign wake_valid[j] = stage_valid[DEPTH - 1][j];
     assign wake_lane[j]  = stage_bits[DEPTH - 1][j][DW-1];
-    assign wake_preg[j]  = stage_bits[DEPTH - 1][j][BR_MASK_WIDTH +: PRF_IDX_WIDTH];
+    assign wake_preg[j]  = stage_bits[DEPTH - 1][j][RPW +: PRF_IDX_WIDTH];
   end
 
 endmodule

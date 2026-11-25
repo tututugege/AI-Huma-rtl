@@ -19,8 +19,8 @@ module exu_ctrl_fu_in
   input  logic [XLEN_BITS-1:0]               fu_mc_result [N_MC],
   input  logic [PRF_IDX_WIDTH-1:0]  fu_mc_dest_preg [N_MC],
   input  logic [N_MC-1:0] fu_mc_dest_en,
-  input  logic [BR_MASK_WIDTH-1:0]  fu_mc_br_mask [N_MC],
   input  logic [ROB_IDX_WIDTH-1:0]  fu_mc_rob_idx [N_MC],
+  input  logic [N_MC-1:0] fu_mc_rob_flag,
   input  logic [N_FPU-1:0]          fu_fp_ready,
   input  logic [N_FPU-1:0]          fu_fp_complete,
   input  logic [XLEN_BITS-1:0]      fu_fp_result [N_FPU],
@@ -29,8 +29,8 @@ module exu_ctrl_fu_in
   input  logic [N_FPU-1:0]          fu_fp_illegal,
   input  logic [PRF_IDX_WIDTH-1:0]  fu_fp_dest_preg [N_FPU],
   input  logic [N_FPU-1:0]          fu_fp_dest_en,
-  input  logic [BR_MASK_WIDTH-1:0]  fu_fp_br_mask [N_FPU],
   input  logic [ROB_IDX_WIDTH-1:0]  fu_fp_rob_idx [N_FPU],
+  input  logic [N_FPU-1:0]          fu_fp_rob_flag,
   output xc_fu_res_t                fu_res [N_FU]
 );
 
@@ -57,8 +57,8 @@ module exu_ctrl_fu_in
         res.result      = fu_mc_result[xc_mc_rank(f)];
         res.dest_preg   = fu_mc_dest_preg[xc_mc_rank(f)];
         res.dest_en     = fu_mc_dest_en[xc_mc_rank(f)];
-        res.br_mask     = fu_mc_br_mask[xc_mc_rank(f)];
         res.rob_idx     = fu_mc_rob_idx[xc_mc_rank(f)];
+        res.rob_flag    = fu_mc_rob_flag[xc_mc_rank(f)];
       end
       if (xc_is_fp_kind(KIND) != 0) begin
         res.mc_ready    = fu_fp_ready[xc_fp_rank(f)];
@@ -69,8 +69,8 @@ module exu_ctrl_fu_in
         res.illegal     = fu_fp_illegal[xc_fp_rank(f)];
         res.dest_preg   = fu_fp_dest_preg[xc_fp_rank(f)];
         res.dest_en     = fu_fp_dest_en[xc_fp_rank(f)];
-        res.br_mask     = fu_fp_br_mask[xc_fp_rank(f)];
         res.rob_idx     = fu_fp_rob_idx[xc_fp_rank(f)];
+        res.rob_flag    = fu_fp_rob_flag[xc_fp_rank(f)];
       end
     end
     assign fu_res[f] = res;
