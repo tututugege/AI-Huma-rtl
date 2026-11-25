@@ -11,6 +11,31 @@ REF=${REFSRC:-$ROOT/tb/soc/platform}   # frozen platform models (SimDDR, PhysMem
 OUT=${SOC_OUT:-$ROOT/build/soc}; mkdir -p "$OUT"   # SOC_OUT: build a variant next to the default one
 VOPT=${SOC_VOPT:-}   # extra verilator options, e.g. -O3
 COPT=${SOC_COPT:--O2}   # C++ optimisation flags
+# Optional verification switches (all default 0 so fast tests stay fast):
+#   SOC_ASSERT=1       enable Verilator --assert (checks existing SVA assertions in RTL)
+#   SOC_XINIT_UNIQUE=1 use --x-assign unique --x-initial unique instead of 0 (exposes uninitialized state)
+#   SOC_SVA=1          bind rtl/sva/*.sv checker modules (auto-enables --assert; never touches synthesis RTL)
+#   SOC_COV=1          enable Verilator line + user(SVA cover) coverage (fast); SOC_COV=all adds --coverage-toggle
+VERIF_VOPT=()
+VERIF_CFLAGS=""
+SVA_FILES=()
+if [ "${SOC_SVA:-0}" = 1 ]; then
+  SOC_ASSERT=1
+  while IFS= read -r f; do SVA_FILES+=("$f"); done < <(find "$ROOT/sva" -name '*.sv' | sort)
+fi
+[ "${SOC_ASSERT:-0}" = 1 ] && VERIF_VOPT+=(--assert)
+if [ "${SOC_XINIT_UNIQUE:-0}" = 1 ]; then
+  VERIF_VOPT+=(--x-assign unique --x-initial unique)
+else
+  VERIF_VOPT+=(--x-assign 0 --x-initial 0)
+fi
+if [ "${SOC_COV:-0}" = "all" ]; then
+  VERIF_VOPT+=(--coverage-line --coverage-toggle --coverage-user)
+  VERIF_CFLAGS="-DSOC_TB_COV"
+elif [ "${SOC_COV:-0}" = 1 ]; then
+  VERIF_VOPT+=(--coverage-line --coverage-user)
+  VERIF_CFLAGS="-DSOC_TB_COV"
+fi
 FMOPT=(); FMLD=""
 # the function model (pinned revision, XLEN=64 FP=1 RVC=1): scripts/fm_lib.sh builds it once into build/fm-<rev>-x64c1; FMLIB overrides
 FMDIR=$(bash "$ROOT/scripts/fm_lib.sh")
@@ -50,10 +75,10 @@ for s in axi-interconnect-kit/sim_ddr/SimDDR.cpp back-end/PhysMemory.cpp; do
 done
 wait
 JOBS=${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 6)}
-verilator --cc --exe --build -j "$JOBS" --output-split 5000 --output-split-cfuncs 5000 -Wno-fatal -Wno-lint -Wno-style -Wno-UNOPTFLAT ${DEBUG:+--public-flat-rw} $VOPT --x-assign 0 --x-initial 0 \
-  --top-module soc_top -Mdir obj -CFLAGS "$COPT $DS3FLAGS $XLENFLAG ${FMOPT[*]:-} ${DEBUG:+-DSOC_TB_DEBUG} -std=c++2a -w $INC $FPINC -I$ROOT/harness/include -I$ROOT/tb/soc" \
-  -LDFLAGS "$OUT/SimDDR.o $OUT/PhysMemory.o $FMLD $DS3LD $FPLD" \
-  "$ROOT/tb/soc/soc_public.vlt" "$ROOT/tb/soc/pmu_public.vlt" "$ROOT/tb/soc/soc_tb.cpp" ${FPDPI[@]+"${FPDPI[@]}"} "${FILES[@]}" -o soc_tb > build.log 2>&1 || { grep -E "error:|%Error" build.log | grep -v "Command Failed" | head -12 | cut -c1-200; echo "BUILD FAILED, see $OUT/build.log"; exit 1; }
+verilator --cc --exe --build -j "$JOBS" --output-split 5000 --output-split-cfuncs 5000 -Wno-fatal -Wno-lint -Wno-style -Wno-UNOPTFLAT ${DEBUG:+--public-flat-rw} $VOPT "${VERIF_VOPT[@]}" \
+  --top-module soc_top -Mdir obj -CFLAGS "$COPT $DS3FLAGS $XLENFLAG ${FMOPT[*]:-} ${DEBUG:+-DSOC_TB_DEBUG} $VERIF_CFLAGS -std=c++2a -w $INC $FPINC -I$ROOT/harness/include -I$ROOT/tb/soc" \
+  -LDFLAGS "$OUT/SimDDR.o $OUT/PhysMemory.o $FMLD $DS3LD $FPLD ${SOC_LDFLAGS:-}" \
+  "$ROOT/tb/soc/soc_public.vlt" "$ROOT/tb/soc/pmu_public.vlt" "$ROOT/tb/soc/soc_tb.cpp" ${FPDPI[@]+"${FPDPI[@]}"} "${FILES[@]}" ${SVA_FILES[@]+"${SVA_FILES[@]}"} -o soc_tb > build.log 2>&1 || { grep -E "error:|%Error" build.log | grep -v "Command Failed" | head -12 | cut -c1-200; echo "BUILD FAILED, see $OUT/build.log"; exit 1; }
 # idle-tick skip: byte ranges of Verilator scratch temporaries (ignored by the fixed-point compare)
 VI=$(verilator --getenv VERILATOR_ROOT)/include
 echo '#include "Vsoc_top___024root.h"' > obj/lay.cpp

@@ -13,8 +13,9 @@ struct StoreChk { bool v = false; uint32_t pa = 0; uint64_t data = 0; uint8_t f3
 
 struct FmCheck {
   RefCpuContext *ctx = nullptr;
-  uint64_t steps = 0, synced_io = 0, irqs = 0, forced_pf = 0, io_loads = 0, stores_checked = 0;
+  uint64_t steps = 0, synced_io = 0, irqs = 0, forced_pf = 0, io_loads = 0, stores_checked = 0, mmio_stores_checked = 0, csr_checks = 0;
   const uint64_t *mmio_reads = nullptr;   // number of device reads the testbench's peripheral model has served (every committed device load must have had one)
+  bool strict = false;                    // SOC_TB_FM_STRICT=1: also check MMIO store data and architectural CSR/privilege state
   bool failed = false;
   std::function<uint32_t(uint32_t)> dut_mem;   // the testbench memory, for diagnostics
 
@@ -86,10 +87,20 @@ struct FmCheck {
         const uint32_t base = st->pa & ~3u;
         const uint64_t lo = uint64_t(refcpu_load_word(ctx, base)) | (uint64_t(refcpu_load_word(ctx, base + 4)) << 32);
         fmv = (lo >> ((st->pa & 3) * 8)) & mask; have = true;
+      } else if (strict) {
+        // Strict mode: also compare MMIO store data and unaligned/cross-word RAM store data directly against architectural rs2.
+        const unsigned rs2 = (ins >> 20) & 31;
+#if FP
+        fmv = ((ins & 0x7f) == 0x27 ? before.fpr[rs2] : before.gpr[rs2]) & mask;
+#else
+        fmv = before.gpr[rs2] & mask;
+#endif
+        have = true;
+        if (st->kind != 0) ++mmio_stores_checked;
       }
       if (have && fmv != (st->data & mask)) {
-        std::fprintf(stderr, "[FM] cycle %llu commit #%llu pc=%llx inst=%08x: store pa=%08x size=%u data rtl=%llx fm=%llx\n", (unsigned long long)cycle, (unsigned long long)steps,
-                     (unsigned long long)dut_pc, ins, st->pa, sz, (unsigned long long)(st->data & mask), (unsigned long long)fmv);
+        std::fprintf(stderr, "[FM] cycle %llu commit #%llu pc=%llx inst=%08x: store(%s) pa=%08x size=%u data rtl=%llx fm=%llx\n", (unsigned long long)cycle, (unsigned long long)steps,
+                     (unsigned long long)dut_pc, ins, st->kind == 0 ? "RAM" : "MMIO", st->pa, sz, (unsigned long long)(st->data & mask), (unsigned long long)fmv);
         return failed = true, false;
       }
       ++stores_checked;
@@ -121,6 +132,51 @@ struct FmCheck {
         return failed = true, false;
       }
     }
+    return true;
+  }
+
+  // Strict mode: compare architectural privilege and CSR registers at a commit-cycle boundary.
+  // rtl_regs[0..18] matches csr_pkg.sv: 0=mtvec 1=mepc 2=mcause 3=mie 4=mip 5=mtval 6=mscratch 7=mstatus
+  // 8=mideleg 9=medeleg 10=sepc 11=stvec 12=scause 13=sscratch 14=stval 15=satp 16=mhartid 17=misa 18=fcsr.
+  bool check_csr_state(uint64_t cycle, uint8_t rtl_priv, const uint64_t *rtl_regs) {
+    if (!strict) return true;
+    RefCpuState st{};
+    refcpu_get_state(ctx, &st);
+    if (rtl_priv != st.privilege) {
+      std::fprintf(stderr, "[FM] cycle %llu commit #%llu: privilege rtl=%u fm=%u\n",
+                   (unsigned long long)cycle, (unsigned long long)steps, unsigned(rtl_priv), unsigned(st.privilege));
+      return failed = true, false;
+    }
+    struct Map { int rtl_idx; int fm_idx; const char *name; uint64_t mask; };
+    // Exclude mip (index 4, async platform IRQ injection). mstatus SD bit (bit 63) is derived in csr_read, not stored in regs[7].
+    static constexpr Map kCsrs[] = {
+      { 0,  0, "mtvec",    ~0ull}, { 1,  1, "mepc",     ~0ull}, { 2,  2, "mcause",   ~0ull},
+      { 3,  3, "mie",      ~0ull}, { 5,  5, "mtval",    ~0ull}, { 6,  6, "mscratch", ~0ull},
+      { 7,  7, "mstatus",  ~(1ull << 63)},
+      { 8,  8, "mideleg",  ~0ull}, { 9,  9, "medeleg",  ~0ull},
+      {10, 10, "sepc",     ~0ull}, {11, 11, "stvec",    ~0ull}, {12, 12, "scause",   ~0ull},
+      {13, 13, "sscratch", ~0ull}, {14, 14, "stval",    ~0ull},
+      {15, 18, "satp",     ~0ull}, {16, 19, "mhartid",  ~0ull}, {17, 20, "misa",     ~0ull},
+    };
+    for (const auto &m : kCsrs) {
+      const uint64_t rv = rtl_regs[m.rtl_idx] & m.mask;
+      const uint64_t fv = uint64_t(st.csr[m.fm_idx]) & m.mask;
+      if (rv != fv) {
+        std::fprintf(stderr, "[FM] cycle %llu commit #%llu: csr %s rtl=%016llx fm=%016llx\n",
+                     (unsigned long long)cycle, (unsigned long long)steps, m.name,
+                     (unsigned long long)rv, (unsigned long long)fv);
+        return failed = true, false;
+      }
+    }
+#if FP
+    const uint32_t rtl_fcsr = uint32_t(rtl_regs[18] & 0xFFu);
+    if (rtl_fcsr != (st.fcsr & 0xFFu)) {
+      std::fprintf(stderr, "[FM] cycle %llu commit #%llu: csr fcsr rtl=%02x fm=%02x\n",
+                   (unsigned long long)cycle, (unsigned long long)steps, rtl_fcsr, st.fcsr & 0xFFu);
+      return failed = true, false;
+    }
+#endif
+    ++csr_checks;
     return true;
   }
 };

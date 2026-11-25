@@ -54,6 +54,7 @@ constexpr int kInstStore = 6;   // InstType::STORE
 constexpr int kPmuEv = 51;           // pmu_ev_pkg::PMU_NUM_EV (gen_pmu_pkg.py)
 static uint64_t pmu_total[kPmuEv];
 constexpr int kUopEbreak = 10;  // the commit entry's `type` is the instruction type (rob_pkg ITYPE_EBREAK)
+constexpr int kUopMret   = 14;  // rob_pkg ITYPE_MRET (end of front-door checkpoint restore stub)
 
 void load_image(const char *path) {
   std::ifstream f(path, std::ios::binary);
@@ -219,6 +220,13 @@ int main(int argc, char **argv) {
 
   uint64_t ticks = 0, cycles = 0, committed = 0;
   bool done = false;
+  // Optional checkpoint warmup + ROI measurement (matches trace-model Rob.cpp): off unless SOC_TB_ROI_INSTS > 0
+  const uint64_t roi_warmup = std::getenv("SOC_TB_WARMUP_INSTS") ? std::strtoull(std::getenv("SOC_TB_WARMUP_INSTS"), nullptr, 0) : 0;
+  const uint64_t roi_target = std::getenv("SOC_TB_ROI_INSTS") ? std::strtoull(std::getenv("SOC_TB_ROI_INSTS"), nullptr, 0) : 0;
+  bool roi_front_door = (roi_target > 0) && (std::getenv("SOC_TB_STUB") != nullptr);
+  bool roi_started = (roi_target > 0) && !roi_front_door && (roi_warmup == 0);
+  bool roi_done = false;
+  uint64_t roi_insts = 0, roi_cyc_base = 0;
     std::vector<std::pair<size_t, size_t>> skipmask;   // scratch-temporary byte ranges of the Verilated root (build/soc/skipmask.txt)
   {
     std::string exe = argv[0];
@@ -265,8 +273,17 @@ int main(int argc, char **argv) {
         std::fprintf(stderr, "[DBGCSR] priv=%u sepc=%llx scause=%llx stval=%llx mepc=%llx mcause=%llx mip=%llx\n", (unsigned)R.soc_top__DOT__u_core__DOT__u_back__DOT__u_csr__DOT__privilege, (unsigned long long)g[10], (unsigned long long)g[12], (unsigned long long)g[14], (unsigned long long)g[0], (unsigned long long)g[2], (unsigned long long)g[4]);
         compare_fail = 1; done = true; break; }
     }
+    if (!compare_fail && !fm_pend.empty() && fm.strict) {
+      auto &R = *top->rootp;
+      uint64_t csr_snap[19];
+      for (int k = 0; k < 19; ++k) csr_snap[k] = uint64_t(R.soc_top__DOT__u_core__DOT__u_back__DOT__u_csr__DOT__regs[k]);
+      if (!fm.check_csr_state(cyc, R.soc_top__DOT__u_core__DOT__u_back__DOT__u_csr__DOT__privilege, csr_snap)) {
+        compare_fail = 1; done = true;
+      }
+    }
     fm_pend.clear();
   };
+  if (fm_on) fm.strict = std::getenv("SOC_TB_FM_STRICT") != nullptr;
   if (fm_on) fm.init(uint32_t(RAM_SIZE), pmem_ram_ptr(), uint32_t(PMEM_SDRAM_SIZE), pmem_sdram_ptr());
   if (fm_on) fm.dut_mem = [](uint32_t a) { return pmem_read(a); };
   if (fm_on) fm.mmio_reads = &g_mmio_reads;
@@ -454,7 +471,25 @@ long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
       }
       for (int i = 0; i < 8; ++i)
         if (ttg_getbit(top->rob_commit_commit_entry_valid, i)) {
-          if (!top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__rob_bcast_interrupt) ++committed;   // reference: commit_num skips interrupt slots
+          if (!top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__rob_bcast_interrupt) {
+            ++committed;   // reference: commit_num skips interrupt slots
+            if (roi_target && !done) {
+              if (roi_front_door) {
+                if (top->rob_commit_commit_entry_uop_type[i] == kUopMret) {
+                  roi_front_door = false; roi_insts = 0; roi_cyc_base = cycles;
+                  if (roi_warmup == 0) roi_started = true;
+                }
+              } else {
+                ++roi_insts;
+                if (!roi_started && roi_insts >= roi_warmup) {
+                  roi_insts = 0; roi_cyc_base = cycles; roi_started = true;
+                }
+                if (roi_started && roi_insts >= roi_target) {
+                  roi_done = true; done = true;
+                }
+              }
+            }
+          }
 #ifdef SOC_TB_FM
           if (fm_on && !done && top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__rob_bcast_interrupt) fm_pend.push_back({0, 0, 0, true});
           else if (fm_on && !done && (top->rob_commit_commit_entry_uop_type[i] != kUopEbreak ||
@@ -617,12 +652,23 @@ long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
   if (std::getenv("SOC_TB_PMU")) for (int e = 0; e < kPmuEv; ++e) std::printf("PMU_EV %d %llu\n", e, (unsigned long long)pmu_total[e]);
   std::printf("RTL sim-time(cycle)= %llu, committed= %llu%s\n", (unsigned long long)cycles, (unsigned long long)committed,
               done ? "" : "  (NO EBREAK within the cycle cap)");
+  if (roi_target) {
+    const uint64_t roi_cyc = (cycles > roi_cyc_base) ? (cycles - 1 - roi_cyc_base) : 0;
+    std::printf("RTL ROI: cycle_num= %llu, inst_num= %llu, status= %s\n",
+                (unsigned long long)roi_cyc, (unsigned long long)roi_insts, roi_done ? "Success" : "Incomplete");
+  }
   if (std::getenv("SOC_TB_PROF")) std::fprintf(stderr, "eval: n=%lld total=%.2f s  by-index(ns/eval): %.0f %.0f %.0f %.0f\n", eval_n, eval_ns / 1e9, ev_ns[0]*4.0/eval_n, ev_ns[1]*4.0/eval_n, ev_ns[2]*4.0/eval_n, ev_ns[3]*4.0/eval_n);
   if (std::getenv("SOC_TB_PROF")) for (int i = 0; i < 16; ++i) if (prof_n[i]) std::fprintf(stderr, "tick %2d: n=%lld avg=%.1f us\n", i, prof_n[i], prof_ns[i] / 1000.0 / prof_n[i]);
 #ifdef SOC_TB_FM
-  if (fm_on) { fm_flush(cycles); std::fprintf(stderr, "[FM] %llu instructions checked against the function model (%llu device/counter values adopted, %llu interrupts, %llu stores and %llu device loads checked)%s\n", (unsigned long long)fm.steps, (unsigned long long)fm.synced_io, (unsigned long long)fm.irqs, (unsigned long long)fm.stores_checked, (unsigned long long)fm.io_loads, fm.failed ? "  ** MISMATCH **" : ""); }
+  if (fm_on) { fm_flush(cycles); std::fprintf(stderr, "[FM] %llu instructions checked against the function model (%llu device/counter values adopted, %llu interrupts, %llu stores [%llu MMIO] and %llu device loads checked%s)%s\n", (unsigned long long)fm.steps, (unsigned long long)fm.synced_io, (unsigned long long)fm.irqs, (unsigned long long)fm.stores_checked, (unsigned long long)fm.mmio_stores_checked, (unsigned long long)fm.io_loads, fm.strict ? ", strict CSR on" : "", fm.failed ? "  ** MISMATCH **" : ""); }
 #endif
   if (std::getenv("SOC_TB_NOSKIP") == nullptr) std::fprintf(stderr, "idle-skipped cycles: %llu of %llu\n", skipped_cycles, (unsigned long long)cycles);
+#ifdef SOC_TB_COV
+  {
+    const char *cov_out = std::getenv("SOC_TB_COV_OUT") ? std::getenv("SOC_TB_COV_OUT") : "coverage.dat";
+    Verilated::threadContextp()->coveragep()->write(cov_out);
+  }
+#endif
 #ifdef SOC_TB_TRACE
   if (tfp) { tfp->close(); delete tfp; }
 #endif
