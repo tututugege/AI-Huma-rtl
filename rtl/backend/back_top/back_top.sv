@@ -629,18 +629,32 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
   );
 
   // ================= idu: Idu (back-end/Idu.cpp)
-  idu u_idu (
+  // ================= br_latch (moved out of idu so idu is a pure combinational 8-way decoder)
+  idu_br_latch u_br_latch (
     .clk(clk),
     .rst_n(rst_n),
-    // inputs from exu
-    .exu2id_br_pc(exu2id_br_pc),
-    .exu2id_br_is_rvc(exu2id_br_is_rvc),
-    .exu2id_ftq_idx(exu2id_ftq_idx),
-    .exu2id_ftq_offset(exu2id_ftq_offset),
-    .exu2id_mispred(exu2id_mispred),
-    .exu2id_redirect_pc(exu2id_redirect_pc),
-    .exu2id_redirect_rob_idx(exu2id_redirect_rob_idx),
-    .exu2id_redirect_rob_flag(exu2id_redirect_rob_flag),
+    .rob_flush(rob_flush_q),
+    .exu_mispred(exu2id_mispred),
+    .exu_redirect_pc(exu2id_redirect_pc),
+    .exu_redirect_rob_idx(exu2id_redirect_rob_idx),
+    .exu_redirect_rob_flag(exu2id_redirect_rob_flag),
+    .exu_ftq_idx(exu2id_ftq_idx),
+    .exu_ftq_offset(exu2id_ftq_offset),
+    .exu_br_pc(exu2id_br_pc),
+    .exu_br_is_rvc(exu2id_br_is_rvc),
+    .mispred(dec_bcast_mispred),
+    .redirect_pc(br_latch_redirect_pc),
+    .redirect_rob_idx(dec_bcast_redirect_rob_idx),
+    .redirect_rob_flag(dec_bcast_redirect_rob_flag),
+    .ftq_idx(br_latch_ftq_idx),
+    .ftq_offset(br_latch_ftq_offset),
+    .br_pc(br_latch_br_pc),
+    .br_is_rvc(br_latch_is_rvc)
+  );
+  assign br_latch_mispred = dec_bcast_mispred;
+
+  // ================= idu: pure combinational 8-way decoder
+  idu u_idu (
     // inputs from pre
     .pre_issue_entries_ftq_idx(pre_issue_entries_ftq_idx),
     .pre_issue_entries_ftq_is_last(pre_issue_entries_ftq_is_last),
@@ -649,10 +663,10 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .pre_issue_entries_page_fault_inst(pre_issue_entries_page_fault_inst),
     .pre_issue_entries_pf_inst_hi(pre_issue_entries_pf_inst_hi),
     .pre_issue_entries_valid(pre_issue_entries_valid),
-    // inputs from ren
+    // inputs from ren / rob / br_latch
     .ren2dec_ready(ren2dec_ready),
-    // inputs from rob
     .rob_bcast_flush(rob_flush_q),
+    .dec_bcast_mispred(dec_bcast_mispred),
     // outputs
     .dec2ren_valid(dec2ren_valid),
     .dec2ren_uop_diag_val(dec2ren_uop_diag_val),
@@ -683,16 +697,7 @@ module back_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import fp_pkg::*; 
     .dec2ren_uop_src3_en(dec2ren_uop_src3_en),
     .dec2ren_uop_src3_areg(dec2ren_uop_src3_areg),
     .dec2ren_uop_fp_cls(dec2ren_uop_fp_cls),
-    .dec_bcast_mispred(dec_bcast_mispred),
-    .dec_bcast_redirect_rob_idx(dec_bcast_redirect_rob_idx),
-    .dec_bcast_redirect_rob_flag(dec_bcast_redirect_rob_flag),
-    .idu_consume_fire(idu_consume_fire),
-    .br_latch_mispred(br_latch_mispred),
-    .br_latch_redirect_pc(br_latch_redirect_pc),
-    .br_latch_ftq_idx(br_latch_ftq_idx),
-    .br_latch_ftq_offset(br_latch_ftq_offset),
-    .br_latch_br_pc(br_latch_br_pc),
-    .br_latch_is_rvc(br_latch_is_rvc)
+    .idu_consume_fire(idu_consume_fire)
   );
 
   // ================= ren: Ren (back-end/Ren.cpp)

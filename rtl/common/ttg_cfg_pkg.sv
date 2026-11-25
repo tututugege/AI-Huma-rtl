@@ -165,7 +165,7 @@ package ttg_cfg_pkg;
   localparam int BPU_LOOP_META_TAG_BITS = 16;
   localparam int IQ_MEM_SIZE = 64;
   localparam int IQ_STD_SIZE = 16;
-  localparam int IQ_BR_SIZE = 32;
+  localparam int IQ_BR_SIZE = 64;
   localparam int LSU_LOAD_WINDOW_WIDTH = 20;
   localparam int LSU_STORE_WINDOW_WIDTH = 15;
   localparam int LSU_REPLAY_WAIT_CYCLES_WIDTH = 3;

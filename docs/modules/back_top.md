@@ -191,6 +191,7 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 
 ## 10. 变更记录
 
+- 2026-11-25（`idu_br_latch` 迁入 `back_top`）：将 `idu_br_latch.sv` 从 `rtl/backend/idu/` 移入 `rtl/backend/back_top/` 并直接在 `back_top.sv` 中实例化 `u_br_latch` 驱动 `dec_bcast_*` 与 `br_latch_*`，使 `u_idu` 成为纯组合 8 路译码器（零周期变化）。
 - 2026-11-17/18（exp/agu-share，`261bd67..HEAD`）：
   - `16de223`：DTLB 每个物理 AGU 一个口（`LSU_AGU_PHYS = 5`），`back_top.sv` 里的请求 / 响应数组改宽；
   - `e49618c`：`exe2lsu_ldu_req_occ`、`exe2lsu_sta_req_occ` 接线（`back_top.sv`、`exu.sv`）；

@@ -149,6 +149,7 @@ RTL 与模型保持一致的细节（读模型时容易误判）：
 
 ## 10. 变更记录
 
+- 2026-11-25（`idu_br_latch` 迁出至 `back_top`）：将 `idu_br_latch.sv` 移至 `rtl/backend/back_top/` 并删除透传模块 `idu_bcast.sv`，`idu.sv` 去掉 `clk`/`rst_n` 与全部 `exu2id_*`/`dec_bcast_*`/`br_latch_*` 端口（仅保留 1-bit 输入 `dec_bcast_mispred`），成为纯组合 8 路译码器（零周期变化）。
 - 2026-11-25（`rtl/rob-ptr-bpu`，方案 C 9-bit `rob_ptr` 冲刷）：彻底删除 `br_id` / `br_mask` / `clear_mask` 及 5 个分支标签子模块（`idu_br_alloc` / `idu_br_group` / `idu_br_state` / `idu_br_cp` / `idu_fire_ctl`），`idu_br_latch` / `idu_bcast` 透传 `{redirect_rob_flag, redirect_rob_idx}`；Yosys **19 层 / 6,595 cells**（原 66 层 / 31,607 cells），TSMC 28nm DC **14 级 / 0.37 ns（2.70 GHz）/ WNS 0.00 ns / 1,994.2 µm²**（较 `main` 18,195.6 µm² **−89.0%**）；`lint_chip` 0、`fm_gate` 69/69（0 周期差）、Linux 26/26 窗 PT/UP 100% 全等。
 - 2026-11-21（`rtl/move-elim-1hop`，EXP-052）：`idu_decoder` 新增 `c_mv_canon`，将 `add rd, x0, rs2`（含全部展开后的 `c.mv`）规范化为 `addi rd, rs2, 0` 供 `ren` 移动消除识别；`eda-08` Yosys 深度 66 层（31,607 cells），`lint_chip` 0、`fm_gate` 68/68（0 周期偏差）。
 - 2026-11-21（`rtl/fe-2fetch-2taken`，EXP-051 里程碑 B）：`idu` 与 `idu_br_latch` 新增 4 位 `exu2id_ftq_offset` → `br_latch_ftq_offset` 寄存透传，供 `pre_idu_ftq_bpu` 按精确 `ftq_offset` 索引双块 FTQ 修复记录；通过 `lint_chip` 0、`fm_gate` 68/68（0 周期偏差）与 Linux 27 窗对齐。
