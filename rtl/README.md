@@ -2,7 +2,7 @@
 
 ```
 common/                 配置包 ttg_cfg_pkg（make cfg 生成；XLEN_BITS 选 rv32/rv64）与 4 个原语（ttg_*），所有模块共用
-backend/<模块>/         后端：prf idu ren dispatch rob（rob_core_cpt，紧凑 ROB）csr pre_idu_queue isu tlb_mmu exu_fu fpu exu_ctrl lsu（lsu_* 旧结构 + lp_* 分级 LSU，LSU_PIPE 选）
+backend/<模块>/         后端：prf idu ren dispatch rob（rob_core_cpt，紧凑 ROB）csr ftq_ibuf isu tlb_mmu exu_fu fpu exu_ctrl lsu（lsu_* 旧结构 + lp_* 分级 LSU，LSU_PIPE 选）
 backend/back_top/       后端顶层（生成的 back_top.sv + exu.sv + 手写 back_top_glue.sv；生成文件含 rv64 手改，见根 README）
 frontend/               前端基础块（FIFO、预译码、front_ctrl 等，平铺文件）
 frontend/bpu/           分支预测（类型预测/BTB/TAGE/历史+RAS/更新队列）

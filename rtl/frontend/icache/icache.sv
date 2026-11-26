@@ -16,6 +16,9 @@ module icache import ttg_cfg_pkg::*; import icache_pkg::*; import tlb_mmu_pkg::*
   input  logic                 b_req_valid,
   input  logic [XLEN_BITS-1:0] b_req_addr,
   input  logic [3:0]           b_req_nwords,
+  // Next-cycle VIPT set indices for strict 1-cycle synchronous L1I Data SRAM pre-launch
+  input  logic [IC_IDX_W-1:0]  next_fa_idx,
+  input  logic [IC_IDX_W-1:0]  next_b_idx,
   // S2-confirmed FDIP enqueue (driven by front_pred_path)
   input  logic                 fdip_s2_en,
   input  logic [XLEN_BITS-1:0] fdip_s2_va,
@@ -77,8 +80,8 @@ module icache import ttg_cfg_pkg::*; import icache_pkg::*; import tlb_mmu_pkg::*
   end
 
   // ---- control FSM (demand side) ----
-  logic arr_rd_en, arr_cmp_valid, arr_hit, arr_has_invalid, tw_we, inv_all, mmu_req_valid;
-  logic [IC_IDX_W-1:0] arr_rd_index, tw_index;
+  logic arr_rd_en, arr_next_req_valid, arr_cmp_valid, arr_hit, arr_has_invalid, tw_we, inv_all, mmu_req_valid;
+  logic [IC_IDX_W-1:0] arr_rd_index, arr_next_rd_index, tw_index;
   logic [IC_WAY_W-1:0] arr_first_invalid, arr_repl_way, tw_way;
   logic [IC_TAG_W-1:0] tw_tag, resp_ppn;
   logic [IC_LINE_W-1:0] arr_hit_line, tw_line, resp_line;
@@ -123,7 +126,7 @@ module icache import ttg_cfg_pkg::*; import icache_pkg::*; import tlb_mmu_pkg::*
     .dc_resp_valid, .dc_resp_retry, .dc_resp_miss, .dc_resp_data, .dc_probe_busy(fdip_probe_busy),
     .hit(arr_hit), .hit_line(arr_hit_line), .has_invalid(arr_has_invalid), .first_invalid(arr_first_invalid),
     .repl_way(arr_repl_way),
-    .arr_rd_en, .arr_rd_index, .arr_cmp_valid, .tw_we, .tw_index, .tw_way, .tw_tag, .tw_line, .inv_all,
+    .arr_rd_en, .arr_rd_index, .arr_next_req_valid, .arr_next_rd_index, .arr_cmp_valid, .tw_we, .tw_index, .tw_way, .tw_tag, .tw_line, .inv_all,
     .mmu_req_valid, .mmu_req_vtag,
     .resp_valid, .resp_pc, .resp_ppn, .resp_page_fault, .resp_single_word, .resp_line, .icache_ready,
     .demand_mem_req_step0, .demand_dc_busy, .demand_miss_txv, .demand_miss_line,
@@ -134,17 +137,22 @@ module icache import ttg_cfg_pkg::*; import icache_pkg::*; import tlb_mmu_pkg::*
   );
 
   // Block B address translation (same-page reuses resp_ppn; cross-page uses ITLB peek port 0)
+  logic b_same_line;
   always_comb begin
     b_same_page  = (resp_pc[XLEN_BITS-1:12] == b_req_addr[XLEN_BITS-1:12]);
     b_paddr      = b_same_page ? {resp_ppn, b_req_addr[11:0]} : peek_b_paddr;
     b_pa_ok      = (b_same_page || peek_b_ok) && b_paddr[31];
+    b_same_line  = (b_paddr[31:IC_OFF_W] == {resp_ppn, resp_pc[11:IC_OFF_W]});
     pair_miss_en = b_req_valid && b_pa_ok && !arr_b_hit;
   end
 
   icache_arr u_arr (
     .clk, .rst_n, .rd_en(arr_rd_en), .rd_index(arr_rd_index), .cmp_valid(arr_cmp_valid), .cmp_tag(ppn),
+    .next_rd_index(arr_next_req_valid ? arr_next_rd_index : next_fa_idx),
+    .next_b_rd_index(next_b_idx),
     .hit(arr_hit), .hit_line(arr_hit_line), .has_invalid(arr_has_invalid), .first_invalid(arr_first_invalid),
     .repl_way(arr_repl_way),
+    .b_rd_valid(b_req_valid && b_pa_ok && !b_same_line),
     .b_rd_index(b_paddr[IC_OFF_W +: IC_IDX_W]), .b_cmp_tag(b_paddr[31:12]),
     .b_hit(arr_b_hit), .b_hit_line(arr_b_hit_line),
     .fdip_peek_index, .fdip_peek_tag, .fdip_peek_hit(arr_fdip_peek_hit),
@@ -220,9 +228,7 @@ module icache import ttg_cfg_pkg::*; import icache_pkg::*; import tlb_mmu_pkg::*
   logic [FETCH_WIDTH-1:0] b_inst_v_unused, b_pf_unused, b_up_unused;
   logic [XLEN_BITS-1:0]   b_pc_unused;
   logic [5:0]             b_avail_line;
-  logic                   b_same_line;
 
-  assign b_same_line = (b_paddr[31:IC_OFF_W] == {resp_ppn, resp_pc[11:IC_OFF_W]});
   assign b_line_eff  = b_same_line ? resp_line : arr_b_hit_line;
 
   icache_resp u_resp_b (

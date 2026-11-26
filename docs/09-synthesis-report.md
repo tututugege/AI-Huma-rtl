@@ -112,3 +112,27 @@
 | **`lsu`** | **−0.39 → −0.39** | **1.12 → 1.12 (持平)** | **0.84 ns (1.19 GHz)** / TNS **−8,988 → −7,496 (−16.6%)** | **49 → 43 (−12.2%)** | **840,182 → 758,236 (−9.8%)** | 消除 `dec_bcast_br_mask → u_rp/u_ldq` 广播与 LDQ/STQ/LR-SC 全部 `br_mask` 位，面积净省 **81.9k um²**、TNS 降 **16.6%**、频率零回退 |
 
 - **三模块合计后端面积净省 `107,960 um²`**，全核 23 模块中 **≥ 2.00 GHz 模块由 7 个增至 8 个**（新增 `idu` 2.70 GHz），全核短板频率维持 `1.12 GHz` 零回退。
+
+## 20. `rtl/area-opt` 代码精简 + 全显式严格同步 SRAM 化（`SRAM_BLACKBOX`）TSMC 28nm HPC+ DC 综合结果（2026-11-26）
+
+同口径 Synopsys DC（`W-2024.09-SP2`, TSMC 28nm HPC+ `ssg0p81v125c`, 12T SVT+LVT, `CLK=0.50 ns / 2.0 GHz`, `compile_ultra`），对全核存储阵列完成 **100% 严格同步 1R1W/1RW SRAM 化**（彻底删除组合读 `ttg_sram_rf.sv` 与 `bpu_mem.sv`，全部挂接 `ttg_sram_1r1w` / `ttg_sram_1rw` 并支持 `-DSRAM_BLACKBOX`）及 5 项代码/结构体/开关精简后，对全部核心模块与首次可综合的大型存储子系统进行实测签核：
+
+> **口径说明**：带 `_bb` 后缀的模块启用 `-DSRAM_BLACKBOX`，每个 `ttg_sram_1r1w` / `ttg_sram_1rw` 实例综合为单字输出寄存 stub（`rdata_bb_reg`）以反映外围逻辑 + 寄存器面积（不含实际 SRAM 宏单元面积）；其余模块（`isu` / `lsu` / `bpu_spec`）为 100% 完整标准单元综合。
+
+| 模块 | DC WNS (ns) 改前 → 改后 | DC Fmax (GHz) 改前 → 改后 | reg2reg / 级数 / TNS | DC Area (um²) 改前 → 改后 | 关键改动与分析 |
+|---|---|---|---|---:|---|
+| **`rob` (`rob_bb`)** | −0.11 → **−0.15** | 1.64 → **1.54** | reg2reg −0.15 / 42 lvl / TNS −452 | **521,086 → 121,413 (−76.7%)** | 删除冗余字段，指令字改 8×`32×32b`（1 KiB）严格同步 `ttg_sram_1r1w`（`ROB_INST_WORD`）；29 级串行 `oldest_trap` 改 3 级并行锦标赛树将 WNS 由 −0.95 ns 拉回 −0.15 ns，净省 **399.7k um²** |
+| **`ftq_ibuf` (`ftq_ibuf_bb`)** | −0.05 → **−0.13** | 1.82 → **1.59（reg2reg 1.72）** | reg2reg **−0.08** / 24 lvl / TNS −2,486 | **1,684,992 → 243,191 (−85.6%)** | 替代原 `pre_idu_queue`；精简指令缓冲与 FTQ 元数据结构，面积缩小 **6.9×**、净省 **1,441.8k um²** |
+| **`isu`** | −0.23 → **−0.23（持平）** | 1.37 → **1.37（持平）** | reg2reg **−0.23** / **41 → 28 lvl** / TNS **−5,096 → −3,852 (−24.4%)** | **598,408 → 467,899 (−21.8%)** | 删除固化开关与无用字段 + 统一 `IQ_*` 枚举，较 EXP-068 再省 **130.5k um²**（较初始基线 −23.1%），级数降 13 级、时序零回退 |
+| **`lsu`** | −0.39 → **−0.39（持平）** | 1.12 → **1.12（持平）** | reg2reg −0.39 / 44 lvl / TNS −7,525 | 758,236 → 767,221 (+1.2%) | 删 5 根死线，时序与 EXP-068 零回退（较 R1 面积 −17.3%） |
+| **`tlb_mmu` (`tlb_mmu_bb`)** | −0.03 → **−0.03（持平）** | 1.89 → **1.89（持平）** | reg2reg −0.03 / 25 lvl / TNS −104 | 57,685 → **57,685 (0.0%)** | 64 项全相联 L1 TLB，面积与时序完全零回退 |
+| **`ptw_walk_l2tlb` (`_bb`)** | 首次签核 | **MET ≥ 2.00（2.70）** | reg2reg **0.00 (MET)** / 19 lvl / TNS **0** | **23,485** | 1024 项 4 路 L2 STLB 改为显式 `ttg_sram_1rw`（`L2TLB_4K`），外围逻辑仅 23.5k um²、满 2.0 GHz MET |
+| **`icache` (`icache_bb_v2`)** | 首次整模块签核 | 0.69（`u_fdip` 顶路径） | reg2reg −0.94 / 86 lvl / TNS −28,216 | **248,709** | 32 KiB 数据体（4×8×`16×512b`）改为严格同步 1R1W SRAM（`ICACHE_DATA`），`icache_ctl` 仅 7,480 um²（3.0%）；顶路径位于 `u_ctl → u_fdip/q_va_q` |
+| **`dcache` (`dcache_bb`)** | 首次整模块签核 | 0.94（`u_pf/u_tab`） | reg2reg −0.55 / 62 lvl / TNS −33,792 | **866,611** | 64 KiB Tag/Data 改为严格同步 1R1W SRAM（`DCACHE_TAG`/`DCACHE_DATA`），整模块含 `mshr` + Berti `pf` + `wb` + `s1/s2` 首次全综合 |
+| **`axi_llc` (`axi_llc_bb`)** | 首次整模块签核 | 0.75（`victim → bingo`） | reg2reg −0.84 / 82 lvl / TNS −45,246 | **644,526** | 4 MiB LLC 数据/标签/状态/替换（6 组 `ttg_sram_1r1w`）+ Bingo PHTL/S（`ttg_sram_1rw`）全部黑盒化，4 MiB LLC 首次在 DC 内可完整签核 |
+| **`bpu_spec`** | −0.33 → **−0.34** | 1.20 → **1.20（reg2reg）** | reg2reg **−0.33** / **52 → 48 lvl** / TNS −2,485 | 142,200 → 191,790 | 保持 1.20 GHz reg2reg 时序零回退 |
+| **`bpu` (`bpu_bb_p`)** | 首次整模块签核 | 0.53（S2 TAGE → `u_spec`） | reg2reg −1.40 / 119 lvl / TNS −154,380 | **941,477** | ~590 KiB 全部预测表（`u_ftb1`/`aftb`/`aftb2`/`atage`/`atage2`/`s2_tage`/`s2_sc`/`s2_itt`/`aitt`/`aitt2`/`u_rec`/`u_rf_rec`）100% 改为严格同步 `ttg_sram_1r1w`；仅保留 S0 小表 `u_ftb0`（64×4 FF）占 **418,532 um²（44.5%）**，其余全部 BPU 控制/评估/训练逻辑合计仅 `522.9k um²` |
+
+- **可比后端核心模块面积净省**：仅 `rob`（−399.7k）+ `ftq_ibuf`（−1,441.8k）+ `isu`（−130.5k）三模块合计净省 **`1,972,000 um²`（~1.97 mm²）**，且 `lsu` / `isu` / `tlb_mmu` / `bpu_spec` 频率全部零回退。
+- **全核大型存储模块首次全部具备 DC 28nm 签核能力**：`icache`（32 KiB）、`dcache`（64 KiB）、`axi_llc`（4 MiB）、`ptw_walk_l2tlb`（1024 项 STLB）、`bpu`（~590 KiB）及 `rob`（1 KiB 指令字）100% 显式接入 `ttg_sram_1r1w` / `ttg_sram_1rw`，零组合读 RAM 残留。
+- **综合暴露的后续优化抓手**：① `bpu` 内 `u_ftb0`（64×4 FF）占全 BPU 面积 44.5% 且 S2 TAGE → `u_spec` 组合链达 `1.85 ns`；② `icache` 顶路径在 `u_fdip`；③ 后续结合 `front_top` 去 `ptab_bypass`（SPEC386 仅 −0.03%）与 `back_top` DTLB/LSU 解耦（0 周期变化）可进一步大幅拉升整核频率。

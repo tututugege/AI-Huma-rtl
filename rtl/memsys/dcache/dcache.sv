@@ -184,6 +184,11 @@ module dcache
     assign lu_way_w[NLD+i] = st_pw_way[i];
   end
 
+  logic [NSLOT-1:0]     s1_rd_en;
+  logic [SET_W-1:0]     s1_rd_set [NSLOT];
+  logic                 s1_fs_en;
+  logic [SET_W-1:0]     s1_fs_set;
+
   dcache_s1 u_s1 (
     .clk(clk), .rst_n(rst_n),
     .ld_req_valid(ld_req_v), .ld_req_addr(ld_req_addr), .ld_req_id(ld_req_id),
@@ -205,11 +210,13 @@ module dcache
     .retry_issue(retry_issue),
     .retry_busy(retry_busy),
     .s2f_valid(s2f_valid), .s2f_id(s2f_id), .s2f_dirty(s2f_dirty), .s2f_line(s2f_line), .s2f_data(s2f_data),
-    .same_fill(same_fill)
+    .same_fill(same_fill),
+    .s1_rd_en(s1_rd_en), .s1_rd_set(s1_rd_set), .s1_fs_en(s1_fs_en), .s1_fs_set(s1_fs_set)
   );
 
   dcache_arr u_arr (
     .clk(clk), .rst_n(rst_n),
+    .s1_rd_en(s1_rd_en), .s1_rd_set(s1_rd_set), .s1_fs_en(s1_fs_en), .s1_fs_set(s1_fs_set),
     .rd_en(slot_granted), .rd_addr(slot_addr), .rd_valid(rd_valid), .rd_pf(rd_pf),
     .pfc_en(pfc_en), .pfc_way(ld_lu_way), .fw_pf(s2f_pf), .rd_tag(rd_tag), .rd_data(rd_data),
     .fs_en(s2f_valid), .fs_set(s2f_line[SET_W-1:0]), .fs_valid(fs_valid), .fs_dirty(fs_dirty), .fs_plru(fs_plru),

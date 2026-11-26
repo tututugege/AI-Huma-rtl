@@ -1,7 +1,7 @@
 // Ref: back-end/PreIduQueue.cpp  ftq_train_meta_fifo[].meta.blk_id (block ID + branch kind for BPU rec_q[256] repair)
 `default_nettype none
 
-module pre_idu_ftq_bpu import ttg_cfg_pkg::*; import front_pkg::KIND_W; import bpu_types_pkg::FTB_BLK_ID_W; (
+module ftq_bpu import ttg_cfg_pkg::*; import front_pkg::KIND_W; import bpu_types_pkg::FTB_BLK_ID_W; (
   input  logic                        clk,
   input  logic                        wr_en,
   input  logic [FTQ_IDX_WIDTH-1:0]    wr_idx,

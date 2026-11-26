@@ -1,10 +1,10 @@
-// Ref: front-end/BPU/BPU_pipe.h  FTB_BRQ=2 (16-entry 1-branch/cycle commit queue + 512-entry 1R1W ftb_rec)
+// Ref: front-end/BPU/BPU_pipe.h  FTB_BRQ=2 (16-entry 1-branch/cycle commit queue + 512-entry 2-bank sync SRAM ftb_rec)
 `default_nettype none
 
 module bpu_ftb_brq import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; import bpu_types_pkg::*; (
   input  logic                    clk,
   input  logic                    rst_n,
-  // S2 ftb_rec write ports (port 0: Block A, port 1: paired Block B)
+  // S2 ftb_rec write ports (port 0: Block A, port 1: paired Block B; always opposite LSB -> 2 even/odd 1R1W banks)
   input  logic                    rec_wr_en,
   input  logic [FTB_REC_W-1:0]    rec_wr_addr,
   input  ftb_rec_t                rec_wr_data,
@@ -41,8 +41,11 @@ module bpu_ftb_brq import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
   output logic [3:0]              commit_tq_free
 );
 
-  localparam int PTR_W = $clog2(FTB_BRQ_N);
-  localparam int CNT_W = $clog2(FTB_BRQ_N + 1);
+  localparam int PTR_W      = $clog2(FTB_BRQ_N);
+  localparam int CNT_W      = $clog2(FTB_BRQ_N + 1);
+  localparam int REC_BDEPTH = FTB_REC_N / 2;
+  localparam int REC_BAW    = FTB_REC_W - 1;
+  localparam int REC_BITS   = $bits(ftb_rec_t);
 
   typedef struct packed {
     logic [FTB_BLK_ID_W-1:0] blk_id;
@@ -56,30 +59,56 @@ module bpu_ftb_brq import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
     logic [XLEN_BITS-1:0]    target;
   } brq_ent_t;
 
-  // ---- 512-entry 1R2W ftb_rec table ----
-  logic [FTB_REC_W-1:0] rec_rd_addr [1];
-  ftb_rec_t             rec_rd_data [1];
-  logic                 rec_we      [2];
-  logic [FTB_REC_W-1:0] rec_wa      [2];
-  ftb_rec_t             rec_wd      [2];
-
-  bpu_mem #(
-    .W     ($bits(ftb_rec_t)),
-    .DEPTH (FTB_REC_N),
-    .N_RD  (1),
-    .N_WR  (2),
-    .T     (ftb_rec_t)
-  ) u_rec (
-    .clk, .rst_n,
-    .rd_addr(rec_rd_addr), .rd_data(rec_rd_data),
-    .wr_en(rec_we), .wr_addr(rec_wa), .wr_data(rec_wd)
-  );
-
   // ---- 16-entry circular branch queue ----
   brq_ent_t         brq_q [FTB_BRQ_N];
   brq_ent_t         brq_d [FTB_BRQ_N];
   logic [PTR_W-1:0] head_q, head_d;
   logic [CNT_W-1:0] cnt_q, cnt_d;
+
+  // ---- 512-entry ftb_rec as 2 even/odd banks of 256 x strict sync 1R1W SRAM (pre-launched from brq_d[head_d]) ----
+  logic                 bank_re    [2];
+  logic [REC_BAW-1:0]   bank_ra    [2];
+  logic [REC_BITS-1:0]  bank_rd    [2];
+  logic                 bank_we    [2];
+  logic [REC_BAW-1:0]   bank_wa    [2];
+  logic [REC_BITS-1:0]  bank_wd    [2];
+  logic [FTB_REC_W-1:0] next_rec_id;
+
+  always_comb begin
+    next_rec_id = brq_d[head_d].blk_id[FTB_REC_W-1:0];
+    bank_re[0]  = (cnt_d != '0) && !next_rec_id[0];
+    bank_re[1]  = (cnt_d != '0) &&  next_rec_id[0];
+    bank_ra[0]  = next_rec_id[FTB_REC_W-1:1];
+    bank_ra[1]  = next_rec_id[FTB_REC_W-1:1];
+
+    // Port 0 (blk_seq_q) and Port 1 (blk_seq_q + 1) always have opposite LSB -> conflict-free 1W per bank
+    bank_we[0]  = (rec_wr_en && !rec_wr_addr[0]) || (rec_wr_b_en && !rec_wr_b_addr[0]);
+    bank_wa[0]  = (rec_wr_en && !rec_wr_addr[0]) ? rec_wr_addr[FTB_REC_W-1:1] : rec_wr_b_addr[FTB_REC_W-1:1];
+    bank_wd[0]  = (rec_wr_en && !rec_wr_addr[0]) ? REC_BITS'(rec_wr_data)     : REC_BITS'(rec_wr_b_data);
+
+    bank_we[1]  = (rec_wr_en &&  rec_wr_addr[0]) || (rec_wr_b_en &&  rec_wr_b_addr[0]);
+    bank_wa[1]  = (rec_wr_en &&  rec_wr_addr[0]) ? rec_wr_addr[FTB_REC_W-1:1] : rec_wr_b_addr[FTB_REC_W-1:1];
+    bank_wd[1]  = (rec_wr_en &&  rec_wr_addr[0]) ? REC_BITS'(rec_wr_data)     : REC_BITS'(rec_wr_b_data);
+  end
+
+  for (genvar bk = 0; bk < 2; bk++) begin : g_rec_bk
+    ttg_sram_1r1w #(
+      .DEPTH      (REC_BDEPTH),
+      .WIDTH      (REC_BITS),
+      .MASK_W     (1),
+      .WRITE_FIRST(1'b1),
+      .TAG        ("BPU_FTB_REC")
+    ) u_rec (
+      .clk  (clk),
+      .re   (bank_re[bk]),
+      .raddr(bank_ra[bk]),
+      .rdata(bank_rd[bk]),
+      .we   (bank_we[bk]),
+      .waddr(bank_wa[bk]),
+      .wdata(bank_wd[bk]),
+      .wmask(1'b1)
+    );
+  end
 
   // ---- Head pop & ftb_rec decode ----
   logic     do_pop, carried, in_blk;
@@ -87,17 +116,9 @@ module bpu_ftb_brq import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
   ftb_rec_t rc;
 
   always_comb begin
-    rec_we[0]      = rec_wr_en;
-    rec_wa[0]      = rec_wr_addr;
-    rec_wd[0]      = rec_wr_data;
-    rec_we[1]      = rec_wr_b_en;
-    rec_wa[1]      = rec_wr_b_addr;
-    rec_wd[1]      = rec_wr_b_data;
-
-    do_pop         = (cnt_q != '0);
-    q_head         = brq_q[head_q];
-    rec_rd_addr[0] = q_head.blk_id[FTB_REC_W-1:0];
-    rc             = rec_rd_data[0];
+    do_pop  = (cnt_q != '0);
+    q_head  = brq_q[head_q];
+    rc      = q_head.blk_id[0] ? ftb_rec_t'(bank_rd[1]) : ftb_rec_t'(bank_rd[0]);
 
     carried = (q_head.pc + XLEN_BITS'(SLOT_BYTES) == rc.base);
     in_blk  = carried || ((q_head.pc >= rc.base) && (q_head.pc < block_bnd(rc.base)));
@@ -167,6 +188,23 @@ module bpu_ftb_brq import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
       for (int k = 0; k < FTB_BRQ_N; k++) brq_q[k] <= brq_d[k];
     end
   end
+
+`ifndef SYNTHESIS
+  logic [FTB_REC_W-1:0] dbg_rec_id_q;
+  always_ff @(posedge clk) begin
+    if (!rst_n) dbg_rec_id_q <= '0;
+    else if (cnt_d != '0) dbg_rec_id_q <= next_rec_id;
+  end
+  always_ff @(posedge clk) begin
+    if (rst_n) begin
+      if (do_pop && (dbg_rec_id_q != q_head.blk_id[FTB_REC_W-1:0]))
+        $error("bpu_ftb_brq: u_rec pre-launch mismatch latched=%0h actual=%0h",
+               dbg_rec_id_q, q_head.blk_id[FTB_REC_W-1:0]);
+      if (rec_wr_en && rec_wr_b_en && (rec_wr_addr[0] == rec_wr_b_addr[0]))
+        $error("bpu_ftb_brq: u_rec bank conflict wr_a=%0h wr_b=%0h", rec_wr_addr, rec_wr_b_addr);
+    end
+  end
+`endif
 
   assign commit_upd_free = 4'd15;
   assign commit_tq_free  = 4'd15;

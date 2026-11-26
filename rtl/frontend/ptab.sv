@@ -60,16 +60,17 @@ module ptab import ttg_cfg_pkg::*; import front_pkg::*; (
 
   /* verilator lint_off UNUSEDSIGNAL */
   logic head_fresh_unused;
+  ptab_entry_t next_rdata_unused;
   /* verilator lint_on UNUSEDSIGNAL */
 
-  front_fifo #(.DEPTH(PTAB_DEPTH), .W($bits(ptab_entry_t)), .FULL_AT(PTAB_FULL_AT),
-                  .BYPASS((FE_RFAST & 2) != 0)) u_fifo (
+  front_fifo #(.DEPTH(PTAB_DEPTH), .W($bits(ptab_entry_t)), .FULL_AT(PTAB_FULL_AT), .BYPASS(1'b1)) u_fifo (
     .clk, .rst_n,
     .clear   (refetch),
     .rd_en, .wr_en, .drop_tail(1'b0),
     .wdata   (wr_entry),
     .rd_valid,
     .rdata   (rd_entry),
+    .next_rdata (next_rdata_unused),
     .full, .empty, .size, .head_fresh(head_fresh_unused)
   );
 

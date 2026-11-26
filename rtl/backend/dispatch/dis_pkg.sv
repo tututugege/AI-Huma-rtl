@@ -35,9 +35,8 @@ package dis_pkg;
   localparam int LDQ_FREE_W = $clog2(LDQ_SIZE + 1);
   localparam int STQ_POS_W = STQ_IDX_WIDTH + 1;             // STQ ring position incl. wrap carry
   // iss_awake already includes the LSU_LOAD_WB_WIDTH prf_awake channels at [0..LSU_LOAD_WB_WIDTH-1];
-  // speculative L2 load wake-ups [0..LSU_LDU_COUNT-1] only exist when LP_L2[3] is enabled.
-  localparam bit HAS_SPEC_WAKE = ((lp_pkg::LP_L2 & 8) != 0);
-  localparam int NUM_LSU_WAKE  = HAS_SPEC_WAKE ? (2 * LSU_LDU_COUNT) : LSU_LDU_COUNT;
+  // LSU drives both speculative L2 [0..LSU_LDU_COUNT-1] and L3 [LSU_LDU_COUNT..2*LSU_LDU_COUNT-1] wake-ups.
+  localparam int NUM_LSU_WAKE  = 2 * LSU_LDU_COUNT;
   localparam int NUM_WAKE      = MAX_WAKEUP_PORTS + NUM_LSU_WAKE;
   localparam int INST_TYPE_W = 5;                           // bit_width_for_count(20 InstType values)
   localparam int UOP_TYPE_W = 5;                            // bit_width_for_count(18 UopType values)
@@ -150,6 +149,30 @@ package dis_pkg;
     logic                      rob_flag;
     uop_op_e                   op;
   } dis_iss_uop_t;
+
+  // One dispatched instruction as sent to the ROB (DisRobIO::DisRobUop, fields ROB actually consumes).
+  typedef struct packed {
+    logic [XLEN_BITS-1:0]        diag_val;
+    logic [AREG_IDX_WIDTH-1:0]   dest_areg;
+    logic [AREG_IDX_WIDTH-1:0]   src1_areg;
+    logic                        dest_fp;
+    logic                        fs_need;
+    logic [FTQ_IDX_WIDTH-1:0]    ftq_idx;
+    logic [FTQ_OFFSET_WIDTH-1:0] ftq_offset;
+    logic                        ftq_is_last;
+    logic [INST_TYPE_W-1:0]      itype;
+    logic                        dest_en;
+    logic                        is_amo_lr;
+    logic [31:0]                 imm;
+    logic [ROB_IDX_WIDTH-1:0]    rob_idx;
+    logic [STQ_IDX_WIDTH-1:0]    stq_idx;
+    logic                        stq_flag;
+    logic [CPLT_MASK_W-1:0]      expect_mask;
+    logic                        rob_flag;
+    logic                        page_fault_inst;
+    logic                        pf_inst_hi;
+    logic                        illegal_inst;
+  } dis_rob_uop_t;
 
   // Static instruction classification (is_load/is_store/is_CSR/decompose routing in the C++).
   typedef struct packed {

@@ -8,29 +8,7 @@ package lp_pkg;
   localparam int NLD  = LSU_LDU_COUNT;      // load pipelines (L1/L2) = DCache load ports = load write-back ports
   localparam int NST  = LSU_STA_COUNT;      // STA ports (AGU + DTLB)
   localparam int NSD  = LSU_SDU_COUNT;      // STD ports
-  // critical-path cuts (docs/analysis/lsu-pipe.md section 9):
-  //   bit0 B, bit1 R, bit2 D, bit3 F, bit4 G, bit5 E1, bit6 A, bit7 E2, bit8 C1, bit9 C2,
-  //   bit10 E3, bit11 E4, bit12 E5, bit13 H, bit14 E6, bit15 E7, bit16 E8
-  //   bit17 FM : (with F) the load whose MMIO response arrives in this cycle may still be written back in this cycle
-  // Default 262143 = all. F kept (without F lp_core is 36 levels deeper, section 15); F alone cost h264ref 10 points
-  // (serial MMIO loads each paid the extra cycle), FM removes it. Model: LSU_PIPE_CUT 127.
-  localparam int LP_CUT = 262143;
-  // L2 cuts (docs/analysis/lsu-pipe.md section 10), default 1907 = a+a2+F+M+S+W+P+T (model LSU_PIPE_L2=115), no d.
-  // Bits 0..3 = model LSU_PIPE_L2; bits 8.. are RTL-only and equivalent (no cycle change):
-  //   bit0 a   : L3 register, the direct completion decided at L2 is written back one cycle later (load-to-use +1)
-  //   bit1 a2  : (needs bit0) wake-up of the consumers from the L3 register in the cycle of the write-back request
-  //   bit3 d   : speculative wake-up at L2 from the L1 hit prediction, cancelled in the next cycle when wrong
-  //   bit6 S   : at most one SC completion per cycle
-  //   bit5 M   : an MMIO load that becomes MMW at L2 in this cycle is issued to the bus one cycle later
-  //   bit4 F   : a load that gets MSHR_FULL in this very cycle is not woken by this cycle's fill (counter)
-  //   bit8 W   : wake-up of a load parked at L2 evaluated at port level (4 units) instead of per LDQ entry after the
-  //              L2 decision (equivalent: no cycle change)
-  //   bit9 P   : log-depth find-first-set (lp_ffs) in the LSU instead of the carry-chain primitive (equivalent)
-  //   bit11 R  : wake-up confirm range compare against thresholds from the load side (no adder after the store)
-  //   bit10 T  : STQ mispredict cut: first hit searched without the count mask in front (equivalent)
-  localparam int LP_L2 = 1915;
-  // 1: the STA / STD events and broadcast views are registered before the wake-up of the parked loads (model CFG_LSU_STAEV_REG)
-  // memory-dependence speculation (EXP-018, model CFG_LSU_MEMSPEC): loads pass older stores with an unknown address
+  // Memory-dependence speculation (EXP-018, model CFG_LSU_MEMSPEC): loads pass older stores with an unknown address
   localparam bit MS   = LSU_MEMSPEC != 0;
   localparam int MDPW = LSU_MDP_BITS;       // wait-table index width (PC hash)
   localparam int NRP  = 4;                  // load replay registers (model CFG_LSU_PIPE_RP)
@@ -389,41 +367,6 @@ package lp_pkg;
     else return 2'd2;
   endfunction
 
-  // LP_L2[11] (R): the same relations for a LATE store address (wake-up confirm: the STA view arrives late, the load
-  // is a register): the store address enters only comparators against thresholds computed from the load
-  // (s0 + sw >= l1 <=> s0 >= l1 - sw, l0 >= s0 + sw <=> s0 <= l0 - sw), no adder behind it.
-  function automatic logic [1:0] rel12s(input logic [11:0] lo, input logic [2:0] lf, input logic [11:0] so,
-                                        input logic [2:0] sf);
-    logic signed [14:0] s0s, l0s, l1s, a_w, b_w;
-    logic covr, dsj;
-    s0s = $signed({3'b000, so});
-    l0s = $signed({3'b000, lo});
-    l1s = l0s + $signed(15'(ld_width13(lf)));
-    a_w = l1s - $signed(15'(ld_width13(sf)));
-    b_w = l0s - $signed(15'(ld_width13(sf)));
-    covr = s0s <= l0s && s0s >= a_w;
-    dsj = s0s >= l1s || s0s <= b_w;
-    if (covr) return 2'd1;
-    else if (dsj) return 2'd0;
-    else return 2'd2;
-  endfunction
-
-  function automatic logic [1:0] rel32s(input logic [31:0] lo, input logic [2:0] lf, input logic [31:0] so,
-                                        input logic [2:0] sf);
-    logic signed [34:0] s0s, l0s, l1s, a_w, b_w;
-    logic covr, dsj;
-    s0s = $signed({3'b000, so});
-    l0s = $signed({3'b000, lo});
-    l1s = l0s + $signed(35'(ld_width13(lf)));
-    a_w = l1s - $signed(35'(ld_width13(sf)));
-    b_w = l0s - $signed(35'(ld_width13(sf)));
-    covr = s0s <= l0s && s0s >= a_w;
-    dsj = s0s >= l1s || s0s <= b_w;
-    if (covr) return 2'd1;
-    else if (dsj) return 2'd0;
-    else return 2'd2;
-  endfunction
-
   // STLF confirm result: 0 no address yet (stay), 1 replay, 2 hold, 3 data missing, 4 forward
   typedef enum logic [2:0] {CF_NOADDR = 3'd0, CF_REPLAY, CF_HOLD, CF_DATA, CF_FWD} lp_conf_t;
 
@@ -435,11 +378,10 @@ package lp_pkg;
     if (!alive || s_suppress) return CF_REPLAY;
     if (!s_va_v) return CF_NOADDR;
     if (!s_pa_v) begin
-      if (((LP_L2 & 2048) != 0 ? rel12s(lvoff, lf, s_voff, sf) : rel12(lvoff, lf, s_voff, sf)) == 2'd0)
-        return CF_REPLAY;
+      if (rel12(lvoff, lf, s_voff, sf) == 2'd0) return CF_REPLAY;
       return CF_NOADDR;
     end
-    r = ((LP_L2 & 2048) != 0) ? rel32s(lpaddr, lf, s_paddr, sf) : rel32(lpaddr, lf, s_paddr, sf);
+    r = rel32(lpaddr, lf, s_paddr, sf);
     if (r == 2'd0) return CF_REPLAY;
     if (r == 2'd2) return CF_HOLD;
     if (!s_data_v) return CF_DATA;

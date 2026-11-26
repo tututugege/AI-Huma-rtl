@@ -235,15 +235,24 @@ module ptw_walk_l2tlb import memcpu_pkg::*; import ttg_cfg_pkg::*; (
     wr_pwc_slot = pwc_has_match ? pwc_match_slot : (pwc_has_inv ? pwc_inv_slot : pwc_rr_q);
   end
 
-  // ---- 1RW SRAM banks for 4KB STLB (1D array per way, no reset -> clean $mem_v2) ----
+  // ---- 1RW SRAM banks for 4KB STLB (standalone ttg_sram_1rw primitive) ----
   for (genvar w = 0; w < PT_STLB_WAYS; w++) begin : g_stlb_sram
-    logic [STLB_ENTRY_W-1:0] mem_q [PT_STLB_SETS];
     wire bank_we = cpu_en && wr_stlb && !sfence_flush && (wr_stlb_way == PT_STLB_WAY_W'(w));
     wire bank_re = cpu_en && lk_rd_en;
-    always_ff @(posedge clk) begin
-      if (bank_we) mem_q[wr_stlb_idx] <= wr_stlb_entry;
-      if (bank_re) stlb_rd_q[w]       <= mem_q[lk_rd_idx];
-    end
+    ttg_sram_1rw #(
+      .DEPTH (PT_STLB_SETS),
+      .WIDTH (STLB_ENTRY_W),
+      .MASK_W(1),
+      .TAG   ("L2TLB_STLB")
+    ) u_sram (
+      .clk  (clk),
+      .en   (bank_we || bank_re),
+      .we   (bank_we),
+      .addr (bank_we ? wr_stlb_idx : lk_rd_idx),
+      .wdata(wr_stlb_entry),
+      .wmask(1'b1),
+      .rdata(stlb_rd_q[w])
+    );
   end
 
   // ---- Resettable FF state: STLB valid/PLRU, SP CAM, PWC ----

@@ -2,7 +2,7 @@
 `default_nettype none
 
 // Front-end handshake and queue-update control: accept decision, fetch-group compaction ranks, pop counts.
-module pre_idu_ctrl import ttg_cfg_pkg::*; import pre_idu_pkg::*; (
+module ftq_ibuf_ctrl import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; (
   input  logic                      clk,
   input  logic                      rst_n,
   input  logic [BACKEND_FETCH_WIDTH-1:0] front_valid,

@@ -9,6 +9,9 @@ depth: **61 层 / 1,033,276 cells**（Yosys `strash;balance;map`）；**TSMC 28n
 
 # isu 设计文档
 
+> **2026-11-26 `rtl/area-opt` 按队列定制载荷 + 统一命名**：
+> - 6 个发射队列改用统一枚举 `IQ_INT0 / IQ_MEM / IQ_STD / IQ_BR / IQ_FP / IQ_INT1`，并按需裁剪每队列载荷与 `imm` 位宽（剔除各队列无关字段与死开关），发射队列总寄存器位宽净降 **−37.9%**，零周期变化。
+
 ## 1. 职责
 
 发射单元：6 个发射队列（INT0、INT1、内存（load 和 STA 合并）、STD、BR、FP）加一张唤醒网络。每拍做四件事：
@@ -82,8 +85,8 @@ depth: **61 层 / 1,033,276 cells**（Yosys `strash;balance;map`）；**TSMC 28n
 | --- | --- | --- |
 | `isu_pkg.sv` | 314 | 队列、口、能力表；uop 结构；完成类（`wb_class` / 独热形式 `cls_hit`，11 类）与完成偏移；每口的忙表长度 `port_max_off`、会被占的类 `cls_blockable`；唤醒通道布局 |
 | `isu.sv` | 319 | 顶层：端口适配，闸（`fp_ok`；完成周期在选择里已经查过）合成 `gate_ok`，把忙表的 `cls_free` 发给各队列，实例化各队列和唤醒网络 |
-| `isu_iq.sv` | 177 | 一个发射队列（含入队时寄存的完成类位 `slot_cls_q` 和选择前的完成周期掩码 `port_ok`） |
-| `isu_iq_store.sv` | 98 | 槽存储与次态 |
+| `isu_iq.sv` | 428 | 一个发射队列（含入队时寄存的完成类位 `slot_cls_q`、2 个 PC-ALU 口（Port 0/2）`src1_is_pc` 过滤、按队列类型裁剪 payload 参数与选择前完成周期掩码 `port_ok`） |
+| `isu_iq_store.sv` | 518 | 按 IQ 类型参数化裁剪的槽存储与次态（裁剪无用 `dest/src2/src3/ftq/stq/ldq/csr/atomic/func7/alu_fl/fp_fl` 与按队列截断 `imm` 位宽：INT 32b / BR 21b / FP 17b / MEM 12b / STD 0b，共省 ~13K FFs） |
 | `isu_iq_select.sv` | 65 | 每口的选择 |
 | `isu_alloc_chain.sv` | 57 | 入队分配（也用于延迟唤醒槽分配） |
 | `isu_age_matrix.sv` | 35 | 内存队列的年龄矩阵 |

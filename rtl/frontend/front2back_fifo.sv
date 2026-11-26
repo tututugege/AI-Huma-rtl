@@ -88,6 +88,7 @@ module front2back_fifo import ttg_cfg_pkg::*; import front_pkg::*; (
   /* verilator lint_off UNUSEDSIGNAL */
   logic [$clog2(F2B_FIFO_DEPTH + 1)-1:0] size_unused;
   logic head_fresh_unused;
+  f2b_fifo_entry_t next_rdata_unused;
   /* verilator lint_on UNUSEDSIGNAL */
 
   front_fifo #(.DEPTH(F2B_FIFO_DEPTH), .W($bits(f2b_fifo_entry_t)), .FULL_AT(F2B_FIFO_FULL_AT)) u_fifo (
@@ -97,6 +98,7 @@ module front2back_fifo import ttg_cfg_pkg::*; import front_pkg::*; (
     .wdata   (wr_entry),
     .rd_valid,
     .rdata   (rd_entry),
+    .next_rdata (next_rdata_unused),
     .full, .empty, .size(size_unused), .head_fresh(head_fresh_unused)
   );
 

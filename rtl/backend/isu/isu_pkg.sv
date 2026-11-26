@@ -31,10 +31,13 @@ package isu_pkg;
   // op classes with a multi-cycle FP latency (delayed wake-up, FP register write reservation)
   localparam op_set_t MASK_FPD = MASK_FMA | MASK_FMISC | MASK_FDIV | MASK_I2F;
   // ---- issue queues and issue ports (config.h GLOBAL_IQ_CONFIG / GLOBAL_ISSUE_PORT_CONFIG) ----------
-  localparam int IQ_NUM = 6;                                // IQ_INT, IQ_MEM, IQ_STD, IQ_BR, IQ_FP (F/D), IQ_INT1 (dis_pkg numbering)
-  localparam int IQ_MEM = 1;                                // one queue for the loads and the store addresses
-  localparam int IQ_FP = 4;
-  localparam int IQ_INT1 = 5;                               // the second integer queue (the six ALU ports are split over the two integer queues)
+  localparam int IQ_NUM  = 6;                               // IQ_INT0, IQ_MEM, IQ_STD, IQ_BR, IQ_FP (F/D), IQ_INT1
+  localparam int IQ_INT0 = 0;                               // first integer queue (ports 0, 1, 4)
+  localparam int IQ_MEM  = 1;                               // one queue for the loads and the store addresses
+  localparam int IQ_STD  = 2;                               // store-data queue
+  localparam int IQ_BR   = 3;                               // branch/jump queue
+  localparam int IQ_FP   = 4;
+  localparam int IQ_INT1 = 5;                               // second integer queue (ports 2, 3, 5)
   localparam int IQ_DISPATCH_WIDTH = DECODE_WIDTH;          // enqueue lanes per IQ
 
   function automatic logic isu_rob_younger(input logic [ROB_IDX_WIDTH-1:0] a_idx, input logic a_flag,
@@ -46,11 +49,11 @@ package isu_pkg;
 
   function automatic int iq_size(int q);
     case (q)
-      0: return IQ_INT_SIZE;
-      1: return IQ_MEM_SIZE;
-      2: return IQ_STD_SIZE;
-      4: return FP_EN ? FP_IQ_SIZE : 1;
-      5: return IQ_INT_SIZE;
+      IQ_INT0: return IQ_INT_SIZE;
+      IQ_MEM:  return IQ_MEM_SIZE;
+      IQ_STD:  return IQ_STD_SIZE;
+      IQ_FP:   return FP_EN ? FP_IQ_SIZE : 1;
+      IQ_INT1: return IQ_INT_SIZE;
       default: return IQ_BR_SIZE;
     endcase
   endfunction
@@ -58,32 +61,32 @@ package isu_pkg;
   // enqueue lanes of queue q (config.h IQ_*_ENQ_WIDTH); dispatch fills lanes 0.. in order, higher lanes are unused
   function automatic int iq_enq_width(int q);
     case (q)
-      0: return IQ_INT_ENQ_WIDTH;
-      1: return IQ_MEM_ENQ_WIDTH;
-      2: return IQ_STD_ENQ_WIDTH;
-      4: return FP_EN ? FP_IQ_ENQ_WIDTH : 1;
-      5: return IQ_INT_ENQ_WIDTH;
+      IQ_INT0: return IQ_INT_ENQ_WIDTH;
+      IQ_MEM:  return IQ_MEM_ENQ_WIDTH;
+      IQ_STD:  return IQ_STD_ENQ_WIDTH;
+      IQ_FP:   return FP_EN ? FP_IQ_ENQ_WIDTH : 1;
+      IQ_INT1: return IQ_INT_ENQ_WIDTH;
       default: return IQ_BR_ENQ_WIDTH;
     endcase
   endfunction
 
   function automatic int iq_port_base(int q);
     case (q)
-      0: return IQ_ALU_PORT_BASE;
-      1: return IQ_LD_PORT_BASE;
-      2: return IQ_STD_PORT_BASE;
-      4: return IQ_FP_PORT_BASE;
+      IQ_INT0: return IQ_ALU_PORT_BASE;
+      IQ_MEM:  return IQ_LD_PORT_BASE;
+      IQ_STD:  return IQ_STD_PORT_BASE;
+      IQ_FP:   return IQ_FP_PORT_BASE;
       default: return IQ_BR_PORT_BASE;
     endcase
   endfunction
 
   function automatic int iq_port_num(int q);
     case (q)
-      0: return 3;                                        // queue 0 has the ports 0, 1, 4 ...
-      5: return 3;                                        // ... and queue 5 (IQ_INT1) the ports 2, 3, 5
-      1: return LSU_LDU_COUNT + LSU_STA_COUNT;            // the memory queue serves the load and the STA ports
-      2: return LSU_SDU_COUNT;
-      4: return FP_EN ? ISSUE_WIDTH - IQ_FP_PORT_BASE : 0;   // the FP ports come last
+      IQ_INT0: return 3;                                        // queue 0 has the ports 0, 1, 4 ...
+      IQ_INT1: return 3;                                        // ... and queue 5 (IQ_INT1) the ports 2, 3, 5
+      IQ_MEM:  return LSU_LDU_COUNT + LSU_STA_COUNT;            // the memory queue serves the load and the STA ports
+      IQ_STD:  return LSU_SDU_COUNT;
+      IQ_FP:   return FP_EN ? ISSUE_WIDTH - IQ_FP_PORT_BASE : 0;   // the FP ports come last
       default: return BRU_NUM;
     endcase
   endfunction
@@ -91,7 +94,7 @@ package isu_pkg;
   // physical issue port of port p of queue q (the two INT queues split the six ALU ports 0, 1, 4 / 2, 3, 5)
   function automatic int iq_port(int q, int p);
     if (q == IQ_INT1) return (p == 0) ? 2 : (p == 1) ? 3 : 5;
-    if (q == 0)       return (p == 0) ? 0 : (p == 1) ? 1 : 4;
+    if (q == IQ_INT0) return (p == 0) ? 0 : (p == 1) ? 1 : 4;
     return iq_port_base(q) + p;
   endfunction
 

@@ -43,29 +43,25 @@ module lp_wake
     for (int k = 0; k < 2 * NLD; k++) wk_preg[k] = '0;
     spec_w = '0;
     for (int p = 0; p < NLD; p++) begin
-      // L2 speculative wake-up (d): predicted L1D hit from registered pl12 (independent of L2 STQ CAM); cancelled next cycle if wrong
-      if ((LP_L2 & 8) != 0) begin
-        spec_w[p] = pl12[p].v && l2_ok[pl12[p].ldq] && pl12[p].tlb == TLB_HIT && !pl12[p].mmio &&
-                    !pl12[p].dcblk && !pl12[p].bloom && !(MS && ldq_q[pl12[p].ldq].second) &&
-                    ldq_q[pl12[p].ldq].dest_preg != '0 && !flush &&
-                    !(mispred && lp_rob_younger(ldq_q[pl12[p].ldq].rob_idx, ldq_q[pl12[p].ldq].rob_flag,
-                                                dec_rob_idx, dec_rob_flag));
-        wk_valid[p] = spec_w[p];
-        wk_preg[p] = ldq_q[pl12[p].ldq].dest_preg;
-      end
-      // L3 + WBP wake-up (a2): not for a load that was woken speculatively at L2
-      if ((LP_L2 & 3) == 3) begin
-        logic ld_wb_v;
-        logic [LQW-1:0] ld_wb_i;
-        ld_wb_v = (wbw_v[p] && !l3_sw_q[p]) || wp_v[p];
-        ld_wb_i = wbw_v[p] ? wbw_idx[p] : wp_idx[p];
-        wk_valid[NLD + p] = ld_wb_v && !(MS && ldq_q[ld_wb_i].second) &&
-                            !ldq_q[ld_wb_i].pf &&
-                            ldq_q[ld_wb_i].dest_preg != '0 && !flush &&
-                            !(mispred && lp_rob_younger(ldq_q[ld_wb_i].rob_idx, ldq_q[ld_wb_i].rob_flag,
-                                                        dec_rob_idx, dec_rob_flag));
-        wk_preg[NLD + p] = ldq_q[ld_wb_i].dest_preg;
-      end
+      logic ld_wb_v;
+      logic [LQW-1:0] ld_wb_i;
+      // L2 speculative wake-up: predicted L1D hit from registered pl12; cancelled next cycle if wrong
+      spec_w[p] = pl12[p].v && l2_ok[pl12[p].ldq] && pl12[p].tlb == TLB_HIT && !pl12[p].mmio &&
+                  !pl12[p].dcblk && !pl12[p].bloom && !(MS && ldq_q[pl12[p].ldq].second) &&
+                  ldq_q[pl12[p].ldq].dest_preg != '0 && !flush &&
+                  !(mispred && lp_rob_younger(ldq_q[pl12[p].ldq].rob_idx, ldq_q[pl12[p].ldq].rob_flag,
+                                              dec_rob_idx, dec_rob_flag));
+      wk_valid[p] = spec_w[p];
+      wk_preg[p] = ldq_q[pl12[p].ldq].dest_preg;
+      // L3 + WBP wake-up: not for a load that was woken speculatively at L2
+      ld_wb_v = (wbw_v[p] && !l3_sw_q[p]) || wp_v[p];
+      ld_wb_i = wbw_v[p] ? wbw_idx[p] : wp_idx[p];
+      wk_valid[NLD + p] = ld_wb_v && !(MS && ldq_q[ld_wb_i].second) &&
+                          !ldq_q[ld_wb_i].pf &&
+                          ldq_q[ld_wb_i].dest_preg != '0 && !flush &&
+                          !(mispred && lp_rob_younger(ldq_q[ld_wb_i].rob_idx, ldq_q[ld_wb_i].rob_flag,
+                                                      dec_rob_idx, dec_rob_flag));
+      wk_preg[NLD + p] = ldq_q[ld_wb_i].dest_preg;
     end
   end
 

@@ -29,6 +29,8 @@ module front_fetch_buf import ttg_cfg_pkg::*; import front_pkg::*; (
   output logic             b_req_valid,
   output logic [XLEN_BITS-1:0] b_req_addr,
   output logic [3:0]       b_req_nwords,
+  output logic [5:0]       ic_next_fa_idx,
+  output logic [5:0]       ic_next_b_idx,
   input  logic             b_hit,
   input  logic [4:0]       b_actual_n,
   input  logic [31:0]      b_fetch_group [FETCH_WIDTH],
@@ -39,13 +41,16 @@ module front_fetch_buf import ttg_cfg_pkg::*; import front_pkg::*; (
 );
 
   // ---- fetch_addr_fifo + in-flight FetchPair tracker ----
-  fetch_pair_t fa_rd_pair;
+  fetch_pair_t fa_rd_pair, fa_next_pair;
+  logic [XLEN_BITS-1:0] fa_next_addr;
   logic        pend_valid_q;
   logic [XLEN_BITS-1:0] pend_addr_q;
   fetch_pair_t pend_pair_q;
 
   /* verilator lint_off UNUSEDSIGNAL */
   logic [$clog2(FETCH_ADDR_FIFO_DEPTH + 1)-1:0] fa_size_unused;
+  logic unused_fa_next;
+  assign unused_fa_next = ^{fa_next_addr, fa_next_pair};
   /* verilator lint_on UNUSEDSIGNAL */
 
   fetch_addr_fifo u_fa_fifo (
@@ -59,6 +64,8 @@ module front_fetch_buf import ttg_cfg_pkg::*; import front_pkg::*; (
     .rd_valid         (fa_rd_valid),
     .rd_fetch_address (fa_rd_address),
     .rd_pair          (fa_rd_pair),
+    .next_rd_address  (fa_next_addr),
+    .next_rd_pair     (fa_next_pair),
     .full             (fa_full),
     .empty            (fa_empty),
     .size             (fa_size_unused),
@@ -82,6 +89,9 @@ module front_fetch_buf import ttg_cfg_pkg::*; import front_pkg::*; (
       pend_np = fa_rd_pair;
     end
     if (global_refetch) pend_nv = 1'b0;
+    // Next-cycle VIPT set indices for strict 1-cycle synchronous L1I Data SRAM pre-launch
+    ic_next_fa_idx = fa_next_addr[11:6];
+    ic_next_b_idx  = pend_nv ? pend_np.addr2[11:6] : fa_next_pair.addr2[11:6];
   end
 
   always_ff @(posedge clk) begin

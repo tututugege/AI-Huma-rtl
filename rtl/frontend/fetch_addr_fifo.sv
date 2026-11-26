@@ -14,6 +14,8 @@ module fetch_addr_fifo import ttg_cfg_pkg::*; import front_pkg::*; (
   output logic        rd_valid,
   output logic [XLEN_BITS-1:0] rd_fetch_address,
   output fetch_pair_t rd_pair,
+  output logic [XLEN_BITS-1:0] next_rd_address,
+  output fetch_pair_t next_rd_pair,
   output logic        full,
   output logic        empty,
   output logic [$clog2(FETCH_ADDR_FIFO_DEPTH + 1)-1:0] size,
@@ -25,19 +27,21 @@ module fetch_addr_fifo import ttg_cfg_pkg::*; import front_pkg::*; (
     logic [XLEN_BITS-1:0] addr;
   } fa_entry_t;
 
-  fa_entry_t wdata, rdata;
+  fa_entry_t wdata, rdata, next_rdata;
   assign wdata            = '{pair: wr_pair, addr: wr_fetch_address};
   assign rd_fetch_address = rdata.addr;
   assign rd_pair          = rdata.pair;
+  assign next_rd_address  = next_rdata.addr;
+  assign next_rd_pair     = next_rdata.pair;
 
-  front_fifo #(.DEPTH(FETCH_ADDR_FIFO_DEPTH), .W($bits(fa_entry_t)), .FULL_AT(FETCH_ADDR_FIFO_FULL_AT),
-                  .WR_AFTER_DROP((FE_BFAST & 3) != 0)) u_fifo (
+  front_fifo #(.DEPTH(FETCH_ADDR_FIFO_DEPTH), .W($bits(fa_entry_t)), .FULL_AT(FETCH_ADDR_FIFO_FULL_AT)) u_fifo (
     .clk, .rst_n,
     .clear   (refetch),
     .rd_en, .wr_en, .drop_tail,
     .wdata,
     .rd_valid,
     .rdata,
+    .next_rdata,
     .full, .empty, .size, .head_fresh
   );
 

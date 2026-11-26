@@ -1,176 +1,50 @@
 // Ref: back-end/Ren.cpp  class Ren  (commit 2f31e8d)
 `default_nettype none
 
-// Port adapter only: flat spec ports <-> packed structs of ren_core.
+// Top-level wrapper for ren_core (packs ROB commit fields; dec2ren / ren2dis already use packed structs).
 module ren
   import ttg_cfg_pkg::*;
   import ren_pkg::*;
 (
-  input  logic clk,
-  input  logic rst_n,
-  input  logic [DECODE_WIDTH-1:0] dec2ren_valid,
-  input  logic [XLEN_BITS-1:0] dec2ren_uop_diag_val [DECODE_WIDTH],
-  input  logic [AREG_IDX_WIDTH-1:0] dec2ren_uop_dest_areg [DECODE_WIDTH],
-  input  logic [AREG_IDX_WIDTH-1:0] dec2ren_uop_src1_areg [DECODE_WIDTH],
-  input  logic [AREG_IDX_WIDTH-1:0] dec2ren_uop_src2_areg [DECODE_WIDTH],
-  input  logic [FTQ_IDX_WIDTH-1:0] dec2ren_uop_ftq_idx [DECODE_WIDTH],
-  input  logic [FTQ_OFFSET_WIDTH-1:0] dec2ren_uop_ftq_offset [DECODE_WIDTH],
-  input  logic [DECODE_WIDTH-1:0] dec2ren_uop_ftq_is_last,
-  input  logic [INST_TYPE_WIDTH-1:0] dec2ren_uop_type [DECODE_WIDTH],
-  input  logic [DECODE_WIDTH-1:0] dec2ren_uop_dest_en,
-  input  logic [DECODE_WIDTH-1:0] dec2ren_uop_src1_en,
-  input  logic [DECODE_WIDTH-1:0] dec2ren_uop_src2_en,
-  input  logic [DECODE_WIDTH-1:0] dec2ren_uop_is_atomic,
-  input  logic [DECODE_WIDTH-1:0] dec2ren_uop_src1_is_pc,
-  input  logic [DECODE_WIDTH-1:0] dec2ren_uop_src2_is_imm,
-  input  logic [DECODE_WIDTH-1:0] dec2ren_uop_is_word,
-  input  logic [2:0] dec2ren_uop_func3 [DECODE_WIDTH],
-  input  logic [6:0] dec2ren_uop_func7 [DECODE_WIDTH],
-  input  logic [31:0] dec2ren_uop_imm [DECODE_WIDTH],
-  input  logic [CSR_IDX_WIDTH-1:0] dec2ren_uop_csr_idx [DECODE_WIDTH],
-  input  logic [DECODE_WIDTH-1:0] dec2ren_uop_page_fault_inst,
-  input  logic [DECODE_WIDTH-1:0] dec2ren_uop_pf_inst_hi,
-  input  logic [DECODE_WIDTH-1:0] dec2ren_uop_illegal_inst,
-  input  logic [DECODE_WIDTH-1:0] dec2ren_uop_dest_fp,
-  input  logic [DECODE_WIDTH-1:0] dec2ren_uop_src1_fp,
-  input  logic [DECODE_WIDTH-1:0] dec2ren_uop_src2_fp,
-  input  logic [DECODE_WIDTH-1:0] dec2ren_uop_src3_en,
-  input  logic [AREG_IDX_WIDTH-1:0] dec2ren_uop_src3_areg [DECODE_WIDTH],
-  input  logic [2:0] dec2ren_uop_fp_cls [DECODE_WIDTH],
-  input  logic dec_bcast_mispred,
-  input  logic [ROB_IDX_WIDTH-1:0] dec_bcast_redirect_rob_idx,
-  input  logic dis2ren_ready,
-  input  logic rob_bcast_flush,
-  input  logic rob_bcast_interrupt,
-  input  logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_valid,
-  input  logic [INST_TYPE_WIDTH-1:0] rob_commit_commit_entry_uop_type [COMMIT_WIDTH],
-  input  logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_page_fault_inst,
-  input  logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_page_fault_load,
-  input  logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_page_fault_store,
-  input  logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_illegal_inst,
-  output logic ren2dec_ready,
-  output logic ren2rob_walking,
-  output logic [PRF_IDX_WIDTH-1:0] ren_commit_dest_preg [COMMIT_WIDTH],
-  output logic [DECODE_WIDTH-1:0] ren2dis_valid,
-  output logic [XLEN_BITS-1:0] ren2dis_uop_diag_val [DECODE_WIDTH],
-  output logic [AREG_IDX_WIDTH-1:0] ren2dis_uop_dest_areg [DECODE_WIDTH],
-  output logic [AREG_IDX_WIDTH-1:0] ren2dis_uop_src1_areg [DECODE_WIDTH],
-  output logic [FTQ_IDX_WIDTH-1:0] ren2dis_uop_ftq_idx [DECODE_WIDTH],
-  output logic [FTQ_OFFSET_WIDTH-1:0] ren2dis_uop_ftq_offset [DECODE_WIDTH],
-  output logic [DECODE_WIDTH-1:0] ren2dis_uop_ftq_is_last,
-  output logic [INST_TYPE_WIDTH-1:0] ren2dis_uop_type [DECODE_WIDTH],
-  output logic [DECODE_WIDTH-1:0] ren2dis_uop_dest_en,
-  output logic [DECODE_WIDTH-1:0] ren2dis_uop_src1_en,
-  output logic [DECODE_WIDTH-1:0] ren2dis_uop_src2_en,
-  output logic [DECODE_WIDTH-1:0] ren2dis_uop_is_atomic,
-  output logic [DECODE_WIDTH-1:0] ren2dis_uop_src1_is_pc,
-  output logic [DECODE_WIDTH-1:0] ren2dis_uop_src2_is_imm,
-  output logic [DECODE_WIDTH-1:0] ren2dis_uop_is_word,
-  output logic [2:0] ren2dis_uop_func3 [DECODE_WIDTH],
-  output logic [6:0] ren2dis_uop_func7 [DECODE_WIDTH],
-  output logic [31:0] ren2dis_uop_imm [DECODE_WIDTH],
-  output logic [CSR_IDX_WIDTH-1:0] ren2dis_uop_csr_idx [DECODE_WIDTH],
-  output logic [DECODE_WIDTH-1:0] ren2dis_uop_page_fault_inst,
-  output logic [DECODE_WIDTH-1:0] ren2dis_uop_pf_inst_hi,
-  output logic [DECODE_WIDTH-1:0] ren2dis_uop_illegal_inst,
-  output logic [PRF_IDX_WIDTH-1:0] ren2dis_uop_dest_preg [DECODE_WIDTH],
-  output logic [PRF_IDX_WIDTH-1:0] ren2dis_uop_src1_preg [DECODE_WIDTH],
-  output logic [PRF_IDX_WIDTH-1:0] ren2dis_uop_src2_preg [DECODE_WIDTH],
-  output logic [DECODE_WIDTH-1:0] ren2dis_uop_me_elim,
-  output logic [DECODE_WIDTH-1:0] ren2dis_uop_dest_fp,
-  output logic [DECODE_WIDTH-1:0] ren2dis_uop_src1_fp,
-  output logic [DECODE_WIDTH-1:0] ren2dis_uop_src2_fp,
-  output logic [DECODE_WIDTH-1:0] ren2dis_uop_src3_en,
-  output logic [PRF_IDX_WIDTH-1:0] ren2dis_uop_src3_preg [DECODE_WIDTH],
-  output logic [2:0] ren2dis_uop_fp_cls [DECODE_WIDTH]
+  input  logic                        clk,
+  input  logic                        rst_n,
+  input  logic [DECODE_WIDTH-1:0]     dec2ren_valid,
+  input  ren_inst_t                   dec2ren_uop [DECODE_WIDTH],
+  input  logic                        dec_bcast_mispred,
+  input  logic [ROB_IDX_WIDTH-1:0]    dec_bcast_redirect_rob_idx,
+  input  logic                        dis2ren_ready,
+  input  logic                        rob_bcast_flush,
+  input  logic                        rob_bcast_interrupt,
+  input  logic [COMMIT_WIDTH-1:0]     rob_commit_commit_entry_valid,
+  input  logic [INST_TYPE_WIDTH-1:0]  rob_commit_commit_entry_uop_type [COMMIT_WIDTH],
+  input  logic [COMMIT_WIDTH-1:0]     rob_commit_commit_entry_uop_page_fault_inst,
+  input  logic [COMMIT_WIDTH-1:0]     rob_commit_commit_entry_uop_page_fault_load,
+  input  logic [COMMIT_WIDTH-1:0]     rob_commit_commit_entry_uop_page_fault_store,
+  input  logic [COMMIT_WIDTH-1:0]     rob_commit_commit_entry_uop_illegal_inst,
+  output logic                        ren2dec_ready,
+  output logic                        ren2rob_walking,
+  output logic [PRF_IDX_WIDTH-1:0]    ren_commit_dest_preg [COMMIT_WIDTH],
+  output logic [DECODE_WIDTH-1:0]     ren2dis_valid,
+  output ren_out_uop_t                ren2dis_uop [DECODE_WIDTH]
 );
 
-  logic [DECODE_WIDTH-1:0] dec_valid;
-  ren_inst_t dec_uop [DECODE_WIDTH];
-  logic [DECODE_WIDTH-1:0] out_valid;
-  ren_out_uop_t out_uop [DECODE_WIDTH];
   ren_commit_t commit [COMMIT_WIDTH];
 
-  for (genvar i = 0; i < DECODE_WIDTH; i++) begin : g_dec
-    assign dec_valid[i] = dec2ren_valid[i];
-    assign dec_uop[i] = '{
-diag_val: dec2ren_uop_diag_val[i],
-                          dest_areg: dec2ren_uop_dest_areg[i],
-                          src1_areg: dec2ren_uop_src1_areg[i],
-                          src2_areg: dec2ren_uop_src2_areg[i],
-                          ftq_idx: dec2ren_uop_ftq_idx[i],
-                          ftq_offset: dec2ren_uop_ftq_offset[i],
-                          ftq_is_last: dec2ren_uop_ftq_is_last[i],
-                          inst_type: dec2ren_uop_type[i],
-                          dest_en: dec2ren_uop_dest_en[i],
-                          src1_en: dec2ren_uop_src1_en[i],
-                          src2_en: dec2ren_uop_src2_en[i],
-                          is_atomic: dec2ren_uop_is_atomic[i],
-                          src1_is_pc: dec2ren_uop_src1_is_pc[i],
-                          src2_is_imm: dec2ren_uop_src2_is_imm[i],
-                          is_word: dec2ren_uop_is_word[i],
-                          func3: dec2ren_uop_func3[i],
-                          func7: dec2ren_uop_func7[i],
-                          imm: dec2ren_uop_imm[i],
-                          csr_idx: dec2ren_uop_csr_idx[i],
-                          page_fault_inst: dec2ren_uop_page_fault_inst[i],
-                          pf_inst_hi: dec2ren_uop_pf_inst_hi[i],
-                          illegal_inst: dec2ren_uop_illegal_inst[i],
-                          dest_fp: dec2ren_uop_dest_fp[i],
-                          src1_fp: dec2ren_uop_src1_fp[i],
-                          src2_fp: dec2ren_uop_src2_fp[i],
-                          src3_en: dec2ren_uop_src3_en[i],
-                          src3_areg: dec2ren_uop_src3_areg[i],
-                          fp_cls: dec2ren_uop_fp_cls[i]};
-    assign ren2dis_valid[i] = out_valid[i];
-    assign ren2dis_uop_diag_val[i] = out_uop[i].diag_val;
-    assign ren2dis_uop_dest_areg[i] = out_uop[i].dest_areg;
-    assign ren2dis_uop_src1_areg[i] = out_uop[i].src1_areg;
-    assign ren2dis_uop_ftq_idx[i] = out_uop[i].ftq_idx;
-    assign ren2dis_uop_ftq_offset[i] = out_uop[i].ftq_offset;
-    assign ren2dis_uop_ftq_is_last[i] = out_uop[i].ftq_is_last;
-    assign ren2dis_uop_type[i] = out_uop[i].inst_type;
-    assign ren2dis_uop_dest_en[i] = out_uop[i].dest_en;
-    assign ren2dis_uop_src1_en[i] = out_uop[i].src1_en;
-    assign ren2dis_uop_src2_en[i] = out_uop[i].src2_en;
-    assign ren2dis_uop_is_atomic[i] = out_uop[i].is_atomic;
-    assign ren2dis_uop_src1_is_pc[i] = out_uop[i].src1_is_pc;
-    assign ren2dis_uop_src2_is_imm[i] = out_uop[i].src2_is_imm;
-    assign ren2dis_uop_is_word[i] = out_uop[i].is_word;
-    assign ren2dis_uop_func3[i] = out_uop[i].func3;
-    assign ren2dis_uop_func7[i] = out_uop[i].func7;
-    assign ren2dis_uop_imm[i] = out_uop[i].imm;
-    assign ren2dis_uop_csr_idx[i] = out_uop[i].csr_idx;
-    assign ren2dis_uop_page_fault_inst[i] = out_uop[i].page_fault_inst;
-    assign ren2dis_uop_pf_inst_hi[i] = out_uop[i].pf_inst_hi;
-    assign ren2dis_uop_illegal_inst[i] = out_uop[i].illegal_inst;
-    assign ren2dis_uop_dest_preg[i] = out_uop[i].dest_preg;
-    assign ren2dis_uop_src1_preg[i] = out_uop[i].src1_preg;
-    assign ren2dis_uop_src2_preg[i] = out_uop[i].src2_preg;
-    assign ren2dis_uop_me_elim[i] = out_uop[i].me_elim;
-    assign ren2dis_uop_dest_fp[i] = out_uop[i].dest_fp;
-    assign ren2dis_uop_src1_fp[i] = out_uop[i].src1_fp;
-    assign ren2dis_uop_src2_fp[i] = out_uop[i].src2_fp;
-    assign ren2dis_uop_src3_en[i] = out_uop[i].src3_en;
-    assign ren2dis_uop_src3_preg[i] = out_uop[i].src3_preg;
-    assign ren2dis_uop_fp_cls[i] = out_uop[i].fp_cls;
-  end
-
   for (genvar k = 0; k < COMMIT_WIDTH; k++) begin : g_commit
-    assign commit[k] = '{valid: rob_commit_commit_entry_valid[k],
-                         inst_type: rob_commit_commit_entry_uop_type[k],
-                         page_fault_inst: rob_commit_commit_entry_uop_page_fault_inst[k],
-                         page_fault_load: rob_commit_commit_entry_uop_page_fault_load[k],
+    assign commit[k] = '{valid:            rob_commit_commit_entry_valid[k],
+                         inst_type:        rob_commit_commit_entry_uop_type[k],
+                         page_fault_inst:  rob_commit_commit_entry_uop_page_fault_inst[k],
+                         page_fault_load:  rob_commit_commit_entry_uop_page_fault_load[k],
                          page_fault_store: rob_commit_commit_entry_uop_page_fault_store[k],
-                         illegal_inst: rob_commit_commit_entry_uop_illegal_inst[k]};
+                         illegal_inst:     rob_commit_commit_entry_uop_illegal_inst[k]};
   end
 
   ren_core u_core (
-    .clk(clk), .rst_n(rst_n), .dec_valid(dec_valid), .dec_uop(dec_uop),
+    .clk(clk), .rst_n(rst_n), .dec_valid(dec2ren_valid), .dec_uop(dec2ren_uop),
     .dec_mispred(dec_bcast_mispred), .dec_redirect_rob_idx(dec_bcast_redirect_rob_idx),
     .dis_ready(dis2ren_ready), .rob_flush(rob_bcast_flush), .rob_interrupt(rob_bcast_interrupt),
     .commit(commit), .ren2dec_ready(ren2dec_ready), .ren2rob_walking(ren2rob_walking),
-    .ren2dis_valid(out_valid), .ren2dis_uop(out_uop), .commit_dest_preg(ren_commit_dest_preg)
+    .ren2dis_valid(ren2dis_valid), .ren2dis_uop(ren2dis_uop), .commit_dest_preg(ren_commit_dest_preg)
   );
 
 endmodule

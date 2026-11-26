@@ -18,6 +18,7 @@ module inst_fifo import ttg_cfg_pkg::*; import front_pkg::*; (
   /* verilator lint_off UNUSEDSIGNAL */
   logic [$clog2(INST_FIFO_DEPTH + 1)-1:0] size_unused;
   logic head_fresh_unused;
+  inst_fifo_entry_t next_rdata_unused;
   /* verilator lint_on UNUSEDSIGNAL */
 
   front_fifo #(.DEPTH(INST_FIFO_DEPTH), .W($bits(inst_fifo_entry_t)), .FULL_AT(INST_FIFO_FULL_AT)) u_fifo (
@@ -27,6 +28,7 @@ module inst_fifo import ttg_cfg_pkg::*; import front_pkg::*; (
     .wdata   (wr_entry),
     .rd_valid,
     .rdata   (rd_entry),
+    .next_rdata (next_rdata_unused),
     .full, .empty, .size(size_unused), .head_fresh(head_fresh_unused)
   );
 

@@ -46,8 +46,8 @@ module front_ctrl_enables import ttg_cfg_pkg::*; import front_pkg::*; (
     // been in the queue for a full cycle (every override that can squash it was decided and applied before): the pop
     // does not depend on the decision of the same cycle (EXP-FEOVR, model CFG_FE_OVR_REG)
     fa_rd_en          = icache_ready && !fa_empty && !global_refetch && !fa_head_fresh;
-    // FE_RFAST bit1: the block leaving the BPU's last stage is written into the PTAB and may be read by the checker in the same cycle
-    predecode_can_run = !inst_empty && (!ptab_empty || ((FE_RFAST & 2) != 0 && bpu_ptab_write_enable)) && !f2b_full &&
+    // PTAB write-to-read bypass: the block leaving BPU's last stage is readable by the checker in the same cycle
+    predecode_can_run = !inst_empty && (!ptab_empty || bpu_ptab_write_enable) && !f2b_full &&
                         !global_refetch;
   end
 

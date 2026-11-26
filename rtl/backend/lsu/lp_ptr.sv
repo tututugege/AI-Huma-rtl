@@ -31,8 +31,7 @@ module lp_ptr
   input  logic [ROBW-1:0]     sq_rob_idx [SQ],
   input  logic [SQ-1:0]       sq_rob_flag,
   // P14 retire
-  input  logic [SQ-1:0]       done_vec,
-  input  logic [SQ-1:0]       done_q_vec,    // done bits as registered (retire reads them with LP_CUT[1])
+  input  logic [SQ-1:0]       done_q_vec,    // done bits as registered
   output logic [SQ-1:0]       ev_ret,
   // state / views
   output logic [SQW-1:0]      head_q,
@@ -53,52 +52,32 @@ module lp_ptr
     return SQ'(rotl64(64'(thermo), head));
   endfunction
 
-  // ---- P1: the k-th accepted commit must hit the commit pointer advanced by the commits accepted before it ----
-  logic [NCM-1:0] cm_store, cm_match;
-  logic [SQW-1:0] commit_ptr;
-  logic [CNTW-1:0] ccount_cm;
+  // ---- P1: parallel store commit matching ----
+  // The stores of a commit group are consecutive in program order, hence consecutive in the STQ: all of them hit
+  // commit_ptr + (stores before them) as soon as the first one hits commit_ptr.  They are accepted as a prefix while
+  // their data / address is written back.
+  logic [NCM-1:0]  cm_store, cm_match, first_st;
+  logic [SQW-1:0]  commit_ptr;
+  logic [CNTW-1:0] ccount_cm, n_m;
+  logic            first_ok, wb_pre;
   assign commit_ptr = head_q + SQW'(ccount_q);
-  if ((LP_CUT & 64) != 0) begin : g_cm_par
-    // parallel form: store i must hit commit_ptr + (stores before it); all stores before it must be accepted
-    // The stores of a commit group are consecutive in program order, hence consecutive in the STQ: all of them hit
-    // commit_ptr + (stores before them) as soon as the first one hits commit_ptr.  They are accepted as a prefix while
-    // their data / address is written back.
-    logic [NCM-1:0] first_st;
-    logic           first_ok;
-    logic           wb_pre;
-    always_comb begin
-      first_ok = 1'b0;
-      wb_pre   = 1'b1;
-      for (int i = 0; i < NCM; i++) begin
-        cm_store[i] = cm_valid[i] && (cm_type[i] == 5'd6 || (cm_type[i] == 5'd18 && cm_amo_op[i] != AMO_LR));
-        first_st[i] = cm_store[i];
-        for (int k = 0; k < i; k++) first_st[i] = first_st[i] && !cm_store[k];
-        first_ok = first_ok || (first_st[i] && cm_stq_idx[i] == commit_ptr);
-      end
-      for (int i = 0; i < NCM; i++) begin
-        wb_pre = wb_pre && (!cm_store[i] || wbd_vec[cm_stq_idx[i]]);
-        cm_match[i] = cm_store[i] && first_ok && wb_pre;
-      end
+  always_comb begin
+    first_ok = 1'b0;
+    wb_pre   = 1'b1;
+    for (int i = 0; i < NCM; i++) begin
+      cm_store[i] = cm_valid[i] && (cm_type[i] == 5'd6 || (cm_type[i] == 5'd18 && cm_amo_op[i] != AMO_LR));
+      first_st[i] = cm_store[i];
+      for (int k = 0; k < i; k++) first_st[i] = first_st[i] && !cm_store[k];
+      first_ok = first_ok || (first_st[i] && cm_stq_idx[i] == commit_ptr);
     end
-    // number accepted = leading run of matches among the stores (matches are a prefix of the group's stores)
-    logic [CNTW-1:0] n_m;
-    always_comb begin
-      n_m = '0;
-      for (int i = 0; i < NCM; i++) n_m = n_m + CNTW'(cm_match[i]);
+    for (int i = 0; i < NCM; i++) begin
+      wb_pre = wb_pre && (!cm_store[i] || wbd_vec[cm_stq_idx[i]]);
+      cm_match[i] = cm_store[i] && first_ok && wb_pre;
     end
-    assign ccount_cm = (ccount_q + n_m > CNTW'(SQ)) ? CNTW'(SQ) : ccount_q + n_m;
-  end else begin : g_cm_ser
-    logic [CNTW-1:0] n_acc [NCM+1];
-    always_comb begin
-      n_acc[0] = '0;
-      for (int i = 0; i < NCM; i++) begin
-        cm_store[i] = cm_valid[i] && (cm_type[i] == 5'd6 || (cm_type[i] == 5'd18 && cm_amo_op[i] != AMO_LR));
-        cm_match[i] = cm_store[i] && cm_stq_idx[i] == commit_ptr + SQW'(n_acc[i]) && wbd_vec[cm_stq_idx[i]];
-        n_acc[i+1] = n_acc[i] + CNTW'(cm_match[i]);
-      end
-      ccount_cm = (ccount_q + n_acc[NCM] > CNTW'(SQ)) ? CNTW'(SQ) : ccount_q + n_acc[NCM];
-    end
+    n_m = '0;
+    for (int i = 0; i < NCM; i++) n_m = n_m + CNTW'(cm_match[i]);
   end
+  assign ccount_cm = (ccount_q + n_m > CNTW'(SQ)) ? CNTW'(SQ) : ccount_q + n_m;
   for (genvar s = 0; s < SQ; s++) begin : g_cm
     logic [NCM-1:0] by_port;
     for (genvar i = 0; i < NCM; i++) begin : g_p
@@ -125,54 +104,38 @@ module lp_ptr
     assign al_v[s] = |hit;
   end
 
-  // ---- P11: rob flush keeps the committed stores, a mispredict cuts the STQ at the first entry whose br_mask hits
-  // ----
-  logic [CNTW-1:0] keep_committed, count_m, ccount_flushed, ccount_fl, count_fl;
+  // ---- P11: rob flush keeps committed stores, mispredict cuts STQ at first uncommitted entry younger than branch ----
+  logic [CNTW-1:0] keep_committed, count_m, count_fl;
   logic [SQ-1:0] hit_slot, hit_pos, hit_first;
   logic [63:0]   hit_rot;
   logic          any_hit;
-  // A flush or a mispredict stops the dispatch (dispatch_fire_ctl: no allocation in such a cycle), so those branches work on count_q: they do not
-  // wait for the allocation requests, which come late (the dispatch fire).
-  logic [CNTW-1:0] count_fm;   // count after the flush step, for the mispredict cut (no allocation in this cycle)
+  logic [CNTW-1:0] count_fm;
   assign keep_committed = ccount_cm > count_q ? count_q : ccount_cm;
   assign count_flushed = flush ? keep_committed : count_al;
   assign count_fm = flush ? keep_committed : count_q;
-  // LP_CUT[8]: committed stores are never cut (a mispredict only cuts younger stores; ccount_cm <= count_q <= count_al)
-  assign ccount_flushed = (flush && ((LP_CUT & 256) == 0)) ? keep_committed : ccount_cm;
   for (genvar s = 0; s < SQ; s++) begin : g_hit
     assign hit_slot[s] = lp_rob_younger(sq_rob_idx[s], sq_rob_flag[s], dec_rob_idx, dec_rob_flag);
   end
   assign hit_rot = rotr64(64'(hit_slot), head_q);
-  // LP_L2[10]: the first hit is searched over all uncommitted positions (rank >= ccount_cm) and compared with
-  // count_fm afterwards.  Only uncommitted entries are eligible for mispredict cut (immune to ROB wraparound).
   for (genvar j = 0; j < SQ; j++) begin : g_pos
-    assign hit_pos[j] = hit_rot[j] && (CNTW'(j) >= ccount_cm) && (((LP_L2 & 1024) != 0) || count_fm > CNTW'(j));
+    assign hit_pos[j] = hit_rot[j] && (CNTW'(j) >= ccount_cm);
   end
   lp_ffs #(.N(SQ)) u_first (.req(hit_pos), .onehot(hit_first), .any(any_hit));
   logic [SQW-1:0] first_ix;
   ttg_onehot_to_idx #(.N(SQ)) u_fix (.onehot(hit_first), .idx(first_ix));
   always_comb begin
     count_m = count_fm;
-    if ((LP_L2 & 1024) != 0) begin
-      if (any_hit && CNTW'(first_ix) < count_fm) count_m = CNTW'(first_ix);
-    end else begin
-      for (int j = 0; j < SQ; j++) if (hit_first[j]) count_m = CNTW'(j);
-    end
+    if (any_hit && CNTW'(first_ix) < count_fm) count_m = CNTW'(first_ix);
   end
   assign count_fl = mispred ? count_m : count_flushed;
-  assign ccount_fl = (mispred && ccount_flushed > count_m && ((LP_CUT & 256) == 0)) ? count_m : ccount_flushed;
 
   // ---- P14: up to NRET Done stores at the head retire ----
   logic [NRET-1:0] ret_ok;
   logic [CNTW-1:0] n_ret;
-  logic [CNTW-1:0] committed;
   logic [SQW:0]    head_sum;
-  assign committed = (((LP_CUT & 256) != 0) || ccount_fl <= count_fl) ? ccount_fl : count_fl;
   always_comb begin
     for (int k = 0; k < NRET; k++) begin
-      if ((LP_CUT & 2) != 0) ret_ok[k] = ccount_q > CNTW'(k) && count_q > CNTW'(k) &&
-                                  done_q_vec[head_q + SQW'(k)];
-      else            ret_ok[k] = committed > CNTW'(k) && done_vec[head_q + SQW'(k)];
+      ret_ok[k] = ccount_q > CNTW'(k) && count_q > CNTW'(k) && done_q_vec[head_q + SQW'(k)];
     end
     n_ret = '0;
     if (ret_ok[0]) n_ret = CNTW'(1);
@@ -188,29 +151,18 @@ module lp_ptr
   // ---- views ----
   logic [SQW-1:0] head_d;
   logic [CNTW-1:0] count_d, ccount_d;
+  logic [SQ-1:0] cmt_reg_mask, cmt_mask, uncmt_hit_slot;
   assign head_d = head_sum[SQW-1:0];
   assign count_d = count_fl - n_ret;
-  assign ccount_d = ccount_fl - n_ret;
+  assign ccount_d = ccount_cm - n_ret;
   assign alive_w = ring_mask(head_q, count_q);
-  // LP_CUT[9]: stores committed in this very cycle have no replay wait: the fill wake-up may use the registered count
-  assign win4 = ((LP_CUT & 512) != 0)
-                ? ring_mask(head_q, ccount_q > count_q ? count_q : ccount_q)
-                : ring_mask(head_q, ccount_cm > count_q ? count_q : ccount_cm);
-  // LP_CUT[13]: the drain only sees stores committed at the start of the cycle
-  assign win13 = ring_mask(head_q, ((LP_CUT & 8192) != 0) ? (ccount_q > count_q ? count_q : ccount_q) : committed);
-  // LP_CUT[12]: the same window without the count chain: alive at the start, not retired, not cut by the mispredict
-  // (only uncommitted entries younger than dec_rob_ptr are cut), not above the committed window on a flush
-  logic [SQ-1:0] cmt_mask, uncmt_hit_slot;
+  assign cmt_reg_mask = ring_mask(head_q, ccount_q > count_q ? count_q : ccount_q);
+  assign win4  = cmt_reg_mask;
+  assign win13 = cmt_reg_mask;
   assign cmt_mask       = ring_mask(head_q, ccount_cm);
   assign uncmt_hit_slot = hit_slot & ~cmt_mask;
-  assign alive_post = ((LP_CUT & 4096) != 0)
-                      ? (alive_w & ~ev_ret & ~(mispred ? uncmt_hit_slot : '0) &
-                         (flush ? cmt_mask : '1))
-                      : ring_mask(head_d, count_d);
-  // LP_CUT[15]: the same without the count chain (entries allocated in this cycle are not looked up through this view)
-  assign alive_fl = ((LP_CUT & 32768) != 0)
-                    ? (alive_w & ~(mispred ? uncmt_hit_slot : '0) & (flush ? cmt_mask : '1))
-                    : ring_mask(head_q, count_fl);
+  assign alive_post = alive_w & ~ev_ret & ~(mispred ? uncmt_hit_slot : '0) & (flush ? cmt_mask : '1);
+  assign alive_fl   = alive_w & ~(mispred ? uncmt_hit_slot : '0) & (flush ? cmt_mask : '1);
 
   always_ff @(posedge clk) begin
     if (!rst_n) begin

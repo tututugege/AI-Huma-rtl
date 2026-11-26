@@ -9,6 +9,12 @@ depth: 65 层 / 881,101 单元（rob，单模块综合，2026-11-23，`SYNTH_ABC
 
 # rob 设计文档
 
+> **2026-11-26 `rtl/area-opt` ROB 深度瘦身与时序/SRAM 优化**：
+> - 删除 256 槽 64-bit `diag_val`、`mispred` 与 `src1_areg`/`imm`（改由 `ftq_commit_next_pc` 重建提交分支目标，压缩为 1-bit `is_ret`）；
+> - 新增 8 组 `32×32b`（共 1 KiB）严格同步 1R1W SRAM（`ROB_INST_WORD`，随 `head_d` 预发起读，`WRITE_FIRST=1`），统一提供译码期 / `FS=Off` / 执行期非法指令（含浮点保留舍入模式）的 32-bit `mtval`；
+> - `pf_load` / `pf_store` 异常虚地址追踪收敛为仅覆盖 7 个 LSU 访存口 + 当前寄存器的 3 级并行二叉树（`pick_older_trap`，替代原 29 级串行比较链）；
+> - 中断拍（`rob_bcast_interrupt`）在 `core_back2front` 与 `trace-model` `Rob.cpp` 同步屏蔽未执行队头指令进入 BPU 训练。
+>
 > **EXP-053 P2-2 清理**：`rob_entry_t` 与 `dis2rob` 新增显式 1-bit `pf_inst_hi`；`rob_trap_ctrl` 计算取指缺页 `trap_val` 改为 `ftq_resp_pc + (pf_inst_hi ? 2 : 0)`，不再复用 `diag_val[1]`。
 
 ## 1. 职责
@@ -177,4 +183,5 @@ RTL 里有、模型里没有的（模型从 trace / 函数模型取得这些，R
 
 - 2026-11-17/18（exp/agu-share）：`803692f` FLUSH_REG：ROB 在决定冲刷的那一拍清空自己，不等其他模块；新增输入 `flush_pend` 屏蔽陈旧的误预测恢复；限定本拍提交的信号（中断）不晚一拍。
 - 更早（`git log -- rtl/backend/rob`）：`4e954d7`（2026-11-11）紧凑 ROB（EXP-028，当时默认 `ROB_COMPACT = 0`，现为 1）；`a2657ea`（2026-11-12）`ROB_XLEN`；`a946972`、`3791f11`（2026-11-12）F/D（FP 写回口、fflags、FS 脏、FS = Off 非法）。
+- 2026-11-26（`rtl/area-opt`）：ROB 彻底瘦身——引入单个 73-bit 统一 `oldest_trap` 寄存器（覆盖 `pf_load`/`pf_store` 缺页虚址与译码期/`FS=Off` 非法指令字），删除 `rob_entry_t` 中的 `diag_val[63:0]`、`imm[31:0]`、`src1_areg[5:0]`、`func7[6:0]`、`rob_idx[7:0]`、`mispred` 并以 1-bit `is_ret` 与 1-bit `is_amo_lr` 替代，每项位宽由 166 bit 压至 **50 bit（−69.9%）**；分支目标改由 FTQ `ftq_commit_info_resp_next_pc` 在 `back_top_glue` 重建；`commit_extra_imm`/`commit_extra_src1_areg` 简化为 `commit_extra_is_ret`；零周期变化。
 - 2026-11-18：删除行式 ROB：`rob_core`、`rob_ptr`、`rob_commit_ctrl`、`rob_head_info`、`rob_head_class`、`rob_store`、`rob_branch_recovery`（7 个文件，688 行）、`rob.sv` 里 `ROB_COMPACT` 选核的分支、分派里 `ROB_COMPACT == 0` 的分支（`dispatch_core`、`dispatch_fire_ctl`）、`ROB_COMPACT` 常量。整核周期不变（见提交说明）。

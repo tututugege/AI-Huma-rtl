@@ -2,18 +2,14 @@
 `default_nettype none
 
 // waiver (reviewed): a package is linted standalone, where its constants and types look unused; they are used by the
-// pre_idu_* modules.
+// ftq_ibuf_* modules.
 /* verilator lint_off UNUSEDPARAM */
-package pre_idu_pkg;
+package ftq_ibuf_pkg;
   import ttg_cfg_pkg::*;
 
   // ---- widths the reference model derives from front-end types that ttg_cfg_pkg does not export (wire_types.h) ----
   localparam int BLK_ID_W = 10;  // FTB block ID width (matches bpu_types_pkg::FTB_BLK_ID_W)
   localparam int PCPN_W = 3;  // pcpn_t
-  localparam int SC_SUM_W = 16;  // tage_scl_meta_sum_t
-  localparam int SC_IDX_W = BPU_SCL_META_IDX_BITS;
-  localparam int LOOP_IDX_W = BPU_LOOP_META_IDX_BITS;
-  localparam int LOOP_TAG_W = BPU_LOOP_META_TAG_BITS;
 
   // ---- derived sizes ----
   localparam int FTQ_COUNT_W = $clog2(FTQ_SIZE + 1);

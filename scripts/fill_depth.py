@@ -17,7 +17,7 @@ def ltp(tag,mod):
     return int(m.group(1)), (named[0] if named else None), (named[-1] if named else None)
 # doc -> (tag, module, label)
 M={'tlb_mmu':('dp1','tlb_mmu','tlb_mmu'),'dispatch':('dp1','dispatch','dispatch'),'ren':('dp1','ren','ren'),'idu':('dp1','idu','idu'),
- 'pre_idu_queue':('dp1','pre_idu_queue','pre_idu_queue'),'exu_ctrl':('dp1','exu_ctrl','exu_ctrl'),'exu_fu':('dp2','exu','exu（含 exu_ctrl 和全部功能单元）'),
+ 'ftq_ibuf':('dp1','ftq_ibuf','ftq_ibuf'),'exu_ctrl':('dp1','exu_ctrl','exu_ctrl'),'exu_fu':('dp2','exu','exu（含 exu_ctrl 和全部功能单元）'),
  'prf':('dp1','prf','prf'),'csr':('dp1','csr','csr'),'icache':('dp1','icache','icache'),'front_ctrl':('dp1','front_ctrl','front_ctrl'),
  'front_fifos':('dp1','fetch_addr_fifo','fetch_addr_fifo；ptab、inst_fifo、front2back_fifo 更浅'),'predecode':('dp1','predecode','predecode；predecode_checker 22 层'),
  'dcache':('dp2','dcache','dcache'),'dcache_pf':('dp1','dcache_pf','dcache_pf'),'mem_route':('dp1','mem_route','mem_route'),'ptw_walk':('dp1','ptw_walk','ptw_walk'),

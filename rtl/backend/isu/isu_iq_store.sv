@@ -9,24 +9,35 @@ module isu_iq_store
   import ttg_cfg_pkg::*;
   import isu_pkg::*;
 #(
-  parameter int SIZE     = 64,
-  parameter int DW       = IQ_DISPATCH_WIDTH,
-  parameter bit HAS_SRC2 = 1'b1,
-  parameter bit HAS_SRC3 = 1'b0,
+  parameter int SIZE       = 64,
+  parameter int DW         = IQ_DISPATCH_WIDTH,
+  parameter bit HAS_DEST   = 1'b1,
+  parameter bit HAS_SRC2   = 1'b1,
+  parameter bit HAS_SRC3   = 1'b0,
+  parameter bit HAS_FTQ    = 1'b1,
+  parameter bit HAS_STQ    = 1'b1,
+  parameter bit HAS_LDQ    = 1'b1,
+  parameter bit HAS_CSR    = 1'b1,
+  parameter bit HAS_ATOMIC = 1'b1,
+  parameter bit HAS_FUNC7  = 1'b1,
+  parameter bit HAS_ALU_FL = 1'b1,
+  parameter bit HAS_FP_FL  = 1'b1,
+  parameter int IMM_W      = 32,
+  parameter bit IMM_SEXT   = 1'b0,
   parameter bit HAS_CANCEL = 1'b0,
   // 0 = integer domain only, 1 = FP domain only, 2 = both domains (STD src2)
-  parameter int SRC1_DOM = 0,
-  parameter int SRC2_DOM = 0,
-  parameter int FP_TAGS  = FP_EN ? FPRF_NUM : 1,
-  parameter int INT_W    = $clog2(PRF_NUM)
+  parameter int SRC1_DOM   = 0,
+  parameter int SRC2_DOM   = 0,
+  parameter int FP_TAGS    = FP_EN ? FPRF_NUM : 1,
+  parameter int INT_W      = $clog2(PRF_NUM)
 ) (
   input  logic                     clk,
   input  logic                     rst_n,
   // enqueue: slot_onehot[w] is the slot written by lane w (zero when lane w is idle)
   input  logic [SIZE-1:0]          enq_slot [DW],
+  /* verilator lint_off UNUSEDSIGNAL */   // waiver: per-IQ disabled payload fields and unused domain/cancel inputs
   input  isu_uop_t                 enq_uop  [DW],
   input  logic [DW-1:0]            enq_wait1,
-  /* verilator lint_off UNUSEDSIGNAL */   // waiver: unused when HAS_SRC2/3 == 0 or domain does not read the other bitmap
   input  logic [DW-1:0]            enq_wait2,
   input  logic [DW-1:0]            enq_wait3,
   input  logic [ALU_NUM-1:0]       enq_byp1 [DW],
@@ -53,8 +64,18 @@ module isu_iq_store
   output logic [ALU_NUM-1:0]       slot_byp2 [SIZE]
 );
 
-  localparam int UW   = $bits(isu_uop_t);
   localparam int FP_W = (FP_TAGS > 1) ? $clog2(FP_TAGS) : 1;
+
+  // Common payload fields stored in every IQ
+  typedef struct packed {
+    logic [PRF_IDX_WIDTH-1:0] src1_preg;
+    logic                     src1_en;
+    logic [2:0]               func3;
+    logic [ROB_IDX_WIDTH-1:0] rob_idx;
+    logic                     rob_flag;
+    op_t                      op;
+  } iq_core_t;
+  localparam int CORE_W = $bits(iq_core_t);
 
   function automatic logic match_cancel(
     input logic [LSU_LDU_COUNT-1:0] cn_v,
@@ -79,28 +100,278 @@ module isu_iq_store
     return (preg >= PRF_IDX_WIDTH'(FP_TAG_BASE)) && (idx < PRF_IDX_WIDTH'(FP_TAGS)) ? m[idx[FP_W-1:0]] : 1'b0;
   endfunction
 
-  logic [UW-1:0] enq_bits [DW];
-  logic [DW-1:0] enq_killed;
+  logic [CORE_W-1:0] enq_core [DW];
+  logic [DW-1:0]     enq_killed;
   for (genvar w = 0; w < DW; w++) begin : g_pack
-    assign enq_bits[w]   = enq_uop[w];
+    assign enq_core[w]   = iq_core_t'{
+      src1_preg: enq_uop[w].src1_preg,
+      src1_en:   enq_uop[w].src1_en,
+      func3:     enq_uop[w].func3,
+      rob_idx:   enq_uop[w].rob_idx,
+      rob_flag:  enq_uop[w].rob_flag,
+      op:        enq_uop[w].op
+    };
     assign enq_killed[w] = flush_br && isu_rob_younger(enq_uop[w].rob_idx, enq_uop[w].rob_flag, flush_rob_idx, flush_rob_flag);
   end
 
   for (genvar i = 0; i < SIZE; i++) begin : g_slot
-    logic [DW-1:0] hit;                  // enqueue lane that writes this slot
-    logic          write;
-    logic [UW-1:0] new_bits;
-    logic          valid_q, valid_d;
-    isu_uop_t      uop_q, uop_d;
-    logic          wait1_q, wait1_d, wait1_c;
-    logic          wait2_c, wait3_c;
-    logic          old_killed;
+    logic [DW-1:0]     hit;              // enqueue lane that writes this slot
+    logic              write;
+    logic [CORE_W-1:0] new_core;
+    logic              valid_q, valid_d;
+    iq_core_t          core_q;
+    isu_uop_t          uop_q;
+    logic              wait1_q, wait1_d, wait1_c;
+    logic              wait2_c, wait3_c;
+    logic              old_killed;
 
     for (genvar w = 0; w < DW; w++) begin : g_hit
       assign hit[w] = enq_slot[w][i];
     end
     assign write = |hit;
-    ttg_onehot_mux #(.N(DW), .W(UW)) u_new (.sel(hit), .data(enq_bits), .out(new_bits));
+    ttg_onehot_mux #(.N(DW), .W(CORE_W)) u_new_core (.sel(hit), .data(enq_core), .out(new_core));
+
+    // ---- Per-IQ optional payload fields (compiled out when unused by this IQ) ----
+    logic [PRF_IDX_WIDTH-1:0]    f_dest_preg, f_src2_preg, f_src3_preg;
+    logic                        f_dest_en, f_src2_en, f_src3_en;
+    logic [FTQ_IDX_WIDTH-1:0]    f_ftq_idx;
+    logic [FTQ_OFFSET_WIDTH-1:0] f_ftq_offset;
+    logic [STQ_IDX_WIDTH-1:0]    f_stq_idx;
+    logic                        f_stq_flag;
+    logic [LDQ_IDX_WIDTH-1:0]    f_ldq_idx;
+    logic [CSR_IDX_WIDTH-1:0]    f_csr_idx;
+    logic                        f_is_atomic;
+    logic [6:0]                  f_func7;
+    logic                        f_src1_is_pc, f_src2_is_imm, f_is_word;
+    logic                        f_dest_fp, f_src1_fp, f_src2_fp;
+    logic [31:0]                 f_imm;
+
+    if (HAS_DEST) begin : g_dest
+      localparam int W = PRF_IDX_WIDTH + 1;
+      logic [W-1:0] e [DW], sel, q;
+      for (genvar w = 0; w < DW; w++) begin : g_w
+        assign e[w] = {enq_uop[w].dest_preg, enq_uop[w].dest_en};
+      end
+      ttg_onehot_mux #(.N(DW), .W(W)) u_m (.sel(hit), .data(e), .out(sel));
+      always_ff @(posedge clk) begin
+        if (!rst_n)     q <= '0;
+        else if (write) q <= sel;
+      end
+      assign {f_dest_preg, f_dest_en} = q;
+    end else begin : g_no_dest
+      assign f_dest_preg = '0;
+      assign f_dest_en   = 1'b0;
+    end
+
+    if (HAS_SRC2) begin : g_src2_f
+      localparam int W = PRF_IDX_WIDTH + 1;
+      logic [W-1:0] e [DW], sel, q;
+      for (genvar w = 0; w < DW; w++) begin : g_w
+        assign e[w] = {enq_uop[w].src2_preg, enq_uop[w].src2_en};
+      end
+      ttg_onehot_mux #(.N(DW), .W(W)) u_m (.sel(hit), .data(e), .out(sel));
+      always_ff @(posedge clk) begin
+        if (!rst_n)     q <= '0;
+        else if (write) q <= sel;
+      end
+      assign {f_src2_preg, f_src2_en} = q;
+    end else begin : g_no_src2_f
+      assign f_src2_preg = '0;
+      assign f_src2_en   = 1'b0;
+    end
+
+    if (HAS_SRC3) begin : g_src3_f
+      localparam int W = PRF_IDX_WIDTH + 1;
+      logic [W-1:0] e [DW], sel, q;
+      for (genvar w = 0; w < DW; w++) begin : g_w
+        assign e[w] = {enq_uop[w].src3_preg, enq_uop[w].src3_en};
+      end
+      ttg_onehot_mux #(.N(DW), .W(W)) u_m (.sel(hit), .data(e), .out(sel));
+      always_ff @(posedge clk) begin
+        if (!rst_n)     q <= '0;
+        else if (write) q <= sel;
+      end
+      assign {f_src3_preg, f_src3_en} = q;
+    end else begin : g_no_src3_f
+      assign f_src3_preg = '0;
+      assign f_src3_en   = 1'b0;
+    end
+
+    if (HAS_FTQ) begin : g_ftq_f
+      localparam int W = FTQ_IDX_WIDTH + FTQ_OFFSET_WIDTH;
+      logic [W-1:0] e [DW], sel, q;
+      for (genvar w = 0; w < DW; w++) begin : g_w
+        assign e[w] = {enq_uop[w].ftq_idx, enq_uop[w].ftq_offset};
+      end
+      ttg_onehot_mux #(.N(DW), .W(W)) u_m (.sel(hit), .data(e), .out(sel));
+      always_ff @(posedge clk) begin
+        if (!rst_n)     q <= '0;
+        else if (write) q <= sel;
+      end
+      assign {f_ftq_idx, f_ftq_offset} = q;
+    end else begin : g_no_ftq_f
+      assign f_ftq_idx    = '0;
+      assign f_ftq_offset = '0;
+    end
+
+    if (HAS_STQ) begin : g_stq_f
+      localparam int W = STQ_IDX_WIDTH + 1;
+      logic [W-1:0] e [DW], sel, q;
+      for (genvar w = 0; w < DW; w++) begin : g_w
+        assign e[w] = {enq_uop[w].stq_idx, enq_uop[w].stq_flag};
+      end
+      ttg_onehot_mux #(.N(DW), .W(W)) u_m (.sel(hit), .data(e), .out(sel));
+      always_ff @(posedge clk) begin
+        if (!rst_n)     q <= '0;
+        else if (write) q <= sel;
+      end
+      assign {f_stq_idx, f_stq_flag} = q;
+    end else begin : g_no_stq_f
+      assign f_stq_idx  = '0;
+      assign f_stq_flag = 1'b0;
+    end
+
+    if (HAS_LDQ) begin : g_ldq_f
+      logic [LDQ_IDX_WIDTH-1:0] e [DW], sel, q;
+      for (genvar w = 0; w < DW; w++) begin : g_w
+        assign e[w] = enq_uop[w].ldq_idx;
+      end
+      ttg_onehot_mux #(.N(DW), .W(LDQ_IDX_WIDTH)) u_m (.sel(hit), .data(e), .out(sel));
+      always_ff @(posedge clk) begin
+        if (!rst_n)     q <= '0;
+        else if (write) q <= sel;
+      end
+      assign f_ldq_idx = q;
+    end else begin : g_no_ldq_f
+      assign f_ldq_idx = '0;
+    end
+
+    if (HAS_CSR) begin : g_csr_f
+      logic [CSR_IDX_WIDTH-1:0] e [DW], sel, q;
+      for (genvar w = 0; w < DW; w++) begin : g_w
+        assign e[w] = enq_uop[w].csr_idx;
+      end
+      ttg_onehot_mux #(.N(DW), .W(CSR_IDX_WIDTH)) u_m (.sel(hit), .data(e), .out(sel));
+      always_ff @(posedge clk) begin
+        if (!rst_n)     q <= '0;
+        else if (write) q <= sel;
+      end
+      assign f_csr_idx = q;
+    end else begin : g_no_csr_f
+      assign f_csr_idx = '0;
+    end
+
+    if (HAS_ATOMIC) begin : g_atom_f
+      logic [DW-1:0] e;
+      logic q;
+      for (genvar w = 0; w < DW; w++) begin : g_w
+        assign e[w] = enq_uop[w].is_atomic;
+      end
+      always_ff @(posedge clk) begin
+        if (!rst_n)     q <= 1'b0;
+        else if (write) q <= |(hit & e);
+      end
+      assign f_is_atomic = q;
+    end else begin : g_no_atom_f
+      assign f_is_atomic = 1'b0;
+    end
+
+    if (HAS_FUNC7) begin : g_f7_f
+      logic [6:0] e [DW], sel, q;
+      for (genvar w = 0; w < DW; w++) begin : g_w
+        assign e[w] = enq_uop[w].func7;
+      end
+      ttg_onehot_mux #(.N(DW), .W(7)) u_m (.sel(hit), .data(e), .out(sel));
+      always_ff @(posedge clk) begin
+        if (!rst_n)     q <= '0;
+        else if (write) q <= sel;
+      end
+      assign f_func7 = q;
+    end else begin : g_no_f7_f
+      assign f_func7 = '0;
+    end
+
+    if (HAS_ALU_FL) begin : g_alu_fl
+      logic [2:0] e [DW], sel, q;
+      for (genvar w = 0; w < DW; w++) begin : g_w
+        assign e[w] = {enq_uop[w].src1_is_pc, enq_uop[w].src2_is_imm, enq_uop[w].is_word};
+      end
+      ttg_onehot_mux #(.N(DW), .W(3)) u_m (.sel(hit), .data(e), .out(sel));
+      always_ff @(posedge clk) begin
+        if (!rst_n)     q <= '0;
+        else if (write) q <= sel;
+      end
+      assign {f_src1_is_pc, f_src2_is_imm, f_is_word} = q;
+    end else begin : g_no_alu_fl
+      assign {f_src1_is_pc, f_src2_is_imm, f_is_word} = 3'b0;
+    end
+
+    if (HAS_FP_FL) begin : g_fp_fl
+      logic [2:0] e [DW], sel, q;
+      for (genvar w = 0; w < DW; w++) begin : g_w
+        assign e[w] = {enq_uop[w].dest_fp, enq_uop[w].src1_fp, enq_uop[w].src2_fp};
+      end
+      ttg_onehot_mux #(.N(DW), .W(3)) u_m (.sel(hit), .data(e), .out(sel));
+      always_ff @(posedge clk) begin
+        if (!rst_n)     q <= '0;
+        else if (write) q <= sel;
+      end
+      assign {f_dest_fp, f_src1_fp, f_src2_fp} = q;
+    end else begin : g_no_fp_fl
+      assign {f_dest_fp, f_src1_fp, f_src2_fp} = 3'b0;
+    end
+
+    if (IMM_W > 0) begin : g_imm_f
+      localparam int IW = (IMM_W > 0) ? IMM_W : 1;
+      logic [IW-1:0] e [DW], sel, q;
+      for (genvar w = 0; w < DW; w++) begin : g_w
+        assign e[w] = enq_uop[w].imm[IW-1:0];
+      end
+      ttg_onehot_mux #(.N(DW), .W(IW)) u_m (.sel(hit), .data(e), .out(sel));
+      always_ff @(posedge clk) begin
+        if (!rst_n)     q <= '0;
+        else if (write) q <= sel;
+      end
+      if (IW == 32) begin : g_i32
+        assign f_imm = q;
+      end else if (IMM_SEXT) begin : g_isext
+        assign f_imm = {{(32 - IW){q[IW-1]}}, q};
+      end else begin : g_izext
+        assign f_imm = {{(32 - IW){1'b0}}, q};
+      end
+    end else begin : g_no_imm_f
+      assign f_imm = 32'd0;
+    end
+
+    assign uop_q = '{
+      dest_preg:   f_dest_preg,
+      src1_preg:   core_q.src1_preg,
+      src2_preg:   f_src2_preg,
+      src3_preg:   f_src3_preg,
+      ftq_idx:     f_ftq_idx,
+      ftq_offset:  f_ftq_offset,
+      is_atomic:   f_is_atomic,
+      dest_en:     f_dest_en,
+      src1_en:     core_q.src1_en,
+      src2_en:     f_src2_en,
+      src3_en:     f_src3_en,
+      dest_fp:     f_dest_fp,
+      src1_fp:     f_src1_fp,
+      src2_fp:     f_src2_fp,
+      src1_is_pc:  f_src1_is_pc,
+      src2_is_imm: f_src2_is_imm,
+      is_word:     f_is_word,
+      func3:       core_q.func3,
+      func7:       f_func7,
+      imm:         f_imm,
+      csr_idx:     f_csr_idx,
+      rob_idx:     core_q.rob_idx,
+      stq_idx:     f_stq_idx,
+      stq_flag:    f_stq_flag,
+      ldq_idx:     f_ldq_idx,
+      rob_flag:    core_q.rob_flag,
+      op:          core_q.op
+    };
 
     // ---- src1 wait, wake, and EXU bypass mask ----
     logic s1_cancel, s1_slow, s1_fast, s1_after_slow;
@@ -219,21 +490,20 @@ module isu_iq_store
     end
 
     // Ref: IssueQueue::enqueue / comb_wakeup / commit_issue / flush_br / clear_br / flush_all
-    // Evaluate branch kill in parallel with u_alloc / u_new (enq_killed per lane, old_killed from uop_q)
+    // Evaluate branch kill in parallel with u_alloc / u_new (enq_killed per lane, old_killed from core_q)
     always_comb begin
-      old_killed = flush_br && isu_rob_younger(uop_q.rob_idx, uop_q.rob_flag, flush_rob_idx, flush_rob_flag);
-      uop_d      = write ? isu_uop_t'(new_bits) : uop_q;
+      old_killed = flush_br && isu_rob_younger(core_q.rob_idx, core_q.rob_flag, flush_rob_idx, flush_rob_flag);
       valid_d    = ((|(hit & ~enq_killed)) || (valid_q && !issue_clear[i] && !old_killed)) && !flush_all;
     end
 
     always_ff @(posedge clk) begin
       if (!rst_n) begin
         valid_q <= 1'b0;
-        uop_q   <= '0;
+        core_q  <= '0;
         wait1_q <= 1'b0;
       end else begin
         valid_q <= valid_d;
-        uop_q   <= uop_d;
+        if (write) core_q <= iq_core_t'(new_core);
         wait1_q <= wait1_d;
       end
     end

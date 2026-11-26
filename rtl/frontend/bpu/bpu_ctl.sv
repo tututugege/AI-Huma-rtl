@@ -32,9 +32,6 @@ module bpu_ctl import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*
 );
 
   logic ptab_stall;
-  localparam bit RF0   = (FE_RFAST & 1) != 0;
-  localparam bit BF_L1 = (FE_BFAST & 1) != 0;
-  localparam bit BF_SD = (FE_BFAST & 2) != 0;
 
   // Ref: decide / l1_override (2-taken: ovr_a checks slot/taken when has_b; ovr_b checks Block B when !ovr_a)
   always_comb begin
@@ -52,9 +49,7 @@ module bpu_ctl import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*
     ptab_stall = icache_read_ready &&
                  (int'(ptab_size) + int'(r0.valid) + int'(r1.valid) >= PTAB_SIZE - 1);
     issue      = !refetch && !ovr && !l1_ov && icache_read_ready && !ptab_stall;
-    fast       = icache_read_ready &&
-                 ((RF0 && refetch) ||
-                  (((BF_SD && ovr) || (BF_L1 && l1_ov)) && (int'(ptab_size) + 1 < PTAB_SIZE - 1)));
+    fast       = icache_read_ready && refetch;
     s0_go      = issue || fast;
   end
 

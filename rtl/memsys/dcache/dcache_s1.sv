@@ -69,7 +69,12 @@ module dcache_s1
   output logic                 s2f_pf,
   output logic [LINE_W-1:0]    s2f_line,
   output logic [LINE_BITS-1:0] s2f_data,
-  output logic                 same_fill                  // fill request is the line already in stage 2
+  output logic                 same_fill,                 // fill request is the line already in stage 2
+  // ---- next-cycle synchronous SRAM read launch (S1 -> S2 edge) ----
+  output logic [NSLOT-1:0]     s1_rd_en,
+  output logic [SET_W-1:0]     s1_rd_set    [NSLOT],
+  output logic                 s1_fs_en,
+  output logic [SET_W-1:0]     s1_fs_set
 );
 
   // ------------------------------------------------------------------ state
@@ -257,6 +262,18 @@ module dcache_s1
     if (s2f_valid_d) begin
       s2f_data_d = line_merge_n(s2f_data_d, mrg_en, mw1, md1, ms1, mw2, md2, ms2);
       if (|mrg_en) s2f_dirty_d = 1'b1;
+    end
+  end
+
+  // Synchronous SRAM read launch (addresses for next cycle's S2 lookup, aligned with S1->S2 posedge)
+  assign s1_rd_en  = (req_v & grant) | {{NST{1'b0}}, pf_sel};
+  assign s1_fs_en  = s2f_valid_d;
+  assign s1_fs_set = s2f_line_d[SET_W-1:0];
+  for (genvar i = 0; i < NSLOT; i++) begin : g_s1_rset
+    if (i < NLD) begin : g_ld_rset
+      assign s1_rd_set[i] = pf_sel[i] ? pf_head_line[SET_W-1:0] : req_addr[i][OFF_W +: SET_W];
+    end else begin : g_st_rset
+      assign s1_rd_set[i] = req_addr[i][OFF_W +: SET_W];
     end
   end
 

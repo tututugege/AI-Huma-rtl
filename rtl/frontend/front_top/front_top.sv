@@ -10,6 +10,7 @@ module front_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; 
   input  logic [XLEN_BITS-1:0] be_refetch_address,
   input  logic        be_rf_valid,
   input  logic [FTB_BLK_ID_W-1:0] be_rf_blk,
+  input  logic [FTB_BLK_ID_W-1:0] be_next_rf_blk,
   input  logic [2:0]  be_rf_type,
   input  logic [XLEN_BITS-1:0] be_rf_pc,
   input  logic        be_rf_is_rvc,
@@ -116,6 +117,7 @@ module front_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; 
   logic                 fa_rd_valid, ic_read_complete, ic_fetch_single_word;
   logic                 b_req_valid, b_hit, fdip_s2_en, fdip_s2_clear;
   logic [3:0]           b_req_nwords;
+  logic [IC_IDX_W-1:0]  ic_next_fa_idx, ic_next_b_idx;
   logic [4:0]           b_actual_n;
   logic [FETCH_WIDTH-1:0] ic_inst_valid, ic_page_fault_inst, ic_upper_ok_unused;
   logic [31:0]          ic_fetch_group [FETCH_WIDTH], b_fetch_group [FETCH_WIDTH];
@@ -129,6 +131,8 @@ module front_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; 
     .req_valid       (fa_rd_valid),
     .fetch_address   (fa_rd_address),
     .b_req_valid, .b_req_addr, .b_req_nwords,
+    .next_fa_idx     (ic_next_fa_idx),
+    .next_b_idx      (ic_next_b_idx),
     .fdip_s2_en, .fdip_s2_va, .fdip_s2_clear,
     .csr_status_satp, .csr_status_privilege, .csr_status_mstatus_mxr, .csr_status_mstatus_sum,
     .csr_status_mstatus_mprv, .csr_status_mstatus_mpp,
@@ -157,7 +161,7 @@ module front_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; 
     .fa_wr_pair      (bpu_fetch_pair),
     .fa_rd_valid, .fa_rd_address, .fa_full, .fa_empty, .fa_head_fresh,
     .ic_read_complete, .ic_fetch_pc, .ic_inst_valid, .ic_page_fault_inst, .ic_fetch_group, .ic_fetch_single_word,
-    .b_req_valid, .b_req_addr, .b_req_nwords, .b_hit, .b_actual_n, .b_fetch_group,
+    .b_req_valid, .b_req_addr, .b_req_nwords, .ic_next_fa_idx, .ic_next_b_idx, .b_hit, .b_actual_n, .b_fetch_group,
     .inst_rd_en      (predecode_can_run),
     .inst_empty,
     .inst_rd
@@ -169,7 +173,7 @@ module front_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; 
   front_pred_path u_pred_path (
     .clk, .rst_n,
     .global_refetch, .refetch_address, .be_refetch,
-    .refetch_pd, .rf_valid(be_rf_valid), .rf_blk(be_rf_blk), .rf_type(be_rf_type),
+    .refetch_pd, .rf_valid(be_rf_valid), .rf_blk(be_rf_blk), .next_rf_blk(be_next_rf_blk), .rf_type(be_rf_type),
     .rf_pc(be_rf_pc), .rf_is_rvc(be_rf_is_rvc),
     .be_fifo_read_enable (fifo_read_enable),
     .bpu_icache_read_ready, .ptab_wr_en, .predecode_can_run, .f2b_wr_en, .f2b_use_bypass,

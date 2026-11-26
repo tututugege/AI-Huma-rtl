@@ -9,6 +9,10 @@ depth: 114 层 / 389,270 单元（icache，单模块综合，2026-11-21，`SYNTH
 
 # icache 设计文档（4-Bank 指令缓存 + 2-Port ITLB + 实 AXI FDIP + 存储侧口）
 
+> **2026-11-26 `rtl/area-opt` 严格 1 拍同步 SRAM 升级（0 周期变化）**：
+> - `icache_arr.sv` 4 个数据 bank（共 32 KiB，4×16×8×512b）由异步读切换为严格 1 拍同步 1R1W `ttg_sram_1r1w`（`WRITE_FIRST=1`）；
+> - 借助 `front_fifo.next_rdata` / `fetch_addr_fifo.next_rd_*` / `front_fetch_buf.ic_next_{fa,b}_idx` 与 `icache_ctl.arr_next_{req_valid,rd_index}` 在 `T-1` 拍预发起读地址（VIPT 索引 `[11:6]` 虚实一致，且 `fa_head_fresh` 保证队首不于入队同拍弹出），内置 `` `ifndef SYNTHESIS `` SVA 断言逐拍校验预发起行号 100% 命中，77 测例 + 152 `riscv-tests` 零周期变化。
+>
 > **EXP-053 前端结构清理（Phase 1 + Phase 2）升级**：
 > 1. **真 4-Bank 1R1W 阵列（`icache_arr.sv`）**：按 `set[1:0]` 显式拆成 4 个独立 1R1W bank（每 bank 16 组 × 8 路，综合落 7 个 `$mem_v2`）并配并行 SRRIP 更新，单模块面积由 916,659 降至 **389,270 单元（−57.5%）**；
 > 2. **FDIP 去旁路一致性探针（P2-1，`icache_fdip.sv` / `icache.sv`）**：彻底删除跨子系统 `fdip_snoop_dirty` / `fdip_snoop_line` 旁路，改为 FDIP 预取发射前借既有 `dc_req` / `dc_resp` 通道发起 1 拍 DCache/WB/MSHR/fill 一致性探针（与 demand 探针互斥，命中或忙时让行）；同时删除 `resp_popped_q` 回波补丁（根治于 `axi_cpu_port_chan` 通道 0 的 `CLEAR_ON_POP=1`）；

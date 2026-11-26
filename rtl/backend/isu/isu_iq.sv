@@ -193,10 +193,13 @@ module isu_iq
   for (genvar p = 0; p < NP; p++) begin : g_pok
     localparam int PP = iq_port(QID, p);
     localparam op_set_t PCAP = port_cap(PP);
+    // Only Port 0 (IQ_INT) and Port 2 (IQ_INT1) have FTQ PC read ports for src1_is_pc ALU uops
+    localparam bit PORT_NO_PC = (PP >= IQ_ALU_PORT_BASE) && (PP < IQ_ALU_PORT_BASE + ALU_NUM) &&
+                                (PP != IQ_ALU_PORT_BASE) && (PP != IQ_ALU_PORT_BASE + 2);
     logic [DW-1:0]   enq_cap;
     logic [SIZE-1:0] slot_cap_q;
     for (genvar w = 0; w < DW; w++) begin : g_ecap
-      assign enq_cap[w] = |(enq_op_oh[w] & PCAP);
+      assign enq_cap[w] = |(enq_op_oh[w] & PCAP) && !(PORT_NO_PC && enq_uop[w].src1_is_pc);
     end
     for (genvar i = 0; i < SIZE; i++) begin : g_scap
       logic nxt;
@@ -387,8 +390,32 @@ module isu_iq
     for (int w = 0; w < DW; w++) write_slot = write_slot | enq_slot[w];
   end
 
-  isu_iq_store #(.SIZE(SIZE), .DW(DW), .HAS_SRC2(HAS_SRC2), .HAS_SRC3(HAS_SRC3), .HAS_CANCEL(HAS_CANCEL),
-                 .SRC1_DOM(SRC1_DOM), .SRC2_DOM(SRC2_DOM), .FP_TAGS(FP_TAGS), .INT_W(INT_W)) u_store (
+  // Per-IQ payload pruning parameters
+  localparam bit HAS_DEST_Q   = (QID != IQ_STD) && (QID != IQ_BR);
+  localparam bit HAS_FTQ_Q    = (QID == IQ_INT0) || (QID == IQ_INT1) || (QID == IQ_BR);
+  localparam bit HAS_STQ_Q    = (QID == IQ_MEM) || (QID == IQ_STD);
+  localparam bit HAS_LDQ_Q    = (QID == IQ_MEM);
+  localparam bit HAS_CSR_Q    = (QID == IQ_INT0);
+  localparam bit HAS_ATOMIC_Q = (QID == IQ_MEM) || (QID == IQ_STD);
+  localparam bit HAS_FUNC7_Q  = (QID != IQ_BR);
+  localparam bit HAS_ALU_FL_Q = (QID == IQ_INT0) || (QID == IQ_INT1);
+  localparam bit HAS_FP_FL_Q  = FP_EN && ((QID == IQ_INT1) || (QID == IQ_MEM) || (QID == IQ_STD) || (QID == IQ_FP));
+  localparam int IMM_W_Q      = ((QID == IQ_INT0) || (QID == IQ_INT1)) ? 32
+                              : (QID == IQ_BR)                         ? 21
+                              : (QID == IQ_FP)                         ? 17
+                              : (QID == IQ_MEM)                        ? 12 : 0;
+  localparam bit IMM_SEXT_Q   = (QID == IQ_MEM) || (QID == IQ_BR);
+
+  isu_iq_store #(
+    .SIZE(SIZE), .DW(DW),
+    .HAS_DEST(HAS_DEST_Q), .HAS_SRC2(HAS_SRC2), .HAS_SRC3(HAS_SRC3),
+    .HAS_FTQ(HAS_FTQ_Q), .HAS_STQ(HAS_STQ_Q), .HAS_LDQ(HAS_LDQ_Q),
+    .HAS_CSR(HAS_CSR_Q), .HAS_ATOMIC(HAS_ATOMIC_Q), .HAS_FUNC7(HAS_FUNC7_Q),
+    .HAS_ALU_FL(HAS_ALU_FL_Q), .HAS_FP_FL(HAS_FP_FL_Q),
+    .IMM_W(IMM_W_Q), .IMM_SEXT(IMM_SEXT_Q),
+    .HAS_CANCEL(HAS_CANCEL), .SRC1_DOM(SRC1_DOM), .SRC2_DOM(SRC2_DOM),
+    .FP_TAGS(FP_TAGS), .INT_W(INT_W)
+  ) u_store (
     .clk(clk), .rst_n(rst_n),
     .enq_slot(enq_slot), .enq_uop(enq_uop), .enq_wait1(enq_wait1), .enq_wait2(enq_wait2), .enq_wait3(enq_wait3),
     .enq_byp1(enq_byp1), .enq_byp2(enq_byp2),

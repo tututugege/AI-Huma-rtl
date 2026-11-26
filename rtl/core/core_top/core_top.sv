@@ -139,28 +139,27 @@ module core_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; i
   /* verilator lint_on UNUSEDSIGNAL */
 
   // ---- nets between the glue blocks and the back end ----
-  logic [FETCH_WIDTH-1:0][KIND_W-1:0] front2pre_slot_kind;
+  logic [FETCH_WIDTH-1:0][KIND_W-1:0] front2ftq_slot_kind;
   logic        out_rf_valid;
   logic [FTB_BLK_ID_W-1:0] out_rf_blk;
   logic [2:0]  out_rf_type;
   logic [XLEN_BITS-1:0] out_rf_pc;
   logic out_rf_is_rvc;
-  logic [BACKEND_FETCH_WIDTH-1:0] front2pre_alt_pred;
-  logic [31:0] front2pre_inst [BACKEND_FETCH_WIDTH];
-  logic [BACKEND_FETCH_WIDTH-1:0] front2pre_page_fault_inst;
-  logic [BACKEND_FETCH_WIDTH-1:0] front2pre_pf_inst_hi;
-  logic [XLEN_BITS-1:0] front2pre_pc [BACKEND_FETCH_WIDTH];
-  logic [2:0] front2pre_pcpn [BACKEND_FETCH_WIDTH];
-  logic [BACKEND_FETCH_WIDTH-1:0] front2pre_predict_dir;
-  logic [BACKEND_FETCH_WIDTH-1:0] front2pre_is_rvc;
-  logic [XLEN_BITS-1:0] front2pre_predict_next_fetch_address;
-  logic [BLK_ID_W-1:0] front2pre_blk_id;
-  logic                front2pre_is_pair;
-  logic [3:0]          front2pre_a_len;
-  logic [BACKEND_FETCH_WIDTH-1:0] front2pre_valid;
+  logic [BACKEND_FETCH_WIDTH-1:0] front2ftq_alt_pred;
+  logic [31:0] front2ftq_inst [BACKEND_FETCH_WIDTH];
+  logic [BACKEND_FETCH_WIDTH-1:0] front2ftq_page_fault_inst;
+  logic [BACKEND_FETCH_WIDTH-1:0] front2ftq_pf_inst_hi;
+  logic [XLEN_BITS-1:0] front2ftq_pc [BACKEND_FETCH_WIDTH];
+  logic [2:0] front2ftq_pcpn [BACKEND_FETCH_WIDTH];
+  logic [BACKEND_FETCH_WIDTH-1:0] front2ftq_predict_dir;
+  logic [BACKEND_FETCH_WIDTH-1:0] front2ftq_is_rvc;
+  logic [XLEN_BITS-1:0] front2ftq_predict_next_fetch_address;
+  logic [BLK_ID_W-1:0] front2ftq_blk_id;
+  logic                front2ftq_is_pair;
+  logic [3:0]          front2ftq_a_len;
+  logic [BACKEND_FETCH_WIDTH-1:0] front2ftq_valid;
   logic [3:0] commit_upd_free, commit_tq_free;   // BPU queue free entries -> ROB commit credits (EXP-028)
-  logic [31:0] commit_extra_imm [COMMIT_WIDTH];
-  logic [5:0] commit_extra_src1_areg [COMMIT_WIDTH];
+  logic [COMMIT_WIDTH-1:0] commit_extra_is_ret;
   logic [XLEN_BITS-1:0] csr_status_mstatus;
   logic [1:0] csr_status_privilege;
   logic [XLEN_BITS-1:0] csr_status_satp;
@@ -181,25 +180,25 @@ module core_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; i
   /* verilator lint_off PINMISSING */
   back_top u_back (
     .clk, .rst_n,
-    .front2pre_slot_kind(front2pre_slot_kind),
+    .front2ftq_slot_kind(front2ftq_slot_kind),
     .out_rf_valid(out_rf_valid),
     .out_rf_blk(out_rf_blk),
     .out_rf_type(out_rf_type),
     .out_rf_pc(out_rf_pc),
     .out_rf_is_rvc(out_rf_is_rvc),
-    .front2pre_alt_pred(front2pre_alt_pred),
-    .front2pre_inst(front2pre_inst),
-    .front2pre_page_fault_inst(front2pre_page_fault_inst),
-    .front2pre_pf_inst_hi(front2pre_pf_inst_hi),
-    .front2pre_pc(front2pre_pc),
-    .front2pre_pcpn(front2pre_pcpn),
-    .front2pre_predict_dir(front2pre_predict_dir),
-    .front2pre_is_rvc(front2pre_is_rvc),
-    .front2pre_predict_next_fetch_address(front2pre_predict_next_fetch_address),
-    .front2pre_blk_id(front2pre_blk_id),
-    .front2pre_is_pair(front2pre_is_pair),
-    .front2pre_a_len(front2pre_a_len),
-    .front2pre_valid(front2pre_valid),
+    .front2ftq_alt_pred(front2ftq_alt_pred),
+    .front2ftq_inst(front2ftq_inst),
+    .front2ftq_page_fault_inst(front2ftq_page_fault_inst),
+    .front2ftq_pf_inst_hi(front2ftq_pf_inst_hi),
+    .front2ftq_pc(front2ftq_pc),
+    .front2ftq_pcpn(front2ftq_pcpn),
+    .front2ftq_predict_dir(front2ftq_predict_dir),
+    .front2ftq_is_rvc(front2ftq_is_rvc),
+    .front2ftq_predict_next_fetch_address(front2ftq_predict_next_fetch_address),
+    .front2ftq_blk_id(front2ftq_blk_id),
+    .front2ftq_is_pair(front2ftq_is_pair),
+    .front2ftq_a_len(front2ftq_a_len),
+    .front2ftq_valid(front2ftq_valid),
     .front_stall(1'b0),
     .bpu_upd_free(commit_upd_free),
     .bpu_tq_free(commit_tq_free),
@@ -230,8 +229,7 @@ module core_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; i
     .ptw_walk_resp_leaf_ppn(dtlb_walk_resp_leaf_ppn),
     .ptw_walk_resp_valid(dtlb_walk_resp_valid),
     .ptw_walk_resp_vpn(dtlb_walk_resp_vpn),
-    .commit_extra_imm(commit_extra_imm),
-    .commit_extra_src1_areg(commit_extra_src1_areg),
+    .commit_extra_is_ret(commit_extra_is_ret),
     .csr_status_mstatus(csr_status_mstatus),
     .csr_status_privilege(csr_status_privilege),
     .csr_status_satp(csr_status_satp),
@@ -301,19 +299,19 @@ module core_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; i
     .out_rf_type,
     .out_rf_pc,
     .out_rf_is_rvc,
-    .front2pre_slot_kind,
+    .front2ftq_slot_kind,
     .out_stall,
     .out_redirect_pc,
     .rob_bcast_fence,
     .rob_bcast_fence_i,
+    .rob_bcast_interrupt,
     .rob_commit_commit_entry_valid,
     .rob_commit_commit_entry_uop_type,
     .rob_commit_commit_entry_uop_br_taken,
     .rob_commit_commit_entry_uop_dest_en,
     .rob_commit_commit_entry_uop_dest_areg,
     .out_commit_entry_uop_diag_val,
-    .commit_extra_imm,
-    .commit_extra_src1_areg,
+    .commit_extra_is_ret,
     .ftq_commit_info_resp_pc,
     .ftq_commit_info_resp_pred_taken,
     .ftq_commit_info_resp_is_rvc,
@@ -353,19 +351,19 @@ module core_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; i
     .itlb_walk_req_root_ppn,
     .itlb_walk_resp_consumed,
     .itlb_walk_flush,
-    .front2pre_valid,
-    .front2pre_inst,
-    .front2pre_page_fault_inst,
-    .front2pre_pf_inst_hi,
-    .front2pre_pc,
-    .front2pre_predict_dir,
-    .front2pre_is_rvc,
-    .front2pre_alt_pred,
-    .front2pre_pcpn,
-    .front2pre_blk_id,
-    .front2pre_is_pair,
-    .front2pre_a_len,
-    .front2pre_predict_next_fetch_address,
+    .front2ftq_valid,
+    .front2ftq_inst,
+    .front2ftq_page_fault_inst,
+    .front2ftq_pf_inst_hi,
+    .front2ftq_pc,
+    .front2ftq_predict_dir,
+    .front2ftq_is_rvc,
+    .front2ftq_alt_pred,
+    .front2ftq_pcpn,
+    .front2ftq_blk_id,
+    .front2ftq_is_pair,
+    .front2ftq_a_len,
+    .front2ftq_predict_next_fetch_address,
     .commit_upd_free,
     .commit_tq_free
   );

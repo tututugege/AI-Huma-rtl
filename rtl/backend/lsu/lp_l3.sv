@@ -39,17 +39,10 @@ module lp_l3
 
   always_comb begin
     for (int p = 0; p < NLD; p++) begin
-      if ((LP_L2 & 1) != 0) begin
-        wbw_v[p] = l3_v_q[p] && wb3_r[l3_idx_q[p]];
-        wbw_idx[p] = l3_idx_q[p];
-        wbw_hd[p] = l3_hd_q[p];
-        wbw_data[p] = l3_data_q[p];
-      end else begin
-        wbw_v[p] = wbd_v[p];
-        wbw_idx[p] = wbd_idx[p];
-        wbw_hd[p] = wbd_hasdata[p];
-        wbw_data[p] = wbd_data[p];
-      end
+      wbw_v[p]    = l3_v_q[p] && wb3_r[l3_idx_q[p]];
+      wbw_idx[p]  = l3_idx_q[p];
+      wbw_hd[p]   = l3_hd_q[p];
+      wbw_data[p] = l3_data_q[p];
     end
   end
 

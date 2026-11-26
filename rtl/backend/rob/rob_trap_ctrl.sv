@@ -9,6 +9,8 @@ module rob_trap_ctrl
   input  logic              interrupt_fire,
   input  rob_entry_t        single_uop,         // first valid slot of the head line
   input  logic [ROB_XLEN-1:0]   ftq_resp_pc,        // ftq_rob_pc_resp.resp[0].pc, pc of the committing instruction
+  input  logic [ROB_XLEN-1:0]   oldest_trap_val,    // oldest pf_load/pf_store faulting vaddr
+  input  logic [31:0]           head_inst_word,     // 32-bit instruction word of head entry (from ROB inst SRAM)
   output logic              flush,
   output logic              exception,
   output logic              mret,
@@ -76,7 +78,8 @@ module rob_trap_ctrl
     trap_val_valid   = sel[SEL_PF_STORE] || sel[SEL_PF_LOAD] || sel[SEL_PF_INST] || sel[SEL_ILLEGAL] || sel[SEL_BP];
     trap_val         = sel[SEL_PF_INST] ? (ftq_resp_pc + (single_uop.pf_inst_hi ? ROB_XLEN'(2) : ROB_XLEN'(0)))
                      : sel[SEL_BP]      ? ftq_resp_pc
-                                        : single_uop.diag_val;
+                     : sel[SEL_ILLEGAL] ? {{(ROB_XLEN-32){1'b0}}, head_inst_word}
+                                        : oldest_trap_val;
     pc               = ftq_resp_pc;
   end
 

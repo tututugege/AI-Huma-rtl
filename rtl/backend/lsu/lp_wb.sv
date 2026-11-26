@@ -57,8 +57,8 @@ module lp_wb
   output logic                lr2_rob_flag
 );
 
-  // LP_L2[6]: at most one SC completion per cycle (the pick is one find-first instead of NLD chained ones)
-  localparam int KSC = ((LP_L2 & 64) != 0) ? 1 : NLD;
+  // At most one SC completion per cycle (the pick is one find-first instead of NLD chained ones)
+  localparam int KSC = 1;
   // ---- picks: SC / STA in age order from the head, free ports, WBP loads in index order ----
   logic [SQ-1:0]  sc_vec, st_vec, sc_rot, st_rot, alive_unrot;
   /* verilator lint_off UNUSEDSIGNAL */  // primitive outputs not needed here

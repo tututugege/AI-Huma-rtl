@@ -19,6 +19,7 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
   // repair information of a back-end branch mispredict (uses internal BPU rec_q[256])
   input  logic                rf_valid,
   input  logic [FTB_BLK_ID_W-1:0] rf_blk,
+  input  logic [FTB_BLK_ID_W-1:0] next_rf_blk,
   input  logic [2:0]          rf_type,
   input  logic [XLEN_BITS-1:0] rf_pc,
   input  logic                rf_is_rvc,
@@ -99,7 +100,7 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
     .refetch_pd,
     .icache_read_ready          (bpu_icache_read_ready),
     .ptab_size                  (ptab_size8),
-    .rf_valid, .rf_blk, .rf_type, .rf_pc, .rf_is_rvc,
+    .rf_valid, .rf_blk, .next_rf_blk, .rf_type, .rf_pc, .rf_is_rvc,
     .pd_valid, .pd_flush, .pd_hn, .pd_hbits, .pd_ras_op, .pd_ras_val, .pd_ras_op2, .pd_ras_val2,
     .pd_nb_valid, .pd_nb_pc, .pd_nb_base,
     .upd_valid, .base_pc, .actual_dir, .upd_is_rvc, .br_type, .target, .pred_dir, .alt_pred, .pcpn, .blk_id,

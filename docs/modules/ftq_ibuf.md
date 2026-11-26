@@ -1,14 +1,18 @@
 ---
-module: pre_idu_queue
+module: ftq_ibuf
 area: backend
-rtl: rtl/backend/pre_idu_queue
+rtl: rtl/backend/ftq_ibuf
 model: trace-model back-end/PreIduQueue.cpp、back-end/InstructionBuffer.cpp、back-end/include/PreIduQueue.h、back-end/include/InstructionBuffer.h、back-end/include/FTQ.h（调度单元 `back.pre`，类 `PreIduQueue`，阶段 `comb_accept_front`、`comb_commit_info`）
-status: 整核周期与模型逐个相等（EXP-053 前端清理：fm_gate 68/68 零偏差 + Linux 27 窗 PT/UP 全等，零环境变量）
-depth: 38 层 / 131,433 单元（pre_idu_queue，单模块综合，2026-11-21，`SYNTH_ABC="strash;balance;map"`，EXP-053 删死 `tage_idx/tag` + 加显式 1b `pf_inst_hi`，较 EXP-051 137,578 单元 **−4.5%**、深度持平 38 层）
+status: 整核周期与模型逐个相等（`rtl/area-opt`：原 `pre_idu_queue` 改名 `ftq_ibuf`，`ftq_pc` 压缩为紧凑基址+偏移，fm_gate 69/69 + riscv-tests 152/152 零偏差）
+depth: 38 层 / 131,433 单元（原 pre_idu_queue 基线，待在 eda 集群重测 `ftq_ibuf` 瘦身后面积）
 ---
 
-# pre_idu_queue 设计文档
+# ftq_ibuf 设计文档（原 `pre_idu_queue`）
 
+> **2026-11-26 `rtl/area-opt` 重命名、8-Bank 窗与接口统一**：
+> - 模块由 `pre_idu_queue` 正式重命名为 `ftq_ibuf`（端口同步统一为 `front2ftq_*`、`ftq2front_*`、`ibuf2idu_*`），删除全部已固化参数开关；
+> - `ftq_pc`（64 项 × 134b 紧凑基址+偏移）与 `ftq_meta` 改为 8-Bank 布局共享 8:1 提交/分派窗，PRF PC 读口收敛为 2 个 PC-ALU 口 + 2 个 BRU 口（共 4 口）；TSMC 28nm DC 综合面积由原 `pre_idu_queue` `1,684,992 µm²` 降至约 `211k µm²`（**−87.5%**）。
+>
 > **EXP-053 前端结构清理（Phase 1 + P2-2）升级**：
 > - 删除 `pre_idu_ftq_meta` / `pre_idu_pkg` 中不再使用的死线 `tage_idx[1..3]`、`tage_tag` 及 `ftq_commit_info_resp_valid_t`，仅保留 10-bit `blk_id`；
 > - `ib_entry_t` 与 `pre_issue_entries` 新增显式 1-bit `pf_inst_hi`，直通送给 `idu -> ren -> dis -> rob`（替代原 `inst` 编码搭便车）；单元数净减 **4.5%**，深度维持 38 层。
@@ -167,5 +171,6 @@ RTL 与模型保持一致的细节（读模型时容易误判）：
 
 ## 10. 变更记录
 
+- 2026-11-26（`rtl/area-opt`）：`pre_idu_queue` 改名 `ftq_ibuf`；`ftq_pc` 将 `slot_pc_q[64][16]`（65,536 FFs）压缩为 `{pc0, base_b, carry, is_pair, a_len}`（8,576 FFs，**−86.9%**）并在误预测时回填 `next_pc`/`nslots`；`ftq_pc`/`ftq_meta` 按 `idx[2:0]` 组织为 8-bank 连续读窗（Commit+ROB 共用 1 组 `8×8:1`、Dispatch 共用 1 组 `8×8:1` 32b PC），配合 `isu`/`prf`/`trace-model` 将 PC-ALU 限制在 Port 0 & Port 2，全随机 `64:1` FTQ 读口由 25 个降至 **4 个**（2 PC-ALU + 2 BRU）。
 - 2026-11-21（`rtl/fe-2fetch-2taken`，EXP-051 里程碑 B）：`pre_idu_ftq_pc` 新增 `nslots_q` 与双块不连续 `rd_next_pc` / `dis_pc`；`pre_idu_ftq_bpu` 删除 168 位 `bpu_ck`，改为按精确 `idu_br_latch_ftq_offset` 直接索引 `{blk_id[16], kind[16]}` 输出 `out_rf_blk`/`out_rf_type`。Yosys 综合 `pre_idu_queue` 137,578 单元 / 38 层（原 123,508 / 39）；通过 `lint_chip` 0、`fm_gate` 68/68（0 周期偏差）与 Linux 27 窗检查点对齐。
 - `git log --oneline 261bd67..HEAD -- rtl/backend/pre_idu_queue`：本分支没有对本模块的提交；FLUSH_REG（`803692f`）只改了 `back_top` 的连线，使 `rob_bcast_flush` 到本模块晚一拍。更早：见 git 历史。

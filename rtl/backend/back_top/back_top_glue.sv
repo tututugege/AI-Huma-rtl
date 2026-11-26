@@ -25,9 +25,13 @@ module back_top_glue
   input  logic [XLEN_BITS-1:0] br_latch_br_pc,
   input  logic br_latch_is_rvc,
   input  logic        dec_bcast_mispred,
-  input  logic        pre2front_ready,
+  input  logic        ftq2front_ready,
   input  logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_valid,
-  input  logic [XLEN_BITS-1:0] rob_commit_commit_entry_uop_diag_val [COMMIT_WIDTH],
+  input  logic [4:0]  rob_commit_commit_entry_uop_type [COMMIT_WIDTH],
+  input  logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_br_taken,
+  input  logic [XLEN_BITS-1:0] ftq_commit_pc [COMMIT_WIDTH],
+  input  logic [XLEN_BITS-1:0] ftq_commit_next_pc [COMMIT_WIDTH],
+  input  logic        ftq_commit_is_rvc [COMMIT_WIDTH],
   input  logic [XLEN_BITS-1:0] csr_status_mstatus,
   input  logic [6:0]  rob_commit_commit_entry_uop_func7 [COMMIT_WIDTH],
   output logic        out_mispred,
@@ -62,16 +66,22 @@ module back_top_glue
   end
   assign out_mispred     = flush_q | (dec_bcast_mispred & ~rob_bcast_flush);
   assign out_no_mispred  = ~out_mispred;
-  assign out_stall       = ~pre2front_ready;
+  assign out_stall       = ~ftq2front_ready;
   assign out_redirect_pc = flush_q ? redirect_pc_q : br_latch_redirect_pc;
   assign out_rf_valid    = dec_bcast_mispred & ~rob_bcast_flush & ~flush_q;
   assign out_rf_pc       = br_latch_br_pc;
   assign out_rf_is_rvc   = br_latch_is_rvc;
 
-  // The committed slots leave the back end as they are: the diag_val of a branch is the target the front end trains with, also in
-  // the cycle a flush is decided (the model overrides it only in the cycle the flush is delivered, which has no valid commit).
+  // Branch target for BPU commit training: reconstructed from FTQ (taken -> ftq_commit_next_pc, which already
+  // carries the mispredict-corrected target; not-taken -> sequential pc + 2/4), removing 64b diag_val from ROB.
   for (genvar i = 0; i < COMMIT_WIDTH; i++) begin : g_commit
-    assign out_commit_entry_uop_diag_val[i] = rob_commit_commit_entry_uop_diag_val[i];
+    logic is_taken_ctl;
+    assign is_taken_ctl = (rob_commit_commit_entry_uop_type[i] == INST_JAL) ||
+                          (rob_commit_commit_entry_uop_type[i] == INST_JALR) ||
+                          ((rob_commit_commit_entry_uop_type[i] == INST_BR) && rob_commit_commit_entry_uop_br_taken[i]);
+    assign out_commit_entry_uop_diag_val[i] = is_taken_ctl
+                                              ? ftq_commit_next_pc[i]
+                                              : (ftq_commit_pc[i] + (ftq_commit_is_rvc[i] ? XLEN_BITS'(2) : XLEN_BITS'(4)));
   end
   logic commit_valid_unused;  // lint: kept as a port so the glue's interface documents the qualification
   assign commit_valid_unused = |rob_commit_commit_entry_valid;

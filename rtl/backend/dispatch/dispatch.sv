@@ -1,369 +1,178 @@
 // Ref: back-end/Dispatch.cpp  class Dispatch
 `default_nettype none
 
-// Port adapter only: packs the flat spec ports into the dis_pkg structs, instantiates dispatch_core
-// and unpacks its results. Generated from spec/dispatch.io by a helper script, then maintained by hand.
+// Top-level wrapper for dispatch_core: adapts packed ren2dis / dis2rob / dis2iss structs and LSU ports.
 module dispatch
   import ttg_cfg_pkg::*;
   import dis_pkg::*;
+  import ren_pkg::ren_out_uop_t;
 (
-  input  logic clk,
-  input  logic rst_n,
-  input  logic [DECODE_WIDTH-1:0] ren2dis_valid,
-  input  logic [XLEN_BITS-1:0] ren2dis_uop_diag_val [DECODE_WIDTH],
-  input  logic [5:0] ren2dis_uop_dest_areg [DECODE_WIDTH],
-  input  logic [5:0] ren2dis_uop_src1_areg [DECODE_WIDTH],
-  input  logic [PRF_IDX_WIDTH-1:0] ren2dis_uop_dest_preg [DECODE_WIDTH],
-  input  logic [PRF_IDX_WIDTH-1:0] ren2dis_uop_src1_preg [DECODE_WIDTH],
-  input  logic [PRF_IDX_WIDTH-1:0] ren2dis_uop_src2_preg [DECODE_WIDTH],
-  input  logic [DECODE_WIDTH-1:0] ren2dis_uop_me_elim,
-  input  logic [DECODE_WIDTH-1:0] ren2dis_uop_dest_fp,
-  input  logic [DECODE_WIDTH-1:0] ren2dis_uop_src1_fp,
-  input  logic [DECODE_WIDTH-1:0] ren2dis_uop_src2_fp,
-  input  logic [DECODE_WIDTH-1:0] ren2dis_uop_src3_en,
-  input  logic [PRF_IDX_WIDTH-1:0] ren2dis_uop_src3_preg [DECODE_WIDTH],
-  input  logic [2:0] ren2dis_uop_fp_cls [DECODE_WIDTH],
-  input  logic [5:0] ren2dis_uop_ftq_idx [DECODE_WIDTH],
-  input  logic [FTQ_OFFSET_WIDTH-1:0] ren2dis_uop_ftq_offset [DECODE_WIDTH],
-  input  logic [DECODE_WIDTH-1:0] ren2dis_uop_ftq_is_last,
-  input  logic [DECODE_WIDTH-1:0] ren2dis_uop_is_rvc,
-  input  logic [LSU_MDP_BITS-1:0] ren2dis_uop_mdp [DECODE_WIDTH],
-  input  logic [31:0] ren2dis_uop_pc [DECODE_WIDTH],   // wait-table index of the PC (LSU_MEMSPEC)
-  input  logic [4:0] ren2dis_uop_type [DECODE_WIDTH],
-  input  logic [DECODE_WIDTH-1:0] ren2dis_uop_dest_en,
-  input  logic [DECODE_WIDTH-1:0] ren2dis_uop_src1_en,
-  input  logic [DECODE_WIDTH-1:0] ren2dis_uop_src2_en,
-  input  logic [DECODE_WIDTH-1:0] ren2dis_uop_is_atomic,
-  input  logic [DECODE_WIDTH-1:0] ren2dis_uop_src1_is_pc,
-  input  logic [DECODE_WIDTH-1:0] ren2dis_uop_src2_is_imm,
-  input  logic [DECODE_WIDTH-1:0] ren2dis_uop_is_word,
-  input  logic [2:0] ren2dis_uop_func3 [DECODE_WIDTH],
-  input  logic [6:0] ren2dis_uop_func7 [DECODE_WIDTH],
-  input  logic [31:0] ren2dis_uop_imm [DECODE_WIDTH],
-  input  logic [11:0] ren2dis_uop_csr_idx [DECODE_WIDTH],
-  input  logic [DECODE_WIDTH-1:0] ren2dis_uop_page_fault_inst,
-  input  logic [DECODE_WIDTH-1:0] ren2dis_uop_pf_inst_hi,
-  input  logic [DECODE_WIDTH-1:0] ren2dis_uop_illegal_inst,
-  input  logic rob2dis_ready,
-  input  logic rob2dis_empty,
-  input  logic rob2dis_stall,
-  // ROB enq_idx is a 4-bit line pointer carried in a 7-bit IO field; bits 6:4 are always 0 and ignored
+  input  logic                          clk,
+  input  logic                          rst_n,
+  input  logic [DECODE_WIDTH-1:0]       ren2dis_valid,
+  input  ren_out_uop_t                  ren2dis_uop [DECODE_WIDTH],
+  input  logic [DECODE_WIDTH-1:0]       ren2dis_uop_is_rvc,
+  input  logic [LSU_MDP_BITS-1:0]       ren2dis_uop_mdp [DECODE_WIDTH],
+  input  logic [31:0]                   ren2dis_uop_pc [DECODE_WIDTH],
+  input  logic                          rob2dis_ready,
+  input  logic                          rob2dis_empty,
+  input  logic                          rob2dis_stall,
   /* verilator lint_off UNUSEDSIGNAL */
-  input  logic [ROB_IDX_WIDTH-1:0] rob2dis_enq_idx,
-  input  logic [ROB_IDX_WIDTH:0] rob2dis_free,
+  input  logic [ROB_IDX_WIDTH-1:0]      rob2dis_enq_idx,
+  input  logic [ROB_IDX_WIDTH:0]        rob2dis_free,
   /* verilator lint_on UNUSEDSIGNAL */
-  input  logic rob2dis_rob_flag,
+  input  logic                          rob2dis_rob_flag,
   input  logic [IQ_READY_NUM_WIDTH-1:0] iss2dis_ready_num [IQ_NUM],
-  input  logic [5:0] lsu2dis_stq_tail,
-  input  logic lsu2dis_stq_tail_flag,
-  input  logic [6:0] lsu2dis_stq_free,
-  input  logic [6:0] lsu2dis_ldq_free,
-  input  logic [5:0] lsu2dis_ldq_alloc_idx [DECODE_WIDTH],
-  input  logic [DECODE_WIDTH-1:0] lsu2dis_ldq_alloc_valid,
-  input  logic [LSU_LOAD_WB_WIDTH-1:0] prf_awake_wake_valid,
-  input  logic [PRF_IDX_WIDTH-1:0] prf_awake_wake_preg [LSU_LOAD_WB_WIDTH],
-  input  logic [MAX_WAKEUP_PORTS-1:0] iss_awake_wake_valid,
-  input  logic [PRF_IDX_WIDTH-1:0] iss_awake_wake_preg [MAX_WAKEUP_PORTS],
-  input  logic [2*LSU_LDU_COUNT-1:0] lsu2iss_wake_valid,
-  input  logic [PRF_IDX_WIDTH-1:0] lsu2iss_wake_preg [2*LSU_LDU_COUNT],
-  input  logic [LSU_LDU_COUNT-1:0] lsu2iss_cancel_valid,
-  input  logic [PRF_IDX_WIDTH-1:0] lsu2iss_cancel_preg [LSU_LDU_COUNT],
-  input  logic rob_bcast_flush,
-  input  logic dec_bcast_mispred,
-  output logic dis2ren_ready,
-  output logic [DECODE_WIDTH-1:0] dis2rob_dis_fire,
-  output logic pmu_slot_valid [DECODE_WIDTH],
-  output logic [XLEN_BITS-1:0] dis2rob_uop_diag_val [DECODE_WIDTH],
-  output logic [5:0] dis2rob_uop_dest_areg [DECODE_WIDTH],
-  output logic [5:0] dis2rob_uop_src1_areg [DECODE_WIDTH],
-  output logic [DECODE_WIDTH-1:0] dis2rob_uop_dest_fp,
-  output logic [DECODE_WIDTH-1:0] dis2rob_uop_fs_need,
-  output logic [5:0] dis2rob_uop_ftq_idx [DECODE_WIDTH],
-  output logic [FTQ_OFFSET_WIDTH-1:0] dis2rob_uop_ftq_offset [DECODE_WIDTH],
-  output logic [DECODE_WIDTH-1:0] dis2rob_uop_ftq_is_last,
-  output logic [4:0] dis2rob_uop_type [DECODE_WIDTH],
-  output logic [DECODE_WIDTH-1:0] dis2rob_uop_dest_en,
-  output logic [DECODE_WIDTH-1:0] dis2rob_uop_is_atomic,
-  output logic [2:0] dis2rob_uop_func3 [DECODE_WIDTH],
-  output logic [6:0] dis2rob_uop_func7 [DECODE_WIDTH],
-  output logic [31:0] dis2rob_uop_imm [DECODE_WIDTH],
-  output logic [ROB_IDX_WIDTH-1:0] dis2rob_uop_rob_idx [DECODE_WIDTH],
-  output logic [5:0] dis2rob_uop_stq_idx [DECODE_WIDTH],
-  output logic [DECODE_WIDTH-1:0] dis2rob_uop_stq_flag,
-  output logic [2:0] dis2rob_uop_expect_mask [DECODE_WIDTH],
-  output logic [DECODE_WIDTH-1:0] dis2rob_uop_rob_flag,
-  output logic [DECODE_WIDTH-1:0] dis2rob_uop_page_fault_inst,
-  output logic [DECODE_WIDTH-1:0] dis2rob_uop_pf_inst_hi,
-  output logic [DECODE_WIDTH-1:0] dis2rob_uop_illegal_inst,
-  output logic dis2iss_req_valid [IQ_NUM] [DECODE_WIDTH],
-  output logic [PRF_IDX_WIDTH-1:0] dis2iss_req_uop_dest_preg [IQ_NUM] [DECODE_WIDTH],
-  output logic [PRF_IDX_WIDTH-1:0] dis2iss_req_uop_src1_preg [IQ_NUM] [DECODE_WIDTH],
-  output logic [PRF_IDX_WIDTH-1:0] dis2iss_req_uop_src2_preg [IQ_NUM] [DECODE_WIDTH],
-  output logic [5:0] dis2iss_req_uop_ftq_idx [IQ_NUM] [DECODE_WIDTH],
-  output logic [FTQ_OFFSET_WIDTH-1:0] dis2iss_req_uop_ftq_offset [IQ_NUM] [DECODE_WIDTH],
-  output logic dis2iss_req_uop_is_atomic [IQ_NUM] [DECODE_WIDTH],
-  output logic dis2iss_req_uop_dest_en [IQ_NUM] [DECODE_WIDTH],
-  output logic dis2iss_req_uop_src1_en [IQ_NUM] [DECODE_WIDTH],
-  output logic dis2iss_req_uop_src2_en [IQ_NUM] [DECODE_WIDTH],
-  output logic dis2iss_req_uop_src1_busy [IQ_NUM] [DECODE_WIDTH],
-  output logic dis2iss_req_uop_src2_busy [IQ_NUM] [DECODE_WIDTH],
-  output logic [PRF_IDX_WIDTH-1:0] dis2iss_req_uop_src3_preg [IQ_NUM] [DECODE_WIDTH],
-  output logic dis2iss_req_uop_src3_en [IQ_NUM] [DECODE_WIDTH],
-  output logic dis2iss_req_uop_src3_busy [IQ_NUM] [DECODE_WIDTH],
-  output logic dis2iss_req_uop_dest_fp [IQ_NUM] [DECODE_WIDTH],
-  output logic dis2iss_req_uop_src1_fp [IQ_NUM] [DECODE_WIDTH],
-  output logic dis2iss_req_uop_src2_fp [IQ_NUM] [DECODE_WIDTH],
-  output logic dis2iss_req_uop_src1_is_pc [IQ_NUM] [DECODE_WIDTH],
-  output logic dis2iss_req_uop_src2_is_imm [IQ_NUM] [DECODE_WIDTH],
-  output logic dis2iss_req_uop_is_word [IQ_NUM] [DECODE_WIDTH],
-  output logic [2:0] dis2iss_req_uop_func3 [IQ_NUM] [DECODE_WIDTH],
-  output logic [6:0] dis2iss_req_uop_func7 [IQ_NUM] [DECODE_WIDTH],
-  output logic [31:0] dis2iss_req_uop_imm [IQ_NUM] [DECODE_WIDTH],
-  output logic [11:0] dis2iss_req_uop_csr_idx [IQ_NUM] [DECODE_WIDTH],
-  output logic [ROB_IDX_WIDTH-1:0] dis2iss_req_uop_rob_idx [IQ_NUM] [DECODE_WIDTH],
-  output logic [5:0] dis2iss_req_uop_stq_idx [IQ_NUM] [DECODE_WIDTH],
-  output logic dis2iss_req_uop_stq_flag [IQ_NUM] [DECODE_WIDTH],
-  output logic [5:0] dis2iss_req_uop_ldq_idx [IQ_NUM] [DECODE_WIDTH],
-  output logic dis2iss_req_uop_rob_flag [IQ_NUM] [DECODE_WIDTH],
-  output logic [4:0] dis2iss_req_uop_op [IQ_NUM] [DECODE_WIDTH],
-  output logic [DECODE_WIDTH-1:0] dis2lsu_alloc_req,
-  output logic [2:0] dis2lsu_func3 [DECODE_WIDTH],
-  output logic [ROB_IDX_WIDTH-1:0] dis2lsu_rob_idx [DECODE_WIDTH],
-  output logic [DECODE_WIDTH-1:0] dis2lsu_rob_flag,
-  output logic [DECODE_WIDTH-1:0] dis2lsu_stq_flag,
-  output logic [DECODE_WIDTH-1:0] dis2lsu_ldq_alloc_req,
-  output logic [5:0] dis2lsu_ldq_idx [DECODE_WIDTH],
-  output logic [ROB_IDX_WIDTH-1:0] dis2lsu_ldq_rob_idx [DECODE_WIDTH],
-  output logic [DECODE_WIDTH-1:0] dis2lsu_ldq_rob_flag,
-  output logic [LSU_MDP_BITS-1:0] dis2lsu_ldq_mdp [DECODE_WIDTH],
-  output logic [31:0] dis2lsu_ldq_pc [DECODE_WIDTH]
+  input  logic [5:0]                    lsu2dis_stq_tail,
+  input  logic                          lsu2dis_stq_tail_flag,
+  input  logic [6:0]                    lsu2dis_stq_free,
+  input  logic [6:0]                    lsu2dis_ldq_free,
+  input  logic [5:0]                    lsu2dis_ldq_alloc_idx [DECODE_WIDTH],
+  input  logic [DECODE_WIDTH-1:0]       lsu2dis_ldq_alloc_valid,
+  input  logic [MAX_WAKEUP_PORTS-1:0]   iss_awake_wake_valid,
+  input  logic [PRF_IDX_WIDTH-1:0]      iss_awake_wake_preg [MAX_WAKEUP_PORTS],
+  input  logic [2*LSU_LDU_COUNT-1:0]    lsu2iss_wake_valid,
+  input  logic [PRF_IDX_WIDTH-1:0]      lsu2iss_wake_preg [2*LSU_LDU_COUNT],
+  input  logic [LSU_LDU_COUNT-1:0]      lsu2iss_cancel_valid,
+  input  logic [PRF_IDX_WIDTH-1:0]      lsu2iss_cancel_preg [LSU_LDU_COUNT],
+  input  logic                          rob_bcast_flush,
+  input  logic                          dec_bcast_mispred,
+  output logic                          dis2ren_ready,
+  output logic [DECODE_WIDTH-1:0]       dis2rob_dis_fire,
+  output logic                          pmu_slot_valid [DECODE_WIDTH],
+  output dis_rob_uop_t                  dis2rob_uop [DECODE_WIDTH],
+  output logic                          dis2iss_req_valid [IQ_NUM][DECODE_WIDTH],
+  output dis_iss_uop_t                  dis2iss_req_uop [IQ_NUM][DECODE_WIDTH],
+  output logic [DECODE_WIDTH-1:0]       dis2lsu_alloc_req,
+  output logic [ROB_IDX_WIDTH-1:0]      dis2lsu_rob_idx [DECODE_WIDTH],
+  output logic [DECODE_WIDTH-1:0]       dis2lsu_rob_flag,
+  output logic [DECODE_WIDTH-1:0]       dis2lsu_ldq_alloc_req,
+  output logic [5:0]                    dis2lsu_ldq_idx [DECODE_WIDTH],
+  output logic [ROB_IDX_WIDTH-1:0]      dis2lsu_ldq_rob_idx [DECODE_WIDTH],
+  output logic [DECODE_WIDTH-1:0]       dis2lsu_ldq_rob_flag,
+  output logic [LSU_MDP_BITS-1:0]       dis2lsu_ldq_mdp [DECODE_WIDTH],
+  output logic [31:0]                   dis2lsu_ldq_pc [DECODE_WIDTH]
 );
 
-  logic [NUM_SLOTS-1:0] ren_valid;
-  dis_inst_t                     ren_inst  [NUM_SLOTS];
-  logic                          core_ready;
-  logic [NUM_SLOTS-1:0] dis_fire;
-  logic [NUM_SLOTS-1:0] slot_valid_vec;
-  dis_inst_t                     rob_inst  [NUM_SLOTS];
-  dis_res_t                      rob_res   [NUM_SLOTS];
-  logic [CPLT_MASK_W-1:0]        rob_expect_mask [NUM_SLOTS];
-  logic [IQ_READY_NUM_WIDTH-1:0] ready_num [IQ_NUM];
-  logic                          req_valid [IQ_NUM][IQ_PORTS];
-  dis_iss_uop_t                  req_uop   [IQ_NUM][IQ_PORTS];
-  logic [LDQ_IDX_WIDTH-1:0]      ldq_alloc_idx   [LDQ_PORTS];
-  logic [LDQ_PORTS-1:0] ldq_alloc_valid;
-  logic [STQ_PORTS-1:0] st_req;
-  logic [2:0]                    st_func3    [STQ_PORTS];
-  logic [ROB_IDX_WIDTH-1:0]      st_rob_idx  [STQ_PORTS];
-  logic [STQ_PORTS-1:0] st_rob_flag;
-  logic [STQ_PORTS-1:0] st_stq_flag;
-  logic [LDQ_PORTS-1:0] ld_req;
-  logic [LDQ_IDX_WIDTH-1:0]      ld_idx      [LDQ_PORTS];
-  logic [ROB_IDX_WIDTH-1:0]      ld_rob_idx  [LDQ_PORTS];
-  logic [LDQ_PORTS-1:0] ld_rob_flag;
-  logic [LSU_MDP_BITS-1:0]       ld_mdp      [LDQ_PORTS];
-  logic [31:0]                   ld_pc       [LDQ_PORTS];
-  logic [NUM_WAKE-1:0] wake_valid;
-  logic [PRF_IDX_WIDTH-1:0]      wake_preg  [NUM_WAKE];
+  dis_inst_t                ren_inst [NUM_SLOTS];
+  logic [NUM_SLOTS-1:0]     slot_valid_vec;
+  dis_inst_t                rob_inst [NUM_SLOTS];
+  dis_res_t                 rob_res  [NUM_SLOTS];
+  logic [CPLT_MASK_W-1:0]   rob_expect_mask [NUM_SLOTS];
+  /* verilator lint_off UNUSEDSIGNAL */
+  logic [2:0]               unused_st_func3 [STQ_PORTS];
+  logic [STQ_PORTS-1:0]     unused_st_stq_flag;
+  /* verilator lint_on UNUSEDSIGNAL */
+  logic [NUM_WAKE-1:0]      wake_valid;
+  logic [PRF_IDX_WIDTH-1:0] wake_preg [NUM_WAKE];
 
-  // ---- inputs: pack ----
-  // Ref: Dispatch::in (ren2dis, iss2dis, lsu2dis, prf_awake, iss_awake)
   always_comb begin
     for (int i = 0; i < NUM_SLOTS; i++) begin
-      ren_valid[i] = ren2dis_valid[i];
-      ren_inst[i].diag_val = ren2dis_uop_diag_val[i];
-      ren_inst[i].dest_areg = ren2dis_uop_dest_areg[i];
-      ren_inst[i].src1_areg = ren2dis_uop_src1_areg[i];
-      ren_inst[i].dest_preg = ren2dis_uop_dest_preg[i];
-      ren_inst[i].src1_preg = ren2dis_uop_src1_preg[i];
-      ren_inst[i].src2_preg = ren2dis_uop_src2_preg[i];
-      ren_inst[i].me_elim = ren2dis_uop_me_elim[i];
-      ren_inst[i].dest_fp = ren2dis_uop_dest_fp[i];
-      ren_inst[i].src1_fp = ren2dis_uop_src1_fp[i];
-      ren_inst[i].src2_fp = ren2dis_uop_src2_fp[i];
-      ren_inst[i].src3_en = ren2dis_uop_src3_en[i];
-      ren_inst[i].src3_preg = ren2dis_uop_src3_preg[i];
-      ren_inst[i].src3_busy = 1'b0;
-      ren_inst[i].fp_cls = ren2dis_uop_fp_cls[i];
-      ren_inst[i].ftq_idx = ren2dis_uop_ftq_idx[i];
-      ren_inst[i].ftq_offset = ren2dis_uop_ftq_offset[i];
-      ren_inst[i].ftq_is_last = ren2dis_uop_ftq_is_last[i];
-      ren_inst[i].mdp = ren2dis_uop_mdp[i];
-      ren_inst[i].pc  = ren2dis_uop_pc[i];
-      ren_inst[i].is_rvc = ren2dis_uop_is_rvc[i];
-      ren_inst[i].dest_en = ren2dis_uop_dest_en[i];
-      ren_inst[i].src1_en = ren2dis_uop_src1_en[i];
-      ren_inst[i].src2_en = ren2dis_uop_src2_en[i];
-      ren_inst[i].is_atomic = ren2dis_uop_is_atomic[i];
-      ren_inst[i].src1_busy = 1'b0;   // Ren leaves it 0; busy is recomputed below
-      ren_inst[i].src2_busy = 1'b0;
-      ren_inst[i].src1_is_pc = ren2dis_uop_src1_is_pc[i];
-      ren_inst[i].src2_is_imm = ren2dis_uop_src2_is_imm[i];
-      ren_inst[i].is_word = ren2dis_uop_is_word[i];
-      ren_inst[i].func3 = ren2dis_uop_func3[i];
-      ren_inst[i].func7 = ren2dis_uop_func7[i];
-      ren_inst[i].imm = ren2dis_uop_imm[i];
-      ren_inst[i].csr_idx = ren2dis_uop_csr_idx[i];
-      ren_inst[i].page_fault_inst = ren2dis_uop_page_fault_inst[i];
-      ren_inst[i].pf_inst_hi = ren2dis_uop_pf_inst_hi[i];
-      ren_inst[i].illegal_inst = ren2dis_uop_illegal_inst[i];
-      ren_inst[i].itype = inst_type_e'(ren2dis_uop_type[i]);
-    end
-    for (int q = 0; q < IQ_NUM; q++) ready_num[q] = iss2dis_ready_num[q];
-    for (int k = 0; k < LDQ_PORTS; k++) begin
-      ldq_alloc_idx[k]   = lsu2dis_ldq_alloc_idx[k];
-      ldq_alloc_valid[k] = lsu2dis_ldq_alloc_valid[k];
+      ren_inst[i] = '{
+        diag_val:        ren2dis_uop[i].diag_val,
+        dest_areg:       ren2dis_uop[i].dest_areg,
+        src1_areg:       ren2dis_uop[i].src1_areg,
+        dest_preg:       ren2dis_uop[i].dest_preg,
+        src1_preg:       ren2dis_uop[i].src1_preg,
+        src2_preg:       ren2dis_uop[i].src2_preg,
+        src3_preg:       ren2dis_uop[i].src3_preg,
+        me_elim:         ren2dis_uop[i].me_elim,
+        dest_fp:         ren2dis_uop[i].dest_fp,
+        src1_fp:         ren2dis_uop[i].src1_fp,
+        src2_fp:         ren2dis_uop[i].src2_fp,
+        src3_en:         ren2dis_uop[i].src3_en,
+        src3_busy:       1'b0,
+        fp_cls:          ren2dis_uop[i].fp_cls,
+        ftq_idx:         ren2dis_uop[i].ftq_idx,
+        ftq_offset:      ren2dis_uop[i].ftq_offset,
+        ftq_is_last:     ren2dis_uop[i].ftq_is_last,
+        itype:           inst_type_e'(ren2dis_uop[i].inst_type),
+        dest_en:         ren2dis_uop[i].dest_en,
+        src1_en:         ren2dis_uop[i].src1_en,
+        src2_en:         ren2dis_uop[i].src2_en,
+        is_atomic:       ren2dis_uop[i].is_atomic,
+        src1_busy:       1'b0,
+        src2_busy:       1'b0,
+        src1_is_pc:      ren2dis_uop[i].src1_is_pc,
+        src2_is_imm:     ren2dis_uop[i].src2_is_imm,
+        is_word:         ren2dis_uop[i].is_word,
+        func3:           ren2dis_uop[i].func3,
+        func7:           ren2dis_uop[i].func7,
+        imm:             ren2dis_uop[i].imm,
+        csr_idx:         ren2dis_uop[i].csr_idx,
+        page_fault_inst: ren2dis_uop[i].page_fault_inst,
+        pf_inst_hi:      ren2dis_uop[i].pf_inst_hi,
+        illegal_inst:    ren2dis_uop[i].illegal_inst,
+        mdp:             ren2dis_uop_mdp[i],
+        pc:              ren2dis_uop_pc[i],
+        is_rvc:          ren2dis_uop_is_rvc[i]
+      };
     end
     for (int w = 0; w < MAX_WAKEUP_PORTS; w++) begin
       wake_valid[w] = iss_awake_wake_valid[w];
       wake_preg[w]  = iss_awake_wake_preg[w];
     end
     for (int w = 0; w < NUM_LSU_WAKE; w++) begin
-      wake_valid[MAX_WAKEUP_PORTS + w] = lsu2iss_wake_valid[HAS_SPEC_WAKE ? w : (LSU_LDU_COUNT + w)];
-      wake_preg[MAX_WAKEUP_PORTS + w]  = lsu2iss_wake_preg[HAS_SPEC_WAKE ? w : (LSU_LDU_COUNT + w)];
+      wake_valid[MAX_WAKEUP_PORTS + w] = lsu2iss_wake_valid[w];
+      wake_preg[MAX_WAKEUP_PORTS + w]  = lsu2iss_wake_preg[w];
     end
   end
 
-  // prf_awake_* is already carried on iss_awake[0..LSU_LOAD_WB_WIDTH-1]; keep port for interface compatibility
-  /* verilator lint_off UNUSEDSIGNAL */
-  logic unused_dup_wake;
-  always_comb begin
-    unused_dup_wake = 1'b0;
-    for (int w = 0; w < LSU_LOAD_WB_WIDTH; w++)
-      unused_dup_wake ^= prf_awake_wake_valid[w] ^ (^prf_awake_wake_preg[w]);
-    if (!HAS_SPEC_WAKE)
-      for (int w = 0; w < LSU_LDU_COUNT; w++)
-        unused_dup_wake ^= lsu2iss_wake_valid[w] ^ (^lsu2iss_wake_preg[w]);
-  end
-  /* verilator lint_on UNUSEDSIGNAL */
-
-  // cancel of a wrong speculative load wake-up (LP_L2): the registers are busy again before this cycle's lookups
   logic [TAG_NUM-1:0] cancel_v;
-  if ((lp_pkg::LP_L2 & 8) != 0) begin : g_cancel
-    always_comb begin
-      cancel_v = '0;
-      for (int k = 0; k < LSU_LDU_COUNT; k++)
-        if (lsu2iss_cancel_valid[k]) cancel_v[lsu2iss_cancel_preg[k]] = 1'b1;
-    end
-  end else begin : g_no_cancel
-    assign cancel_v = '0;
-    logic unused_cancel;  // the cancel inputs have no consumer without LP_L2[3]
-    always_comb begin
-      unused_cancel = 1'b0;
-      for (int k = 0; k < LSU_LDU_COUNT; k++) unused_cancel ^= lsu2iss_cancel_valid[k] ^ (^lsu2iss_cancel_preg[k]);
-    end
+  always_comb begin
+    cancel_v = '0;
+    for (int k = 0; k < LSU_LDU_COUNT; k++)
+      if (lsu2iss_cancel_valid[k]) cancel_v[lsu2iss_cancel_preg[k]] = 1'b1;
   end
 
   dispatch_core u_core (
     .clk(clk), .rst_n(rst_n), .cancel_v(cancel_v),
-    .ren_valid(ren_valid), .ren_inst(ren_inst), .dis2ren_ready(core_ready),
+    .ren_valid(ren2dis_valid), .ren_inst(ren_inst), .dis2ren_ready(dis2ren_ready),
     .rob_ready(rob2dis_ready), .rob_empty(rob2dis_empty), .rob_stall(rob2dis_stall),
     .rob_enq_idx(rob2dis_enq_idx), .rob_free(rob2dis_free), .rob_enq_flag(rob2dis_rob_flag),
-    .dis_fire(dis_fire), .slot_valid(slot_valid_vec), .rob_inst(rob_inst), .rob_res(rob_res),
-    .rob_expect_mask(rob_expect_mask), .ready_num(ready_num), .req_valid(req_valid), .req_uop(req_uop),
+    .dis_fire(dis2rob_dis_fire), .slot_valid(slot_valid_vec), .rob_inst(rob_inst), .rob_res(rob_res),
+    .rob_expect_mask(rob_expect_mask), .ready_num(iss2dis_ready_num),
+    .req_valid(dis2iss_req_valid), .req_uop(dis2iss_req_uop),
     .stq_tail(lsu2dis_stq_tail), .stq_tail_flag(lsu2dis_stq_tail_flag), .stq_free(lsu2dis_stq_free),
-    .ldq_free(lsu2dis_ldq_free), .ldq_alloc_idx(ldq_alloc_idx), .ldq_alloc_valid(ldq_alloc_valid),
-    .st_req(st_req), .st_func3(st_func3), .st_rob_idx(st_rob_idx),
-    .st_rob_flag(st_rob_flag), .st_stq_flag(st_stq_flag), .ld_req(ld_req), .ld_idx(ld_idx),
-    .ld_rob_idx(ld_rob_idx), .ld_rob_flag(ld_rob_flag), .ld_mdp(ld_mdp), .ld_pc(ld_pc),
+    .ldq_free(lsu2dis_ldq_free), .ldq_alloc_idx(lsu2dis_ldq_alloc_idx), .ldq_alloc_valid(lsu2dis_ldq_alloc_valid),
+    .st_req(dis2lsu_alloc_req), .st_func3(unused_st_func3), .st_rob_idx(dis2lsu_rob_idx),
+    .st_rob_flag(dis2lsu_rob_flag), .st_stq_flag(unused_st_stq_flag),
+    .ld_req(dis2lsu_ldq_alloc_req), .ld_idx(dis2lsu_ldq_idx),
+    .ld_rob_idx(dis2lsu_ldq_rob_idx), .ld_rob_flag(dis2lsu_ldq_rob_flag),
+    .ld_mdp(dis2lsu_ldq_mdp), .ld_pc(dis2lsu_ldq_pc),
     .wake_valid(wake_valid), .wake_preg(wake_preg), .rob_flush(rob_bcast_flush),
-    .dec_mispred(dec_bcast_mispred));
+    .dec_mispred(dec_bcast_mispred)
+  );
 
   always_comb begin
-    for (int i = 0; i < NUM_SLOTS; i++) pmu_slot_valid[i] = slot_valid_vec[i];
-  end
-
-  // ---- outputs: unpack ----
-  // Ref: Dispatch::comb_alloc / comb_fire (dis2ren, dis2rob)
-  always_comb begin
-    dis2ren_ready = core_ready;
     for (int i = 0; i < NUM_SLOTS; i++) begin
-      dis2rob_dis_fire[i] = dis_fire[i];
-      dis2rob_uop_diag_val[i] = rob_inst[i].diag_val;
-      dis2rob_uop_dest_areg[i] = rob_inst[i].dest_areg;
-      dis2rob_uop_src1_areg[i] = rob_inst[i].src1_areg;
-      dis2rob_uop_dest_fp[i] = rob_inst[i].dest_fp;
-      // F/D: illegal while mstatus.FS is Off: FP arithmetic, FP load / store, fflags / frm / fcsr access
-      dis2rob_uop_fs_need[i] = FP_EN && ((rob_inst[i].itype == INST_FPOP) ||
-                                         (rob_inst[i].itype == INST_LOAD && rob_inst[i].dest_fp) ||
-                                         (rob_inst[i].itype == INST_STORE && rob_inst[i].src2_fp) ||
-                                         (rob_inst[i].itype == INST_CSR && rob_inst[i].csr_idx >= CSR_IDX_WIDTH'(1) &&
-                                          rob_inst[i].csr_idx <= CSR_IDX_WIDTH'(3)));
-      dis2rob_uop_ftq_idx[i] = rob_inst[i].ftq_idx;
-      dis2rob_uop_ftq_offset[i] = rob_inst[i].ftq_offset;
-      dis2rob_uop_ftq_is_last[i] = rob_inst[i].ftq_is_last;
-      dis2rob_uop_dest_en[i] = rob_inst[i].dest_en;
-      dis2rob_uop_is_atomic[i] = rob_inst[i].is_atomic;
-      dis2rob_uop_func3[i] = rob_inst[i].func3;
-      dis2rob_uop_func7[i] = rob_inst[i].func7;
-      dis2rob_uop_imm[i] = rob_inst[i].imm;
-      dis2rob_uop_page_fault_inst[i] = rob_inst[i].page_fault_inst;
-      dis2rob_uop_pf_inst_hi[i] = rob_inst[i].pf_inst_hi;
-      dis2rob_uop_illegal_inst[i] = rob_inst[i].illegal_inst;
-      dis2rob_uop_type[i]        = rob_inst[i].itype;
-      dis2rob_uop_rob_idx[i]     = rob_res[i].rob_idx;
-      dis2rob_uop_rob_flag[i]    = rob_res[i].rob_flag;
-      dis2rob_uop_stq_idx[i]     = rob_res[i].stq_idx;
-      dis2rob_uop_stq_flag[i]    = rob_res[i].stq_flag;
-      dis2rob_uop_expect_mask[i] = rob_expect_mask[i];
-    end
-  end
-
-  // Ref: Dispatch::comb_dispatch / comb_fire (dis2iss)
-  always_comb begin
-    for (int q = 0; q < IQ_NUM; q++) begin
-      for (int s = 0; s < IQ_PORTS; s++) begin
-        dis2iss_req_valid[q][s] = req_valid[q][s];
-        dis2iss_req_uop_dest_preg[q][s] = req_uop[q][s].dest_preg;
-        dis2iss_req_uop_src1_preg[q][s] = req_uop[q][s].src1_preg;
-        dis2iss_req_uop_src2_preg[q][s] = req_uop[q][s].src2_preg;
-        dis2iss_req_uop_ftq_idx[q][s] = req_uop[q][s].ftq_idx;
-        dis2iss_req_uop_ftq_offset[q][s] = req_uop[q][s].ftq_offset;
-        dis2iss_req_uop_is_atomic[q][s] = req_uop[q][s].is_atomic;
-        dis2iss_req_uop_dest_en[q][s] = req_uop[q][s].dest_en;
-        dis2iss_req_uop_src1_en[q][s] = req_uop[q][s].src1_en;
-        dis2iss_req_uop_src2_en[q][s] = req_uop[q][s].src2_en;
-        dis2iss_req_uop_src1_busy[q][s] = req_uop[q][s].src1_busy;
-        dis2iss_req_uop_src2_busy[q][s] = req_uop[q][s].src2_busy;
-        dis2iss_req_uop_src3_preg[q][s] = req_uop[q][s].src3_preg;
-        dis2iss_req_uop_src3_en[q][s] = req_uop[q][s].src3_en;
-        dis2iss_req_uop_src3_busy[q][s] = req_uop[q][s].src3_busy;
-        dis2iss_req_uop_dest_fp[q][s] = req_uop[q][s].dest_fp;
-        dis2iss_req_uop_src1_fp[q][s] = req_uop[q][s].src1_fp;
-        dis2iss_req_uop_src2_fp[q][s] = req_uop[q][s].src2_fp;
-        dis2iss_req_uop_src1_is_pc[q][s] = req_uop[q][s].src1_is_pc;
-        dis2iss_req_uop_src2_is_imm[q][s] = req_uop[q][s].src2_is_imm;
-        dis2iss_req_uop_is_word[q][s] = req_uop[q][s].is_word;
-        dis2iss_req_uop_func3[q][s] = req_uop[q][s].func3;
-        dis2iss_req_uop_func7[q][s] = req_uop[q][s].func7;
-        dis2iss_req_uop_imm[q][s] = req_uop[q][s].imm;
-        dis2iss_req_uop_csr_idx[q][s] = req_uop[q][s].csr_idx;
-        dis2iss_req_uop_rob_idx[q][s] = req_uop[q][s].rob_idx;
-        dis2iss_req_uop_stq_idx[q][s] = req_uop[q][s].stq_idx;
-        dis2iss_req_uop_stq_flag[q][s] = req_uop[q][s].stq_flag;
-        dis2iss_req_uop_ldq_idx[q][s] = req_uop[q][s].ldq_idx;
-        dis2iss_req_uop_rob_flag[q][s] = req_uop[q][s].rob_flag;
-        dis2iss_req_uop_op[q][s] = req_uop[q][s].op;
-      end
-    end
-  end
-
-  // Ref: Dispatch::comb_fire steps 3-4 (dis2lsu)
-  always_comb begin
-    for (int k = 0; k < STQ_PORTS; k++) begin
-      dis2lsu_alloc_req[k] = st_req[k];
-      dis2lsu_func3[k]     = st_func3[k];
-      dis2lsu_rob_idx[k]   = st_rob_idx[k];
-      dis2lsu_rob_flag[k]  = st_rob_flag[k];
-      dis2lsu_stq_flag[k]  = st_stq_flag[k];
-    end
-    for (int k = 0; k < LDQ_PORTS; k++) begin
-      dis2lsu_ldq_alloc_req[k] = ld_req[k];
-      dis2lsu_ldq_idx[k]       = ld_idx[k];
-      dis2lsu_ldq_rob_idx[k]   = ld_rob_idx[k];
-      dis2lsu_ldq_rob_flag[k]  = ld_rob_flag[k];
-      dis2lsu_ldq_mdp[k]       = ld_mdp[k];
-      dis2lsu_ldq_pc[k]        = ld_pc[k];
+      pmu_slot_valid[i] = slot_valid_vec[i];
+      dis2rob_uop[i] = '{
+        diag_val:        rob_inst[i].diag_val,
+        dest_areg:       rob_inst[i].dest_areg,
+        src1_areg:       rob_inst[i].src1_areg,
+        dest_fp:         rob_inst[i].dest_fp,
+        fs_need:         FP_EN && ((rob_inst[i].itype == INST_FPOP) ||
+                                   (rob_inst[i].itype == INST_LOAD && rob_inst[i].dest_fp) ||
+                                   (rob_inst[i].itype == INST_STORE && rob_inst[i].src2_fp) ||
+                                   (rob_inst[i].itype == INST_CSR && rob_inst[i].csr_idx >= CSR_IDX_WIDTH'(1) &&
+                                    rob_inst[i].csr_idx <= CSR_IDX_WIDTH'(3))),
+        ftq_idx:         rob_inst[i].ftq_idx,
+        ftq_offset:      rob_inst[i].ftq_offset,
+        ftq_is_last:     rob_inst[i].ftq_is_last,
+        itype:           rob_inst[i].itype,
+        dest_en:         rob_inst[i].dest_en,
+        is_amo_lr:       (rob_inst[i].func7[6:2] == AMO_LR),
+        imm:             rob_inst[i].imm,
+        rob_idx:         rob_res[i].rob_idx,
+        stq_idx:         rob_res[i].stq_idx,
+        stq_flag:        rob_res[i].stq_flag,
+        expect_mask:     rob_expect_mask[i],
+        rob_flag:        rob_res[i].rob_flag,
+        page_fault_inst: rob_inst[i].page_fault_inst,
+        pf_inst_hi:      rob_inst[i].pf_inst_hi,
+        illegal_inst:    rob_inst[i].illegal_inst
+      };
     end
   end
 

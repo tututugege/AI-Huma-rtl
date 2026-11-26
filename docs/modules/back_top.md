@@ -9,6 +9,10 @@ depth: 142 层（back_top，单模块综合，2026-11-20，`SYNTH_ABC="strash;ba
 
 # back_top 设计文档
 
+> **2026-11-26 `rtl/area-opt` 后端内部总线 `packed struct` 化与命名统一**：
+> - 将后端 9 条内部总线（`ibuf2idu`、`dec2ren`、`ren2dis`、`dis2rob`、`dis2iss`、`iss2prf`、`prf2exe`、`exe2prf`、`exu2rob`）统一打包为结构体（新增 `dis_rob_uop_t`、`xc_prf_wb_t`、`xc_rob_wb_t`），端口前缀同步统一为 `front2ftq_*` / `ftq2front_*` / `ibuf2idu_*`；`back_top.sv` 由 1,650 行精简至 563 行（连同 `ren`/`dispatch`/`prf` 共净减 2,000+ 行样板连线），同时保持全部顶层对外端口与 `soc_public.vlt` 探针不变；
+> - `back_top_glue.sv` 删除 ROB 64-bit `diag_val` 后改为直接由 `ftq_commit_next_pc` / 顺序 PC 重建提交分支训练目标。
+
 范围：`back_top.sv`（后端的装配）、`back_top_glue.sv`（不属于任何子模块的几段逻辑）、`exu.sv`（执行单元的装配：`exu_ctrl` 加各 FU）。旧文档描述的是由 `tools/gen_backtop.py` 生成的版本和 lockstep 体系，现在这三个文件都是手工维护，没有沿用。
 
 ## 1. 职责

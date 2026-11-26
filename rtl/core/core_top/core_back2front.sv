@@ -23,14 +23,14 @@ module core_back2front import ttg_cfg_pkg::*; import dis_pkg::*; import bpu_pkg:
   input  logic        out_rf_is_rvc,
   input  logic        rob_bcast_fence,
   input  logic        rob_bcast_fence_i,
+  input  logic        rob_bcast_interrupt,
   input  logic [COMMIT_WIDTH-1:0] commit_valid,
   input  logic [4:0]  commit_type        [COMMIT_WIDTH],
   input  logic [COMMIT_WIDTH-1:0] commit_br_taken,
   input  logic [COMMIT_WIDTH-1:0] commit_dest_en,
   input  logic [5:0]  commit_dest_areg   [COMMIT_WIDTH],
   input  logic [XLEN_BITS-1:0] commit_diag_val    [COMMIT_WIDTH],
-  input  logic [31:0] commit_imm         [COMMIT_WIDTH],
-  input  logic [5:0]  commit_src1_areg   [COMMIT_WIDTH],
+  input  logic [COMMIT_WIDTH-1:0] commit_is_ret,
   input  logic [XLEN_BITS-1:0] ftq_pc             [COMMIT_WIDTH],
   input  logic        ftq_pred_taken     [COMMIT_WIDTH],
   input  logic        ftq_is_rvc     [COMMIT_WIDTH],
@@ -79,8 +79,7 @@ module core_back2front import ttg_cfg_pkg::*; import dis_pkg::*; import bpu_pkg:
       // jalr rd=ra (never a return: that has rd=x0)
       is_icall[i] = is_jalr[i] && commit_dest_en[i] && (commit_dest_areg[i] == 6'd1);
       is_call[i] = (is_jal[i] && commit_dest_en[i] && (commit_dest_areg[i] == 6'd1)) || is_icall[i];
-      is_ret[i]  = is_jalr[i] && (commit_src1_areg[i] == 6'd1) && (commit_dest_areg[i] == 6'd0)
-                   && (commit_imm[i] == 32'd0);
+      is_ret[i]  = commit_is_ret[i];
       class_dir[i]    = is_jal[i] || is_jalr[i] || commit_br_taken[i];
       class_target[i] = (is_br[i] || is_jal[i] || is_jalr[i]) ? commit_diag_val[i]
                         : ftq_pc[i] + (ftq_is_rvc[i] ? XLEN_BITS'(2) : XLEN_BITS'(4));
@@ -108,16 +107,19 @@ module core_back2front import ttg_cfg_pkg::*; import dis_pkg::*; import bpu_pkg:
 
   always_comb begin
     for (int i = 0; i < COMMIT_WIDTH; i++) begin
-      upd_valid_d[i]      = commit_valid[i];
-      upd_is_rvc_d[i]     = commit_valid[i] && ftq_is_rvc[i];
-      upd_base_pc_d[i]    = commit_valid[i] ? ftq_pc[i]          : '0;
-      upd_actual_dir_d[i] = commit_valid[i] && class_dir[i];
-      upd_br_type_d[i]    = commit_valid[i] ? class_br_type[i]   : 3'd0;
-      upd_target_d[i]     = commit_valid[i] ? class_target[i]    : '0;
-      upd_pred_dir_d[i]   = commit_valid[i] && ftq_pred_taken[i];
-      upd_alt_pred_d[i]   = commit_valid[i] && ftq_alt_pred[i];
-      upd_pcpn_d[i]       = commit_valid[i] ? ftq_pcpn[i]        : 3'd0;
-      upd_blk_id_d[i]     = commit_valid[i] ? ftq_blk_id[i]      : '0;
+      logic v_i;
+      // An interrupted head instruction did not execute/commit; do not train the BPU with it.
+      v_i                 = commit_valid[i] && !rob_bcast_interrupt;
+      upd_valid_d[i]      = v_i;
+      upd_is_rvc_d[i]     = v_i && ftq_is_rvc[i];
+      upd_base_pc_d[i]    = v_i ? ftq_pc[i]          : '0;
+      upd_actual_dir_d[i] = v_i && class_dir[i];
+      upd_br_type_d[i]    = v_i ? class_br_type[i]   : 3'd0;
+      upd_target_d[i]     = v_i ? class_target[i]    : '0;
+      upd_pred_dir_d[i]   = v_i && ftq_pred_taken[i];
+      upd_alt_pred_d[i]   = v_i && ftq_alt_pred[i];
+      upd_pcpn_d[i]       = v_i ? ftq_pcpn[i]        : 3'd0;
+      upd_blk_id_d[i]     = v_i ? ftq_blk_id[i]      : '0;
     end
   end
 

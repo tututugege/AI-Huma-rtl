@@ -1,10 +1,8 @@
 `default_nettype none
 // Ref: MemSubSystem/MemSubsystem.cpp  AxiLlcTableRuntime (data/meta/valid/repl tables, lookup_latency = 3); repl = SRRIP state
-// Hardware memories: synchronous write (end of tick, one write port per array), registered read index carried
-// through two more stages, asynchronous read at the delivery tick.  A read requested in tick t returns the row as
-// it is after the writes of tick t+2 (writes of t+3 land after the read).  No array has a reset (storage written
-// as memory); like the C++ model the valid bits rely on the power-up value 0 (harness --x-initial 0), the other
-// arrays are only read for ways whose valid bit is set.
+// Hardware memories: synchronous 1R1W SRAMs (ttg_sram_1r1w with WRITE_FIRST=1). Read index advances through
+// p1_q -> p2_q, launching the synchronous SRAM read at tick t+2 so outputs arrive at tick t+3 (lookup_latency = 3),
+// matching the original semantics where writes of tick t+2 are visible to a read requested in tick t.
 module axi_llc_tables
   import axi_llc_pkg::*;
 (
@@ -21,58 +19,128 @@ module axi_llc_tables
   output logic [WAYS-1:0][511:0] lk_line,
   output logic [RB-1:0] lk_repl
 );
-  line_t data_q [SETS][WAYS];
-  logic [TAGW-1:0] tag_q [SETS][WAYS];
-  logic [WAYS-1:0] dirty_q [SETS];
-  logic [WAYS-1:0] pf_q [SETS];
-  logic [WAYS-1:0] valid_q [SETS];
-  logic [RB-1:0] repl_q [SETS];
-
-  // read index pipeline: p1 <- request (end of tick t), p2, p3 (valid during tick t+3)
-  logic [2:0] pv_q;
-  logic [SB-1:0] p1_q, p2_q, p3_q;
+  // read index pipeline: p1 <- request (end of tick t), p2 launches sync SRAM read -> outputs valid at tick t+3
+  logic [2:0]    pv_q;
+  logic [SB-1:0] p1_q, p2_q;
 
   always_ff @(posedge clk) begin
     if (!rst_n) pv_q <= '0;
     else        pv_q <= {pv_q[1:0], rd_req};
     p1_q <= rd_set;
     p2_q <= p1_q;
-    p3_q <= p2_q;
   end
 
-  // one write port per array; a line write sets data, tag, dirty and valid of one way
-  always_ff @(posedge clk) begin
-    if (tw.line_en) data_q[tw.set][tw.way] <= tw.data;
-  end
-  always_ff @(posedge clk) begin
-    if (tw.line_en) tag_q[tw.set][tw.way] <= tw.tag;
-  end
-  always_ff @(posedge clk) begin
-    if (tw.line_en) dirty_q[tw.set][tw.way] <= tw.dirty;
-  end
-  always_ff @(posedge clk) begin
-    if (tw.line_en)     pf_q[tw.set][tw.way] <= tw.pf;
-    else if (tw.pf_clr) pf_q[tw.set][tw.way] <= 1'b0;
-  end
-  always_ff @(posedge clk) begin
-    if (tw.line_en) valid_q[tw.set][tw.way] <= 1'b1;
-  end
-  always_ff @(posedge clk) begin
-    if (tw.repl_en) repl_q[tw.set] <= tw.repl;
+  wire [WAYS-1:0] way_mask = WAYS'(1) << tw.way;
+
+  // Data & tag SRAM banks: one 1R1W SRAM per way
+  for (genvar w = 0; w < WAYS; w++) begin : g_way
+    wire way_we = tw.line_en && (tw.way == WB'(w));
+
+    ttg_sram_1r1w #(
+      .DEPTH      (SETS),
+      .WIDTH      (512),
+      .MASK_W     (1),
+      .WRITE_FIRST(1'b1),
+      .TAG        ("LLC_DATA")
+    ) u_data_sram (
+      .clk  (clk),
+      .re   (pv_q[1]),
+      .raddr(p2_q),
+      .rdata(lk_line[w]),
+      .we   (way_we),
+      .waddr(tw.set),
+      .wdata(tw.data),
+      .wmask(1'b1)
+    );
+
+    ttg_sram_1r1w #(
+      .DEPTH      (SETS),
+      .WIDTH      (TAGW),
+      .MASK_W     (1),
+      .WRITE_FIRST(1'b1),
+      .TAG        ("LLC_TAG")
+    ) u_tag_sram (
+      .clk  (clk),
+      .re   (pv_q[1]),
+      .raddr(p2_q),
+      .rdata(lk_t[w]),
+      .we   (way_we),
+      .waddr(tw.set),
+      .wdata(tw.tag),
+      .wmask(1'b1)
+    );
   end
 
-  // asynchronous read of the registered index
-  assign lk_ok   = pv_q[2];
-  assign lk_v    = valid_q[p3_q];
-  assign lk_d    = dirty_q[p3_q];
-  assign lk_pf   = pf_q[p3_q];
-  assign lk_repl = repl_q[p3_q];
-  always_comb begin
-    for (int w = 0; w < WAYS; w++) begin
-      lk_t[w]    = tag_q[p3_q][w];
-      lk_line[w] = data_q[p3_q][w];
-    end
-  end
+  // Per-set metadata SRAMs (valid / dirty / pf with per-way bit mask, plus SRRIP repl)
+  ttg_sram_1r1w #(
+    .DEPTH      (SETS),
+    .WIDTH      (WAYS),
+    .MASK_W     (WAYS),
+    .WRITE_FIRST(1'b1),
+    .TAG        ("LLC_VALID")
+  ) u_valid_sram (
+    .clk  (clk),
+    .re   (pv_q[1]),
+    .raddr(p2_q),
+    .rdata(lk_v),
+    .we   (tw.line_en),
+    .waddr(tw.set),
+    .wdata({WAYS{1'b1}}),
+    .wmask(way_mask)
+  );
+
+  ttg_sram_1r1w #(
+    .DEPTH      (SETS),
+    .WIDTH      (WAYS),
+    .MASK_W     (WAYS),
+    .WRITE_FIRST(1'b1),
+    .TAG        ("LLC_DIRTY")
+  ) u_dirty_sram (
+    .clk  (clk),
+    .re   (pv_q[1]),
+    .raddr(p2_q),
+    .rdata(lk_d),
+    .we   (tw.line_en),
+    .waddr(tw.set),
+    .wdata({WAYS{tw.dirty}}),
+    .wmask(way_mask)
+  );
+
+  ttg_sram_1r1w #(
+    .DEPTH      (SETS),
+    .WIDTH      (WAYS),
+    .MASK_W     (WAYS),
+    .WRITE_FIRST(1'b1),
+    .TAG        ("LLC_PF")
+  ) u_pf_sram (
+    .clk  (clk),
+    .re   (pv_q[1]),
+    .raddr(p2_q),
+    .rdata(lk_pf),
+    .we   (tw.line_en || tw.pf_clr),
+    .waddr(tw.set),
+    .wdata({WAYS{tw.line_en ? tw.pf : 1'b0}}),
+    .wmask(way_mask)
+  );
+
+  ttg_sram_1r1w #(
+    .DEPTH      (SETS),
+    .WIDTH      (RB),
+    .MASK_W     (1),
+    .WRITE_FIRST(1'b1),
+    .TAG        ("LLC_REPL")
+  ) u_repl_sram (
+    .clk  (clk),
+    .re   (pv_q[1]),
+    .raddr(p2_q),
+    .rdata(lk_repl),
+    .we   (tw.repl_en),
+    .waddr(tw.set),
+    .wdata(tw.repl),
+    .wmask(1'b1)
+  );
+
+  assign lk_ok = pv_q[2];
 endmodule
 
 `default_nettype wire

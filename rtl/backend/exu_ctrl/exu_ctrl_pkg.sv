@@ -351,5 +351,32 @@ package exu_ctrl_pkg;
     logic                     is_w;            // word load (flw data is NaN-boxed)
   } xc_lsu_wb_t;
 
+  // One register write-back lane sent from EXU to PRF (WB_LANES total).
+  typedef struct packed {
+    logic                     valid;
+    logic [PRF_IDX_WIDTH-1:0] dest_preg;
+    logic [XLEN_BITS-1:0]     result;
+    logic [FW-1:0]            fresult;
+    logic [ROB_IDX_WIDTH-1:0] rob_idx;
+    logic                     rob_flag;
+    logic                     dest_en;
+    xc_op_t                   op;
+  } xc_prf_wb_t;
+
+  // One completion report sent from EXU to ROB (ISSUE_WIDTH total).
+  typedef struct packed {
+    logic                     valid;
+    logic [ROB_IDX_WIDTH-1:0] rob_idx;
+    xc_op_t                   op;
+    logic [XLEN_BITS-1:0]     result;
+    logic                     br_taken;
+    logic                     page_fault_load;
+    logic                     page_fault_store;
+    logic                     rob_defer;
+    logic                     flush_pipe;
+    logic [FFLAGS_W-1:0]      fflags;
+    logic                     illegal;
+  } xc_rob_wb_t;
+
 endpackage
 `default_nettype wire

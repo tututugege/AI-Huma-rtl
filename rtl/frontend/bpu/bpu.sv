@@ -1,4 +1,4 @@
-// Ref: front-end/BPU/BPU_pipe.h & BpuFtb.h  (block-based 2-taken 1-Ahead A + 2-Ahead B FTB BPU, EXP-051)
+// Ref: front-end/BPU/BPU_pipe.h & BpuFtb.h  (block-based 2-taken 1-Ahead A + 2-Ahead B FTB BPU, strict sync 1R1W SRAMs)
 `default_nettype none
 
 module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; import bpu_types_pkg::*; (
@@ -9,9 +9,10 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
   input  logic                refetch_pd,
   input  logic                icache_read_ready,
   input  logic [7:0]          ptab_size,
-  // repair information of a back-end branch mispredict (looks up internal rec_q[256] by rf_blk)
+  // repair information of a back-end branch mispredict (looks up 2-bank sync SRAM rec_q[256] pre-launched from next_rf_blk)
   input  logic                rf_valid,
   input  logic [FTB_BLK_ID_W-1:0] rf_blk,
+  input  logic [FTB_BLK_ID_W-1:0] next_rf_blk,
   input  logic [2:0]          rf_type,
   input  logic [XLEN_BITS-1:0] rf_pc,
   input  logic                rf_is_rvc,
@@ -63,17 +64,27 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
   output logic [3:0]          commit_tq_free
 );
 
+  typedef struct packed {
+    logic                 valid;
+    logic [XLEN_BITS-1:0] key_base;
+    fh_t                  key_fh;
+  } ah_meta_t;
+
   // ---- Pipeline registers ----
   logic [XLEN_BITS-1:0]    pc_q, pc_d;
   blk_t                    r0_q, r0_d, r1_q, r1_d;
   ftb_ix_t                 r0_ix_q, r1_ix_q, r0_ix_b_q, r1_ix_b_q;
   ex_tage_ix_t             r0_ex_ix_q, r1_ex_ix_q, r0_ex_ix_b_q, r1_ex_ix_b_q;
   sc_ix_t                  r0_sc_ix_q, r0_sc_ix_b_q;
-  ftb_s1_raw_t             r1_raw_q, r1_raw_b_q;
-  ftb_ah_pipe_t            ah_pipe_q  [2];
-  ftb_ah_pipe_t            ah_pipe_d  [2];
-  ftb_ah_raw_t             ah2_pipe_q [2];
-  ftb_ah_raw_t             ah2_pipe_d [2];
+  // S1 -> S2 only registers Main FTB A result (S2 TAGE/SC/ITT & FTB1 B arrive directly from sync SRAMs at S2!)
+  logic                    r1_ftb_hit_q;
+  ftb_ent_t                r1_ftb_ent_q;
+  // 1-Ahead / 2-Ahead metadata + single backup copy for ovr rollback (entry 0 raw lives directly in sync SRAM output!)
+  ah_meta_t                ah_meta_q [2];
+  ah_meta_t                ah_meta_d [2];
+  ftb_ah_raw_t             ah_bak_raw_q, ah_bak_raw_d;
+  ftb_ah_raw_t             ah2_bak_raw_q, ah2_bak_raw_d;
+  logic                    ah_use_bak_q, ah_use_bak_d;
   logic [EPOCH_W-1:0]      epoch_q, epoch_d;
   logic [FTB_BLK_ID_W-1:0] blk_seq_q, blk_seq_d;
 
@@ -89,21 +100,12 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
   logic [XLEN_BITS-1:0] ah_rd_base;
   fh_t                 ah_rd_fh;
 
-  localparam bit FAST    = (FE_RFAST & 1) != 0 || FE_BFAST != 0;
-  localparam bit REFONLY = FAST && (FE_BFAST & 3) == 0;
-
   always_comb begin
-    s0_base         = FAST ? pc1 : pc_q;
-    s0_ck           = FAST ? spec1_ck : spec_ck;
-    s0_ras_nonempty = FAST ? spec1_ras_nonempty : spec_ras_nonempty;
-    s0_ras_top      = FAST ? spec1_ras_top : spec_ras_top;
-    s0_fh           = FAST ? spec1_fh : spec_fh;
-    if (REFONLY && !refetch) begin
-      s0_ck           = spec_ck;
-      s0_ras_nonempty = spec_ras_nonempty;
-      s0_ras_top      = spec_ras_top;
-      s0_fh           = spec_fh;
-    end
+    s0_base         = pc1;
+    s0_ck           = refetch ? spec1_ck           : spec_ck;
+    s0_ras_nonempty = refetch ? spec1_ras_nonempty : spec_ras_nonempty;
+    s0_ras_top      = refetch ? spec1_ras_top      : spec_ras_top;
+    s0_fh           = refetch ? spec1_fh           : spec_fh;
     s0_bnd     = block_bnd(s0_base);
     s0_ix      = ftb_make_index(s0_base, s0_fh);
     s0_ex_ix   = ftb_make_ex_tage_index(s0_base, s0_ck.h.ex_fh);
@@ -118,29 +120,42 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
   ck_t  pd_ck;
   logic [XLEN_BITS-1:0] pd_base;
 
-  // ---- Internal rec_q[256] for back-end branch mispredict repair (matches BpuPipe::rec_[256]) ----
-  logic [FTB_RF_REC_W-1:0] rf_rd_a [1];
-  bpu_rf_rec_t             rf_rd_d [1];
-  logic                    rf_we   [2];
-  logic [FTB_RF_REC_W-1:0] rf_wa   [2];
-  bpu_rf_rec_t             rf_wd   [2];
+  // ---- Internal rec_q[256] as 2 even/odd banks of 128 x strict sync 1R1W SRAM (pre-launched from next_rf_blk) ----
+  localparam int RF_BDEPTH = FTB_RF_REC_N / 2;
+  localparam int RF_BAW    = FTB_RF_REC_W - 1;
+  localparam int RF_BITS   = $bits(bpu_rf_rec_t);
+
+  logic                    rf_bk_re [2];
+  logic [RF_BAW-1:0]       rf_bk_ra [2];
+  logic [RF_BITS-1:0]      rf_bk_rd [2];
+  logic                    rf_bk_we [2];
+  logic [RF_BAW-1:0]       rf_bk_wa [2];
+  logic [RF_BITS-1:0]      rf_bk_wd [2];
   logic [FTB_BLK_ID_W-1:0] seq1;
-  bpu_rf_rec_t             rf_rc;
+  bpu_rf_rec_t             rf_wd0, rf_wd1, rf_rc;
   logic                    rf_carried;
   logic [XLEN_BITS-1:0]    rf_rslot;
 
   assign seq1 = blk_seq_q + FTB_BLK_ID_W'(1);
 
   always_comb begin
-    rf_rd_a[0] = rf_blk[FTB_RF_REC_W-1:0];
-    rf_we[0]   = d_valid;
-    rf_wa[0]   = blk_seq_q[FTB_RF_REC_W-1:0];
-    rf_wd[0]   = '{valid: 1'b1, id: blk_seq_q, epoch: epoch_q, base: r1_q.base, ck: r1_q.ck};
-    rf_we[1]   = d_pair;
-    rf_wa[1]   = seq1[FTB_RF_REC_W-1:0];
-    rf_wd[1]   = '{valid: 1'b1, id: seq1, epoch: epoch_q, base: r1_q.base_b, ck: r1_q.ck_b};
+    rf_wd0 = '{valid: 1'b1, id: blk_seq_q, epoch: epoch_q, base: r1_q.base,   ck: r1_q.ck};
+    rf_wd1 = '{valid: 1'b1, id: seq1,      epoch: epoch_q, base: r1_q.base_b, ck: r1_q.ck_b};
 
-    rf_rc      = rf_rd_d[0];
+    rf_bk_re[0] = !next_rf_blk[0];
+    rf_bk_re[1] =  next_rf_blk[0];
+    rf_bk_ra[0] = next_rf_blk[FTB_RF_REC_W-1:1];
+    rf_bk_ra[1] = next_rf_blk[FTB_RF_REC_W-1:1];
+
+    rf_bk_we[0] = (d_valid && !blk_seq_q[0]) || (d_pair && !seq1[0]);
+    rf_bk_wa[0] = (d_valid && !blk_seq_q[0]) ? blk_seq_q[FTB_RF_REC_W-1:1] : seq1[FTB_RF_REC_W-1:1];
+    rf_bk_wd[0] = (d_valid && !blk_seq_q[0]) ? RF_BITS'(rf_wd0)            : RF_BITS'(rf_wd1);
+
+    rf_bk_we[1] = (d_valid &&  blk_seq_q[0]) || (d_pair &&  seq1[0]);
+    rf_bk_wa[1] = (d_valid &&  blk_seq_q[0]) ? blk_seq_q[FTB_RF_REC_W-1:1] : seq1[FTB_RF_REC_W-1:1];
+    rf_bk_wd[1] = (d_valid &&  blk_seq_q[0]) ? RF_BITS'(rf_wd0)            : RF_BITS'(rf_wd1);
+
+    rf_rc      = rf_blk[0] ? bpu_rf_rec_t'(rf_bk_rd[1]) : bpu_rf_rec_t'(rf_bk_rd[0]);
     rf_carried = rf_rc.valid && ((rf_pc + XLEN_BITS'(SLOT_BYTES)) == rf_rc.base);
     rf_rslot   = rf_carried ? '0 : ((rf_pc - rf_rc.base) >> SLOT_SHIFT);
     rep_ok_in  = rf_valid && rf_rc.valid && (rf_rc.id == rf_blk) && (rf_rc.epoch == epoch_q) &&
@@ -148,11 +163,39 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
                  (rf_carried || ((rf_rc.base + (rf_rslot << SLOT_SHIFT)) == rf_pc));
   end
 
-  bpu_mem #(.W($bits(bpu_rf_rec_t)), .DEPTH(FTB_RF_REC_N), .N_RD(1), .N_WR(2), .T(bpu_rf_rec_t)) u_rf_rec (
-    .clk, .rst_n, .rd_addr(rf_rd_a), .rd_data(rf_rd_d), .wr_en(rf_we), .wr_addr(rf_wa), .wr_data(rf_wd)
-  );
+  for (genvar bk = 0; bk < 2; bk++) begin : g_rf_bk
+    ttg_sram_1r1w #(
+      .DEPTH      (RF_BDEPTH),
+      .WIDTH      (RF_BITS),
+      .MASK_W     (1),
+      .WRITE_FIRST(1'b1),
+      .TAG        ("BPU_RF_REC")
+    ) u_rf_rec (
+      .clk  (clk),
+      .re   (rf_bk_re[bk]),
+      .raddr(rf_bk_ra[bk]),
+      .rdata(rf_bk_rd[bk]),
+      .we   (rf_bk_we[bk]),
+      .waddr(rf_bk_wa[bk]),
+      .wdata(rf_bk_wd[bk]),
+      .wmask(1'b1)
+    );
+  end
 
-  // ---- Commit branch queue + ftb_rec (1R2W, BRQ_W=1) ----
+`ifndef SYNTHESIS
+  logic [FTB_RF_REC_W-1:0] dbg_rf_id_q;
+  always_ff @(posedge clk) begin
+    if (!rst_n) dbg_rf_id_q <= '0;
+    else        dbg_rf_id_q <= next_rf_blk[FTB_RF_REC_W-1:0];
+  end
+  always_ff @(posedge clk) begin
+    if (rst_n && rf_valid && (dbg_rf_id_q != rf_blk[FTB_RF_REC_W-1:0]))
+      $error("bpu: u_rf_rec pre-launch mismatch latched=%0h actual=%0h",
+             dbg_rf_id_q, rf_blk[FTB_RF_REC_W-1:0]);
+  end
+`endif
+
+  // ---- Commit branch queue + ftb_rec (2-bank sync SRAM, BRQ_W=1) ----
   logic                    upd_en, upd_ah_v, upd_ah_kind;
   logic [XLEN_BITS-1:0]    upd_start, upd_ah_key_base, upd_ah_a_base, upd_pc;
   fh_t                     upd_fh, upd_ah_key_fh;
@@ -193,29 +236,55 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
     .commit_upd_free, .commit_tq_free
   );
 
-  // ---- Predictor arrays ----
+  // ---- Predictor arrays (strict sync 1R1W SRAMs) ----
   logic             ftb0_hit, ftb0_b_hit, ah_prefer_alt, ah2_prefer_alt;
   logic [15:0][3:0] s2_use_alt;
   logic [15:0][5:0] s2_sc_thres;
   ftb_ent_t         ftb0_ent, ftb0_b_ent;
-  ftb_ah_raw_t      ah_rd_raw, ah2_rd_raw;
-  ftb_s1_raw_t      s1_raw, s1_b_raw;
+  ftb_ah_raw_t      ah_sram_raw, ah2_sram_raw;
+  logic             s1_ftb_hit, s2_b_ftb_hit;
+  ftb_ent_t         s1_ftb_ent, s2_b_ftb_ent;
+  ex_tage_raw_t     s2_tage_raw, s2_b_tage_raw;
+  sc_raw_t          s2_sc_raw, s2_b_sc_raw;
+  ftb_itt_raw_t     s2_itt_raw, s2_b_itt_raw;
   logic [XLEN_BITS-1:0] clr_base_eff;
 
   assign clr_base_eff = (pd_nb_base != '0) ? pd_nb_base : pd_base;
 
   bpu_ftb_arrays u_arrays (
     .clk, .rst_n,
-    .s0_base, .s0_b_base, .ah_rd_base, .ah_rd_ix,
+    .s0_base, .s0_b_base, .ah_rd_en(s0_go), .ah_rd_base, .ah_rd_ix,
     .ftb0_hit, .ftb0_ent, .ftb0_b_hit, .ftb0_b_ent,
-    .ah_rd_raw, .ah2_rd_raw, .ah_prefer_alt, .ah2_prefer_alt,
+    .ah_sram_raw, .ah2_sram_raw, .ah_prefer_alt, .ah2_prefer_alt,
     .s1_base(r0_q.base), .s1_ix(r0_ix_q), .s1_ex_ix(r0_ex_ix_q), .s1_sc_ix(r0_sc_ix_q),
-    .s1_b_base(r0_q.base_b), .s1_b_ix(r0_ix_b_q), .s1_b_ex_ix(r0_ex_ix_b_q), .s1_b_sc_ix(r0_sc_ix_b_q),
-    .s1_raw, .s1_b_raw, .s2_use_alt, .s2_sc_thres,
+    .s1_b_base(r0_q.base_b), .s2_b_base(r1_q.base_b), .s1_b_ix(r0_ix_b_q), .s1_b_ex_ix(r0_ex_ix_b_q), .s1_b_sc_ix(r0_sc_ix_b_q),
+    .s1_ftb_hit, .s1_ftb_ent, .s2_b_ftb_hit, .s2_b_ftb_ent,
+    .s2_tage_raw, .s2_sc_raw, .s2_itt_raw,
+    .s2_b_tage_raw, .s2_b_sc_raw, .s2_b_itt_raw,
+    .s2_use_alt, .s2_sc_thres,
     .upd_en, .upd_start, .upd_ix, .upd_ex_ix, .upd_sc_ix,
     .upd_ah_v, .upd_ah_kind, .upd_ah_key_base, .upd_ah_a_base, .upd_ah_ix, .upd_br,
     .clr_en(pd_valid && pd_nb_valid && pdq_have), .clr_base(clr_base_eff), .clr_pc(pd_nb_pc)
   );
+
+  // ---- Assemble effective S0 ahead, S1, and S2 raw structs directly from sync SRAM outputs ----
+  ftb_ah_pipe_t ah_pipe0;
+  ftb_ah_raw_t  ah2_pipe0;
+  ftb_s1_raw_t  s1_raw_eval, s2_raw_eval, s2_b_raw_eval;
+
+  always_comb begin
+    ah_pipe0  = '{
+      valid:    ah_meta_q[0].valid,
+      key_base: ah_meta_q[0].key_base,
+      key_fh:   ah_meta_q[0].key_fh,
+      raw:      ah_use_bak_q ? ah_bak_raw_q : ah_sram_raw
+    };
+    ah2_pipe0 = ah_use_bak_q ? ah2_bak_raw_q : ah2_sram_raw;
+
+    s1_raw_eval   = '{ftb_hit: s1_ftb_hit,   ent: s1_ftb_ent,   s2_tage_raw: '0,           s2_sc_raw: '0,         itt_raw: '0};
+    s2_raw_eval   = '{ftb_hit: r1_ftb_hit_q, ent: r1_ftb_ent_q, s2_tage_raw: s2_tage_raw,  s2_sc_raw: s2_sc_raw,  itt_raw: s2_itt_raw};
+    s2_b_raw_eval = '{ftb_hit: s2_b_ftb_hit, ent: s2_b_ftb_ent, s2_tage_raw: s2_b_tage_raw, s2_sc_raw: s2_b_sc_raw, itt_raw: s2_b_itt_raw};
+  end
 
   // ---- S0 / S1 / S2 evaluation & merged PTAB metadata ----
   logic                 ah_src_v, ah_hit, s0_paired;
@@ -227,11 +296,12 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
     .refetch,
     .s0_base, .s0_bnd, .s0_fh, .s0_ras_nonempty, .s0_ras_top,
     .spec_a_fh, .spec_a_ras_nonempty, .spec_a_ras_top,
-    .ah_pipe0(ah_pipe_q[0]), .ah2_pipe0(ah2_pipe_q[0]),
+    .ah_pipe0, .ah2_pipe0,
     .ftb0_hit, .ftb0_ent, .ftb0_b_hit, .ftb0_b_ent,
     .ah_prefer_alt, .ah2_prefer_alt,
     .r0_q, .r1_q, .r1_ix_q, .r1_ix_b_q, .r1_ex_ix_q, .r1_ex_ix_b_q,
-    .s1_raw, .r1_raw_q, .r1_raw_b_q, .s2_use_alt, .s2_sc_thres,
+    .s1_raw(s1_raw_eval), .r1_raw_q(s2_raw_eval), .r1_raw_b_q(s2_b_raw_eval),
+    .s2_use_alt, .s2_sc_thres,
     .d_pair, .blk_seq_q,
     .ah_src_v, .ah_hit, .g0, .s0_b_base, .s0_b_bnd, .s0_a_len, .s0_b_len, .g0_b, .s0_paired,
     .s0_b_ix, .ah_rd_base, .ah_rd_fh, .ah_rd_ix,
@@ -294,8 +364,8 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
     r0_d.valid         = s0_go;
     r0_d.ah_v          = ah_src_v;
     r0_d.ah_hit        = ah_hit;
-    r0_d.ah_key_base   = ah_pipe_q[0].key_base;
-    r0_d.ah_key_fh     = ah_pipe_q[0].key_fh;
+    r0_d.ah_key_base   = ah_meta_q[0].key_base;
+    r0_d.ah_key_fh     = ah_meta_q[0].key_fh;
     r0_d.base          = s0_base;
     r0_d.g             = g0;
     r0_d.ck            = s0_ck;
@@ -307,8 +377,8 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
     r0_d.g_b           = g0_b;
     r0_d.ck_b          = spec_a_ck;
     r0_d.ah_v_b        = ah_src_v;
-    r0_d.ah_key_base_b = ah_pipe_q[0].key_base;
-    r0_d.ah_key_fh_b   = ah_pipe_q[0].key_fh;
+    r0_d.ah_key_base_b = ah_meta_q[0].key_base;
+    r0_d.ah_key_fh_b   = ah_meta_q[0].key_fh;
 
     r1_d       = r0_q;
     r1_d.valid = r0_q.valid && !refetch && !ovr;
@@ -323,37 +393,38 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
   end
 
   always_comb begin
-    ah_pipe_d[0]  = ah_pipe_q[0];
-    ah_pipe_d[1]  = ah_pipe_q[1];
-    ah2_pipe_d[0] = ah2_pipe_q[0];
-    ah2_pipe_d[1] = ah2_pipe_q[1];
+    ah_meta_d[0]  = ah_meta_q[0];
+    ah_meta_d[1]  = ah_meta_q[1];
+    ah_bak_raw_d  = ah_bak_raw_q;
+    ah2_bak_raw_d = ah2_bak_raw_q;
+    ah_use_bak_d  = ah_use_bak_q;
+
     if (refetch) begin
-      ah_pipe_d[0].valid = 1'b0;
-      ah_pipe_d[1].valid = 1'b0;
+      ah_meta_d[0].valid = 1'b0;
+      ah_meta_d[1].valid = 1'b0;
       if (s0_go) begin
-        ah_pipe_d[0].valid    = 1'b1;
-        ah_pipe_d[0].key_base = ah_rd_base;
-        ah_pipe_d[0].key_fh   = ah_rd_fh;
-        ah_pipe_d[0].raw      = ah_rd_raw;
-        ah2_pipe_d[0]         = ah2_rd_raw;
+        ah_meta_d[0].valid    = 1'b1;
+        ah_meta_d[0].key_base = ah_rd_base;
+        ah_meta_d[0].key_fh   = ah_rd_fh;
+        ah_use_bak_d          = 1'b0;
       end
     end else if (ovr) begin
-      if (ah_pipe_q[1].valid && (ah_pipe_q[1].key_base == d_obase)) begin
-        ah_pipe_d[0]       = ah_pipe_q[1];
-        ah2_pipe_d[0]      = ah2_pipe_q[1];
-        ah_pipe_d[1].valid = 1'b0;
-      end else if (!(ah_pipe_q[0].valid && (ah_pipe_q[0].key_base == d_obase))) begin
-        ah_pipe_d[0].valid = 1'b0;
-        ah_pipe_d[1].valid = 1'b0;
+      if (ah_meta_q[1].valid && (ah_meta_q[1].key_base == d_obase)) begin
+        ah_meta_d[0]       = ah_meta_q[1];
+        ah_meta_d[1].valid = 1'b0;
+        ah_use_bak_d       = 1'b1;
+      end else if (!(ah_meta_q[0].valid && (ah_meta_q[0].key_base == d_obase))) begin
+        ah_meta_d[0].valid = 1'b0;
+        ah_meta_d[1].valid = 1'b0;
       end
     end else if (s0_go) begin
-      ah_pipe_d[1]          = ah_pipe_q[0];
-      ah2_pipe_d[1]         = ah2_pipe_q[0];
-      ah_pipe_d[0].valid    = 1'b1;
-      ah_pipe_d[0].key_base = ah_rd_base;
-      ah_pipe_d[0].key_fh   = ah_rd_fh;
-      ah_pipe_d[0].raw      = ah_rd_raw;
-      ah2_pipe_d[0]         = ah2_rd_raw;
+      ah_meta_d[1]          = ah_meta_q[0];
+      ah_bak_raw_d          = ah_pipe0.raw;
+      ah2_bak_raw_d         = ah2_pipe0;
+      ah_meta_d[0].valid    = 1'b1;
+      ah_meta_d[0].key_base = ah_rd_base;
+      ah_meta_d[0].key_fh   = ah_rd_fh;
+      ah_use_bak_d          = 1'b0;
     end
   end
 
@@ -364,18 +435,18 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
       r1_q               <= '0;
       epoch_q            <= '0;
       blk_seq_q          <= '0;
-      ah_pipe_q[0].valid <= 1'b0;
-      ah_pipe_q[1].valid <= 1'b0;
+      ah_meta_q[0].valid <= 1'b0;
+      ah_meta_q[1].valid <= 1'b0;
+      ah_use_bak_q       <= 1'b0;
     end else begin
       pc_q          <= pc_d;
       r0_q          <= r0_d;
       r1_q          <= r1_d;
       epoch_q       <= epoch_d;
       blk_seq_q     <= blk_seq_d;
-      ah_pipe_q[0]  <= ah_pipe_d[0];
-      ah_pipe_q[1]  <= ah_pipe_d[1];
-      ah2_pipe_q[0] <= ah2_pipe_d[0];
-      ah2_pipe_q[1] <= ah2_pipe_d[1];
+      ah_meta_q[0]  <= ah_meta_d[0];
+      ah_meta_q[1]  <= ah_meta_d[1];
+      ah_use_bak_q  <= ah_use_bak_d;
     end
   end
 
@@ -390,8 +461,10 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
     r1_ex_ix_b_q <= r0_ex_ix_b_q;
     r0_sc_ix_q   <= s0_sc_ix;
     r0_sc_ix_b_q <= s0_b_sc_ix;
-    r1_raw_q     <= s1_raw;
-    r1_raw_b_q   <= s1_b_raw;
+    r1_ftb_hit_q <= s1_ftb_hit;
+    r1_ftb_ent_q <= s1_ftb_ent;
+    ah_bak_raw_q  <= ah_bak_raw_d;
+    ah2_bak_raw_q <= ah2_bak_raw_d;
   end
 
   assign icache_read_valid          = s0_go;
@@ -413,7 +486,7 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
   logic unused_ok;
   assign unused_ok = ^{g0.ty, g0_b.slot, g0_b.ty, g0_b.rvc, g0_b.carried, g1.slot, g1.ty, g1.rvc, g1.carried,
                        fin.slot, fin.ty, fin.rvc, fin.carried, fin_b.slot, fin_b.ty, fin_b.rvc, fin_b.carried,
-                       fast, ovr_b, spec_ck.h.head, pc1, upd_pc};
+                       fast, ovr_b, spec_ck.h.head, pc1, upd_pc, next_rf_blk};
   /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

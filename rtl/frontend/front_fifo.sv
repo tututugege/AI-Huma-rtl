@@ -15,8 +15,7 @@ module front_fifo #(
   parameter int DEPTH   = 16,
   parameter int W       = 32,
   parameter int FULL_AT = DEPTH,
-  parameter bit WR_AFTER_DROP = 1'b0,   // FE_BFAST: a push in the cycle of a drop_tail takes the slot of the dropped entry
-  parameter bit BYPASS        = 1'b0    // FE_RFAST bit1: a push into an empty queue is visible on the read port the same cycle
+  parameter bit BYPASS  = 1'b0    // push into an empty queue is visible on the read port the same cycle (PTAB)
 ) (
   input  logic         clk,
   input  logic         rst_n,
@@ -27,6 +26,7 @@ module front_fifo #(
   input  logic [W-1:0] wdata,
   output logic         rd_valid,
   output logic [W-1:0] rdata,
+  output logic [W-1:0] next_rdata,
   output logic         full,
   output logic         empty,
   output logic [$clog2(DEPTH + 1)-1:0] size,    // START-of-cycle occupancy
@@ -64,6 +64,7 @@ module front_fifo #(
     wr_ptr_d          = wr_ptr_q - PTR_W'(drop_eff) + PTR_W'(wr_en);
     // after a clear the queue is empty, so the read pointer meets the write pointer (a push lands on the head)
     rd_ptr_d          = clear ? wr_ptr_q : rd_ptr_q + PTR_W'(rd_valid);
+    next_rdata        = (wr_en && (wr_ptr_q == rd_ptr_d)) ? wdata : mem_q[rd_ptr_d];
   end
 
   always_ff @(posedge clk) begin
@@ -84,15 +85,13 @@ module front_fifo #(
   always_ff @(posedge clk) begin
     if (!rst_n) fresh_v_q <= 1'b0;
     else        fresh_v_q <= wr_en;
-    fresh_slot_q <= WR_AFTER_DROP ? wr_ptr_q - PTR_W'(drop_eff) : wr_ptr_q;
+    fresh_slot_q <= wr_ptr_q;
   end
   assign head_fresh = fresh_v_q && !empty && (fresh_slot_q == rd_ptr_q);
 
   // Storage: written like a memory (no reset: only entries between rd_ptr and wr_ptr are ever read as valid data)
-  logic [PTR_W-1:0] wr_slot;
-  assign wr_slot = WR_AFTER_DROP ? wr_ptr_q - PTR_W'(drop_eff) : wr_ptr_q;
   always_ff @(posedge clk) begin
-    if (wr_en) mem_q[wr_slot] <= wdata;
+    if (wr_en) mem_q[wr_ptr_q] <= wdata;
   end
 
 `ifndef SYNTHESIS

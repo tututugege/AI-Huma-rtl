@@ -79,10 +79,6 @@ module bpu_cmd import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*
   output logic [1:0]  g0_i_op
 );
 
-  localparam bit FAST    = (FE_RFAST & 1) != 0 || FE_BFAST != 0;
-  localparam bit BFANY   = (FE_BFAST & 3) != 0;
-  localparam bit REFONLY = FAST && !BFANY;
-
   localparam logic [1:0] M_HOLD = 2'd0;
   localparam logic [1:0] M_PUSH = 2'd1;
   localparam logic [1:0] M_CK   = 2'd2;
@@ -121,7 +117,7 @@ module bpu_cmd import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*
       h_mode = M_CK; h_ck = o_ck.h; h_push_n = o_out.taken ? 2'd1 : 2'd0; h_push_bits = {3'd0, o_out.hbits};
     end else if (l1_ov) begin
       h_mode = M_CK; h_ck = r0.ck.h; h_push_n = g1.taken ? 2'd1 : 2'd0; h_push_bits = {3'd0, g1.hbits};
-    end else if (issue && !BFANY) begin
+    end else if (issue) begin
       h_mode = M_PUSH; h_push_n = g0.taken ? 2'd1 : 2'd0; h_push_bits = {3'd0, g0.hbits};
     end
   end
@@ -143,16 +139,16 @@ module bpu_cmd import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*
       r_mode = M_CK; r_ck = o_ck.r; r_op = o_out.ras_op; r_val = o_out.ras_val;
     end else if (l1_ov) begin
       r_mode = M_CK; r_ck = r0.ck.r; r_op = g1.ras_op; r_val = g1.ras_val;
-    end else if (issue && !BFANY) begin
+    end else if (issue) begin
       r_mode = M_PUSH; r_op = g0.ras_op; r_val = g0.ras_val;
     end
   end
 
-  // S0 Block A push (after refetch / BFANY command)
+  // S0 Block A push (after refetch command)
   always_comb begin
-    h2_en   = (BFANY ? s0_go : (REFONLY && refetch && s0_go)) && g0.taken;
+    h2_en   = refetch && s0_go && g0.taken;
     h2_bits = g0.hbits;
-    r2_op   = (BFANY ? s0_go : (REFONLY && refetch && s0_go)) ? g0.ras_op : 2'd0;
+    r2_op   = (refetch && s0_go) ? g0.ras_op : 2'd0;
     r2_val  = g0.ras_val;
   end
 
@@ -165,26 +161,16 @@ module bpu_cmd import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*
   end
 
   // Ref: comb: pc1 (before S0 A/B) and pc_d (after S0 A/B)
-  logic [XLEN_BITS-1:0] pc1_raw;
   always_comb begin
-    pc1_raw = pc;
-    if (refetch)      pc1_raw = refetch_address;
-    else if (ovr)     pc1_raw = o_out.next;
-    else if (l1_ov)   pc1_raw = g1.next;
-    pc1 = REFONLY ? (refetch ? refetch_address : pc) : pc1_raw;
+    pc1 = refetch ? refetch_address : pc;
   end
 
   always_comb begin
-    pc_d = pc1_raw;
-    if (BFANY) begin
-      if (s0_go) pc_d = s0_next;
-    end else if (REFONLY && refetch) begin
-      pc_d = s0_go ? s0_next : refetch_address;
-    end else begin
-      if (ovr)         pc_d = o_out.next;
-      else if (l1_ov)  pc_d = g1.next;
-      if (issue)       pc_d = s0_next;
-    end
+    if (refetch)    pc_d = s0_go ? s0_next : refetch_address;
+    else if (issue) pc_d = s0_next;
+    else if (ovr)   pc_d = o_out.next;
+    else if (l1_ov) pc_d = g1.next;
+    else            pc_d = pc;
   end
 
   // refetch-only command (no dependence on S2 / S1 decisions)
@@ -223,7 +209,7 @@ module bpu_cmd import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*
     end else if (l1_ov) begin
       i_ck  = r0.ck.imli;
       i1_op = imli_op_of(g1.ty, g1.taken, r0.base, g1.next, 1'b0);
-    end else if (issue && !BFANY) begin
+    end else if (issue) begin
       i1_op = g0_i_op;
     end
 
@@ -237,7 +223,7 @@ module bpu_cmd import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*
       ir1_op = imli_op_of(rf_type, rf_taken, rf_pc, refetch_address, 1'b1);
     end
 
-    i2_op = (BFANY ? s0_go : (REFONLY && refetch && s0_go)) ? g0_i_op : 2'd0;
+    i2_op = (refetch && s0_go) ? g0_i_op : 2'd0;
     i3_op = (s0_go && s0_paired) ? imli_op_of(g0_b.ty, g0_b.taken, s0_b_base, g0_b.next, 1'b0) : 2'd0;
   end
 

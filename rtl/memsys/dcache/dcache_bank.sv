@@ -1,20 +1,22 @@
 `default_nettype none
 // Ref: MemSubSystem/DcacheConfig.cpp  Dcache_Read/Dcache_Write/write_dcache_line
-// One of the 16 DCache banks (bank = set & 15): 16 rows x 4 ways of tag/valid/dirty/data + 16 PLRU words.  One
-// asynchronous read port (address = row); synchronous write ports: line fill (1), store word write (NST), PLRU
-// (NSLOT+1).  The parent guarantees at most one requester per bank per tick (bank grant of dcache_s1), so the
-// ports never collide.
+// One of the 16 DCache banks (bank = set & 15): 16 rows x 4 ways of tag/valid/dirty/data + 16 PLRU words.
+// Tag and data arrays use standalone synchronous 1R1W SRAMs (ttg_sram_1r1w with WRITE_FIRST=1), launched at the
+// S1->S2 clock edge via (sram_re, sram_rrow) so outputs arrive in S2 with 0-cycle latency change.
 module dcache_bank
   import dcache_pkg::*;
 (
   input  logic                 clk,
   input  logic                 rst_n,
-  // read port (data of the state at the start of the tick)
+  // synchronous SRAM read launch (from S1, arrives at next cycle S2)
+  input  logic                 sram_re,
+  input  logic [ROW_W-1:0]     sram_rrow,
+  // control-bit read port (current S2 row)
   input  logic [ROW_W-1:0]     rd_row,
   output logic [WAYS-1:0]      rd_valid,
   output logic [WAYS-1:0]      rd_dirty,
   output logic [WAYS-1:0]      rd_pf,       // line brought in by the prefetcher and not used yet (EXP-009)
-  output logic [TAG_W-1:0]    rd_tag   [WAYS],
+  output logic [TAG_W-1:0]     rd_tag   [WAYS],
   output logic [2:0]           rd_plru,
   output logic [LINE_BITS-1:0] rd_line  [WAYS],
   // line fill: valid=1, dirty=fw_dirty, tag, whole line (way already resolved by the parent)
@@ -34,8 +36,8 @@ module dcache_bank
   input  logic [ROW_W-1:0]     sw_row   [NST],
   input  logic [1:0]           sw_way   [NST],
   input  logic [WORD_W-1:0]    sw_word  [NST],
-  input  logic [DW-1:0]          sw_data  [NST],
-  input  logic [SBW-1:0]           sw_strb  [NST],
+  input  logic [DW-1:0]        sw_data  [NST],
+  input  logic [SBW-1:0]       sw_strb  [NST],
   input  st2_t                 sw_l2    [NST],     // second word of the same row (merged store): same bank, same way
   // PLRU word write (later ports win)
   input  logic [NSLOT:0]       pl_en,
@@ -43,21 +45,19 @@ module dcache_bank
   input  logic [2:0]           pl_bits  [NSLOT+1]
 );
 
-  logic [ROWS-1:0]     valid_q [WAYS];
-  logic [ROWS-1:0]     dirty_q [WAYS];
-  logic [ROWS-1:0]     pf_q    [WAYS];
-  logic [2:0]          plru_q  [ROWS];
-  logic [TAG_W-1:0]    tag_q   [WAYS][ROWS];
-  logic [LINE_BITS-1:0] data_q [WAYS][ROWS];
+  localparam int LINE_BYTES = LINE_BITS / 8;
+
+  logic [ROWS-1:0] valid_q [WAYS];
+  logic [ROWS-1:0] dirty_q [WAYS];
+  logic [ROWS-1:0] pf_q    [WAYS];
+  logic [2:0]      plru_q  [ROWS];
 
   for (genvar w = 0; w < WAYS; w++) begin : g_rd
     assign rd_valid[w] = valid_q[w][rd_row];
     assign rd_dirty[w] = dirty_q[w][rd_row];
     assign rd_pf[w]    = pf_q[w][rd_row];
-    assign rd_tag[w]   = tag_q[w][rd_row];
-    assign rd_line[w]  = data_q[w][rd_row];
   end
-  assign rd_plru   = plru_q[rd_row];
+  assign rd_plru = plru_q[rd_row];
 
   // control bits: reset to the C++ init() state (all invalid / clean / PLRU 0)
   always_ff @(posedge clk) begin
@@ -80,20 +80,79 @@ module dcache_bank
     end
   end
 
-  // tag/data content is not reset: it is only observable through valid (set by the fill that writes it)
-  always_ff @(posedge clk) begin
-    for (int p = 0; p < NST; p++)
-      for (int b = 0; b < SBW; b++)
-        if (sw_en[p] && sw_strb[p][b])
-          data_q[sw_way[p]][sw_row[p]][(32'(sw_word[p]) * DW) + 32'(8 * b) +: 8] <= sw_data[p][8*b +: 8];
-    for (int p = 0; p < NST; p++)
-      for (int b = 0; b < SBW; b++)
-        if (sw_en[p] && sw_l2[p].strb[b])
-          data_q[sw_way[p]][sw_row[p]][(32'(sw_l2[p].word) * DW) + 32'(8 * b) +: 8] <= sw_l2[p].data[8*b +: 8];
-    if (fw_en) begin
-      tag_q[fw_way][fw_row]  <= fw_tag;
-      data_q[fw_way][fw_row] <= fw_data;
+  // Tag & Data synchronous 1R1W SRAMs (one pair per way; bank grant guarantees <= 1 writer per bank per tick)
+  for (genvar w = 0; w < WAYS; w++) begin : g_sram
+    logic                  tag_we, data_we;
+    logic [ROW_W-1:0]      data_waddr;
+    logic [LINE_BITS-1:0]  data_wdata;
+    logic [LINE_BYTES-1:0] data_wmask;
+
+    assign tag_we = fw_en && (fw_way == 2'(w));
+
+    always_comb begin
+      data_we    = 1'b0;
+      data_waddr = '0;
+      data_wdata = '0;
+      data_wmask = '0;
+      for (int p = 0; p < NST; p++) begin
+        if (sw_en[p] && (sw_way[p] == 2'(w))) begin
+          data_we    = 1'b1;
+          data_waddr = sw_row[p];
+          for (int b = 0; b < SBW; b++) begin
+            if (sw_strb[p][b]) begin
+              data_wdata[(32'(sw_word[p]) * DW) + 32'(8 * b) +: 8] = sw_data[p][8 * b +: 8];
+              data_wmask[(32'(sw_word[p]) * SBW) + 32'(b)]         = 1'b1;
+            end
+          end
+          for (int b = 0; b < SBW; b++) begin
+            if (sw_l2[p].strb[b]) begin
+              data_wdata[(32'(sw_l2[p].word) * DW) + 32'(8 * b) +: 8] = sw_l2[p].data[8 * b +: 8];
+              data_wmask[(32'(sw_l2[p].word) * SBW) + 32'(b)]         = 1'b1;
+            end
+          end
+        end
+      end
+      if (fw_en && (fw_way == 2'(w))) begin
+        data_we    = 1'b1;
+        data_waddr = fw_row;
+        data_wdata = fw_data;
+        data_wmask = {LINE_BYTES{1'b1}};
+      end
     end
+
+    ttg_sram_1r1w #(
+      .DEPTH      (ROWS),
+      .WIDTH      (TAG_W),
+      .MASK_W     (1),
+      .WRITE_FIRST(1'b1),
+      .TAG        ("DCACHE_TAG")
+    ) u_tag_sram (
+      .clk  (clk),
+      .re   (sram_re),
+      .raddr(sram_rrow),
+      .rdata(rd_tag[w]),
+      .we   (tag_we),
+      .waddr(fw_row),
+      .wdata(fw_tag),
+      .wmask(1'b1)
+    );
+
+    ttg_sram_1r1w #(
+      .DEPTH      (ROWS),
+      .WIDTH      (LINE_BITS),
+      .MASK_W     (LINE_BYTES),
+      .WRITE_FIRST(1'b1),
+      .TAG        ("DCACHE_DATA")
+    ) u_data_sram (
+      .clk  (clk),
+      .re   (sram_re),
+      .raddr(sram_rrow),
+      .rdata(rd_line[w]),
+      .we   (data_we),
+      .waddr(data_waddr),
+      .wdata(data_wdata),
+      .wmask(data_wmask)
+    );
   end
 
 endmodule

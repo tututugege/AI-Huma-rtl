@@ -78,16 +78,12 @@ module lp_ldq
   output logic [LQ-1:0]       l2_ok,
   output logic [LQ-1:0]       rs_ok,
   output logic [XLEN_BITS-1:0]         res_v [LQ],
-  output logic [LQ-1:0]       wbp3,
   output logic [LQ-1:0]       pipe_r,
   output logic [LQ-1:0]       wb3_r,
   output logic [LQ-1:0]       wbp_r,
   output logic [LQ-1:0]       wbp_m,
   output logic [NLD-1:0]      ag_acc,
-  output logic [LQ-1:0]       pipe5,
-  output logic [LQ-1:0]       pipe8,
   output logic [LQ-1:0]       dead_r,
-  output logic [LQ-1:0]       empty8,
   output logic [EPW-1:0]      epoch_nx [LQ],
   output logic [LQ-1:0]       rdy9,
   output logic                mi_v,
@@ -121,17 +117,13 @@ module lp_ldq
     for (int e = 0; e < LQ; e++) ag_acc = ag_acc | ag_acc_e[e];
   end
 
-  // LP_L2[8]: wake-up of the STLF load that parks at L2b in this cycle (purely registered pl2b -> zero CAM on lp_wk!)
+  // Wake-up of the STLF load that parks at L2b in this cycle (purely registered pl2b -> zero CAM on lp_wk)
   lp_wk_t l2w [NLD];
   for (genvar p = 0; p < NLD; p++) begin : g_l2w
-    if ((LP_L2 & 256) != 0) begin : g_on
-      lp_wk u_wk (.cause(3'(l2b_dec[p].cause)), .blk(pl2b[p].cand), .wt(l2b_dec[p].wait_c[lsu_pkg::OW-1:0]),
-                  .l_voff(pl2b[p].voff), .l_paddr(pl2b[p].paddr), .l_func3(pl2b[p].func3), .ev_sta(ev_sta),
-                  .ev_data(ev_data), .ev_ret(ev_ret), .ev_sc(ev_sc), .alive_post(alive_post),
-                  .sta_info(sta_info), .sdw(sdw), .o(l2w[p]));
-    end else begin : g_off
-      assign l2w[p] = '0;
-    end
+    lp_wk u_wk (.cause(3'(l2b_dec[p].cause)), .blk(pl2b[p].cand), .wt(l2b_dec[p].wait_c[lsu_pkg::OW-1:0]),
+                .l_voff(pl2b[p].voff), .l_paddr(pl2b[p].paddr), .l_func3(pl2b[p].func3), .ev_sta(ev_sta),
+                .ev_data(ev_data), .ev_ret(ev_ret), .ev_sc(ev_sc), .alive_post(alive_post),
+                .sta_info(sta_info), .sdw(sdw), .o(l2w[p]));
   end
 
   for (genvar e = 0; e < LQ; e++) begin : g_e
@@ -198,7 +190,7 @@ module lp_ldq
       .l2_v(l2_v), .l2_ep(l2_ep), .l2_dec(l2_dec_e), .l2_ok(l2_ok[e]),
       .rs_v(rs_v), .rs_ep(rs_ep), .rs_hit(rs_hit_e), .rs_rep(rs_rep_e), .rs_raw(rs_raw_e), .rs_busy(rs_busy_e),
       .rs_ok(rs_ok[e]),
-      .wb_go(wb_go[e]), .wb_go_d(wb_go_d[e]), .wb_d_data(wb_d_data), .st3_wbp(wbp3[e]), .pipe_r(pipe_r[e]),
+      .wb_go(wb_go[e]), .wb_go_d(wb_go_d[e]), .wb_d_data(wb_d_data), .pipe_r(pipe_r[e]),
       .wb3_r(wb3_r[e]), .wbp_r(wbp_r[e]),
       .wbp_m(wbp_m[e]), .res_v(res_v[e]),
       .head_tag(head_tag), .count_q(count_q), .unk_any(unk_any), .unk_rank(unk_rank), .sa_v(sa_v),
@@ -209,8 +201,7 @@ module lp_ldq
       .rb_head_rob_idx(rb_head_rob_idx), .stq_head_tag(stq_head_tag), .unc_busy(unc_busy),
       .mmw_ok(mmw_ok[e]), .mi_pick(mi_oh[e]),
       .dis(dis),
-      .l1_tgt(l1_tgt), .l1_launch(l1_launch), .pipe5(pipe5[e]), .dead_r(dead_r[e]),
-      .empty8(empty8[e]), .pipe8(pipe8[e]),
+      .l1_tgt(l1_tgt), .l1_launch(l1_launch), .dead_r(dead_r[e]),
       .epoch_nx(epoch_nx[e]),
       .ev_sta(ev_sta), .ev_data(ev_data), .ev_ret(ev_ret), .ev_sc(ev_sc), .alive_post(alive_post),
       .sta_info(sta_info), .sdw(sdw), .fill_v(fill_v), .fill_line(fill_line), .l2w(l2w_e), .full_ok(full_ok[e]),

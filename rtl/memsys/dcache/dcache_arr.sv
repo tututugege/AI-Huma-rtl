@@ -10,6 +10,11 @@ module dcache_arr
 (
   input  logic                 clk,
   input  logic                 rst_n,
+  // S1 synchronous SRAM read launch (for next cycle's S2 lookup)
+  input  logic [NSLOT-1:0]     s1_rd_en,
+  input  logic [SET_W-1:0]     s1_rd_set [NSLOT],
+  input  logic                 s1_fs_en,
+  input  logic [SET_W-1:0]     s1_fs_set,
   // slot reads: tag/valid + one word per way + PLRU of the slot's set
   input  logic [NSLOT-1:0]     rd_en,
   input  logic [31:0]          rd_addr   [NSLOT],
@@ -47,15 +52,19 @@ module dcache_arr
 );
 
   // ---- requester -> bank mapping ----
-  logic [NSLOT:0]    req_en;
-  logic [SET_W-1:0]  req_set [NSLOT+1];
+  logic [NSLOT:0]    req_en, s1_req_en;
+  logic [SET_W-1:0]  req_set [NSLOT+1], s1_req_set [NSLOT+1];
   always_comb begin
     for (int k = 0; k < NSLOT; k++) begin
-      req_en[k]  = rd_en[k];
-      req_set[k] = rd_addr[k][OFF_W +: SET_W];
+      req_en[k]     = rd_en[k];
+      req_set[k]    = rd_addr[k][OFF_W +: SET_W];
+      s1_req_en[k]  = s1_rd_en[k];
+      s1_req_set[k] = s1_rd_set[k];
     end
-    req_en[NSLOT]  = fs_en;
-    req_set[NSLOT] = fs_set;
+    req_en[NSLOT]     = fs_en;
+    req_set[NSLOT]    = fs_set;
+    s1_req_en[NSLOT]  = s1_fs_en;
+    s1_req_set[NSLOT] = s1_fs_set;
   end
 
   // ---- per-bank wires ----
@@ -67,7 +76,8 @@ module dcache_arr
   logic [LINE_BITS-1:0]  b_line  [BANKS][WAYS];
 
   for (genvar b = 0; b < BANKS; b++) begin : g_bank
-    logic [ROW_W-1:0]  rd_row;
+    logic              sram_re;
+    logic [ROW_W-1:0]  sram_rrow, rd_row;
     logic              fw_en_b;
     logic [NLD-1:0]    pfc_en_b;
     logic [ROW_W-1:0]  pfc_row_b [NLD];
@@ -78,9 +88,16 @@ module dcache_arr
     logic [2:0]        pl_bits_b [NSLOT+1];
 
     always_comb begin
-      rd_row = '0;
-      for (int k = 0; k <= NSLOT; k++)
+      sram_re   = 1'b0;
+      sram_rrow = '0;
+      rd_row    = '0;
+      for (int k = 0; k <= NSLOT; k++) begin
+        if (s1_req_en[k] && s1_req_set[k][BANK_W-1:0] == BANK_W'(b)) begin
+          sram_re   = 1'b1;
+          sram_rrow = sram_rrow | s1_req_set[k][SET_W-1:BANK_W];
+        end
         if (req_en[k] && req_set[k][BANK_W-1:0] == BANK_W'(b)) rd_row = rd_row | req_set[k][SET_W-1:BANK_W];
+      end
       for (int k = 0; k < NLD; k++) begin
         pfc_en_b[k]  = pfc_en[k] && req_set[k][BANK_W-1:0] == BANK_W'(b);
         pfc_row_b[k] = req_set[k][SET_W-1:BANK_W];
@@ -103,6 +120,7 @@ module dcache_arr
 
     dcache_bank u_bank (
       .clk(clk), .rst_n(rst_n),
+      .sram_re(sram_re), .sram_rrow(sram_rrow),
       .rd_row(rd_row), .rd_valid(b_valid[b]), .rd_dirty(b_dirty[b]), .rd_pf(b_pf[b]), .rd_tag(b_tag[b]),
       .rd_plru(b_plru[b]), .rd_line(b_line[b]),
       .fw_en(fw_en_b), .fw_row(fw_set[SET_W-1:BANK_W]), .fw_way(fw_way), .fw_tag(fw_tag),

@@ -81,20 +81,38 @@ module axi_llc_bingo_pht
   logic [6:0]          phts_plru_idx;
   logic [2:0]          phtl_plru_wval, phts_plru_wval;
 
-  // 4 independent 1D 1RW SRAM banks per table (clean Yosys $mem_v2)
+  // 4 independent 1D 1RW SRAM banks per table (standalone ttg_sram_1rw primitive)
   for (genvar w = 0; w < PHT_WAYS; w++) begin : g_phtl_bank
-    logic [PHTL_W-1:0] mem_q [PHTL_SETS];
-    always_ff @(posedge clk) begin
-      if (phtl_wr_en[w]) mem_q[phtl_wr_idx] <= phtl_wr_data;
-      if (phtl_rd_en)    rd_phtl_q[w]       <= mem_q[phtl_rd_idx];
-    end
+    ttg_sram_1rw #(
+      .DEPTH (PHTL_SETS),
+      .WIDTH (PHTL_W),
+      .MASK_W(1),
+      .TAG   ("LLC_BINGO_PHTL")
+    ) u_sram (
+      .clk  (clk),
+      .en   (phtl_wr_en[w] || phtl_rd_en),
+      .we   (phtl_wr_en[w]),
+      .addr (phtl_wr_en[w] ? phtl_wr_idx : phtl_rd_idx),
+      .wdata(phtl_wr_data),
+      .wmask(1'b1),
+      .rdata(rd_phtl_q[w])
+    );
   end
   for (genvar w = 0; w < PHT_WAYS; w++) begin : g_phts_bank
-    logic [PHTS_W-1:0] mem_q [PHTS_SETS];
-    always_ff @(posedge clk) begin
-      if (phts_wr_en[w]) mem_q[phts_wr_idx] <= phts_wr_data;
-      if (phts_rd_en)    rd_phts_q[w]       <= mem_q[phts_rd_idx];
-    end
+    ttg_sram_1rw #(
+      .DEPTH (PHTS_SETS),
+      .WIDTH (PHTS_W),
+      .MASK_W(1),
+      .TAG   ("LLC_BINGO_PHTS")
+    ) u_sram (
+      .clk  (clk),
+      .en   (phts_wr_en[w] || phts_rd_en),
+      .we   (phts_wr_en[w]),
+      .addr (phts_wr_en[w] ? phts_wr_idx : phts_rd_idx),
+      .wdata(phts_wr_data),
+      .wmask(1'b1),
+      .rdata(rd_phts_q[w])
+    );
   end
 
   // Prediction decode & dense popcount

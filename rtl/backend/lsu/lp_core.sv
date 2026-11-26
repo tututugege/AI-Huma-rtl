@@ -123,7 +123,7 @@ module lp_core
   // ------------------------------------------------------------------ queue state / views
   lp_ldq_t         ldq_q [LQ];
   lp_stq_t         sq [SQ];
-  logic [LQ-1:0]   empty_w, l2_ok, rs_ok, wbp3, wbp_m, pipe_r, wb3_r, wbp_r, pipe5, pipe8, empty8, dead_r, rdy9;
+  logic [LQ-1:0]   empty_w, l2_ok, rs_ok, wbp_m, pipe_r, wb3_r, wbp_r, dead_r, rdy9;
   logic [XLEN_BITS-1:0]     res_v [LQ];
   /* verilator lint_off UNUSEDSIGNAL */
   logic [EPW-1:0]  epoch_nx [LQ];
@@ -143,7 +143,7 @@ module lp_core
   logic [11:0]     cv_voff [SQ];
   logic [2:0]      cv_f3 [SQ];
   /* verilator lint_on UNUSEDSIGNAL */
-  logic [SQ-1:0]   done_v, trp_v, d_elig, d_rdy, sd_acc;
+  logic [SQ-1:0]   trp_v, d_elig, d_rdy, sd_acc;
   lp_sta_info_t    vw [SQ];
   logic [NST-1:0]  sa_acc;
 
@@ -218,8 +218,8 @@ module lp_core
   logic            lr1_rob_flag, lr2_rob_flag;
 
   logic [LQ-1:0]   wbp_sel, pipe8_sel;
-  assign pipe8_sel = ((LP_CUT & 65536) != 0) ? ~dead_r : pipe8;
-  assign wbp_sel = ((LP_CUT & 8) != 0) ? (((LP_CUT & 131072) != 0) ? (wbp_r | wbp_m) : wbp_r) : wbp3;  // F, FM
+  assign pipe8_sel = ~dead_r;
+  assign wbp_sel   = wbp_r | wbp_m;
   lp_wb u_wb (
     .wbd_v(wbw_v), .wbd_idx(wbw_idx), .wbd_hasdata(wbw_hd), .wbd_data(wbw_data),
     .ldq_q(ldq_q), .ldq_res(res_v), .wbp_vec(wbp_sel), .sq(sq), .count_q(count_q), .head_q(head_q),
@@ -252,7 +252,7 @@ module lp_core
       ag_wait_b[i] = ldq_q[agl[i].ldq].wait_b;
     end
     for (int r = 0; r < NRP; r++) begin
-      rp_pipe[r] = ((LP_CUT & 32) != 0) ? pipe_r[rp_ldq_q[r]] : pipe5[rp_ldq_q[r]];
+      rp_pipe[r] = pipe_r[rp_ldq_q[r]];
     end
     srp_ok = alive_w[srp_stq_q] && sq[srp_stq_q].va_v && !sq[srp_stq_q].pa_v && !sq[srp_stq_q].pf;
   end
@@ -382,7 +382,7 @@ module lp_core
     .dec_rob_idx(dec_rob_idx), .dec_rob_flag(dec_rob_flag),
     .cm_valid(cm_valid), .cm_type(cm_type), .cm_amo_op(cm_amo_op), .cm_stq_idx(cm_stq_idx), .wbd_vec(wbd_vec),
     .cm_go(cm_go), .al_req(st_al_req), .al_v(al_v), .al_slot(al_slot),
-    .sq_rob_idx(sq_rob_idx), .sq_rob_flag(sq_rob_flag), .done_vec(done_v),
+    .sq_rob_idx(sq_rob_idx), .sq_rob_flag(sq_rob_flag),
     .done_q_vec(done_q_v),
     .ev_ret(ev_ret), .head_q(head_q), .head_flag_q(head_flag_q), .count_q(count_q), .ccount_q(ccount_q),
     .alive_w(alive_w), .win4(win4), .win13(win13), .alive_post(alive_post),
@@ -403,7 +403,7 @@ module lp_core
     .al_v(al_v), .al_slot(al_slot), .dis_st(dis_st),
     .dr_pick(dr_pick), .dr_fol(dr_fol), .dr_ml(dr_ml), .dr_mmio(dr_mmio), .srp_take(srp_take),
     .wb_mark(wb_mark), .wbi_v(wbi_v),
-    .sq(sq), .cv_va(cv_va), .cv_voff(cv_voff), .cv_f3(cv_f3), .vw(vw), .done_v(done_v), .trp_v(trp_v),
+    .sq(sq), .cv_va(cv_va), .cv_voff(cv_voff), .cv_f3(cv_f3), .vw(vw), .trp_v(trp_v),
     .d_elig(d_elig), .d_rdy(d_rdy), .sd_acc(sd_acc), .sa_acc(sa_acc));
 
   lp_ldq u_ldq (
@@ -421,12 +421,12 @@ module lp_core
     .rb_head_rob_idx(rb_head_rob_idx), .stq_head_tag({head_flag_q, head_q}), .unc_busy(unc_valid_post_resp),
     .dis(dis_ldw),
     .ev_sta(ev_sta_w), .ev_data(ev_data_w), .ev_ret(ev_ret), .ev_sc(ev_sc),
-    .alive_post(((LP_CUT & 1) != 0) ? alive_w : alive_post),
+    .alive_post(alive_w),
     .sta_info(sta_info_w), .sdw(sdw_w), .fill_v(fill_en), .fill_line(fill_line),
     .rp_pick(rp_pick),
-    .q_o(ldq_q), .empty_w(empty_w), .l2_ok(l2_ok), .rs_ok(rs_ok), .res_v(res_v), .wbp3(wbp3),
+    .q_o(ldq_q), .empty_w(empty_w), .l2_ok(l2_ok), .rs_ok(rs_ok), .res_v(res_v),
     .pipe_r(pipe_r), .wb3_r(wb3_r), .wbp_r(wbp_r), .wbp_m(wbp_m),
-    .ag_acc(ag_acc), .pipe5(pipe5), .pipe8(pipe8), .dead_r(dead_r), .empty8(empty8), .epoch_nx(epoch_nx), .rdy9(rdy9),
+    .ag_acc(ag_acc), .dead_r(dead_r), .epoch_nx(epoch_nx), .rdy9(rdy9),
     .mi_v(mi_v), .mi_idx(mi_idx), .mi_addr(mi_addr), .mi_func3(mi_func3));
 
   // ------------------------------------------------------------------ store drain (P13), uncached unit, reservation
@@ -454,7 +454,7 @@ module lp_core
     .idx_q(unc_idx_q), .addr_q(unc_addr_q), .wdata_q(unc_wdata_q), .func3_q(unc_func3_q),
     .valid_post_resp(unc_valid_post_resp),
     .ld_set(mi_v && !unc_valid_post_resp), .ld_addr(mi_addr), .ld_func3(mi_func3), .ld_idx(mi_idx),
-    .flush(rb_flush), .mispred(dec_mispred), .ld_empty(((LP_CUT & 16384) != 0) ? dead_r : empty8),
+    .flush(rb_flush), .mispred(dec_mispred), .ld_empty(dead_r),
     .st_mmw(st_mmw), .alive_flushed(alive_flushed),
     .alive_final(alive_fl), .st_set(st_set), .st_addr(st_addr), .st_wdata(st_wdata), .st_func3(st_func3),
     .st_idx(st_idx), .valid_pre_st(unc_valid_pre_st), .valid_o(unc_valid_o), .is_load_o(unc_is_load_o),
@@ -486,7 +486,7 @@ module lp_core
                  .rsv_valid_q(rsv_valid_q), .rsv_addr_q(rsv_addr_q));
 
   lp_rp u_rp (.clk(clk), .rst_n(rst_n), .rdy9(rdy9),
-              .empty8(((LP_CUT & 128) != 0) ? dead_r : empty8), .rp_cons(rp_cons), .srp_cons(srp_cons),
+              .empty8(dead_r), .rp_cons(rp_cons), .srp_cons(srp_cons),
               .trp_v(trp_v), .alive_post(alive_post), .alive_fl(alive_fl), .ldq_q(ldq_q), .rp_v_q(rp_v_q),
               .rp_ldq_q(rp_ldq_q), .rp_f_q(rp_f_q), .rp_pick(rp_pick), .srp_v_q(srp_v_q), .srp_stq_q(srp_stq_q), .srp_take(srp_take));
 

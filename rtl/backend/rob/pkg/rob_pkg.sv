@@ -49,21 +49,18 @@ package rob_pkg;
   localparam logic [CPLT_W-1:0] CPLT_G1 = CPLT_W'(2);
   localparam logic [CPLT_W-1:0] CPLT_G2 = CPLT_W'(4);
 
-  // One ROB slot payload == RobStoredInst without dbg (valid is kept next to it, see rob_entry).
+  // One ROB slot payload (slimmer than RobStoredInst: diag_val moved to FTQ + single oldest_trap reg,
+  // imm/src1_areg compressed to 1b is_ret, func7 compressed to 1b is_amo_lr, rob_idx implicit from ENTRY_IDX).
   typedef struct packed {
-    logic [ROB_XLEN-1:0]           diag_val;
     logic [AREG_IDX_WIDTH-1:0] dest_areg;
-    logic [AREG_IDX_WIDTH-1:0] src1_areg;
     logic                      dest_fp;     // F/D: FP destination (commit sets mstatus.FS dirty)
     logic                      dest_en;
     logic [FTQ_IDX_WIDTH-1:0]  ftq_idx;
     logic [FTQ_OFFSET_WIDTH-1:0] ftq_offset;
     logic                      ftq_is_last;
-    logic                      mispred;
     logic                      br_taken;
-    logic [FUNC7_W-1:0]        func7;
-    logic [31:0]               imm;
-    logic [ROB_IDX_WIDTH-1:0]  rob_idx;
+    logic                      is_ret;      // jalr x0, 0(ra): pre-decoded for BPU commit training
+    logic                      is_amo_lr;   // func7[6:2] == AMO_LR: pre-decoded for LSU STQ commit
     logic                      rob_flag;
     logic [STQ_IDX_WIDTH-1:0]  stq_idx;
     logic                      stq_flag;
@@ -84,10 +81,8 @@ package rob_pkg;
   // One EXU write-back port (ExuRobIO::ExuRobEntry).
   typedef struct packed {
     logic                     valid;
-    logic [ROB_XLEN-1:0]          diag_val;
-    logic [ROB_XLEN-1:0]          result;
+    logic [ROB_XLEN-1:0]      result;
     logic [ROB_IDX_WIDTH-1:0] rob_idx;
-    logic                     mispred;
     logic                     br_taken;
     logic                     pf_inst;
     logic                     pf_load;
@@ -100,19 +95,16 @@ package rob_pkg;
     logic [UOP_TYPE_W-1:0]    op;
   } rob_wb_t;
 
-  // What one write-back port does to the slot it addresses (precomputed per port, see rob_make_event).
+  // What one write-back port does to the slot it addresses (precomputed per port, no 64-bit payload).
   typedef struct packed {
     logic                     valid;
     logic [ROB_IDX_WIDTH-1:0] rob_idx;
     logic [CPLT_W-1:0]        cplt_bit;
-    logic                     diag_we;
-    logic [ROB_XLEN-1:0]          diag_val;
     logic                     pf_inst;
     logic                     pf_load;
     logic                     pf_store;
     logic                     sta_clr_load;  // STA port with fault: drop pf_load if the slot has pf_store (AMO)
     logic                     br_we;
-    logic                     br_mispred;
     logic                     br_taken;
     logic                     flush_pipe;
     logic                     illegal;
@@ -173,14 +165,11 @@ package rob_pkg;
     ev.valid = wb.valid & ~wb.defer;   // a deferred write-back changes nothing in the slot
     ev.rob_idx = wb.rob_idx;
     ev.cplt_bit = cplt_bit;
-    ev.diag_we = mem_port | is_br;
-    ev.diag_val = (is_br | ~has_pf) ? wb.diag_val : wb.result;  // branch uop overrides; fault: result carries the tval
     ev.pf_inst = mem_port & wb.pf_inst;
     ev.pf_load = mem_port & wb.pf_load;
     ev.pf_store = mem_port & wb.pf_store;
     ev.sta_clr_load = is_sta & has_pf;
     ev.br_we = is_br;
-    ev.br_mispred = wb.mispred;
     ev.br_taken = wb.br_taken;
     ev.flush_pipe = wb.flush_pipe;
     ev.illegal = wb.illegal;
@@ -193,7 +182,6 @@ package rob_pkg;
     rob_entry_t nxt;
     nxt = cur;
     nxt.pend_mask = cur.pend_mask & ~ev.cplt_bit;
-    if (ev.diag_we) nxt.diag_val = ev.diag_val;
     nxt.pf_inst = cur.pf_inst | ev.pf_inst;
     nxt.pf_load = cur.pf_load | ev.pf_load;
     nxt.pf_store = cur.pf_store | ev.pf_store;
@@ -204,7 +192,6 @@ package rob_pkg;
     nxt.fflags = cur.fflags | ev.fflags;
     if (ev.sta_clr_load && nxt.pf_store) nxt.pf_load = 1'b0;
     if (ev.br_we) begin
-      nxt.mispred = ev.br_mispred;
       nxt.br_taken = ev.br_taken;
     end
     return nxt;

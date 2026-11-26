@@ -9,6 +9,11 @@ depth: 197 层 / 410,093 单元（Yosys 整块 `bpu`）；**TSMC 28nm HPC+ DC `s
 
 # bpu 设计文档（块级 2-Taken + 1-Ahead A / 2-Ahead B + S2 8 表长历史 TAGE & SC，EXP-067）
 
+> **2026-11-26 `rtl/area-opt` 全阵列严格 1 拍同步 1R1W SRAM 化（删除 `ttg_sram_rf` / `bpu_mem`）**：
+> - 新增 `bpu_sram_sync.sv`（按端口 `WF_MASK` 例化 `N_RD` 份严格同步 1R1W `ttg_sram_1r1w`，共享单写口，完整支持 `SRAM_BLACKBOX`）；仅保留极小 S0 `u_ftb0`（64×4 ≈ 8 KiB）为本地 FF 阵列以支撑 S0→S0 零周期环路；
+> - **预测零周期变化**：1-Ahead A / 2-Ahead B 与 S2 `u_s2_tage` / `u_s2_sc` / `u_s2_itt` / `u_ftb1` Block B 以 `WRITE_FIRST=0`（READ_FIRST）同步直驱 S0/S2（删除整份 `ah_pipe_q[0].raw` / `ah2_pipe_q[0]` 与 `r1_raw_q` / `r1_raw_b_q` 的 S2 原始寄存阵列，`ovr` 回滚由 1-bit `ah_use_bak_q` 多路切换单份备份）；`u_ftb1` Block A 在 `T-1` 拍以 `s0_base` + `WRITE_FIRST=1` 预发起；`u_rec`（512 项）与 `u_rf_rec`（256 项）拆为偶/奇双 bank 严格 1R1W SRAM（`brq_d[head_d]` 与 `next_rf_blk` 预发起，0 写冲突，附 SVA 预发起校验）；
+> - **提交训练严格 2 级同步 RMW（`T0 → T1`）**：T0 以 `WRITE_FIRST=1` 同步读出各表（`u_s2_sc` 同步前递 `T1→T0` LHT 更新），T1 改写并统一经单写口回写；`u_ftb1` 预译码清槽（`clr_en`）通过 1 项 `clr_pend_q` 与 `upd_en` 仲裁复用单写口；`u_uhi` 周期复位在 1/2048 复位拍优先占用单写口；同步对齐 `trace-model` `BPU_pipe.h` / `BpuFtb.h` / `BpuSc.h`；删除 `bpu_pkg.sv` 中 22 个 pre-FTB 死定义。
+>
 > **EXP-067 S2 预测器升级（零 S0/S1 关键路径影响）**：
 > - **S2 8 表长历史 Block-TAGE（`bpu_ftb_ex_tage.sv`）**：将 S2 `s2_tage` 升级为 8 张几何历史表（`EX_TN=8`，长度 `{5, 11, 22, 44, 89, 178, 356, 712}`，每表 `4096 × 4` 槽，11-bit tag，修复 `weak = (cnt==3 || cnt==4)` + 16 项 per-PC `use_alt`），复用原生 1024-bit `HistRing` 并增量维护折叠历史 `ex_fh[3][8]`（提交态 `arch_sr_q` 同步拓宽至 720-bit）；1-Ahead A / 2-Ahead B 与 ITT 保持原 4 表 `fh[3][4]` 不变；
 > - **S2 统计校正器（`bpu_ftb_sc.sv`）**：在 S2 新增硬件忠实版 SC（`Bias 64×4-way` + 4 张全局 `GEHL 512`（历史 `{4, 10, 20, 40}`，`sc_fh[4]`）+ `IMLI 256`（8-bit 饱和后向条件循环计数器）+ `Local 256` + `LHT 64×10b` + 16 项动态阈值 `thres`）；S1 同步读出全部 7 路原始表项（含 4 路 `bias`）寄存至 S2，S2 仅做 4:1 多路选择 + 7 项加法与阈值比较；提交侧与 `s2_tage` 共享单分支端口（`BRQ_W=1`，live pred）。

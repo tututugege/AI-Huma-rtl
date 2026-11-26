@@ -17,12 +17,18 @@ module icache_arr import icache_pkg::*; (
   input  logic [IC_IDX_W-1:0]     rd_index,
   input  logic                    cmp_valid,
   input  logic [IC_TAG_W-1:0]     cmp_tag,
+  // Next-cycle VIPT set indices for strict 1-cycle synchronous Data SRAM pre-launch
+  input  logic [IC_IDX_W-1:0]     next_rd_index,
+  input  logic [IC_IDX_W-1:0]     next_b_rd_index,
   output logic                    hit,
   output logic [IC_LINE_W-1:0]    hit_line,
   output logic                    has_invalid,
   output logic [IC_WAY_W-1:0]     first_invalid,
   output logic [IC_WAY_W-1:0]     repl_way,
   // Port B (paired Block B parallel read, with same-cycle demand refill forwarding)
+  /* verilator lint_off UNUSEDSIGNAL */  // used by simulation assertion only
+  input  logic                    b_rd_valid,
+  /* verilator lint_on UNUSEDSIGNAL */
   input  logic [IC_IDX_W-1:0]     b_rd_index,
   input  logic [IC_TAG_W-1:0]     b_cmp_tag,
   output logic                    b_hit,
@@ -50,26 +56,29 @@ module icache_arr import icache_pkg::*; (
   localparam int IC_BSETS  = IC_SETS / IC_BANKS;
   localparam int IC_BROW_W = IC_IDX_W - IC_BK_W;
 
-  // Physical 4-bank arrays: data_q is strictly 1R1W per bank
-  logic [IC_LINE_W-1:0] data_q  [IC_BANKS][IC_WAYS][IC_BSETS];
+  // Physical 4-bank arrays: data banks use strict synchronous 1R1W SRAM (ttg_sram_1r1w, WRITE_FIRST=1)
   logic [IC_TAG_W-1:0]  tag_q   [IC_BANKS][IC_WAYS][IC_BSETS];
   logic [IC_BSETS-1:0]  valid_q [IC_BANKS][IC_WAYS];
   logic [IC_RB-1:0]     repl_q  [IC_SETS];
 
-  logic [IC_BK_W-1:0]   a_bk, b_bk, fp_bk, fw_bk, eff_w_bk;
-  logic [IC_BROW_W-1:0] a_row, b_row, fp_row, fw_row, eff_w_row;
+  logic [IC_BK_W-1:0]   a_bk, b_bk, fp_bk, fw_bk, eff_w_bk, next_a_bk, next_b_bk;
+  logic [IC_BROW_W-1:0] a_row, b_row, fp_row, fw_row, eff_w_row, next_a_row, next_b_row;
 
-  assign a_bk   = rd_index[IC_BK_W-1:0];
-  assign a_row  = rd_index[IC_IDX_W-1:IC_BK_W];
-  assign b_bk   = b_rd_index[IC_BK_W-1:0];
-  assign b_row  = b_rd_index[IC_IDX_W-1:IC_BK_W];
-  assign fp_bk  = fdip_peek_index[IC_BK_W-1:0];
-  assign fp_row = fdip_peek_index[IC_IDX_W-1:IC_BK_W];
-  assign fw_bk  = fdip_w_index[IC_BK_W-1:0];
-  assign fw_row = fdip_w_index[IC_IDX_W-1:IC_BK_W];
+  assign a_bk       = rd_index[IC_BK_W-1:0];
+  assign a_row      = rd_index[IC_IDX_W-1:IC_BK_W];
+  assign b_bk       = b_rd_index[IC_BK_W-1:0];
+  assign b_row      = b_rd_index[IC_IDX_W-1:IC_BK_W];
+  assign next_a_bk  = next_rd_index[IC_BK_W-1:0];
+  assign next_a_row = next_rd_index[IC_IDX_W-1:IC_BK_W];
+  assign next_b_bk  = next_b_rd_index[IC_BK_W-1:0];
+  assign next_b_row = next_b_rd_index[IC_IDX_W-1:IC_BK_W];
+  assign fp_bk      = fdip_peek_index[IC_BK_W-1:0];
+  assign fp_row     = fdip_peek_index[IC_IDX_W-1:IC_BK_W];
+  assign fw_bk      = fdip_w_index[IC_BK_W-1:0];
+  assign fw_row     = fdip_w_index[IC_IDX_W-1:IC_BK_W];
 
-  // Single read row per bank: Port A takes its bank when rd_en, Port B uses its own bank in parallel
-  logic [IC_BROW_W-1:0] bk_rrow  [IC_BANKS];
+  // Single read row per bank: Port A takes its bank, Port B takes its bank in parallel
+  logic [IC_BROW_W-1:0] bk_rrow [IC_BANKS], next_bk_rrow [IC_BANKS];
   logic [IC_LINE_W-1:0] bk_rdata [IC_BANKS][IC_WAYS];
   logic [IC_TAG_W-1:0]  bk_rtag  [IC_BANKS][IC_WAYS];
   logic [IC_WAYS-1:0]   bk_rval  [IC_BANKS];
@@ -100,27 +109,66 @@ module icache_arr import icache_pkg::*; (
   assign eff_w_row = eff_w_index[IC_IDX_W-1:IC_BK_W];
 
   for (genvar bk = 0; bk < IC_BANKS; bk++) begin : g_bank
-    assign bk_rrow[bk] = (rd_en && (a_bk == IC_BK_W'(bk))) ? a_row : b_row;
+    assign bk_rrow[bk]      = (rd_en && (a_bk == IC_BK_W'(bk))) ? a_row : b_row;
+    assign next_bk_rrow[bk] = (next_a_bk == IC_BK_W'(bk)) ? next_a_row : next_b_row;
     for (genvar w = 0; w < IC_WAYS; w++) begin : g_way
-      assign bk_rdata[bk][w] = data_q[bk][w][bk_rrow[bk]];
-      assign bk_rtag[bk][w]  = tag_q[bk][w][bk_rrow[bk]];
-      assign bk_rval[bk][w]  = valid_q[bk][w][bk_rrow[bk]];
+      logic bank_we;
+      assign bank_we = eff_we && (eff_w_bk == IC_BK_W'(bk)) && (eff_w_way == IC_WAY_W'(w));
+
+      ttg_sram_1r1w #(
+        .DEPTH      (IC_BSETS),
+        .WIDTH      (IC_LINE_W),
+        .MASK_W     (1),
+        .WRITE_FIRST(1'b1),
+        .TAG        ("ICACHE_DATA")
+      ) u_data_sram (
+        .clk  (clk),
+        .re   (1'b1),
+        .raddr(next_bk_rrow[bk]),
+        .rdata(bk_rdata[bk][w]),
+        .we   (bank_we),
+        .waddr(eff_w_row),
+        .wdata(eff_w_line),
+        .wmask(1'b1)
+      );
+
+      assign bk_rtag[bk][w] = tag_q[bk][w][bk_rrow[bk]];
+      assign bk_rval[bk][w] = valid_q[bk][w][bk_rrow[bk]];
 
       always_ff @(posedge clk) begin
-        if (eff_we && (eff_w_bk == IC_BK_W'(bk)) && (eff_w_way == IC_WAY_W'(w))) begin
-          data_q[bk][w][eff_w_row] <= eff_w_line;
-          tag_q[bk][w][eff_w_row]  <= eff_w_tag;
+        if (bank_we) begin
+          tag_q[bk][w][eff_w_row] <= eff_w_tag;
         end
       end
 
       always_ff @(posedge clk) begin
         if (!rst_n || inv_all)
           valid_q[bk][w] <= '0;
-        else if (eff_we && (eff_w_bk == IC_BK_W'(bk)) && (eff_w_way == IC_WAY_W'(w)))
+        else if (bank_we)
           valid_q[bk][w][eff_w_row] <= 1'b1;
       end
     end
   end
+
+`ifndef SYNTHESIS
+  logic [IC_BROW_W-1:0] latched_bk_row_q [IC_BANKS];
+  always_ff @(posedge clk) begin
+    for (int bk = 0; bk < IC_BANKS; bk++) latched_bk_row_q[bk] <= next_bk_rrow[bk];
+  end
+  assert property (@(posedge clk) disable iff (!rst_n)
+    !(cmp_valid && rd_en && hit_any) || (latched_bk_row_q[a_bk] == a_row));
+  assert property (@(posedge clk) disable iff (!rst_n)
+    !(b_rd_valid && b_hit_any) || (latched_bk_row_q[b_bk] == b_row));
+  /* verilator lint_off UNUSEDSIGNAL */
+  logic unused_next_b_bk;
+  assign unused_next_b_bk = ^next_b_bk;
+  /* verilator lint_on UNUSEDSIGNAL */
+`else
+  /* verilator lint_off UNUSEDSIGNAL */
+  logic unused_next_b_bk;
+  assign unused_next_b_bk = ^next_b_bk;
+  /* verilator lint_on UNUSEDSIGNAL */
+`endif
 
   for (genvar w = 0; w < IC_WAYS; w++) begin : g_mux
     logic                 b_fwd, b_v;

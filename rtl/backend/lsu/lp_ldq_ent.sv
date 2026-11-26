@@ -36,7 +36,6 @@ module lp_ldq_ent
   input  logic                wb_go,
   input  logic                wb_go_d,             // the write-back comes from the direct / L3 path (not a WBP pick)
   input  logic [XLEN_BITS-1:0]         wb_d_data,           // ... and its data (kept when the completion is deferred)
-  output logic                st3_wbp,
   output logic [XLEN_BITS-1:0]         res_v,               // result as seen by the write-back (after P2 / P3)
   // memory speculation: store-queue view (registers) for the SPD release and the violation check
   input  logic [SQW:0]        head_tag,
@@ -73,11 +72,8 @@ module lp_ldq_ent
   output logic                pipe_r,              // registered state == PIPE
   output logic                wb3_r,               // registered state == WB3 (L3 register of the port holds it)
   output logic                wbp_r,               // registered state == WBP
-  output logic                wbp_m,               // MMIO response of this cycle: MMR -> WBP (LP_CUT[17], F exemption)
-  output logic                pipe5,               // state PIPE after the AGU arrival (replay register check)
+  output logic                wbp_m,               // MMIO response of this cycle: MMR -> WBP
   output logic                dead_r,              // killed by this cycle's flush / mispredict (registered fields only)
-  output logic                empty8,              // killed / free after the flush step
-  output logic                pipe8,
   output logic [EPW-1:0]      epoch_nx,
   // P13 wake-up
   input  logic [SQ-1:0]       ev_sta,
@@ -146,7 +142,7 @@ module lp_ldq_ent
         L2_DCW:  st2 = LS_DCW;
         L2_RDY:  st2 = LS_RDY;
         L2_WBP:  st2 = LS_WBP;
-        L2_WBD:  st2 = ((LP_L2 & 1) != 0) ? LS_WB3 : st1;
+        L2_WBD:  st2 = LS_WB3;
         default: st2 = st1;
       endcase
     end
@@ -154,9 +150,8 @@ module lp_ldq_ent
     park_b = rs_ok && !rs_hit;
     st3 = st2;
     if (rs_ok && rs_hit && rs_busy) st3 = LS_WBP;
-    else if (rs_ok && rs_hit && ((LP_L2 & 1) != 0)) st3 = LS_WB3;
+    else if (rs_ok && rs_hit)       st3 = LS_WB3;
     if (park_b) st3 = LS_RPW;
-    st3_wbp = st3 == LS_WBP;
     wbp_m = mm_go && st_q == LS_MMR;
   end
 
@@ -208,7 +203,6 @@ module lp_ldq_ent
     tl_s = '0;
     for (int k = 0; k < NLD; k++) if (tl_tgt[k]) tl_s = tl[k];
     st5 = (|ag_acc) ? LS_PIPE : st4v;
-    pipe5 = st5 == LS_PIPE;
     pipe_r = st_q == LS_PIPE;
     wb3_r = st_q == LS_WB3;
     wbp_r = st_q == LS_WBP;
@@ -216,9 +210,7 @@ module lp_ldq_ent
     tl_hit = tl_s.hit;
     tl_pf = tl_s.pf;
     tl_pa = tl_s.paddr;
-    // LP_CUT[10]: an MMW entry is never written back or re-armed in P5/P6, so the registered-side state st3 decides
-    // LP_L2[5]: only entries that were already MMW at the start of the cycle are issued
-    mmw_ok = (((LP_L2 & 32) != 0) ? st_q == LS_MMW : (((LP_CUT & 1024) != 0) ? st3 == LS_MMW : st5 == LS_MMW)) &&
+    mmw_ok = (st_q == LS_MMW) &&
              (rb_hi_valid ? rb_hi_rob_idx == f_q.rob_idx
                                            : rb_head_valid && rb_head_rob_idx == f_q.rob_idx) &&
              ({f_q.snap_flag, f_q.snap_idx} == stq_head_tag) && !unc_busy;
@@ -236,12 +228,8 @@ module lp_ldq_ent
     rflg7 = al ? al_d.rob_flag : f_q.rob_flag;
     kill  = flush || (mispred && st7 != LS_EMPTY && lp_rob_younger(ridx7, rflg7, dec_rob_idx, dec_rob_flag));
     st8   = kill ? LS_EMPTY : st7;
-    empty8 = st8 == LS_EMPTY;
     dead_r = flush || (mispred && st_q != LS_EMPTY && lp_rob_younger(f_q.rob_idx, f_q.rob_flag, dec_rob_idx, dec_rob_flag));
-    pipe8 = st8 == LS_PIPE;
-    // LP_CUT[16]: an entry targeted by an L1 slot is in PIPE; only the flush kill can change that
-    epoch_nx = f_q.epoch + EPW'(al) +
-               EPW'((((LP_CUT & 65536) != 0) ? !dead_r : pipe8) && (|(l1_tgt & l1_launch)));
+    epoch_nx = f_q.epoch + EPW'(al) + EPW'(!dead_r && (|(l1_tgt & l1_launch)));
   end
 
   // ---- P13 wake-up ----
@@ -251,28 +239,20 @@ module lp_ldq_ent
   logic [XLEN_BITS-1:0]   res9;
   logic          fill_hit, wake_dc;
   lp_wk_t        wk_e, ew;
-  // LP_L2[8]: the event causes of a load parked in this cycle come from the port-level unit (no L2 decision in front of
-  // the confirm); the registered causes use the registered park information
+  // Event causes of a load parked in this cycle come from the port-level unit; registered causes use registered park info
   logic          w_port;
-  assign w_port = ((LP_L2 & 256) != 0) && park_a;
-  lp_wk u_wk (.cause(((LP_L2 & 256) != 0) ? f_q.rcause : rc3), .blk(((LP_L2 & 256) != 0) ? f_q.blk : blk3),
-              .wt(((LP_L2 & 256) != 0) ? f_q.rwait[lsu_pkg::OW-1:0] : wt3[lsu_pkg::OW-1:0]),
+  assign w_port = park_a;
+  lp_wk u_wk (.cause(f_q.rcause), .blk(f_q.blk), .wt(f_q.rwait[lsu_pkg::OW-1:0]),
               .l_voff(f_q.vaddr[11:0]), .l_paddr(f_q.paddr),
               .l_func3(f_q.func3), .ev_sta(ev_sta), .ev_data(ev_data), .ev_ret(ev_ret), .ev_sc(ev_sc),
               .alive_post(alive_post), .sta_info(sta_info), .sdw(sdw), .o(wk_e));
-  // LP_CUT[11]: the wake-up acts on entries that were parked before the flush step; st3 + the flush kill decide this
   logic rpw_a;
   always_comb begin
-    rpw_a = ((LP_CUT & 2048) != 0) ? (st3 == LS_RPW && !dead_r) : (st8 == LS_RPW);
+    rpw_a = (st3 == LS_RPW) && !dead_r;
     ew = w_port ? l2w : wk_e;
     fill_hit = fill_v && rt3 == RT_MSHR_HIT && fill_line == f_q.paddr[31 -: LINEW];
     wake_dc = fill_hit || (fill_v && rt3 == RT_MSHR_FULL && full_ok);
-    // LP_L2[4]: only loads parked at the start of the cycle compete for the MSHR-FULL wake-up (a load that gets
-    // MSHR_FULL in this very cycle waits for its counter)
-    if ((LP_L2 & 16) != 0)
-      full_cand = st_q == LS_RPW && !dead_r && f_q.rcause == 3'(RC_DC) && fill_v && f_q.rtype == RT_MSHR_FULL;
-    else
-      full_cand = rpw_a && rc3 == 3'(RC_DC) && fill_v && rt3 == RT_MSHR_FULL;
+    full_cand = (st_q == LS_RPW) && !dead_r && (f_q.rcause == 3'(RC_DC)) && fill_v && (f_q.rtype == RT_MSHR_FULL);
   end
 
   always_comb begin
@@ -297,8 +277,7 @@ module lp_ldq_ent
         default: st9 = st8;
       endcase
     end
-    // LP_CUT[2]: only RDY bits registered at the cycle start
-    rdy9 = ((LP_CUT & 4) != 0) ? (st_q == LS_RDY && !(((LP_CUT & 128) != 0) ? dead_r : kill)) : (st9 == LS_RDY);
+    rdy9 = (st_q == LS_RDY) && !dead_r;
   end
 
   // ---- registers ----

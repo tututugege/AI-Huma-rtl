@@ -82,10 +82,9 @@ module icache_kill import ttg_cfg_pkg::*; import icache_pkg::*; (
       end
       default: r_n.state = IC_IDLE;
     endcase
-    // FE_RFAST bit2: no dead cycle after a redirect: ready again at once unless it must wait for an AXI accept.  The
-    // reference model sees the accept pulse one cycle after this RTL: a kill in the cycle of the pulse is still a
-    // "ready seen, accept outstanding" kill there (CANCEL_WAIT_ACCEPT, not ready): accepted_now holds the ready back.
-    if ((FE_RFAST & 4) != 0) r_n.ifu_ready = r_n.state == IC_IDLE && !accepted_now;
+    // No dead cycle after a redirect: ready again at once unless it must wait for an AXI accept. The reference model
+    // sees the accept pulse one cycle after this RTL, so accepted_now holds ready back for one cycle.
+    r_n.ifu_ready = (r_n.state == IC_IDLE) && !accepted_now;
   end
 
 endmodule

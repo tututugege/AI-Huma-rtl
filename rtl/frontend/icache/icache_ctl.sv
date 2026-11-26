@@ -46,6 +46,8 @@ module icache_ctl import ttg_cfg_pkg::*; import icache_pkg::*; (
   input  logic [IC_WAY_W-1:0]     repl_way,
   output logic                    arr_rd_en,
   output logic [IC_IDX_W-1:0]     arr_rd_index,
+  output logic                    arr_next_req_valid,
+  output logic [IC_IDX_W-1:0]     arr_next_rd_index,
   output logic                    arr_cmp_valid,
   output logic                    tw_we,
   output logic [IC_IDX_W-1:0]     tw_index,
@@ -208,9 +210,11 @@ module icache_ctl import ttg_cfg_pkg::*; import icache_pkg::*; (
   assign unc = ic_is_uncache(r_q.ppn[IC_TAG_W-1 -: 2]);
 
   always_comb begin
-    arr_rd_en     = !refetch && (req_valid_in || r_q.req_valid);
-    arr_rd_index  = r_q.req_valid ? r_q.req_pc[11:IC_OFF_W] : pc[11:IC_OFF_W];
-    arr_cmp_valid = is_idle && !kill1 && ppn_valid && !page_fault && (r_q.req_valid || req_valid_in);
+    arr_rd_en          = !refetch && (req_valid_in || r_q.req_valid);
+    arr_rd_index       = r_q.req_valid ? r_q.req_pc[11:IC_OFF_W] : pc[11:IC_OFF_W];
+    arr_next_req_valid = r_d.req_valid;
+    arr_next_rd_index  = r_d.req_pc[11:IC_OFF_W];
+    arr_cmp_valid      = is_idle && !kill1 && ppn_valid && !page_fault && (r_q.req_valid || req_valid_in);
     inv_all       = fence_i;
     tw_we         = !kill1 && swap_tw_we;
     tw_index      = r_q.req_pc[11:IC_OFF_W];

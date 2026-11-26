@@ -29,6 +29,9 @@ module rob_core_cpt
   input  logic [3:0]                 bpu_tq_free,      // uBTB train queue: free entries at the start of the cycle
   input  logic [ROB_XLEN-1:0]            ftq_resp_pc,
   input  logic [ROB_BANK_NUM-1:0]    dis_fire,
+  input  logic [ROB_IDX_WIDTH-1:0]   dis_rob_idx [ROB_BANK_NUM],
+  input  logic [ROB_XLEN-1:0]        dis_trap_val [ROB_BANK_NUM],
+  input  logic                       csr_fs_off,
   input  rob_entry_t                 dis_uop [ROB_BANK_NUM],
   input  rob_wb_t                    wb [ISSUE_WIDTH],
   // rob2dis
@@ -43,6 +46,7 @@ module rob_core_cpt
   output logic                       rob2csr_interrupt_resp,
   // rob_commit (slot k = k-th oldest entry)
   output logic [ROB_BANK_NUM-1:0]    commit_valid,
+  output logic [ROB_IDX_WIDTH-1:0]   commit_rob_idx [ROB_BANK_NUM],
   output rob_entry_t                 commit_uop [ROB_BANK_NUM],
   // rob_bcast
   output logic                       bcast_flush,
@@ -88,6 +92,10 @@ module rob_core_cpt
   logic [NL-1:0] head_oh_q;    // one-hot head line
   logic [NB-1:0] use_next_q;   // bank b reads the line after the head line (b < head bank)
   logic [NB-1:0] hb_oh_q;      // one-hot head bank
+  // unified oldest-trap tval register (pf_load / pf_store vaddr or illegal instruction word)
+  logic                trap_v_q, trap_v_d;
+  logic [IW-1:0]       trap_idx_q, trap_idx_d;
+  logic [ROB_XLEN-1:0] trap_val_q, trap_val_d;
   // next state
   logic [IW-1:0] head_d;
   logic          hflag_d;
@@ -160,8 +168,9 @@ module rob_core_cpt
     assign w_wfi[k]      = rob_is_wfi(w_uop[k]);
     assign w_ctl[k]      = (w_uop[k].itype == ITYPE_BR) | (w_uop[k].itype == ITYPE_JAL) |
                            (w_uop[k].itype == ITYPE_JALR);
-    assign w_last[k]     = w_uop[k].ftq_is_last;
-    assign commit_uop[k] = w_uop[k];
+    assign w_last[k]         = w_uop[k].ftq_is_last;
+    assign commit_rob_idx[k] = head_q + IW'(k);
+    assign commit_uop[k]     = w_uop[k];
   end
 
   // ---- commit (Rob::comb_commit_compact) ----
@@ -231,22 +240,50 @@ module rob_core_cpt
 
   // ---- enqueue (Rob::comb_fire): Dispatch numbered the fired slots tail, tail+1, ...; bank b takes the slot
   // whose rob_idx falls in it (at most one: at most 8 consecutive entries) ----
+  logic [31:0] bank_inst_word [NB];
+  logic [31:0] bank_inst_rd   [NB];
+  logic [31:0] head_inst_word;
+
   always_comb begin
     m_fire = '0;
     for (int i = 0; i < NB; i++) m_fire = m_fire + CW'(dis_fire[i] & rob2dis_ready);
     for (int b = 0; b < NB; b++) begin
-      bank_we[b]   = 1'b0;
-      bank_uop[b]  = '0;
-      bank_line[b] = '0;
+      bank_we[b]        = 1'b0;
+      bank_uop[b]       = '0;
+      bank_line[b]      = '0;
+      bank_inst_word[b] = '0;
       for (int i = 0; i < NB; i++) begin
-        if (dis_fire[i] && rob2dis_ready && dis_uop[i].rob_idx[BW-1:0] == BW'(b)) begin
-          bank_we[b]   = 1'b1;
-          bank_uop[b]  = dis_uop[i];
-          bank_line[b] = dis_uop[i].rob_idx[IW-1:BW];
+        if (dis_fire[i] && rob2dis_ready && dis_rob_idx[i][BW-1:0] == BW'(b)) begin
+          bank_we[b]        = 1'b1;
+          bank_uop[b]       = dis_uop[i];
+          bank_line[b]      = dis_rob_idx[i][IW-1:BW];
+          bank_inst_word[b] = dis_trap_val[i][31:0];
         end
       end
     end
   end
+
+  // 8 x (32 x 32b) strict sync 1R1W SRAM storing 32-bit instruction words for illegal-instruction mtval
+  // (covers decode-time, FS=Off, and execute-time FP illegal exceptions with 0 ROB entry FF overhead).
+  for (genvar b = 0; b < NB; b++) begin : g_inst_sram
+    ttg_sram_1r1w #(
+      .DEPTH      (NL),
+      .WIDTH      (32),
+      .MASK_W     (1),
+      .WRITE_FIRST(1'b1),
+      .TAG        ("ROB_INST_WORD")
+    ) u_inst_sram (
+      .clk  (clk),
+      .re   (head_d[BW-1:0] == BW'(b)),
+      .raddr(head_d[IW-1:BW]),
+      .rdata(bank_inst_rd[b]),
+      .we   (bank_we[b]),
+      .waddr(bank_line[b]),
+      .wdata(bank_inst_word[b]),
+      .wmask(1'b1)
+    );
+  end
+  assign head_inst_word = bank_inst_rd[head_q[BW-1:0]];
 
   // ---- branch recovery (Rob::comb_branch): keep the entries up to the branch ----
   assign br_off = dec_redirect_rob_idx - head_q;
@@ -273,10 +310,77 @@ module rob_core_cpt
     end
   end
 
+  // ---- oldest pf_load / pf_store faulting-vaddr tracker (3-level binary tournament over cur + 7 LSU ports) ----
+  typedef struct packed {
+    logic                v;
+    logic [IW-1:0]       off;
+    logic [IW-1:0]       idx;
+    logic [ROB_XLEN-1:0] val;
+  } trap_cand_t;
+
+  function automatic trap_cand_t pick_older_trap(input trap_cand_t a, input trap_cand_t b);
+    if (!a.v)                return b;
+    else if (!b.v)           return a;
+    else if (b.off <= a.off) return b; // higher port (STA > LD > cur) wins ties (e.g. AMO pf_store over pf_load)
+    else                     return a;
+  endfunction
+
+  always_comb begin
+    trap_cand_t c0 [8];
+    trap_cand_t c1 [4];
+    trap_cand_t c2 [2];
+    /* verilator lint_off UNUSEDSIGNAL */
+    trap_cand_t win;
+    /* verilator lint_on UNUSEDSIGNAL */
+
+    for (int k = 0; k < 8; k++) c0[k] = '0;
+    c0[0].v   = trap_v_q && !(recover && ((trap_idx_q - head_q) > br_off));
+    c0[0].off = trap_idx_q - head_q;
+    c0[0].idx = trap_idx_q;
+    c0[0].val = trap_val_q;
+
+    for (int k = 0; k < LSU_LOAD_WB_WIDTH; k++) begin
+      logic [IW-1:0] off_p;
+      off_p = wb_ev[IQ_LD_PORT_BASE + k].rob_idx - head_q;
+      c0[1 + k].v   = wb_ev[IQ_LD_PORT_BASE + k].valid &&
+                      (wb_ev[IQ_LD_PORT_BASE + k].pf_load || wb_ev[IQ_LD_PORT_BASE + k].pf_store) &&
+                      (!recover || (off_p <= br_off));
+      c0[1 + k].off = off_p;
+      c0[1 + k].idx = wb_ev[IQ_LD_PORT_BASE + k].rob_idx;
+      c0[1 + k].val = wb[IQ_LD_PORT_BASE + k].result;
+    end
+    for (int k = 0; k < LSU_STA_COUNT; k++) begin
+      logic [IW-1:0] off_p;
+      off_p = wb_ev[IQ_STA_PORT_BASE + k].rob_idx - head_q;
+      c0[1 + LSU_LOAD_WB_WIDTH + k].v   = wb_ev[IQ_STA_PORT_BASE + k].valid &&
+                                          (wb_ev[IQ_STA_PORT_BASE + k].pf_load || wb_ev[IQ_STA_PORT_BASE + k].pf_store) &&
+                                          (!recover || (off_p <= br_off));
+      c0[1 + LSU_LOAD_WB_WIDTH + k].off = off_p;
+      c0[1 + LSU_LOAD_WB_WIDTH + k].idx = wb_ev[IQ_STA_PORT_BASE + k].rob_idx;
+      c0[1 + LSU_LOAD_WB_WIDTH + k].val = wb[IQ_STA_PORT_BASE + k].result;
+    end
+
+    for (int k = 0; k < 4; k++) c1[k] = pick_older_trap(c0[2*k], c0[2*k + 1]);
+    for (int k = 0; k < 2; k++) c2[k] = pick_older_trap(c1[2*k], c1[2*k + 1]);
+    win = pick_older_trap(c2[0], c2[1]);
+
+    if (flush_w) begin
+      trap_v_d   = 1'b0;
+      trap_idx_d = '0;
+      trap_val_d = '0;
+    end else begin
+      trap_v_d   = win.v;
+      trap_idx_d = win.idx;
+      trap_val_d = win.val;
+    end
+  end
+
   // ---- trap / flush of the single-retired head ----
   rob_trap_ctrl u_trap (
     .single_commit(single_commit), .interrupt_fire(interrupt_fire),
     .single_uop(w_uop[0]), .ftq_resp_pc(ftq_resp_pc),
+    .oldest_trap_val((trap_v_q && (trap_idx_q == head_q)) ? trap_val_q : '0),
+    .head_inst_word(head_inst_word),
     .flush(flush_w), .exception(bcast_exception), .mret(bcast_mret), .sret(bcast_sret), .ecall(bcast_ecall),
     .fence(bcast_fence), .fence_i(bcast_fence_i),
     .page_fault_inst(bcast_page_fault_inst), .page_fault_load(bcast_page_fault_load),
@@ -331,6 +435,9 @@ module rob_core_cpt
       head_oh_q  <= NL'(1);
       use_next_q <= '0;
       hb_oh_q    <= NB'(1);
+      trap_v_q   <= 1'b0;
+      trap_idx_q <= '0;
+      trap_val_q <= '0;
     end else begin
       prev_ctl_q <= ctl_c;
       prev_blk_q <= blk_c;
@@ -340,12 +447,20 @@ module rob_core_cpt
       for (int l = 0; l < NL; l++) head_oh_q[l] <= head_d[IW-1:BW] == LW'(l);
       for (int b = 0; b < NB; b++) hb_oh_q[b] <= head_d[BW-1:0] == BW'(b);
       use_next_q <= use_next_d;
+      trap_v_q   <= trap_v_d;
+      trap_idx_q <= trap_idx_d;
+      trap_val_q <= trap_val_d;
     end
   end
 
   // waiver: w_valid is the stored valid bit of the window slots; the window position (w_in) is what the logic uses
+  /* verilator lint_off UNUSEDSIGNAL */
   logic unused_ok;
-  assign unused_ok = ^w_valid;
+  always_comb begin
+    unused_ok = (^w_valid) ^ csr_fs_off;
+    for (int i = 0; i < NB; i++) unused_ok = unused_ok ^ (^dis_trap_val[i][ROB_XLEN-1:32]);
+  end
+  /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule
 
