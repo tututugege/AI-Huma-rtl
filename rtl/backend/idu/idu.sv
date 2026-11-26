@@ -1,7 +1,7 @@
 // Ref: back-end/Idu.cpp  class Idu  (comb_branch / comb_decode / comb_fire / seq)
 `default_nettype none
 
-// Idu top: pure combinational 8-wide decoder (idu_br_latch moved to back_top after EXP-068).
+// Idu top: pure combinational 8-wide decoder (back_br_redirect lives in back_top after EXP-068).
 module idu
   import ttg_cfg_pkg::*;
   import ftq_ibuf_pkg::ib_entry_t;
@@ -10,7 +10,7 @@ module idu
   // ftq_ibuf issue group
   input  logic [DECODE_WIDTH-1:0] ibuf2idu_valid,
   input  ib_entry_t               ibuf2idu_entry [DECODE_WIDTH],
-  // rename ready, ROB flush, mispredict broadcast (from back_top u_br_latch)
+  // rename ready, ROB flush, mispredict broadcast (from back_top u_br_redirect)
   input  logic                    ren2dec_ready,
   input  logic                    rob_bcast_flush,
   input  logic                    dec_bcast_mispred,

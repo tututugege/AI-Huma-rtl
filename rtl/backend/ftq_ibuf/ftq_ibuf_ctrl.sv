@@ -6,7 +6,7 @@ module ftq_ibuf_ctrl import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; (
   input  logic                      clk,
   input  logic                      rst_n,
   input  logic [BACKEND_FETCH_WIDTH-1:0] front_valid,
-  input  logic                      br_mispred,         // idu br_latch.mispred (a register in Idu)
+  input  logic                      br_mispred,         // back_br_redirect.mispred (registered in back_top)
   input  logic                      rob_flush,          // rob_bcast.flush of THIS cycle
   input  logic [FTQ_COUNT_W-1:0]    ftq_count,
   input  logic [IB_COUNT_W-1:0]     ib_count,

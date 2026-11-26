@@ -10,7 +10,8 @@
 // Port names are the core_top names with the direction flipped, so soc_top can connect the two with `.*`.
 module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::*;
 #(
-  parameter bit PF_EN = 1'b1
+  parameter bit PF_EN = 1'b1,
+  parameter bit EXT_MMIO_EN = 1'b0
 ) (
   input  logic clk,
   input  logic rst_n,
@@ -40,8 +41,13 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
   input  logic lsu2dcache_load_ports_replay [LSU_LDU_COUNT],
   input  logic [31:0] lsu2dcache_load_ports_pc [LSU_LDU_COUNT],
   input  logic [38:0] lsu2dcache_load_ports_va [LSU_LDU_COUNT],
-  output logic [LSU_LDU_COUNT-1:0] pf_xq_v, output logic [38:0] pf_xq_va [LSU_LDU_COUNT], output logic [LSU_LDU_COUNT-1:0] pf_xq_llc,
-  input  logic [2:0] pf_xq_pop, input logic [LSU_LDU_COUNT-1:0] pf_xans_v, input logic [25:0] pf_xans_line [LSU_LDU_COUNT], input logic [LSU_LDU_COUNT-1:0] pf_xans_llc,
+  output logic [LSU_LDU_COUNT-1:0] pf_xq_v,
+  output logic [38:0] pf_xq_va [LSU_LDU_COUNT],
+  output logic [LSU_LDU_COUNT-1:0] pf_xq_llc,
+  input  logic [2:0] pf_xq_pop,
+  input  logic [LSU_LDU_COUNT-1:0] pf_xans_v,
+  input  logic [25:0] pf_xans_line [LSU_LDU_COUNT],
+  input  logic [LSU_LDU_COUNT-1:0] pf_xans_llc,
   input  logic lsu2dcache_load_ports_valid [LSU_LDU_COUNT],
   input  logic [31:0] lsu2dcache_store_ports_addr [LSU_STA_COUNT],
   input  logic [XLEN_BITS-1:0] lsu2dcache_store_ports_data [LSU_STA_COUNT],
@@ -121,7 +127,21 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
   output logic d_wvalid,
   output logic [255:0] d_wdata,
   output logic [31:0] d_wstrb,
-  output logic d_wlast
+  output logic d_wlast,
+  // ---- optional external full 64-bit AXI4 MMIO master (active when EXT_MMIO_EN = 1) ----
+  input  logic mmio_arready, mmio_rvalid, mmio_rlast, mmio_awready, mmio_wready, mmio_bvalid,
+  input  logic [3:0]  mmio_rid, mmio_bid,
+  input  logic [63:0] mmio_rdata,
+  input  logic [1:0]  mmio_rresp, mmio_bresp,
+  output logic mmio_arvalid, mmio_rready, mmio_awvalid, mmio_wvalid, mmio_wlast, mmio_bready,
+  output logic mmio_arlock, mmio_awlock,
+  output logic [3:0]  mmio_arid, mmio_awid, mmio_arcache, mmio_awcache, mmio_arqos, mmio_awqos,
+  output logic [3:0]  mmio_arregion, mmio_awregion,
+  output logic [31:0] mmio_araddr, mmio_awaddr,
+  output logic [7:0]  mmio_arlen, mmio_awlen, mmio_wstrb,
+  output logic [2:0]  mmio_arsize, mmio_awsize, mmio_arprot, mmio_awprot,
+  output logic [1:0]  mmio_arburst, mmio_awburst,
+  output logic [63:0] mmio_wdata
 );
   localparam int NLD_ = LSU_LDU_COUNT;
   localparam int NST_ = LSU_STA_COUNT;
@@ -186,7 +206,8 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
     .dcache_resp_store_replay(dc_st_resp_replay),
     .dcache_resp_mshr_fill(dc_mshr_fill), .dcache_resp_mshr_fill_line(dc_mshr_fill_addr[31:6]),
     .lsu_req_load_valid(lsu2dcache_load_ports_valid), .lsu_req_load_addr(lsu2dcache_load_ports_addr),
-    .lsu_req_load_req_id(lsu2dcache_load_ports_req_id), .lsu_req_load_replay(lsu2dcache_load_ports_replay), .lsu_req_load_pc(lsu2dcache_load_ports_pc), .lsu_req_load_va(lsu2dcache_load_ports_va),
+    .lsu_req_load_req_id(lsu2dcache_load_ports_req_id), .lsu_req_load_replay(lsu2dcache_load_ports_replay),
+    .lsu_req_load_pc(lsu2dcache_load_ports_pc), .lsu_req_load_va(lsu2dcache_load_ports_va),
     .lsu_req_store_valid(lsu2dcache_store_ports_valid), .lsu_req_store_addr(lsu2dcache_store_ports_addr),
     .lsu_req_store_data(lsu2dcache_store_ports_data), .lsu_req_store_strb(lsu2dcache_store_ports_strb),
     .lsu_req_store_l2(lsu2dcache_store_ports_l2), .lsu_req_store_req_id(lsu2dcache_store_ports_req_id),
@@ -240,15 +261,11 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
   logic [PT_PERM_W-1:0] pw_c_resp_perm [PT_NCLIENT];
   logic [PT_LVL_W-1:0]  pw_c_resp_level [PT_NCLIENT];
 
-  assign pw_c_req_valid[0] = dtlb_walk_req_valid;
-  assign pw_c_req_vpn[0]   = dtlb_walk_req_vpn;
-  assign pw_c_req_root[0]  = dtlb_walk_req_root_ppn;
-  assign pw_c_consumed[0]  = dtlb_walk_resp_consumed;
+  assign pw_c_req_valid[0] = dtlb_walk_req_valid; assign pw_c_req_vpn[0] = dtlb_walk_req_vpn;
+  assign pw_c_req_root[0]  = dtlb_walk_req_root_ppn; assign pw_c_consumed[0] = dtlb_walk_resp_consumed;
   assign pw_c_flush[0]     = dtlb_walk_flush;
-  assign pw_c_req_valid[1] = itlb_walk_req_valid;
-  assign pw_c_req_vpn[1]   = itlb_walk_req_vpn;
-  assign pw_c_req_root[1]  = itlb_walk_req_root_ppn;
-  assign pw_c_consumed[1]  = itlb_walk_resp_consumed;
+  assign pw_c_req_valid[1] = itlb_walk_req_valid; assign pw_c_req_vpn[1] = itlb_walk_req_vpn;
+  assign pw_c_req_root[1]  = itlb_walk_req_root_ppn; assign pw_c_consumed[1] = itlb_walk_resp_consumed;
   assign pw_c_flush[1]     = itlb_walk_flush;
 
   ptw_walk u_ptw (
@@ -265,19 +282,13 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
     .issue_walk_read(pw_issue_walk_read), .walk_read_addr(pw_walk_read_addr)
   );
 
-  assign dtlb_walk_req_ready = pw_c_req_ready[0];
-  assign dtlb_walk_resp_valid = pw_c_resp_valid[0];
-  assign dtlb_walk_resp_fault = pw_c_resp_fault[0];
-  assign dtlb_walk_resp_vpn = pw_c_resp_vpn[0];
-  assign dtlb_walk_resp_leaf_ppn = pw_c_resp_ppn[0];
-  assign dtlb_walk_resp_leaf_perm = pw_c_resp_perm[0];
+  assign dtlb_walk_req_ready = pw_c_req_ready[0]; assign dtlb_walk_resp_valid = pw_c_resp_valid[0];
+  assign dtlb_walk_resp_fault = pw_c_resp_fault[0]; assign dtlb_walk_resp_vpn = pw_c_resp_vpn[0];
+  assign dtlb_walk_resp_leaf_ppn = pw_c_resp_ppn[0]; assign dtlb_walk_resp_leaf_perm = pw_c_resp_perm[0];
   assign dtlb_walk_resp_leaf_level = pw_c_resp_level[0];
-  assign itlb_walk_req_ready = pw_c_req_ready[1];
-  assign itlb_walk_resp_valid = pw_c_resp_valid[1];
-  assign itlb_walk_resp_fault = pw_c_resp_fault[1];
-  assign itlb_walk_resp_vpn = pw_c_resp_vpn[1];
-  assign itlb_walk_resp_leaf_ppn = pw_c_resp_ppn[1];
-  assign itlb_walk_resp_leaf_perm = pw_c_resp_perm[1];
+  assign itlb_walk_req_ready = pw_c_req_ready[1]; assign itlb_walk_resp_valid = pw_c_resp_valid[1];
+  assign itlb_walk_resp_fault = pw_c_resp_fault[1]; assign itlb_walk_resp_vpn = pw_c_resp_vpn[1];
+  assign itlb_walk_resp_leaf_ppn = pw_c_resp_ppn[1]; assign itlb_walk_resp_leaf_perm = pw_c_resp_perm[1];
   assign itlb_walk_resp_leaf_level = pw_c_resp_level[1];
 
   // ======================= dcache =======================
@@ -318,7 +329,8 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
   dcache #(.PF_EN(PF_EN)) u_dcache (
     .clk, .rst_n, .cpu_phase0(phase0),
     .ld_req_valid(dc_ld_valid_in), .ld_req_addr(rt_dc_ld_addr), .ld_req_id(rt_dc_ld_id),
-    .ld_req_replay(rt_dc_ld_replay), .ld_req_pc(rt_dc_ld_pc), .ld_req_va(rt_dc_ld_va), .pf_xq_v, .pf_xq_va, .pf_xq_llc, .pf_xq_pop, .pf_xans_v, .pf_xans_line, .pf_xans_llc,
+    .ld_req_replay(rt_dc_ld_replay), .ld_req_pc(rt_dc_ld_pc), .ld_req_va(rt_dc_ld_va),
+    .pf_xq_v, .pf_xq_va, .pf_xq_llc, .pf_xq_pop, .pf_xans_v, .pf_xans_line, .pf_xans_llc,
     .st_req_valid(dc_st_valid_in), .st_req_addr(rt_dc_st_addr), .st_req_data(rt_dc_st_data),
     .st_req_strb(rt_dc_st_strb4), .st_req_l2(rt_dc_st_l2c), .st_req_id(rt_dc_st_id32),
     .icache_req(dc_icache_req),
@@ -331,49 +343,37 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
     .ld_retry_busy(dcache2lsu_load_retry_busy), .st_retry_busy(dcache2lsu_store_retry_busy),
     .st_resp_valid(dc_st_resp_valid), .st_resp_replay(dc_st_resp_replay), .st_resp_id(dc_st_resp_id),
     .mshr_fill(dc_mshr_fill), .mshr_fill_addr(dc_mshr_fill_addr),
-    .mshr_req_valid(mshr_req_valid), .mshr_req_addr(mshr_req_addr), .mshr_req_id(mshr_req_id), .mshr_req_pc_hash(mshr_req_pc_hash),
+    .mshr_req_valid(mshr_req_valid), .mshr_req_addr(mshr_req_addr),
+    .mshr_req_id(mshr_req_id), .mshr_req_pc_hash(mshr_req_pc_hash),
     .mshr_resp_ready(mshr_resp_ready),
     .wb_req_valid(wb_req_valid), .wb_req_addr(wb_req_addr), .wb_req_data(wb_req_data)
   );
 
-  // ======================= peripheral_axi + hold register =======================
-  logic        pa_resp_ready, pa_resp_is_mmio;
-  logic [XLEN_BITS-1:0] pa_resp_rdata;
+  // ======================= peripheral_axi / external AXI4-Lite MMIO + hold =======================
   logic        pa_rd_valid, pa_rd_resp_ready, pa_wr_valid, pa_wr_resp_ready;
   logic [31:0] pa_rd_addr, pa_wr_addr, pa_wr_wdata;
   logic [PA_SIZE_W-1:0] pa_rd_size, pa_wr_size;
   logic [3:0]  pa_wr_wstrb;
 
-  // CPU-side AXI views of the non-DCache masters (0 = ICache read, 1 = peripheral read, 2 = peripheral write)
-
-  peripheral_axi u_periph (
-    .clk, .rst_n, .cpu_en(phase0),
-    .req_is_mmio(peripheral_req_is_mmio), .req_wen(peripheral_req_wen), .req_addr(peripheral_req_mmio_addr),
-    .req_wdata(peripheral_req_mmio_wdata), .req_func3(peripheral_req_mmio_fun3),
-    .env_modeled(env_modeled), .env_rdata(env_rdata),
-    .axi_rd_req_accepted(ax_pa_rd_acc), .axi_rd_resp_valid(ax_pa_rd_rv), .axi_rd_resp_data(ax_pa_rd_data),
-    .axi_wr_req_accepted(ax_pa_wr_acc), .axi_wr_resp_valid(ax_pa_wr_rv),
-    .resp_ready(pa_resp_ready), .resp_is_mmio(pa_resp_is_mmio), .resp_rdata(pa_resp_rdata),
-    .axi_rd_req_valid(pa_rd_valid), .axi_rd_req_addr(pa_rd_addr), .axi_rd_req_size(pa_rd_size),
-    .axi_rd_resp_ready(pa_rd_resp_ready),
-    .axi_wr_req_valid(pa_wr_valid), .axi_wr_req_addr(pa_wr_addr), .axi_wr_req_size(pa_wr_size),
-    .axi_wr_req_wstrb(pa_wr_wstrb), .axi_wr_req_wdata(pa_wr_wdata), .axi_wr_resp_ready(pa_wr_resp_ready),
-    .env_rd_en, .env_rd_addr, .env_rd_func3
+  mem_periph_wrap #(.EXT_MMIO_EN(EXT_MMIO_EN)) u_periph_wrap (
+    .clk, .rst_n, .phase0,
+    .req_is_mmio(peripheral_req_is_mmio), .req_wen(peripheral_req_wen),
+    .req_addr(peripheral_req_mmio_addr), .req_wdata(peripheral_req_mmio_wdata),
+    .req_func3(peripheral_req_mmio_fun3),
+    .env_modeled, .env_rdata,
+    .ax_pa_rd_acc, .ax_pa_rd_rv, .ax_pa_rd_data, .ax_pa_wr_acc, .ax_pa_wr_rv,
+    .pa_rd_valid, .pa_rd_addr, .pa_rd_size, .pa_rd_resp_ready,
+    .pa_wr_valid, .pa_wr_addr, .pa_wr_size, .pa_wr_wstrb, .pa_wr_wdata, .pa_wr_resp_ready,
+    .env_rd_en, .env_rd_addr, .env_rd_func3,
+    .peripheral_resp_ready, .peripheral_resp_is_mmio, .peripheral_resp_mmio_rdata,
+    .mmio_arvalid, .mmio_arready, .mmio_arid, .mmio_araddr, .mmio_arlen, .mmio_arsize, .mmio_arburst,
+    .mmio_arlock, .mmio_arcache, .mmio_arprot, .mmio_arqos, .mmio_arregion,
+    .mmio_rvalid, .mmio_rready, .mmio_rid, .mmio_rdata, .mmio_rresp, .mmio_rlast,
+    .mmio_awvalid, .mmio_awready, .mmio_awid, .mmio_awaddr, .mmio_awlen, .mmio_awsize, .mmio_awburst,
+    .mmio_awlock, .mmio_awcache, .mmio_awprot, .mmio_awqos, .mmio_awregion,
+    .mmio_wvalid, .mmio_wready, .mmio_wdata, .mmio_wstrb, .mmio_wlast,
+    .mmio_bvalid, .mmio_bready, .mmio_bid, .mmio_bresp
   );
-
-  // SimCpu::peripheral_resp_hold: this cycle's peripheral response is what the core sees in the next cycle
-  logic        hold_ready_q, hold_is_mmio_q;
-  logic [XLEN_BITS-1:0] hold_rdata_q;
-  always_ff @(posedge clk) begin
-    if (!rst_n) begin
-      hold_ready_q <= 1'b0; hold_is_mmio_q <= 1'b0; hold_rdata_q <= '0;
-    end else if (phase0) begin
-      hold_ready_q <= pa_resp_ready; hold_is_mmio_q <= pa_resp_is_mmio; hold_rdata_q <= pa_resp_rdata;
-    end
-  end
-  assign peripheral_resp_ready   = hold_ready_q;
-  assign peripheral_resp_is_mmio = hold_is_mmio_q;
-  assign peripheral_resp_mmio_rdata = hold_rdata_q;
   // ======================= AXI side =======================
   mem_axi u_axi (
     .clk, .rst_n, .phase0, .phase_last,

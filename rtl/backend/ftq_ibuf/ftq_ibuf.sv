@@ -26,10 +26,10 @@ module ftq_ibuf import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; import front_pkg:
   input  logic [3:0] front2ftq_a_len,
   input  logic [FETCH_WIDTH-1:0][KIND_W-1:0] front2ftq_slot_kind,
   input  logic [DECODE_WIDTH-1:0] idu_consume_fire,
-  input  logic idu_br_latch_mispred,
-  input  logic [FTQ_IDX_WIDTH-1:0] idu_br_latch_ftq_idx,
-  input  logic [FTQ_OFFSET_WIDTH-1:0] idu_br_latch_ftq_offset,
-  input  logic [XLEN_BITS-1:0] idu_br_latch_redirect_pc,
+  input  logic br_redirect_mispred,
+  input  logic [FTQ_IDX_WIDTH-1:0] br_redirect_ftq_idx,
+  input  logic [FTQ_OFFSET_WIDTH-1:0] br_redirect_ftq_offset,
+  input  logic [XLEN_BITS-1:0] br_redirect_pc,
   input  logic rob_bcast_flush,
   input  logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_valid,
   input  logic [FTQ_IDX_WIDTH-1:0] rob_commit_commit_entry_uop_ftq_idx [COMMIT_WIDTH],
@@ -160,7 +160,7 @@ module ftq_ibuf import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; import front_pkg:
 
   ftq_ibuf_ctrl u_ctrl (
     .clk, .rst_n,
-    .front_valid, .br_mispred(idu_br_latch_mispred), .rob_flush(rob_bcast_flush),
+    .front_valid, .br_mispred(br_redirect_mispred), .rob_flush(rob_bcast_flush),
     .ftq_count, .ib_count, .idu_fire, .commit_valid, .commit_is_last,
     .ready, .fire, .alloc, .lane_rank, .lane_is_last, .push_cnt, .queue_clear, .ib_pop_cnt, .ftq_pop_cnt
   );
@@ -171,8 +171,8 @@ module ftq_ibuf import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; import front_pkg:
   );
 
   ftq_ptr u_ptr (
-    .clk, .rst_n, .alloc, .flush(rob_bcast_flush), .recover(idu_br_latch_mispred),
-    .recover_idx(idu_br_latch_ftq_idx), .pop_cnt(ftq_pop_cnt), .head(ftq_head), .tail(ftq_tail), .count(ftq_count)
+    .clk, .rst_n, .alloc, .flush(rob_bcast_flush), .recover(br_redirect_mispred),
+    .recover_idx(br_redirect_ftq_idx), .pop_cnt(ftq_pop_cnt), .head(ftq_head), .tail(ftq_tail), .count(ftq_count)
   );
 
   ftq_pc u_pc (
@@ -180,8 +180,8 @@ module ftq_ibuf import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; import front_pkg:
     .wr_pred_taken(front_pred_taken), .wr_is_rvc(front_is_rvc),
     .wr_is_pair(front2ftq_is_pair), .wr_a_len(front2ftq_a_len),
     .wr_next_pc(front2ftq_predict_next_fetch_address),
-    .mispred_en(idu_br_latch_mispred), .mispred_idx(idu_br_latch_ftq_idx),
-    .mispred_off(idu_br_latch_ftq_offset), .mispred_target(idu_br_latch_redirect_pc),
+    .mispred_en(br_redirect_mispred), .mispred_idx(br_redirect_ftq_idx),
+    .mispred_off(br_redirect_ftq_offset), .mispred_target(br_redirect_pc),
     .ftq_head(ftq_head),
     .prf_idx(ftq_prf_pc_req_req_ftq_idx), .prf_off(ftq_prf_pc_req_req_ftq_offset),
     .prf_pc(prf_rd_pc), .prf_pred_taken(prf_rd_pred_taken), .prf_is_rvc(prf_rd_is_rvc), .prf_next_pc(prf_rd_next_pc),
@@ -205,7 +205,7 @@ module ftq_ibuf import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; import front_pkg:
     .clk, .wr_en(alloc), .wr_idx(ftq_tail),
     .wr_blk_id(front2ftq_blk_id), .wr_is_pair(front2ftq_is_pair), .wr_a_len(front2ftq_a_len),
     .wr_kind(front2ftq_slot_kind),
-    .rd_idx(idu_br_latch_ftq_idx), .rd_offset(idu_br_latch_ftq_offset),
+    .rd_idx(br_redirect_ftq_idx), .rd_offset(br_redirect_ftq_offset),
     .rd_blk(out_rf_blk), .rd_type(out_rf_type)
   );
 

@@ -21,9 +21,9 @@ module back_top_glue
   input  logic        rob_bcast_is_rvc,   // the committing instruction is 16 bits (FTQ ROB-port response, with the pc)
   input  logic [XLEN_BITS-1:0] csr2front_epc,
   input  logic [XLEN_BITS-1:0] csr2front_trap_pc,
-  input  logic [XLEN_BITS-1:0] br_latch_redirect_pc,
-  input  logic [XLEN_BITS-1:0] br_latch_br_pc,
-  input  logic br_latch_is_rvc,
+  input  logic [XLEN_BITS-1:0] br_redirect_pc,
+  input  logic [XLEN_BITS-1:0] br_redirect_br_pc,
+  input  logic br_redirect_is_rvc,
   input  logic        dec_bcast_mispred,
   input  logic        ftq2front_ready,
   input  logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_valid,
@@ -67,10 +67,10 @@ module back_top_glue
   assign out_mispred     = flush_q | (dec_bcast_mispred & ~rob_bcast_flush);
   assign out_no_mispred  = ~out_mispred;
   assign out_stall       = ~ftq2front_ready;
-  assign out_redirect_pc = flush_q ? redirect_pc_q : br_latch_redirect_pc;
+  assign out_redirect_pc = flush_q ? redirect_pc_q : br_redirect_pc;
   assign out_rf_valid    = dec_bcast_mispred & ~rob_bcast_flush & ~flush_q;
-  assign out_rf_pc       = br_latch_br_pc;
-  assign out_rf_is_rvc   = br_latch_is_rvc;
+  assign out_rf_pc       = br_redirect_br_pc;
+  assign out_rf_is_rvc   = br_redirect_is_rvc;
 
   // Branch target for BPU commit training: reconstructed from FTQ (taken -> ftq_commit_next_pc, which already
   // carries the mispredict-corrected target; not-taken -> sequential pc + 2/4), removing 64b diag_val from ROB.

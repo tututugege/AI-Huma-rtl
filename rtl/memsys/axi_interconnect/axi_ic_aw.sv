@@ -97,7 +97,8 @@ module axi_ic_aw
   assign o_wdata  = w_q.sent[0] ? w_q.data[511:256] : w_q.data[255:0];
   assign o_wstrb  = w_q.sent[0] ? w_q.strb[63:32]   : w_q.strb[31:0];
   assign o_wlast  = (w_q.sent == (w_q.tot2 ? 2'd1 : 2'd0));
-  assign o_bready = w_q.act && w_q.wdone && (w_q.id == d_bid) && !rsp_v_q;
+  // Single write in flight: decouple BREADY from slave BID (AXI4 clean handshake); BID match checked below.
+  assign o_bready = w_q.act && w_q.wdone && !rsp_v_q;
 
   // small writes are shifted to their byte position inside the aligned 32-byte beat
   //   (align_mode2_downstream_write_data/strobe)
@@ -140,6 +141,15 @@ module axi_ic_aw
       else if (rsp_v_q) rsp_q <= 2'd0;
     end
   end
+
+`ifndef SYNTHESIS
+  assert property (@(posedge clk) disable iff (!rst_n) !(b_hs && (d_bid != w_q.id)))
+    else $error("axi_ic_aw: B response ID mismatch (got %0d, expected %0d)", d_bid, w_q.id);
+`endif
+  /* verilator lint_off UNUSEDSIGNAL */
+  logic [5:0] unused_bid;
+  assign unused_bid = d_bid;
+  /* verilator lint_on UNUSEDSIGNAL */
 endmodule
 
 `default_nettype wire

@@ -1,5 +1,5 @@
 // Ref: back-end/BackTop.cpp  class BackTop
-// Instances: u_ftq_ibuf, u_br_latch, u_idu, u_ren, u_dis, u_isu, u_prf, u_exu, u_csr, u_rob, u_dtlb, u_lsu, u_glue.
+// Instances: u_ftq_ibuf, u_br_redirect, u_idu, u_ren, u_dis, u_isu, u_prf, u_exu, u_csr, u_rob, u_dtlb, u_lsu, u_glue.
 `default_nettype none
 
 module back_top
@@ -49,6 +49,8 @@ module back_top
   input  logic [31:0] dcache2lsu_store_resps_req_id [LSU_STA_COUNT],
   input  logic dcache2lsu_store_resps_valid [LSU_STA_COUNT],
   // ---- in: interrupt injection (MemSubsystem -> Csr)
+  input  logic interrupt_inject_software_irq_pending,
+  input  logic interrupt_inject_software_irq_pending_valid,
   input  logic interrupt_inject_external_irq_pending,
   input  logic interrupt_inject_external_irq_pending_valid,
   input  logic interrupt_inject_supervisor_external_irq_pending,
@@ -169,13 +171,13 @@ module back_top
   logic [FTQ_OFFSET_WIDTH-1:0]   ren2dis_ftq_off [DECODE_WIDTH];
   logic [XLEN_BITS-1:0]          ftq_commit_info_resp_next_pc [COMMIT_WIDTH];
 
-  // ---- idu / br_latch -> ren / global mispredict ----
-  logic [XLEN_BITS-1:0]          br_latch_br_pc;
-  logic                          br_latch_is_rvc;
-  logic [5:0]                    br_latch_ftq_idx;
-  logic [FTQ_OFFSET_WIDTH-1:0]   br_latch_ftq_offset;
-  logic                          br_latch_mispred;
-  logic [XLEN_BITS-1:0]          br_latch_redirect_pc;
+  // ---- idu / br_redirect -> ren / global mispredict ----
+  logic [XLEN_BITS-1:0]          br_redirect_br_pc;
+  logic                          br_redirect_is_rvc;
+  logic [5:0]                    br_redirect_ftq_idx;
+  logic [FTQ_OFFSET_WIDTH-1:0]   br_redirect_ftq_offset;
+  logic                          br_redirect_mispred;
+  logic [XLEN_BITS-1:0]          br_redirect_pc;
   logic [DECODE_WIDTH-1:0]       dec2ren_valid;
   ren_inst_t                     dec2ren_uop [DECODE_WIDTH];
   logic                          dec_bcast_mispred;
@@ -230,7 +232,7 @@ module back_top
   logic [PRF_IDX_WIDTH-1:0]      prf_awake_wake_preg [LSU_LOAD_WB_WIDTH];
   logic [LSU_LOAD_WB_WIDTH-1:0]  prf_awake_wake_valid;
 
-  // ---- exu -> prf / rob / csr / lsu / br_latch ----
+  // ---- exu -> prf / rob / csr / lsu / br_redirect ----
   logic [11:0]                   exe2csr_idx;
   logic                          exe2csr_re;
   logic [1:0]                    exe2csr_wcmd;
@@ -363,8 +365,8 @@ module back_top
   // ================= ftq_ibuf: FTQ + InstructionBuffer
   ftq_ibuf u_ftq_ibuf (
     .clk(clk), .rst_n(rst_n),
-    .idu_br_latch_ftq_idx(br_latch_ftq_idx), .idu_br_latch_ftq_offset(br_latch_ftq_offset),
-    .idu_br_latch_redirect_pc(br_latch_redirect_pc), .idu_br_latch_mispred(br_latch_mispred),
+    .br_redirect_ftq_idx(br_redirect_ftq_idx), .br_redirect_ftq_offset(br_redirect_ftq_offset),
+    .br_redirect_pc(br_redirect_pc), .br_redirect_mispred(br_redirect_mispred),
     .idu_consume_fire(idu_consume_fire),
     .ftq_prf_pc_req_req_ftq_idx(ftq_prf_pc_req_req_ftq_idx),
     .ftq_prf_pc_req_req_ftq_offset(ftq_prf_pc_req_req_ftq_offset),
@@ -407,19 +409,19 @@ module back_top
     .ftq_commit_info_resp_blk_id(ftq_commit_info_resp_blk_id)
   );
 
-  // ================= br_latch + idu
-  idu_br_latch u_br_latch (
+  // ================= br_redirect + idu
+  back_br_redirect u_br_redirect (
     .clk(clk), .rst_n(rst_n), .rob_flush(rob_flush_q),
     .exu_mispred(exu2id_mispred), .exu_redirect_pc(exu2id_redirect_pc),
     .exu_redirect_rob_idx(exu2id_redirect_rob_idx), .exu_redirect_rob_flag(exu2id_redirect_rob_flag),
     .exu_ftq_idx(exu2id_ftq_idx), .exu_ftq_offset(exu2id_ftq_offset),
     .exu_br_pc(exu2id_br_pc), .exu_br_is_rvc(exu2id_br_is_rvc),
-    .mispred(dec_bcast_mispred), .redirect_pc(br_latch_redirect_pc),
+    .mispred(dec_bcast_mispred), .redirect_pc(br_redirect_pc),
     .redirect_rob_idx(dec_bcast_redirect_rob_idx), .redirect_rob_flag(dec_bcast_redirect_rob_flag),
-    .ftq_idx(br_latch_ftq_idx), .ftq_offset(br_latch_ftq_offset),
-    .br_pc(br_latch_br_pc), .br_is_rvc(br_latch_is_rvc)
+    .ftq_idx(br_redirect_ftq_idx), .ftq_offset(br_redirect_ftq_offset),
+    .br_pc(br_redirect_br_pc), .br_is_rvc(br_redirect_is_rvc)
   );
-  assign br_latch_mispred = dec_bcast_mispred;
+  assign br_redirect_mispred = dec_bcast_mispred;
 
   idu u_idu (
     .ibuf2idu_valid(ibuf2idu_valid), .ibuf2idu_entry(ibuf2idu_entry),
@@ -589,6 +591,8 @@ module back_top
     .rob_bcast_page_fault_load(rob_bcast_page_fault_load),
     .rob_bcast_page_fault_store(rob_bcast_page_fault_store),
     .rob_bcast_pc(rob_bcast_pc), .rob_bcast_sret(rob_bcast_sret), .rob_bcast_trap_val(rob_bcast_trap_val),
+    .interrupt_inject_software_irq_pending(interrupt_inject_software_irq_pending),
+    .interrupt_inject_software_irq_pending_valid(interrupt_inject_software_irq_pending_valid),
     .interrupt_inject_external_irq_pending(interrupt_inject_external_irq_pending),
     .interrupt_inject_external_irq_pending_valid(interrupt_inject_external_irq_pending_valid),
     .interrupt_inject_supervisor_external_irq_pending(interrupt_inject_supervisor_external_irq_pending),
@@ -803,8 +807,8 @@ module back_top
     .clk(clk), .rst_n(rst_n),
     .csr2front_epc(csr2front_epc), .csr2front_trap_pc(csr2front_trap_pc),
     .csr_status_mstatus(csr_status_mstatus),
-    .br_latch_br_pc(br_latch_br_pc), .br_latch_is_rvc(br_latch_is_rvc),
-    .br_latch_redirect_pc(br_latch_redirect_pc), .dec_bcast_mispred(dec_bcast_mispred),
+    .br_redirect_br_pc(br_redirect_br_pc), .br_redirect_is_rvc(br_redirect_is_rvc),
+    .br_redirect_pc(br_redirect_pc), .dec_bcast_mispred(dec_bcast_mispred),
     .ftq2front_ready(ftq2front_ready),
     .rob_bcast_exception(rob_bcast_exception), .rob_bcast_flush(rob_bcast_flush), .flush_q(rob_flush_q),
     .rob_bcast_mret(rob_bcast_mret), .rob_bcast_pc(rob_bcast_pc),

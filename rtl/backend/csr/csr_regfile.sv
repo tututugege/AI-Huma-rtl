@@ -19,7 +19,9 @@ module csr_regfile
   // F/D: exception flags accrued by the committing instructions, and "an instruction made FS Dirty"
   input  logic [4:0]  fflags_acc,
   input  logic        fs_dirty,
-  // interrupt inject (peripheral model)
+  // interrupt inject (peripheral model / CLINT / PLIC)
+  input  logic        inj_software_valid,
+  input  logic        inj_software,
   input  logic        inj_external_valid,
   input  logic        inj_external,
   input  logic        inj_supervisor_external_valid,
@@ -83,10 +85,11 @@ module csr_regfile
     end
 
     if (r == R_MIP) begin : g_mip
-      assign regs_we = trap_wr_en[r] | commit_hit | inj_external_valid | inj_supervisor_external_valid
-                     | inj_timer_valid;
+      assign regs_we = trap_wr_en[r] | commit_hit | inj_software_valid | inj_external_valid
+                     | inj_supervisor_external_valid | inj_timer_valid;
       always_comb begin
         regs_d[r] = merged;
+        if (inj_software_valid)            regs_d[r][MIP_MSIP] = inj_software;
         if (inj_external_valid)            regs_d[r][MIP_MEIP] = inj_external;
         if (inj_supervisor_external_valid) regs_d[r][MIP_SEIP] = inj_supervisor_external;
         if (inj_timer_valid)               regs_d[r][MIP_MTIP] = inj_timer;

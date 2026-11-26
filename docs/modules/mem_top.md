@@ -35,6 +35,7 @@ depth: 待测（由协调者补）
 | DDR 从口 | 数据 256 位、地址 32 位、id 6 位 | `mem_top` 端口 |
 | AXI id | CPU 侧主口 4 位（`AX_ID_W`），3 个适配通道（`AX_NCH`：ICache 读、外设读、外设写） | `memcpu_pkg` |
 | 预取开关 | 参数 `PF_EN`（默认 1，传给 `dcache`） | |
+| 外部 MMIO 开关 | 参数 `EXT_MMIO_EN`（默认 0 走仿真 `peripheral_axi`；1 走独立 64-bit AXI4-Lite `mmio_*` 绕开 LLC，`chip_top` 开启） | `mem_top.sv` / `mem_periph_wrap.sv` / `mem_mmio_axi.sv` |
 
 ## 3. 接口
 
@@ -49,6 +50,7 @@ depth: 待测（由协调者补）
 | 入 / 出 | `peripheral_req_*`、`peripheral_resp_*` | 外设访问请求与响应（响应寄存了一拍） |
 | 入 / 出 | `env_modeled`、`env_rdata`、`env_rd_en/addr/func3` | 测试台里的设备模型（见 peripheral_axi.md） |
 | 入 / 出 | `d_*` | DDR 的 AXI 从口（测试台里的 `SimDDR`） |
+| 入 / 出 | `mmio_ar*`/`r*`/`aw*`/`w*`/`b*` | 可选 64-bit AXI4-Lite 外部 MMIO 主口（`EXT_MMIO_EN=1` 启用，保留精确字节地址） |
 | 出 | `phase0` | 给测试台：CPU 域寄存器（核没有使能）只在这一拍更新 |
 
 ## 4. 结构
@@ -102,7 +104,7 @@ depth: 待测（由协调者补）。`mem_top` 自己没有逻辑，深度完全
 
 ## 7. 与模型的差异和取舍
 
-- **节拍**：`mem_top` 里的节拍计数器是 16 倍频旧结构的遗留（`TICKS = 16` 时存储域一个 CPU 周期跑 16 拍，测试台只在第 0 拍给核时钟）。现在 `AXI_SUBSYSTEM_FREQ_DIV = 1`，`phase0` 和 `phase_last` 是常数（`g_ph_const`），门控和寄存器的使能全部消去，`phase_q` 只保留作测试台的探针（`tb/soc/soc_public.vlt`）；
+- **节拍**：`mem_top` 里的节拍计数器是 16 倍频旧结构的遗留（`TICKS = 16` 时存储域一个 CPU 周期跑 16 拍，测试台只在第 0 拍给核时钟）。现在 `AXI_SUBSYSTEM_FREQ_DIV = 1`，`phase0` 和 `phase_last` 是常数（`g_ph_const`），门控和寄存器的使能全部消去，`phase_q` 只保留作测试台的探针（`tb/core/core_public.vlt`）；
 - **模型没有顶层模块**：`MemSubsystem` 只是容器和端口绑定（`MemSubsystem::init`），各子模块的先后顺序由 `SimCpu::cycle` 里自动生成的序列给出（`wb_` → `mshr_` → `dcache_.comb_stage2` → `mem_route_block.comb_response` → …… → `ptw_block.comb_request` → `mem_route_block.comb_request` → `dcache_.comb_stage1` → `wb_` / `mshr_` 的 `comb_dcache_to_axi` → `ptw_block.comb_feedback` → `peripheral_axi_`）。RTL 是一个纯组合网表加寄存器；
 - **LLC 的表**：模型里 LLC 的元数据、有效位、替换位表在 `MemSubsystem.cpp` 里的 `AxiLlcTableRuntime` 实现（并且没有数据存储，数据来自功能内存）；RTL 的 LLC 在 `axi_llc`（见 axi_llc.md）；
 - **DDR**：RTL 的 DDR 一侧是 256 位 AXI 从口，由测试台的 `SimDDR` 回答；模型里是 `AxiSubsystem` 内部的内存模型；
@@ -129,5 +131,6 @@ depth: 待测（由协调者补）。`mem_top` 自己没有逻辑，深度完全
 
 ## 10. 变更记录
 
+- 2026-11-26（`rtl/soc-env`）：新增 `EXT_MMIO_EN` 参数及 `mem_periph_wrap.sv`、`mem_mmio_axi.sv`，为 `chip_top` 提供绕开 LLC 的独立 **64-bit Full-AXI4** MMIO 主口（带真实 `ARSIZE/AWSIZE`、`Device-nGnRnE` 属性、1/2/4/8 字节读写及精确字节偏移副作用识别）；`axi_ic_aw.sv` 解耦 `o_bready` 对 `d_bid` 的组合依赖；默认 `EXT_MMIO_EN=0` 保持 `soc_top` 与 `fm_gate` 行为零变化。
 - 2026-11-21（`rtl/fe-2fetch-2taken`，EXP-051 里程碑 B）：`mem_top.sv` 透传 `fdip_snoop_line` / `fdip_snoop_dirty` 连接 `core_top`（ICache FDIP）与 `dcache`；修复 `mem_axi.sv` 在 `AXI_SUBSYSTEM_FREQ_DIV == 1` 下 `raw_accepted[0]` / `raw_accepted_id[0]` 误接组合 `ax_rd_acc_new[0]` 导致 ICache 通道接受脉冲早到 1 拍的问题（改为使用已寄存 `ax_rd_accepted[0]`，严格对齐 `SimCpu` 的 `icache_axi_q` 语义），单拍消除 2-slot FDIP 在 7 个程序上的 1 拍偏差；通过 `lint_chip` 0、`fm_gate` 68/68（0 周期偏差）与 Linux 27 窗对齐。
 - 本分支未改动（`git log 261bd67..HEAD -- rtl/memsys/mem_top rtl/memsys/memcpu_pkg` 为空）。更早：`8dbb7cd` 合入 rv64imab；`f0bd79d` rv64 step 6（8 字节 MMIO）；`72f2cd9` rv64 step 3（Sv39）；`fb05807` rv64 step 2（数据字 XLEN 位）；`4e954d7` ROB 紧凑的清理批次；`b1e0335` EXP-024。`memcpu_pkg` 另有 `8abb7ab`（RTL 清理）、`f21cebf`（前端 XLEN 位 PC）。

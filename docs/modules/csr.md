@@ -41,7 +41,7 @@ CSR 文件（控制和状态寄存器）、当前特权级、待处理中断的�
 | 入 | `rob2csr_interrupt_resp` | ROB 响应一次中断 |
 | 入 | `rob2csr_fflags`、`rob2csr_fs_dirty` | 浮点：这拍提交的指令累积的异常标志；有指令使 `FS` 变 Dirty |
 | 入 | `rob_bcast_{mret, sret, ecall, breakpoint, page_fault_inst, page_fault_load, page_fault_store, illegal_inst, trap_val, pc}` | ROB 的陷入广播，**不经 FLUSH_REG 推迟**，和 ROB 的决定同一拍 |
-| 入 | `interrupt_inject_{external, supervisor_external, timer}_irq_pending` 及各自的 `_valid` | 外部设备的中断线：`_valid` 为 1 时把对应 `mip` 位设为 `pending` 的值 |
+| 入 | `interrupt_inject_{software, external, supervisor_external, timer}_irq_pending` 及各自的 `_valid` | 外部设备（CLINT/PLIC）的中断线：`_valid` 为 1 时把对应 `mip` 位（`MSIP`/`MEIP`/`SEIP`/`MTIP`）设为 `pending` 的值 |
 | 出 | `csr2exe_rdata`（`csr2exe_rdata_vld` 即 `exe2csr_re`） | CSR 读出值 |
 | 出 | `csr2rob_interrupt_req` | 有可响应的中断 |
 | 出 | `csr2front_trap_pc`、`csr2front_epc`（`_vld` 为"确有陷入"和"确做了 xRET"） | 陷入目标、xRET 目标 |
@@ -148,6 +148,7 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 
 ## 10. 变更记录
 
+- 2026-11-26（`rtl/soc-env`）：新增 `MIP_MSIP`（bit 3）与 `interrupt_inject_software_irq_pending(_valid)` 端口，接入真实片上 CLINT 软中断；`soc_top` 默认绑 0，对 `fm_gate` 零影响。
 - 本分支（exp/agu-share，`261bd67..HEAD`）：本目录没有改动。
 - 2026-11-12：rv64（寄存器 `XLEN_BITS` 位、`misa` / `mstatus` 复位值和掩码）；F/D（`fcsr`、`FS`、`csr2exe_frm`、`csr2rob_fs_off`）。
 - 更早：见 git 历史。

@@ -109,7 +109,7 @@ LLC 的内存读请求 `lo_*` 在以下条件下发出 AR（`fresh`）：没有 
 
 ### 5.5 DDR 写侧（`axi_ic_aw`）
 
-只服务 LLC 的内存写（受害行写回和 bypass 写）。`fresh = 没有 B 脉冲 & LLC 请求有效 & 同行没有读在途（`pr_v` 的 9 项加本拍刚发的 AR）& 没有活动 W & 没有 AW latch`。AW 直接由 LLC 请求驱动，`awready` 为低时存进 `awl_q`；AW 完成后下一拍起逐拍发 W（`wlast` 在最后一拍），B 的 id 与当前写匹配且没有未取走的 B 脉冲时 `bready`；B 完成后给 LLC 一个 1 tick 的 `write_resp` 脉冲。≤ 32 字节的写把数据和使能按地址低 5 位左移到 32 字节拍内的字节位置。
+只服务 LLC 的内存写（受害行写回和 bypass 写）。`fresh = 没有 B 脉冲 & LLC 请求有效 & 同行没有读在途（`pr_v` 的 9 项加本拍刚发的 AR）& 没有活动 W & 没有 AW latch`。AW 直接由 LLC 请求驱动，`awready` 为低时存进 `awl_q`；AW 完成后下一拍起逐拍发 W（`wlast` 在最后一拍）；因写侧单在途，`o_bready` 仅取决于当前处于等待 B 状态且无未取走 B 脉冲（不再组合依赖 `d_bid`，并在仿真期用断言检查 `d_bid == w_q.id` 以满足 ARM IHI 0022E AXI4 无组合环要求）；B 完成后给 LLC 一个 1 tick 的 `write_resp` 脉冲。≤ 32 字节的写把数据和使能按地址低 5 位左移到 32 字节拍内的字节位置。
 
 ### 5.6 响应寄存器（`axi_ic_resp`）
 
@@ -169,4 +169,5 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 
 ## 10. 变更记录
 
+- 2026-11-26：`axi_ic_aw.sv` 解除 `o_bready` 对 `d_bid` 的组合依赖（改为仿真断言检查 `d_bid == w_q.id`），消除接入真实 AXI4 Crossbar 时的潜在 `BVALID→BREADY` 组合环，对 `soc_top`/`core_tb` 0 周期变化（`fm_gate` 77/77 PASS）。
 - 本分支（`261bd67..HEAD`）未改动本目录；更早：见 git 历史。

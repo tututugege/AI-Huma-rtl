@@ -1,7 +1,8 @@
-// Ref: back-end/Idu.cpp  class Idu (br_latch)
+// Ref: back-end/Idu.cpp  class Idu (br_latch -> backend branch redirect register stage)
 `default_nettype none
 
-module idu_br_latch import ttg_cfg_pkg::*; (
+// One-cycle registered branch mispredict redirect stage in back_top (between EXU and FTQ/back-end flush).
+module back_br_redirect import ttg_cfg_pkg::*; (
   input  logic                        clk,
   input  logic                        rst_n,
   input  logic                        rob_flush,
