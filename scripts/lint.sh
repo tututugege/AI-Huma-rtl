@@ -33,11 +33,11 @@ for d in "${DIRS[@]}"; do
   n=$((n + ${#allf[@]}))
   [ ${#files[@]} -gt 0 ] || continue   # packages only: linted through the modules that use them
   base=$(basename "$d")
-  if [ "$base" = back_top ] || [ "$base" = core_top ] || [ "$base" = soc_top ] || [ "$base" = mem_top ]; then
+  if [ "$base" = back_top ] || [ "$base" = core_top ] || [ "$base" = soc_top ] || [ "$base" = mem_top ] || [ "$base" = chip_top ]; then
     # assembly of several modules from other directories: compile against all RTL, top = back_top
     ALL=(); while IFS= read -r f; do ALL+=("$f"); done < <(bash "$TOOLS/rtl_files.sh" . | grep -v '_pkg\.sv$' | grep -v -e '^rtl/common/')
-    # soc_top/mem_top: the interconnect<->LLC handshake is one struct-granularity UNOPTFLAT (no real loop, simulates fine)
-    case "$base" in soc_top|mem_top) export VLINT_EXTRA=-Wno-UNOPTFLAT;; *) unset VLINT_EXTRA;; esac
+    # soc_top/mem_top/chip_top: the interconnect<->LLC handshake is one struct-granularity UNOPTFLAT (no real loop, simulates fine)
+    case "$base" in soc_top|mem_top|chip_top) export VLINT_EXTRA=-Wno-UNOPTFLAT;; *) unset VLINT_EXTRA;; esac
     vlint "$base" "${ALL[@]}" || exit 1
   elif [ "$base" = front_top ]; then
     FT=(); while IFS= read -r f; do FT+=("$f"); done < <(find rtl/frontend rtl/backend/tlb_mmu -name '*.sv' ! -name '*_pkg.sv' | sort)
@@ -46,6 +46,10 @@ for d in "${DIRS[@]}"; do
     # icache instantiates the ITLB (tlb_mmu_core) from rtl/backend/tlb_mmu: compile against both directories
     IC=(); while IFS= read -r f; do IC+=("$f"); done < <(find rtl/frontend/icache rtl/backend/tlb_mmu -name '*.sv' ! -name '*_pkg.sv' | sort)
     vlint icache "${IC[@]}" || exit 1
+  elif [ "$base" = soc_xbar ] || [ "$base" = soc_sram ]; then
+    # soc_xbar / soc_sram instantiate reusable AXI4 building blocks from rtl/soc/soc_axi
+    AX=(); while IFS= read -r f; do AX+=("$f"); done < <(find "$d" rtl/soc/soc_axi -name '*.sv' ! -name '*_pkg.sv' | sort)
+    vlint "$base" "${AX[@]}" || exit 1
   elif [ "$d" = rtl/common ]; then
     for f in "${files[@]}"; do NOPRIMS=1 vlint "$(basename "$f" .sv)" "$f" || exit 1; done
   elif [ -f "$d/$base.sv" ] || find "$d" -name "$base.sv" | grep -q .; then
