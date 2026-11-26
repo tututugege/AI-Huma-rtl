@@ -56,7 +56,7 @@ package front_pkg;
   typedef struct packed {
     logic                     ftq_full;        // (bpu-comm)>=63 || (bpu-ifu)>=15
     logic                     fa_empty;        // ifu_ptr == bpu_ptr
-    logic                     fa_head_fresh;   // EXP-044: ifu_ptr entry pushed last cycle
+    logic [1:0]               fa_cnt_sat;      // min(bpu_ptr - ifu_ptr, 3) for S3 hold_n check
     logic                     s2_empty;        // pd_ptr == s2_ptr
     logic [XLEN_BITS-1:0]     ifu_addr;        // entry[ifu_ptr].pc0
     fetch_pair_t              ifu_pair;        // entry[ifu_ptr] FetchPair descriptor
@@ -71,12 +71,12 @@ package front_pkg;
     logic [XLEN_BITS-1:0]     pd_next_pc;      // entry[pd_ptr].next_pc
   } ftq_fe_view_t;
 
-  // Frontend S0 allocate / S2-override drop_tail / ICache issue pop -> ftq_ibuf
+  // Frontend S0 allocate / S3-override drop_tail_n (0..2) / ICache issue pop -> ftq_ibuf
   typedef struct packed {
     logic                 wr_en;
     logic [XLEN_BITS-1:0] addr;
     fetch_pair_t          pair;
-    logic                 drop_tail;
+    logic [1:0]           drop_tail_n;
     logic                 ifu_pop;
   } fe_ftq_s0_t;
 

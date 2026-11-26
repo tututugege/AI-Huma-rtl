@@ -8,7 +8,6 @@ module bpu_cmd import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*
   input  logic        ovr,
   input  logic        ovr_a,
   input  logic        d_pair,
-  input  logic        l1_ov,
   input  logic        issue,
   input  logic        s0_go,
   input  logic        s0_paired,
@@ -19,11 +18,9 @@ module bpu_cmd import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*
   /* verilator lint_off UNUSEDSIGNAL */
   input  pred_t       g0,
   input  pred_t       g0_b,
-  input  pred_t       g1,
   input  pred_t       fin,
   input  pred_t       fin_b,
-  input  blk_t        r0,
-  input  blk_t        r1,
+  input  blk_t        r2,
   /* verilator lint_on UNUSEDSIGNAL */
   input  ck_t         pd_ck,
   input  logic [1:0]  pd_hn,              // 0..2 history symbols of corrected block(s)
@@ -93,9 +90,9 @@ module bpu_cmd import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*
 
   always_comb begin
     rf_taken = (rf_type == BR_DIRECT) ? (refetch_address != rf_pc + (rf_is_rvc ? XLEN_BITS'(2) : XLEN_BITS'(4))) : 1'b1;
-    o_ck     = (ovr_a || !d_pair) ? r1.ck   : r1.ck_b;
+    o_ck     = (ovr_a || !d_pair) ? r2.ck   : r2.ck_b;
     o_out    = (ovr_a || !d_pair) ? fin     : fin_b;
-    d_obase  = (ovr_a || !d_pair) ? r1.base : r1.base_b;
+    d_obase  = (ovr_a || !d_pair) ? r2.base : r2.base_b;
   end
 
   always_comb begin
@@ -115,8 +112,6 @@ module bpu_cmd import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*
       end
     end else if (ovr) begin
       h_mode = M_CK; h_ck = o_ck.h; h_push_n = o_out.taken ? 2'd1 : 2'd0; h_push_bits = {3'd0, o_out.hbits};
-    end else if (l1_ov) begin
-      h_mode = M_CK; h_ck = r0.ck.h; h_push_n = g1.taken ? 2'd1 : 2'd0; h_push_bits = {3'd0, g1.hbits};
     end else if (issue) begin
       h_mode = M_PUSH; h_push_n = g0.taken ? 2'd1 : 2'd0; h_push_bits = {3'd0, g0.hbits};
     end
@@ -137,8 +132,6 @@ module bpu_cmd import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*
       end
     end else if (ovr) begin
       r_mode = M_CK; r_ck = o_ck.r; r_op = o_out.ras_op; r_val = o_out.ras_val;
-    end else if (l1_ov) begin
-      r_mode = M_CK; r_ck = r0.ck.r; r_op = g1.ras_op; r_val = g1.ras_val;
     end else if (issue) begin
       r_mode = M_PUSH; r_op = g0.ras_op; r_val = g0.ras_val;
     end
@@ -169,7 +162,6 @@ module bpu_cmd import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*
     if (refetch)    pc_d = s0_go ? s0_next : refetch_address;
     else if (issue) pc_d = s0_next;
     else if (ovr)   pc_d = o_out.next;
-    else if (l1_ov) pc_d = g1.next;
     else            pc_d = pc;
   end
 
@@ -206,9 +198,6 @@ module bpu_cmd import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*
     end else if (ovr) begin
       i_ck  = o_ck.imli;
       i1_op = imli_op_of(o_out.ty, o_out.taken, d_obase, o_out.next, 1'b0);
-    end else if (l1_ov) begin
-      i_ck  = r0.ck.imli;
-      i1_op = imli_op_of(g1.ty, g1.taken, r0.base, g1.next, 1'b0);
     end else if (issue) begin
       i1_op = g0_i_op;
     end

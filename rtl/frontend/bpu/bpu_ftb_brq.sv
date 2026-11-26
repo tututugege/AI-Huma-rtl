@@ -1,10 +1,10 @@
-// Ref: front-end/BPU/BPU_pipe.h  FTB_BRQ=2 (16-entry 1-branch/cycle commit queue + 512-entry 2-bank sync SRAM ftb_rec)
+// Ref: front-end/BPU/BPU_pipe.h  FTB_BRQ (v10: 16-entry native 1.00 br/cyc commit queue + 512-entry 2-bank 1R1W ftb_rec)
 `default_nettype none
 
 module bpu_ftb_brq import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; import bpu_types_pkg::*; (
   input  logic                    clk,
   input  logic                    rst_n,
-  // S2 ftb_rec write ports (port 0: Block A, port 1: paired Block B; always opposite LSB -> 2 even/odd 1R1W banks)
+  // S3 ftb_rec write ports (port 0: Block A, port 1: paired Block B; always opposite LSB -> 2 even/odd 1R1W banks)
   input  logic                    rec_wr_en,
   input  logic [FTB_REC_W-1:0]    rec_wr_addr,
   input  ftb_rec_t                rec_wr_data,
@@ -22,7 +22,7 @@ module bpu_ftb_brq import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
   input  logic [NCOMMIT-1:0]      alt_pred,
   input  logic [PCPN_W-1:0]       pcpn       [NCOMMIT],
   input  logic [FTB_BLK_ID_W-1:0] blk_id     [NCOMMIT],
-  // Single-branch decoded train output (1 pop/cycle)
+  // Single-branch decoded head output (pops every cycle cnt_q != 0 -> native 1.00 br/cyc!)
   output logic                    upd_en,
   output logic [XLEN_BITS-1:0]    upd_start,
   output fh_t                     upd_fh,
@@ -34,9 +34,11 @@ module bpu_ftb_brq import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
   output logic [XLEN_BITS-1:0]    upd_ah_key_base,
   output logic [XLEN_BITS-1:0]    upd_ah_a_base,
   output fh_t                     upd_ah_key_fh,
+  output s2_pred_meta_t           upd_s2_meta,
+  output ah_pred_meta_t           upd_ah_meta,
   output ftb_br_upd_t             upd_br,
   output logic [XLEN_BITS-1:0]    upd_pc,
-  // Commit credits to compact ROB (FTB_BRQ=2: never backpressure ROB)
+  // Commit credits to compact ROB (never backpressures ROB)
   output logic [3:0]              commit_upd_free,
   output logic [3:0]              commit_tq_free
 );
@@ -81,7 +83,6 @@ module bpu_ftb_brq import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
     bank_ra[0]  = next_rec_id[FTB_REC_W-1:1];
     bank_ra[1]  = next_rec_id[FTB_REC_W-1:1];
 
-    // Port 0 (blk_seq_q) and Port 1 (blk_seq_q + 1) always have opposite LSB -> conflict-free 1W per bank
     bank_we[0]  = (rec_wr_en && !rec_wr_addr[0]) || (rec_wr_b_en && !rec_wr_b_addr[0]);
     bank_wa[0]  = (rec_wr_en && !rec_wr_addr[0]) ? rec_wr_addr[FTB_REC_W-1:1] : rec_wr_b_addr[FTB_REC_W-1:1];
     bank_wd[0]  = (rec_wr_en && !rec_wr_addr[0]) ? REC_BITS'(rec_wr_data)     : REC_BITS'(rec_wr_b_data);
@@ -110,19 +111,19 @@ module bpu_ftb_brq import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
     );
   end
 
-  // ---- Head pop & ftb_rec decode ----
+  // ---- Head pop (always 1.00 br/cyc whenever non-empty) & ftb_rec decode ----
   logic     do_pop, carried, in_blk;
   brq_ent_t q_head;
   ftb_rec_t rc;
 
   always_comb begin
-    do_pop  = (cnt_q != '0);
-    q_head  = brq_q[head_q];
-    rc      = q_head.blk_id[0] ? ftb_rec_t'(bank_rd[1]) : ftb_rec_t'(bank_rd[0]);
+    do_pop         = (cnt_q != '0);
+    q_head         = brq_q[head_q];
+    rc             = q_head.blk_id[0] ? ftb_rec_t'(bank_rd[1]) : ftb_rec_t'(bank_rd[0]);
 
-    carried = (q_head.pc + XLEN_BITS'(SLOT_BYTES) == rc.base);
-    in_blk  = carried || ((q_head.pc >= rc.base) && (q_head.pc < block_bnd(rc.base)));
-    upd_en  = do_pop && rc.valid && (rc.id == q_head.blk_id) && in_blk;
+    carried        = (q_head.pc + XLEN_BITS'(SLOT_BYTES) == rc.base);
+    in_blk         = carried || ((q_head.pc >= rc.base) && (q_head.pc < block_bnd(rc.base)));
+    upd_en         = do_pop && rc.valid && (rc.id == q_head.blk_id) && in_blk;
 
     upd_start         = rc.base;
     upd_fh            = rc.fh;
@@ -134,6 +135,8 @@ module bpu_ftb_brq import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
     upd_ah_key_base   = rc.ah_key_base;
     upd_ah_a_base     = rc.ah_a_base;
     upd_ah_key_fh     = rc.ah_key_fh;
+    upd_s2_meta       = rc.s2_meta;
+    upd_ah_meta       = rc.ah_meta;
     upd_pc            = q_head.pc;
     upd_br.offset     = carried ? 4'd0 : 4'((q_head.pc - rc.base) >> SLOT_SHIFT);
     upd_br.carried    = carried;

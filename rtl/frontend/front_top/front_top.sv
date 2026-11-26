@@ -85,7 +85,8 @@ module front_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; 
   logic        fa_rd_en, predecode_can_run, bpu_can_run, bpu_icache_read_ready;
   logic        fa_wr_en, s2_wr_en, do_predecode_flush;
   logic        inst_empty, inst_fifo_room;
-  logic        fa_drop_tail, bpu_override_squash, refetch_pd;
+  logic [1:0]  fa_drop_tail_n, bpu_override_squash_n, bpu_hold_n;
+  logic        refetch_pd;
   logic        bpu_icache_read_valid, bpu_ptab_write_enable;
   logic        checker_flush_enable;
   logic [XLEN_BITS-1:0] checker_flush_address;
@@ -98,15 +99,16 @@ module front_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; 
     .icache_ready,
     .ftq_full              (ftq2fe.ftq_full),
     .fa_empty              (ftq2fe.fa_empty),
-    .fa_head_fresh         (ftq2fe.fa_head_fresh),
+    .fa_cnt_sat            (ftq2fe.fa_cnt_sat),
+    .bpu_hold_n,
     .inst_empty, .inst_fifo_room,
     .s2_empty              (ftq2fe.s2_empty),
     .bpu_icache_read_valid,
     .bpu_ptab_write_enable,
     .checker_flush_enable, .checker_flush_address,
-    .bpu_override_squash,
+    .bpu_override_squash_n,
     .global_refetch, .refetch_address, .fa_rd_en, .predecode_can_run, .bpu_can_run, .bpu_icache_read_ready,
-    .fa_wr_en, .fa_drop_tail, .s2_wr_en, .do_predecode_flush
+    .fa_wr_en, .fa_drop_tail_n, .s2_wr_en, .do_predecode_flush
   );
 
   // ---- fetch side & FDIP wires ----
@@ -155,6 +157,7 @@ module front_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; 
   front_fetch_buf u_fetch_buf (
     .clk, .rst_n, .global_refetch, .do_predecode_flush,
     .ftq_fa_empty        (ftq2fe.fa_empty),
+    .ftq_fa_cnt_sat      (ftq2fe.fa_cnt_sat),
     .ftq_ifu_addr        (ftq2fe.ifu_addr),
     .ftq_ifu_pair        (ftq2fe.ifu_pair),
     .ftq_ifu_next_fa_idx (ftq2fe.ifu_next_fa_idx),
@@ -187,7 +190,7 @@ module front_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; 
     .upd_valid, .base_pc, .actual_dir, .upd_is_rvc, .br_type, .target, .pred_dir, .alt_pred, .pcpn, .blk_id,
     .inst_rd,
     .bpu_icache_read_valid, .bpu_fetch_address, .bpu_fetch_pair, .bpu_ptab_write_enable,
-    .bpu_override_squash, .fdip_s2_en, .fdip_s2_va, .fdip_s2_clear,
+    .bpu_override_squash_n, .bpu_hold_n, .fdip_s2_en, .fdip_s2_va, .fdip_s2_clear,
     .checker_flush_enable, .checker_flush_address,
     .fe2ftq_s2, .fe2ftq_pd,
     .out_lane_valid, .out_instructions, .out_page_fault_inst, .out_pf_inst_hi, .out_ftq_idx,
@@ -196,14 +199,14 @@ module front_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; 
 
   assign refetch_pd = global_refetch && !be_refetch;
 
-  // S0 allocate / S2-override tail drop / ICache issue pop -> ftq_ibuf
+  // S0 allocate / S3-override tail drop_n (0..2) / ICache issue pop -> ftq_ibuf
   always_comb begin
-    fe2ftq_s0           = '0;
-    fe2ftq_s0.wr_en     = fa_wr_en;
-    fe2ftq_s0.addr      = bpu_fetch_address;
-    fe2ftq_s0.pair      = bpu_fetch_pair;
-    fe2ftq_s0.drop_tail = fa_drop_tail;
-    fe2ftq_s0.ifu_pop   = fa_rd_valid;
+    fe2ftq_s0             = '0;
+    fe2ftq_s0.wr_en       = fa_wr_en;
+    fe2ftq_s0.addr        = bpu_fetch_address;
+    fe2ftq_s0.pair        = bpu_fetch_pair;
+    fe2ftq_s0.drop_tail_n = fa_drop_tail_n;
+    fe2ftq_s0.ifu_pop     = fa_rd_valid;
   end
 
   /* verilator lint_off UNUSEDSIGNAL */

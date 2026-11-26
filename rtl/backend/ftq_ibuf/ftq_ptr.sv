@@ -9,7 +9,7 @@ module ftq_ptr import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; (
   input  logic [FTQ_IDX_WIDTH-1:0]     recover_idx,
   // Frontend S0 / IFU / S2 / PD pointer operations
   input  logic                         s0_wr_en,
-  input  logic                         s0_drop_tail,
+  input  logic [1:0]                   s0_drop_tail_n,
   input  logic                         s0_ifu_pop,
   input  logic                         s2_wr_en,
   input  logic                         pd_fire,
@@ -30,7 +30,7 @@ module ftq_ptr import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; (
   // Registered frontend flow-control flags
   output logic                         ftq_full,
   output logic                         fa_empty,
-  output logic                         fa_head_fresh,
+  output logic [1:0]                   fa_cnt_sat,
   output logic                         s2_empty
 );
 
@@ -41,17 +41,15 @@ module ftq_ptr import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; (
   logic [W-1:0] s2_ptr_q,   s2_ptr_d;
   logic [W-1:0] ifu_ptr_q,  ifu_ptr_d;
   logic [W-1:0] bpu_ptr_q,  bpu_ptr_d;
-  logic         fresh_v_q,  fresh_v_d;
-  logic [W-1:0] fresh_slot_q, fresh_slot_d;
   logic [FTQ_SIZE-1:0] empty_blk_q, empty_blk_d;
 
   logic [W-1:0] total_cnt, fa_cnt;
-  assign total_cnt     = bpu_ptr_q - comm_ptr_q;
-  assign fa_cnt        = bpu_ptr_q - ifu_ptr_q;
-  assign ftq_full      = (total_cnt >= W'(FTQ_SIZE - 1)) || (fa_cnt >= W'(15));
-  assign fa_empty      = (ifu_ptr_q == bpu_ptr_q);
-  assign fa_head_fresh = fresh_v_q && !fa_empty && (fresh_slot_q == ifu_ptr_q);
-  assign s2_empty      = (pd_ptr_q == s2_ptr_q);
+  assign total_cnt  = bpu_ptr_q - comm_ptr_q;
+  assign fa_cnt     = bpu_ptr_q - ifu_ptr_q;
+  assign ftq_full   = (total_cnt >= W'(FTQ_SIZE - 1)) || (fa_cnt >= W'(15));
+  assign fa_empty   = (ifu_ptr_q == bpu_ptr_q);
+  assign fa_cnt_sat = (fa_cnt >= W'(3)) ? 2'd3 : fa_cnt[1:0];
+  assign s2_empty   = (pd_ptr_q == s2_ptr_q);
 
   assign comm_ptr      = comm_ptr_q;
   assign next_comm_ptr = comm_ptr_d;
@@ -60,10 +58,10 @@ module ftq_ptr import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; (
   assign ifu_ptr       = ifu_ptr_q;
   assign bpu_ptr       = bpu_ptr_q;
 
-  logic         drop_eff;
+  logic [1:0]   drop_n_eff;
   logic [W-1:0] bpu_after_drop;
-  assign drop_eff       = s0_drop_tail && !fa_empty;
-  assign bpu_after_drop = bpu_ptr_q - W'(drop_eff);
+  assign drop_n_eff     = (W'(s0_drop_tail_n) < fa_cnt) ? s0_drop_tail_n : fa_cnt[1:0];
+  assign bpu_after_drop = bpu_ptr_q - W'(drop_n_eff);
   assign s0_wr_idx      = bpu_after_drop;
 
   always_comb begin
@@ -77,8 +75,6 @@ module ftq_ptr import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; (
     s2_ptr_d     = s2_ptr_q;
     ifu_ptr_d    = ifu_ptr_q;
     bpu_ptr_d    = bpu_ptr_q;
-    fresh_v_d    = 1'b0;
-    fresh_slot_d = fresh_slot_q;
     eb_mid       = empty_blk_q;
     empty_blk_d  = empty_blk_q;
     bpu_after_s0 = '0;
@@ -98,8 +94,6 @@ module ftq_ptr import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; (
       s2_ptr_d     = '0;
       ifu_ptr_d    = '0;
       bpu_ptr_d    = '0;
-      fresh_v_d    = 1'b0;
-      fresh_slot_d = '0;
       empty_blk_d  = '0;
     end else if (recover) begin
       comm_ptr_d   = comm_ptr_q;
@@ -107,26 +101,22 @@ module ftq_ptr import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; (
       s2_ptr_d     = recover_tail;
       ifu_ptr_d    = recover_tail;
       bpu_ptr_d    = recover_tail;
-      fresh_v_d    = 1'b0;
       for (int i = 0; i < FTQ_SIZE; i++) begin
         if ((W'(i) - recover_tail) < disc_rec) eb_mid[i] = 1'b0;
       end
       empty_blk_d = eb_mid;
     end else begin
-      // 1. S0 allocate / S2-override drop_tail / IFU issue pop
-      if (drop_eff) eb_mid[bpu_ptr_q - W'(1)] = 1'b0;
+      // 1. S0 allocate / S3-override drop_tail_n (0..2) / IFU issue pop
+      if (drop_n_eff >= 2'd1) eb_mid[bpu_ptr_q - W'(1)] = 1'b0;
+      if (drop_n_eff >= 2'd2) eb_mid[bpu_ptr_q - W'(2)] = 1'b0;
       bpu_after_s0 = bpu_after_drop + W'(s0_wr_en);
       bpu_ptr_d    = bpu_after_s0;
       if (s0_wr_en) begin
         eb_mid[bpu_after_drop] = 1'b0;
-        fresh_v_d              = 1'b1;
-        fresh_slot_d           = bpu_after_drop;
-      end else begin
-        fresh_v_d              = 1'b0;
       end
       ifu_ptr_d = ifu_ptr_q + W'(s0_ifu_pop);
 
-      // 2. BPU S2 fill
+      // 2. BPU S2/S3 fill
       s2_ptr_d = s2_ptr_q + W'(s2_wr_en);
 
       // 3. Predecode in-place update (+ frontend-only rollback on pd_flush)
@@ -141,7 +131,6 @@ module ftq_ptr import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; (
           bpu_ptr_d = pd_ptr_d;
           ifu_ptr_d = pd_ptr_d;
           s2_ptr_d  = pd_ptr_d;
-          fresh_v_d = 1'b0;
         end
       end
 
@@ -173,8 +162,6 @@ module ftq_ptr import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; (
       s2_ptr_q     <= '0;
       ifu_ptr_q    <= '0;
       bpu_ptr_q    <= '0;
-      fresh_v_q    <= 1'b0;
-      fresh_slot_q <= '0;
       empty_blk_q  <= '0;
     end else begin
       comm_ptr_q   <= comm_ptr_d;
@@ -182,8 +169,6 @@ module ftq_ptr import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; (
       s2_ptr_q     <= s2_ptr_d;
       ifu_ptr_q    <= ifu_ptr_d;
       bpu_ptr_q    <= bpu_ptr_d;
-      fresh_v_q    <= fresh_v_d;
-      fresh_slot_q <= fresh_slot_d;
       empty_blk_q  <= empty_blk_d;
     end
   end

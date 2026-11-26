@@ -7,8 +7,23 @@ status: 整核周期与模型逐个相等（EXP-062：`bpu_spec` 3 级 Kogge-Sto
 depth: 197 层 / 410,093 单元（Yosys 整块 `bpu`）；**TSMC 28nm HPC+ DC `ssg0p81v125c` `0.50ns`（EXP-062）：`bpu_spec` `WNS -0.87→-0.66 ns`（`0.73→0.86 GHz`, `69→41 lvl`, `156,084 um²`），`bpu_eval` `-0.69 ns`（`0.84 GHz`, `69 lvl`），`bpu_ctl` `+0.10 ns`（`≥2.50 GHz`, `13 lvl`），见 09-synthesis-report 第 15 节**
 ---
 
-# bpu 设计文档（块级 2-Taken + 1-Ahead A / 2-Ahead B + S2 8 表长历史 TAGE & SC，EXP-067）
+# bpu 设计文档（块级 2-Taken + 1-Ahead A / 2-Ahead B + 深宏 Multi-Bank 1RW SRAM + 零 T0 Meta/WRBypass 提交 + S2→S3 拆拍）
 
+> **2026-11-27 `rtl/bpu-sram-opt`（`v10.1`：深宏 Multi-Bank 1RW + 预测 `Meta`/8 项 FF `WRBypass`/提交期 PLRU 零 `T0` 读 + 零 FF `d.ovr` 空闲口 Ahead 重读 + S2→S3 拆拍，真实 TSMC 28nm HS LVT SRAM 宏 DC 签核）**：
+> - **深宏全单口 `ttg_sram_1rw`（`bpu_sram_1rw_banked.sv`，彻底删除 `bpu_sram_sync.sv` 与全部 `T0` 读口 / `t0_hold_q`）**：
+>   - `u_ftb1` **4-Bank**（`4 × 256×4-way`，映射到 `256×72` 宏，单路写 `MASK_W=4` + 1 项 `FtbWrBuf` 缓冲）；`u_s2_tage` 8 张 Tagged **8-Bank**（`8 × 512×64b` → `512×72` 宏）+ Base **4-Bank**（`4 × 1024×8b` → `2 × 512×8` 宏）；`u_s2_sc` Bias 本地 FF + 6 张表 **2-Bank**（GEHL `2 × 256×24b`、IMLI/LOC `2 × 128×24b`）；`u_s2_itt` / `u_aitt` / `u_aitt2` **2-Bank**（`2 × 128×52b`）；`u_aftb` **2-Bank**（`2 × 128×8-way`）；`u_aftb2` **2-Bank**（`2 × 64×8-way` + `b_base`）；`u_atage` **2-Bank**（`2 × 512×60b`）；`u_atage2` **2-Bank**（`2 × 256×60b`）；
+>   - 预测与提交同 Bank 仲裁：FTB 表（`u_ftb1`/`u_aftb`/`u_aftb2`）预测绝对优先，写冲突入 1 项 `FtbWrBuf`（且跳过饱和无效写）；TAGE/SC/ITT 表跳过饱和无效写并采用香山式**写优先 `not-hit`**（同 Bank 写抑制预测读 `sup_mask=1`，被抑制 Bank 强制输出确定性中性值防止污染 `Meta`）；
+>   - 冷启动 `u_ftb0` FF 阵列由 `256`（`64×4`）缩至 **`64`（`16×4`）**，`ftb_slot_t.target` / `b_base` / ITT 目标统一压缩为 **38-bit Sv39 有效虚址**（符号扩展还原）。
+> - **零 `T0` 读提交训练（`Meta` + 8 项 FF `bpu_wrbypass.sv` + `bpu_plru.sv`）**：
+>   - 预测期直接捕获只读 `s2_pred_meta_t` / `ah_pred_meta_t` 随块写入 `ftb_rec_[512]`；`bpu_ftb_brq` 以原生 **`1.00 br/cyc`** 弹队，提交侧查 8 项 FF `WRBypass` + `Meta` + 提交期 tree-PLRU，单拍纯写完成更新；彻底删除 27-bit `T0→T1` 状态机、`t0_hold_q`（~15k FF）与 `train_pause_s0`。
+> - **零 FF S3-Override Ahead 恢复**：
+>   - 删除 4 份巨型 `ah_bak1/2_raw_q` / `ah2_bak1/2_raw_q` FF 备份（~45k FF）；利用 S3 `d.ovr` 拍 S0 空闲特性（`!refetch && ovr`），在 `d.ovr` 同拍直接用 `(d_obase, o_ck.h.fh)` 通过空闲预测口重读 Ahead 1RW SRAM，以 **0 FF、0 额外 SRAM 口** 100% 挽回 Ahead 命中率（48 点 SPEC06 最差 4 点 `+2.69%`）。
+> - **S2 → S3 拆拍（`MAIN_LAT=3`）与精确 `hold_n` FTQ 门控**：
+>   - S1 发起 S2 1RW SRAM 读；S2 完成 FTB1 4 路比对、ExTAGE 8 表选路、SC 局部加法树与 ITT 3 表选路后寄存 `s3_eval_*_q`；S3 仅做 SC 阈值终判、`ftb_eval_ent`、分歧覆写（`override_squash_n[1:0]` `0..2`）与 `u_spec` 恢复；Unified FTQ-64 改为 `fa_cnt > hold_n` 放行 ICache（`front_fetch_buf.sv` 补齐 `fa_rd_valid && ftq_fa_cnt_sat == 2'd1` 索引旁路）。
+> - **真实 TSMC 28nm HS LVT 宏 DC 综合（`eda-06`, `W-2024.09-SP2`, `0.65 ns`, `ssg0p81v125c`, `LINK_STATUS=1`, `0` DRC 违例）**：
+>   - **总面积 `3.313 mm²`**（真实 SRAM 宏 **`2.661 mm²` / 296 宏** + 组合 `0.437 mm²` + 时序 `0.216 mm²` / **85,518 FFs**），较初版 1RW `v5`（`4.752 mm²`，`3.893 mm²` / 572 宏，133k+ FFs）总面积 **−30.3%**、SRAM 宏面积 **−31.7%**、宏个数 **−48.3%**、WNS **`−1.73 → −1.44 ns`**、TNS **`−203,360 → −112,997`（−44.4%）**；Top-10 路径均为既有的 `r2_q → u_eval → u_ctl → u_cmd → u_spec(spec1_ck) → u_eval(s0_ras_top) → u_spec` 互斥组合假路径，新增 `WRBypass`/`PLRU`/1RW 阵列未进入关键路径。
+> - **全量验证**：`lint_chip.sh`（默认及 `-DSRAM_BLACKBOX`）**0 警告/0 错误**；`fm_gate.sh`（`SOC_FM=1 SOC_ASSERT=1`）**77/77 PASS，0 FAIL，0 FM 差异，0 SVA 失败（0 Bank 冲突），77/77 与 `trace-model` 逐拍逐指令完全相等**；`trace-model` 48/48 SPEC06 较 baseline **`−2.29%`**（较理想多口 `sweet_spot` 仅 **`−0.86%`**），`linux_j.bin` 完整启动至 `rv64 login:`（~85M 周期，0 Oops/panic）。
+>
 > **2026-11-26 `rtl/area-opt` 全阵列严格 1 拍同步 1R1W SRAM 化（删除 `ttg_sram_rf` / `bpu_mem`）**：
 > - 新增 `bpu_sram_sync.sv`（按端口 `WF_MASK` 例化 `N_RD` 份严格同步 1R1W `ttg_sram_1r1w`，共享单写口，完整支持 `SRAM_BLACKBOX`）；仅保留极小 S0 `u_ftb0`（64×4 ≈ 8 KiB）为本地 FF 阵列以支撑 S0→S0 零周期环路；
 > - **预测零周期变化**：1-Ahead A / 2-Ahead B 与 S2 `u_s2_tage` / `u_s2_sc` / `u_s2_itt` / `u_ftb1` Block B 以 `WRITE_FIRST=0`（READ_FIRST）同步直驱 S0/S2（删除整份 `ah_pipe_q[0].raw` / `ah2_pipe_q[0]` 与 `r1_raw_q` / `r1_raw_b_q` 的 S2 原始寄存阵列，`ovr` 回滚由 1-bit `ah_use_bak_q` 多路切换单份备份）；`u_ftb1` Block A 在 `T-1` 拍以 `s0_base` + `WRITE_FIRST=1` 预发起；`u_rec`（512 项）与 `u_rf_rec`（256 项）拆为偶/奇双 bank 严格 1R1W SRAM（`brq_d[head_d]` 与 `next_rf_blk` 预发起，0 写冲突，附 SVA 预发起校验）；
@@ -140,6 +155,7 @@ depth: 197 层 / 410,093 单元（Yosys 整块 `bpu`）；**TSMC 28nm HPC+ DC `s
 
 ## 10. 变更记录
 
+- 2026-11-27（`rtl/bpu-sram-opt`，`v10.1` BPU 深宏 Multi-Bank 1RW + 零 `T0` `Meta/WRBypass/PLRU` 提交 + 零 FF `d.ovr` Ahead 重读 + S2→S3 拆拍）：删除 `bpu_sram_sync.sv`，新增 `bpu_sram_1rw_banked.sv`、`bpu_wrbypass.sv`、`bpu_plru.sv`；全预测阵列改为深宏单口 1RW（`u_ftb1` 4B、`u_s2_tage` 8B+4B、`u_s2_sc` Bias FF+2B、`itt`/`ah1`/`ah2` 2B，`u_ftb0` 缩至 16×4，`ttg_sram_1rw.sv` 补齐 `256×72`/`1024×8` TSMC 28nm HS LVT 宏映射）；预测捕获只读 `Meta` + 8 项 FF `WRBypass` 彻底取消 `T0` 读口与 `t0_hold_q`；S3 `d.ovr` 空闲口直接重读 Ahead 1RW 彻底删除 4 份 `ah_bak` FF 备份；同步修复 `front_fetch_buf.sv` `ftq_fa_cnt_sat == 2'd1` 预发起索引旁路。验证：`lint_chip.sh`（默认及 `-DSRAM_BLACKBOX`）0 警告、`fm_gate.sh`（`SOC_FM=1 SOC_ASSERT=1`）**77/77 PASS（0 FM / 0 SVA / 77/77 与 `trace-model` 逐拍逐指令完全相等）**、48/48 SPEC06 `−2.29%` vs baseline（`−0.86%` vs `sweet_spot`）、`linux_j.bin` 洁净启动、TSMC 28nm 真实宏 DC 总面积 **`3.313 mm²`**（SRAM 宏 `2.661 mm²` / 296 宏，较 `v5` 总面积 `−30.3%`、宏数 `−48.3%`、WNS `−1.73 → −1.44 ns`）。
 - 2026-11-25（`rtl/rob-ptr-bpu`，S2 `ExBlockTage(4096×8)` + `StatCorrector`）：新增 `bpu_ftb_ex_tage.sv`（8 表几何历史 `{5,11,22,44,89,178,356,712}`、4096×4 槽、11-bit tag、16 项 per-PC `use_alt`）与 `bpu_ftb_sc.sv`（Bias 64×4 + 4×GEHL 512 + IMLI 256 + Local 256 + LHT 64×10b + 16 项 `thres`），`bpu_spec` `arch_sr_q` 拓宽至 720-bit 并增量维护 `ex_fh[3][8]` / `sc_fh[4]` / `imli[7:0]`，S0/S1 关键路径零变化；验证：`lint_chip` 0、`fm_gate` **69/69 PASS（0 周期差）**、`rv64gc` Linux **26/26 窗 PT/UP 100% 全等**，连同 `rob_ptr` 在 2 GHz SPEC06 INT 386/386 取得 **+1.90%**（`13.87 → 14.13 /GHz`）。
 - 2026-11-24（`rtl/timing-opt2`，EXP-063 第二轮 28nm DC 时序优化）：
   - **2-Ahead B 与 Block A 真并行**（`bpu_types_pkg` / `bpu_ftb_tab` / `bpu_ftb_arrays` / `bpu_ftb_brq` / `bpu_eval` / `bpu`）：`aftb2` 开启 `STORE_B_BASE=1` 存 `b_base`、`ftb_rec_t` 存 `ah_a_base`，2-Ahead B 改为以 `(key_base, s0_base)` 索引与 Block A 并行评估并在末尾校验 `ah2_b_base == s0_b_base` 与 `b_truncated`，删除串行 `u0_b` 回退，`bpu_eval` 改用并行 `ttg_first_set` 选路与 6-bit 快速 `s0_b_bnd`；DC 28nm `bpu_eval` **0.84 → 1.28 GHz (+52.4%)**（WNS `−0.69 → −0.28 ns`，纯组合 `0.68 ns / 1.47 GHz`，69→49 级，面积 `25,652 → 23,911 um²`）。

@@ -10,6 +10,7 @@ module front_fetch_buf import ttg_cfg_pkg::*; import front_pkg::*; (
   input  logic             do_predecode_flush,
   // Unified FTQ-64 registered view + S0/IFU handshake
   input  logic             ftq_fa_empty,
+  input  logic [1:0]       ftq_fa_cnt_sat,
   input  logic [XLEN_BITS-1:0] ftq_ifu_addr,
   input  fetch_pair_t      ftq_ifu_pair,
   input  logic [5:0]       ftq_ifu_next_fa_idx,
@@ -72,12 +73,13 @@ module front_fetch_buf import ttg_cfg_pkg::*; import front_pkg::*; (
     end
     if (global_refetch) pend_nv = 1'b0;
     // Next-cycle VIPT set indices for strict 1-cycle synchronous L1I Data SRAM pre-launch
+    // When fa_rd_valid pops the sole FTQ entry (ftq_fa_cnt_sat==1), next head is this cycle's S0 fa_wr_address!
     ic_next_fa_idx  = global_refetch ? fa_wr_address[11:6]
-                    : fa_rd_valid    ? ftq_ifu_next_fa_idx
+                    : fa_rd_valid    ? ((ftq_fa_cnt_sat == 2'd1) ? fa_wr_address[11:6] : ftq_ifu_next_fa_idx)
                     : ftq_fa_empty   ? fa_wr_address[11:6]
                                      : ftq_ifu_addr[11:6];
     next_b_cand_idx = global_refetch ? fa_wr_pair.addr2[11:6]
-                    : fa_rd_valid    ? ftq_ifu_next_b_idx
+                    : fa_rd_valid    ? ((ftq_fa_cnt_sat == 2'd1) ? fa_wr_pair.addr2[11:6] : ftq_ifu_next_b_idx)
                     : ftq_fa_empty   ? fa_wr_pair.addr2[11:6]
                                      : ftq_ifu_pair.addr2[11:6];
     ic_next_b_idx   = pend_nv ? pend_np.addr2[11:6] : next_b_cand_idx;

@@ -1,7 +1,6 @@
-// Ref: front-end/BPU/BPU_pipe.h  (types and pure functions of the pipelined block-FTB predictor)
+// Ref: front-end/BPU/BPU_pipe.h  (types and pure functions of the pipelined block-FTB predictor, v10)
 `default_nettype none
 /* verilator lint_off UNUSEDPARAM */
-// Shared stage types and history/RAS functions for the block-based 1-ahead FTB BPU (EXP-050).
 package bpu_stage_pkg;
   import ttg_cfg_pkg::*;
   import bpu_pkg::*;
@@ -16,12 +15,56 @@ package bpu_stage_pkg;
   localparam int EPOCH_W   = 8;
   localparam int LANE_W    = $clog2(NLANE);
 
-  // ---- Batch 2: S2 8-table ExBlockTage + S2 StatCorrector history constants ----
+  // ---- S2 8-table ExBlockTage + S2 StatCorrector history constants ----
   localparam int EX_TN     = 8;
   localparam int EX_FH_K   = 3;
   localparam int EX_FH_W   = 12;
   localparam int SC_GEHL_N = 4;
   localparam int SC_FH_W   = 9;
+
+  // ---- v10 Deep-Macro Multi-Bank 1RW geometry & 38-bit Sv39 VA target compression ----
+  localparam int BPU_FTB1_BANKS    = 4;  // 4-Bank 1RW (256-deep -> 256x72 macros)
+  localparam int BPU_S2_TAGE_BANKS = 8;  // 8-Bank 1RW (512-deep -> 512x72 macros)
+  localparam int BPU_SC_BANKS      = 2;  // 2-Bank 1RW (GEHL 256x24, IMLI/LOC 128x24, Bias FF)
+  localparam int BPU_ITT_BANKS     = 2;  // 2-Bank 1RW (128x52 macros)
+  localparam int BPU_AH1_BANKS     = 2;  // 2-Bank 1RW (aftb 128-deep, atage 512-deep, aitt 128-deep)
+  localparam int BPU_AH2_BANKS     = 2;  // 2-Bank 1RW (aftb2 64-deep, atage2 256-deep, aitt2 128-deep)
+  localparam int BPU_WRB_N         = 8;  // 8-entry FF WRBypass CAM+Mem
+  localparam int FTB_VA_BITS       = 38; // stores pc[38:1]; sign-extended bit 38 to [63:39], bit 0 = 0
+
+  /* verilator lint_off UNUSEDSIGNAL */
+  function automatic logic [1:0] s2_bank_of_w(input logic [31:0] w);
+    return 2'(w ^ (w >> 10));
+  endfunction
+
+  function automatic logic [1:0] s2_bank_of_pc(input logic [XLEN_BITS-1:0] pc);
+    return s2_bank_of_w(32'(pc >> SLOT_SHIFT));
+  endfunction
+
+  function automatic logic ah1_bank_of_w(input logic [31:0] w);
+    return 1'(w ^ (w >> 8));
+  endfunction
+
+  function automatic logic ah1_bank_of_pc(input logic [XLEN_BITS-1:0] pc);
+    return ah1_bank_of_w(32'(pc >> SLOT_SHIFT));
+  endfunction
+
+  function automatic logic ah2_bank_of_w(input logic [31:0] w);
+    return 1'(w ^ (w >> 7));
+  endfunction
+
+  function automatic logic ah2_bank_of_pc(input logic [XLEN_BITS-1:0] pc);
+    return ah2_bank_of_w(32'(pc >> SLOT_SHIFT));
+  endfunction
+
+  function automatic logic [FTB_VA_BITS-1:0] sv39_pack(input logic [XLEN_BITS-1:0] pc);
+    return pc[FTB_VA_BITS:1];
+  endfunction
+
+  function automatic logic [XLEN_BITS-1:0] sv39_unpack(input logic [FTB_VA_BITS-1:0] va);
+    return {{(XLEN_BITS - FTB_VA_BITS - 1){va[FTB_VA_BITS-1]}}, va, 1'b0};
+  endfunction
+  /* verilator lint_on UNUSEDSIGNAL */
 
   function automatic int unsigned ex_ghr_len(input int i);
     case (i)
@@ -88,7 +131,7 @@ package bpu_stage_pkg;
     logic [7:0] imli;
   } ck_t;
 
-  // ---- block prediction summary shared by S0 / S1 / S2 ----
+  // ---- block prediction summary shared by S0 / S1 / S2 / S3 ----
   typedef struct packed {
     logic                 hit;
     logic                 taken;
@@ -105,9 +148,10 @@ package bpu_stage_pkg;
   localparam int HHCK_W = HR_PTR_W + FH_K * TN * FH_W;
   localparam int HCK_W  = RCK_W + HHCK_W;
 
-  // ---- block registers of S1 / S2 stages ----
+  // ---- block registers of S1 / S2 / S3 stages ----
   typedef struct packed {
     logic                 valid;
+    logic                 sq;
     logic                 ah_v;
     logic                 ah_hit;
     logic [XLEN_BITS-1:0] ah_key_base;
@@ -223,7 +267,6 @@ package bpu_stage_pkg;
     return n;
   endfunction
 
-  // IMLI op encoding: 0 = hold, 1 = saturating increment, 2 = reset to 0
   function automatic logic [1:0] imli_op_of(input logic [2:0] ty, input logic taken,
                                             input logic [XLEN_BITS-1:0] br_pc, input logic [XLEN_BITS-1:0] tgt,
                                             input logic reset_on_nt);

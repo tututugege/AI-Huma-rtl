@@ -104,7 +104,8 @@ module ftq_ibuf import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; import front_pkg:
 
   // Unified FTQ-64 pointers & frontend feedback
   logic [FTQ_IDX_WIDTH-1:0]       comm_ptr, next_comm_ptr, pd_ptr, s2_ptr, ifu_ptr, bpu_ptr_unused, s0_wr_idx;
-  logic                           ftq_full, fa_empty, fa_head_fresh, s2_empty;
+  logic                           ftq_full, fa_empty, s2_empty;
+  logic [1:0]                     fa_cnt_sat;
   logic [XLEN_BITS-1:0]           ifu_addr, pd_base_pc, pd_base_b, pd_out_next_pc;
   fetch_pair_t                    ifu_pair;
   logic [5:0]                     ifu_next_fa_idx, ifu_next_b_idx;
@@ -182,7 +183,7 @@ module ftq_ibuf import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; import front_pkg:
     .recover        (idu_br_latch_mispred),
     .recover_idx    (idu_br_latch_ftq_idx),
     .s0_wr_en       (fe2ftq_s0.wr_en),
-    .s0_drop_tail   (fe2ftq_s0.drop_tail),
+    .s0_drop_tail_n (fe2ftq_s0.drop_tail_n),
     .s0_ifu_pop     (fe2ftq_s0.ifu_pop),
     .s2_wr_en       (fe2ftq_s2.wr_en),
     .pd_fire        (fe2ftq_pd.fire),
@@ -193,7 +194,7 @@ module ftq_ibuf import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; import front_pkg:
     .comm_ptr, .next_comm_ptr, .pd_ptr, .s2_ptr, .ifu_ptr,
     .bpu_ptr        (bpu_ptr_unused),
     .s0_wr_idx,
-    .ftq_full, .fa_empty, .fa_head_fresh, .s2_empty
+    .ftq_full, .fa_empty, .fa_cnt_sat, .s2_empty
   );
 
   ftq_pc u_pc (
@@ -266,7 +267,7 @@ module ftq_ibuf import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; import front_pkg:
   always_comb begin
     ftq2fe.ftq_full        = ftq_full;
     ftq2fe.fa_empty        = fa_empty;
-    ftq2fe.fa_head_fresh   = fa_head_fresh;
+    ftq2fe.fa_cnt_sat      = fa_cnt_sat;
     ftq2fe.s2_empty        = s2_empty;
     ftq2fe.ifu_addr        = ifu_addr;
     ftq2fe.ifu_pair        = ifu_pair;

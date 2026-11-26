@@ -1,12 +1,15 @@
-// Ref: front-end/BPU/BpuFtb.h  FtbTab / AheadFtbTab (parameterized set-associative FTB array)
-// - USE_SRAM=0 (uFTB, 64x4): tiny FF register file for 0-cycle S0 loop; single write port (mutually exclusive T1 upd/clr).
-// - USE_SRAM=1 (Main FTB / 1-Ahead FTB / 2-Ahead FTB): strict 1-cycle synchronous `bpu_sram_sync` (1R1W `ttg_sram_1r1w`).
-//   Predict reads are launched 1 cycle early; commit training and predecode clear share a single 2-stage (T0->T1) RMW port.
+// Ref: front-end/BPU/BpuFtb.h  FtbTab / AheadFtbTab (v10: Zero-T0-Read Meta + WRBypass + PLRU + 1-entry WrBuf)
+// - USE_SRAM=0 (uFTB, 16x4=64 FF): tiny FF register file for 0-cycle S0 fallback.
+// - USE_SRAM=1 (Main FTB 4B / 1-Ahead FTB 2B / 2-Ahead FTB 2B):
+//     * Single-port 1RW `bpu_sram_1rw_banked` with MASK_W = WAYS (single-way write, ZERO multi-way RMW!)
+//     * Commit uses ftb_rec Meta + 8-entry FF WRBypass + per-set tree-PLRU -> ZERO T0 SRAM reads!
+//     * Predict ALWAYS wins FTB 1RW banks; blocked commit writes hold in 1-entry FtbWrBuf!
 `default_nettype none
 
 module bpu_ftb_tab import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; import bpu_types_pkg::*; #(
   parameter int    SETS             = 1024,
   parameter int    WAYS             = 4,
+  parameter int    NB               = BPU_FTB1_BANKS,
   parameter int    TAG_W            = 14,
   parameter int    TGT_BITS         = 0,
   parameter bit    ALLOC_ONLY_TAKEN = 1'b0,
@@ -15,55 +18,57 @@ module bpu_ftb_tab import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
   parameter bit    HAS_RD2          = 1'b0,
   parameter bit    STORE_B_BASE     = 1'b0,
   parameter bit    USE_SRAM         = 1'b1,
-  parameter logic [2:0] RD_WF_MASK  = 3'b010,
   /* verilator lint_off UNUSEDPARAM */
   parameter [255:0] TAG             = "BPU_FTB"
   /* verilator lint_on UNUSEDPARAM */
 ) (
   input  logic                    clk,
   input  logic                    rst_n,
-  // Predict read port 0 (USE_SRAM=0: comb rd_base; USE_SRAM=1: sync launch with rd_en/rd_base, tag-compare with rd_cmp_base)
+  // Predict read port 0 (USE_SRAM=0: comb rd_base; USE_SRAM=1: 1RW sync launch with rd_en/rd_base)
   input  logic                    rd_en,
   input  logic [XLEN_BITS-1:0]    rd_base,
   input  logic [XLEN_BITS-1:0]    rd_cmp_base,
   output logic                    rd_hit,
+  output logic [$clog2(WAYS)-1:0] rd_way,
   output ftb_ent_t                rd_ent,
   output ftb_ent_t [WAYS-1:0]     rd_ways,
-  output logic [WAYS-1:0][XLEN_BITS-1:0] rd_b_base,
-  // Optional predict read port 2 (Block B when HAS_RD2=1)
+  output logic [WAYS-1:0][FTB_VA_BITS-1:0] rd_b_base,
+  // Optional predict read port 2 (Block B when HAS_RD2=1; guaranteed different bank from port 0)
   input  logic                    rd2_en,
   input  logic [XLEN_BITS-1:0]    rd2_base,
   input  logic [XLEN_BITS-1:0]    rd2_cmp_base,
   output logic                    rd2_hit,
+  output logic [$clog2(WAYS)-1:0] rd2_way,
   output ftb_ent_t                rd2_ent,
-  // T0 sync read launch for commit update & predecode clear (mutually exclusive; unused when USE_SRAM=0)
-  input  logic                    t0_upd_en,
-  input  logic [XLEN_BITS-1:0]    t0_upd_base,
-  input  logic [XLEN_BITS-1:0]    t0_upd_key_base,
-  input  logic                    t0_clr_en,
-  input  logic [XLEN_BITS-1:0]    t0_clr_base,
-  // T1 commit RMW execute & write (mutually exclusive with t1_clr_en)
-  input  logic                    t1_upd_en,
-  input  logic [XLEN_BITS-1:0]    t1_upd_base,
-  input  logic [XLEN_BITS-1:0]    t1_upd_key_base,
-  input  logic [XLEN_BITS-1:0]    t1_upd_b_base,
-  input  ftb_br_upd_t             t1_upd_br,
+  // Single-cycle pure commit update (from ftb_rec Meta + WRBypass + PLRU; ZERO T0 read!)
+  input  logic                    upd_en,
+  input  logic [XLEN_BITS-1:0]    upd_base,
+  input  logic [XLEN_BITS-1:0]    upd_key_base,
+  input  logic [XLEN_BITS-1:0]    upd_b_base,
+  input  ftb_br_upd_t             upd_br,
+  input  logic                    upd_meta_hit,
+  input  logic [$clog2(WAYS)-1:0] upd_meta_way,
+  input  ftb_ent_t                upd_meta_ent,
+  input  logic [NB-1:0]           rd_bank_mask,   // Predict read banks busy this cycle (Predict ALWAYS wins!)
   output logic                    upd_slot_valid,
   output logic [FTB_SLOT_W-1:0]   upd_slot_idx,
   output logic [1:0]              upd_slot_ctr,
-  // T1 predecode false-branch slot clear execute & write (used when HAS_CLR=1; mutually exclusive with t1_upd_en)
-  input  logic                    t1_clr_en,
-  input  logic [XLEN_BITS-1:0]    t1_clr_base,
-  input  logic [XLEN_BITS-1:0]    t1_clr_pc
+  output logic                    upd_any_v,
+  // Rare predecode false-branch slot clear (USE_SRAM=0: 1-cycle FF; USE_SRAM=1: 2-cycle idle bank RMW)
+  input  logic                    clr_en,
+  input  logic [XLEN_BITS-1:0]    clr_base,
+  input  logic [XLEN_BITS-1:0]    clr_pc
 );
 
   localparam int SET_W    = $clog2(SETS);
   localparam int WAY_W    = $clog2(WAYS);
-  localparam int N_RD     = HAS_RD2 ? 3 : 2;
-  localparam int RD2_PORT = 2;
+  localparam int BK_W     = (NB > 1) ? $clog2(NB) : 1;
 
   typedef ftb_ent_t [WAYS-1:0] set_t;
-  typedef logic [WAYS-1:0][XLEN_BITS-1:0] bbase_set_t;
+  typedef logic [WAYS-1:0][FTB_VA_BITS-1:0] bbase_set_t;
+  localparam int ENT_BITS = $bits(ftb_ent_t);
+  localparam int SET_BITS = $bits(set_t);
+  localparam int BB_BITS  = $bits(bbase_set_t);
 
   function automatic logic [SET_W-1:0] set_idx(input logic [XLEN_BITS-1:0] pc);
     logic [31:0] w;
@@ -78,284 +83,579 @@ module bpu_ftb_tab import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
     return FTB_MAX_TAG_W'((w >> SET_W) & mask);
   endfunction
 
-  // ---- Backing storage (strict sync 1R1W SRAM when USE_SRAM=1; tiny FF array for S0 uFTB when USE_SRAM=0) ----
-  logic             mem_rd_en   [N_RD];
-  logic [SET_W-1:0] mem_rd_addr [N_RD];
-  set_t             mem_rd_data [N_RD];
-  logic             mem_wr_en;
-  logic [SET_W-1:0] mem_wr_addr;
-  set_t             mem_wr_data;
+  logic [SET_W-1:0] rd_set0, rd_set1;
+  assign rd_set0 = set_idx(rd_base);
+  assign rd_set1 = set_idx(rd2_base);
 
-  logic [SET_W-1:0] rd_set0, t0_rmw_set, t1_upd_set, t1_clr_set;
-  logic             do_upd, do_clr;
-  logic [WAY_W-1:0] sel_w;
-  set_t             upd_set_next, clr_set_next;
-
-  assign rd_set0    = set_idx(rd_base);
-  assign t0_rmw_set = t0_upd_en ? (AHEAD_MODE ? set_idx(t0_upd_key_base) : set_idx(t0_upd_base))
-                                : set_idx(t0_clr_base);
-  assign t1_upd_set = AHEAD_MODE ? set_idx(t1_upd_key_base) : set_idx(t1_upd_base);
-  assign t1_clr_set = set_idx(t1_clr_base);
-
-  assign mem_rd_en[0]   = rd_en;
-  assign mem_rd_addr[0] = rd_set0;
-  assign mem_rd_en[1]   = t0_upd_en || (HAS_CLR && t0_clr_en);
-  assign mem_rd_addr[1] = t0_rmw_set;
-
-  assign mem_wr_en   = do_upd || (HAS_CLR && do_clr);
-  assign mem_wr_addr = do_upd ? t1_upd_set : t1_clr_set;
-  assign mem_wr_data = do_upd ? upd_set_next : clr_set_next;
-
-  if (USE_SRAM) begin : g_sram
-    bpu_sram_sync #(
-      .W      ($bits(set_t)),
-      .DEPTH  (SETS),
-      .N_RD   (N_RD),
-      .T      (set_t),
-      .WF_MASK(RD_WF_MASK[N_RD-1:0]),
-      .TAG    (TAG)
-    ) u_mem (
-      .clk    (clk),
-      .rd_en  (mem_rd_en),
-      .rd_addr(mem_rd_addr),
-      .rd_data(mem_rd_data),
-      .wr_en  (mem_wr_en),
-      .wr_addr(mem_wr_addr),
-      .wr_data(mem_wr_data)
-    );
-  end else begin : g_ff_uftb
+  if (!USE_SRAM) begin : g_ff_uftb
+    // ---- Tiny 16x4=64-entry FF uFTB (0-cycle comb read, 1-cycle commit update & clear) ----
     set_t ff_mem_q [SETS];
-`ifndef SYNTHESIS
-    initial begin
-      for (int i = 0; i < SETS; i++) ff_mem_q[i] = '0;
-    end
-`endif
-    always_ff @(posedge clk) begin
-      if (mem_wr_en) ff_mem_q[mem_wr_addr] <= mem_wr_data;
-    end
-    always_comb begin
-      mem_rd_data[0] = ff_mem_q[rd_set0];
-      mem_rd_data[1] = ff_mem_q[t1_upd_en ? t1_upd_set : t1_clr_set];
-    end
-    if (HAS_RD2) begin : g_ff_rd2
-      assign mem_rd_data[RD2_PORT] = ff_mem_q[mem_rd_addr[RD2_PORT]];
-    end
-    /* verilator lint_off UNUSEDSIGNAL */
-    logic unused_ff_re;
-    assign unused_ff_re = ^{mem_rd_en[0], mem_rd_en[1], rd2_en};
-    /* verilator lint_on UNUSEDSIGNAL */
-  end
+    logic [SET_W-1:0]         upd_s, clr_s;
+    logic [FTB_MAX_TAG_W-1:0] upd_tg, clr_tg;
+    logic                     tgt_ok, hit_found, inv_found, do_upd, do_clr;
+    logic [WAY_W-1:0]         hit_w, inv_w, sel_w, plru_vic;
+    ftb_ent_t                 cur_ent;
+    ftb_upsert_res_t          up_res;
+    set_t                     upd_set_next, clr_set_next;
+    logic                     any_slot_v;
 
-  // Optional parallel b_base array for 2-Ahead B (STORE_B_BASE=1, always USE_SRAM=1)
-  bbase_set_t bbase_rd_upd;
-  if (STORE_B_BASE) begin : g_bbase
-    logic             bb_re [2];
-    logic [SET_W-1:0] bb_ra [2];
-    bbase_set_t       bb_rd [2];
-    bbase_set_t       bb_wd;
-    assign bb_re[0]     = rd_en;
-    assign bb_ra[0]     = rd_set0;
-    assign bb_re[1]     = t0_upd_en;
-    assign bb_ra[1]     = t0_rmw_set;
-    assign rd_b_base    = bb_rd[0];
-    assign bbase_rd_upd = bb_rd[1];
-    always_comb begin
-      bb_wd        = bb_rd[1];
-      bb_wd[sel_w] = t1_upd_b_base;
-    end
-    bpu_sram_sync #(
-      .W      ($bits(bbase_set_t)),
-      .DEPTH  (SETS),
-      .N_RD   (2),
-      .T      (bbase_set_t),
-      .WF_MASK(2'b10),
-      .TAG    ("BPU_AFTB2_BBASE")
-    ) u_bbase (
-      .clk    (clk),
-      .rd_en  (bb_re),
-      .rd_addr(bb_ra),
-      .rd_data(bb_rd),
-      .wr_en  (do_upd),
-      .wr_addr(t1_upd_set),
-      .wr_data(bb_wd)
+    assign upd_s  = set_idx(upd_base);
+    assign clr_s  = set_idx(clr_base);
+    assign upd_tg = norm_tag(upd_base);
+    assign clr_tg = norm_tag(clr_base);
+
+    bpu_plru #(.SETS(SETS), .WAYS(WAYS)) u_plru (
+      .clk, .rst_n,
+      .rd_set    (upd_s),
+      .victim_way(plru_vic),
+      .touch_en  (do_upd && any_slot_v),
+      .touch_set (upd_s),
+      .touch_way (sel_w)
     );
-  end else begin : g_nobbase
-    assign rd_b_base    = '0;
-    assign bbase_rd_upd = '0;
-    /* verilator lint_off UNUSEDSIGNAL */
-    logic unused_bb;
-    assign unused_bb = ^{t1_upd_b_base, bbase_rd_upd};
-    /* verilator lint_on UNUSEDSIGNAL */
-  end
 
-  // ---- Lookup read port 0 (tag compare uses rd_cmp_base when USE_SRAM=1, rd_base when USE_SRAM=0) ----
-  logic [FTB_MAX_TAG_W-1:0] rd_tag_v;
-
-  always_comb begin
-    rd_ways  = mem_rd_data[0];
-    rd_tag_v = norm_tag(USE_SRAM ? rd_cmp_base : rd_base);
-    rd_hit   = 1'b0;
-    rd_ent   = '0;
-    if (!AHEAD_MODE) begin
-      for (int w = 0; w < WAYS; w++) begin
-        if (!rd_hit && rd_ways[w].valid && (rd_ways[w].tag == rd_tag_v)) begin
-          rd_hit = 1'b1;
-          rd_ent = rd_ways[w];
-        end
-      end
-    end
-  end
-
-  // ---- Optional lookup read port 2 (Block B) ----
-  if (HAS_RD2) begin : g_rd2
-    logic [FTB_MAX_TAG_W-1:0] rd2_tag_v;
-    assign mem_rd_en[RD2_PORT]   = rd2_en;
-    assign mem_rd_addr[RD2_PORT] = set_idx(rd2_base);
     always_comb begin
-      rd2_tag_v = norm_tag(USE_SRAM ? rd2_cmp_base : rd2_base);
-      rd2_hit   = 1'b0;
-      rd2_ent   = '0;
+      set_t s_cur;
+      s_cur     = ff_mem_q[upd_s];
+      tgt_ok    = (TGT_BITS == 0) || !upd_br.actual_dir || (upd_br.br_type == BR_RET) ||
+                  ftb_s0_tgt_fits(upd_base, upd_br.target);
+      hit_found = 1'b0; hit_w = '0;
+      inv_found = 1'b0; inv_w = '0;
       for (int w = 0; w < WAYS; w++) begin
-        if (!rd2_hit && mem_rd_data[RD2_PORT][w].valid && (mem_rd_data[RD2_PORT][w].tag == rd2_tag_v)) begin
-          rd2_hit = 1'b1;
-          rd2_ent = mem_rd_data[RD2_PORT][w];
+        if (!hit_found && s_cur[w].valid && (s_cur[w].tag == upd_tg)) begin
+          hit_found = 1'b1; hit_w = WAY_W'(w);
+        end
+        if (!inv_found && !s_cur[w].valid) begin
+          inv_found = 1'b1; inv_w = WAY_W'(w);
         end
       end
-    end
-  end else begin : g_nord2
-    assign rd2_hit = 1'b0;
-    assign rd2_ent = '0;
-    /* verilator lint_off UNUSEDSIGNAL */
-    logic unused_rd2;
-    assign unused_rd2 = ^{rd2_en, rd2_base, rd2_cmp_base};
-    /* verilator lint_on UNUSEDSIGNAL */
-  end
-
-  // ---- T1 Update RMW (using mem_rd_data[1]) ----
-  logic [FTB_MAX_TAG_W-1:0] upd_tag;
-  logic                     tgt_ok;
-  logic                     hit_found, inv_found;
-  logic [WAY_W-1:0]         hit_w, inv_w, lru_w;
-  logic [2:0]               max_lru, old_lru;
-  ftb_ent_t                 cur_ent;
-  ftb_upsert_res_t          up_res;
-  logic                     any_slot_v;
-
-  always_comb begin
-    upd_tag = AHEAD_MODE ? FTB_MAX_TAG_W'(ftb_ah_tag(t1_upd_key_base, t1_upd_base, SET_W)) : norm_tag(t1_upd_base);
-    tgt_ok  = (TGT_BITS == 0) || !t1_upd_br.actual_dir || (t1_upd_br.br_type == BR_RET) ||
-              ftb_s0_tgt_fits(t1_upd_base, t1_upd_br.target);
-
-    hit_found = 1'b0;
-    hit_w     = '0;
-    inv_found = 1'b0;
-    inv_w     = '0;
-    lru_w     = '0;
-    max_lru   = mem_rd_data[1][0].lru;
-    for (int w = 0; w < WAYS; w++) begin
-      if (!hit_found && mem_rd_data[1][w].valid && (mem_rd_data[1][w].tag == upd_tag)) begin
-        hit_found = 1'b1;
-        hit_w     = WAY_W'(w);
-      end
-      if (!inv_found && !mem_rd_data[1][w].valid) begin
-        inv_found = 1'b1;
-        inv_w     = WAY_W'(w);
-      end
-      if (w > 0 && mem_rd_data[1][w].lru > max_lru) begin
-        max_lru = mem_rd_data[1][w].lru;
-        lru_w   = WAY_W'(w);
-      end
-    end
-
-    do_upd = t1_upd_en && tgt_ok && (hit_found || !(ALLOC_ONLY_TAKEN && !t1_upd_br.actual_dir));
-    sel_w  = hit_found ? hit_w : (inv_found ? inv_w : lru_w);
-    if (hit_found && (!STORE_B_BASE || (bbase_rd_upd[hit_w] == t1_upd_b_base))) begin
-      cur_ent = mem_rd_data[1][hit_w];
-    end else begin
-      cur_ent       = '0;
-      cur_ent.valid = 1'b1;
-      cur_ent.tag   = upd_tag;
-      cur_ent.lru   = hit_found ? mem_rd_data[1][hit_w].lru : 3'(WAYS - 1);
-    end
-    up_res = ftb_upsert_branch(cur_ent, t1_upd_br);
-  end
-
-  always_comb begin
-    upd_set_next = mem_rd_data[1];
-    any_slot_v   = 1'b0;
-    for (int k = 0; k < FTB_SLOTS; k++) begin
-      if (up_res.ent.s[k].valid) any_slot_v = 1'b1;
-    end
-    old_lru = cur_ent.lru;
-
-    if (do_upd) begin
-      upd_set_next[sel_w] = up_res.ent;
-      if (!any_slot_v && !AHEAD_MODE) begin
-        upd_set_next[sel_w].valid = 1'b0;
+      do_upd = upd_en && tgt_ok && (hit_found || !(ALLOC_ONLY_TAKEN && !upd_br.actual_dir));
+      sel_w  = hit_found ? hit_w : (inv_found ? inv_w : plru_vic);
+      if (hit_found) begin
+        cur_ent = s_cur[hit_w];
       end else begin
+        cur_ent       = '0;
+        cur_ent.valid = 1'b1;
+        cur_ent.tag   = upd_tg;
+      end
+      up_res = ftb_upsert_branch(cur_ent, upd_br);
+      any_slot_v = 1'b0;
+      for (int k = 0; k < FTB_SLOTS; k++) if (up_res.ent.s[k].valid) any_slot_v = 1'b1;
+
+      upd_set_next = s_cur;
+      if (do_upd) begin
+        upd_set_next[sel_w] = up_res.ent;
+        if (!any_slot_v) upd_set_next[sel_w].valid = 1'b0;
+      end
+
+      // Predecode clear
+      clr_set_next = ff_mem_q[clr_s];
+      do_clr       = 1'b0;
+      begin
+        logic clr_car, clr_vok, c_hit, s_any;
+        logic [3:0] clr_off;
+        clr_car = (clr_pc + XLEN_BITS'(SLOT_BYTES) == clr_base);
+        clr_vok = clr_car || (clr_pc >= clr_base);
+        clr_off = clr_car ? 4'd0 : 4'((clr_pc - clr_base) >> SLOT_SHIFT);
+        c_hit   = 1'b0;
+        s_any   = 1'b0;
+        if (HAS_CLR && clr_en && clr_vok) begin
+          for (int w = 0; w < WAYS; w++) begin
+            if (!c_hit && clr_set_next[w].valid && (clr_set_next[w].tag == clr_tg)) begin
+              c_hit = 1'b1;
+              s_any = 1'b0;
+              for (int k = 0; k < FTB_SLOTS; k++) begin
+                if (clr_set_next[w].s[k].valid && (clr_set_next[w].s[k].offset == clr_off))
+                  clr_set_next[w].s[k] = '0;
+                else if (clr_set_next[w].s[k].valid)
+                  s_any = 1'b1;
+              end
+              if (!s_any) clr_set_next[w].valid = 1'b0;
+            end
+          end
+        end
+        do_clr = HAS_CLR && clr_en && c_hit;
+      end
+
+      upd_slot_valid = do_upd && any_slot_v && up_res.slot_found;
+      upd_slot_idx   = up_res.slot_idx;
+      upd_slot_ctr   = up_res.slot_ctr;
+      upd_any_v      = any_slot_v;
+    end
+
+    always_ff @(posedge clk) begin
+      if (!rst_n) begin
+        for (int i = 0; i < SETS; i++) ff_mem_q[i] <= '0;
+      end else begin
+        if (do_upd) ff_mem_q[upd_s] <= upd_set_next;
+        if (do_clr) ff_mem_q[clr_s] <= clr_set_next;
+      end
+    end
+
+    // Comb lookup port 0 & optional port 2
+    always_comb begin
+      logic [FTB_MAX_TAG_W-1:0] t0, t2;
+      rd_ways   = ff_mem_q[rd_set0];
+      rd_b_base = '0;
+      t0        = norm_tag(rd_base);
+      rd_hit    = 1'b0;
+      rd_way    = '0;
+      rd_ent    = '0;
+      for (int w = 0; w < WAYS; w++) begin
+        if (!rd_hit && rd_ways[w].valid && (rd_ways[w].tag == t0)) begin
+          rd_hit = 1'b1; rd_way = WAY_W'(w); rd_ent = rd_ways[w];
+        end
+      end
+      rd2_hit = 1'b0; rd2_way = '0; rd2_ent = '0;
+      if (HAS_RD2) begin
+        set_t s2;
+        s2 = ff_mem_q[rd_set1];
+        t2 = norm_tag(rd2_base);
         for (int w = 0; w < WAYS; w++) begin
-          if (WAY_W'(w) == sel_w) begin
-            upd_set_next[w].lru = 3'd0;
-          end else if (upd_set_next[w].valid && (upd_set_next[w].lru < old_lru)) begin
-            upd_set_next[w].lru = upd_set_next[w].lru + 3'd1;
+          if (!rd2_hit && s2[w].valid && (s2[w].tag == t2)) begin
+            rd2_hit = 1'b1; rd2_way = WAY_W'(w); rd2_ent = s2[w];
           end
         end
       end
     end
 
-    upd_slot_valid = do_upd && (any_slot_v || AHEAD_MODE) && up_res.slot_found;
-    upd_slot_idx   = up_res.slot_idx;
-    upd_slot_ctr   = up_res.slot_ctr;
-  end
+    /* verilator lint_off UNUSEDSIGNAL */
+    logic unused_ff;
+    assign unused_ff = ^{rd_en, rd_cmp_base, rd2_en, rd2_cmp_base, upd_key_base, upd_b_base,
+                         upd_meta_hit, upd_meta_way, upd_meta_ent, rd_bank_mask};
+    /* verilator lint_on UNUSEDSIGNAL */
 
-  // ---- T1 Predecode false-branch slot clear RMW (mutually exclusive with t1_upd_en, shares mem_rd_data[1] & 1W) ----
-  if (HAS_CLR) begin : g_clr
-    logic [FTB_MAX_TAG_W-1:0] clr_tag;
-    logic                     clr_carried, clr_valid_pc, clr_hit;
-    logic [3:0]               clr_off;
-    logic                     slot_any_v;
+  end else begin : g_sram_ftb
+    // ---- Multi-Bank 1RW SRAM FTB (Zero T0 Read: Meta + WRBypass + PLRU + 1-entry FtbWrBuf!) ----
+    localparam int WRB_KEY_W  = SET_W + TAG_W;
+    localparam int WRB_DATA_W = WAY_W + ENT_BITS + (STORE_B_BASE ? FTB_VA_BITS : 0);
+
+    logic [SET_W-1:0]         upd_s;
+    logic [FTB_MAX_TAG_W-1:0] upd_tg;
+    logic [FTB_VA_BITS-1:0]   upd_b38;
+    logic [WAY_W-1:0]         plru_vic, sel_way;
+    logic                     wrb_hit;
+    logic [WRB_DATA_W-1:0]    wrb_rd_data, wrb_wr_data;
+    logic                     wrb_wr_en;
+    logic [WRB_KEY_W-1:0]     wrb_rd_key, wrb_wr_key;
+
+    assign upd_s   = AHEAD_MODE ? set_idx(upd_key_base) : set_idx(upd_base);
+    assign upd_tg  = AHEAD_MODE ? FTB_MAX_TAG_W'(ftb_ah_tag(upd_key_base, upd_base, SET_W)) : norm_tag(upd_base);
+    assign upd_b38 = sv39_pack(upd_b_base);
+
+    // 1. Per-set tree-PLRU FF array
+    logic new_ftb_wr;
+    bpu_plru #(.SETS(SETS), .WAYS(WAYS)) u_plru (
+      .clk, .rst_n,
+      .rd_set    (upd_s),
+      .victim_way(plru_vic),
+      .touch_en  (new_ftb_wr),
+      .touch_set (upd_s),
+      .touch_way (sel_way)
+    );
+
+    // 2. 8-entry FF WRBypass CAM+Mem
+    assign wrb_rd_key = {upd_s, upd_tg[TAG_W-1:0]};
+    bpu_wrbypass #(.N(BPU_WRB_N), .KEY_W(WRB_KEY_W), .DATA_W(WRB_DATA_W)) u_wrb (
+      .clk, .rst_n,
+      .rd_key (wrb_rd_key),
+      .rd_hit (wrb_hit),
+      .rd_data(wrb_rd_data),
+      .wr_en  (wrb_wr_en),
+      .wr_key (wrb_wr_key),
+      .wr_data(wrb_wr_data)
+    );
+
+    // 3. Commit plan from Meta + WRBypass + commit-time PLRU victim
+    logic [WAY_W-1:0]       wrb_way;
+    ftb_ent_t               wrb_ent;
+    logic [FTB_VA_BITS-1:0] wrb_b38;
+    ftb_ent_t               old_ent, cur_ent, new_ent;
+    ftb_upsert_res_t        up_res;
+    logic                   had_hit, any_slot_v;
+
+    if (STORE_B_BASE) begin : g_wrb_unp_bb
+      assign {wrb_way, wrb_ent, wrb_b38} = wrb_rd_data;
+    end else begin : g_wrb_unp_nobb
+      assign {wrb_way, wrb_ent} = wrb_rd_data;
+      assign wrb_b38            = '0;
+    end
 
     always_comb begin
-      clr_tag      = norm_tag(t1_clr_base);
-      clr_carried  = (t1_clr_pc + XLEN_BITS'(SLOT_BYTES) == t1_clr_base);
-      clr_valid_pc = t1_clr_en && !t1_upd_en && (clr_carried || (t1_clr_pc >= t1_clr_base));
-      clr_off      = clr_carried ? 4'd0 : 4'((t1_clr_pc - t1_clr_base) >> SLOT_SHIFT);
-      clr_set_next = mem_rd_data[1];
-      clr_hit      = 1'b0;
-      slot_any_v   = 1'b0;
+      had_hit = 1'b0;
+      old_ent = '0;
+      sel_way = plru_vic;
+      if (wrb_hit) begin
+        had_hit = wrb_ent.valid && (wrb_ent.tag == upd_tg) && (!STORE_B_BASE || (wrb_b38 == upd_b38));
+        old_ent = wrb_ent;
+        sel_way = wrb_way;
+      end else if (upd_meta_hit) begin
+        had_hit = 1'b1;
+        old_ent = upd_meta_ent;
+        sel_way = upd_meta_way;
+      end
 
-      if (clr_valid_pc) begin
-        for (int w = 0; w < WAYS; w++) begin
-          if (!clr_hit && mem_rd_data[1][w].valid && (mem_rd_data[1][w].tag == clr_tag)) begin
-            clr_hit    = 1'b1;
-            slot_any_v = 1'b0;
-            for (int k = 0; k < FTB_SLOTS; k++) begin
-              if (mem_rd_data[1][w].s[k].valid && (mem_rd_data[1][w].s[k].offset == clr_off)) begin
-                clr_set_next[w].s[k] = '0;
-              end else if (mem_rd_data[1][w].s[k].valid) begin
-                slot_any_v = 1'b1;
+      if (had_hit) begin
+        cur_ent = old_ent;
+      end else begin
+        cur_ent       = '0;
+        cur_ent.valid = 1'b1;
+        cur_ent.tag   = upd_tg;
+      end
+
+      up_res     = ftb_upsert_branch(cur_ent, upd_br);
+      new_ent    = up_res.ent;
+      any_slot_v = 1'b0;
+      for (int k = 0; k < FTB_SLOTS; k++) if (new_ent.s[k].valid) any_slot_v = 1'b1;
+      if (!any_slot_v && !AHEAD_MODE) new_ent.valid = 1'b0;
+
+      new_ftb_wr     = upd_en && (any_slot_v || AHEAD_MODE) && (!had_hit || !ftb_ent_payload_eq(new_ent, old_ent));
+      upd_slot_valid = upd_en && (any_slot_v || AHEAD_MODE) && up_res.slot_found;
+      upd_slot_idx   = up_res.slot_idx;
+      upd_slot_ctr   = up_res.slot_ctr;
+      upd_any_v      = any_slot_v;
+    end
+
+    // 4. 1-entry FtbWrBuf (Predict ALWAYS wins 1RW FTB banks; buffered write drains on next free bank cycle!)
+    logic                   wb_v_q, wb_v_d;
+    logic [SET_W-1:0]       wb_s_q, wb_s_d;
+    logic [WAY_W-1:0]       wb_w_q, wb_w_d;
+    ftb_ent_t               wb_e_q, wb_e_d;
+    logic [FTB_VA_BITS-1:0] wb_b_q, wb_b_d;
+
+    logic                   do_ftb_wr;
+    logic [SET_W-1:0]       wr_set;
+    logic [WAY_W-1:0]       wr_way;
+    ftb_ent_t               wr_ent;
+    logic [FTB_VA_BITS-1:0] wr_b38;
+    logic [NB-1:0]          busy_after_wr;
+
+    always_comb begin
+      logic [BK_W-1:0] obk, nbk;
+      obk           = (NB > 1) ? wb_s_q[BK_W-1:0] : BK_W'(0);
+      nbk           = (NB > 1) ? upd_s[BK_W-1:0]  : BK_W'(0);
+      do_ftb_wr     = 1'b0;
+      wr_set        = upd_s;
+      wr_way        = sel_way;
+      wr_ent        = new_ent;
+      wr_b38        = upd_b38;
+      wb_v_d        = 1'b0;
+      wb_s_d        = wb_s_q;
+      wb_w_d        = wb_w_q;
+      wb_e_d        = wb_e_q;
+      wb_b_d        = wb_b_q;
+      busy_after_wr = rd_bank_mask;
+
+      if (wb_v_q) begin
+        if (!rd_bank_mask[obk]) begin
+          do_ftb_wr          = 1'b1;
+          wr_set             = wb_s_q;
+          wr_way             = wb_w_q;
+          wr_ent             = wb_e_q;
+          wr_b38             = wb_b_q;
+          busy_after_wr[obk] = 1'b1;
+          if (new_ftb_wr) begin
+            wb_v_d = 1'b1; wb_s_d = upd_s; wb_w_d = sel_way; wb_e_d = new_ent; wb_b_d = upd_b38;
+          end
+        end else begin
+          wb_v_d = 1'b1;
+          if (new_ftb_wr) begin
+            wb_s_d = upd_s; wb_w_d = sel_way; wb_e_d = new_ent; wb_b_d = upd_b38;
+          end
+        end
+      end else if (new_ftb_wr) begin
+        if (!rd_bank_mask[nbk]) begin
+          do_ftb_wr          = 1'b1;
+          wr_set             = upd_s;
+          wr_way             = sel_way;
+          wr_ent             = new_ent;
+          wr_b38             = upd_b38;
+          busy_after_wr[nbk] = 1'b1;
+        end else begin
+          wb_v_d = 1'b1; wb_s_d = upd_s; wb_w_d = sel_way; wb_e_d = new_ent; wb_b_d = upd_b38;
+        end
+      end
+    end
+
+    // 5. Optional rare predecode clear (ONLY HAS_CLR=1, i.e. u_ftb1): 2-cycle idle-bank read -> single-way write
+    logic                   clr_rd_fire, clr_wr_fire;
+    logic [SET_W-1:0]       clr_rd_set, clr_wr_set;
+    logic [WAY_W-1:0]       clr_wr_way;
+    ftb_ent_t               clr_wr_ent;
+    logic [SET_BITS-1:0]    raw_clr_rd;
+    logic                   clr_wrb_ins;
+    logic [TAG_W-1:0]       clr_wrb_tg;
+
+    if (HAS_CLR) begin : g_clr_sram
+      logic                   clr_pend_v_q, clr_pend_v_d;
+      logic [XLEN_BITS-1:0]   clr_pend_base_q, clr_pend_base_d, clr_pend_pc_q, clr_pend_pc_d;
+      logic                   clr_t1_v_q, clr_t1_v_d;
+      logic [XLEN_BITS-1:0]   clr_t1_base_q, clr_t1_pc_q;
+      logic                   clr_hold_valid_q;
+      set_t                   clr_hold_set_q;
+      logic                   clr_rd_fire_q;
+      set_t                   clr_set_eff;
+
+      always_comb begin
+        logic [XLEN_BITS-1:0] cbase;
+        logic [SET_W-1:0]     cset;
+        logic [BK_W-1:0]      cbk, t1bk;
+        logic                 clr_consumed, c_hit, s_any, clr_car, clr_vok;
+        logic [3:0]           clr_off;
+        logic [FTB_MAX_TAG_W-1:0] t1_tg;
+        ftb_ent_t             c_ent;
+
+        clr_set_eff = clr_rd_fire_q ? set_t'(raw_clr_rd) : clr_hold_set_q;
+        t1_tg       = norm_tag(clr_t1_base_q);
+        clr_wr_set  = set_idx(clr_t1_base_q);
+        t1bk        = (NB > 1) ? clr_wr_set[BK_W-1:0] : BK_W'(0);
+        clr_car     = (clr_t1_pc_q + XLEN_BITS'(SLOT_BYTES) == clr_t1_base_q);
+        clr_vok     = clr_car || (clr_t1_pc_q >= clr_t1_base_q);
+        clr_off     = clr_car ? 4'd0 : 4'((clr_t1_pc_q - clr_t1_base_q) >> SLOT_SHIFT);
+
+        c_hit      = 1'b0;
+        s_any      = 1'b0;
+        c_ent      = '0;
+        clr_wr_way = '0;
+        clr_wr_ent = '0;
+        if (clr_t1_v_q && clr_vok) begin
+          for (int w = 0; w < WAYS; w++) begin
+            if (!c_hit && clr_set_eff[w].valid && (clr_set_eff[w].tag == t1_tg)) begin
+              c_hit      = 1'b1;
+              clr_wr_way = WAY_W'(w);
+              c_ent      = clr_set_eff[w];
+              s_any      = 1'b0;
+              for (int k = 0; k < FTB_SLOTS; k++) begin
+                if (c_ent.s[k].valid && (c_ent.s[k].offset == clr_off)) c_ent.s[k] = '0;
+                else if (c_ent.s[k].valid) s_any = 1'b1;
               end
+              if (!s_any) c_ent.valid = 1'b0;
+              clr_wr_ent = c_ent;
             end
-            if (!slot_any_v) clr_set_next[w].valid = 1'b0;
+          end
+        end
+
+        clr_wr_fire  = clr_t1_v_q && !do_ftb_wr && !busy_after_wr[t1bk] && c_hit;
+        clr_wrb_ins  = clr_wr_fire;
+        clr_wrb_tg   = t1_tg[TAG_W-1:0];
+
+        clr_t1_v_d   = clr_t1_v_q && c_hit && !clr_wr_fire;
+        clr_rd_fire  = 1'b0;
+        clr_consumed = 1'b0;
+        cbase        = clr_pend_v_q ? clr_pend_base_q : clr_base;
+        cset         = set_idx(cbase);
+        cbk          = (NB > 1) ? cset[BK_W-1:0] : BK_W'(0);
+        clr_rd_set   = cset;
+
+        if (!clr_t1_v_d && (clr_pend_v_q || clr_en)) begin
+          if (!busy_after_wr[cbk] && !(clr_wr_fire && (cbk == t1bk))) begin
+            clr_rd_fire  = 1'b1;
+            clr_t1_v_d   = 1'b1;
+            clr_consumed = 1'b1;
+          end
+        end
+
+        clr_pend_v_d    = 1'b0;
+        clr_pend_base_d = clr_pend_base_q;
+        clr_pend_pc_d   = clr_pend_pc_q;
+        if (clr_en && !(clr_consumed && !clr_pend_v_q)) begin
+          clr_pend_v_d    = 1'b1;
+          clr_pend_base_d = clr_base;
+          clr_pend_pc_d   = clr_pc;
+        end else if (clr_pend_v_q && !clr_consumed) begin
+          clr_pend_v_d    = 1'b1;
+          clr_pend_base_d = clr_pend_base_q;
+          clr_pend_pc_d   = clr_pend_pc_q;
+        end
+      end
+
+      always_ff @(posedge clk) begin
+        if (!rst_n) begin
+          clr_pend_v_q     <= 1'b0;
+          clr_pend_base_q  <= '0;
+          clr_pend_pc_q    <= '0;
+          clr_t1_v_q       <= 1'b0;
+          clr_t1_base_q    <= '0;
+          clr_t1_pc_q      <= '0;
+          clr_rd_fire_q    <= 1'b0;
+          clr_hold_valid_q <= 1'b0;
+          clr_hold_set_q   <= '0;
+        end else begin
+          clr_pend_v_q    <= clr_pend_v_d;
+          clr_pend_base_q <= clr_pend_base_d;
+          clr_pend_pc_q   <= clr_pend_pc_d;
+          clr_t1_v_q      <= clr_t1_v_d;
+          clr_rd_fire_q   <= clr_rd_fire;
+          if (clr_rd_fire) begin
+            clr_t1_base_q <= clr_pend_v_q ? clr_pend_base_q : clr_base;
+            clr_t1_pc_q   <= clr_pend_v_q ? clr_pend_pc_q   : clr_pc;
+          end
+          if (clr_rd_fire_q) begin
+            clr_hold_set_q   <= set_t'(raw_clr_rd);
+            clr_hold_valid_q <= 1'b1;
           end
         end
       end
-      do_clr = clr_valid_pc && clr_hit;
+      /* verilator lint_off UNUSEDSIGNAL */
+      logic unused_clr_hv;
+      assign unused_clr_hv = clr_hold_valid_q;
+      /* verilator lint_on UNUSEDSIGNAL */
+    end else begin : g_noclr_sram
+      assign clr_rd_fire = 1'b0;
+      assign clr_rd_set  = '0;
+      assign clr_wr_fire = 1'b0;
+      assign clr_wr_set  = '0;
+      assign clr_wr_way  = '0;
+      assign clr_wr_ent  = '0;
+      assign clr_wrb_ins = 1'b0;
+      assign clr_wrb_tg  = '0;
+      /* verilator lint_off UNUSEDSIGNAL */
+      logic unused_nc;
+      assign unused_nc = ^{clr_en, clr_base, clr_pc, raw_clr_rd, busy_after_wr};
+      /* verilator lint_on UNUSEDSIGNAL */
     end
-  end else begin : g_noclr
-    assign do_clr       = 1'b0;
-    assign clr_set_next = '0;
+
+    // WRBypass insert (commit update or rare clear)
+    assign wrb_wr_en  = new_ftb_wr || clr_wrb_ins;
+    assign wrb_wr_key = new_ftb_wr ? {upd_s, upd_tg[TAG_W-1:0]} : {clr_wr_set, clr_wrb_tg};
+    if (STORE_B_BASE) begin : g_wrb_p_bb
+      assign wrb_wr_data = {sel_way, new_ent, upd_b38};
+    end else begin : g_wrb_p_nobb
+      assign wrb_wr_data = new_ftb_wr ? {sel_way, new_ent} : {clr_wr_way, clr_wr_ent};
+    end
+
+    // 6. Single-way masked 1RW banked SRAM (MASK_W = WAYS -> ZERO T0 read!)
+    logic                 sram_wr_en;
+    logic [SET_W-1:0]     sram_wr_addr;
+    logic [WAYS-1:0]      sram_wr_wmask;
+    logic [SET_BITS-1:0]  sram_wr_data, raw_rd0, raw_rd1;
+
+    assign sram_wr_en    = do_ftb_wr || clr_wr_fire;
+    assign sram_wr_addr  = do_ftb_wr ? wr_set : clr_wr_set;
+    assign sram_wr_wmask = WAYS'(1) << (do_ftb_wr ? wr_way : clr_wr_way);
+    assign sram_wr_data  = {WAYS{ENT_BITS'(do_ftb_wr ? wr_ent : clr_wr_ent)}};
+
+    bpu_sram_1rw_banked #(
+      .W         (SET_BITS),
+      .DEPTH     (SETS),
+      .NB        (NB),
+      .MASK_W    (WAYS),
+      .HAS_RD1   (HAS_RD2),
+      .HAS_RST   (1'b0),
+      .HAS_CLR_RD(HAS_CLR),
+      .HOLD_RD0  (AHEAD_MODE),
+      .TAG       (TAG)
+    ) u_mem (
+      .clk         (clk),
+      .rd0_en      (rd_en),
+      .rd0_addr    (rd_set0),
+      .rd0_data    (raw_rd0),
+      .rd1_en      (HAS_RD2 && rd2_en),
+      .rd1_addr    (rd_set1),
+      .rd1_data    (raw_rd1),
+      .clr_rd_en   (HAS_CLR && clr_rd_fire),
+      .clr_rd_addr (clr_rd_set),
+      .clr_rd_data (raw_clr_rd),
+      .wr_en       (sram_wr_en),
+      .wr_addr     (sram_wr_addr),
+      .wr_data     (sram_wr_data),
+      .wr_wmask    (sram_wr_wmask),
+      .rst_wr_en   (1'b0),
+      .rst_wr_addr ('0),
+      .rst_wr_data ('0),
+      .rst_wr_wmask('0)
+    );
+
+    // Optional parallel 38-bit b_base array for 2-Ahead B (MASK_W = WAYS -> single-way write!)
+    if (STORE_B_BASE) begin : g_bbase
+      logic [BB_BITS-1:0] bb_rd0, bb_rd1_nc, bb_clr_nc;
+      /* verilator lint_off UNUSEDSIGNAL */
+      logic unused_bb_nc;
+      assign unused_bb_nc = ^{bb_rd1_nc, bb_clr_nc};
+      /* verilator lint_on UNUSEDSIGNAL */
+      assign rd_b_base = bbase_set_t'(bb_rd0);
+
+      bpu_sram_1rw_banked #(
+        .W       (BB_BITS),
+        .DEPTH   (SETS),
+        .NB      (NB),
+        .MASK_W  (WAYS),
+        .HAS_RD1 (1'b0),
+        .HOLD_RD0(1'b1),
+        .TAG     ("BPU_AFTB2_BBASE")
+      ) u_bbase (
+        .clk         (clk),
+        .rd0_en      (rd_en),
+        .rd0_addr    (rd_set0),
+        .rd0_data    (bb_rd0),
+        .rd1_en      (1'b0),
+        .rd1_addr    ('0),
+        .rd1_data    (bb_rd1_nc),
+        .clr_rd_en   (1'b0),
+        .clr_rd_addr ('0),
+        .clr_rd_data (bb_clr_nc),
+        .wr_en       (do_ftb_wr),
+        .wr_addr     (wr_set),
+        .wr_data     ({WAYS{wr_b38}}),
+        .wr_wmask    (WAYS'(1) << wr_way),
+        .rst_wr_en   (1'b0),
+        .rst_wr_addr ('0),
+        .rst_wr_data ('0),
+        .rst_wr_wmask('0)
+      );
+    end else begin : g_nobbase
+      assign rd_b_base = '0;
+    end
+
+    // Lookup read port 0 & optional port 2
+    always_comb begin
+      logic [FTB_MAX_TAG_W-1:0] rd_tag_v, rd2_tag_v;
+      set_t mem_rd1;
+      rd_ways  = set_t'(raw_rd0);
+      rd_tag_v = norm_tag(rd_cmp_base);
+      rd_hit   = 1'b0;
+      rd_way   = '0;
+      rd_ent   = '0;
+      if (!AHEAD_MODE) begin
+        for (int w = 0; w < WAYS; w++) begin
+          if (!rd_hit && rd_ways[w].valid && (rd_ways[w].tag == rd_tag_v)) begin
+            rd_hit = 1'b1; rd_way = WAY_W'(w); rd_ent = rd_ways[w];
+          end
+        end
+      end
+      mem_rd1 = HAS_RD2 ? set_t'(raw_rd1) : '0;
+      rd2_hit = 1'b0; rd2_way = '0; rd2_ent = '0;
+      if (HAS_RD2) begin
+        rd2_tag_v = norm_tag(rd2_cmp_base);
+        for (int w = 0; w < WAYS; w++) begin
+          if (!rd2_hit && mem_rd1[w].valid && (mem_rd1[w].tag == rd2_tag_v)) begin
+            rd2_hit = 1'b1; rd2_way = WAY_W'(w); rd2_ent = mem_rd1[w];
+          end
+        end
+      end
+    end
+
+    always_ff @(posedge clk) begin
+      if (!rst_n) begin
+        wb_v_q <= 1'b0;
+        wb_s_q <= '0;
+        wb_w_q <= '0;
+        wb_e_q <= '0;
+        wb_b_q <= '0;
+      end else begin
+        wb_v_q <= wb_v_d;
+        wb_s_q <= wb_s_d;
+        wb_w_q <= wb_w_d;
+        wb_e_q <= wb_e_d;
+        wb_b_q <= wb_b_d;
+      end
+    end
+
     /* verilator lint_off UNUSEDSIGNAL */
-    logic unused_clr;
-    assign unused_clr = ^{t0_clr_en, t0_clr_base, t1_clr_en, t1_clr_base, t1_clr_pc};
+    logic unused_sram;
+    assign unused_sram = ^{rd2_en, rd2_base, rd2_cmp_base, rd_set1, upd_key_base, upd_b_base, wr_b38,
+                           upd_br.pred_dir, upd_br.alt_pred, upd_br.pcpn};
     /* verilator lint_on UNUSEDSIGNAL */
   end
-
-  /* verilator lint_off UNUSEDSIGNAL */
-  logic unused_tab;
-  assign unused_tab = ^{rst_n, rd_cmp_base, t0_upd_base, t0_upd_key_base, t1_upd_key_base,
-                        t1_upd_br.pred_dir, t1_upd_br.alt_pred, t1_upd_br.pcpn};
-  /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule
 

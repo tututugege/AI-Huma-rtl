@@ -1,4 +1,4 @@
-// Ref: front-end/BPU/BpuFtb.h  (block-based 1-ahead FTB BPU types and pure functions, EXP-050)
+// Ref: front-end/BPU/BpuFtb.h & BpuSc.h  (block-based 1-Ahead A + 2-Ahead B FTB BPU types & pure functions, v10)
 `default_nettype none
 /* verilator lint_off UNUSEDPARAM */
 package bpu_types_pkg;
@@ -6,13 +6,13 @@ package bpu_types_pkg;
   import bpu_pkg::*;
   import bpu_stage_pkg::*;
 
-  // ---- Target ah1_4k_a2k1k + FTB_BRQ=2 geometry ----
+  // ---- Geometry (v10: uFTB 64=16x4 FF; Main FTB 4096=1024x4 4-Bank; Ahead 1/2 2-Bank) ----
   localparam int FTB_SLOTS     = 4;
   localparam int FTB_SLOT_W    = 2;
   localparam int FTB_TAG_W     = 10;
   localparam int FTB_MAX_TAG_W = 22;
 
-  localparam int FTB_S0_SETS   = 64;
+  localparam int FTB_S0_SETS   = 16;   // 16 sets x 4 ways = 64 entries FF (4x smaller!)
   localparam int FTB_S0_WAYS   = 4;
   localparam int FTB_S0_TAG_W  = 12;
   localparam int FTB_S0_TGT_B  = 20;
@@ -46,21 +46,21 @@ package bpu_types_pkg;
   localparam int FTB_REC_W      = 9;
   localparam int FTB_RF_REC_N   = 256;
   localparam int FTB_RF_REC_W   = 8;
-  localparam int FTB_BLK_ID_W   = T_IDX_W;   // 10-bit blk_id carried via out_tage_idxs[i][0]
+  localparam int FTB_BLK_ID_W   = T_IDX_W;
 
   localparam logic [3:0] FTB_USE_ALT_INIT = 4'd7;
   localparam logic [3:0] FTB_USE_ALT_THR  = 4'd8;
   localparam int         FTB_URST_BITS    = 11;
 
-  // ---- Packed structures ----
+  // ---- Packed structures (38-bit Sv39 VA targets) ----
   typedef struct packed {
-    logic                 valid;
-    logic [3:0]           offset;
-    logic                 carried;
-    logic                 is_rvc;
-    logic [2:0]           br_type;
-    logic [1:0]           ctr;
-    logic [XLEN_BITS-1:0] target;
+    logic                   valid;
+    logic [3:0]             offset;
+    logic                   carried;
+    logic                   is_rvc;
+    logic [2:0]             br_type;
+    logic [1:0]             ctr;
+    logic [FTB_VA_BITS-1:0] target;
   } ftb_slot_t;
 
   typedef struct packed {
@@ -78,6 +78,7 @@ package bpu_types_pkg;
 
   typedef struct packed {
     logic [1:0]                      base_cnt;
+    logic [TN-1:0]                   sup_mask;
     logic [TN-1:0][FTB_TAG_W-1:0]    tag;
     logic [TN-1:0][2:0]              cnt;
     logic [TN-1:0][1:0]              useful;
@@ -92,7 +93,7 @@ package bpu_types_pkg;
     logic              used_alt;
   } ftb_tage_pred_t;
 
-  // ---- Batch 2: S2 8-table ExBlockTage + S2 StatCorrector types ----
+  // ---- S2 8-table ExBlockTage + S2 StatCorrector types ----
   typedef struct packed {
     logic [31:0]                            w;
     logic [11:0]                            base_idx;
@@ -102,6 +103,7 @@ package bpu_types_pkg;
 
   typedef struct packed {
     logic [1:0]                             base_cnt;
+    logic [EX_TN-1:0]                       sup_mask;
     logic [EX_TN-1:0][EX_TAGE_TAG_W-1:0]    tag;
     logic [EX_TN-1:0][2:0]                  cnt;
     logic [EX_TN-1:0][1:0]                  useful;
@@ -127,6 +129,7 @@ package bpu_types_pkg;
   } sc_ix_t;
 
   typedef struct packed {
+    logic [6:0]                         sup_mask;
     logic signed [3:0][5:0]             bias;
     logic signed [SC_GEHL_N-1:0][5:0]   gehl;
     logic signed [5:0]                  imli;
@@ -136,11 +139,11 @@ package bpu_types_pkg;
   typedef sc_slot_raw_t [FTB_SLOTS-1:0] sc_raw_t;
 
   typedef struct packed {
-    logic                 valid;
-    logic [FTB_TAG_W-1:0] tag;
-    logic [1:0]           conf;
-    logic                 u;
-    logic [XLEN_BITS-1:0] target;
+    logic                   valid;
+    logic [FTB_TAG_W-1:0]   tag;
+    logic [1:0]             conf;
+    logic                   u;
+    logic [FTB_VA_BITS-1:0] target;
   } ftb_itt_ent_t;
 
   typedef ftb_itt_ent_t [NITT-1:0] ftb_itt_raw_t;
@@ -162,6 +165,76 @@ package bpu_types_pkg;
     logic [XLEN_BITS-1:0] target;
   } ftb_br_upd_t;
 
+  // ---- v10 Read-only Prediction Meta stored in ftb_rec (enables ZERO-T0-read 1-cycle commit writes!) ----
+  typedef struct packed {
+    logic       hit;
+    logic [1:0] way;
+    ftb_ent_t   ent;
+  } ftb1_lookup_meta_t;
+
+  typedef struct packed {
+    logic       hit;
+    logic [2:0] way;
+    ftb_ent_t   ent;
+  } ah_ftb_lookup_meta_t;
+
+  typedef struct packed {
+    logic [3:0]             pcpn;
+    logic                   pred;
+    logic                   alt;
+    logic [1:0]             base_cnt;
+    logic [2:0]             prov_cnt;
+    logic [1:0]             prov_u;
+    logic [EX_TN-1:0][1:0]  useful;
+  } ex_tage_slot_meta_t;
+
+  typedef ex_tage_slot_meta_t [FTB_SLOTS-1:0] ex_tage_meta_t;
+
+  typedef struct packed {
+    logic [2:0]          pcpn;
+    logic                pred;
+    logic                alt;
+    logic [2:0]          prov_cnt;
+    logic [1:0]          prov_u;
+    logic [TN-1:0][1:0]  useful;
+  } ah_tage_slot_meta_t;
+
+  typedef ah_tage_slot_meta_t [FTB_SLOTS-1:0] ah_tage_meta_t;
+
+  typedef struct packed {
+    logic signed [3:0][5:0]           bias;
+    logic signed [SC_GEHL_N-1:0][5:0] gehl;
+    logic signed [5:0]                imli;
+    logic signed [5:0]                loc;
+  } sc_meta_slot_t;
+
+  typedef struct packed {
+    logic [7:0]                       loc_idx;
+    sc_meta_slot_t [FTB_SLOTS-1:0]    s;
+  } sc_meta_t;
+
+  typedef struct packed {
+    logic                   hit;
+    logic [1:0]             hit_k;
+    logic [1:0]             conf;
+    logic [NITT-1:0]        valid_mask;
+    logic [NITT-1:0]        u_mask;
+    logic [FTB_VA_BITS-1:0] target;
+  } itt_meta_t;
+
+  typedef struct packed {
+    ah_ftb_lookup_meta_t ftb;
+    ah_tage_meta_t       tage;
+    itt_meta_t           itt;
+  } ah_pred_meta_t;
+
+  typedef struct packed {
+    ftb1_lookup_meta_t   ftb;
+    ex_tage_meta_t       tage;
+    sc_meta_t            sc;
+    itt_meta_t           itt;
+  } s2_pred_meta_t;
+
   typedef struct packed {
     logic                    valid;
     logic [FTB_BLK_ID_W-1:0] id;
@@ -175,6 +248,8 @@ package bpu_types_pkg;
     logic [XLEN_BITS-1:0]    ah_key_base;
     logic [XLEN_BITS-1:0]    ah_a_base;
     fh_t                     ah_key_fh;
+    s2_pred_meta_t           s2_meta;
+    ah_pred_meta_t           ah_meta;
   } ftb_rec_t;
 
   // Prediction-time repair record for back-end branch mispredict (matches BpuPipe::rec_[256])
@@ -187,10 +262,10 @@ package bpu_types_pkg;
   } bpu_rf_rec_t;
 
   typedef struct packed {
-    ftb_ent_t [FTB_AH_WAYS-1:0]             ftb_ways;
-    logic [FTB_AH_WAYS-1:0][XLEN_BITS-1:0]  b_base;
-    ftb_tage_raw_t                          tage_raw;
-    ftb_itt_raw_t                           itt_raw;
+    ftb_ent_t [FTB_AH_WAYS-1:0]               ftb_ways;
+    logic [FTB_AH_WAYS-1:0][FTB_VA_BITS-1:0]  b_base;
+    ftb_tage_raw_t                            tage_raw;
+    ftb_itt_raw_t                             itt_raw;
   } ftb_ah_raw_t;
 
   typedef struct packed {
@@ -200,13 +275,20 @@ package bpu_types_pkg;
     ftb_ah_raw_t          raw;
   } ftb_ah_pipe_t;
 
+  // Compact S2 -> S3 pipeline bundle (SRAM read + tag/TAGE/SC-nonbias/ITT already evaluated in S2)
   typedef struct packed {
-    logic         ftb_hit;
-    ftb_ent_t     ent;
-    ex_tage_raw_t s2_tage_raw;
-    sc_raw_t      s2_sc_raw;
-    ftb_itt_raw_t itt_raw;
-  } ftb_s1_raw_t;
+    logic                                     ftb_hit;
+    logic [1:0]                               ftb_way;
+    ftb_ent_t                                 ftb_ent;
+    ex_tage_pred_t [FTB_SLOTS-1:0]            tage_tp;
+    logic [FTB_SLOTS-1:0]                     tage_pp;
+    logic [FTB_SLOTS-1:0]                     tage_weak_ulow;
+    logic [FTB_SLOTS-1:0][EX_TN-1:0][1:0]     tage_useful;
+    logic signed [FTB_SLOTS-1:0][10:0]        sc_nonbias;
+    sc_meta_t                                 sc_meta;
+    ftb_itt_sel_t                             itt;
+    itt_meta_t                                itt_meta;
+  } s3_blk_eval_t;
 
   typedef struct packed {
     ftb_ent_t              ent;
@@ -236,6 +318,15 @@ package bpu_types_pkg;
     return (base & mask) == (target & mask);
   endfunction
 
+  function automatic logic ftb_ent_payload_eq(input ftb_ent_t a, input ftb_ent_t b);
+    ftb_ent_t aa, bb;
+    aa     = a;
+    bb     = b;
+    aa.lru = 3'd0;
+    bb.lru = 3'd0;
+    return (aa == bb);
+  endfunction
+
   function automatic logic [FTB_AH_TAG_W-1:0] ftb_ah_tag(input logic [XLEN_BITS-1:0] key_base,
                                                          input logic [XLEN_BITS-1:0] cur_base,
                                                          input int set_bits = $clog2(FTB_AH_SETS));
@@ -251,7 +342,7 @@ package bpu_types_pkg;
   function automatic ftb_ix_t ftb_make_index(input logic [XLEN_BITS-1:0] base, input fh_t fh);
     ftb_ix_t ix;
     logic [31:0] w;
-    w = 32'(base >> SLOT_SHIFT);
+    w           = 32'(base >> SLOT_SHIFT);
     ix.base_idx = w ^ (w >> 11);
     for (int t = 0; t < TN; t++) begin
       ix.idx[t] = w ^ (w >> 10) ^ 32'(fh[0][t]) ^ ((32'(fh[1][t]) & 32'h7) << 9);
@@ -262,16 +353,18 @@ package bpu_types_pkg;
 
   function automatic ftb_ix_t ftb_make_ah_index(input logic [XLEN_BITS-1:0] key_base,
                                                 input logic [XLEN_BITS-1:0] cur_base,
-                                                input fh_t fh);
+                                                input fh_t fh,
+                                                input logic is_ah2 = 1'b0);
     ftb_ix_t ix;
     logic [31:0] wk, wc;
-    wk = 32'(key_base >> SLOT_SHIFT);
-    wc = 32'(cur_base >> SLOT_SHIFT);
+    wk          = 32'(key_base >> SLOT_SHIFT);
+    wc          = 32'(cur_base >> SLOT_SHIFT);
     ix.base_idx = wk ^ (wk >> 11);
     for (int t = 0; t < TN; t++) begin
       ix.idx[t] = wk ^ (wk >> 10) ^ 32'(fh[0][t]) ^ ((32'(fh[1][t]) & 32'h7) << 9);
       ix.tag[t] = FTB_TAG_W'(wc ^ (wc >> 10) ^ wk ^ 32'(fh[1][t]) ^ (32'(fh[2][t]) << 2));
     end
+    if (is_ah2) ix.base_idx = ix.base_idx;
     return ix;
   endfunction
 
@@ -286,7 +379,7 @@ package bpu_types_pkg;
     pcpn    = PCPN_W'(TN);
     altpcpn = PCPN_W'(TN);
     for (int t = 0; t < TN; t++) begin
-      if (r.tag[t] == ix.tag[t]) begin
+      if (!r.sup_mask[t] && (r.tag[t] == ix.tag[t])) begin
         altpcpn = pcpn;
         pcpn    = PCPN_W'(t);
       end
@@ -305,9 +398,13 @@ package bpu_types_pkg;
   function automatic ex_tage_ix_t ftb_make_ex_tage_index(input logic [XLEN_BITS-1:0] base, input ex_fh_t ex_fh);
     ex_tage_ix_t ix;
     logic [31:0] w;
+    logic [11:0] rb;
+    logic [1:0]  bk;
     w           = 32'(base >> SLOT_SHIFT);
+    bk          = s2_bank_of_w(w);
     ix.w        = w;
-    ix.base_idx = 12'(w ^ (w >> 12));
+    rb          = 12'(w ^ (w >> 12));
+    ix.base_idx = {rb[11:2], bk};
     for (int t = 0; t < EX_TN; t++) begin
       ix.idx[t] = 12'(w ^ (w >> 11) ^ 32'(ex_fh[0][t]));
       ix.tag[t] = EX_TAGE_TAG_W'(w ^ (w >> 11) ^ 32'(ex_fh[1][t]) ^ (32'(ex_fh[2][t]) << 1));
@@ -339,7 +436,7 @@ package bpu_types_pkg;
     pcpn    = 4'(EX_TN);
     altpcpn = 4'(EX_TN);
     for (int t = 0; t < EX_TN; t++) begin
-      if (r.tag[t] == ix.tag[t]) begin
+      if (!r.sup_mask[t] && (r.tag[t] == ix.tag[t])) begin
         altpcpn = pcpn;
         pcpn    = 4'(t);
       end
@@ -371,30 +468,50 @@ package bpu_types_pkg;
     low_conf = prov_hit ? ((prov_cnt == 3'd3) || (prov_cnt == 3'd4))
                         : ((base_cnt == 2'd1) || (base_cnt == 2'd2));
     bway     = {tage_pred, low_conf};
-    s        = tage_w + ($signed({{4{r.bias[bway][5]}}, r.bias[bway], 1'b0}) + 11'sd1);
+    s        = tage_w + (r.sup_mask[0] ? 11'sd0 : ($signed({{4{r.bias[bway][5]}}, r.bias[bway], 1'b0}) + 11'sd1));
     for (int g = 0; g < SC_GEHL_N; g++) begin
-      s = s + ($signed({{4{r.gehl[g][5]}}, r.gehl[g], 1'b0}) + 11'sd1);
+      s = s + (r.sup_mask[1 + g] ? 11'sd0 : ($signed({{4{r.gehl[g][5]}}, r.gehl[g], 1'b0}) + 11'sd1));
     end
-    s = s + ($signed({{4{r.imli[5]}}, r.imli, 1'b0}) + 11'sd1);
-    s = s + ($signed({{4{r.loc[5]}},  r.loc,  1'b0}) + 11'sd1);
+    s = s + (r.sup_mask[5] ? 11'sd0 : ($signed({{4{r.imli[5]}}, r.imli, 1'b0}) + 11'sd1));
+    s = s + (r.sup_mask[6] ? 11'sd0 : ($signed({{4{r.loc[5]}},  r.loc,  1'b0}) + 11'sd1));
     return s;
   endfunction
 
-  function automatic logic sc_select_slot(input logic [31:0] w,
-                                          input sc_slot_raw_t r,
-                                          input logic tage_pred,
-                                          input logic prov_hit,
-                                          input logic [2:0] prov_cnt,
-                                          input logic [1:0] base_cnt,
-                                          input logic [15:0][5:0] thres_vec);
-    logic signed [10:0] lsum, abs_sum, th;
-    logic               sc_pred;
-    lsum    = sc_eval_raw(r, tage_pred, prov_hit, prov_cnt, base_cnt);
-    abs_sum = (lsum < 11'sd0) ? -lsum : lsum;
-    sc_pred = (lsum >= 11'sd0);
-    th      = $signed({5'b0, thres_vec[w[5:2]]});
-    if ((sc_pred != tage_pred) && (abs_sum >= th)) return sc_pred;
-    return tage_pred;
+  // Stage S2 decoupled SC sum (6 SRAM tables: 4 GEHL + IMLI + LOC, independent of TAGE select!)
+  function automatic logic signed [10:0] sc_eval_nonbias(input sc_slot_raw_t r);
+    logic signed [10:0] s;
+    s = 11'sd0;
+    for (int g = 0; g < SC_GEHL_N; g++) begin
+      s = s + (r.sup_mask[1 + g] ? 11'sd0 : ($signed({{4{r.gehl[g][5]}}, r.gehl[g], 1'b0}) + 11'sd1));
+    end
+    s = s + (r.sup_mask[5] ? 11'sd0 : ($signed({{4{r.imli[5]}}, r.imli, 1'b0}) + 11'sd1));
+    s = s + (r.sup_mask[6] ? 11'sd0 : ($signed({{4{r.loc[5]}},  r.loc,  1'b0}) + 11'sd1));
+    return s;
+  endfunction
+
+  // Stage S3 fast SC finish (Bias is FF -> never suppressed)
+  function automatic logic sc_select_s3(input logic [31:0] w,
+                                        input logic signed [10:0] nonbias,
+                                        input logic signed [3:0][5:0] bias_ways,
+                                        input logic tage_pred,
+                                        input logic prov_hit,
+                                        input logic [2:0] prov_cnt,
+                                        input logic [1:0] base_cnt,
+                                        input logic [15:0][5:0] thres_vec);
+    logic signed [10:0] tage_w, bias_w, lsum, abs_sum, th;
+    logic               low_conf, sc_pred;
+    logic [1:0]         bway;
+    tage_w   = prov_hit ? (11'sd2 * ($signed({8'b0, prov_cnt}) * 11'sd2 - 11'sd7))
+                        : (11'sd2 * ($signed({9'b0, base_cnt}) * 11'sd2 - 11'sd3));
+    low_conf = prov_hit ? ((prov_cnt == 3'd3) || (prov_cnt == 3'd4))
+                        : ((base_cnt == 2'd1) || (base_cnt == 2'd2));
+    bway     = {tage_pred, low_conf};
+    bias_w   = $signed({{4{bias_ways[bway][5]}}, bias_ways[bway], 1'b0}) + 11'sd1;
+    lsum     = nonbias + tage_w + bias_w;
+    abs_sum  = (lsum < 11'sd0) ? -lsum : lsum;
+    sc_pred  = (lsum >= 11'sd0);
+    th       = $signed({5'b0, thres_vec[w[5:2]]});
+    return ((sc_pred != tage_pred) && (abs_sum >= th)) ? sc_pred : tage_pred;
   endfunction
 
   function automatic ftb_itt_sel_t ftb_itt_select(input ftb_ix_t ix, input ftb_itt_raw_t r);
@@ -403,10 +520,26 @@ package bpu_types_pkg;
     for (int k = 0; k < NITT; k++) begin
       if (r[k].valid && r[k].tag == ix.tag[ITT_TBL[k]]) begin
         res.hit    = 1'b1;
-        res.target = r[k].target;
+        res.target = sv39_unpack(r[k].target);
       end
     end
     return res;
+  endfunction
+
+  function automatic itt_meta_t ftb_itt_meta(input ftb_ix_t ix, input ftb_itt_raw_t r);
+    itt_meta_t m;
+    m = '0;
+    for (int k = 0; k < NITT; k++) begin
+      m.valid_mask[k] = r[k].valid;
+      m.u_mask[k]     = r[k].u;
+      if (r[k].valid && r[k].tag == ix.tag[ITT_TBL[k]]) begin
+        m.hit    = 1'b1;
+        m.hit_k  = 2'(k);
+        m.conf   = r[k].conf;
+        m.target = r[k].target;
+      end
+    end
+    return m;
   endfunction
 
   function automatic ftb_eval_res_t ftb_eval_ent(input logic [XLEN_BITS-1:0] base,
@@ -432,10 +565,6 @@ package bpu_types_pkg;
     res.pred.next = bnd;
     res.pred.ty   = BR_NONCTL;
 
-    // Exact match to (bpc < bnd) without per-slot 64-bit adders:
-    //   - bnd == 0 means 64-bit wraparound (no unsigned bpc < 0);
-    //   - normal slot k (base + 2*k < bnd) <=> 2*k < diff6 <=> k < ceil(diff6 / 2) = (diff6 + 1) >> 1;
-    //   - carried slot 0 (base - 2 < bnd) <=> bnd != 0 && base >= 2 (no underflow).
     diff6  = bnd[5:0] - base[5:0];
     nslots = (bnd != '0) ? 5'((diff6 + 6'd1) >> 1) : 5'd0;
     tk     = '0;
@@ -452,7 +581,6 @@ package bpu_types_pkg;
       end
       res.slot_tk = tk;
 
-      // Parallel 4-way pairwise min-offset tournament (lowest index breaks ties)
       for (int k = 0; k < FTB_SLOTS; k++) begin
         win[k] = tk[k];
         for (int j = 0; j < FTB_SLOTS; j++) begin
@@ -467,7 +595,7 @@ package bpu_types_pkg;
         bpc = (sl.offset == 4'd0 && sl.carried) ?
               (base - XLEN_BITS'(SLOT_BYTES)) :
               (base + (XLEN_BITS'(sl.offset) << SLOT_SHIFT));
-        tgt = sl.target;
+        tgt = sv39_unpack(sl.target);
         if (sl.br_type == BR_RET && ras_nonempty)     tgt = ras_top;
         else if (ftb_br_ind(sl.br_type) && itt_hit)   tgt = itt_tgt;
         res.pred.taken   = 1'b1;
@@ -520,7 +648,7 @@ package bpu_types_pkg;
       ns.br_type = b.br_type;
       ns.carried = b.carried;
       ns.is_rvc  = b.is_rvc;
-      if (b.actual_dir) ns.target = b.target;
+      if (b.actual_dir) ns.target = sv39_pack(b.target);
       if (b.br_type == BR_DIRECT) begin
         if (b.actual_dir) ns.ctr = (ns.ctr < 2'd3) ? (ns.ctr + 2'd1) : 2'd3;
         else              ns.ctr = (ns.ctr > 2'd0) ? (ns.ctr - 2'd1) : 2'd0;
@@ -542,7 +670,7 @@ package bpu_types_pkg;
         end
       end
       ns = '{valid: 1'b1, offset: b.offset, carried: b.carried, is_rvc: b.is_rvc, br_type: b.br_type,
-             ctr: (b.br_type == BR_DIRECT) ? (b.actual_dir ? 2'd2 : 2'd1) : 2'd3, target: b.target};
+             ctr: (b.br_type == BR_DIRECT) ? (b.actual_dir ? 2'd2 : 2'd1) : 2'd3, target: sv39_pack(b.target)};
       res.ent.s[pos] = ns; res.slot_found = 1'b1; res.slot_idx = pos; res.slot_ctr = ns.ctr;
     end
     return res;
