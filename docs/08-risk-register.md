@@ -6,7 +6,7 @@
 
 | # | 内容 | 等级 | 状态 / 缓解 |
 |---|---|---|---|
-| V-1 | **SPEC06 未在 RTL 上抽样验证**：15.33 / 13.87 分/GHz 仅来自 `trace-model`，RTL 仅在小程序、官方 `riscv-tests` 和 Linux 上跑过 | **高** | 登记在 TODO：12 个 SPEC06 INT 程序各抽 ≥1 个高权重点跑 RTL 对拍 |
+| V-1 | **RTL vs `trace-model` 在高分支误预测 SPEC06 点上存在少量对称周期微差异**：全量 386/386 SPEC06 INT（10M warmup + 10M ROI，~77.2 亿条指令）RTL 逐条 FM 比对已 **0 fail / 0 FM diff 全通**，12 项基准 geomean **`+0.00%`**，其中 **266/386（68.9%）实现 0-cycle 完全对齐**（`hmmer`/`libquantum`/`h264ref`/`astar` 100% 0-cycle）；但剩余 120 点（集中于 `458.sjeng` 0/27、`471.omnetpp` 1/25、`483.xalancbmk` 25/34 等高分支误预测/间接跳转负载）存在对称 `±` 周期微差（最大单点 `2.65%`） | 低 | 架构正确性已全量闭环；剩余周期微差登记在 TODO，待抽 1 个 `458.sjeng` 点定位首个分歧周期 |
 | V-2 | **AMO 写回数据未进 `fm_check.h` store 对比**：`SOC_TB_FM_STRICT=1` 已覆盖 RAM/MMIO store 与 18 架构 CSR，但 `0x2f` AMO 写回结果仍依赖后续 load 间接校验 | 中 | 登记在 TODO |
 | V-3 | **中断与页错为被动跟随**：`fm_check.h` 按 RTL 触发的 `mcause`/`force_pf` 同步 FM，RTL 若漏报中断/页错可能逃逸 | 中 | 由定向测试（`irq_flush_race`、`sv39_edge`、`sv39_priv_itlb`）与 Fuzzer 覆盖 |
 | V-4 | **LR/SC 遇异步中断的保留位分歧（原 R-7）**：`lp_rsv.sv` 在 `sc` 推测执行时即清 `rsv_valid_q`，若随后异步中断冲刷未提交 `sc`，`mret` 重执 RTL 返回 1，而 `function-model` 中断未清 `reserve_valid` 返回 0 | 中 | 根因已于 2026-11-25 查明并登记 TODO |
@@ -34,3 +34,4 @@
 ## 4. 最近审计记录
 
 - **2026-11-25**：清理历史 rv32/旧锁步过期条目；闭环原 V-6（`SOC_XINIT_UNIQUE=1` + `SOC_SVA=1` 69/69 PASS）、大幅收敛原 V-12（`SOC_TB_FM_STRICT=1` 覆盖 MMIO store 与 18 架构 CSR）、查明原 R-7 根因（LR/SC 推测 `sc_clr` + 异步中断）、接入 152 官方 `riscv-tests`（检出并修复 `isu_fp_gate` 跨类写回 Bug）+ 8 定向短测试（行覆盖 `96.44%`，DDR 写回 AW/W/B 0→92）+ RV64GC Fuzzer（RTL 100/100 + Spike 500/500 PASS）。
+- **2026-11-26**：完成全量 **386/386 SPEC06 INT（10M+10M + 逐条 FM 比对，~77.2 亿条指令）** 8 线程 RTL 验证（**0 fail、0 FM diff、12 项基准 geomean `+0.00%`、266/386 点 0-cycle 精确一致**）；全量验证期间实测检出并修复 4 项真实缺陷：① LSU `lp_core.sv`/`lp_ldq.sv` 补齐 per-port `epoch` 过滤防陈旧 DCache 响应搭便车；② ISU `Isu.cpp`/`isu_pkg.sv`/`isu_fp_gate.sv` 修复 `FDIV`/`FSQRT` FPWB 预留提前 1 拍溢出；③ `fp_dpi.cpp` 加 `std::mutex` 消除 `--threads 8` SoftFloat 舍入竞态；④ `trace-model` `PerfCount::perf_reset()` 补齐 `cycle_base = 0`（修复 `--restore-stub` 重复扣减 ~25k 周期导致的 +0.78% 虚高）。原 V-1 降级为低风险（仅剩高分支负载 120 点对称 `±` 周期微差）。
