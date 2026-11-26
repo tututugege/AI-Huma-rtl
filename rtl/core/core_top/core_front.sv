@@ -1,9 +1,6 @@
-// Ref: rv_simu_mmu_v2.cpp  SimCpu::cycle / front_comb_before_back / back2front_comb (the front-end half)
+// Ref: SimCpu.cpp  SimCpu::cycle (the front-end half + core_back2front + core_front2back)
 `default_nettype none
 
-// Front end with its SimCpu glue: front_top, the registered back2front bundle (core_back2front) and the front->back
-// conversion with the stall hold register (core_front2back).  Inputs are what the back end produced this cycle, outputs
-// are the 16-lane group the back end sees (back.in) plus the front end's memory-side ports.
 module core_front import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*;
   import bpu_types_pkg::FTB_BLK_ID_W; import icache_pkg::*; import tlb_mmu_pkg::*; (
   input  logic clk,
@@ -14,10 +11,10 @@ module core_front import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*;
   input  logic [FTB_BLK_ID_W-1:0] out_rf_blk,
   input  logic [2:0]  out_rf_type,
   input  logic [XLEN_BITS-1:0] out_rf_pc,
-  input  logic out_rf_is_rvc,
-  output logic [FETCH_WIDTH-1:0][KIND_W-1:0] front2ftq_slot_kind,
+  input  logic        out_rf_is_rvc,
   input  logic        out_stall,
   input  logic [XLEN_BITS-1:0] out_redirect_pc,
+  input  ftq_fe_view_t ftq2fe,
   input  logic        rob_bcast_fence,
   input  logic        rob_bcast_fence_i,
   input  logic        rob_bcast_interrupt,
@@ -56,7 +53,7 @@ module core_front import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*;
   input  logic [VPN_W-1:0]  itlb_walk_resp_vpn,
   input  logic [PPN_W-1:0]  itlb_walk_resp_leaf_ppn,
   input  logic [PERM_W-1:0] itlb_walk_resp_leaf_perm,
-  input  logic [LVL_W-1:0]        itlb_walk_resp_leaf_level,
+  input  logic [LVL_W-1:0]  itlb_walk_resp_leaf_level,
   output logic        mem_req_valid,
   output logic [31:0] mem_req_addr,
   output logic [7:0]  mem_req_total_size,
@@ -70,20 +67,15 @@ module core_front import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*;
   output logic [21:0] itlb_walk_req_root_ppn,
   output logic        itlb_walk_resp_consumed,
   output logic        itlb_walk_flush,
-  // ---- to the back end (back.in, SC-L / loop metadata are constant 0 and added by the core) ----
+  // ---- to the back end (trimmed ibuf payload + Unified FTQ-64 write requests) ----
   output logic [BACKEND_FETCH_WIDTH-1:0] front2ftq_valid,
-  output logic [31:0] front2ftq_inst [BACKEND_FETCH_WIDTH],
+  output logic [31:0]                    front2ftq_inst [BACKEND_FETCH_WIDTH],
   output logic [BACKEND_FETCH_WIDTH-1:0] front2ftq_page_fault_inst,
   output logic [BACKEND_FETCH_WIDTH-1:0] front2ftq_pf_inst_hi,
-  output logic [XLEN_BITS-1:0] front2ftq_pc [BACKEND_FETCH_WIDTH],
-  output logic [BACKEND_FETCH_WIDTH-1:0] front2ftq_predict_dir,
-  output logic [BACKEND_FETCH_WIDTH-1:0] front2ftq_is_rvc,
-  output logic [BACKEND_FETCH_WIDTH-1:0] front2ftq_alt_pred,
-  output logic [front_pkg::PCPN_W-1:0]     front2ftq_pcpn [BACKEND_FETCH_WIDTH],
-  output logic [BLK_ID_W-1:0] front2ftq_blk_id,
-  output logic                front2ftq_is_pair,
-  output logic [3:0]          front2ftq_a_len,
-  output logic [XLEN_BITS-1:0] front2ftq_predict_next_fetch_address,
+  output logic [FTQ_IDX_WIDTH-1:0]       front2ftq_ftq_idx,
+  output fe_ftq_s0_t                     fe2ftq_s0,
+  output fe_ftq_s2_t                     fe2ftq_s2,
+  output fe_ftq_pd_t                     fe2ftq_pd,
   output logic [3:0]  commit_upd_free,   // compact ROB commit credits (EXP-028)
   output logic [3:0]  commit_tq_free
 );
@@ -95,7 +87,7 @@ module core_front import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*;
   logic [FTB_BLK_ID_W-1:0] b2f_rf_blk;
   logic [2:0]  b2f_rf_type;
   logic [XLEN_BITS-1:0] b2f_rf_pc;
-  logic b2f_rf_is_rvc;
+  logic        b2f_rf_is_rvc;
   logic [COMMIT_WIDTH-1:0] upd_valid;
   logic [XLEN_BITS-1:0] upd_base_pc  [COMMIT_WIDTH];
   logic [COMMIT_WIDTH-1:0] upd_actual_dir;
@@ -125,7 +117,7 @@ module core_front import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*;
     .commit_is_ret           (commit_extra_is_ret),
     .ftq_pc                  (ftq_commit_info_resp_pc),
     .ftq_pred_taken          (ftq_commit_info_resp_pred_taken),
-    .ftq_is_rvc          (ftq_commit_info_resp_is_rvc),
+    .ftq_is_rvc              (ftq_commit_info_resp_is_rvc),
     .ftq_alt_pred            (ftq_commit_info_resp_alt_pred),
     .ftq_pcpn                (ftq_commit_info_resp_pcpn),
     .ftq_blk_id              (ftq_commit_info_resp_blk_id),
@@ -152,25 +144,14 @@ module core_front import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*;
   );
 
   // ---- front end ----
-  // Delivers when the back end did not stall last cycle or a redirect is pending (SimCpu::front_comb_before_back)
   logic can_read;
   assign can_read = !b2f_stall || b2f_refetch;
 
-  logic        fe_out_valid;
-  logic [FETCH_WIDTH-1:0] fe_lane_valid;
-  logic [31:0] fe_instructions    [FETCH_WIDTH];
-  logic [FETCH_WIDTH-1:0] fe_page_fault_inst;
-  logic [FETCH_WIDTH-1:0] fe_pf_inst_hi;
-  logic [FETCH_WIDTH-1:0] fe_predict_dir;
-  logic [FETCH_WIDTH-1:0] fe_is_rvc;   // 16-bit instruction (RVC=1)
-  logic [XLEN_BITS-1:0] fe_pc              [FETCH_WIDTH];
-  logic [FETCH_WIDTH-1:0] fe_alt_pred;
-  logic [front_pkg::PCPN_W-1:0]     fe_pcpn    [FETCH_WIDTH];
-  logic [BLK_ID_W-1:0] fe_blk_id;
-  logic                fe_is_pair;
-  logic [3:0]          fe_a_len;
-  logic [XLEN_BITS-1:0] fe_predict_next_fetch_address;
-  logic [FETCH_WIDTH-1:0][KIND_W-1:0] fe_slot_kind;
+  logic [FETCH_WIDTH-1:0]   fe_lane_valid;
+  logic [31:0]              fe_instructions [FETCH_WIDTH];
+  logic [FETCH_WIDTH-1:0]   fe_page_fault_inst;
+  logic [FETCH_WIDTH-1:0]   fe_pf_inst_hi;
+  logic [FTQ_IDX_WIDTH-1:0] fe_ftq_idx;
 
   front_top u_front (
     .clk, .rst_n,
@@ -185,6 +166,7 @@ module core_front import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*;
     .itlb_flush                 (b2f_itlb_flush),
     .fence_i                    (b2f_fence_i),
     .fifo_read_enable           (can_read),
+    .ftq2fe                     (ftq2fe),
     .csr_status_satp            (csr_status_satp),
     .csr_status_privilege       (csr_status_privilege),
     .csr_status_mstatus_mxr     (csr_status_mstatus[19]),
@@ -210,21 +192,12 @@ module core_front import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*;
     .ptw_walk_resp_leaf_ppn     (itlb_walk_resp_leaf_ppn),
     .ptw_walk_resp_leaf_perm    (itlb_walk_resp_leaf_perm),
     .ptw_walk_resp_leaf_level   (itlb_walk_resp_leaf_level),
-    .out_valid                  (fe_out_valid),
     .out_lane_valid             (fe_lane_valid),
     .out_instructions           (fe_instructions),
     .out_page_fault_inst        (fe_page_fault_inst),
     .out_pf_inst_hi             (fe_pf_inst_hi),
-    .out_predict_dir            (fe_predict_dir),
-    .out_pc                     (fe_pc),
-    .out_alt_pred               (fe_alt_pred),
-    .out_pcpn                   (fe_pcpn),
-    .out_blk_id                 (fe_blk_id),
-    .out_is_pair                (fe_is_pair),
-    .out_a_len                  (fe_a_len),
-    .out_predict_next_fetch_address (fe_predict_next_fetch_address),
-    .out_slot_kind              (fe_slot_kind),
-    .out_is_rvc                 (fe_is_rvc),
+    .out_ftq_idx                (fe_ftq_idx),
+    .fe2ftq_s0, .fe2ftq_s2, .fe2ftq_pd,
     .mem_req_valid, .mem_req_addr, .mem_req_total_size, .mem_req_bypass, .mem_req_id, .mem_resp_ready,
     .dc_req_valid, .dc_req_addr,
     .ptw_walk_req_valid         (itlb_walk_req_valid),
@@ -235,45 +208,21 @@ module core_front import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*;
     .commit_upd_free, .commit_tq_free
   );
 
-  // ---- front end -> back end ----
+  // ---- front end -> back end (compact stall hold register) ----
   core_front2back u_f2b (
     .clk, .rst_n,
     .can_read,
-    .lane_valid                  (fe_lane_valid),
-    .instructions                (fe_instructions),
-    .page_fault_inst             (fe_page_fault_inst),
-    .pf_inst_hi                  (fe_pf_inst_hi),
-    .predict_dir                 (fe_predict_dir),
-    .is_rvc                      (fe_is_rvc),
-    .pc                          (fe_pc),
-    .alt_pred                    (fe_alt_pred),
-    .pcpn                        (fe_pcpn),
-    .blk_id                      (fe_blk_id),
-    .is_pair                     (fe_is_pair),
-    .a_len                       (fe_a_len),
-    .predict_next_fetch_address  (fe_predict_next_fetch_address),
-    .slot_kind                   (fe_slot_kind),
-    .back_valid                  (front2ftq_valid),
-    .back_inst                   (front2ftq_inst),
-    .back_page_fault             (front2ftq_page_fault_inst),
-    .back_pf_inst_hi             (front2ftq_pf_inst_hi),
-    .back_pc                     (front2ftq_pc),
-    .back_predict_dir            (front2ftq_predict_dir),
-    .back_is_rvc                 (front2ftq_is_rvc),
-    .back_alt_pred               (front2ftq_alt_pred),
-    .back_pcpn                   (front2ftq_pcpn),
-    .back_blk_id                 (front2ftq_blk_id),
-    .back_is_pair                (front2ftq_is_pair),
-    .back_a_len                  (front2ftq_a_len),
-    .back_predict_next_fetch_address (front2ftq_predict_next_fetch_address),
-    .back_slot_kind              (front2ftq_slot_kind)
+    .lane_valid       (fe_lane_valid),
+    .instructions     (fe_instructions),
+    .page_fault_inst  (fe_page_fault_inst),
+    .pf_inst_hi       (fe_pf_inst_hi),
+    .ftq_idx          (fe_ftq_idx),
+    .back_valid       (front2ftq_valid),
+    .back_inst        (front2ftq_inst),
+    .back_page_fault  (front2ftq_page_fault_inst),
+    .back_pf_inst_hi  (front2ftq_pf_inst_hi),
+    .back_ftq_idx     (front2ftq_ftq_idx)
   );
-
-  // the group-level valid of front.out is implied by the lane valids
-  /* verilator lint_off UNUSEDSIGNAL */
-  logic unused_ok;
-  assign unused_ok = fe_out_valid;
-  /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule
 

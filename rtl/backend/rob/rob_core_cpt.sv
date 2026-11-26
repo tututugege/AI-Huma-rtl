@@ -27,6 +27,7 @@ module rob_core_cpt
   input  logic                       front_stall,
   input  logic [3:0]                 bpu_upd_free,     // BPU update queue: free entries at the start of the cycle
   input  logic [3:0]                 bpu_tq_free,      // uBTB train queue: free entries at the start of the cycle
+  input  logic [FTQ_IDX_WIDTH-1:0]   ftq_head,         // oldest live FTQ index (8-bank commit window guard)
   input  logic [ROB_XLEN-1:0]            ftq_resp_pc,
   input  logic [ROB_BANK_NUM-1:0]    dis_fire,
   input  logic [ROB_IDX_WIDTH-1:0]   dis_rob_idx [ROB_BANK_NUM],
@@ -194,6 +195,11 @@ module rob_core_cpt
       end
       ok[k] = w_in[k] && w_complete[k] && !w_flush[k] && !w_fence[k] && !w_wfi[k] && !(front_stall && k > 0);
       if (k > 0) begin
+        /* verilator lint_off UNUSEDSIGNAL */
+        logic [FTQ_IDX_WIDTH-1:0] ftq_diff;
+        /* verilator lint_on UNUSEDSIGNAL */
+        ftq_diff = w_uop[k].ftq_idx - ftq_head;
+        if (|ftq_diff[FTQ_IDX_WIDTH-1:3]) ok[k] = 1'b0;
         if (w_ctl[k] && $signed({2'b0, ctl_before}) >= upd_free) ok[k] = 1'b0;
         if (w_last[k] && $signed({2'b0, blk_before}) >= tq_free) ok[k] = 1'b0;
       end

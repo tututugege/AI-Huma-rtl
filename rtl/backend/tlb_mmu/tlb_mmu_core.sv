@@ -36,6 +36,8 @@ module tlb_mmu_core import tlb_mmu_pkg::*; import ttg_cfg_pkg::*; #(
   output logic        resp_valid [LANES],
   output logic [1:0]  resp_result [LANES],
   output logic [31:0] resp_paddr [LANES],
+  output logic [28:0] resp_paddr_p1 [LANES],
+  output logic [28:0] resp_paddr_m1 [LANES],
   output logic        ptw_req_valid,
   output logic [VPN_W-1:0] ptw_req_vpn,
   output logic [21:0] ptw_req_root_ppn,
@@ -92,7 +94,7 @@ module tlb_mmu_core import tlb_mmu_pkg::*; import ttg_cfg_pkg::*; #(
     refill0_valid = early_refill_ok && (cancel || !FETCH);
     // refill made by the port that retires the walk: its page is the walk's page, ASID of the current satp
     refill1.tag = '{global_page: ptw_resp.perm[PERM_G], asid: satp_asid(satp), level: ptw_resp.level, vpn: walk0.vpn};
-    refill1.xlat = '{level: ptw_resp.level, ppn: ptw_resp.ppn, perm: ptw_resp.perm};
+    refill1.xlat = mk_xlat(ptw_resp.level, ptw_resp.ppn, ptw_resp.perm);
   end
 
   // ---- ports, all evaluated in parallel ----
@@ -120,7 +122,7 @@ module tlb_mmu_core import tlb_mmu_pkg::*; import ttg_cfg_pkg::*; #(
       .ptw_resp_ppn(ptw_resp.ppn), .ptw_resp_perm(ptw_resp.perm),
       .miss0(miss0[l]), .miss1(miss1[l]), .walk_same(walk_same[l]), .resp_perm_ok(resp_perm_ok[l]),
       .walk_new(walk_new[l]), .use_refill1(use_refill1[l]), .retire(retire[l]), .result(resp_result[l]),
-      .paddr(resp_paddr[l])
+      .paddr(resp_paddr[l]), .paddr_p1(resp_paddr_p1[l]), .paddr_m1(resp_paddr_m1[l])
     );
     assign resp_valid[l] = req_valid[l] && translate;
   end
@@ -199,7 +201,9 @@ module tlb_mmu_core import tlb_mmu_pkg::*; import ttg_cfg_pkg::*; #(
 
     for (genvar p = 0; p < NPEEK; p++) begin : g_p
       logic          pk_tbl_hit, pk_rf_hit, pk_hit;
+      /* verilator lint_off UNUSEDSIGNAL */  // peek only reads level, ppn, perm (not ppn_p1 / ppn_m1)
       tlb_mmu_xlat_t pk_tbl_xlat, pk_xlat;
+      /* verilator lint_on UNUSEDSIGNAL */
       logic [31:0]   pk_id_pa;
 
       tlb_mmu_lookup #(.ENTRIES(ENTRIES)) u_pk_lookup (

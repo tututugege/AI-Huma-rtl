@@ -8,7 +8,6 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
   input  logic [XLEN_BITS-1:0] refetch_address,
   input  logic                refetch_pd,
   input  logic                icache_read_ready,
-  input  logic [7:0]          ptab_size,
   // repair information of a back-end branch mispredict (looks up 2-bank sync SRAM rec_q[256] pre-launched from next_rf_blk)
   input  logic                rf_valid,
   input  logic [FTB_BLK_ID_W-1:0] rf_blk,
@@ -323,7 +322,7 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
 
   bpu_ctl u_ctl (
     .refetch, .refetch_pd, .rep_ok_in,
-    .pd_valid, .pd_flush, .pdq_have, .icache_read_ready, .ptab_size,
+    .pd_valid, .pd_flush, .pdq_have, .icache_read_ready,
     .r0(r0_q), .r1(r1_q), .fin, .fin_b, .g1,
     .d_valid, .ovr_a, .d_pair, .ovr_b, .ovr, .squash, .l1_ov, .issue, .fast, .s0_go, .pd_restore, .rep_ok
   );

@@ -44,8 +44,37 @@ package tlb_mmu_pkg;
   typedef struct packed {
     logic [LVL_W-1:0]  level;
     logic [PPN_W-1:0]  ppn;
+    logic [PPN_W-1:0]  ppn_p1;
+    logic [PPN_W-1:0]  ppn_m1;
     logic [PERM_W-1:0] perm;
   } tlb_mmu_xlat_t;
+
+  // Build xlat payload at refill time with precomputed ppn +/- 1 at the leaf's page granularity
+  function automatic tlb_mmu_xlat_t mk_xlat(input logic [LVL_W-1:0] level,
+                                            input logic [PPN_W-1:0] ppn,
+                                            input logic [PERM_W-1:0] perm);
+    tlb_mmu_xlat_t x;
+    x.level  = level;
+    x.ppn    = ppn;
+    x.perm   = perm;
+    x.ppn_p1 = ppn + PPN_W'(1);
+    x.ppn_m1 = ppn - PPN_W'(1);
+    if (RV64) begin
+      if (level == LVL_W'(1)) begin
+        x.ppn_p1 = {ppn[19:9] + 11'd1, 9'd0};
+        x.ppn_m1 = {ppn[19:9] - 11'd1, 9'd0};
+      end else if (level == LVL_W'(2)) begin
+        x.ppn_p1 = {ppn[19:18] + 2'd1, 18'd0};
+        x.ppn_m1 = {ppn[19:18] - 2'd1, 18'd0};
+      end
+    end else begin
+      if (level == LVL_W'(1)) begin
+        x.ppn_p1 = {ppn[19:10] + 10'd1, 10'd0};
+        x.ppn_m1 = {ppn[19:10] - 10'd1, 10'd0};
+      end
+    end
+    return x;
+  endfunction
 
   // one TLB entry (the valid bit lives in the TLB array, not in the entry)
   typedef struct packed {
@@ -115,6 +144,26 @@ package tlb_mmu_pkg;
       else                                                 r[i] = pbase[i];
     end
     return r;
+  endfunction
+
+  // Compose paddr[31:3] +/- 1 without any post-CAM adder using precomputed ppn_adj and parallel va_adj/carry flags
+  function automatic logic [28:0] compose_paddr_adj(
+    input logic [26:0]      va_adj,
+    input logic [LVL_W-1:0] level,
+    input logic [PPN_W-1:0] ppn,
+    input logic [PPN_W-1:0] ppn_adj,
+    input logic c0, input logic c1, input logic c2
+  );
+    if (RV64) begin
+      case (level)
+        LVL_W'(1): return {c1 ? ppn_adj[19:9]  : ppn[19:9],  va_adj[17:0]};
+        LVL_W'(2): return {c2 ? ppn_adj[19:18] : ppn[19:18], va_adj[26:0]};
+        default:   return {c0 ? ppn_adj[19:0]  : ppn[19:0],  va_adj[8:0]};
+      endcase
+    end else begin
+      if (level == LVL_W'(1)) return {c1 ? ppn_adj[19:10] : ppn[19:10], va_adj[18:0]};
+      else                    return {c0 ? ppn_adj[19:0]  : ppn[19:0],  va_adj[8:0]};
+    end
   endfunction
 
   // satp: translation enabled (Sv39: MODE = 8) and ASID

@@ -139,25 +139,20 @@ module core_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; i
   /* verilator lint_on UNUSEDSIGNAL */
 
   // ---- nets between the glue blocks and the back end ----
-  logic [FETCH_WIDTH-1:0][KIND_W-1:0] front2ftq_slot_kind;
   logic        out_rf_valid;
   logic [FTB_BLK_ID_W-1:0] out_rf_blk;
   logic [2:0]  out_rf_type;
   logic [XLEN_BITS-1:0] out_rf_pc;
-  logic out_rf_is_rvc;
-  logic [BACKEND_FETCH_WIDTH-1:0] front2ftq_alt_pred;
-  logic [31:0] front2ftq_inst [BACKEND_FETCH_WIDTH];
+  logic        out_rf_is_rvc;
+  logic [31:0]                    front2ftq_inst [BACKEND_FETCH_WIDTH];
   logic [BACKEND_FETCH_WIDTH-1:0] front2ftq_page_fault_inst;
   logic [BACKEND_FETCH_WIDTH-1:0] front2ftq_pf_inst_hi;
-  logic [XLEN_BITS-1:0] front2ftq_pc [BACKEND_FETCH_WIDTH];
-  logic [2:0] front2ftq_pcpn [BACKEND_FETCH_WIDTH];
-  logic [BACKEND_FETCH_WIDTH-1:0] front2ftq_predict_dir;
-  logic [BACKEND_FETCH_WIDTH-1:0] front2ftq_is_rvc;
-  logic [XLEN_BITS-1:0] front2ftq_predict_next_fetch_address;
-  logic [BLK_ID_W-1:0] front2ftq_blk_id;
-  logic                front2ftq_is_pair;
-  logic [3:0]          front2ftq_a_len;
   logic [BACKEND_FETCH_WIDTH-1:0] front2ftq_valid;
+  logic [FTQ_IDX_WIDTH-1:0]       front2ftq_ftq_idx;
+  ftq_fe_view_t                   ftq2fe;
+  fe_ftq_s0_t                     fe2ftq_s0;
+  fe_ftq_s2_t                     fe2ftq_s2;
+  fe_ftq_pd_t                     fe2ftq_pd;
   logic [3:0] commit_upd_free, commit_tq_free;   // BPU queue free entries -> ROB commit credits (EXP-028)
   logic [COMMIT_WIDTH-1:0] commit_extra_is_ret;
   logic [XLEN_BITS-1:0] csr_status_mstatus;
@@ -180,25 +175,20 @@ module core_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; i
   /* verilator lint_off PINMISSING */
   back_top u_back (
     .clk, .rst_n,
-    .front2ftq_slot_kind(front2ftq_slot_kind),
     .out_rf_valid(out_rf_valid),
     .out_rf_blk(out_rf_blk),
     .out_rf_type(out_rf_type),
     .out_rf_pc(out_rf_pc),
     .out_rf_is_rvc(out_rf_is_rvc),
-    .front2ftq_alt_pred(front2ftq_alt_pred),
     .front2ftq_inst(front2ftq_inst),
     .front2ftq_page_fault_inst(front2ftq_page_fault_inst),
     .front2ftq_pf_inst_hi(front2ftq_pf_inst_hi),
-    .front2ftq_pc(front2ftq_pc),
-    .front2ftq_pcpn(front2ftq_pcpn),
-    .front2ftq_predict_dir(front2ftq_predict_dir),
-    .front2ftq_is_rvc(front2ftq_is_rvc),
-    .front2ftq_predict_next_fetch_address(front2ftq_predict_next_fetch_address),
-    .front2ftq_blk_id(front2ftq_blk_id),
-    .front2ftq_is_pair(front2ftq_is_pair),
-    .front2ftq_a_len(front2ftq_a_len),
     .front2ftq_valid(front2ftq_valid),
+    .front2ftq_ftq_idx(front2ftq_ftq_idx),
+    .fe2ftq_s0(fe2ftq_s0),
+    .fe2ftq_s2(fe2ftq_s2),
+    .fe2ftq_pd(fe2ftq_pd),
+    .ftq2fe(ftq2fe),
     .front_stall(1'b0),
     .bpu_upd_free(commit_upd_free),
     .bpu_tq_free(commit_tq_free),
@@ -299,9 +289,9 @@ module core_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; i
     .out_rf_type,
     .out_rf_pc,
     .out_rf_is_rvc,
-    .front2ftq_slot_kind,
     .out_stall,
     .out_redirect_pc,
+    .ftq2fe,
     .rob_bcast_fence,
     .rob_bcast_fence_i,
     .rob_bcast_interrupt,
@@ -355,15 +345,10 @@ module core_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; i
     .front2ftq_inst,
     .front2ftq_page_fault_inst,
     .front2ftq_pf_inst_hi,
-    .front2ftq_pc,
-    .front2ftq_predict_dir,
-    .front2ftq_is_rvc,
-    .front2ftq_alt_pred,
-    .front2ftq_pcpn,
-    .front2ftq_blk_id,
-    .front2ftq_is_pair,
-    .front2ftq_a_len,
-    .front2ftq_predict_next_fetch_address,
+    .front2ftq_ftq_idx,
+    .fe2ftq_s0,
+    .fe2ftq_s2,
+    .fe2ftq_pd,
     .commit_upd_free,
     .commit_tq_free
   );

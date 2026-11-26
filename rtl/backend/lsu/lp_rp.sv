@@ -30,14 +30,38 @@ module lp_rp
 );
 
   logic [LQW-1:0]  rp_ptr_q;
+  logic [LQ-1:0]   rp_ge_q;
   logic [NRP-1:0]  rp_v_c, rp_take;
-  logic [LQ-1:0]   rdy_rot, rp_oh [NRP], rp_oh_unrot [NRP], rp_selo [NRP];
-  logic [LQW-1:0]  rp_ix [NRP], rp_new [NRP];
-  logic [NRP-1:0]  rp_pv;
+  logic [LQ-1:0]   rdy_hi, rdy_lo, hi_oh [NRP], lo_oh [NRP], rp_oh_unrot [NRP], rp_selo [NRP];
+  logic [LQW-1:0]  hi_ix [NRP], lo_ix [NRP], rp_ix [NRP], rp_new [NRP];
+  logic [NRP-1:0]  hi_v, lo_v, rp_pv;
+  logic [2:0]      hi_cnt;
   logic [LQW-1:0]  rp_ptr_d;
   lp_rp_ent_t      ldq_rp_v [LQ], rp_cand_f [NRP], rp_new_f [NRP];
-  assign rdy_rot = LQ'(rotr64(64'(rdy9), rp_ptr_q));
-  lp_pickn #(.N(LQ), .K(NRP)) u_rp (.vec(rdy_rot), .onehot(rp_oh), .idx(rp_ix), .v(rp_pv));
+
+  // Parallel hi/lo split on registered rp_ge_q (eliminates both 64-bit rotr64 and rotl64 barrel shifters)
+  assign rdy_hi = rdy9 & rp_ge_q;
+  assign rdy_lo = rdy9 & ~rp_ge_q;
+  lp_pickn #(.N(LQ), .K(NRP)) u_rp_hi (.vec(rdy_hi), .onehot(hi_oh), .idx(hi_ix), .v(hi_v));
+  lp_pickn #(.N(LQ), .K(NRP)) u_rp_lo (.vec(rdy_lo), .onehot(lo_oh), .idx(lo_ix), .v(lo_v));
+
+  always_comb begin
+    hi_cnt = '0;
+    for (int j = 0; j < NRP; j++) hi_cnt = hi_cnt + 3'(hi_v[j]);
+    for (int j = 0; j < NRP; j++) begin
+      logic [1:0] lo_k;
+      lo_k = 2'(3'(j) - hi_cnt);
+      if (hi_v[j]) begin
+        rp_pv[j]       = 1'b1;
+        rp_ix[j]       = hi_ix[j];
+        rp_oh_unrot[j] = hi_oh[j];
+      end else begin
+        rp_pv[j]       = lo_v[lo_k];
+        rp_ix[j]       = lo_ix[lo_k];
+        rp_oh_unrot[j] = lo_oh[lo_k];
+      end
+    end
+  end
 
   // Select each candidate's immutable payload directly via one-hot mux (in parallel with nfb[r], no 64:1 binary mux!)
   always_comb begin
@@ -56,7 +80,6 @@ module lp_rp
     end
   end
   for (genvar j = 0; j < NRP; j++) begin : g_rpf
-    assign rp_oh_unrot[j] = LQ'(rotl64(64'(rp_oh[j]), rp_ptr_q));
     ttg_onehot_mux #(.N(LQ), .W($bits(lp_rp_ent_t))) u_mux (
       .sel(rp_oh_unrot[j]), .data(ldq_rp_v), .out(rp_cand_f[j])
     );
@@ -78,7 +101,7 @@ module lp_rp
       for (int j = 0; j < NRP; j++) begin
         if (nfb[r] == 3'(j)) begin
           rp_take[r]  = !rp_v_c[r] && rp_pv[j];
-          rp_new[r]   = rp_ix[j] + rp_ptr_q;
+          rp_new[r]   = rp_ix[j];
           rp_new_f[r] = rp_cand_f[j];
           rp_selo[r]  = rp_oh_unrot[j];
         end
@@ -92,11 +115,13 @@ module lp_rp
 
   always_ff @(posedge clk) begin
     if (!rst_n) begin
-      rp_v_q <= '0;
+      rp_v_q   <= '0;
       rp_ptr_q <= '0;
+      rp_ge_q  <= '1;
     end else begin
-      rp_v_q <= rp_v_c | rp_take;
+      rp_v_q   <= rp_v_c | rp_take;
       rp_ptr_q <= rp_ptr_d;
+      rp_ge_q  <= LQ'(64'(-1) << rp_ptr_d);
     end
     for (int r = 0; r < NRP; r++) begin
       if (rp_take[r]) begin

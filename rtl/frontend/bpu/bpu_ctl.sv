@@ -9,7 +9,6 @@ module bpu_ctl import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*
   input  logic        pd_flush,
   input  logic        pdq_have,
   input  logic        icache_read_ready,
-  input  logic [7:0]  ptab_size,
   /* verilator lint_off UNUSEDSIGNAL */
   input  blk_t        r0,
   input  blk_t        r1,
@@ -31,8 +30,6 @@ module bpu_ctl import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*
   output logic        rep_ok
 );
 
-  logic ptab_stall;
-
   // Ref: decide / l1_override (2-taken: ovr_a checks slot/taken when has_b; ovr_b checks Block B when !ovr_a)
   always_comb begin
     d_valid = r1.valid && !refetch;
@@ -44,13 +41,11 @@ module bpu_ctl import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*
     l1_ov   = !refetch && !ovr && r0.valid && !r0.ah_hit && g1.hit && pred_differs(g1, r0.g, r0.has_b);
   end
 
-  // Ref: comb, S0 credit: blocks in flight count against the PTAB
+  // Ref: comb, S0 credit gated directly by Unified FTQ-64 icache_read_ready
   always_comb begin
-    ptab_stall = icache_read_ready &&
-                 (int'(ptab_size) + int'(r0.valid) + int'(r1.valid) >= PTAB_SIZE - 1);
-    issue      = !refetch && !ovr && !l1_ov && icache_read_ready && !ptab_stall;
-    fast       = icache_read_ready && refetch;
-    s0_go      = issue || fast;
+    issue = !refetch && !ovr && !l1_ov && icache_read_ready;
+    fast  = icache_read_ready && refetch;
+    s0_go = issue || fast;
   end
 
   // Ref: comb, refetch handling

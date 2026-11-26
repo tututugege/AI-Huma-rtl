@@ -1,7 +1,7 @@
 // Ref: back-end/Idu.cpp  class Idu  (comb_branch / comb_decode / comb_fire / seq)
 `default_nettype none
 
-// Idu top: pure combinational 8-wide decoder (idu_br_latch moved to back_top after EXP-068).
+// Idu top: pure combinational 8-wide decoder (with 8-bank FTQ dispatch window guard).
 module idu
   import ttg_cfg_pkg::*;
   import ftq_ibuf_pkg::ib_entry_t;
@@ -25,13 +25,32 @@ module idu
   logic [DECODE_WIDTH-1:0] lane_is_branch;
   /* verilator lint_on UNUSEDSIGNAL */
 
+  // 8-bank FTQ dispatch window guard (Idu.cpp): stop prefix if (ftq_idx - first_ftq) mod 64 >= DECODE_WIDTH
+  logic [DECODE_WIDTH-1:0] raw_ok, lane_valid;
+  always_comb begin
+    raw_ok[0] = 1'b1;
+    for (int i = 1; i < DECODE_WIDTH; i++) begin
+      /* verilator lint_off UNUSEDSIGNAL */
+      logic [FTQ_IDX_WIDTH-1:0] diff;
+      /* verilator lint_on UNUSEDSIGNAL */
+      diff      = ibuf2idu_entry[i].ftq_idx - ibuf2idu_entry[0].ftq_idx;
+      raw_ok[i] = !ibuf2idu_valid[i] || (diff[FTQ_IDX_WIDTH-1:3] == '0);
+    end
+    for (int i = 0; i < DECODE_WIDTH; i++) begin
+      logic p;
+      p = 1'b1;
+      for (int j = 0; j <= i; j++) p = p && raw_ok[j];
+      lane_valid[i] = ibuf2idu_valid[i] && p;
+    end
+  end
+
   // ---- decode lanes ----
   for (genvar i = 0; i < DECODE_WIDTH; i++) begin : g_lane
-    assign dec2ren_valid[i]    = ibuf2idu_valid[i];
-    assign idu_consume_fire[i] = ibuf2idu_valid[i] && ren2dec_ready && !rob_bcast_flush && !dec_bcast_mispred;
+    assign dec2ren_valid[i]    = lane_valid[i];
+    assign idu_consume_fire[i] = lane_valid[i] && ren2dec_ready && !rob_bcast_flush && !dec_bcast_mispred;
 
     idu_decoder u_dec (
-      .entry_valid(ibuf2idu_valid[i]),
+      .entry_valid(lane_valid[i]),
       .entry_inst(ibuf2idu_entry[i].inst),
       .entry_page_fault_inst(ibuf2idu_entry[i].page_fault_inst),
       .entry_pf_inst_hi(ibuf2idu_entry[i].pf_inst_hi),

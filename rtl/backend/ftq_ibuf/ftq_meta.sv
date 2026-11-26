@@ -1,8 +1,8 @@
-// Ref: back-end/PreIduQueue.cpp  ftq_train_meta_fifo[] (FTQTrainMetaEntry), comb_commit_info
+// Ref: back-end/PreIduQueue.cpp  ftq_train_meta_fifo[] (8-bank strict 1-cycle sync 1R1W SRAM, pre-launched on next_comm_ptr)
 `default_nettype none
 
-// FTQ training-metadata storage: compact per-entry {blk_id, is_pair, a_len} + 4b per-slot {alt_pred, pcpn}.
-// One write port (an allocation), COMMIT_WIDTH read ports addressed by the committing instruction's (ftq_idx, ftq_offset).
+// FTQ training-metadata storage: 8 x (8 x 79b) strict 1-cycle synchronous 1R1W SRAM (`ttg_sram_1r1w`, WRITE_FIRST=1).
+// Written once at BPU S2 (s2_ptr); pre-launched every cycle for the 8-bank commit window [next_comm_ptr .. next_comm_ptr+7].
 module ftq_meta import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; (
   input  logic                        clk,
   input  logic                        wr_en,
@@ -11,7 +11,7 @@ module ftq_meta import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; (
   input  logic                        wr_is_pair,
   input  logic [3:0]                  wr_a_len,
   input  ftq_meta_t                   wr_meta [BACKEND_FETCH_WIDTH],
-  input  logic [FTQ_IDX_WIDTH-1:0]    ftq_head,
+  input  logic [FTQ_IDX_WIDTH-1:0]    next_comm_ptr,
   /* verilator lint_off UNUSEDSIGNAL */
   input  logic [FTQ_IDX_WIDTH-1:0]    rd_idx [COMMIT_WIDTH],
   /* verilator lint_on UNUSEDSIGNAL */
@@ -24,41 +24,58 @@ module ftq_meta import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; (
   localparam int NL = FTQ_SIZE / NB;
   localparam int BW = $clog2(NB);
   localparam int LW = $clog2(NL);
+  localparam int EW = $bits(ftq_meta_entry_t);
 
-  ftq_meta_entry_t bank_q [NB][NL];
-  ftq_meta_entry_t win [NB];
-
-  // 8-bank 8:1 sequential commit window anchored at ftq_head
+  ftq_meta_entry_t wr_entry;
   always_comb begin
-    logic [BW-1:0] hb;
-    logic [LW-1:0] hl;
-    hb = ftq_head[BW-1:0];
-    hl = ftq_head[FTQ_IDX_WIDTH-1:BW];
-    for (int b = 0; b < NB; b++) begin
-      logic [LW-1:0] r;
-      r      = (BW'(b) < hb) ? (hl + LW'(1)) : hl;
-      win[b] = bank_q[b][r];
-    end
+    wr_entry.blk_id  = wr_blk_id;
+    wr_entry.is_pair = wr_is_pair;
+    wr_entry.a_len   = wr_a_len;
+    for (int s = 0; s < BACKEND_FETCH_WIDTH; s++) wr_entry.slots[s] = wr_meta[s];
   end
 
-  // Ref: comb_commit_info
+  logic [EW-1:0]   bank_rd [NB];
+  ftq_meta_entry_t win     [NB];
+
+  // 8 x (8 x 79b) strict sync 1R1W SRAM pre-launched from next_comm_ptr
+  for (genvar b = 0; b < NB; b++) begin : g_bank
+    logic [LW-1:0] raddr;
+    logic          bank_we;
+    if (b == NB - 1) begin : g_last
+      assign raddr = next_comm_ptr[FTQ_IDX_WIDTH-1:BW];
+    end else begin : g_wrap
+      assign raddr = (BW'(b) < next_comm_ptr[BW-1:0])
+                     ? (next_comm_ptr[FTQ_IDX_WIDTH-1:BW] + LW'(1))
+                     :  next_comm_ptr[FTQ_IDX_WIDTH-1:BW];
+    end
+    assign bank_we = wr_en && (wr_idx[BW-1:0] == BW'(b));
+
+    ttg_sram_1r1w #(
+      .DEPTH      (NL),
+      .WIDTH      (EW),
+      .MASK_W     (1),
+      .WRITE_FIRST(1'b1),
+      .TAG        ("FTQ_META")
+    ) u_sram (
+      .clk  (clk),
+      .re   (1'b1),
+      .raddr(raddr),
+      .rdata(bank_rd[b]),
+      .we   (bank_we),
+      .waddr(wr_idx[FTQ_IDX_WIDTH-1:BW]),
+      .wdata(EW'(wr_entry)),
+      .wmask(1'b1)
+    );
+    assign win[b] = ftq_meta_entry_t'(bank_rd[b]);
+  end
+
+  // Ref: comb_commit_info (8-bank commit window guaranteed by Rob 8-bank guard)
   always_comb begin
     for (int p = 0; p < COMMIT_WIDTH; p++) begin
       ftq_meta_entry_t e;
       e            = win[rd_idx[p][BW-1:0]];
       rd_meta[p]   = e.slots[rd_offset[p]];
       rd_blk_id[p] = (e.is_pair && (rd_offset[p] >= e.a_len)) ? (e.blk_id + BLK_ID_W'(1)) : e.blk_id;
-    end
-  end
-
-  // Ref: comb_accept_front (ftq_train_meta_fifo_1[alloc_idx] = entry). Memory write; no reset.
-  always_ff @(posedge clk) begin
-    if (wr_en) begin
-      bank_q[wr_idx[BW-1:0]][wr_idx[FTQ_IDX_WIDTH-1:BW]].blk_id  <= wr_blk_id;
-      bank_q[wr_idx[BW-1:0]][wr_idx[FTQ_IDX_WIDTH-1:BW]].is_pair <= wr_is_pair;
-      bank_q[wr_idx[BW-1:0]][wr_idx[FTQ_IDX_WIDTH-1:BW]].a_len   <= wr_a_len;
-      for (int s = 0; s < BACKEND_FETCH_WIDTH; s++)
-        bank_q[wr_idx[BW-1:0]][wr_idx[FTQ_IDX_WIDTH-1:BW]].slots[s] <= wr_meta[s];
     end
   end
 

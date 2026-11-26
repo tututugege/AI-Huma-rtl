@@ -72,6 +72,8 @@ module icache_itlb import ttg_cfg_pkg::*; import icache_pkg::*; import tlb_mmu_p
   /* verilator lint_off UNUSEDSIGNAL */
   logic             nc_walk_v;
   logic [VPN_W-1:0] nc_walk_vpn;
+  logic [28:0]      nc_resp_paddr_p1 [1];
+  logic [28:0]      nc_resp_paddr_m1 [1];
   /* verilator lint_on UNUSEDSIGNAL */
 
   tlb_mmu_core #(.LANES(1), .FETCH(1'b1), .ENTRIES(ENTRIES), .NPEEK(2)) u_core (
@@ -82,6 +84,7 @@ module icache_itlb import ttg_cfg_pkg::*; import icache_pkg::*; import tlb_mmu_p
     .ptw_req_ready, .ptw_resp_valid, .ptw_resp, .pf_page_set(1'b0), .pf_page_vpn('0),
     .peek_vaddr, .peek_ok, .peek_paddr,
     .resp_valid(lane_resp_valid), .resp_result(lane_resp_result), .resp_paddr(lane_resp_paddr),
+    .resp_paddr_p1(nc_resp_paddr_p1), .resp_paddr_m1(nc_resp_paddr_m1),
     .ptw_req_valid, .ptw_req_vpn, .ptw_req_root_ppn, .ptw_resp_consumed, .ptw_flush,
     .walk_next_v(nc_walk_v), .walk_next_vpn(nc_walk_vpn)
   );

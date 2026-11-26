@@ -12,6 +12,8 @@ module lp_l1b
   input  logic                l_hit [NLD],
   input  logic                l_mmio [NLD],
   input  logic [31:0]         l_paddr [NLD],
+  input  logic [28:0]         l_paddr_p1 [NLD],
+  input  logic [28:0]         l_paddr_m1 [NLD],
   input  logic [1:0]          l_tlb [NLD],
   input  logic [NLD-1:0]      ld_retry_busy,
   input  logic [255:0]        stq_bloom_q,     // 256-bit registered bloom filter of STQ vaddr[10:3]
@@ -50,8 +52,8 @@ module lp_l1b
       pl12_d[k].dcblk     = dcblk[k];
       pl12_d[k].bloom     = l_hit[k] && !l_mmio[k] && !ld_retry_busy[k] && bloom_hit[k];
       pl12_d[k].paddr     = l_paddr[k];
-      pl12_d[k].paddr_p1  = l_paddr[k][31:3] + 29'd1;
-      pl12_d[k].paddr_m1  = l_paddr[k][31:3] - 29'd1;
+      pl12_d[k].paddr_p1  = l_paddr_p1[k];
+      pl12_d[k].paddr_m1  = l_paddr_m1[k];
       pl12_d[k].voff      = l1[k].vaddr[11:0];
       pl12_d[k].func3     = l1[k].func3;
       pl12_d[k].snap_idx  = l1[k].snap_idx;

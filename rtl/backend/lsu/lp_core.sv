@@ -47,6 +47,8 @@ module lp_core
   // MMU
   input  logic [LSU_AGU_PHYS-1:0] mmu_valid,
   input  logic [31:0]         mmu_paddr [LSU_AGU_PHYS],
+  input  logic [28:0]         mmu_paddr_p1 [LSU_AGU_PHYS],
+  input  logic [28:0]         mmu_paddr_m1 [LSU_AGU_PHYS],
   input  logic [1:0]          mmu_result [LSU_AGU_PHYS],
   input  logic [5:0]          mmu_entry [LSU_AGU_PHYS],
   // outputs
@@ -239,6 +241,8 @@ module lp_core
   logic [1:0]      l_tlb [NLD];
   logic            l_hit [NLD], l_mmio [NLD];
   logic [31:0]     l_paddr [NLD];
+  logic [28:0]     l_paddr_p1 [NLD], l_paddr_m1 [NLD];
+  logic [28:0]     tl_s_p1 [NST], tl_s_m1 [NST];
   logic [NRP-1:0]  rp_cons, rp_pipe;
   lp_rp_ent_t      rp_f_q [NRP];
   logic [EPW-1:0]  ag_epoch [NLD];
@@ -261,10 +265,13 @@ module lp_core
     .ag(agl), .ag_acc(ag_acc), .ag_epoch(ag_epoch), .ag_wait_b(ag_wait_b), .sa(ags), .sa_acc(sa_acc),
     .rp_v(rp_v_q), .rp_ldq(rp_ldq_q), .rp_pipe(rp_pipe), .rp_f(rp_f_q),
     .srp_v(srp_v_q), .srp_stq(srp_stq_q), .srp_ok(srp_ok), .srp_vaddr(sq[srp_stq_q].vaddr),
-    .mmu_valid(mmu_valid), .mmu_paddr(mmu_paddr), .mmu_result(mmu_result), .mmu_entry(mmu_entry),
+    .mmu_valid(mmu_valid), .mmu_paddr(mmu_paddr), .mmu_paddr_p1(mmu_paddr_p1), .mmu_paddr_m1(mmu_paddr_m1),
+    .mmu_result(mmu_result), .mmu_entry(mmu_entry),
     .mmu_req_valid(mmu_req_valid), .mmu_req_vaddr(mmu_req_vaddr), .mmu_req_idx(mmu_req_idx), .mmu_req_st(mmu_req_st),
-    .l1(l1), .tl_l(tl_l), .l_tlb(l_tlb), .l_hit(l_hit), .l_paddr(l_paddr), .l_mmio(l_mmio), .rp_cons(rp_cons),
-    .s1_v(s1_v), .s1_replay(s1_replay), .s1_stq(s1_stq), .tl_s(tl_s), .tl_s_miss(tl_s_miss),
+    .l1(l1), .tl_l(tl_l), .l_tlb(l_tlb), .l_hit(l_hit), .l_paddr(l_paddr),
+    .l_paddr_p1(l_paddr_p1), .l_paddr_m1(l_paddr_m1), .l_mmio(l_mmio), .rp_cons(rp_cons),
+    .s1_v(s1_v), .s1_replay(s1_replay), .s1_stq(s1_stq), .tl_s(tl_s),
+    .tl_s_p1(tl_s_p1), .tl_s_m1(tl_s_m1), .tl_s_miss(tl_s_miss),
     .srp_cons(srp_cons), .pf_any(pf_any), .pf_xq_v, .pf_xq_va, .pf_xq_llc, .dtlb_walk_next_v, .dtlb_walk_next_vpn,
     .pf_xq_pop, .pf_xans_v, .pf_xans_line, .pf_xans_llc, .dtlb_pf_page_set, .dtlb_pf_page_vpn);
 
@@ -295,7 +302,8 @@ module lp_core
     else        stq_bloom_q <= stq_bloom_d;
   end
 
-  lp_l1b u_l1b (.clk(clk), .l1(l1), .l_hit(l_hit), .l_mmio(l_mmio), .l_paddr(l_paddr), .l_tlb(l_tlb),
+  lp_l1b u_l1b (.clk(clk), .l1(l1), .l_hit(l_hit), .l_mmio(l_mmio), .l_paddr(l_paddr),
+                .l_paddr_p1(l_paddr_p1), .l_paddr_m1(l_paddr_m1), .l_tlb(l_tlb),
                 .ld_retry_busy(ld_retry_busy), .stq_bloom_q(stq_bloom_q), .pipe8(pipe8_sel), .spec_ok(spec_ok),
                 .l1_launch(l1_launch), .dcl_req_valid(dcl_req_valid), .dcl_req_addr(dcl_req_addr),
                 .dcl_req_id_o(dcl_req_id_o), .pl12_q(pl12_q));
@@ -306,16 +314,19 @@ module lp_core
     assign dcl_req_va[k]     = l1[k].vaddr[38:0]; end
 
   // ------------------------------------------------------------------ STA events broadcast to the wake-up (P13)
+  // vw carries pre-DTLB STQ fields in parallel with DTLB; tl_s[k] / tl_s_p1 / tl_s_m1 overlay directly (no 64:1 mux or 29b adder after DTLB)
   lp_sta_info_t sta_info [NST];
   logic [SQ-1:0] ev_sta, ev_sc;
   always_comb begin
     ev_sta = '0;
     for (int k = 0; k < NST; k++) begin
-      sta_info[k] = vw[s1_stq[k]];
-      sta_info[k].v = s1_v[k] && (!s1_replay[k] || tl_s[k].hit || tl_s[k].pf);
-      sta_info[k].stq = s1_stq[k];
-      sta_info[k].paddr_p1 = sta_info[k].paddr[31:3] + 29'd1;
-      sta_info[k].paddr_m1 = sta_info[k].paddr[31:3] - 29'd1;
+      sta_info[k]          = vw[s1_stq[k]];
+      sta_info[k].v        = s1_v[k] && (!s1_replay[k] || tl_s[k].hit || tl_s[k].pf);
+      sta_info[k].stq      = s1_stq[k];
+      sta_info[k].pa_v     = tl_s[k].hit ? 1'b1          : vw[s1_stq[k]].pa_v;
+      sta_info[k].paddr    = tl_s[k].hit ? tl_s[k].paddr : vw[s1_stq[k]].paddr;
+      sta_info[k].paddr_p1 = tl_s[k].hit ? tl_s_p1[k]    : 29'd1;
+      sta_info[k].paddr_m1 = tl_s[k].hit ? tl_s_m1[k]    : 29'h1fff_ffff;
       if (sta_info[k].v) ev_sta[s1_stq[k]] = 1'b1;
     end
   end

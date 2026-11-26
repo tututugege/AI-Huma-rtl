@@ -35,6 +35,8 @@ module tlb_mmu import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; #(
   output logic [1:0] resp_result [LSU_AGU_PHYS],
   output logic [LSU_AGU_PHYS-1:0] resp_hit,
   output logic [31:0] resp_paddr [LSU_AGU_PHYS],
+  output logic [28:0] resp_paddr_p1 [LSU_AGU_PHYS],
+  output logic [28:0] resp_paddr_m1 [LSU_AGU_PHYS],
   output logic [IDX_W-1:0] resp_entry_idx [LSU_AGU_PHYS],
   output logic ptw_walk_req_valid,
   output logic [VPN_W-1:0] ptw_walk_req_vpn,
@@ -53,6 +55,8 @@ module tlb_mmu import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; #(
   logic        lane_resp_valid [LANES];
   logic [1:0]  lane_resp_result [LANES];
   logic [31:0] lane_resp_paddr [LANES];
+  logic [28:0] lane_resp_paddr_p1 [LANES];
+  logic [28:0] lane_resp_paddr_m1 [LANES];
   tlb_mmu_ptw_resp_t ptw_resp;
 
   assign ptw_resp = '{fault: ptw_walk_resp_fault, vpn: ptw_walk_resp_vpn, level: ptw_walk_resp_leaf_level,
@@ -73,6 +77,7 @@ module tlb_mmu import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; #(
     .pf_page_set, .pf_page_vpn,
     .peek_vaddr('{default: '0}), .peek_ok(nc_peek_ok), .peek_paddr(nc_peek_paddr),
     .resp_valid(lane_resp_valid), .resp_result(lane_resp_result), .resp_paddr(lane_resp_paddr),
+    .resp_paddr_p1(lane_resp_paddr_p1), .resp_paddr_m1(lane_resp_paddr_m1),
     .ptw_req_valid(ptw_walk_req_valid), .ptw_req_vpn(ptw_walk_req_vpn), .ptw_req_root_ppn(ptw_walk_req_root_ppn),
     .ptw_resp_consumed(ptw_walk_resp_consumed), .ptw_flush(ptw_walk_flush),
     .walk_next_v, .walk_next_vpn
@@ -86,6 +91,8 @@ module tlb_mmu import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; #(
     assign resp_result[i] = lane_resp_result[i];
     assign resp_hit[i] = lane_resp_valid[i] && lane_resp_result[i] == RES_HIT;
     assign resp_paddr[i] = lane_resp_paddr[i];
+    assign resp_paddr_p1[i] = lane_resp_paddr_p1[i];
+    assign resp_paddr_m1[i] = lane_resp_paddr_m1[i];
     assign resp_entry_idx[i] = req_entry_idx[i];
   end
 

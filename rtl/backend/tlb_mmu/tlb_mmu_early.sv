@@ -25,7 +25,7 @@ module tlb_mmu_early import tlb_mmu_pkg::*; import ttg_cfg_pkg::*; (
     refill.tag.asid = satp_asid(walk.satp);
     refill.tag.level = resp.level;
     refill.tag.vpn = walk.vpn;
-    refill.xlat = '{level: resp.level, ppn: resp.ppn, perm: resp.perm};
+    refill.xlat = mk_xlat(resp.level, resp.ppn, resp.perm);
   end
 
 endmodule

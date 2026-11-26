@@ -439,7 +439,7 @@ long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
       if (fpr::on()) {   // alignment fingerprints: PTAB writes and predictor-table updates of this cycle (the cycle number is the PMU cycle counter)
         auto *R = top->rootp;
         fpr::set_raw_cycle(pmu_total[0]);
-        if (R->soc_top__DOT__u_core__DOT__u_front__DOT__u_front__DOT__u_pred_path__DOT__ptab_wr_en)
+        if ((R->soc_top__DOT__u_core__DOT__fe2ftq_s2[8] >> 31) & 1u)
           fpr::pt(R->soc_top__DOT__u_core__DOT__u_front__DOT__u_front__DOT__u_pred_path__DOT__bpu_ptab_base_pc,
                   R->soc_top__DOT__u_core__DOT__u_front__DOT__u_front__DOT__u_pred_path__DOT__bpu_predict_next_fetch_address,
                   R->soc_top__DOT__u_core__DOT__u_front__DOT__u_front__DOT__u_pred_path__DOT__bpu_pred_dir);

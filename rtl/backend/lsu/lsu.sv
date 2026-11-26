@@ -77,6 +77,8 @@ module lsu
   /* verilator lint_on UNUSEDSIGNAL */
   input  logic [LSU_AGU_PHYS-1:0] mmu2lsu_resp_valid,
   input  logic [31:0] mmu2lsu_resp_paddr [LSU_AGU_PHYS],
+  input  logic [28:0] mmu2lsu_resp_paddr_p1 [LSU_AGU_PHYS],
+  input  logic [28:0] mmu2lsu_resp_paddr_m1 [LSU_AGU_PHYS],
   input  logic [1:0] mmu2lsu_resp_result [LSU_AGU_PHYS],
   input  logic [5:0] mmu2lsu_resp_entry_idx [LSU_AGU_PHYS],
   output logic [5:0] lsu2dis_stq_tail,

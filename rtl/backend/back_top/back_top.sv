@@ -4,6 +4,10 @@
 
 module back_top
   import ttg_cfg_pkg::*;
+  import front_pkg::ftq_fe_view_t;
+  import front_pkg::fe_ftq_s0_t;
+  import front_pkg::fe_ftq_s2_t;
+  import front_pkg::fe_ftq_pd_t;
   import tlb_mmu_pkg::*;
   import fp_pkg::*;
   import ftq_ibuf_pkg::ib_entry_t;
@@ -18,24 +22,19 @@ module back_top
 (
   input  logic clk,
   input  logic rst_n,
-  // ---- in: front end -> back end (FrontPreIO)
-  input  logic [BACKEND_FETCH_WIDTH-1:0] front2ftq_alt_pred,
-  input  logic [31:0] front2ftq_inst [BACKEND_FETCH_WIDTH],
+  // ---- in: front end -> back end (trimmed ibuf payload + Unified FTQ-64 write requests)
+  input  logic [31:0]                    front2ftq_inst [BACKEND_FETCH_WIDTH],
   input  logic [BACKEND_FETCH_WIDTH-1:0] front2ftq_page_fault_inst,
   input  logic [BACKEND_FETCH_WIDTH-1:0] front2ftq_pf_inst_hi,
-  input  logic [XLEN_BITS-1:0] front2ftq_pc [BACKEND_FETCH_WIDTH],
-  input  logic [2:0] front2ftq_pcpn [BACKEND_FETCH_WIDTH],
-  input  logic [BACKEND_FETCH_WIDTH-1:0] front2ftq_predict_dir,
-  input  logic [BACKEND_FETCH_WIDTH-1:0] front2ftq_is_rvc,
-  input  logic [XLEN_BITS-1:0] front2ftq_predict_next_fetch_address,
-  input  logic [FETCH_WIDTH-1:0][2:0] front2ftq_slot_kind,
-  input  logic [9:0] front2ftq_blk_id,
-  input  logic front2ftq_is_pair,
-  input  logic [3:0] front2ftq_a_len,
   input  logic [BACKEND_FETCH_WIDTH-1:0] front2ftq_valid,
+  input  logic [FTQ_IDX_WIDTH-1:0]       front2ftq_ftq_idx,
+  input  fe_ftq_s0_t                     fe2ftq_s0,
+  input  fe_ftq_s2_t                     fe2ftq_s2,
+  input  fe_ftq_pd_t                     fe2ftq_pd,
   input  logic front_stall,
   input  logic [3:0] bpu_upd_free,
   input  logic [3:0] bpu_tq_free,
+  output ftq_fe_view_t                   ftq2fe,
   // ---- in: MemSubsystem -> LSU
   input  logic [XLEN_BITS-1:0] dcache2lsu_load_resps_data [LSU_LDU_COUNT],
   input  logic [1:0] dcache2lsu_load_resps_replay [LSU_LDU_COUNT],
@@ -168,6 +167,7 @@ module back_top
   logic [FTQ_IDX_WIDTH-1:0]      ren2dis_ftq_idx [DECODE_WIDTH];
   logic [FTQ_OFFSET_WIDTH-1:0]   ren2dis_ftq_off [DECODE_WIDTH];
   logic [XLEN_BITS-1:0]          ftq_commit_info_resp_next_pc [COMMIT_WIDTH];
+  logic [FTQ_IDX_WIDTH-1:0]      ftq_head_out;
 
   // ---- idu / br_latch -> ren / global mispredict ----
   logic [XLEN_BITS-1:0]          br_latch_br_pc;
@@ -306,6 +306,8 @@ module back_top
 
   logic [5:0]                    mmu2lsu_resp_entry_idx [LSU_AGU_PHYS];
   logic [31:0]                   mmu2lsu_resp_paddr     [LSU_AGU_PHYS];
+  logic [28:0]                   mmu2lsu_resp_paddr_p1  [LSU_AGU_PHYS];
+  logic [28:0]                   mmu2lsu_resp_paddr_m1  [LSU_AGU_PHYS];
   logic [1:0]                    mmu2lsu_resp_result    [LSU_AGU_PHYS];
   logic [LSU_AGU_PHYS-1:0]       mmu2lsu_resp_valid;
   logic                          dtlb_walk_next_v, dtlb_pf_page_set;
@@ -379,13 +381,11 @@ module back_top
     .rob_commit_commit_entry_uop_ftq_is_last(rob_commit_commit_entry_uop_ftq_is_last),
     .rob_commit_commit_entry_uop_ftq_offset(rob_commit_commit_entry_uop_ftq_offset),
     .rob_commit_commit_entry_valid(rob_commit_commit_entry_valid),
-    .front2ftq_alt_pred(front2ftq_alt_pred), .front2ftq_inst(front2ftq_inst),
+    .front2ftq_inst(front2ftq_inst),
     .front2ftq_page_fault_inst(front2ftq_page_fault_inst), .front2ftq_pf_inst_hi(front2ftq_pf_inst_hi),
-    .front2ftq_pc(front2ftq_pc), .front2ftq_pcpn(front2ftq_pcpn),
-    .front2ftq_predict_dir(front2ftq_predict_dir), .front2ftq_is_rvc(front2ftq_is_rvc),
-    .front2ftq_predict_next_fetch_address(front2ftq_predict_next_fetch_address),
-    .front2ftq_slot_kind(front2ftq_slot_kind), .front2ftq_blk_id(front2ftq_blk_id),
-    .front2ftq_is_pair(front2ftq_is_pair), .front2ftq_a_len(front2ftq_a_len), .front2ftq_valid(front2ftq_valid),
+    .front2ftq_valid(front2ftq_valid), .front2ftq_ftq_idx(front2ftq_ftq_idx),
+    .fe2ftq_s0(fe2ftq_s0), .fe2ftq_s2(fe2ftq_s2), .fe2ftq_pd(fe2ftq_pd), .ftq2fe(ftq2fe),
+    .ftq_head_out(ftq_head_out),
     .ftq2front_ready(ftq2front_ready), .out_rf_blk(out_rf_blk), .out_rf_type(out_rf_type),
     .ftq2front_fire(ftq2front_fire),
     .ibuf2idu_valid(ibuf2idu_valid), .ibuf2idu_entry(ibuf2idu_entry),
@@ -629,6 +629,7 @@ module back_top
     .lsu2rob_committed_store_pending(lsu2rob_committed_store_pending),
     .ftq_rob_pc_resp_resp_pc(ftq_rob_pc_resp_resp_pc),
     .front_stall(front_stall), .bpu_upd_free(bpu_upd_free), .bpu_tq_free(bpu_tq_free),
+    .ftq_head(ftq_head_out),
     .rob2dis_stall(rob2dis_stall), .rob2dis_empty(rob2dis_empty), .rob2dis_ready(rob2dis_ready),
     .rob2dis_enq_idx(rob2dis_enq_idx), .rob2dis_free(rob2dis_free), .rob2dis_rob_flag(rob2dis_rob_flag),
     .rob2csr_commit(rob2csr_commit), .rob2csr_fflags(rob2csr_fflags),
@@ -686,7 +687,8 @@ module back_top
     .ptw_walk_resp_leaf_ppn(ptw_walk_resp_leaf_ppn), .ptw_walk_resp_valid(ptw_walk_resp_valid),
     .ptw_walk_resp_vpn(ptw_walk_resp_vpn),
     .resp_valid(mmu2lsu_resp_valid), .resp_result(mmu2lsu_resp_result), .resp_hit(nc_mmu2lsu_resp_hit),
-    .resp_paddr(mmu2lsu_resp_paddr), .resp_entry_idx(mmu2lsu_resp_entry_idx),
+    .resp_paddr(mmu2lsu_resp_paddr), .resp_paddr_p1(mmu2lsu_resp_paddr_p1), .resp_paddr_m1(mmu2lsu_resp_paddr_m1),
+    .resp_entry_idx(mmu2lsu_resp_entry_idx),
     .ptw_walk_req_valid(ptw_walk_req_valid), .ptw_walk_req_vpn(ptw_walk_req_vpn),
     .ptw_walk_req_root_ppn(ptw_walk_req_root_ppn), .ptw_walk_resp_consumed(ptw_walk_resp_consumed),
     .ptw_walk_flush(ptw_walk_flush),
@@ -702,6 +704,7 @@ module back_top
     .dis2lsu_ldq_mdp(dis2lsu_ldq_mdp), .dis2lsu_ldq_pc(dis2lsu_ldq_pc),
     .dis2lsu_ldq_rob_idx(dis2lsu_ldq_rob_idx), .dis2lsu_rob_flag(dis2lsu_rob_flag), .dis2lsu_rob_idx(dis2lsu_rob_idx),
     .mmu2lsu_resp_entry_idx(mmu2lsu_resp_entry_idx), .mmu2lsu_resp_paddr(mmu2lsu_resp_paddr),
+    .mmu2lsu_resp_paddr_p1(mmu2lsu_resp_paddr_p1), .mmu2lsu_resp_paddr_m1(mmu2lsu_resp_paddr_m1),
     .mmu2lsu_resp_result(mmu2lsu_resp_result), .mmu2lsu_resp_valid(mmu2lsu_resp_valid),
     .exe2lsu_ldu_req_uop_amo_op(exe2lsu_ldu_req_uop_amo_op),
     .exe2lsu_ldu_req_uop_dest_preg(exe2lsu_ldu_req_uop_dest_preg),

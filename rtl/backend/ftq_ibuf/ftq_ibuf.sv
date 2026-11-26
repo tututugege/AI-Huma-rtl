@@ -1,30 +1,29 @@
-// Ref: back-end/PreIduQueue.cpp  class PreIduQueue (+ InstructionBuffer.cpp, include/FTQ.h)
+// Ref: back-end/PreIduQueue.cpp  class PreIduQueue (+ InstructionBuffer.cpp, include/FTQ.h) — Unified FTQ-64
 `default_nettype none
 
-// FTQ + IBuf top: port adapter only. Packs the flat spec ports into the internal structs and instantiates
-//   ftq_ibuf_ctrl    front-end handshake, group compaction ranks, pop counts
+// Unified FTQ-64 + IBuf top:
+//   ftq_ibuf_ctrl    front-end ibuf handshake, group compaction ranks, ibuf pop count
 //   ibuf             instruction ring buffer (feeds the Idu issue group)
-//   ftq_ptr          FTQ allocation pointer / occupancy
-//   ftq_pc           FTQ pc storage with Prf / Rob / commit lookup ports
-//   ftq_meta         FTQ training-metadata storage with commit read ports
-module ftq_ibuf import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; import front_pkg::KIND_W;
+//   ftq_ptr          Unified FTQ-64 5-pointer ring (comm_ptr/pd_ptr/s2_ptr/ifu_ptr/bpu_ptr)
+//   ftq_pc           Unified FTQ-64 PC & FetchPair storage (FE + PRF + ROB + Commit + Dispatch)
+//   ftq_meta         8 x (8 x 79b) strict sync 1R1W SRAM for BPU training metadata (pre-launched on next_comm_ptr)
+//   ftq_bpu          Block ID (S2) + slot kind (PD) lookup for mispredict repair
+module ftq_ibuf import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; import front_pkg::*;
   import bpu_types_pkg::FTB_BLK_ID_W; (
   input  logic clk,
   input  logic rst_n,
+  // Trimmed instruction payload from core_front2back
   input  logic [BACKEND_FETCH_WIDTH-1:0] front2ftq_valid,
-  input  logic [31:0] front2ftq_inst [BACKEND_FETCH_WIDTH],
-  input  logic [XLEN_BITS-1:0] front2ftq_pc [BACKEND_FETCH_WIDTH],
+  input  logic [31:0]                    front2ftq_inst [BACKEND_FETCH_WIDTH],
   input  logic [BACKEND_FETCH_WIDTH-1:0] front2ftq_page_fault_inst,
   input  logic [BACKEND_FETCH_WIDTH-1:0] front2ftq_pf_inst_hi,
-  input  logic [BACKEND_FETCH_WIDTH-1:0] front2ftq_predict_dir,
-  input  logic [BACKEND_FETCH_WIDTH-1:0] front2ftq_alt_pred,
-  input  logic [PCPN_W-1:0] front2ftq_pcpn [BACKEND_FETCH_WIDTH],
-  input  logic [BACKEND_FETCH_WIDTH-1:0] front2ftq_is_rvc,
-  input  logic [XLEN_BITS-1:0] front2ftq_predict_next_fetch_address,
-  input  logic [BLK_ID_W-1:0] front2ftq_blk_id,
-  input  logic front2ftq_is_pair,
-  input  logic [3:0] front2ftq_a_len,
-  input  logic [FETCH_WIDTH-1:0][KIND_W-1:0] front2ftq_slot_kind,
+  input  logic [FTQ_IDX_WIDTH-1:0]       front2ftq_ftq_idx,
+  // Unified FTQ-64 frontend write requests (bypass stall hold) + registered view back to front_top
+  input  fe_ftq_s0_t                     fe2ftq_s0,
+  input  fe_ftq_s2_t                     fe2ftq_s2,
+  input  fe_ftq_pd_t                     fe2ftq_pd,
+  output ftq_fe_view_t                   ftq2fe,
+  // Backend control / commit / lookup ports
   input  logic [DECODE_WIDTH-1:0] idu_consume_fire,
   input  logic idu_br_latch_mispred,
   input  logic [FTQ_IDX_WIDTH-1:0] idu_br_latch_ftq_idx,
@@ -41,14 +40,14 @@ module ftq_ibuf import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; import front_pkg:
   input  logic [FTQ_ROB_PC_PORT_NUM-1:0] ftq_rob_pc_req_req_valid,
   input  logic [FTQ_IDX_WIDTH-1:0] ftq_rob_pc_req_req_ftq_idx [FTQ_ROB_PC_PORT_NUM],
   input  logic [FTQ_OFFSET_WIDTH-1:0] ftq_rob_pc_req_req_ftq_offset [FTQ_ROB_PC_PORT_NUM],
-  // wait-table index (PC hash) of the instructions entering dispatch (LSU_MEMSPEC; zero otherwise)
-  /* verilator lint_off UNUSEDSIGNAL */  // the request ports are used only with LSU_MEMSPEC
+  /* verilator lint_off UNUSEDSIGNAL */
   input  logic [FTQ_IDX_WIDTH-1:0] ftq_dis_req_ftq_idx [DECODE_WIDTH],
   input  logic [FTQ_OFFSET_WIDTH-1:0] ftq_dis_req_ftq_offset [DECODE_WIDTH],
   /* verilator lint_on UNUSEDSIGNAL */
   output logic [LSU_MDP_BITS-1:0] ftq_dis_resp_mdp [DECODE_WIDTH],
   output logic [31:0] ftq_dis_resp_pc [DECODE_WIDTH],
   output logic [DECODE_WIDTH-1:0] ftq_dis_resp_is_rvc,
+  output logic [FTQ_IDX_WIDTH-1:0] ftq_head_out,
   output logic [FTB_BLK_ID_W-1:0] out_rf_blk,
   output logic [2:0] out_rf_type,
   output logic ftq2front_ready,
@@ -69,23 +68,18 @@ module ftq_ibuf import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; import front_pkg:
   output logic ftq_commit_info_resp_pred_taken [COMMIT_WIDTH],
   output logic ftq_commit_info_resp_is_rvc [COMMIT_WIDTH],
   output logic [COMMIT_WIDTH-1:0] ftq_commit_info_resp_alt_pred,
-  output logic [PCPN_W-1:0] ftq_commit_info_resp_pcpn [COMMIT_WIDTH],
-  output logic [BLK_ID_W-1:0] ftq_commit_info_resp_blk_id [COMMIT_WIDTH]
+  output logic [ftq_ibuf_pkg::PCPN_W-1:0] ftq_commit_info_resp_pcpn [COMMIT_WIDTH],
+  output logic [ftq_ibuf_pkg::BLK_ID_W-1:0] ftq_commit_info_resp_blk_id [COMMIT_WIDTH]
 );
 
-  // ---- flat spec ports <-> internal vectors / structs ----
-  logic [BACKEND_FETCH_WIDTH-1:0] front_valid;
-  logic [BACKEND_FETCH_WIDTH-1:0] front_pred_taken;
-  logic [BACKEND_FETCH_WIDTH-1:0] front_is_rvc;
   logic [DECODE_WIDTH-1:0]        idu_fire;
   logic [COMMIT_WIDTH-1:0]        commit_valid;
   logic [COMMIT_WIDTH-1:0]        commit_is_last;
-  logic [XLEN_BITS-1:0]                    front_slot_pc [BACKEND_FETCH_WIDTH];
-  ftq_meta_t                      wr_meta [BACKEND_FETCH_WIDTH];
+  ftq_meta_t                      s2_meta [BACKEND_FETCH_WIDTH];
   ib_entry_t                      push_entry [BACKEND_FETCH_WIDTH];
   ib_entry_t                      issue_entry [DECODE_WIDTH];
   ftq_meta_t                      rd_meta [COMMIT_WIDTH];
-  logic [BLK_ID_W-1:0]            rd_blk_id [COMMIT_WIDTH];
+  logic [ftq_ibuf_pkg::BLK_ID_W-1:0] rd_blk_id [COMMIT_WIDTH];
   logic [DECODE_WIDTH-1:0]        issue_valid;
 
   logic [XLEN_BITS-1:0]           prf_rd_pc [FTQ_PRF_PC_PORT_NUM];
@@ -101,31 +95,42 @@ module ftq_ibuf import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; import front_pkg:
 
   logic                           ready;
   logic [BACKEND_FETCH_WIDTH-1:0] fire;
-  logic                           alloc;
   logic [LANE_CNT_W-1:0]          lane_rank [BACKEND_FETCH_WIDTH];
   logic [BACKEND_FETCH_WIDTH-1:0] lane_is_last;
   logic [LANE_CNT_W-1:0]          push_cnt;
   logic                           queue_clear;
   logic [DECODE_CNT_W-1:0]        ib_pop_cnt;
-  logic [COMMIT_CNT_W-1:0]        ftq_pop_cnt;
-  logic [FTQ_IDX_WIDTH-1:0]       ftq_head;
-  logic [FTQ_IDX_WIDTH-1:0]       ftq_tail;
-  logic [FTQ_COUNT_W-1:0]         ftq_count;
   logic [IB_COUNT_W-1:0]          ib_count;
 
-  // Ref: wiring only (spec port <-> struct field)
+  // Unified FTQ-64 pointers & frontend feedback
+  logic [FTQ_IDX_WIDTH-1:0]       comm_ptr, next_comm_ptr, pd_ptr, s2_ptr, ifu_ptr, bpu_ptr_unused, s0_wr_idx;
+  logic                           ftq_full, fa_empty, fa_head_fresh, s2_empty;
+  logic [XLEN_BITS-1:0]           ifu_addr, pd_base_pc, pd_base_b, pd_out_next_pc;
+  fetch_pair_t                    ifu_pair;
+  logic [5:0]                     ifu_next_fa_idx, ifu_next_b_idx;
+  logic                           pd_is_pair;
+  logic [3:0]                     pd_a_len;
+  logic [BACKEND_FETCH_WIDTH-1:0] pd_out_pred_dir;
+
+  // Gate frontend writes against backend flush/mispred (matches PreIduQueue::seq early return)
+  logic s0_wr_eff, s2_wr_eff, pd_fire_eff;
+  assign s0_wr_eff   = fe2ftq_s0.wr_en && !rob_bcast_flush && !idu_br_latch_mispred;
+  assign s2_wr_eff   = fe2ftq_s2.wr_en && !rob_bcast_flush && !idu_br_latch_mispred;
+  assign pd_fire_eff = fe2ftq_pd.fire  && !rob_bcast_flush && !idu_br_latch_mispred;
+
+  /* verilator lint_off UNUSEDSIGNAL */
+  logic unused_s2_base_bpu;
+  assign unused_s2_base_bpu = ^{fe2ftq_s2.base_pc, fe2ftq_s2.base_b, bpu_ptr_unused};
+  /* verilator lint_on UNUSEDSIGNAL */
+
   always_comb begin
     for (int i = 0; i < BACKEND_FETCH_WIDTH; i++) begin
-      front_valid[i]     = front2ftq_valid[i];
-      front_pred_taken[i] = front2ftq_predict_dir[i];
-      front_is_rvc[i]    = front2ftq_is_rvc[i];
-      front_slot_pc[i]   = front2ftq_pc[i];
-      wr_meta[i].alt_pred  = front2ftq_alt_pred[i];
-      wr_meta[i].pcpn      = front2ftq_pcpn[i];
+      s2_meta[i].alt_pred           = fe2ftq_s2.alt_pred[i];
+      s2_meta[i].pcpn               = fe2ftq_s2.pcpn[i];
       push_entry[i].inst            = front2ftq_inst[i];
       push_entry[i].page_fault_inst = front2ftq_page_fault_inst[i];
       push_entry[i].pf_inst_hi      = front2ftq_pf_inst_hi[i];
-      push_entry[i].ftq_idx         = ftq_tail;
+      push_entry[i].ftq_idx         = front2ftq_ftq_idx;
       push_entry[i].ftq_offset      = FTQ_OFFSET_WIDTH'(i);
       push_entry[i].ftq_is_last     = lane_is_last[i];
     end
@@ -136,8 +141,8 @@ module ftq_ibuf import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; import front_pkg:
     end
   end
 
-  logic [31:0]          dis_pc [DECODE_WIDTH];
-  logic                 dis_is_rvc [DECODE_WIDTH];
+  logic [31:0] dis_pc     [DECODE_WIDTH];
+  logic        dis_is_rvc [DECODE_WIDTH];
   always_comb begin
     for (int p = 0; p < DECODE_WIDTH; p++) begin
       ftq_dis_resp_is_rvc[p] = dis_is_rvc[p];
@@ -146,7 +151,6 @@ module ftq_ibuf import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; import front_pkg:
   end
   for (genvar p = 0; p < DECODE_WIDTH; p++) begin : g_dis_pc
     if (LSU_MEMSPEC != 0) begin : g_on
-      // wait-table index of the load PC: pc[S+B-1:S] ^ pc[S+2B-1:S+B] (model mdp_idx)
       assign ftq_dis_resp_mdp[p] = dis_pc[p][SLOT_SHIFT +: LSU_MDP_BITS] ^
                                    dis_pc[p][SLOT_SHIFT + LSU_MDP_BITS +: LSU_MDP_BITS];
     end else begin : g_off
@@ -160,9 +164,11 @@ module ftq_ibuf import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; import front_pkg:
 
   ftq_ibuf_ctrl u_ctrl (
     .clk, .rst_n,
-    .front_valid, .br_mispred(idu_br_latch_mispred), .rob_flush(rob_bcast_flush),
-    .ftq_count, .ib_count, .idu_fire, .commit_valid, .commit_is_last,
-    .ready, .fire, .alloc, .lane_rank, .lane_is_last, .push_cnt, .queue_clear, .ib_pop_cnt, .ftq_pop_cnt
+    .front_valid (front2ftq_valid),
+    .br_mispred  (idu_br_latch_mispred),
+    .rob_flush   (rob_bcast_flush),
+    .ib_count, .idu_fire,
+    .ready, .fire, .lane_rank, .lane_is_last, .push_cnt, .queue_clear, .ib_pop_cnt
   );
 
   ibuf u_ibuf (
@@ -171,18 +177,51 @@ module ftq_ibuf import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; import front_pkg:
   );
 
   ftq_ptr u_ptr (
-    .clk, .rst_n, .alloc, .flush(rob_bcast_flush), .recover(idu_br_latch_mispred),
-    .recover_idx(idu_br_latch_ftq_idx), .pop_cnt(ftq_pop_cnt), .head(ftq_head), .tail(ftq_tail), .count(ftq_count)
+    .clk, .rst_n,
+    .flush          (rob_bcast_flush),
+    .recover        (idu_br_latch_mispred),
+    .recover_idx    (idu_br_latch_ftq_idx),
+    .s0_wr_en       (fe2ftq_s0.wr_en),
+    .s0_drop_tail   (fe2ftq_s0.drop_tail),
+    .s0_ifu_pop     (fe2ftq_s0.ifu_pop),
+    .s2_wr_en       (fe2ftq_s2.wr_en),
+    .pd_fire        (fe2ftq_pd.fire),
+    .pd_flush       (fe2ftq_pd.flush),
+    .pd_empty_blk   (fe2ftq_pd.empty_blk),
+    .commit_valid, .commit_is_last,
+    .commit_ftq_idx (rob_commit_commit_entry_uop_ftq_idx),
+    .comm_ptr, .next_comm_ptr, .pd_ptr, .s2_ptr, .ifu_ptr,
+    .bpu_ptr        (bpu_ptr_unused),
+    .s0_wr_idx,
+    .ftq_full, .fa_empty, .fa_head_fresh, .s2_empty
   );
 
   ftq_pc u_pc (
-    .clk, .wr_en(alloc), .wr_idx(ftq_tail), .wr_valid(front_valid), .wr_slot_pc(front_slot_pc),
-    .wr_pred_taken(front_pred_taken), .wr_is_rvc(front_is_rvc),
-    .wr_is_pair(front2ftq_is_pair), .wr_a_len(front2ftq_a_len),
-    .wr_next_pc(front2ftq_predict_next_fetch_address),
-    .mispred_en(idu_br_latch_mispred), .mispred_idx(idu_br_latch_ftq_idx),
-    .mispred_off(idu_br_latch_ftq_offset), .mispred_target(idu_br_latch_redirect_pc),
-    .ftq_head(ftq_head),
+    .clk,
+    .s0_wr_en       (s0_wr_eff),
+    .s0_idx         (s0_wr_idx),
+    .s0_addr        (fe2ftq_s0.addr),
+    .s0_pair        (fe2ftq_s0.pair),
+    .s2_wr_en       (s2_wr_eff),
+    .s2_idx         (s2_ptr),
+    .s2_is_pair     (fe2ftq_s2.is_pair),
+    .s2_pred_dir    (fe2ftq_s2.pred_dir),
+    .s2_next_pc     (fe2ftq_s2.next_pc),
+    .pd_fire        (pd_fire_eff),
+    .pd_idx         (pd_ptr),
+    .pd_carry       (fe2ftq_pd.carry),
+    .pd_pc0         (fe2ftq_pd.pc0),
+    .pd_pred_dir    (fe2ftq_pd.pred_dir),
+    .pd_is_rvc      (fe2ftq_pd.is_rvc),
+    .pd_next_pc     (fe2ftq_pd.next_pc),
+    .pd_nslots      (fe2ftq_pd.nslots),
+    .mispred_en     (idu_br_latch_mispred && !rob_bcast_flush),
+    .mispred_idx    (idu_br_latch_ftq_idx),
+    .mispred_off    (idu_br_latch_ftq_offset),
+    .mispred_target (idu_br_latch_redirect_pc),
+    .ifu_ptr, .ifu_addr, .ifu_pair, .ifu_next_fa_idx, .ifu_next_b_idx,
+    .pd_base_pc, .pd_is_pair, .pd_base_b, .pd_a_len, .pd_out_pred_dir, .pd_out_next_pc,
+    .ftq_head       (comm_ptr),
     .prf_idx(ftq_prf_pc_req_req_ftq_idx), .prf_off(ftq_prf_pc_req_req_ftq_offset),
     .prf_pc(prf_rd_pc), .prf_pred_taken(prf_rd_pred_taken), .prf_is_rvc(prf_rd_is_rvc), .prf_next_pc(prf_rd_next_pc),
     .rob_idx(ftq_rob_pc_req_req_ftq_idx[0]), .rob_off(ftq_rob_pc_req_req_ftq_offset[0]),
@@ -194,22 +233,56 @@ module ftq_ibuf import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; import front_pkg:
   );
 
   ftq_meta u_meta (
-    .clk, .wr_en(alloc), .wr_idx(ftq_tail),
-    .wr_blk_id(front2ftq_blk_id), .wr_is_pair(front2ftq_is_pair), .wr_a_len(front2ftq_a_len), .wr_meta,
-    .ftq_head(ftq_head),
-    .rd_idx(rob_commit_commit_entry_uop_ftq_idx), .rd_offset(rob_commit_commit_entry_uop_ftq_offset),
+    .clk,
+    .wr_en         (s2_wr_eff),
+    .wr_idx        (s2_ptr),
+    .wr_blk_id     (fe2ftq_s2.blk_id),
+    .wr_is_pair    (fe2ftq_s2.is_pair),
+    .wr_a_len      (fe2ftq_s2.a_len),
+    .wr_meta       (s2_meta),
+    .next_comm_ptr (next_comm_ptr),
+    .rd_idx        (rob_commit_commit_entry_uop_ftq_idx),
+    .rd_offset     (rob_commit_commit_entry_uop_ftq_offset),
     .rd_meta, .rd_blk_id
   );
 
   ftq_bpu u_bpu (
-    .clk, .wr_en(alloc), .wr_idx(ftq_tail),
-    .wr_blk_id(front2ftq_blk_id), .wr_is_pair(front2ftq_is_pair), .wr_a_len(front2ftq_a_len),
-    .wr_kind(front2ftq_slot_kind),
-    .rd_idx(idu_br_latch_ftq_idx), .rd_offset(idu_br_latch_ftq_offset),
-    .rd_blk(out_rf_blk), .rd_type(out_rf_type)
+    .clk,
+    .s2_wr_en   (s2_wr_eff),
+    .s2_idx     (s2_ptr),
+    .s2_blk_id  (fe2ftq_s2.blk_id),
+    .s2_is_pair (fe2ftq_s2.is_pair),
+    .s2_a_len   (fe2ftq_s2.a_len),
+    .pd_fire    (pd_fire_eff),
+    .pd_idx     (pd_ptr),
+    .pd_kind    (fe2ftq_pd.slot_kind),
+    .rd_idx     (idu_br_latch_ftq_idx),
+    .rd_offset  (idu_br_latch_ftq_offset),
+    .rd_blk     (out_rf_blk),
+    .rd_type    (out_rf_type)
   );
 
+  // ---- registered frontend feedback bundle ----
+  always_comb begin
+    ftq2fe.ftq_full        = ftq_full;
+    ftq2fe.fa_empty        = fa_empty;
+    ftq2fe.fa_head_fresh   = fa_head_fresh;
+    ftq2fe.s2_empty        = s2_empty;
+    ftq2fe.ifu_addr        = ifu_addr;
+    ftq2fe.ifu_pair        = ifu_pair;
+    ftq2fe.ifu_next_fa_idx = ifu_next_fa_idx;
+    ftq2fe.ifu_next_b_idx  = ifu_next_b_idx;
+    ftq2fe.pd_idx          = pd_ptr;
+    ftq2fe.pd_base_pc      = pd_base_pc;
+    ftq2fe.pd_is_pair      = pd_is_pair;
+    ftq2fe.pd_base_b       = pd_base_b;
+    ftq2fe.pd_a_len        = pd_a_len;
+    ftq2fe.pd_pred_dir     = pd_out_pred_dir;
+    ftq2fe.pd_next_pc      = pd_out_next_pc;
+  end
+
   // ---- outputs ----
+  assign ftq_head_out    = comm_ptr;
   assign ftq2front_ready = ready;
   always_comb begin
     for (int i = 0; i < BACKEND_FETCH_WIDTH; i++) ftq2front_fire[i] = fire[i];
@@ -217,7 +290,6 @@ module ftq_ibuf import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; import front_pkg:
       ibuf2idu_valid[i] = issue_valid[i];
       ibuf2idu_entry[i] = issue_entry[i];
     end
-    // resp.valid is the request valid; the spec qualifiers ftq_commit_info_resp_valid* mirror the commit valid
     for (int p = 0; p < FTQ_PRF_PC_PORT_NUM; p++) begin
       ftq_prf_pc_resp_resp_valid[p]      = ftq_prf_pc_req_req_valid[p];
       ftq_prf_pc_resp_resp_pc[p]         = prf_rd_pc[p];
@@ -226,8 +298,8 @@ module ftq_ibuf import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; import front_pkg:
       ftq_prf_pc_resp_resp_next_pc[p]    = prf_rd_next_pc[p];
     end
     for (int p = 0; p < FTQ_ROB_PC_PORT_NUM; p++) begin
-      ftq_rob_pc_resp_resp_valid[p] = ftq_rob_pc_req_req_valid[p];
-      ftq_rob_pc_resp_resp_pc[p]    = rob_rd_pc;
+      ftq_rob_pc_resp_resp_valid[p]  = ftq_rob_pc_req_req_valid[p];
+      ftq_rob_pc_resp_resp_pc[p]     = rob_rd_pc;
       ftq_rob_pc_resp_resp_is_rvc[p] = rob_rd_is_rvc;
     end
     for (int i = 0; i < COMMIT_WIDTH; i++) begin

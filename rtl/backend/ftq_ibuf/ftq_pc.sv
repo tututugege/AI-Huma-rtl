@@ -1,29 +1,51 @@
-// Ref: back-end/PreIduQueue.cpp  ftq_lookup_entries[] (FTQEntry), ftq_pc() (2-taken discontinuity next_pc)
+// Ref: back-end/PreIduQueue.cpp  Unified FTQ-64 ftq_lookup_entries[] (S0/S2/PD/Mispred 4-writer ring + FE/EXU/ROB/CM/DIS reads)
 `default_nettype none
 
-// Compact 8-bank FTQ PC storage:
-//   - Compact per-entry PC representation: {pc0, base_b, carry, is_pair, a_len} = 134 bits/entry (-86.9% FFs).
+// Compact 8-bank Unified FTQ-64 PC & fetch-pair storage:
+//   - 4 mutually-exclusive per-entry writers: S0 (bpu_ptr), S2 (s2_ptr), PD (pd_ptr), Mispred (mispred_idx).
+//   - Registered frontend read views: ifu_ptr (+ ifu_ptr+1 6b set indices for L1I SRAM pre-launch) and pd_ptr.
 //   - 4 random read ports for EXU/PRF (2 PC-ALU + 2 BRU).
-//   - 1 shared 8-bank 8:1 sequential window (anchored at ftq_head) for ROB head + 8 Commit ports.
+//   - 1 shared 8-bank 8:1 sequential window (anchored at comm_ptr) for ROB head + 8 Commit ports.
 //   - 1 shared 8-bank 8:1 sequential window (anchored at dis_idx[0]) for 8 Dispatch ports (32-bit PC only).
-module ftq_pc import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; (
+module ftq_pc import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; import front_pkg::fetch_pair_t; (
   input  logic                         clk,
-  input  logic                         wr_en,
-  input  logic [FTQ_IDX_WIDTH-1:0]     wr_idx,
-  input  logic [BACKEND_FETCH_WIDTH-1:0] wr_valid,
-  /* verilator lint_off UNUSEDSIGNAL */
-  input  logic [XLEN_BITS-1:0]         wr_slot_pc [BACKEND_FETCH_WIDTH],
-  /* verilator lint_on UNUSEDSIGNAL */
-  input  logic [BACKEND_FETCH_WIDTH-1:0] wr_pred_taken,
-  input  logic [BACKEND_FETCH_WIDTH-1:0] wr_is_rvc,
-  input  logic                         wr_is_pair,
-  input  logic [3:0]                   wr_a_len,
-  input  logic [XLEN_BITS-1:0]         wr_next_pc,
-  // Branch mispredict target fix-up (mutually exclusive with wr_en)
+  // 1. S0 allocate write port (at s0_idx)
+  input  logic                         s0_wr_en,
+  input  logic [FTQ_IDX_WIDTH-1:0]     s0_idx,
+  input  logic [XLEN_BITS-1:0]         s0_addr,
+  input  fetch_pair_t                  s0_pair,
+  // 2. BPU S2 fill write port (at s2_idx; preserves S0 fetch_pair fields base_b/a_len/b_len/fa_pair_v)
+  input  logic                         s2_wr_en,
+  input  logic [FTQ_IDX_WIDTH-1:0]     s2_idx,
+  input  logic                         s2_is_pair,
+  input  logic [BACKEND_FETCH_WIDTH-1:0] s2_pred_dir,
+  input  logic [XLEN_BITS-1:0]         s2_next_pc,
+  // 3. Predecode in-place update write port (at pd_idx)
+  input  logic                         pd_fire,
+  input  logic [FTQ_IDX_WIDTH-1:0]     pd_idx,
+  input  logic                         pd_carry,
+  input  logic [XLEN_BITS-1:0]         pd_pc0,
+  input  logic [BACKEND_FETCH_WIDTH-1:0] pd_pred_dir,
+  input  logic [BACKEND_FETCH_WIDTH-1:0] pd_is_rvc,
+  input  logic [XLEN_BITS-1:0]         pd_next_pc,
+  input  logic [4:0]                   pd_nslots,
+  // 4. Branch mispredict target fix-up (mutually exclusive with s0/s2/pd)
   input  logic                         mispred_en,
   input  logic [FTQ_IDX_WIDTH-1:0]     mispred_idx,
   input  logic [FTQ_OFFSET_WIDTH-1:0]  mispred_off,
   input  logic [XLEN_BITS-1:0]         mispred_target,
+  // Frontend registered read pointers & outputs (pure reads of bank_q)
+  input  logic [FTQ_IDX_WIDTH-1:0]     ifu_ptr,
+  output logic [XLEN_BITS-1:0]         ifu_addr,
+  output fetch_pair_t                  ifu_pair,
+  output logic [5:0]                   ifu_next_fa_idx,
+  output logic [5:0]                   ifu_next_b_idx,
+  output logic [XLEN_BITS-1:0]         pd_base_pc,
+  output logic                         pd_is_pair,
+  output logic [XLEN_BITS-1:0]         pd_base_b,
+  output logic [3:0]                   pd_a_len,
+  output logic [BACKEND_FETCH_WIDTH-1:0] pd_out_pred_dir,
+  output logic [XLEN_BITS-1:0]         pd_out_next_pc,
   // Oldest live FTQ index (anchor for 8-bank commit + ROB window)
   input  logic [FTQ_IDX_WIDTH-1:0]     ftq_head,
   // EXU/PRF random read ports (2 PC-ALU + 2 BRU = 4 ports)
@@ -66,6 +88,8 @@ module ftq_pc import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; (
   typedef struct packed {
     logic [XLEN_BITS-1:0]           pc0;
     logic [XLEN_BITS-1:0]           base_b;
+    logic                           fa_pair_v;
+    logic [3:0]                     b_len;
     logic                           carry;
     logic                           is_pair;
     logic [3:0]                     a_len;
@@ -76,15 +100,6 @@ module ftq_pc import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; (
   } ftq_pc_ent_t;
 
   ftq_pc_ent_t bank_q [NB][NL];
-
-  logic [4:0] wr_nslots;
-  logic       wr_carry;
-  always_comb begin
-    wr_nslots = 5'd0;
-    for (int i = 0; i < BACKEND_FETCH_WIDTH; i++) if (wr_valid[i]) wr_nslots = 5'(i + 1);
-    wr_carry = (!wr_is_pair || (wr_a_len > 4'd1)) &&
-               (wr_slot_pc[1] != (wr_slot_pc[0] + XLEN_BITS'(SLOT_BYTES)));
-  end
 
   /* verilator lint_off UNUSEDSIGNAL */
   function automatic logic [XLEN_BITS-1:0] ent_pc(
@@ -118,6 +133,28 @@ module ftq_pc import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; (
       return e.next_pc;
   endfunction
   /* verilator lint_on UNUSEDSIGNAL */
+
+  // ---- 0. Frontend registered read views (ifu_ptr, ifu_ptr+1 set indices, pd_ptr) ----
+  always_comb begin
+    /* verilator lint_off UNUSEDSIGNAL */
+    ftq_pc_ent_t ie0, ie1, pe;
+    /* verilator lint_on UNUSEDSIGNAL */
+    logic [FTQ_IDX_WIDTH-1:0] ifu_p1;
+    ifu_p1          = ifu_ptr + FTQ_IDX_WIDTH'(1);
+    ie0             = bank_q[ifu_ptr[BW-1:0]][ifu_ptr[FTQ_IDX_WIDTH-1:BW]];
+    ie1             = bank_q[ifu_p1[BW-1:0]][ifu_p1[FTQ_IDX_WIDTH-1:BW]];
+    pe              = bank_q[pd_idx[BW-1:0]][pd_idx[FTQ_IDX_WIDTH-1:BW]];
+    ifu_addr        = ie0.pc0;
+    ifu_pair        = '{valid: ie0.fa_pair_v, addr2: ie0.base_b, a_len: ie0.a_len, b_len: ie0.b_len};
+    ifu_next_fa_idx = ie1.pc0[11:6];
+    ifu_next_b_idx  = ie1.base_b[11:6];
+    pd_base_pc      = pe.pc0;
+    pd_is_pair      = pe.is_pair;
+    pd_base_b       = pe.base_b;
+    pd_a_len        = pe.a_len;
+    pd_out_pred_dir = pe.pred_taken;
+    pd_out_next_pc  = pe.next_pc;
+  end
 
   // ---- 1. EXU/PRF 4 random read ports ----
   always_comb begin
@@ -198,43 +235,47 @@ module ftq_pc import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; (
     end
   end
 
-  // ---- Write / mispredict fix-up ----
+  // ---- 4. Mutually-exclusive per-entry writes (S0 / S2 / PD / Mispred) ----
   always_ff @(posedge clk) begin
-    if (wr_en) begin
-      bank_q[wr_idx[BW-1:0]][wr_idx[FTQ_IDX_WIDTH-1:BW]] <= '{
-        pc0:        wr_slot_pc[0],
-        base_b:     wr_slot_pc[wr_a_len],
-        carry:      wr_carry,
-        is_pair:    wr_is_pair,
-        a_len:      wr_a_len,
-        pred_taken: wr_pred_taken,
-        is_rvc:     wr_is_rvc,
-        next_pc:    wr_next_pc,
-        nslots:     wr_nslots
-      };
-    end else if (mispred_en) begin
+    if (mispred_en) begin
       bank_q[mispred_idx[BW-1:0]][mispred_idx[FTQ_IDX_WIDTH-1:BW]].next_pc <= mispred_target;
       bank_q[mispred_idx[BW-1:0]][mispred_idx[FTQ_IDX_WIDTH-1:BW]].nslots  <= {1'b0, mispred_off} + 5'd1;
+    end else begin
+      if (s0_wr_en) begin
+        bank_q[s0_idx[BW-1:0]][s0_idx[FTQ_IDX_WIDTH-1:BW]] <= '{
+          pc0:        s0_addr,
+          base_b:     s0_pair.addr2,
+          fa_pair_v:  s0_pair.valid,
+          b_len:      s0_pair.b_len,
+          carry:      1'b0,
+          is_pair:    s0_pair.valid,
+          a_len:      s0_pair.a_len,
+          pred_taken: '0,
+          is_rvc:     '0,
+          next_pc:    '0,
+          nslots:     '0
+        };
+      end
+      if (s2_wr_en) begin
+        bank_q[s2_idx[BW-1:0]][s2_idx[FTQ_IDX_WIDTH-1:BW]].is_pair    <= s2_is_pair;
+        bank_q[s2_idx[BW-1:0]][s2_idx[FTQ_IDX_WIDTH-1:BW]].pred_taken <= s2_pred_dir;
+        bank_q[s2_idx[BW-1:0]][s2_idx[FTQ_IDX_WIDTH-1:BW]].next_pc    <= s2_next_pc;
+      end
+      if (pd_fire) begin
+        bank_q[pd_idx[BW-1:0]][pd_idx[FTQ_IDX_WIDTH-1:BW]].pc0        <= pd_pc0;
+        bank_q[pd_idx[BW-1:0]][pd_idx[FTQ_IDX_WIDTH-1:BW]].carry      <= pd_carry;
+        bank_q[pd_idx[BW-1:0]][pd_idx[FTQ_IDX_WIDTH-1:BW]].pred_taken <= pd_pred_dir;
+        bank_q[pd_idx[BW-1:0]][pd_idx[FTQ_IDX_WIDTH-1:BW]].is_rvc     <= pd_is_rvc;
+        bank_q[pd_idx[BW-1:0]][pd_idx[FTQ_IDX_WIDTH-1:BW]].next_pc    <= pd_next_pc;
+        bank_q[pd_idx[BW-1:0]][pd_idx[FTQ_IDX_WIDTH-1:BW]].nslots     <= pd_nslots;
+      end
     end
   end
 
 `ifndef SYNTHESIS
-  logic [BACKEND_FETCH_WIDTH-1:0] pc_chk_ok;
-  always_comb begin
-    for (int i = 0; i < BACKEND_FETCH_WIDTH; i++) begin
-      logic [4:0]           st_dbg;
-      logic [XLEN_BITS-1:0] exp_pc_dbg;
-      if (wr_is_pair && (4'(i) >= wr_a_len)) begin
-        st_dbg     = {1'b0, 4'(i) - wr_a_len};
-        exp_pc_dbg = wr_slot_pc[wr_a_len] + (XLEN_BITS'(st_dbg) << SLOT_SHIFT);
-      end else begin
-        st_dbg     = (i == 0) ? 5'd0 : (5'(i) + {4'b0, wr_carry});
-        exp_pc_dbg = wr_slot_pc[0] + (XLEN_BITS'(st_dbg) << SLOT_SHIFT);
-      end
-      pc_chk_ok[i] = !wr_en || !wr_valid[i] || (exp_pc_dbg == wr_slot_pc[i]);
-    end
-  end
-  assert property (@(posedge clk) (&pc_chk_ok));
+  assert property (@(posedge clk) !(s0_wr_en && s2_wr_en && (s0_idx == s2_idx)));
+  assert property (@(posedge clk) !(s0_wr_en && pd_fire  && (s0_idx == pd_idx)));
+  assert property (@(posedge clk) !(s2_wr_en && pd_fire  && (s2_idx == pd_idx)));
 `endif
 
 endmodule

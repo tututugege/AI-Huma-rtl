@@ -1,24 +1,25 @@
-// Ref: front-end/front_top.cpp  FetchAddrPort, InstPort::comb_write, FrontControl::finish (pend_pair)
+// Ref: front-end/front_top.cpp  FrontControl::enables (ifu_ptr read), InstPort::comb_write, FrontControl::finish (pend_pair)
 `default_nettype none
 
-// Fetch-side buffers: fetch_addr_fifo (address + FetchPair), pending-pair tracker, and compact raw-halfword
-// instruction_FIFO (Block A + optional Block B raw halfwords; single RVC expand + predecode runs after S2 A/B mux).
+// Fetch-side buffers: Unified FTQ-64 ifu_ptr reader (replaces fetch_addr_fifo), pending-pair tracker,
+// explicit inst_fifo backpressure, and compact raw-halfword instruction_FIFO.
 module front_fetch_buf import ttg_cfg_pkg::*; import front_pkg::*; (
   input  logic             clk,
   input  logic             rst_n,
   input  logic             global_refetch,
   input  logic             do_predecode_flush,
-  // fetch address queue
+  // Unified FTQ-64 registered view + S0/IFU handshake
+  input  logic             ftq_fa_empty,
+  input  logic [XLEN_BITS-1:0] ftq_ifu_addr,
+  input  fetch_pair_t      ftq_ifu_pair,
+  input  logic [5:0]       ftq_ifu_next_fa_idx,
+  input  logic [5:0]       ftq_ifu_next_b_idx,
   input  logic             fa_rd_en,
-  input  logic             fa_wr_en,
-  input  logic             fa_drop_tail,
   input  logic [XLEN_BITS-1:0] fa_wr_address,
   input  fetch_pair_t      fa_wr_pair,
   output logic             fa_rd_valid,
   output logic [XLEN_BITS-1:0] fa_rd_address,
-  output logic             fa_full,
-  output logic             fa_empty,
-  output logic             fa_head_fresh,
+  output logic             inst_fifo_room,
   // icache response (Block A + parallel Block B)
   input  logic             ic_read_complete,
   input  logic [XLEN_BITS-1:0] ic_fetch_pc,
@@ -40,42 +41,23 @@ module front_fetch_buf import ttg_cfg_pkg::*; import front_pkg::*; (
   output inst_fifo_entry_t inst_rd
 );
 
-  // ---- fetch_addr_fifo + in-flight FetchPair tracker ----
-  fetch_pair_t fa_rd_pair, fa_next_pair;
-  logic [XLEN_BITS-1:0] fa_next_addr;
+  // ---- Unified FTQ-64 ifu_ptr head + in-flight FetchPair tracker ----
+  fetch_pair_t fa_rd_pair;
   logic        pend_valid_q;
   logic [XLEN_BITS-1:0] pend_addr_q;
   fetch_pair_t pend_pair_q;
+  logic [$clog2(INST_FIFO_DEPTH + 1)-1:0] inst_size;
 
-  /* verilator lint_off UNUSEDSIGNAL */
-  logic [$clog2(FETCH_ADDR_FIFO_DEPTH + 1)-1:0] fa_size_unused;
-  logic unused_fa_next;
-  assign unused_fa_next = ^{fa_next_addr, fa_next_pair};
-  /* verilator lint_on UNUSEDSIGNAL */
-
-  fetch_addr_fifo u_fa_fifo (
-    .clk, .rst_n,
-    .refetch          (global_refetch),
-    .rd_en            (fa_rd_en),
-    .wr_en            (fa_wr_en),
-    .drop_tail        (fa_drop_tail),
-    .wr_fetch_address (fa_wr_address),
-    .wr_pair          (fa_wr_pair),
-    .rd_valid         (fa_rd_valid),
-    .rd_fetch_address (fa_rd_address),
-    .rd_pair          (fa_rd_pair),
-    .next_rd_address  (fa_next_addr),
-    .next_rd_pair     (fa_next_pair),
-    .full             (fa_full),
-    .empty            (fa_empty),
-    .size             (fa_size_unused),
-    .head_fresh       (fa_head_fresh)
-  );
+  assign fa_rd_valid    = fa_rd_en;
+  assign fa_rd_address  = ftq_ifu_addr;
+  assign fa_rd_pair     = ftq_ifu_pair;
+  assign inst_fifo_room = (inst_size + 5'(pend_valid_q)) < 5'(INST_FIFO_DEPTH);
 
   // Ref: FrontControl::finish pend_valid / pend_addr / pend_pair
   logic ic_last_complete, head_done, pend_nv;
   logic [XLEN_BITS-1:0] pend_na;
   fetch_pair_t pend_np;
+  logic [5:0] next_b_cand_idx;
   always_comb begin
     ic_last_complete = ic_read_complete && !do_predecode_flush;
     head_done        = ic_last_complete && fa_rd_valid && (fa_rd_address == ic_fetch_pc);
@@ -90,8 +72,15 @@ module front_fetch_buf import ttg_cfg_pkg::*; import front_pkg::*; (
     end
     if (global_refetch) pend_nv = 1'b0;
     // Next-cycle VIPT set indices for strict 1-cycle synchronous L1I Data SRAM pre-launch
-    ic_next_fa_idx = fa_next_addr[11:6];
-    ic_next_b_idx  = pend_nv ? pend_np.addr2[11:6] : fa_next_pair.addr2[11:6];
+    ic_next_fa_idx  = global_refetch ? fa_wr_address[11:6]
+                    : fa_rd_valid    ? ftq_ifu_next_fa_idx
+                    : ftq_fa_empty   ? fa_wr_address[11:6]
+                                     : ftq_ifu_addr[11:6];
+    next_b_cand_idx = global_refetch ? fa_wr_pair.addr2[11:6]
+                    : fa_rd_valid    ? ftq_ifu_next_b_idx
+                    : ftq_fa_empty   ? fa_wr_pair.addr2[11:6]
+                                     : ftq_ifu_pair.addr2[11:6];
+    ic_next_b_idx   = pend_nv ? pend_np.addr2[11:6] : next_b_cand_idx;
   end
 
   always_ff @(posedge clk) begin
@@ -142,8 +131,8 @@ module front_fetch_buf import ttg_cfg_pkg::*; import front_pkg::*; (
   end
 
   inst_fifo_entry_t inst_wr_entry;
-  logic             inst_wr_en;
-  assign inst_wr_en = ic_read_complete && !global_refetch;
+  logic             inst_wr_en, inst_full;
+  assign inst_wr_en = ic_read_complete && !global_refetch && !inst_full;
 
   always_comb begin
     inst_wr_entry               = '0;
@@ -165,10 +154,10 @@ module front_fetch_buf import ttg_cfg_pkg::*; import front_pkg::*; (
   end
 
   /* verilator lint_off UNUSEDSIGNAL */
-  logic inst_full, inst_rd_valid;
+  logic inst_rd_valid;
   logic unused_hi;
   always_comb begin
-    unused_hi = a_inv_oh[0];
+    unused_hi = a_inv_oh[0] ^ (^fa_wr_address) ^ (^fa_wr_pair);
     for (int i = 0; i < FETCH_WIDTH; i++) unused_hi ^= ^b_fetch_group[i][31:16];
   end
   /* verilator lint_on UNUSEDSIGNAL */
@@ -182,7 +171,8 @@ module front_fetch_buf import ttg_cfg_pkg::*; import front_pkg::*; (
     .rd_valid (inst_rd_valid),
     .rd_entry (inst_rd),
     .full     (inst_full),
-    .empty    (inst_empty)
+    .empty    (inst_empty),
+    .size     (inst_size)
   );
 
 endmodule

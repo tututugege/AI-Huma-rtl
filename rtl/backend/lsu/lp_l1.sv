@@ -27,6 +27,8 @@ module lp_l1
   // DTLB: one port per physical AGU (LSU_AGU_PHYS); a request is on the port of its AGU, a replay on the free port it took
   input  logic [LSU_AGU_PHYS-1:0] mmu_valid,
   input  logic [31:0]         mmu_paddr [LSU_AGU_PHYS],
+  input  logic [28:0]         mmu_paddr_p1 [LSU_AGU_PHYS],
+  input  logic [28:0]         mmu_paddr_m1 [LSU_AGU_PHYS],
   input  logic [1:0]          mmu_result [LSU_AGU_PHYS],
   input  logic [5:0]          mmu_entry [LSU_AGU_PHYS],
   output logic [LSU_AGU_PHYS-1:0] mmu_req_valid,
@@ -39,6 +41,8 @@ module lp_l1
   output logic [1:0]          l_tlb [NLD],      // 0 hit, 1 miss, 2 page fault
   output logic                l_hit [NLD],      // physical address usable (hit or replay with a known address)
   output logic [31:0]         l_paddr [NLD],
+  output logic [28:0]         l_paddr_p1 [NLD],
+  output logic [28:0]         l_paddr_m1 [NLD],
   output logic                l_mmio [NLD],
   output logic [NRP-1:0]      rp_cons,          // replay register consumed this cycle
   // STA slots
@@ -46,6 +50,8 @@ module lp_l1
   output logic [NST-1:0]      s1_replay,
   output logic [SQW-1:0]      s1_stq [NST],
   output lp_tl_t              tl_s [NST],
+  output logic [28:0]         tl_s_p1 [NST],
+  output logic [28:0]         tl_s_m1 [NST],
   output logic [NST-1:0]      tl_s_miss,
   output logic                srp_cons,
   output logic                pf_any,           // a load or store page fault (clears the LR/SC reservation)
@@ -69,10 +75,14 @@ module lp_l1
   logic [2:0]          mmu_s_req_port [NST];
   logic [NLD-1:0]      mmu_l_valid;
   logic [31:0]         mmu_l_paddr [NLD];
+  logic [28:0]         mmu_l_paddr_p1 [NLD];
+  logic [28:0]         mmu_l_paddr_m1 [NLD];
   logic [1:0]          mmu_l_result [NLD];
   logic [LQW-1:0]      mmu_l_entry [NLD];
   logic [NST-1:0]      mmu_s_valid;
   logic [31:0]         mmu_s_paddr [NST];
+  logic [28:0]         mmu_s_paddr_p1 [NST];
+  logic [28:0]         mmu_s_paddr_m1 [NST];
   logic [1:0]          mmu_s_result [NST];
   logic [SQW-1:0]      mmu_s_entry [NST];
 
@@ -211,10 +221,12 @@ module lp_l1
   always_comb begin
     for (int k = 0; k < NLD; k++) begin
       logic resp_ok, r_hit, r_pf;
-      mmu_l_valid[k] = mmu_valid[mmu_l_req_port[k]];
-      mmu_l_paddr[k] = mmu_paddr[mmu_l_req_port[k]];
-      mmu_l_result[k] = mmu_result[mmu_l_req_port[k]];
-      mmu_l_entry[k] = LQW'(mmu_entry[mmu_l_req_port[k]]);
+      mmu_l_valid[k]    = mmu_valid[mmu_l_req_port[k]];
+      mmu_l_paddr[k]    = mmu_paddr[mmu_l_req_port[k]];
+      mmu_l_paddr_p1[k] = mmu_paddr_p1[mmu_l_req_port[k]];
+      mmu_l_paddr_m1[k] = mmu_paddr_m1[mmu_l_req_port[k]];
+      mmu_l_result[k]   = mmu_result[mmu_l_req_port[k]];
+      mmu_l_entry[k]    = LQW'(mmu_entry[mmu_l_req_port[k]]);
       resp_ok = mmu_l_valid[k] && mmu_l_entry[k] == l1[k].ldq;
       r_hit = resp_ok && mmu_l_result[k] == MMU_HIT;
       r_pf = resp_ok && mmu_l_result[k] == MMU_PF;
@@ -224,15 +236,19 @@ module lp_l1
       tl_l[k].paddr = mmu_l_paddr[k];
       tl_l[k].mmio = lsu_pkg::is_mmio_addr(mmu_l_paddr[k]);
       if (l1[k].need_tlb) begin
-        l_hit[k] = r_hit;
-        l_tlb[k] = r_hit ? TLB_HIT : (r_pf ? TLB_PF : TLB_MISS);
-        l_paddr[k] = mmu_l_paddr[k];
-        l_mmio[k] = r_hit && tl_l[k].mmio;
+        l_hit[k]      = r_hit;
+        l_tlb[k]      = r_hit ? TLB_HIT : (r_pf ? TLB_PF : TLB_MISS);
+        l_paddr[k]    = mmu_l_paddr[k];
+        l_paddr_p1[k] = mmu_l_paddr_p1[k];
+        l_paddr_m1[k] = mmu_l_paddr_m1[k];
+        l_mmio[k]     = r_hit && tl_l[k].mmio;
       end else begin
-        l_hit[k] = 1'b1;
-        l_tlb[k] = TLB_HIT;
-        l_paddr[k] = l1[k].paddr_reg;
-        l_mmio[k] = l1[k].mmio_reg;
+        l_hit[k]      = 1'b1;
+        l_tlb[k]      = TLB_HIT;
+        l_paddr[k]    = l1[k].paddr_reg;
+        l_paddr_p1[k] = l1[k].paddr_reg[31:3] + 29'd1;
+        l_paddr_m1[k] = l1[k].paddr_reg[31:3] - 29'd1;
+        l_mmio[k]     = l1[k].mmio_reg;
       end
     end
   end
@@ -279,20 +295,48 @@ module lp_l1
   logic [NLD-1:0]           pf_p_en, pf_p_llc;
   logic [38:0]              pf_p_va [NLD];
 
+  // Decouple mmu_req_vaddr / idx / st selection from late ag_acc / sa_acc / srp_ok:
+  // port data muxes depend only on registered ag.occ / sa.occ / replay / srp_cons; acceptance gates lsu_mmu_v only.
   always_comb begin
     for (int q = 0; q < NPH; q++) begin
-      lsu_mmu_v[q] = 1'b0; lsu_mmu_va[q] = '0; lsu_mmu_idx[q] = '0; lsu_mmu_st[q] = 1'b0;
-      if (q < NLD && ag_acc[q]) begin
-        lsu_mmu_v[q] = 1'b1; lsu_mmu_va[q] = lsu_mmu_va[q] | ag[q].vaddr; lsu_mmu_idx[q] = lsu_mmu_idx[q] | 6'(ag[q].ldq);
-      end
-      for (int k = 0; k < NST; k++) if (sa_acc[k] && st_phys(k) == q) begin
-        lsu_mmu_v[q] = 1'b1; lsu_mmu_st[q] = 1'b1; lsu_mmu_va[q] = lsu_mmu_va[q] | sa[k].vaddr; lsu_mmu_idx[q] = lsu_mmu_idx[q] | 6'(sa[k].stq);
-      end
-      for (int r = 0; r < NRP; r++) if (rp_ok[r] && rp_need[r] && rp_phys[r] == 3'(q)) begin
-        lsu_mmu_v[q] = 1'b1; lsu_mmu_va[q] = lsu_mmu_va[q] | rp_f[r].vaddr; lsu_mmu_idx[q] = lsu_mmu_idx[q] | 6'(rp_ldq[r]);
-      end
-      if (srp_req && srp_phys == 3'(q)) begin
-        lsu_mmu_v[q] = 1'b1; lsu_mmu_st[q] = 1'b1; lsu_mmu_va[q] = lsu_mmu_va[q] | srp_vaddr; lsu_mmu_idx[q] = lsu_mmu_idx[q] | 6'(srp_stq);
+      lsu_mmu_v[q]   = 1'b0;
+      lsu_mmu_va[q]  = '0;
+      lsu_mmu_idx[q] = '0;
+      lsu_mmu_st[q]  = 1'b0;
+      if (q < NLD && ag_acc[q])                                                        lsu_mmu_v[q] = 1'b1;
+      for (int k = 0; k < NST; k++) if (sa_acc[k] && st_phys(k) == q)                  lsu_mmu_v[q] = 1'b1;
+      for (int r = 0; r < NRP; r++) if (rp_ok[r] && rp_need[r] && rp_phys[r] == 3'(q)) lsu_mmu_v[q] = 1'b1;
+      if (srp_req && srp_phys == 3'(q))                                                lsu_mmu_v[q] = 1'b1;
+
+      if (q < NLD && ag[q].occ) begin
+        lsu_mmu_va[q]  = ag[q].vaddr;
+        lsu_mmu_idx[q] = 6'(ag[q].ldq);
+        lsu_mmu_st[q]  = 1'b0;
+      end else begin
+        logic sa_occ_q;
+        sa_occ_q = 1'b0;
+        for (int k = 0; k < NST; k++) begin
+          if (sa[k].occ && st_phys(k) == q) begin
+            sa_occ_q       = 1'b1;
+            lsu_mmu_va[q]  = sa[k].vaddr;
+            lsu_mmu_idx[q] = 6'(sa[k].stq);
+            lsu_mmu_st[q]  = 1'b1;
+          end
+        end
+        if (!sa_occ_q) begin
+          for (int r = 0; r < NRP; r++) begin
+            if (rp_ok[r] && rp_need[r] && rp_phys[r] == 3'(q)) begin
+              lsu_mmu_va[q]  = rp_f[r].vaddr;
+              lsu_mmu_idx[q] = 6'(rp_ldq[r]);
+              lsu_mmu_st[q]  = 1'b0;
+            end
+          end
+          if (srp_cons && srp_phys == 3'(q)) begin
+            lsu_mmu_va[q]  = srp_vaddr;
+            lsu_mmu_idx[q] = 6'(srp_stq);
+            lsu_mmu_st[q]  = 1'b1;
+          end
+        end
       end
     end
   end
@@ -303,7 +347,7 @@ module lp_l1
     pf_p_en = '0; pf_p_llc = '0;
     for (int q = 0; q < NLD; q++) pf_p_va[q] = '0;
     for (int q = 0; q < NLD; q++) begin
-      if (!used_new[q] && !lsu_mmu_v[q] && (j < 3'(NLD)) && pf_xq_v[j[1:0]]) begin
+      if (!used_new[q] && !picked[q] && !(srp_cons && srp_phys == 3'(q)) && (j < 3'(NLD)) && pf_xq_v[j[1:0]]) begin
         pf_p_en[q]  = 1'b1;
         pf_p_va[q]  = pf_xq_va[j[1:0]];
         pf_p_llc[q] = pf_xq_llc[j[1:0]];
@@ -344,17 +388,21 @@ module lp_l1
   always_comb begin
     for (int k = 0; k < NST; k++) begin
       logic resp_ok;
-      mmu_s_valid[k] = mmu_valid[mmu_s_req_port[k]];
-      mmu_s_paddr[k] = mmu_paddr[mmu_s_req_port[k]];
-      mmu_s_result[k] = mmu_result[mmu_s_req_port[k]];
-      mmu_s_entry[k] = SQW'(mmu_entry[mmu_s_req_port[k]]);
+      mmu_s_valid[k]    = mmu_valid[mmu_s_req_port[k]];
+      mmu_s_paddr[k]    = mmu_paddr[mmu_s_req_port[k]];
+      mmu_s_paddr_p1[k] = mmu_paddr_p1[mmu_s_req_port[k]];
+      mmu_s_paddr_m1[k] = mmu_paddr_m1[mmu_s_req_port[k]];
+      mmu_s_result[k]   = mmu_result[mmu_s_req_port[k]];
+      mmu_s_entry[k]    = SQW'(mmu_entry[mmu_s_req_port[k]]);
       resp_ok = mmu_s_valid[k] && mmu_s_entry[k] == s1_stq[k];
       tl_s[k] = '0;
-      tl_s[k].hit = s1_v[k] && resp_ok && mmu_s_result[k] == MMU_HIT;
-      tl_s[k].pf = s1_v[k] && resp_ok && mmu_s_result[k] == MMU_PF;
+      tl_s[k].hit   = s1_v[k] && resp_ok && mmu_s_result[k] == MMU_HIT;
+      tl_s[k].pf    = s1_v[k] && resp_ok && mmu_s_result[k] == MMU_PF;
       tl_s[k].paddr = mmu_s_paddr[k];
-      tl_s[k].mmio = lsu_pkg::is_mmio_addr(mmu_s_paddr[k]);
-      tl_s_miss[k] = s1_v[k] && !(tl_s[k].hit || tl_s[k].pf);
+      tl_s[k].mmio  = lsu_pkg::is_mmio_addr(mmu_s_paddr[k]);
+      tl_s_p1[k]    = mmu_s_paddr_p1[k];
+      tl_s_m1[k]    = mmu_s_paddr_m1[k];
+      tl_s_miss[k]  = s1_v[k] && !(tl_s[k].hit || tl_s[k].pf);
     end
   end
 

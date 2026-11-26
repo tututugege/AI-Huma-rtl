@@ -166,13 +166,14 @@ module lp_stq_ent
   assign cv_va = va6;
   assign cv_voff = vaddr6[11:0];
   assign cv_f3 = f3_6;
+  // Pre-DTLB view: lp_core overlays tl_s[k].hit / paddr / paddr_p1 / paddr_m1 directly (cuts u_dtlb -> u_stq/vw 64:1 mux)
   always_comb begin
     vw = '0;
     vw.va_v = va6;
     vw.voff = vaddr6[11:0];
     vw.func3 = f3_6;
-    vw.pa_v = pa8;
-    vw.paddr = paddr8;
+    vw.pa_v = pa6;
+    vw.paddr = paddr6;
     vw.data_v = data_v6;
     vw.hold_sc = lrsc6 && !sc_pass5;
     vw.suppress = sup5;
