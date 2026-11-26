@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# Build the closed-loop SoC testbench: Verilated soc_top + the reference's SimDDR / PhysMemory.
-#   usage: tb/soc/build.sh        env: REFSRC (reference source tree), JOBS (C++ compile jobs, default: all cores)
+# Build the closed-loop Core+Memsys testbench (core_tb): Verilated soc_top + SimDDR / PhysMemory (lockstep with trace-model).
+#   usage: tb/core/build.sh       env: REFSRC (platform source tree), CORE_OUT (or SOC_OUT), JOBS (default: all cores)
 # Build time (2026-11-17, 14 cores, rv64 Linux testbench): Verilator elaboration + conversion ~60 s (single-threaded, the floor),
 # C++ ~23 s.  The C++ files are split (--output-split / --output-split-cfuncs 5000) so the jobs share the work: without it one
 # 7.4 MB file bounds the compile (111 s total with -j 6, 88 s with all cores + split; simulation speed and output unchanged).
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 . "$ROOT/scripts/env.sh"
-REF=${REFSRC:-$ROOT/tb/soc/platform}   # frozen platform models (SimDDR, PhysMemory, PeripheralModel); no reference simulator needed
-OUT=${SOC_OUT:-$ROOT/build/soc}; mkdir -p "$OUT"   # SOC_OUT: build a variant next to the default one
-VOPT=${SOC_VOPT:-}   # extra verilator options, e.g. -O3
-COPT=${SOC_COPT:--O2}   # C++ optimisation flags
+REF=${REFSRC:-$ROOT/tb/core/platform}   # frozen platform models (SimDDR, PhysMemory, PeripheralModel); no reference simulator needed
+OUT=${CORE_OUT:-${SOC_OUT:-$ROOT/build/core}}; mkdir -p "$OUT"   # CORE_OUT (alias SOC_OUT): build a variant next to the default one
+VOPT=${CORE_VOPT:-${SOC_VOPT:-}}   # extra verilator options, e.g. -O3
+COPT=${CORE_COPT:-${SOC_COPT:--O2}}   # C++ optimisation flags
 # Optional verification switches (all default 0 so fast tests stay fast):
 #   SOC_ASSERT=1       enable Verilator --assert (checks existing SVA assertions in RTL)
 #   SOC_XINIT_UNIQUE=1 use --x-assign unique --x-initial unique instead of 0 (exposes uninitialized state)
@@ -76,12 +76,12 @@ done
 wait
 JOBS=${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 6)}
 verilator --cc --exe --build -j "$JOBS" --output-split 5000 --output-split-cfuncs 5000 -Wno-fatal -Wno-lint -Wno-style -Wno-UNOPTFLAT ${DEBUG:+--public-flat-rw} $VOPT "${VERIF_VOPT[@]}" \
-  --top-module soc_top -Mdir obj -CFLAGS "$COPT $DS3FLAGS $XLENFLAG ${FMOPT[*]:-} ${DEBUG:+-DSOC_TB_DEBUG} $VERIF_CFLAGS -std=c++2a -w $INC $FPINC -I$ROOT/harness/include -I$ROOT/tb/soc" \
-  -LDFLAGS "$OUT/SimDDR.o $OUT/PhysMemory.o $FMLD $DS3LD $FPLD ${SOC_LDFLAGS:-}" \
-  "$ROOT/tb/soc/soc_public.vlt" "$ROOT/tb/soc/pmu_public.vlt" "$ROOT/tb/soc/soc_tb.cpp" ${FPDPI[@]+"${FPDPI[@]}"} "${FILES[@]}" ${SVA_FILES[@]+"${SVA_FILES[@]}"} -o soc_tb > build.log 2>&1 || { grep -E "error:|%Error" build.log | grep -v "Command Failed" | head -12 | cut -c1-200; echo "BUILD FAILED, see $OUT/build.log"; exit 1; }
+  --top-module soc_top -Mdir obj -CFLAGS "$COPT $DS3FLAGS $XLENFLAG ${FMOPT[*]:-} ${DEBUG:+-DSOC_TB_DEBUG} $VERIF_CFLAGS -std=c++2a -w $INC $FPINC -I$ROOT/harness/include -I$ROOT/tb/core" \
+  -LDFLAGS "$OUT/SimDDR.o $OUT/PhysMemory.o $FMLD $DS3LD $FPLD ${CORE_LDFLAGS:-${SOC_LDFLAGS:-}}" \
+  "$ROOT/tb/core/core_public.vlt" "$ROOT/tb/core/pmu_public.vlt" "$ROOT/tb/core/core_tb.cpp" ${FPDPI[@]+"${FPDPI[@]}"} "${FILES[@]}" ${SVA_FILES[@]+"${SVA_FILES[@]}"} -o core_tb > build.log 2>&1 || { grep -E "error:|%Error" build.log | grep -v "Command Failed" | head -12 | cut -c1-200; echo "BUILD FAILED, see $OUT/build.log"; exit 1; }
 # idle-tick skip: byte ranges of Verilator scratch temporaries (ignored by the fixed-point compare)
 VI=$(verilator --getenv VERILATOR_ROOT)/include
 echo '#include "Vsoc_top___024root.h"' > obj/lay.cpp
 clang++ -std=c++2a -w -Iobj -I"$VI" -I"$VI/vltstd" -Xclang -fdump-record-layouts -fsyntax-only obj/lay.cpp > obj/layout.txt 2>&1 || true
 python3 "$ROOT/tools/gen_skipmask.py" obj/layout.txt "$OUT/skipmask.txt"
-ls -la "$OUT/obj/soc_tb" | awk '{print "built", $9}'
+ls -la "$OUT/obj/core_tb" | awk '{print "built", $9}'

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# fm_gate.sh <soc_tb> <outdir>: every program in scripts/ref_cycles.txt on the RTL SoC with the per-commit function-model check.
-#   build the testbench with  SOC_FM=1 SOC_OUT=<abs dir> bash tb/soc/build.sh   (SOC_OUT must be an absolute path)
+# fm_gate.sh <core_tb> <outdir>: every program in scripts/ref_cycles.txt on the RTL core+memsys (soc_top) with per-commit FM check.
+#   build the testbench with  SOC_FM=1 CORE_OUT=<abs dir> bash tb/core/build.sh   (CORE_OUT must be an absolute path)
 #   PASS = ebreak reached within 3x(ref)+20000 cycles and no [FM] mismatch line ("rtl=" / "rejects"); the
 #   "[FM] N instructions checked" summary line is not a mismatch. Writes <outdir>/<name>.log and <outdir>/summary.txt
 #   ("PASS name cycles committed ref=..."). Cycles are not compared here: compare summary.txt with ref_cycles.txt / trace-model.

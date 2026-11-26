@@ -2,7 +2,7 @@
 // SimDDR (DDR timing) and PhysMemory (RAM image).  DDR / PhysMemory are the unmodified reference sources, so the DDR timing
 // (latencies, write queue, turnaround) is the reference's by construction.
 // One CPU cycle = kTicks fast ticks (CONFIG_AXI_SUBSYSTEM_FREQ_DIV, 1 since EXP-006; 16 in the original divided arrangement).  The core is clocked by clk_cpu, pulsed together with the fast clock edge that ends tick 0.
-//   usage: soc_tb <program.bin> [max_cycles]       prints "RTL sim-time(cycle)= N, committed= M" when an ebreak commits.
+//   usage: core_tb <program.bin> [max_cycles]      prints "RTL sim-time(cycle)= N, committed= M" when an ebreak commits.
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -21,7 +21,7 @@
 #include "verilated.h"
 
 #include "trace_format.h"
-#include "soc_probe.inc"
+#include "core_probe.inc"
 
 #include "PhysMemory.h"
 #include <deque>
@@ -186,7 +186,7 @@ uint64_t read_mmio(PeripheralModel &periph, uint32_t addr, uint8_t func3) {
 
 int main(int argc, char **argv) {
   setvbuf(stdout, nullptr, _IOLBF, 0);   // line buffered: a log redirected to a file shows the console output while a long run is still going
-  if (argc < 2) { std::fprintf(stderr, "usage: soc_tb prog.bin [max_cycles]\n"); return 2; }
+  if (argc < 2) { std::fprintf(stderr, "usage: core_tb prog.bin [max_cycles]\n"); return 2; }
   const uint64_t max_cycles = argc > 2 ? std::strtoull(argv[2], nullptr, 0) : 2000000;
   const char *trace_path = std::getenv("SOC_TB_TRACE");   // reference trace of the core_top boundary (per-cycle compare)
   RefTrace trace;

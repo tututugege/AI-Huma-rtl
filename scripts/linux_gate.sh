@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# linux_gate.sh <soc_tb> <trace-model simulator> <linux image> [cycles=140000000] [out-dir]
+# linux_gate.sh <core_tb> <trace-model simulator> <linux image> [cycles=140000000] [out-dir]
 # Linux boot from reset: the RTL (per-commit function-model check, SOC_TB_FM) and the trace-model run the same image for the same number of
 # cycles.  PASS needs all of
 #   1. the function-model check: no [FM] mismatch / reject line (register values, store address and data, device reads, interrupts);
