@@ -1,4 +1,4 @@
-// Ref: front-end/BPU/BpuFtb.h & BpuSc.h  (block-based 1-Ahead A + 2-Ahead B FTB BPU types & pure functions, v10)
+// Ref: front-end/BPU/BpuFtb.h & BpuSc.h  (Clean BPU v11: 1-Taken 1-Ahead A + S2 6-table ExBlockTage + ITT)
 `default_nettype none
 /* verilator lint_off UNUSEDPARAM */
 package bpu_types_pkg;
@@ -6,53 +6,43 @@ package bpu_types_pkg;
   import bpu_pkg::*;
   import bpu_stage_pkg::*;
 
-  // ---- Geometry (v10: uFTB 64=16x4 FF; Main FTB 4096=1024x4 4-Bank; Ahead 1/2 2-Bank) ----
+  // ---- Geometry ----
   localparam int FTB_SLOTS     = 4;
   localparam int FTB_SLOT_W    = 2;
   localparam int FTB_TAG_W     = 10;
   localparam int FTB_MAX_TAG_W = 22;
 
-  localparam int FTB_S0_SETS   = 16;   // 16 sets x 4 ways = 64 entries FF (4x smaller!)
+  localparam int FTB_S0_SETS   = 16;   // 16 sets x 4 ways = 64 entries FF
   localparam int FTB_S0_WAYS   = 4;
   localparam int FTB_S0_TAG_W  = 12;
   localparam int FTB_S0_TGT_B  = 20;
 
-  localparam int FTB_S1_SETS   = 1024;
+  localparam int FTB_S1_SETS   = 1024; // 1024 sets x 4 ways = 2-Bank 512x4w (215b/way -> 24 x 512x72 macros)
   localparam int FTB_S1_WAYS   = 4;
   localparam int FTB_S1_TAG_W  = 14;
 
-  localparam int FTB_AH_SETS    = 256;
-  localparam int FTB_AH_WAYS    = 8;
-  localparam int FTB_AH_TAG_W   = 22;
+  localparam int FTB_AH_SETS   = 256;  // 256 sets x 8 ways = 2-Bank 128x8w (223b/way)
+  localparam int FTB_AH_WAYS   = 8;
+  localparam int FTB_AH_TAG_W  = 22;
 
-  localparam int FTB_AH2_SETS   = 128;
-  localparam int FTB_AH2_WAYS   = 8;
-  localparam int FTB_AH2_TAGE_N = 512;
+  localparam int EX_TAGE_N     = 4096;
+  localparam int EX_TAGE_TAG_W = 11;
+  localparam int EX_TAGE_URST  = 11;
+  localparam int FTB_AH_TAGE_N = 1024;
+  localparam int FTB_ITT_N     = 256;
 
-  localparam int FTB_S2_TAGE_N  = 4096;
-  localparam int EX_TAGE_N      = 4096;
-  localparam int EX_TAGE_TAG_W  = 11;
-  localparam int EX_TAGE_URST   = 11;
-  localparam int SC_BIAS_SETS   = 64;
-  localparam int SC_GEHL_N_ENT  = 512;
-  localparam int SC_IMLI_N      = 256;
-  localparam int SC_LOC_N       = 256;
-  localparam int SC_LHT_N       = 64;
-  localparam int FTB_AH_TAGE_N  = 1024;
-  localparam int FTB_ITT_N      = 256;
-
-  localparam int FTB_BRQ_N      = 16;
-  localparam int FTB_REC_N      = 512;
-  localparam int FTB_REC_W      = 9;
-  localparam int FTB_RF_REC_N   = 256;
-  localparam int FTB_RF_REC_W   = 8;
-  localparam int FTB_BLK_ID_W   = T_IDX_W;
+  localparam int FTB_BRQ_N     = 16;
+  localparam int FTB_REC_N     = 512;
+  localparam int FTB_REC_W     = 9;
+  localparam int FTB_RF_REC_N  = 256;
+  localparam int FTB_RF_REC_W  = 8;
+  localparam int FTB_BLK_ID_W  = T_IDX_W;
 
   localparam logic [3:0] FTB_USE_ALT_INIT = 4'd7;
   localparam logic [3:0] FTB_USE_ALT_THR  = 4'd8;
   localparam int         FTB_URST_BITS    = 11;
 
-  // ---- Packed structures (38-bit Sv39 VA targets) ----
+  // ---- Packed structures (38-bit Sv39 VA targets; NO dead lru field!) ----
   typedef struct packed {
     logic                   valid;
     logic [3:0]             offset;
@@ -61,15 +51,15 @@ package bpu_types_pkg;
     logic [2:0]             br_type;
     logic [1:0]             ctr;
     logic [FTB_VA_BITS-1:0] target;
-  } ftb_slot_t;
+  } ftb_slot_t; // 50 bits
 
   typedef struct packed {
     logic                     valid;
     logic [FTB_MAX_TAG_W-1:0] tag;
-    logic [2:0]               lru;
     ftb_slot_t [FTB_SLOTS-1:0] s;
-  } ftb_ent_t;
+  } ftb_ent_t; // 223 bits (stored compactly as 215 bits/way in u_ftb1 when TAG_W=14!)
 
+  // 4-table 1-Ahead TAGE & 3-table ITT index bundle (projected from unified ex_fh)
   typedef struct packed {
     logic [31:0]                     base_idx;
     logic [TN-1:0][31:0]             idx;
@@ -93,7 +83,7 @@ package bpu_types_pkg;
     logic              used_alt;
   } ftb_tage_pred_t;
 
-  // ---- S2 8-table ExBlockTage + S2 StatCorrector types ----
+  // ---- S2 6-table ExBlockTage types ----
   typedef struct packed {
     logic [31:0]                            w;
     logic [11:0]                            base_idx;
@@ -121,30 +111,12 @@ package bpu_types_pkg;
   } ex_tage_pred_t;
 
   typedef struct packed {
-    logic [31:0]                  w;
-    logic [5:0]                   bias_set;
-    logic [SC_GEHL_N-1:0][8:0]    gehl_idx;
-    logic [7:0]                   imli_idx;
-    logic [5:0]                   lht_idx;
-  } sc_ix_t;
-
-  typedef struct packed {
-    logic [6:0]                         sup_mask;
-    logic signed [3:0][5:0]             bias;
-    logic signed [SC_GEHL_N-1:0][5:0]   gehl;
-    logic signed [5:0]                  imli;
-    logic signed [5:0]                  loc;
-  } sc_slot_raw_t;
-
-  typedef sc_slot_raw_t [FTB_SLOTS-1:0] sc_raw_t;
-
-  typedef struct packed {
     logic                   valid;
     logic [FTB_TAG_W-1:0]   tag;
     logic [1:0]             conf;
     logic                   u;
     logic [FTB_VA_BITS-1:0] target;
-  } ftb_itt_ent_t;
+  } ftb_itt_ent_t; // 52 bits
 
   typedef ftb_itt_ent_t [NITT-1:0] ftb_itt_raw_t;
 
@@ -165,7 +137,7 @@ package bpu_types_pkg;
     logic [XLEN_BITS-1:0] target;
   } ftb_br_upd_t;
 
-  // ---- v10 Read-only Prediction Meta stored in ftb_rec (enables ZERO-T0-read 1-cycle commit writes!) ----
+  // ---- Read-only Prediction Meta stored in single-bank ftb_rec (enables ZERO-T0-read 1-cycle commit writes!) ----
   typedef struct packed {
     logic       hit;
     logic [1:0] way;
@@ -202,18 +174,6 @@ package bpu_types_pkg;
   typedef ah_tage_slot_meta_t [FTB_SLOTS-1:0] ah_tage_meta_t;
 
   typedef struct packed {
-    logic signed [3:0][5:0]           bias;
-    logic signed [SC_GEHL_N-1:0][5:0] gehl;
-    logic signed [5:0]                imli;
-    logic signed [5:0]                loc;
-  } sc_meta_slot_t;
-
-  typedef struct packed {
-    logic [7:0]                       loc_idx;
-    sc_meta_slot_t [FTB_SLOTS-1:0]    s;
-  } sc_meta_t;
-
-  typedef struct packed {
     logic                   hit;
     logic [1:0]             hit_k;
     logic [1:0]             conf;
@@ -231,7 +191,6 @@ package bpu_types_pkg;
   typedef struct packed {
     ftb1_lookup_meta_t   ftb;
     ex_tage_meta_t       tage;
-    sc_meta_t            sc;
     itt_meta_t           itt;
   } s2_pred_meta_t;
 
@@ -239,15 +198,10 @@ package bpu_types_pkg;
     logic                    valid;
     logic [FTB_BLK_ID_W-1:0] id;
     logic [XLEN_BITS-1:0]    base;
-    fh_t                     fh;
     ex_fh_t                  ex_fh;
-    sc_fh_t                  sc_fh;
-    logic [7:0]              imli;
     logic                    ah_v;
-    logic                    ah_kind; // 0 = 1-ahead A (aftb), 1 = 2-ahead B (aftb2)
     logic [XLEN_BITS-1:0]    ah_key_base;
-    logic [XLEN_BITS-1:0]    ah_a_base;
-    fh_t                     ah_key_fh;
+    ex_fh_t                  ah_key_ex_fh;
     s2_pred_meta_t           s2_meta;
     ah_pred_meta_t           ah_meta;
   } ftb_rec_t;
@@ -262,33 +216,17 @@ package bpu_types_pkg;
   } bpu_rf_rec_t;
 
   typedef struct packed {
-    ftb_ent_t [FTB_AH_WAYS-1:0]               ftb_ways;
-    logic [FTB_AH_WAYS-1:0][FTB_VA_BITS-1:0]  b_base;
-    ftb_tage_raw_t                            tage_raw;
-    ftb_itt_raw_t                             itt_raw;
+    ftb_ent_t [FTB_AH_WAYS-1:0] ftb_ways;
+    ftb_tage_raw_t              tage_raw;
+    ftb_itt_raw_t               itt_raw;
   } ftb_ah_raw_t;
 
   typedef struct packed {
     logic                 valid;
     logic [XLEN_BITS-1:0] key_base;
-    fh_t                  key_fh;
+    ex_fh_t               key_ex_fh;
     ftb_ah_raw_t          raw;
   } ftb_ah_pipe_t;
-
-  // Compact S2 -> S3 pipeline bundle (SRAM read + tag/TAGE/SC-nonbias/ITT already evaluated in S2)
-  typedef struct packed {
-    logic                                     ftb_hit;
-    logic [1:0]                               ftb_way;
-    ftb_ent_t                                 ftb_ent;
-    ex_tage_pred_t [FTB_SLOTS-1:0]            tage_tp;
-    logic [FTB_SLOTS-1:0]                     tage_pp;
-    logic [FTB_SLOTS-1:0]                     tage_weak_ulow;
-    logic [FTB_SLOTS-1:0][EX_TN-1:0][1:0]     tage_useful;
-    logic signed [FTB_SLOTS-1:0][10:0]        sc_nonbias;
-    sc_meta_t                                 sc_meta;
-    ftb_itt_sel_t                             itt;
-    itt_meta_t                                itt_meta;
-  } s3_blk_eval_t;
 
   typedef struct packed {
     ftb_ent_t              ent;
@@ -319,12 +257,7 @@ package bpu_types_pkg;
   endfunction
 
   function automatic logic ftb_ent_payload_eq(input ftb_ent_t a, input ftb_ent_t b);
-    ftb_ent_t aa, bb;
-    aa     = a;
-    bb     = b;
-    aa.lru = 3'd0;
-    bb.lru = 3'd0;
-    return (aa == bb);
+    return (a == b);
   endfunction
 
   function automatic logic [FTB_AH_TAG_W-1:0] ftb_ah_tag(input logic [XLEN_BITS-1:0] key_base,
@@ -339,32 +272,36 @@ package bpu_types_pkg;
   endfunction
 
   /* verilator lint_off UNUSEDSIGNAL */
-  function automatic ftb_ix_t ftb_make_index(input logic [XLEN_BITS-1:0] base, input fh_t fh);
+  // Unified index builder for S2 ITT (projects directly from ex_fh via AH_EX_MAP)
+  function automatic ftb_ix_t ftb_make_index(input logic [XLEN_BITS-1:0] base, input ex_fh_t ex_fh);
     ftb_ix_t ix;
     logic [31:0] w;
     w           = 32'(base >> SLOT_SHIFT);
     ix.base_idx = w ^ (w >> 11);
     for (int t = 0; t < TN; t++) begin
-      ix.idx[t] = w ^ (w >> 10) ^ 32'(fh[0][t]) ^ ((32'(fh[1][t]) & 32'h7) << 9);
-      ix.tag[t] = FTB_TAG_W'(w ^ (w >> 10) ^ 32'(fh[1][t]) ^ (32'(fh[2][t]) << 2));
+      int e;
+      e         = AH_EX_MAP[t];
+      ix.idx[t] = w ^ (w >> 10) ^ 32'(ex_fh[0][e]);
+      ix.tag[t] = FTB_TAG_W'(w ^ (w >> 10) ^ 32'(ex_fh[1][e]) ^ (32'(ex_fh[2][e]) << 1));
     end
     return ix;
   endfunction
 
+  // Unified index builder for 1-Ahead A TAGE & ITT (projects directly from ex_fh via AH_EX_MAP)
   function automatic ftb_ix_t ftb_make_ah_index(input logic [XLEN_BITS-1:0] key_base,
                                                 input logic [XLEN_BITS-1:0] cur_base,
-                                                input fh_t fh,
-                                                input logic is_ah2 = 1'b0);
+                                                input ex_fh_t ex_fh);
     ftb_ix_t ix;
     logic [31:0] wk, wc;
     wk          = 32'(key_base >> SLOT_SHIFT);
     wc          = 32'(cur_base >> SLOT_SHIFT);
     ix.base_idx = wk ^ (wk >> 11);
     for (int t = 0; t < TN; t++) begin
-      ix.idx[t] = wk ^ (wk >> 10) ^ 32'(fh[0][t]) ^ ((32'(fh[1][t]) & 32'h7) << 9);
-      ix.tag[t] = FTB_TAG_W'(wc ^ (wc >> 10) ^ wk ^ 32'(fh[1][t]) ^ (32'(fh[2][t]) << 2));
+      int e;
+      e         = AH_EX_MAP[t];
+      ix.idx[t] = wk ^ (wk >> 10) ^ 32'(ex_fh[0][e]);
+      ix.tag[t] = FTB_TAG_W'(wc ^ (wc >> 10) ^ wk ^ 32'(ex_fh[1][e]) ^ (32'(ex_fh[2][e]) << 1));
     end
-    if (is_ah2) ix.base_idx = ix.base_idx;
     return ix;
   endfunction
 
@@ -398,13 +335,9 @@ package bpu_types_pkg;
   function automatic ex_tage_ix_t ftb_make_ex_tage_index(input logic [XLEN_BITS-1:0] base, input ex_fh_t ex_fh);
     ex_tage_ix_t ix;
     logic [31:0] w;
-    logic [11:0] rb;
-    logic [1:0]  bk;
     w           = 32'(base >> SLOT_SHIFT);
-    bk          = s2_bank_of_w(w);
     ix.w        = w;
-    rb          = 12'(w ^ (w >> 12));
-    ix.base_idx = {rb[11:2], bk};
+    ix.base_idx = 12'(w ^ (w >> 12));
     for (int t = 0; t < EX_TN; t++) begin
       ix.idx[t] = 12'(w ^ (w >> 11) ^ 32'(ex_fh[0][t]));
       ix.tag[t] = EX_TAGE_TAG_W'(w ^ (w >> 11) ^ 32'(ex_fh[1][t]) ^ (32'(ex_fh[2][t]) << 1));
@@ -412,106 +345,53 @@ package bpu_types_pkg;
     return ix;
   endfunction
 
-  function automatic sc_ix_t ftb_make_sc_index(input logic [XLEN_BITS-1:0] base, input sc_fh_t sc_fh,
-                                               input logic [7:0] imli);
-    sc_ix_t ix;
-    logic [31:0] w;
-    w           = 32'(base >> SLOT_SHIFT);
-    ix.w        = w;
-    ix.bias_set = w[5:0];
-    for (int g = 0; g < SC_GEHL_N; g++) begin
-      ix.gehl_idx[g] = 9'(w ^ (w >> 9) ^ 32'(sc_fh[g]));
-    end
-    ix.imli_idx = 8'(w ^ (32'(imli) * 32'd13));
-    ix.lht_idx  = w[5:0];
-    return ix;
-  endfunction
-
   function automatic ex_tage_pred_t ex_tage_select(input ex_tage_ix_t ix,
                                                    input ex_tage_slot_raw_t r,
                                                    input logic [15:0][3:0] use_alt_vec);
     ex_tage_pred_t o;
-    logic [3:0] pcpn, altpcpn, ua;
-    logic bp, pp, is_weak, ulow;
-    pcpn    = 4'(EX_TN);
-    altpcpn = 4'(EX_TN);
+    logic [EX_TN-1:0] hit, p_oh, a_oh, t_ge4, t_ualt;
+    logic [3:0] pcpn;
+    logic [2:0] prov_cnt_h;
+    logic any_p, any_a, bp, pp, ua_le;
+    ua_le = (use_alt_vec[ix.w[5:2]] <= FTB_USE_ALT_THR);
     for (int t = 0; t < EX_TN; t++) begin
-      if (!r.sup_mask[t] && (r.tag[t] == ix.tag[t])) begin
-        altpcpn = pcpn;
-        pcpn    = 4'(t);
+      hit[t]    = !r.sup_mask[t] && (r.tag[t] == ix.tag[t]);
+      t_ge4[t]  = r.cnt[t][2];
+      t_ualt[t] = ((r.cnt[t] == 3'd3) || (r.cnt[t] == 3'd4)) && (r.useful[t] == 2'd0) && ua_le;
+    end
+    // Parallel highest-index provider (p_oh) and second-highest alt (a_oh) onehot encoders (Cut A2)
+    p_oh = '0;
+    a_oh = '0;
+    for (int t = 0; t < EX_TN; t++) begin
+      logic any_hi, one_hi;
+      any_hi = 1'b0;
+      one_hi = 1'b0;
+      for (int j = t + 1; j < EX_TN; j++) begin
+        one_hi = (one_hi & ~hit[j]) | (~any_hi & hit[j]);
+        any_hi = any_hi | hit[j];
+      end
+      p_oh[t] = hit[t] & ~any_hi;
+      a_oh[t] = hit[t] & one_hi;
+    end
+    any_p      = |hit;
+    any_a      = |a_oh;
+    pcpn       = 4'(EX_TN);
+    prov_cnt_h = '0;
+    for (int t = 0; t < EX_TN; t++) begin
+      if (p_oh[t]) begin
+        pcpn       = 4'(t);
+        prov_cnt_h = r.cnt[t];
       end
     end
     o.base_cnt = r.base_cnt;
-    bp         = (r.base_cnt >= 2'd2);
+    bp         = r.base_cnt[1];
     o.pcpn     = pcpn;
-    o.alt      = (altpcpn == 4'(EX_TN)) ? bp : (r.cnt[altpcpn[2:0]] >= 3'd4);
-    o.prov_cnt = (pcpn == 4'(EX_TN)) ? {1'b0, r.base_cnt} : r.cnt[pcpn[2:0]];
-    pp         = (pcpn == 4'(EX_TN)) ? bp : (o.prov_cnt >= 3'd4);
-    is_weak    = (pcpn != 4'(EX_TN)) && ((o.prov_cnt == 3'd3) || (o.prov_cnt == 3'd4));
-    ulow       = (pcpn != 4'(EX_TN)) && (r.useful[pcpn[2:0]] == 2'd0);
-    ua         = use_alt_vec[ix.w[5:2]];
-    o.used_alt = (pcpn != 4'(EX_TN)) && is_weak && ulow && (ua <= FTB_USE_ALT_THR);
+    o.alt      = any_a ? (|(a_oh & t_ge4)) : bp;
+    o.prov_cnt = any_p ? prov_cnt_h : {1'b0, r.base_cnt};
+    pp         = any_p ? (|(p_oh & t_ge4)) : bp;
+    o.used_alt = |(p_oh & t_ualt);
     o.pred     = o.used_alt ? o.alt : pp;
     return o;
-  endfunction
-
-  function automatic logic signed [10:0] sc_eval_raw(input sc_slot_raw_t r,
-                                                     input logic tage_pred,
-                                                     input logic prov_hit,
-                                                     input logic [2:0] prov_cnt,
-                                                     input logic [1:0] base_cnt);
-    logic signed [10:0] tage_w, s;
-    logic               low_conf;
-    logic [1:0]         bway;
-    tage_w   = prov_hit ? (11'sd2 * ($signed({8'b0, prov_cnt}) * 11'sd2 - 11'sd7))
-                        : (11'sd2 * ($signed({9'b0, base_cnt}) * 11'sd2 - 11'sd3));
-    low_conf = prov_hit ? ((prov_cnt == 3'd3) || (prov_cnt == 3'd4))
-                        : ((base_cnt == 2'd1) || (base_cnt == 2'd2));
-    bway     = {tage_pred, low_conf};
-    s        = tage_w + (r.sup_mask[0] ? 11'sd0 : ($signed({{4{r.bias[bway][5]}}, r.bias[bway], 1'b0}) + 11'sd1));
-    for (int g = 0; g < SC_GEHL_N; g++) begin
-      s = s + (r.sup_mask[1 + g] ? 11'sd0 : ($signed({{4{r.gehl[g][5]}}, r.gehl[g], 1'b0}) + 11'sd1));
-    end
-    s = s + (r.sup_mask[5] ? 11'sd0 : ($signed({{4{r.imli[5]}}, r.imli, 1'b0}) + 11'sd1));
-    s = s + (r.sup_mask[6] ? 11'sd0 : ($signed({{4{r.loc[5]}},  r.loc,  1'b0}) + 11'sd1));
-    return s;
-  endfunction
-
-  // Stage S2 decoupled SC sum (6 SRAM tables: 4 GEHL + IMLI + LOC, independent of TAGE select!)
-  function automatic logic signed [10:0] sc_eval_nonbias(input sc_slot_raw_t r);
-    logic signed [10:0] s;
-    s = 11'sd0;
-    for (int g = 0; g < SC_GEHL_N; g++) begin
-      s = s + (r.sup_mask[1 + g] ? 11'sd0 : ($signed({{4{r.gehl[g][5]}}, r.gehl[g], 1'b0}) + 11'sd1));
-    end
-    s = s + (r.sup_mask[5] ? 11'sd0 : ($signed({{4{r.imli[5]}}, r.imli, 1'b0}) + 11'sd1));
-    s = s + (r.sup_mask[6] ? 11'sd0 : ($signed({{4{r.loc[5]}},  r.loc,  1'b0}) + 11'sd1));
-    return s;
-  endfunction
-
-  // Stage S3 fast SC finish (Bias is FF -> never suppressed)
-  function automatic logic sc_select_s3(input logic [31:0] w,
-                                        input logic signed [10:0] nonbias,
-                                        input logic signed [3:0][5:0] bias_ways,
-                                        input logic tage_pred,
-                                        input logic prov_hit,
-                                        input logic [2:0] prov_cnt,
-                                        input logic [1:0] base_cnt,
-                                        input logic [15:0][5:0] thres_vec);
-    logic signed [10:0] tage_w, bias_w, lsum, abs_sum, th;
-    logic               low_conf, sc_pred;
-    logic [1:0]         bway;
-    tage_w   = prov_hit ? (11'sd2 * ($signed({8'b0, prov_cnt}) * 11'sd2 - 11'sd7))
-                        : (11'sd2 * ($signed({9'b0, base_cnt}) * 11'sd2 - 11'sd3));
-    low_conf = prov_hit ? ((prov_cnt == 3'd3) || (prov_cnt == 3'd4))
-                        : ((base_cnt == 2'd1) || (base_cnt == 2'd2));
-    bway     = {tage_pred, low_conf};
-    bias_w   = $signed({{4{bias_ways[bway][5]}}, bias_ways[bway], 1'b0}) + 11'sd1;
-    lsum     = nonbias + tage_w + bias_w;
-    abs_sum  = (lsum < 11'sd0) ? -lsum : lsum;
-    sc_pred  = (lsum >= 11'sd0);
-    th       = $signed({5'b0, thres_vec[w[5:2]]});
-    return ((sc_pred != tage_pred) && (abs_sum >= th)) ? sc_pred : tage_pred;
   endfunction
 
   function automatic ftb_itt_sel_t ftb_itt_select(input ftb_ix_t ix, input ftb_itt_raw_t r);

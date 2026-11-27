@@ -9,6 +9,11 @@ depth: 114 层 / 389,270 单元（icache，单模块综合，2026-11-21，`SYNTH
 
 # icache 设计文档（4-Bank 指令缓存 + 2-Port ITLB + 实 AXI FDIP + 存储侧口）
 
+> **2026-11-27 Clean BPU v11 + 同页跨行 2-Fetch 精简**：
+> - 随着 BPU 精简为单块 1-Taken 并引入同页跨 64B 缓存行 2-Fetch（`block_bnd` 仅在 4KB 页边界截断），ICache Port B 仅在 `base[5:0] > 32 && base[11:6] != 6'h3f` 时并行读取下一条同页相邻缓存行 `line + 1`（必然同物理页、必然不同 Bank）；
+> - 直接复用 Port A 的 `resp_ppn`，删除 ITLB 第 2 个只读 peek 口（`icache_itlb` 由 `NPEEK=2` 缩减为 **`NPEEK=1`**，仅保留 `peek_fdip_*`），并删除 `icache.sv` 中的 `b_same_page` / `b_same_line` 旁路；
+> - `front_pred_path` 对送往 `icache_fdip` 的 `fdip_s2_{en,va,clear}` 打 1 拍寄存（切口 B1），彻底切断 BPU S2 (`ovr/fin.next`) 到 FDIP 8 项去重 CAM 的跨模块长路径。
+>
 > **2026-11-26 `rtl/area-opt` 严格 1 拍同步 SRAM 升级（0 周期变化）**：
 > - `icache_arr.sv` 4 个数据 bank（共 32 KiB，4×16×8×512b）由异步读切换为严格 1 拍同步 1R1W `ttg_sram_1r1w`（`WRITE_FIRST=1`）；
 > - 借助 `front_fifo.next_rdata` / `fetch_addr_fifo.next_rd_*` / `front_fetch_buf.ic_next_{fa,b}_idx` 与 `icache_ctl.arr_next_{req_valid,rd_index}` 在 `T-1` 拍预发起读地址（VIPT 索引 `[11:6]` 虚实一致，且 `fa_head_fresh` 保证队首不于入队同拍弹出），内置 `` `ifndef SYNTHESIS `` SVA 断言逐拍校验预发起行号 100% 命中，77 测例 + 152 `riscv-tests` 零周期变化。

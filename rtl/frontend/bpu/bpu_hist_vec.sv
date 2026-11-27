@@ -1,10 +1,8 @@
-// Ref: front-end/BPU/BPU_pipe.h  HistRing::push (parallel n-symbol push, zero variable modulo)
+// Ref: front-end/BPU/BPU_pipe.h  HistRing::push (Clean BPU v11: HR_BITS=256, unified ex_fh[3][6] only)
 `default_nettype none
 
-// Pushes sym_n (0..MAX_SYM) 3-bit history symbols (n = 3*sym_n bits) into the ring and all folded histories
-// (4-table ahead fh, 8-table S2 ExBlockTage ex_fh, and 4-table S2 SC sc_fh).
 module bpu_hist_vec import bpu_pkg::*; import bpu_stage_pkg::*; #(
-  parameter int MAX_SYM = 8,
+  parameter int MAX_SYM = 2,
   parameter int DW      = 24
 ) (
   input  hist_t          h,
@@ -16,35 +14,11 @@ module bpu_hist_vec import bpu_pkg::*; import bpu_stage_pkg::*; #(
   localparam int NW = 3 * MAX_SYM;
 
 `ifdef SYNTHESIS
-  function automatic logic [FH_W-1:0] rotl_const(input logic [FH_W-1:0] x, input int unsigned a, input int unsigned len);
-    logic [FH_W-1:0] msk;
-    msk = FH_W'((32'd1 << len) - 32'd1);
-    return a == 0 ? x : (((x << a) | (x >> (len - a))) & msk);
-  endfunction
-
-  function automatic logic [FH_W-1:0] rotl_sym(input logic [FH_W-1:0] x, input logic [3:0] sn, input int unsigned len);
-    case (sn)
-      4'd1:    return rotl_const(x,  3 % len, len);
-      4'd2:    return rotl_const(x,  6 % len, len);
-      4'd3:    return rotl_const(x,  9 % len, len);
-      4'd4:    return rotl_const(x, 12 % len, len);
-      4'd5:    return rotl_const(x, 15 % len, len);
-      4'd6:    return rotl_const(x, 18 % len, len);
-      4'd7:    return rotl_const(x, 21 % len, len);
-      4'd8:    return rotl_const(x, 24 % len, len);
-      4'd9:    return rotl_const(x, 27 % len, len);
-      4'd10:   return rotl_const(x, 30 % len, len);
-      4'd11:   return rotl_const(x, 33 % len, len);
-      4'd12:   return rotl_const(x, 36 % len, len);
-      default: return x;
-    endcase
-  endfunction
-
   function automatic logic [EX_FH_W-1:0] rotl_const_ex(input logic [EX_FH_W-1:0] x, input int unsigned a,
                                                        input int unsigned len);
     logic [EX_FH_W-1:0] msk;
     msk = EX_FH_W'((32'd1 << len) - 32'd1);
-    return a == 0 ? x : (((x << a) | (x >> (len - a))) & msk);
+    return (a == 0) ? x : (((x << a) | (x >> (len - a))) & msk);
   endfunction
 
   function automatic logic [EX_FH_W-1:0] rotl_sym_ex(input logic [EX_FH_W-1:0] x, input logic [3:0] sn,
@@ -58,32 +32,6 @@ module bpu_hist_vec import bpu_pkg::*; import bpu_stage_pkg::*; #(
       4'd6:    return rotl_const_ex(x, 18 % len, len);
       4'd7:    return rotl_const_ex(x, 21 % len, len);
       4'd8:    return rotl_const_ex(x, 24 % len, len);
-      4'd9:    return rotl_const_ex(x, 27 % len, len);
-      4'd10:   return rotl_const_ex(x, 30 % len, len);
-      4'd11:   return rotl_const_ex(x, 33 % len, len);
-      4'd12:   return rotl_const_ex(x, 36 % len, len);
-      default: return x;
-    endcase
-  endfunction
-
-  function automatic logic [SC_FH_W-1:0] rotl_const_sc(input logic [SC_FH_W-1:0] x, input int unsigned a);
-    return a == 0 ? x : ((x << a) | (x >> (SC_FH_W - a)));
-  endfunction
-
-  function automatic logic [SC_FH_W-1:0] rotl_sym_sc(input logic [SC_FH_W-1:0] x, input logic [3:0] sn);
-    case (sn)
-      4'd1:    return rotl_const_sc(x, 3);
-      4'd2:    return rotl_const_sc(x, 6);
-      4'd3:    return x;
-      4'd4:    return rotl_const_sc(x, 3);
-      4'd5:    return rotl_const_sc(x, 6);
-      4'd6:    return x;
-      4'd7:    return rotl_const_sc(x, 3);
-      4'd8:    return rotl_const_sc(x, 6);
-      4'd9:    return x;
-      4'd10:   return rotl_const_sc(x, 3);
-      4'd11:   return rotl_const_sc(x, 6);
-      4'd12:   return x;
       default: return x;
     endcase
   endfunction
@@ -92,11 +40,9 @@ module bpu_hist_vec import bpu_pkg::*; import bpu_stage_pkg::*; #(
   logic [HR_PTR_W-1:0] head_new;
   logic [NW-1:0]       keep, din, din_of;
   logic [HR_BITS-1:0]  ring_new;
-  logic [NW-1:0]       outw [TN];
   logic [NW-1:0]       ex_outw [EX_TN];
-  logic [NW-1:0]       sc_outw [SC_GEHL_N];
 
-  assign n_bits   = {2'b0, sym_n} + {1'b0, sym_n, 1'b0}; // 3 * sym_n (0..36)
+  assign n_bits   = {2'b0, sym_n} + {1'b0, sym_n, 1'b0}; // 3 * sym_n
   assign head_new = h.head + HR_PTR_W'(n_bits);
 
   always_comb begin
@@ -126,21 +72,6 @@ module bpu_hist_vec import bpu_pkg::*; import bpu_stage_pkg::*; #(
   assign ring_ext = {h.ring[NW-2:0], h.ring};
 
   always_comb begin
-    for (int i = 0; i < TN; i++) begin
-      logic [HR_PTR_W-1:0] rbase;
-      logic [NW-1:0]       raw_o;
-      rbase = h.head - HR_PTR_W'(ghr_len(i));
-      raw_o = ring_ext[{1'b0, rbase} +: NW];
-      for (int j = 0; j < NW; j++) begin
-        if (j >= ghr_len(i)) raw_o[j] = din_of[j - ghr_len(i)];
-      end
-      outw[i] = '0;
-      for (int c = 1; c <= MAX_SYM; c++) begin
-        if (sym_n == 4'(c)) begin
-          for (int u = 0; u < 3 * c; u++) outw[i][u] = raw_o[3 * c - 1 - u];
-        end
-      end
-    end
     for (int i = 0; i < EX_TN; i++) begin
       logic [HR_PTR_W-1:0] rbase;
       logic [NW-1:0]       raw_o;
@@ -156,38 +87,12 @@ module bpu_hist_vec import bpu_pkg::*; import bpu_stage_pkg::*; #(
         end
       end
     end
-    for (int g = 0; g < SC_GEHL_N; g++) begin
-      logic [HR_PTR_W-1:0] rbase;
-      logic [NW-1:0]       raw_o;
-      rbase = h.head - HR_PTR_W'(sc_ghr_len(g));
-      raw_o = ring_ext[{1'b0, rbase} +: NW];
-      for (int j = 0; j < NW; j++) begin
-        if (j >= sc_ghr_len(g)) raw_o[j] = din_of[j - sc_ghr_len(g)];
-      end
-      sc_outw[g] = '0;
-      for (int c = 1; c <= MAX_SYM; c++) begin
-        if (sym_n == 4'(c)) begin
-          for (int u = 0; u < 3 * c; u++) sc_outw[g][u] = raw_o[3 * c - 1 - u];
-        end
-      end
-    end
   end
 
   always_comb begin
     h_next      = h;
     h_next.ring = ring_new;
     h_next.head = head_new;
-    for (int k = 0; k < FH_K; k++) begin
-      for (int i = 0; i < TN; i++) begin
-        logic [FH_W-1:0] acc;
-        acc = rotl_sym(h.fh[k][i], sym_n, fh_len(k, i));
-        for (int u = 0; u < NW; u++) begin
-          acc = acc ^ rotl_const(FH_W'(din[u]) ^ (FH_W'(outw[i][u]) << (ghr_len(i) % fh_len(k, i))),
-                                 u % fh_len(k, i), fh_len(k, i));
-        end
-        h_next.fh[k][i] = acc;
-      end
-    end
     for (int k = 0; k < EX_FH_K; k++) begin
       for (int i = 0; i < EX_TN; i++) begin
         logic [EX_FH_W-1:0] acc;
@@ -198,15 +103,6 @@ module bpu_hist_vec import bpu_pkg::*; import bpu_stage_pkg::*; #(
         end
         h_next.ex_fh[k][i] = acc;
       end
-    end
-    for (int g = 0; g < SC_GEHL_N; g++) begin
-      logic [SC_FH_W-1:0] acc;
-      acc = rotl_sym_sc(h.sc_fh[g], sym_n);
-      for (int u = 0; u < NW; u++) begin
-        acc = acc ^ rotl_const_sc(SC_FH_W'(din[u]) ^ (SC_FH_W'(sc_outw[g][u]) << (sc_ghr_len(g) % SC_FH_W)),
-                                  u % SC_FH_W);
-      end
-      h_next.sc_fh[g] = acc;
     end
   end
 `else
@@ -219,9 +115,7 @@ module bpu_hist_vec import bpu_pkg::*; import bpu_stage_pkg::*; #(
     /* verilator lint_on UNUSEDSIGNAL */
     logic               b, ob;
     int unsigned        fl, gl;
-    logic [FH_W-1:0]    msk, v;
     logic [EX_FH_W-1:0] emsk, ev;
-    logic [SC_FH_W-1:0] sv;
     h_next = h;
     nb     = {2'b0, sym_n} + {1'b0, sym_n, 1'b0};
     bidx   = '0;
@@ -229,29 +123,14 @@ module bpu_hist_vec import bpu_pkg::*; import bpu_stage_pkg::*; #(
     ob     = 1'b0;
     fl     = 0;
     gl     = 0;
-    msk    = '0;
-    v      = '0;
     emsk   = '0;
     ev     = '0;
-    sv     = '0;
     for (int j = 0; j < NW; j++) begin
       if (6'(j) < nb) begin
         bidx = nb - 6'd1 - 6'(j);
         b    = d[bidx[BIDXW-1:0]];
         h_next.ring[h_next.head] = b;
         h_next.head = h_next.head + HR_PTR_W'(1);
-        for (int k = 0; k < FH_K; k++) begin
-          for (int i = 0; i < TN; i++) begin
-            fl  = fh_len(k, i);
-            gl  = ghr_len(i);
-            msk = FH_W'((32'd1 << fl) - 32'd1);
-            ob  = h_next.ring[h_next.head - HR_PTR_W'(gl + 1)];
-            v   = ((h_next.fh[k][i] << 1) | (h_next.fh[k][i] >> (fl - 1))) & msk;
-            v   = v ^ FH_W'(b);
-            v   = v ^ (FH_W'(ob) << (gl % fl));
-            h_next.fh[k][i] = v & msk;
-          end
-        end
         for (int k = 0; k < EX_FH_K; k++) begin
           fl   = ex_fh_len(k);
           emsk = EX_FH_W'((32'd1 << fl) - 32'd1);
@@ -263,14 +142,6 @@ module bpu_hist_vec import bpu_pkg::*; import bpu_stage_pkg::*; #(
             ev = ev ^ (EX_FH_W'(ob) << (gl % fl));
             h_next.ex_fh[k][i] = ev & emsk;
           end
-        end
-        for (int g = 0; g < SC_GEHL_N; g++) begin
-          gl = sc_ghr_len(g);
-          ob = h_next.ring[h_next.head - HR_PTR_W'(gl + 1)];
-          sv = ((h_next.sc_fh[g] << 1) | (h_next.sc_fh[g] >> (SC_FH_W - 1)));
-          sv = sv ^ SC_FH_W'(b);
-          sv = sv ^ (SC_FH_W'(ob) << (gl % SC_FH_W));
-          h_next.sc_fh[g] = sv;
         end
       end
     end

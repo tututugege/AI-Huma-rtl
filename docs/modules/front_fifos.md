@@ -1,14 +1,18 @@
 ---
 module: front_fifos
 area: frontend
-rtl: rtl/frontend/front_fifo.sv、fetch_addr_fifo.sv、ptab.sv、inst_fifo.sv、front2back_fifo.sv
-model: trace-model front-end/fifo/front_fifo.h、front-end/front_fifo_ports.h、front-end/front_top.cpp（调度单元 `front.core.fa_port`、`front.core.ptab_port`、`front.core.inst_port`、`front.core.f2b_port`，类 `FetchAddrPort`、`PtabPort`、`InstPort`、`F2bPort`）
-status: 整核周期与模型逐个相等（EXP-053 前端清理：fm_gate 68/68 零偏差 + Linux 27 窗 PT/UP 全等，零环境变量）
-depth: 13 层（fetch_addr_fifo；ptab、inst_fifo、front2back_fifo 更浅，单模块综合，2026-11-18，`SYNTH_ABC="strash;balance;map"`，生成门代理，见第 6 节）
+rtl: rtl/frontend/front_fifo.sv、inst_fifo.sv（原 fetch_addr_fifo.sv / ptab.sv / front2back_fifo.sv 已于 EXP-070 合入 Unified FTQ-64 删除）
+model: trace-model front-end/front_fifo_ports.h、front-end/front_top.cpp（调度单元 `front.core.inst_port`，类 `InstPort`；原 `fa_port`/`ptab_port`/`f2b_port` 已并入后端统一 FTQ `back.pre`）
+status: 整核周期与模型逐个相等（EXP-070 Unified FTQ-64：删 `fetch_addr_fifo`/`ptab`/`front2back_fifo`，仅留 `inst_fifo`，fm_gate 77/77 + riscv-tests 152/152 零偏差）
+depth: 13 层（`inst_fifo` / `front_fifo`，单模块综合，`SYNTH_ABC="strash;balance;map"`）
 ---
 
 # front_fifos 设计文档
 
+> **EXP-070 Unified FTQ-64 升级**：
+> - 彻底删除前端独立的 `fetch_addr_fifo.sv`、`ptab.sv` 与 `front2back_fifo.sv`，取指地址排队、预测元数据暂存与后端提交追踪全部收口至 `rtl/backend/ftq_ibuf/` 的 64 项统一 FTQ（彻底消除 `ptab_bypass` 跨模块关键路径）；
+> - 前端仅保留 `inst_fifo.sv`（16 项原始 16b 半字流 FIFO，由 `front_fifo.sv` 实现）；并在 `off6 == 32` 同页双取指场景复用 `b_ok` 字段传递 `up16_a`（零新增条目位宽）。
+>
 > **EXP-053 前端结构清理（Phase 1 + P2-2）升级**：
 > - `inst_fifo_entry_t` 改为存储紧凑原始 16b 半字流与最小元数据（省去 16 槽展开指令、双份预译码类型/目标及 `start_a`/`start_b`）；
 > - `ptab` 与 `front2back_fifo` 删除死线 `tage_idx` / `tage_tag`，`front2back_fifo` 新增每槽显式 1-bit `pf_inst_hi`。

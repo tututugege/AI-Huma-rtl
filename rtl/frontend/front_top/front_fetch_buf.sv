@@ -42,74 +42,69 @@ module front_fetch_buf import ttg_cfg_pkg::*; import front_pkg::*; (
   output inst_fifo_entry_t inst_rd
 );
 
-  // ---- Unified FTQ-64 ifu_ptr head + in-flight FetchPair tracker ----
-  fetch_pair_t fa_rd_pair;
+  // ---- Unified FTQ-64 ifu_ptr head + in-flight request tracker (Same-Page Line-Straddle 2-Fetch) ----
   logic        pend_valid_q;
   logic [XLEN_BITS-1:0] pend_addr_q;
-  fetch_pair_t pend_pair_q;
   logic [$clog2(INST_FIFO_DEPTH + 1)-1:0] inst_size;
 
   assign fa_rd_valid    = fa_rd_en;
   assign fa_rd_address  = ftq_ifu_addr;
-  assign fa_rd_pair     = ftq_ifu_pair;
   assign inst_fifo_room = (inst_size + 5'(pend_valid_q)) < 5'(INST_FIFO_DEPTH);
 
-  // Ref: FrontControl::finish pend_valid / pend_addr / pend_pair
+  // Ref: FrontControl::finish pend_valid / pend_addr
   logic ic_last_complete, head_done, pend_nv;
   logic [XLEN_BITS-1:0] pend_na;
-  fetch_pair_t pend_np;
-  logic [5:0] next_b_cand_idx;
   always_comb begin
     ic_last_complete = ic_read_complete && !do_predecode_flush;
     head_done        = ic_last_complete && fa_rd_valid && (fa_rd_address == ic_fetch_pc);
     pend_nv          = pend_valid_q;
     pend_na          = pend_addr_q;
-    pend_np          = pend_pair_q;
     if (ic_last_complete && pend_nv && (pend_addr_q == ic_fetch_pc)) pend_nv = 1'b0;
     if (fa_rd_valid && !head_done) begin
       pend_nv = 1'b1;
       pend_na = fa_rd_address;
-      pend_np = fa_rd_pair;
     end
     if (global_refetch) pend_nv = 1'b0;
     // Next-cycle VIPT set indices for strict 1-cycle synchronous L1I Data SRAM pre-launch
-    // When fa_rd_valid pops the sole FTQ entry (ftq_fa_cnt_sat==1), next head is this cycle's S0 fa_wr_address!
-    ic_next_fa_idx  = global_refetch ? fa_wr_address[11:6]
-                    : fa_rd_valid    ? ((ftq_fa_cnt_sat == 2'd1) ? fa_wr_address[11:6] : ftq_ifu_next_fa_idx)
-                    : ftq_fa_empty   ? fa_wr_address[11:6]
-                                     : ftq_ifu_addr[11:6];
-    next_b_cand_idx = global_refetch ? fa_wr_pair.addr2[11:6]
-                    : fa_rd_valid    ? ((ftq_fa_cnt_sat == 2'd1) ? fa_wr_pair.addr2[11:6] : ftq_ifu_next_b_idx)
-                    : ftq_fa_empty   ? fa_wr_pair.addr2[11:6]
-                                     : ftq_ifu_pair.addr2[11:6];
-    ic_next_b_idx   = pend_nv ? pend_np.addr2[11:6] : next_b_cand_idx;
+    // Bank B is always the next sequential 64B line (line + 1 -> guaranteed different bank, zero conflict!)
+    ic_next_fa_idx = global_refetch ? fa_wr_address[11:6]
+                   : fa_rd_valid    ? ((ftq_fa_cnt_sat == 2'd1) ? fa_wr_address[11:6] : ftq_ifu_next_fa_idx)
+                   : ftq_fa_empty   ? fa_wr_address[11:6]
+                                    : ftq_ifu_addr[11:6];
+    ic_next_b_idx  = (pend_nv ? pend_na[11:6] : ic_next_fa_idx) + 6'd1;
   end
 
   always_ff @(posedge clk) begin
     if (!rst_n) begin
       pend_valid_q <= 1'b0;
       pend_addr_q  <= '0;
-      pend_pair_q  <= '0;
     end else begin
       pend_valid_q <= pend_nv;
       pend_addr_q  <= pend_na;
-      pend_pair_q  <= pend_np;
     end
   end
 
-  // ---- Pair selection & Block B request ----
-  fetch_pair_t pr;
-  logic        want_pair;
+  // ---- Same-Page Line-Straddle 2-Fetch (pure function of ic_fetch_pc; zero pend_pair / zero 2nd ITLB port!) ----
+  // Also handles off6 == 32 (line_idx != 63): reads 1st halfword of Line L+1 into up16_a so a 32-bit Taken branch
+  // starting at off6 == 62 completes in the same cycle without a Predecode Flush!
+  logic                 inst_full;
+  logic                 same_page_next, straddle, tail_next, want_pair, want_tail;
+  logic [3:0]           str_a_len, str_b_len;
+  logic [XLEN_BITS-1:0] str_addr2;
   always_comb begin
-    if (fa_rd_valid && (fa_rd_address == ic_fetch_pc))     pr = fa_rd_pair;
-    else if (pend_valid_q && (pend_addr_q == ic_fetch_pc)) pr = pend_pair_q;
-    else                                                   pr = '0;
-    want_pair    = ic_read_complete && !global_refetch &&
-                   pr.valid && (pr.a_len != 4'd0) &&
-                   !ic_page_fault_inst[0] && !ic_fetch_single_word && ic_inst_valid[pr.a_len - 4'd1];
-    b_req_valid  = want_pair;
-    b_req_addr   = pr.addr2;
-    b_req_nwords = pr.b_len;
+    same_page_next = (ic_fetch_pc[11:6] != 6'h3f);
+    straddle       = (ic_fetch_pc[5:0] > 6'd32) && same_page_next;
+    tail_next      = (ic_fetch_pc[5:0] == 6'd32) && same_page_next;
+    str_a_len      = straddle ? 4'((7'd64 - {1'b0, ic_fetch_pc[5:0]}) >> 1) : 4'd0;
+    str_b_len      = straddle ? (4'd0 - str_a_len) : (tail_next ? 4'd1 : 4'd0);
+    str_addr2      = {ic_fetch_pc[XLEN_BITS-1:6] + (XLEN_BITS-6)'(1), 6'd0};
+    want_pair      = ic_read_complete && !global_refetch && !inst_full && straddle && (str_a_len != 4'd0) &&
+                     !ic_page_fault_inst[0] && !ic_fetch_single_word && ic_inst_valid[str_a_len - 4'd1];
+    want_tail      = ic_read_complete && !global_refetch && !inst_full && tail_next &&
+                     !ic_page_fault_inst[0] && !ic_fetch_single_word && ic_inst_valid[FETCH_WIDTH - 1];
+    b_req_valid    = want_pair || want_tail;
+    b_req_addr     = str_addr2;
+    b_req_nwords   = str_b_len;
   end
 
   // ---- Pack compact raw-halfword instruction_FIFO entry (zero duplicate expand/predecode) ----
@@ -133,20 +128,20 @@ module front_fetch_buf import ttg_cfg_pkg::*; import front_pkg::*; (
   end
 
   inst_fifo_entry_t inst_wr_entry;
-  logic             inst_wr_en, inst_full;
+  logic             inst_wr_en;
   assign inst_wr_en = ic_read_complete && !global_refetch && !inst_full;
 
   always_comb begin
     inst_wr_entry               = '0;
     inst_wr_entry.is_pair       = want_pair;
-    inst_wr_entry.a_len         = pr.a_len;
+    inst_wr_entry.a_len         = str_a_len;
     inst_wr_entry.base_a        = ic_fetch_pc;
-    inst_wr_entry.base_b        = pr.addr2;
+    inst_wr_entry.base_b        = str_addr2;
     inst_wr_entry.valid_a       = ic_inst_valid;
     inst_wr_entry.pf_a          = ic_page_fault_inst;
     inst_wr_entry.single_word_a = ic_fetch_single_word;
-    inst_wr_entry.up16_a        = a_up16;
-    inst_wr_entry.b_ok          = want_pair && b_hit;
+    inst_wr_entry.up16_a        = (want_tail && b_hit && (b_actual_n != 5'd0)) ? b_fetch_group[0][15:0] : a_up16;
+    inst_wr_entry.b_ok          = (want_pair || want_tail) && b_hit && (b_actual_n != 5'd0);
     inst_wr_entry.b_actual_n    = (want_pair && b_hit) ? b_actual_n : 5'd0;
     inst_wr_entry.up16_b        = b_up16;
     for (int i = 0; i < FETCH_WIDTH; i++) begin
@@ -159,7 +154,7 @@ module front_fetch_buf import ttg_cfg_pkg::*; import front_pkg::*; (
   logic inst_rd_valid;
   logic unused_hi;
   always_comb begin
-    unused_hi = a_inv_oh[0] ^ (^fa_wr_address) ^ (^fa_wr_pair);
+    unused_hi = a_inv_oh[0] ^ (^fa_wr_address) ^ (^fa_wr_pair) ^ (^ftq_ifu_pair) ^ (^ftq_ifu_next_b_idx);
     for (int i = 0; i < FETCH_WIDTH; i++) unused_hi ^= ^b_fetch_group[i][31:16];
   end
   /* verilator lint_on UNUSEDSIGNAL */

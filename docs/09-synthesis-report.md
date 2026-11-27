@@ -136,3 +136,20 @@
 - **可比后端核心模块面积净省**：仅 `rob`（−399.7k）+ `ftq_ibuf`（−1,441.8k）+ `isu`（−130.5k）三模块合计净省 **`1,972,000 um²`（~1.97 mm²）**，且 `lsu` / `isu` / `tlb_mmu` / `bpu_spec` 频率全部零回退。
 - **全核大型存储模块首次全部具备 DC 28nm 签核能力**：`icache`（32 KiB）、`dcache`（64 KiB）、`axi_llc`（4 MiB）、`ptw_walk_l2tlb`（1024 项 STLB）、`bpu`（~590 KiB）及 `rob`（1 KiB 指令字）100% 显式接入 `ttg_sram_1r1w` / `ttg_sram_1rw`，零组合读 RAM 残留。
 - **综合暴露的后续优化抓手**：① `bpu` 内 `u_ftb0`（64×4 FF）占全 BPU 面积 44.5% 且 S2 TAGE → `u_spec` 组合链达 `1.85 ns`；② `icache` 顶路径在 `u_fdip`；③ 后续结合 `front_top` 去 `ptab_bypass`（SPEC386 仅 −0.03%）与 `back_top` DTLB/LSU 解耦（0 周期变化）可进一步大幅拉升整核频率。
+
+## 21. EXP-070（Unified FTQ-64 + LSU/DTLB 切链 + Clean BPU v11 零黑盒真实 TSMC 28nm SRAM）DC 综合结果（2026-11-27）
+
+同工艺库 Synopsys DC（`W-2024.09-SP2`, TSMC 28nm HPC+ `ssg0p81v125c`, 12T SVT+LVT, `compile_ultra -no_autoungroup`），**前端 `bpu` / `front_top` 全面禁用 `SRAM_BLACKBOX`，改为 `-define {SYNTHESIS SYNTH_TSMC28_SRAM}` 映射真实 TSMC 28nm SRAM 宏（`tem5n28hpcplvta*`）综合出真实时序与面积**；后端子系统沿用 `0.50 ns` 黑盒对照验证切链收益：
+
+| 模块 / 版本 | SRAM 口径 / 时钟 | DC WNS (ns) | 估算 Fmax | 逻辑级数 / TNS | 总面积 (µm²)（逻辑+FF / 真实 SRAM 宏） | 关键路径与结论 |
+|---|---|---:|---|---|---:|---|
+| **`bpu` (`bpu_v11_065ns`)** | 真实 TSMC28 宏 / `0.65 ns` | `−0.58` | `813 MHz` | `58 lvl` / `−27,002` | `2,076,194`（`386.0k` / `1,690.2k` · **156 宏**） | Clean BPU v11（1RW 8-bank、去 SC 与旧 2-Ahead B），顶路径 `u_s2_tage → u_atage`（`arrival 1.11 ns`） |
+| **`bpu` (`bpu_v11_a1a2_065ns`)** | 真实 TSMC28 宏 / `0.65 ns` | **`−0.49`** | **`877 MHz`**（**+83%** vs `v10.1` `478 MHz`） | **`47 lvl` / `−21,929` (−18.8%)** | **`2,075,545`**（`254.5k` 组合 + `130.9k` 非组合 = **`385.4k` −59.1%** / `1,690.2k` · **156 宏**，`50,913` FFs） | 叠加 A1/A2 切断 `s2_tage → atage`，新顶路径 `u_ftb1` 真实宏 → `u_spec/st_q`（`arrival 1.09 ns`） |
+| **`front_top` (`front_top_v11_opt_065ns`)** | 真实 TSMC28 宏 / `0.65 ns` | `−0.87`（收尾中） | `~658 MHz`（vs 改前 `−1.57 ns`） | 持续收敛 | `~4,230,674`（含 BPU + ICache 全量真实 SRAM 宏） | 叠加 Unified FTQ 删 `ptab_bypass` + Clean BPU v11 + 同页双取 + A1/A2/B1，零黑盒全前端综合；待 `eda-06` `qor.rpt` 落盘后更新终值 |
+| **`back_top_bb`** | `SRAM_BLACKBOX` / `0.50 ns` | `−0.70` | `833 MHz`（`arrival 1.16 ns`） | `62 lvl` / `−71,543` | `2,572,725`（`2,154.2k` 组合 + `418.6k` 非组合，`159,559` FFs） | 彻底消除 EXU/LSU ↔ DTLB `1.24 ns (780 MHz)` 同拍往返链；新顶路径为 `u_lsu/u_ldq → u_isu/g_iq[5]`（`1.16 ns`） |
+| **`ftq_ibuf_bb`** | `SRAM_BLACKBOX` / `0.50 ns` | `−0.15` | `1.54 GHz`（reg2reg `1.56 GHz`） | `32 lvl` / `−749` | `239,315`（`23,025` FFs） | Unified FTQ-64（`PTAB+FA+FTQ` 合一 + 同步 1R1W `ftq_meta`），面积与 EXP-069 基本持平 |
+| **`tlb_mmu_bb`** | `SRAM_BLACKBOX` / `0.50 ns` | **`−0.03`** | **`1.89 GHz`（持平）** | `23 lvl` / `−110` | `94,793`（`7,490` FFs） | 回填预存 `ppn_p1/m1`（兼容 Sv39 大页与 bare），L1 TLB 时序零回退 |
+
+- **零黑盒综合揭示的下一阶段核心抓手**：
+  1. **前端实宏面积/布线优化**：`icache_arr` `4×8×16×512b` 映射到 64-depth 真宏存在约 4× 深度填充浪费，BPU 8-bank 切分带来 156 颗宏（`1.69 mm²`）及 `u_ftb1 → u_spec` 扇出；后续拟将 `icache_arr` 重构为 64-depth 友好形状、BPU 合并为 2~4 bank、`axi_llc` 数据/标签评估 1R1W→1RW。
+  2. **后端子系统提频**：DTLB/LSU 长链已解开，下一瓶颈为 `u_lsu/u_ldq → u_isu/g_iq[5]`（`1.16 ns`）及 `Issue / RegRead` 紧耦合，下轮将推进 `Issue/RegRead` 拆拍并全面转入无黑盒真实 SRAM 综合签核。

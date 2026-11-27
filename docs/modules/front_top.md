@@ -3,12 +3,18 @@ module: front_top
 area: frontend
 rtl: rtl/frontend/front_top（front_top.sv、front_fetch_buf.sv、front_pred_path.sv）
 model: trace-model front-end/front_core.h 的 `FrontCore`（各调度单元 `front.core.*` 的连线 `FrontCore::FrontCore` 和阶段顺序 `FrontCore::comb`）；指令起点扫描对应 front-end/front_top.cpp 的 `InstPort::comb_write`（调度单元 `front.core.inst_port`）
-status: 整核周期与模型逐个相等（EXP-053 前端清理：fm_gate 68/68 零偏差 + Linux 27 窗 PT/UP 全等，零环境变量）
-depth: 216 层 / 1,159,189 单元（front_top，单模块综合，2026-11-21，`SYNTH_ABC="strash;balance;map" SYNTH_NO_MEMPRIO=1`，EXP-053 Phase 1+2 清理后较 EXP-051 1,582,763 / 356 层 **−26.8% / −39.3%**，最长路径 `u_pred_path.u_bpu.r1_q[1106] → u_pred_path.u_pd.ras_val_d[29]`）
+status: 整核周期与模型逐个相等（EXP-070 Unified FTQ-64 + Clean BPU v11 + 同页 2-Fetch + `off6==32` `up16` + A1/A2/B1 时序切割：fm_gate 77/77 + riscv-tests 152/152 零偏差）
+depth: TSMC 28nm HPC+ DC 零黑盒真 SRAM（`SYNTH_TSMC28_SRAM`，见 `09-synthesis-report.md` §21）
 ---
 
 # front_top 设计文档
 
+> **EXP-070（Unified FTQ-64 + Clean BPU v11 + 同页 2-Fetch + A1/A2/B1 时序切割）升级**：
+> 1. **Unified FTQ-64 统一前端队列**：删除前端独立的 `fetch_addr_fifo`、`ptab` 与 `front2back_fifo`（仅留 `inst_fifo`），由后端 `ftq_ibuf` 的 64 项统一 FTQ 承载全部预测块地址与元数据，彻底消除 `ptab_bypass` 跨模块长链；
+> 2. **1-Taken 同页 2-Fetch 与 `off6 == 32` `up16`**：在 1-Taken FTB 架构下，当块落在同 4KB 页下半部且无跳转冲突时，同拍读取连续相邻 32B 缓存行（`is_pair`），并在 `off6 == 32` 的 32-bit 分支跨 64B 边界处复用 `b_ok` 将 `raw_b[0]` 送入 `up16_a`（0 新增 `inst_fifo_entry_t` 位宽），消除跨行 32-bit Taken 分支的 Predecode Flush；
+> 3. **Cut B1（寄存 `fdip_s2_{en,va,clear}`）**：在 `front_pred_path.sv` 将 BPU S2 的 FDIP 入队信号与 `global_refetch` 寄存 1 拍后再送入 `icache_fdip` 8 项去重 CAM，彻底斩断 `u_bpu → u_icache/u_fdip` 跨子系统关键路径；
+> 4. **零黑盒真 SRAM**：`ttg_sram_1r1w` 在 `SYNTH_TSMC28_SRAM` 下全部映射为真实 TSMC 28nm 1RW SRAM 宏单元 + `WRITE_FIRST` 旁路 FF（≤1024b 小表走 FF）。
+>
 > **EXP-053 前端结构清理（Phase 1 + Phase 2）升级**：
 > 1. **紧凑原始半字 `inst_fifo_entry_t` 与单份展开预译码（Phase 1）**：`front_fetch_buf` 不再做双份展开/预译码与宽目标存储，`inst_fifo` 仅存原始 16b 半字流与精简元数据；单份 `rvc_expand` + `predecode` 与 4 轮 Kogge-Stone `start_a`/`start_b` 前缀扫描统一落在 `front_head_fix`（按实际 `s1_seq` 64B 行掩码对齐，兼容错路奇地址）；
 > 2. **删死线与去补丁（Phase 1 + P2-2）**：删除全链路死信号 `tage_idx` / `tage_tag`；用显式 1-bit `pf_inst_hi` 替代原先经 `inst -> diag_val[1]` 搭便车传递跨页 RVC 第二半字取指缺页偏移；

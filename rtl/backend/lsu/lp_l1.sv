@@ -347,7 +347,7 @@ module lp_l1
     pf_p_en = '0; pf_p_llc = '0;
     for (int q = 0; q < NLD; q++) pf_p_va[q] = '0;
     for (int q = 0; q < NLD; q++) begin
-      if (!used_new[q] && !picked[q] && !(srp_cons && srp_phys == 3'(q)) && (j < 3'(NLD)) && pf_xq_v[j[1:0]]) begin
+      if (!used_new[q] && !picked[q] && !(srp_req && srp_phys == 3'(q)) && (j < 3'(NLD)) && pf_xq_v[j[1:0]]) begin
         pf_p_en[q]  = 1'b1;
         pf_p_va[q]  = pf_xq_va[j[1:0]];
         pf_p_llc[q] = pf_xq_llc[j[1:0]];

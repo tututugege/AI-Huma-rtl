@@ -98,6 +98,7 @@ module exu
   logic fu_bru_mispred [BRU_NUM];
   logic fu_bru_br_taken [BRU_NUM];
   logic [N_MC-1:0] fu_mc_ready;
+  logic div_wb_next [DIV_NUM];
   logic [N_MC-1:0] fu_mc_complete;
   logic [XLEN_BITS-1:0] fu_mc_result [N_MC];
   logic [PRF_IDX_WIDTH-1:0] fu_mc_dest_preg [N_MC];
@@ -460,7 +461,6 @@ module exu
   logic div_is_word [DIV_NUM];
   logic div_complete [DIV_NUM];
   logic div_ready [DIV_NUM];
-  logic div_wb_next [DIV_NUM];
   logic div_wake_valid [DIV_NUM];
   logic [PRF_IDX_WIDTH-1:0] div_wake_preg [DIV_NUM];
   logic [XLEN_BITS-1:0] div_result [DIV_NUM];

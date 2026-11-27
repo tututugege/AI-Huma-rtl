@@ -80,7 +80,7 @@ module tlb_mmu_core import tlb_mmu_pkg::*; import ttg_cfg_pkg::*; #(
   logic             pf_page_v_q, early_pf_drop;
   logic [VPN_W-1:0] pf_page_q;
   logic early_in_translate;
-  assign early_pf_drop = !FETCH && pf_page_v_q && early_done && (walk_q.vpn == pf_page_q);
+  assign early_pf_drop = !FETCH && translate && !early_refill_ok && pf_page_v_q && early_done && (walk_q.vpn == pf_page_q);
   assign early_in_translate = FETCH ? 1'b0 : (early_refill_ok || early_pf_drop);
   assign early_consume = fence ? 1'b0 : (cancel ? early_done : early_in_translate);
 

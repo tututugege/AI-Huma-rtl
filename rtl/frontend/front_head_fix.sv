@@ -38,13 +38,13 @@ module front_head_fix import ttg_cfg_pkg::*; import front_pkg::*; (
   localparam logic [15:0] INST_NOP_LO = 16'h0013;
   localparam int          IC_OFF_W    = $clog2(ICACHE_LINE_SIZE);
 
-  // ---- Step 1: S2-confirmed raw halfword A/B mux ----
+  // ---- Step 1: Same-Page Line-Straddle 2-Fetch contiguous halfword assembly ----
   logic                   use_pair;
   logic [FETCH_WIDTH-1:0] s1_v, s1_pf;
   logic [XLEN_BITS-1:0]   s1_pc   [FETCH_WIDTH], ptab_pc [FETCH_WIDTH];
   logic [15:0]            s1_lo   [FETCH_WIDTH], s1_hi   [FETCH_WIDTH];
 
-  assign use_pair = inst_e.is_pair && ptab_is_pair;
+  assign use_pair = inst_e.is_pair;
 
   always_comb begin
     for (int i = 0; i < FETCH_WIDTH; i++) begin
@@ -53,7 +53,7 @@ module front_head_fix import ttg_cfg_pkg::*; import front_pkg::*; (
       if (use_pair && (4'(i) >= inst_e.a_len)) begin
         s1_v[i]  = inst_e.b_ok && ({1'b0, j} < inst_e.b_actual_n);
         s1_pf[i] = 1'b0;
-        s1_pc[i] = inst_e.base_b + (XLEN_BITS'(j) << SLOT_SHIFT);
+        s1_pc[i] = inst_e.base_a + XLEN_BITS'(SLOT_BYTES * i);
         s1_lo[i] = s1_v[i] ? inst_e.raw_b[j] : INST_NOP_LO;
         s1_hi[i] = s1_v[i]
                    ? (({1'b0, j} + 5'd1 < inst_e.b_actual_n) ? inst_e.raw_b[j + 4'd1] : inst_e.up16_b)
@@ -63,11 +63,16 @@ module front_head_fix import ttg_cfg_pkg::*; import front_pkg::*; (
         s1_pf[i] = inst_e.pf_a[i];
         s1_pc[i] = inst_e.base_a + XLEN_BITS'(SLOT_BYTES * i);
         s1_lo[i] = inst_e.raw_a[i];
-        s1_hi[i] = (inst_e.pf_a[i] || !inst_e.valid_a[i])
-                   ? 16'h0000
-                   : (((i + 1 < FETCH_WIDTH) && inst_e.valid_a[i + 1]) ? inst_e.raw_a[i + 1] : inst_e.up16_a);
+        if (inst_e.pf_a[i] || !inst_e.valid_a[i]) begin
+          s1_hi[i] = 16'h0000;
+        end else if (use_pair && inst_e.b_ok && (inst_e.b_actual_n != 5'd0) && (4'(i) == inst_e.a_len - 4'd1)) begin
+          // Stitch 32-bit instruction straddling the 64B cache-line boundary directly from Line L+1 slot 0!
+          s1_hi[i] = inst_e.raw_b[0];
+        end else begin
+          s1_hi[i] = ((i + 1 < FETCH_WIDTH) && inst_e.valid_a[i + 1]) ? inst_e.raw_a[i + 1] : inst_e.up16_a;
+        end
       end
-      ptab_pc[i] = pair_slot_pc(ptab_base_pc, ptab_is_pair, ptab_a_len, ptab_base_b, i);
+      ptab_pc[i] = ptab_base_pc + XLEN_BITS'(SLOT_BYTES * i);
     end
   end
 
@@ -83,7 +88,8 @@ module front_head_fix import ttg_cfg_pkg::*; import front_pkg::*; (
   ttg_onehot_mux #(.N(FETCH_WIDTH), .W(16))        u_s1_up16 (.sel(s1_last_oh), .data(s1_hi), .out(s1_up16));
   ttg_onehot_mux #(.N(FETCH_WIDTH), .W(XLEN_BITS)) u_s1_lpc  (.sel(s1_last_oh), .data(s1_pc), .out(s1_last_pc));
   assign s1_up_ok   = s1_has_v && (!inst_e.single_word_a) &&
-                      (((s1_last_pc + XLEN_BITS'(SLOT_BYTES)) & XLEN_BITS'(ICACHE_LINE_SIZE - 1)) != '0);
+                      ((((s1_last_pc + XLEN_BITS'(SLOT_BYTES)) & XLEN_BITS'(ICACHE_LINE_SIZE - 1)) != '0) ||
+                       (!use_pair && inst_e.b_ok));
   assign s1_seq_raw = s1_has_v ? (s1_last_pc + XLEN_BITS'(SLOT_BYTES)) : inst_e.base_a;
   assign s1_seq     = (!use_pair && (s1_seq_raw[XLEN_BITS-1:IC_OFF_W] != inst_e.base_a[XLEN_BITS-1:IC_OFF_W]))
                       ? {s1_seq_raw[XLEN_BITS-1:IC_OFF_W], {IC_OFF_W{1'b0}}}
@@ -119,9 +125,14 @@ module front_head_fix import ttg_cfg_pkg::*; import front_pkg::*; (
     z_pre = z_pre | (z_pre << 8);
     s1_v_pre = ~z_pre;
 
-    bnd_vec = '0;
-    for (int i = 1; i < FETCH_WIDTH; i++)
-      bnd_vec[i] = use_pair && (4'(i) == inst_e.a_len) && (inst_e.base_b != (s1_pc[i - 1] + XLEN_BITS'(SLOT_BYTES)));
+    // Precompute pair discontinuity directly from inst_e (eliminates serial s1_pc[i-1] + 2 chain!)
+    begin
+      logic pair_disc;
+      pair_disc = (inst_e.base_b != (inst_e.base_a + (XLEN_BITS'(inst_e.a_len) << SLOT_SHIFT)));
+      bnd_vec   = '0;
+      for (int i = 1; i < FETCH_WIDTH; i++)
+        bnd_vec[i] = use_pair && (4'(i) == inst_e.a_len) && pair_disc;
+    end
 
     ga_gen[0] = 1'b1;
     gb_gen[0] = 1'b0;
@@ -258,8 +269,10 @@ module front_head_fix import ttg_cfg_pkg::*; import front_pkg::*; (
     end
   end
 
-  ttg_onehot_mux #(.N(FETCH_WIDTH), .W(XLEN_BITS)) u_comp_pc  (.sel(complete_oh), .data(slot_pc_o), .out(comp_pc));
-  ttg_onehot_mux #(.N(FETCH_WIDTH), .W(16))        u_comp_low (.sel(complete_oh), .data(raw_low),   .out(comp_low));
+  // Select straddler candidate directly from s2_last_oh & s1_lo (100% parallel with scan_starts/chain and complete_oh!)
+  // Proof: complete_oh[i] => s2_last_oh[i] && !s1_rvc[i] && !(i==0 && carry), so comp_pc === s2_last_pc and comp_low === s1_lo[last].
+  assign comp_pc = s2_last_pc;
+  ttg_onehot_mux #(.N(FETCH_WIDTH), .W(16)) u_comp_low (.sel(s2_last_oh), .data(s1_lo), .out(comp_low));
   assign comp_word = {s2_up16, comp_low};
 
   predecode_lane u_comp (
@@ -301,7 +314,7 @@ module front_head_fix import ttg_cfg_pkg::*; import front_pkg::*; (
 
   /* verilator lint_off UNUSEDSIGNAL */
   logic unused_hf;
-  assign unused_hf = s1_inv_oh[0];
+  assign unused_hf = s1_inv_oh[0] ^ ptab_is_pair ^ (^ptab_base_b) ^ (^ptab_a_len);
   /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

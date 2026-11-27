@@ -24,11 +24,86 @@ module ttg_sram_1r1w #(
   input  logic [MASK_W-1:0]        wmask
 );
 
-`ifndef SRAM_BLACKBOX
+  /* verilator lint_off UNUSEDPARAM */
   localparam int SEG_W = WIDTH / MASK_W;
-`endif
+  /* verilator lint_on UNUSEDPARAM */
 
-`ifdef SRAM_BLACKBOX
+`ifdef SYNTH_TSMC28_SRAM
+  // Real TSMC 28nm HS LVT SRAM macro mapping (ZERO blackbox: real CLK->Q, setup, and macro area).
+  // Note: the eda cluster provides prebuilt TSMC28 1RW .lib/.db macros (TEM5N28HPCPLVTA*) without an MC2 license
+  // for the 2PRF compiler tarball; functional simulation never defines SYNTH_TSMC28_SRAM.
+  if ((DEPTH * WIDTH) <= 1024) begin : g_small_ff
+    logic [WIDTH-1:0] mem_q [DEPTH];
+    logic [WIDTH-1:0] rdata_q;
+    logic             same_addr;
+    assign same_addr = re && we && (raddr == waddr);
+    always_ff @(posedge clk) begin
+      if (we) begin
+        for (int m = 0; m < MASK_W; m++) begin
+          if (wmask[m]) mem_q[waddr][m * SEG_W +: SEG_W] <= wdata[m * SEG_W +: SEG_W];
+        end
+      end
+      if (re) begin
+        for (int m = 0; m < MASK_W; m++) begin
+          if (WRITE_FIRST && same_addr && wmask[m])
+            rdata_q[m * SEG_W +: SEG_W] <= wdata[m * SEG_W +: SEG_W];
+          else
+            rdata_q[m * SEG_W +: SEG_W] <= mem_q[raddr][m * SEG_W +: SEG_W];
+        end
+      end
+    end
+    assign rdata = rdata_q;
+  end else begin : g_macro
+    localparam int EFF_DEPTH = (DEPTH < 64) ? 64 : DEPTH;
+    localparam int EFF_AW    = $clog2(EFF_DEPTH);
+    logic [EFF_AW-1:0] raddr_p, waddr_p, m_addr;
+    logic [WIDTH-1:0]  m_rdata;
+    always_comb begin
+      raddr_p = '0;
+      waddr_p = '0;
+      raddr_p[$clog2(DEPTH)-1:0] = raddr;
+      waddr_p[$clog2(DEPTH)-1:0] = waddr;
+      m_addr = we ? waddr_p : raddr_p;
+    end
+    ttg_sram_1rw #(
+      .DEPTH   (EFF_DEPTH),
+      .WIDTH   (WIDTH),
+      .MASK_W  (MASK_W),
+      .INIT_VAL(INIT_VAL),
+      .TAG     (TAG)
+    ) u_macro_1rw (
+      .clk  (clk),
+      .en   (re || we),
+      .we   (we),
+      .addr (m_addr),
+      .wdata(wdata),
+      .wmask(wmask),
+      .rdata(m_rdata)
+    );
+    if (WRITE_FIRST) begin : g_wf
+      logic              same_q;
+      logic [MASK_W-1:0] wmask_q;
+      logic [WIDTH-1:0]  wdata_q;
+      always_ff @(posedge clk) begin
+        same_q <= re && we && (raddr == waddr);
+        if (re && we && (raddr == waddr)) begin
+          wmask_q <= wmask;
+          wdata_q <= wdata;
+        end
+      end
+      always_comb begin
+        rdata = m_rdata;
+        if (same_q) begin
+          for (int m = 0; m < MASK_W; m++) begin
+            if (wmask_q[m]) rdata[m * SEG_W +: SEG_W] = wdata_q[m * SEG_W +: SEG_W];
+          end
+        end
+      end
+    end else begin : g_rf
+      assign rdata = m_rdata;
+    end
+  end
+`elsif SRAM_BLACKBOX
   // Hook for TSMC 28nm memory compiler macro mapping / DC blackbox flow
   (* syn_black_box *)
   logic [WIDTH-1:0] rdata_bb;

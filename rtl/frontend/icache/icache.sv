@@ -106,11 +106,11 @@ module icache import ttg_cfg_pkg::*; import icache_pkg::*; import tlb_mmu_pkg::*
   logic [IC_TAG_W-1:0] fdip_peek_tag, fdip_fill_tag;
   logic [IC_LINE_W-1:0] fdip_fill_line;
   logic [XLEN_BITS-1:0] peek_fdip_vaddr;
-  logic peek_fdip_ok, peek_b_ok;
-  logic [31:0] peek_fdip_paddr, peek_b_paddr;
+  logic peek_fdip_ok;
+  logic [31:0] peek_fdip_paddr;
 
-  // ---- Block B parallel lookup ----
-  logic        b_same_page, b_pa_ok, arr_b_hit, pair_miss_en;
+  // ---- Block B parallel next-line lookup (Same-Page Line-Straddle 2-Fetch: zero 2nd ITLB port!) ----
+  logic        b_pa_ok, arr_b_hit, pair_miss_en;
   logic [31:0] b_paddr;
   logic [IC_LINE_W-1:0] arr_b_hit_line;
 
@@ -136,13 +136,10 @@ module icache import ttg_cfg_pkg::*; import icache_pkg::*; import tlb_mmu_pkg::*
     .dc_req_valid(ctl_dc_req_valid), .dc_req_addr(ctl_dc_req_addr)
   );
 
-  // Block B address translation (same-page reuses resp_ppn; cross-page uses ITLB peek port 0)
-  logic b_same_line;
+  // Block B address translation: always next 64B line within same 4KB page -> reuses resp_ppn (0 gates, 0 ITLB peek!)
   always_comb begin
-    b_same_page  = (resp_pc[XLEN_BITS-1:12] == b_req_addr[XLEN_BITS-1:12]);
-    b_paddr      = b_same_page ? {resp_ppn, b_req_addr[11:0]} : peek_b_paddr;
-    b_pa_ok      = (b_same_page || peek_b_ok) && b_paddr[31];
-    b_same_line  = (b_paddr[31:IC_OFF_W] == {resp_ppn, resp_pc[11:IC_OFF_W]});
+    b_paddr      = {resp_ppn, b_req_addr[11:0]};
+    b_pa_ok      = b_paddr[31];
     pair_miss_en = b_req_valid && b_pa_ok && !arr_b_hit;
   end
 
@@ -152,7 +149,7 @@ module icache import ttg_cfg_pkg::*; import icache_pkg::*; import tlb_mmu_pkg::*
     .next_b_rd_index(next_b_idx),
     .hit(arr_hit), .hit_line(arr_hit_line), .has_invalid(arr_has_invalid), .first_invalid(arr_first_invalid),
     .repl_way(arr_repl_way),
-    .b_rd_valid(b_req_valid && b_pa_ok && !b_same_line),
+    .b_rd_valid(b_req_valid && b_pa_ok),
     .b_rd_index(b_paddr[IC_OFF_W +: IC_IDX_W]), .b_cmp_tag(b_paddr[31:12]),
     .b_hit(arr_b_hit), .b_hit_line(arr_b_hit_line),
     .fdip_peek_index, .fdip_peek_tag, .fdip_peek_hit(arr_fdip_peek_hit),
@@ -204,8 +201,8 @@ module icache import ttg_cfg_pkg::*; import icache_pkg::*; import tlb_mmu_pkg::*
     .ptw_resp_fault(ptw_walk_resp_fault), .ptw_resp_vpn(ptw_walk_resp_vpn),
     .ptw_resp_leaf_level(ptw_walk_resp_leaf_level),
     .ptw_resp_leaf_ppn(ptw_walk_resp_leaf_ppn), .ptw_resp_leaf_perm(ptw_walk_resp_leaf_perm),
-    .peek_b_vaddr(b_req_addr), .peek_fdip_vaddr,
-    .peek_b_ok, .peek_b_paddr, .peek_fdip_ok, .peek_fdip_paddr,
+    .peek_fdip_vaddr,
+    .peek_fdip_ok, .peek_fdip_paddr,
     .ppn_valid, .page_fault, .ppn,
     .ptw_req_valid(ptw_walk_req_valid), .ptw_req_vpn(ptw_walk_req_vpn), .ptw_req_root_ppn(ptw_walk_req_root_ppn),
     .ptw_resp_consumed(ptw_walk_resp_consumed), .ptw_flush(itlb_ptw_flush)
@@ -223,20 +220,17 @@ module icache import ttg_cfg_pkg::*; import icache_pkg::*; import tlb_mmu_pkg::*
     .page_fault_inst, .inst_valid
   );
 
-  // Block B halfword-window extraction (reuses resp_line if same 64B physical line, else arr_b_hit_line)
-  logic [IC_LINE_W-1:0] b_line_eff;
+  // Block B halfword-window extraction (always next 64B line -> arr_b_hit_line)
   logic [FETCH_WIDTH-1:0] b_inst_v_unused, b_pf_unused, b_up_unused;
   logic [XLEN_BITS-1:0]   b_pc_unused;
   logic [5:0]             b_avail_line;
-
-  assign b_line_eff  = b_same_line ? resp_line : arr_b_hit_line;
 
   icache_resp u_resp_b (
     .resp_valid      (b_req_valid && b_pa_ok && arr_b_hit),
     .resp_pc         (b_req_addr),
     .resp_page_fault (1'b0),
     .resp_single_word(1'b0),
-    .resp_line       (b_line_eff),
+    .resp_line       (arr_b_hit_line),
     .fetch_pc        (b_pc_unused),
     .fetch_group     (b_fetch_group),
     .upper_ok        (b_up_unused),

@@ -1,27 +1,23 @@
-// Ref: front-end/BPU/BpuFtb.h  struct BlockItt (v10: Zero-T0-Read Meta + 2-Bank 1RW + write-wins not-hit)
+// Ref: front-end/BPU/BpuFtb.h  struct BlockItt (Clean BPU v11: 3-table 2-Bank 1RW, Zero T0 Read)
 `default_nettype none
 
 module bpu_ftb_itt import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; import bpu_types_pkg::*; #(
-  parameter int    N_ENT   = FTB_ITT_N,
-  parameter int    NB      = BPU_ITT_BANKS,
-  parameter bit    HAS_RD2 = 1'b0,
+  parameter int    N_ENT    = FTB_ITT_N,
+  parameter int    NB       = BPU_ITT_BANKS,
+  parameter bit    HOLD_RD0 = 1'b0,
   /* verilator lint_off UNUSEDPARAM */
-  parameter [255:0] TAG    = "BPU_ITT"
+  parameter [255:0] TAG     = "BPU_ITT"
   /* verilator lint_on UNUSEDPARAM */
 ) (
   input  logic                 clk,
   input  logic                 rst_n,
-  // Predict sync read launch (write-wins sup masks enforce conflict-free 2-Bank 1RW)
+  // Predict sync read launch (write-wins rd_sup enforces conflict-free 2-Bank 1RW)
   input  logic                 rd_en,
   input  logic [NITT-1:0]      rd_sup,
-  input  logic                 rd2_en,
-  input  logic [NITT-1:0]      rd2_sup,
   /* verilator lint_off UNUSEDSIGNAL */
   input  ftb_ix_t              rd_ix,
-  input  ftb_ix_t              rd2_ix,
   /* verilator lint_on UNUSEDSIGNAL */
   output ftb_itt_raw_t         rd_raw,
-  output ftb_itt_raw_t         rd2_raw,
   // Single-cycle pure commit write (computed from ftb_rec itt_meta_t; ZERO T0 read!)
   input  logic                 upd_en,
   /* verilator lint_off UNUSEDSIGNAL */
@@ -35,15 +31,14 @@ module bpu_ftb_itt import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
 
   localparam int IDX_W = $clog2(N_ENT);
   localparam int ENT_W = $bits(ftb_itt_ent_t);
-  // Bit position of `u` inside packed ftb_itt_ent_t {valid, tag[9:0], conf[1:0], u, target[37:0]}
   localparam int U_BIT = FTB_VA_BITS;
 
   logic [FTB_VA_BITS-1:0] upd_tgt38;
   assign upd_tgt38 = sv39_pack(upd_target);
 
-  // ---- Pure-combinational commit plan from Meta (matches BlockItt::compute_plan_from_meta!) ----
-  logic [NITT-1:0]  wr_mask, u_clr_only;
-  ftb_itt_ent_t     wr_ent [NITT];
+  // ---- Pure-combinational commit plan from Meta ----
+  logic [NITT-1:0] wr_mask, u_clr_only;
+  ftb_itt_ent_t    wr_ent [NITT];
 
   always_comb begin
     logic         hit_found, correct, alloc_found, old_u, new_u;
@@ -121,19 +116,13 @@ module bpu_ftb_itt import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
     wr_mask_o = wr_mask;
   end
 
-  // ---- 2-Bank 1RW SRAMs (per-bit wmask handles u_clr_only without T0 read!) ----
+  // ---- 2-Bank 1RW SRAMs ----
   logic [ENT_W-1:0] rd0_raw [NITT];
-  logic [ENT_W-1:0] rd1_raw [NITT];
-  logic [NITT-1:0]  rd0_sup_q, rd1_sup_q;
+  logic [NITT-1:0]  rd0_sup_q;
 
   always_ff @(posedge clk) begin
-    if (!rst_n) begin
-      rd0_sup_q <= '0;
-      rd1_sup_q <= '0;
-    end else begin
-      if (HAS_RD2 || rd_en) rd0_sup_q <= rd_sup;
-      if (HAS_RD2)          rd1_sup_q <= rd2_sup;
-    end
+    if (!rst_n)      rd0_sup_q <= '0;
+    else if (rd_en)  rd0_sup_q <= rd_sup;
   end
 
   for (genvar k = 0; k < NITT; k++) begin : g_tbl
@@ -145,17 +134,13 @@ module bpu_ftb_itt import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
       .DEPTH   (N_ENT),
       .NB      (NB),
       .MASK_W  (ENT_W),
-      .HAS_RD1 (HAS_RD2),
-      .HOLD_RD0(!HAS_RD2),
+      .HOLD_RD0(HOLD_RD0),
       .TAG     (TAG)
     ) u_mem (
       .clk         (clk),
       .rd0_en      (rd_en && !rd_sup[k]),
       .rd0_addr    (rd_ix.idx[ITT_TBL[k]][IDX_W-1:0]),
       .rd0_data    (rd0_raw[k]),
-      .rd1_en      (HAS_RD2 && rd2_en && !rd2_sup[k]),
-      .rd1_addr    (rd2_ix.idx[ITT_TBL[k]][IDX_W-1:0]),
-      .rd1_data    (rd1_raw[k]),
       .clr_rd_en   (1'b0),
       .clr_rd_addr ('0),
       /* verilator lint_off PINCONNECTEMPTY */
@@ -170,13 +155,12 @@ module bpu_ftb_itt import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
       .rst_wr_data ('0),
       .rst_wr_wmask('0)
     );
-    assign rd_raw[k]  = rd0_sup_q[k] ? '0 : ftb_itt_ent_t'(rd0_raw[k]);
-    assign rd2_raw[k] = (HAS_RD2 && !rd1_sup_q[k]) ? ftb_itt_ent_t'(rd1_raw[k]) : '0;
+    assign rd_raw[k] = rd0_sup_q[k] ? '0 : ftb_itt_ent_t'(rd0_raw[k]);
   end
 
   /* verilator lint_off UNUSEDSIGNAL */
   logic unused_ok;
-  assign unused_ok = ^{rd2_en, rd2_sup, upd_target};
+  assign unused_ok = ^upd_target;
   /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

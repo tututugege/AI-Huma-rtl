@@ -3,11 +3,15 @@ module: lsu
 area: backend
 rtl: rtl/backend/lsu
 model: trace-model back-end/Lsu/RealLsuPipe.cpp、LsuPipeOutputs.cpp、LsuPipeWriteback.cpp、LsuPipeTranslate.cpp、LsuPipeRequests.cpp、LsuPipeInternal.h、include/RealLsu.h、include/RealLsuPipe.h（调度单元 `back.lsu`，类 `RealLsu`，阶段 `comb_outputs / comb_writeback / comb_translate / comb_requests / comb_commit_store`）
-status: 整核周期与模型逐个相等（`fm_gate` 69/69 PASS、0 周期偏差，Linux 26/26 窗 PT/UP 100% 全等）
-depth: **TSMC 28nm HPC+ DC (`ssg0p81v125c`, `0.50ns`)：WNS `−0.39 ns`（`1.12 GHz`，纯组合 `0.84 ns`）、`43` 级（较 `main` `49` 级 −6）、TNS `−7,496`（−16.6%）、面积 `758,236 µm²`（较 `main` `840,182 µm²` 降 **−9.8%**）；Yosys `149` 层 / `1,313,420` cells**
+status: 整核周期与模型逐个相等（EXP-070：零周期变化接入 DTLB `paddr_p1/m1` 预计算 + `stq_bloom_d` 位并行 OR 归约；`fm_gate` 77/77 + `riscv-tests` 152/152 PASS）
+depth: **TSMC 28nm HPC+ DC (`ssg0p81v125c`, `0.50ns`)：单模块 `lsu` WNS `−0.39 ns`（`1.12 GHz`，纯组合 `0.84 ns`）/ `44` 级 / `767,221 µm²`；整块 `back_top_bb`（`2.573 mm²`）中 EXU/LSU↔DTLB 往返已从 `1.24 ns` 退出顶路径（新顶路径为 `u_lsu/u_ldq → u_wb → u_isu/wait2_q` 与 `u_lsu/u_wake → u_isu → u_prf(27R) → u_exu/slot_q`，均 `1.16 ns`）**
 ---
 
 # lsu 设计文档
+
+> **EXP-070 后端子系统时序优化（0 周期变化）**：
+> - `lp_l1` / `lp_l1b` / `lp_rp` / `lp_stq_ent` 直接接收 `tlb_mmu` 并行输出的 `mmu_paddr_p1` / `mmu_paddr_m1`，消除 EXU/LSU ↔ DTLB 往返路径上的 29-bit 加法器与 `u_stq/vw` 64:1 mux 依赖；
+> - `lp_core` 的 256-bit `stq_bloom_d` 改为显式按 bit 并行 OR 归约，消除综合器生成的 64 级串行 mux 链（0 周期变化）。
 
 ## 1. 职责
 

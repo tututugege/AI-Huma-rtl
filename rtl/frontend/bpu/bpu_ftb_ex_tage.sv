@@ -1,24 +1,18 @@
-// Ref: front-end/BPU/BpuSc.h  struct ExBlockTage (v10: Zero-T0-Read Meta + 8-entry FF WRBypass + Deep 1RW)
-//   - u_base: 4 banks x (1024 x 8b) 1RW (4 slots x 2b, MASK_W=4, INIT=8'h55)
-//   - u_tbl[0..7]: 8 tables x 8 banks x (512 x 64b) 1RW (4 slots x {uhi, ulo, tag[10:0], cnt[2:0]}, MASK_W=64)
-//   - Zero T0 read ports! Commit computes write plan from ftb_rec Meta + inline 8-entry FF WRBypass.
-//   - Write-wins not-hit on 8-bank tagged tables; Predict-wins on 4-bank base table.
+// Ref: front-end/BPU/BpuSc.h  struct ExBlockTage (Clean BPU v11: 6-table 8-Bank 1RW + 4-Bank Base, Zero T0 Read)
+//   - u_base:      4 banks x (1024 x 8b) 1RW (4 slots x 2b, MASK_W=4, INIT=8'h55)
+//   - u_tbl[0..5]: 6 tables x 8 banks x (512 x 64b) 1RW (4 slots x {uhi, ulo, tag[10:0], cnt[2:0]}, MASK_W=64)
 `default_nettype none
 
 module bpu_ftb_ex_tage import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; import bpu_types_pkg::*; (
   input  logic                  clk,
   input  logic                  rst_n,
-  // S1 dual sync read launch (per-table sup masks enforce conflict-free 1RW under write-wins)
+  // S1 single-block sync read launch (write-wins rd_sup enforces conflict-free 8-Bank 1RW)
   input  logic                  rd_en,
   input  logic [EX_TN-1:0]      rd_sup,
-  input  logic                  rd2_en,
-  input  logic [EX_TN-1:0]      rd2_sup,
   /* verilator lint_off UNUSEDSIGNAL */
   input  ex_tage_ix_t           rd_ix,
-  input  ex_tage_ix_t           rd2_ix,
   /* verilator lint_on UNUSEDSIGNAL */
   output ex_tage_raw_t          rd_raw,
-  output ex_tage_raw_t          rd2_raw,
   output logic [15:0][3:0]      use_alt_o,
   // Single-cycle pure commit write (computed from ftb_rec Meta + WRBypass; ZERO T0 read!)
   input  logic                  upd_en,
@@ -30,16 +24,10 @@ module bpu_ftb_ex_tage import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stag
   input  logic                  upd_meta_valid,
   input  ex_tage_slot_meta_t    upd_meta,
   input  logic                  do_base_wr,       // gated by Predict-wins on 4-bank u_base
-  // Combinational write-bank info exported to bpu_ftb_arrays for write-wins arbitration
-  output logic                  base_wr_req_o,
+  // Combinational write masks exported to bpu_ftb_arrays for write-wins arbitration
   output logic [EX_TN-1:0]      tbl_wr_mask_o,
-  // Per-table 8-bit busy masks (wr | rd0 | rd1) for deferred 1RW uhi periodic reset
-  input  logic [EX_TN-1:0][BPU_S2_TAGE_BANKS-1:0] tbl_busy_mask,
-  // Exports commit-plan TAGE prediction to S2 SC
-  output logic                  upd_pred_o,
-  output logic                  upd_prov_hit_o,
-  output logic [2:0]            upd_prov_cnt_o,
-  output logic [1:0]            upd_base_cnt_o
+  // Per-table 8-bit busy masks (wr | rd0) for deferred 1RW uhi periodic reset
+  input  logic [EX_TN-1:0][BPU_S2_TAGE_BANKS-1:0] tbl_busy_mask
 );
 
   localparam int IDX_W = $clog2(EX_TAGE_N);
@@ -54,10 +42,10 @@ module bpu_ftb_ex_tage import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stag
 
   assign use_alt_o = use_alt_q;
 
-  // ---- Inline 8-entry FF WRBypass (shared across all 9 combinational lookups: base + pcpn + useful[0..7]) ----
+  // ---- Inline 8-entry FF WRBypass ----
   typedef struct packed {
     logic             valid;
-    logic [3:0]       tbl;  // 0..7 tagged, 8 = base
+    logic [3:0]       tbl;  // 0..EX_TN-1 tagged, EX_TN = base
     logic [1:0]       sl;
     logic [IDX_W-1:0] idx;
     logic [2:0]       cnt;
@@ -68,7 +56,6 @@ module bpu_ftb_ex_tage import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stag
   logic [2:0] wrb_ptr_q;
 
   function automatic logic [5:0] wrb_lookup(input logic [3:0] tbl, input logic [1:0] sl, input logic [IDX_W-1:0] idx);
-    // returns {hit, u[1:0], cnt[2:0]}
     for (int i = 0; i < BPU_WRB_N; i++) begin
       if (wrb_q[i].valid && (wrb_q[i].tbl == tbl) && (wrb_q[i].sl == sl) && (wrb_q[i].idx == idx))
         return {1'b1, wrb_q[i].u, wrb_q[i].cnt};
@@ -76,7 +63,7 @@ module bpu_ftb_ex_tage import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stag
     return 6'd0;
   endfunction
 
-  // ---- Compute pure-combinational commit write plan from Meta + WRBypass ----
+  // ---- Pure-combinational commit write plan from Meta + WRBypass ----
   logic [3:0]  eff_pcpn, start_t, nf;
   logic        eff_alt, eff_pred, pdir, is_weak;
   logic [1:0]  bc, nbc, prov_u, prov_u_new;
@@ -104,11 +91,7 @@ module bpu_ftb_ex_tage import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stag
     prov_u   = (eff_pcpn < 4'(EX_TN)) ? (lk_p[5] ? lk_p[4:3] : (upd_meta_valid ? upd_meta.prov_u : 2'd0))
                                       : 2'd0;
 
-    eff_pred       = upd_meta_valid ? upd_meta.pred : (bc >= 2'd2);
-    upd_pred_o     = eff_pred;
-    upd_prov_hit_o = (eff_pcpn < 4'(EX_TN));
-    upd_prov_cnt_o = (eff_pcpn == 4'(EX_TN)) ? {1'b0, bc} : prov_cnt;
-    upd_base_cnt_o = bc;
+    eff_pred = upd_meta_valid ? upd_meta.pred : (bc >= 2'd2);
 
     nbc         = upd_real_dir ? ((bc < 2'd3) ? (bc + 2'd1) : 2'd3)
                                : ((bc > 2'd0) ? (bc - 2'd1) : 2'd0);
@@ -162,12 +145,11 @@ module bpu_ftb_ex_tage import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stag
       end
     end
 
-    base_wr_req_o = base_wr_req;
     tbl_wr_mask_o = tbl_wr_mask;
   end
 
-  // ---- Packed 4-Bank u_base + 8-Bank u_tbl[0..7] 1RW SRAMs (ZERO T0 read ports!) ----
-  logic [7:0] base_rd0, base_rd1, base_wr_d;
+  // ---- Packed 4-Bank u_base + 8-Bank u_tbl[0..5] 1RW SRAMs ----
+  logic [7:0] base_rd0, base_wr_d;
   logic [3:0] base_wr_m;
 
   assign base_wr_d = {4{nbc}};
@@ -176,9 +158,8 @@ module bpu_ftb_ex_tage import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stag
   bpu_sram_1rw_banked #(
     .W      (8),
     .DEPTH  (EX_TAGE_N),
-    .NB     (BPU_FTB1_BANKS),
+    .NB     (BPU_S2_BASE_BANKS),
     .MASK_W (4),
-    .HAS_RD1(1'b1),
     .HAS_RST(1'b0),
     .INIT   (8'h55),
     .TAG    ("BPU_S2_TAGE_BASE")
@@ -187,9 +168,6 @@ module bpu_ftb_ex_tage import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stag
     .rd0_en      (rd_en),
     .rd0_addr    (rd_ix.base_idx),
     .rd0_data    (base_rd0),
-    .rd1_en      (rd2_en),
-    .rd1_addr    (rd2_ix.base_idx),
-    .rd1_data    (base_rd1),
     .clr_rd_en   (1'b0),
     .clr_rd_addr ('0),
     /* verilator lint_off PINCONNECTEMPTY */
@@ -205,16 +183,14 @@ module bpu_ftb_ex_tage import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stag
     .rst_wr_wmask('0)
   );
 
-  logic [63:0] tbl_rd0   [EX_TN];
-  logic [63:0] tbl_rd1   [EX_TN];
-  logic [63:0] tbl_wr_d  [EX_TN];
-  logic [63:0] tbl_wr_m  [EX_TN];
-  logic        rst_en;
-  logic [EX_TN-1:0]      rst_pend_eff, rst_fire;
+  logic [63:0]           tbl_rd0  [EX_TN];
+  logic [63:0]           tbl_wr_d [EX_TN];
+  logic [63:0]           tbl_wr_m [EX_TN];
+  logic                  rst_en;
+  logic [EX_TN-1:0]      rst_pend_eff, rst_fire, rd0_sup_q;
   logic [IDX_W-1:0]      rst_row_eff;
   logic [FTB_SLOT_W-1:0] rst_sl_eff;
-  logic [63:0] rst_wmask;
-  logic [EX_TN-1:0] rd0_sup_q, rd1_sup_q;
+  logic [63:0]           rst_wmask;
 
   assign reset_cnt_d  = upd_en ? (reset_cnt_q + 32'd1) : reset_cnt_q;
   assign rst_en       = upd_en && (reset_cnt_d[EX_TAGE_URST-1:0] == '0);
@@ -234,11 +210,9 @@ module bpu_ftb_ex_tage import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stag
           lane_d = {tbl_u_new[t], upd_ix.tag[t], tbl_cnt_new[t]};
           lane_m = 16'hffff;
         end else if (prov_wr_req && (eff_pcpn[2:0] == 3'(t))) begin
-          // Update u & cnt via bit-level wmask (preserves tag without T0 read!)
           lane_d = {tbl_u_new[t], 11'd0, tbl_cnt_new[t]};
           lane_m = 16'hc007;
         end else begin
-          // u-only decrement via bit-level wmask (preserves tag & cnt without T0 read!)
           lane_d = {tbl_u_new[t], 14'd0};
           lane_m = 16'hc000;
         end
@@ -254,7 +228,6 @@ module bpu_ftb_ex_tage import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stag
       .DEPTH  (EX_TAGE_N),
       .NB     (BPU_S2_TAGE_BANKS),
       .MASK_W (64),
-      .HAS_RD1(1'b1),
       .HAS_RST(1'b1),
       .INIT   (64'd0),
       .TAG    ("BPU_S2_TAGE_TBL")
@@ -263,9 +236,6 @@ module bpu_ftb_ex_tage import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stag
       .rd0_en      (rd_en && !rd_sup[t]),
       .rd0_addr    (rd_ix.idx[t]),
       .rd0_data    (tbl_rd0[t]),
-      .rd1_en      (rd2_en && !rd2_sup[t]),
-      .rd1_addr    (rd2_ix.idx[t]),
-      .rd1_data    (tbl_rd1[t]),
       .clr_rd_en   (1'b0),
       .clr_rd_addr ('0),
       /* verilator lint_off PINCONNECTEMPTY */
@@ -282,17 +252,14 @@ module bpu_ftb_ex_tage import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stag
     );
   end
 
-  // ---- Unpack predict raw (suppressed 1RW banks force tag=0, cnt=0, useful=1, matching BpuSc.h!) ----
+  // ---- Unpack predict raw ----
   always_comb begin
     for (int sl = 0; sl < FTB_SLOTS; sl++) begin
-      rd_raw[sl].base_cnt  = base_rd0[sl * 2 +: 2];
-      rd_raw[sl].sup_mask  = rd0_sup_q;
-      rd2_raw[sl].base_cnt = base_rd1[sl * 2 +: 2];
-      rd2_raw[sl].sup_mask = rd1_sup_q;
+      rd_raw[sl].base_cnt = base_rd0[sl * 2 +: 2];
+      rd_raw[sl].sup_mask = rd0_sup_q;
       for (int t = 0; t < EX_TN; t++) begin
-        logic [15:0] e0, e1;
+        logic [15:0] e0;
         e0 = tbl_rd0[t][sl * 16 +: 16];
-        e1 = tbl_rd1[t][sl * 16 +: 16];
         if (rd0_sup_q[t]) begin
           rd_raw[sl].cnt[t]    = 3'd0;
           rd_raw[sl].tag[t]    = '0;
@@ -302,15 +269,6 @@ module bpu_ftb_ex_tage import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stag
           rd_raw[sl].tag[t]    = e0[13:3];
           rd_raw[sl].useful[t] = e0[15:14];
         end
-        if (rd1_sup_q[t]) begin
-          rd2_raw[sl].cnt[t]    = 3'd0;
-          rd2_raw[sl].tag[t]    = '0;
-          rd2_raw[sl].useful[t] = 2'd1;
-        end else begin
-          rd2_raw[sl].cnt[t]    = e1[2:0];
-          rd2_raw[sl].tag[t]    = e1[13:3];
-          rd2_raw[sl].useful[t] = e1[15:14];
-        end
       end
     end
   end
@@ -319,8 +277,8 @@ module bpu_ftb_ex_tage import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stag
   logic [3:0] lsfr_nxt, ua_idx, ua_cur;
 
   always_comb begin
-    lsfr_nxt    = {lsfr_q[2:0], lsfr_q[3] ^ lsfr_q[2]};
-    lsfr_d      = upd_en ? ((lsfr_nxt == 4'd0) ? 4'd1 : lsfr_nxt) : lsfr_q;
+    lsfr_nxt  = {lsfr_q[2:0], lsfr_q[3] ^ lsfr_q[2]};
+    lsfr_d    = upd_en ? ((lsfr_nxt == 4'd0) ? 4'd1 : lsfr_nxt) : lsfr_q;
 
     rst_pend_d = rst_pend_eff & ~rst_fire;
     rst_row_d  = rst_row_eff;
@@ -338,7 +296,6 @@ module bpu_ftb_ex_tage import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stag
     end
   end
 
-  // Helper task for WRBypass sequential insert (up to 2 inserts per cycle: base/prov + alloc)
   wrb_ent_t wrb_d [BPU_WRB_N];
   logic [2:0] wrb_ptr_d;
 
@@ -350,7 +307,6 @@ module bpu_ftb_ex_tage import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stag
     for (int i = 0; i < BPU_WRB_N; i++) wrb_d[i] = wrb_q[i];
     p = wrb_ptr_q;
 
-    // Insert 1: base_wr (if fired) or prov_wr
     if (base_wr_req && do_base_wr) begin
       hit1 = 1'b0; h1_i = 3'd0;
       for (int i = 0; i < BPU_WRB_N; i++)
@@ -379,7 +335,6 @@ module bpu_ftb_ex_tage import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stag
       end
     end
 
-    // Insert 2: alloc (chosen_t)
     if (do_alloc) begin
       hit2 = 1'b0; h2_i = 3'd0;
       for (int i = 0; i < BPU_WRB_N; i++)
@@ -405,7 +360,6 @@ module bpu_ftb_ex_tage import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stag
       rst_row_q   <= '0;
       rst_sl_q    <= '0;
       rd0_sup_q   <= '0;
-      rd1_sup_q   <= '0;
       wrb_ptr_q   <= 3'd0;
       for (int i = 0; i < 16; i++) use_alt_q[i] <= FTB_USE_ALT_INIT;
       for (int i = 0; i < BPU_WRB_N; i++) wrb_q[i] <= '0;
@@ -415,8 +369,7 @@ module bpu_ftb_ex_tage import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stag
       rst_pend_q  <= rst_pend_d;
       rst_row_q   <= rst_row_d;
       rst_sl_q    <= rst_sl_d;
-      rd0_sup_q   <= rd_sup;
-      rd1_sup_q   <= rd2_sup;
+      if (rd_en) rd0_sup_q <= rd_sup;
       wrb_ptr_q   <= wrb_ptr_d;
       use_alt_q   <= use_alt_d;
       for (int i = 0; i < BPU_WRB_N; i++) wrb_q[i] <= wrb_d[i];

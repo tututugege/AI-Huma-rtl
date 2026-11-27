@@ -16,14 +16,11 @@ package bpu_pkg;
   localparam logic [2:0] BR_IDIRECT = 3'd3;
   localparam logic [2:0] BR_NONCTL  = 3'd4;
   localparam logic [2:0] BR_JAL     = 3'd5;
-  localparam logic [2:0] BR_ICALL   = 3'd6;   // jalr rd=ra: indirect target and RAS push of its own pc+4 (BPU_ACC)
+  localparam logic [2:0] BR_ICALL   = 3'd6;   // jalr rd=ra: indirect target and RAS push of its own pc+4
 
-  // ---- TAGE / folded-history widths ----
-  localparam int TN      = 4;                 // tagged tables (TN_MAX)
-  localparam int TN_FH   = TN;
-  localparam int T_IDX_W = 10;                // TAGE_IDX_WIDTH  (1024 entries; also FTB blk_id width)
-  localparam int FH_W    = 11;                // widest folded history
-  localparam int FH_K    = 3;                 // FH_N_MAX
+  // ---- TAGE / block-ID widths ----
+  localparam int TN      = 4;                 // 1-Ahead TAGE tagged tables
+  localparam int T_IDX_W = 10;                // FTB blk_id width (1024 sequence numbers)
   localparam int PCPN_W  = 3;
 
   // ---- RAS ----
@@ -33,21 +30,7 @@ package bpu_pkg;
   localparam int RASQ_N    = 64;              // slots of the speculative RAS queue (append-only)
   localparam int RASQ_W    = 6;
 
-  // folded history lengths fh_length[k][i] and history lengths ghr_length[i] (BPU.h)
-  function automatic int fh_len(input int k, input int i);
-    if (k == 0) return (i == 0) ? 8 : 11;
-    if (k == 1) return 8;
-    return 7;
-  endfunction
-  function automatic int ghr_len(input int i);
-    case (i)
-      0: return 8;
-      1: return 13;
-      2: return 32;
-      default: return 119;
-    endcase
-  endfunction
-
 endpackage
+/* verilator lint_on UNUSEDPARAM */
 
 `default_nettype wire

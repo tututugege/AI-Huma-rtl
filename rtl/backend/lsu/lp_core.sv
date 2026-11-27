@@ -287,14 +287,20 @@ module lp_core
               .empty_w(empty_w), .ldq_q(ldq_q), .l1(l1), .unk_any(unk_any), .unk_rank(unk_rank),
               .sa_rank(sa_rank), .sa_voff(sa_voff), .sa_f3(sa_f3), .dis_ldw(dis_ldw), .spec_ok(spec_ok));
   // 256-bit registered STQ word-address bloom filter (vaddr[10:3]) for L1 speculative DCache launch gating
+  // Explicit bit-parallel OR-reduction (eliminates 64-step serial mux chain in Yosys, 0-cycle change).
   logic [255:0] stq_bloom_q, stq_bloom_d;
   always_comb begin
-    stq_bloom_d = '0;
+    logic [SQ-1:0] sq_en;
+    logic [7:0]    sq_idx [SQ];
     for (int j = 0; j < SQ; j++) begin
-      if (alive_w[j] && sq[j].va_v && !sq[j].suppress) stq_bloom_d[sq[j].vaddr[10:3]] = 1'b1;
+      sq_en[j]  = alive_w[j] && sq[j].va_v && !sq[j].suppress;
+      sq_idx[j] = sq[j].vaddr[10:3];
     end
-    for (int k = 0; k < NST; k++) begin
-      if (sa_acc[k]) stq_bloom_d[ags[k].vaddr[10:3]] = 1'b1;
+    for (int b = 0; b < 256; b++) begin
+      logic [SQ+NST-1:0] hit_b;
+      for (int j = 0; j < SQ; j++)  hit_b[j]      = sq_en[j]  && (sq_idx[j] == 8'(b));
+      for (int k = 0; k < NST; k++) hit_b[SQ + k] = sa_acc[k] && (ags[k].vaddr[10:3] == 8'(b));
+      stq_bloom_d[b] = |hit_b;
     end
   end
   always_ff @(posedge clk) begin

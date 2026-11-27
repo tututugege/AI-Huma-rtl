@@ -83,9 +83,24 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
   logic [XLEN_BITS-1:0] pd_ras_val, pd_ras_val2, pd_nb_pc, pd_nb_base;
 
   assign bpu_fetch_pair = '{valid: bpu_pair_valid, addr2: bpu_pair_addr2, a_len: bpu_pair_a_len, b_len: bpu_pair_b_len};
-  assign fdip_s2_en     = bpu_ptab_write_enable;
-  assign fdip_s2_va     = bpu_predict_next_fetch_address;
-  assign fdip_s2_clear  = global_refetch || bpu_override_valid;
+
+  // Cut B1: 1-cycle register decoupling BPU S2 (ovr / fin.next) & global_refetch from icache_fdip 8-entry dedup CAM
+  logic                 fdip_s2_en_q, fdip_s2_clear_q;
+  logic [XLEN_BITS-1:0] fdip_s2_va_q;
+  always_ff @(posedge clk) begin
+    if (!rst_n) begin
+      fdip_s2_en_q    <= 1'b0;
+      fdip_s2_va_q    <= '0;
+      fdip_s2_clear_q <= 1'b0;
+    end else begin
+      fdip_s2_en_q    <= bpu_ptab_write_enable;
+      fdip_s2_va_q    <= bpu_predict_next_fetch_address;
+      fdip_s2_clear_q <= global_refetch || bpu_override_valid;
+    end
+  end
+  assign fdip_s2_en    = fdip_s2_en_q;
+  assign fdip_s2_va    = fdip_s2_va_q;
+  assign fdip_s2_clear = fdip_s2_clear_q;
 
   bpu u_bpu (
     .clk, .rst_n,
@@ -206,21 +221,52 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
     assign pd_raw_valid[i] = hf_valid[i] && (5'(i) < checker_keep_n);
   end
 
-  // Cut after predicted-taken lane (resetting on 2-taken PC discontinuity), matching FrontControl::finish
+  // Cut after predicted-taken lane (resetting on 2-taken PC discontinuity), matching FrontControl::finish.
+  // 4-level Kogge-Stone parallel prefix + O(log N) ttg_first_set for pd_nslots (zero carry chain).
+  logic [FETCH_WIDTH-1:0] pd_rev_v, pd_rev_oh;
+  logic                   pd_any_cut;
+  logic [3:0]             pd_rev_idx;
+
   always_comb begin
-    logic no_taken;
-    no_taken  = 1'b1;
-    pd_nslots = 5'd0;
-    for (int i = 0; i < FETCH_WIDTH; i++) begin
-      if ((i > 0) && !no_taken && pd_raw_valid[i - 1] && pd_raw_valid[i] &&
-          (hf_ptab_pc[i] != (hf_ptab_pc[i - 1] + (hf_rvc[i - 1] ? XLEN_BITS'(2) : XLEN_BITS'(4)))) &&
-          checker_dir_corrected[i - 1])
-        no_taken = 1'b1;
-      pd_cut_valid[i] = no_taken && pd_raw_valid[i];
-      if (pd_cut_valid[i] && checker_dir_corrected[i]) no_taken = 1'b0;
-      if (pd_cut_valid[i]) pd_nslots = 5'(i + 1);
+    logic [FETCH_WIDTH-1:0] disc_pc, set_nt, clr_nt;
+    logic [FETCH_WIDTH-1:0] g0, p0, g1, p1, g2, p2, g3, p3, g4, p4;
+
+    disc_pc[0] = 1'b0;
+    set_nt[0]  = 1'b1;
+    clr_nt[0]  = 1'b0;
+    for (int i = 1; i < FETCH_WIDTH; i++) begin
+      disc_pc[i] = (hf_ptab_pc[i] != (hf_ptab_pc[i - 1] + (hf_rvc[i - 1] ? XLEN_BITS'(2) : XLEN_BITS'(4))));
+      set_nt[i]  = pd_raw_valid[i - 1] && pd_raw_valid[i] && disc_pc[i] && checker_dir_corrected[i - 1];
+      clr_nt[i]  = !set_nt[i] && pd_raw_valid[i - 1] && checker_dir_corrected[i - 1];
     end
+
+    g0 = set_nt;
+    p0 = ~(set_nt | clr_nt);
+    for (int i = 0; i < FETCH_WIDTH; i++) begin
+      g1[i] = (i >= 1) ? (g0[i] | (p0[i] & g0[i - 1])) : g0[i];
+      p1[i] = (i >= 1) ? (p0[i] & p0[i - 1])           : p0[i];
+    end
+    for (int i = 0; i < FETCH_WIDTH; i++) begin
+      g2[i] = (i >= 2) ? (g1[i] | (p1[i] & g1[i - 2])) : g1[i];
+      p2[i] = (i >= 2) ? (p1[i] & p1[i - 2])           : p1[i];
+    end
+    for (int i = 0; i < FETCH_WIDTH; i++) begin
+      g3[i] = (i >= 4) ? (g2[i] | (p2[i] & g2[i - 4])) : g2[i];
+      p3[i] = (i >= 4) ? (p2[i] & p2[i - 4])           : p2[i];
+    end
+    for (int i = 0; i < FETCH_WIDTH; i++) begin
+      g4[i] = (i >= 8) ? (g3[i] | (p3[i] & g3[i - 8])) : g3[i];
+      p4[i] = (i >= 8) ? (p3[i] & p3[i - 8])           : p3[i];
+    end
+
+    pd_cut_valid = g4 & pd_raw_valid;
+    for (int i = 0; i < FETCH_WIDTH; i++) pd_rev_v[i] = pd_cut_valid[FETCH_WIDTH - 1 - i];
+    if (1'b0) pd_rev_v[0] = |p4; // silence unused p4
   end
+
+  ttg_first_set #(.N(FETCH_WIDTH)) u_pd_ns_fs (.req(pd_rev_v), .onehot(pd_rev_oh), .any(pd_any_cut));
+  ttg_onehot_to_idx #(.N(FETCH_WIDTH)) u_pd_ns_idx (.onehot(pd_rev_oh), .idx(pd_rev_idx));
+  assign pd_nslots = pd_any_cut ? (5'(FETCH_WIDTH) - {1'b0, pd_rev_idx}) : 5'd0;
 
   front_pd_info u_pd (
     .clk, .rst_n, .checked(predecode_can_run), .flush(predecode_can_run && checker_flush_enable),

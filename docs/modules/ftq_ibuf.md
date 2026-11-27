@@ -3,12 +3,16 @@ module: ftq_ibuf
 area: backend
 rtl: rtl/backend/ftq_ibuf
 model: trace-model back-end/PreIduQueue.cpp、back-end/InstructionBuffer.cpp、back-end/include/PreIduQueue.h、back-end/include/InstructionBuffer.h、back-end/include/FTQ.h（调度单元 `back.pre`，类 `PreIduQueue`，阶段 `comb_accept_front`、`comb_commit_info`）
-status: 整核周期与模型逐个相等（`rtl/area-opt`：原 `pre_idu_queue` 改名 `ftq_ibuf`，`ftq_pc` 压缩为紧凑基址+偏移，fm_gate 69/69 + riscv-tests 152/152 零偏差）
-depth: 38 层 / 131,433 单元（原 pre_idu_queue 基线，待在 eda 集群重测 `ftq_ibuf` 瘦身后面积）
+status: 整核周期与模型逐个相等（EXP-070 Unified FTQ-64：吸收前端 `fetch_addr_fifo`/`ptab`/`front2back_fifo`，fm_gate 77/77 + riscv-tests 152/152 零偏差）
+depth: TSMC 28nm HPC+ DC（EXP-069 `ftq_ibuf_bb` 243,191 µm² / reg2reg 1.72 GHz；EXP-070 统一 FTQ 接入整核子系统 `back_top`）
 ---
 
 # ftq_ibuf 设计文档（原 `pre_idu_queue`）
 
+> **EXP-070 Unified FTQ-64（统一前端/后端 FTQ）升级**：
+> - 原前端独立的 `fetch_addr_fifo`、`ptab` 与 `front2back_fifo` 全部撤销并统一合入 `ftq_ibuf` 的 64 项 FTQ（`ftq_ptr` 新增 BPU 写指针、ICache 取指读指针、Predecode 校验读指针与后端提交头指针四指针协调，同步支持 BPU S2/S3 override 丢弃尾项）；
+> - `ftq_pc` / `ftq_meta` / `ftq_bpu` 在 BPU 预测期直接写入、取指/预译码期回填并供后端 PRF/ROB/提交/误预测恢复读取，彻底消除原 `ptab_bypass` 与 `f2b` 双重缓冲开销。
+>
 > **2026-11-26 `rtl/area-opt` 重命名、8-Bank 窗与接口统一**：
 > - 模块由 `pre_idu_queue` 正式重命名为 `ftq_ibuf`（端口同步统一为 `front2ftq_*`、`ftq2front_*`、`ibuf2idu_*`），删除全部已固化参数开关；
 > - `ftq_pc`（64 项 × 134b 紧凑基址+偏移）与 `ftq_meta` 改为 8-Bank 布局共享 8:1 提交/分派窗，PRF PC 读口收敛为 2 个 PC-ALU 口 + 2 个 BRU 口（共 4 口）；TSMC 28nm DC 综合面积由原 `pre_idu_queue` `1,684,992 µm²` 降至约 `211k µm²`（**−87.5%**）。

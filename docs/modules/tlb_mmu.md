@@ -3,12 +3,15 @@ module: tlb_mmu
 area: backend
 rtl: rtl/backend/tlb_mmu
 model: trace-model back-end/Lsu/TlbMmu.cpp、back-end/Lsu/include/TlbMmu.h（类 `TlbMmu`，`Kind::DTLB`；LSU 的子模块 `RealLsu::dtlb`，没有单独的调度单元，在 `back.lsu` 的 `comb_translate` 里被调用）
-status: 整核周期与模型逐个相等（EXP-051 里程碑 B：fm_gate 68/68 + Linux 27 窗，零环境变量）
-depth: 61 层 / 46,624 单元（tlb_mmu，单模块综合，2026-11-21，`SYNTH_ABC="strash;balance;map"`，与 main 61 层 / 46,624 单元完全一致）
+status: 整核周期与模型逐个相等（EXP-070：新增 `paddr_p1`/`paddr_m1` 随页表回填预计算，零周期变化消除 LSU/DTLB 往返 29b 加法器；fm_gate 77/77 + riscv-tests 152/152 零偏差）
+depth: TSMC 28nm HPC+ DC `tlb_mmu_bb` WNS `−0.03 ns`（`1.89 GHz`）/ `25` 级 / `57,685 µm²`；Yosys `61` 层 / `46,624` 单元
 ---
 
 # tlb_mmu 设计文档
 
+> **EXP-070 后端子系统时序优化（0 周期变化）**：
+> - 在 `tlb_mmu_pkg` / `tlb_mmu_lane` / `tlb_mmu_core` / `tlb_mmu` 中随翻译结果并行输出 29-bit `resp_paddr_p1` / `resp_paddr_m1`（兼容 Sv39 4K/2M/1G 大页与直通模式），将原 LSU L1 侧 `paddr[31:3] ± 1` 29-bit 加法器移出 EXU/LSU ↔ DTLB 跨模块关键路径。
+>
 > **EXP-051 里程碑 B 升级**：`tlb_mmu_core` 新增参数 `NPEEK`（DTLB 保持 `NPEEK = 0` 零改动；ITLB 设 `NPEEK = 2`），提供纯只读组合翻译口（复用 `entry_valid/entry` 与同拍 `refill_end`，先查 `refill_end` 再查表，含直通 / 规范地址 / 权限检查，精确对齐 `TlbMmu::peek_translate`，零额外 PTW walker、不改替换状态）。
 
 ## 1. 职责

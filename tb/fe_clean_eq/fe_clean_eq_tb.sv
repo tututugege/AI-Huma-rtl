@@ -21,18 +21,18 @@ module fe_clean_eq_tb;
     n = cur;
     n.ring[cur.head] = b;
     n.head = cur.head + HR_PTR_W'(1);
-    for (int k = 0; k < FH_K; k++) begin
-      for (int i = 0; i < TN; i++) begin
-        int unsigned flen = fh_len(k, i);
-        int unsigned glen = ghr_len(i);
+    for (int k = 0; k < EX_FH_K; k++) begin
+      int unsigned flen = ex_fh_len(k);
+      logic [EX_FH_W-1:0] msk = EX_FH_W'((32'd1 << flen) - 32'd1);
+      for (int i = 0; i < EX_TN; i++) begin
+        int unsigned glen = ex_ghr_len(i);
         logic [HR_PTR_W-1:0] oidx = cur.head - HR_PTR_W'(glen);
         logic ob = cur.ring[oidx];
-        logic [FH_W-1:0] msk = FH_W'((32'd1 << flen) - 32'd1);
-        logic [FH_W-1:0] v = cur.fh[k][i];
+        logic [EX_FH_W-1:0] v = cur.ex_fh[k][i];
         logic top = v[flen - 1];
-        v = ((v << 1) | FH_W'(top)) & msk;
-        v = v ^ FH_W'(b) ^ (FH_W'(ob) << (glen % flen));
-        n.fh[k][i] = v & msk;
+        v = ((v << 1) | EX_FH_W'(top)) & msk;
+        v = v ^ EX_FH_W'(b) ^ (EX_FH_W'(ob) << (glen % flen));
+        n.ex_fh[k][i] = v & msk;
       end
     end
     return n;
@@ -73,9 +73,9 @@ module fe_clean_eq_tb;
       int nb4, nb8;
       for (int w = 0; w < HR_BITS / 32; w++) h_in.ring[w*32 +: 32] = $urandom();
       h_in.head = HR_PTR_W'($urandom());
-      for (int k = 0; k < FH_K; k++)
-        for (int i = 0; i < TN; i++)
-          h_in.fh[k][i] = FH_W'($urandom() & ((32'd1 << fh_len(k, i)) - 32'd1));
+      for (int k = 0; k < EX_FH_K; k++)
+        for (int i = 0; i < EX_TN; i++)
+          h_in.ex_fh[k][i] = EX_FH_W'($urandom() & ((32'd1 << ex_fh_len(k)) - 32'd1));
       sym_n4 = 4'($urandom() % 5);
       sym_n8 = 4'($urandom() % 9);
       nb4    = 3 * int'(sym_n4);

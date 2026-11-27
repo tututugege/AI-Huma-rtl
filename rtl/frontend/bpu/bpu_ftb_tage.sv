@@ -1,10 +1,8 @@
-// Ref: front-end/BPU/BpuFtb.h  struct BlockTage (v10: Zero-T0-Read Meta + 8-entry FF WRBypass + 2-Bank 1RW)
-//   - u_tbl[0..3]: 4 tables x 2 banks x ((N_ENT/2) x 60b) 1RW (4 slots x {uhi, ulo, tag[9:0], cnt[2:0]}, MASK_W=60)
-//   - Zero T0 read ports! Commit computes write plan from ftb_rec Meta + inline 8-entry FF WRBypass.
+// Ref: front-end/BPU/BpuFtb.h  struct BlockTage (Clean BPU v11: 1-Ahead A 4-table 2-Bank 1RW, Zero T0 Read)
 `default_nettype none
 
 module bpu_ftb_tage import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; import bpu_types_pkg::*; #(
-  parameter int    N_ENT = 1024,
+  parameter int    N_ENT = FTB_AH_TAGE_N,
   parameter int    NB    = BPU_AH1_BANKS,
   /* verilator lint_off UNUSEDPARAM */
   parameter [255:0] TAG  = "BPU_ATAGE"
@@ -147,16 +145,15 @@ module bpu_ftb_tage import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_p
   end
 
   // ---- Packed 2-Bank 1RW SRAMs (60b = 4 slots x 15b: {uhi[14], ulo[13], tag[12:3], cnt[2:0]}) ----
-  logic [59:0] tbl_rd0    [TN];
-  logic [59:0] tbl_rd1_nc [TN];
-  logic [59:0] tbl_wr_d   [TN];
-  logic [59:0] tbl_wr_m   [TN];
-  logic        rst_en;
+  logic [59:0]           tbl_rd0  [TN];
+  logic [59:0]           tbl_wr_d [TN];
+  logic [59:0]           tbl_wr_m [TN];
+  logic                  rst_en;
   logic [TN-1:0]         rst_pend_eff, rst_fire, rd0_sup_q;
   logic [IDX_W-1:0]      rst_row_eff;
   logic [FTB_SLOT_W-1:0] rst_sl_eff;
-  logic [59:0] rst_wmask;
-  logic [5:0]  rst_bit_pos, sl_shift;
+  logic [59:0]           rst_wmask;
+  logic [5:0]            rst_bit_pos, sl_shift;
 
   assign reset_cnt_d  = upd_en ? (reset_cnt_q + 32'd1) : reset_cnt_q;
   assign rst_en       = upd_en && (reset_cnt_d[FTB_URST_BITS-1:0] == '0);
@@ -196,7 +193,6 @@ module bpu_ftb_tage import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_p
       .DEPTH   (N_ENT),
       .NB      (NB),
       .MASK_W  (60),
-      .HAS_RD1 (1'b0),
       .HAS_RST (1'b1),
       .HOLD_RD0(1'b1),
       .INIT    (60'd0),
@@ -206,9 +202,6 @@ module bpu_ftb_tage import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_p
       .rd0_en      (rd_en && !rd_sup[t]),
       .rd0_addr    (rd_ix.idx[t][IDX_W-1:0]),
       .rd0_data    (tbl_rd0[t]),
-      .rd1_en      (1'b0),
-      .rd1_addr    ('0),
-      .rd1_data    (tbl_rd1_nc[t]),
       .clr_rd_en   (1'b0),
       .clr_rd_addr ('0),
       /* verilator lint_off PINCONNECTEMPTY */
@@ -328,11 +321,6 @@ module bpu_ftb_tage import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_p
       for (int i = 0; i < BPU_WRB_N; i++) wrb_q[i] <= wrb_d[i];
     end
   end
-
-  /* verilator lint_off UNUSEDSIGNAL */
-  logic unused_ok;
-  assign unused_ok = ^{tbl_rd1_nc[0], tbl_rd1_nc[1], tbl_rd1_nc[2], tbl_rd1_nc[3]};
-  /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule
 
