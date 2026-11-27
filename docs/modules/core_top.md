@@ -126,6 +126,7 @@ RTL 里注释和代码不一致、值得清理的地方（只记录，没有改�
 
 ## 10. 变更记录
 
+- 2026-11-26：新增 `interrupt_inject_software_irq_pending(_valid)` 输入端口并透传至 `back_top` → `csr`（支持 `chip_top` CLINT `msip` 软中断；`soc_top` 接 `1'b0` 保持原行为，0 周期变化）。
 - 本分支（`261bd67..HEAD`）未改动 `rtl/core`；更早：见 git 历史。
 - PMU 事件包 `rtl/pmu/pmu_ev_pkg.sv` 已提交为 60ed422：发射队列事件 LD / STA 换成 MEM，新增 FP 队列事件，总数仍 66，id 52..65 重新排布（详见 pmu.md 第 10 节）；`core_top.sv` 只写 tier 1 的 18 个事件（id 0..34 之内），不受影响。
 - 2026-11-18：删除 `core_top.sv` 里一个空的 `always_comb begin end` 及其注释。

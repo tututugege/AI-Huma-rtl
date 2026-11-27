@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Build and run official riscv-tests (RV64) on RTL soc_tb with function-model difftest + SVA + optional coverage.
-#   usage: scripts/riscv_tests_gate.sh <soc_tb> <outdir>
+# Build and run official riscv-tests (RV64) on RTL core_tb with function-model difftest + SVA + optional coverage.
+#   usage: scripts/riscv_tests_gate.sh <core_tb> <outdir>
 #   env:
 #     RISCV_TESTS  path to riscv-tests checkout (default: ~/qimeng1-serial-regression/source/baremetal/riscv-tests)
 #     SUITES       space-separated suites (default: "rv64ui rv64um rv64ua rv64uf rv64ud rv64uc rv64uzba rv64uzbb rv64uzbc rv64uzbs")

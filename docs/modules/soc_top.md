@@ -3,8 +3,8 @@ module: soc_top
 area: core
 rtl: rtl/core/soc_top/soc_top.sv
 model: trace-model SimCpu.cpp / include/SimCpu.h（`SimCpu::cycle`：核 + `MemSubsystem` + `AxiSubsystem` 的整体调度；不是单个调度单元）
-status: 整核周期与模型逐个相等（最近一次提交 60ed422 的提交信息记 fm_gate 67/67、周期等于 scripts/ref_cycles_memiq6_nr_int2_ev5.txt；本次写文档没有重跑）
-depth: 待测（由协调者补）
+status: 整核周期与 trace-model 逐个相等（`core_tb` + `fm_gate.sh` 77/77 PASS，0 周期差；26 窗 Linux PT/UP 全等）
+depth: 仅顶层连线（见 core_top / mem_top）
 ---
 
 # soc_top 设计文档
@@ -13,9 +13,9 @@ depth: 待测（由协调者补）
 
 整核闭环的最外层：一个 `core_top`（核，见 core_top.md）加一个 `mem_top`（访存子系统：`mem_route`、`ptw_walk`、`dcache`、`peripheral_axi`、`axi_subsys`、`axi_cpu_port_adapter`），两者按端口名连接。`mem_top` 的端口名与 `core_top` 的存储侧端口同名、方向相反，所以 `soc_top` 只写了 `core_top u_core (.clk(clk_cpu), .*)` 和 `mem_top #(.PF_EN(PF_EN)) u_mem (.clk, .*)` 两个实例，其余全是为 `.*` 声明的同名连线。
 
-边界之外（留在测试平台 `tb/soc`）：DDR 从设备（`d_*` 端口，AXI AR / R / AW / W / B）、外设模型（`env_*` 端口：`env_modeled`、`env_rdata` 入，`env_rd_en / addr / func3` 出）、物理内存、中断源（`interrupt_inject_*` 输入）、时钟与复位。逐条退休流（`rob_commit_*`、`rob_bcast_*`、`out_mispred`、`out_redirect_pc`、`ftq_commit_info_resp_pc`、`out_commit_entry_uop_diag_val`）从 `core_top` 直接导出，给测试平台的函数模型逐条对比。
+边界之外（留在测试平台 `tb/core` → `core_tb`）：DDR 从设备（`d_*` 端口，AXI AR / R / AW / W / B）、外设模型（`env_*` 端口：`env_modeled`、`env_rdata` 入，`env_rd_en / addr / func3` 出）、物理内存、中断源（`interrupt_inject_*` 输入）、时钟与复位。逐条退休流（`rob_commit_*`、`rob_bcast_*`、`out_mispred`、`out_redirect_pc`、`ftq_commit_info_resp_pc`、`out_commit_entry_uop_diag_val`）从 `core_top` 直接导出，给测试平台的函数模型逐条对比。真实流片向 SoC 顶层与全套片上 AXI4/外设由 `chip_top` + `tb/soc`（`soc_tb`）独立承载（见 [chip_top.md](chip_top.md)），两者职责正交：`core_tb` 守护核+存储微架构与三仓逐拍对齐，`soc_tb` 守护全片 AXI4 互联与真实外设集成。
 
-模型对应：`SimCpu::cycle` 同时驱动核、`MemSubsystem` 和 `AxiSubsystem`；RTL 把"核"和"访存 + AXI"分成两个子树，由 `soc_top` 拼起来。`DDR`、`MMIO`、`PhysMemory`、`PeripheralModel` 在模型里是 `SimCpu` 的成员，在 RTL 里是测试平台（用的是模型同源的源码，`tb/soc/platform`）。
+模型对应：`SimCpu::cycle` 同时驱动核、`MemSubsystem` 和 `AxiSubsystem`；RTL 把"核"和"访存 + AXI"分成两个子树，由 `soc_top` 拼起来。`DDR`、`MMIO`、`PhysMemory`、`PeripheralModel` 在模型里是 `SimCpu` 的成员，在 RTL 里是测试平台（用的是模型同源的源码，`tb/core/platform`）。
 
 ## 2. 配置
 
@@ -76,9 +76,9 @@ depth 待测（由协调者补）。本模块只有连线，没有逻辑；整�
 
 ## 8. 验证
 
-- **门禁**：`scripts/fm_gate.sh <soc_tb> <outdir>`：67 个程序，每条提交对比函数模型（`SOC_FM=1` 构建）；周期对 `scripts/ref_cycles_memiq6_nr_int2_ev5.txt`（模型同配置生成）。构建：`SOC_FM=1 SOC_OUT=<绝对路径> bash tb/soc/build.sh`。
+- **门禁**：`scripts/fm_gate.sh <core_tb> <outdir>`：77 个程序，每条提交对比函数模型（`SOC_FM=1` 构建）；周期对 `scripts/ref_cycles.txt`（模型同配置生成）。构建：`SOC_FM=1 CORE_OUT=<绝对路径> bash tb/core/build.sh`。
 - **SVA 断言与覆盖（`SOC_SVA=1`）**：`sva/sva_axi_ddr.sv` 通过 `bind` 挂载至 `soc_top`（零综合污染），检查外部 DDR AXI4 主口 AR/AW/W 通道 `valid` 稳定性规则，并带 5 个通道握手 cover（AR/AW/W/R/B；`programs/directed/llc_ddr_wb.S` 已打通 AW/W/B 92 次）。
-- **构建与运行期验证开关**：`tb/soc/build.sh` 支持 `SOC_ASSERT=1`、`SOC_SVA=1`、`SOC_XINIT_UNIQUE=1`、`SOC_COV=1|all`（默认全关）；运行期支持 `SOC_TB_FM_STRICT=1`（MMIO/跨字 store + 18 架构 CSR + 特权级对比）与 `SOC_TB_COV_OUT`。
+- **构建与运行期验证开关**：`tb/core/build.sh` 支持 `SOC_ASSERT=1`、`SOC_SVA=1`、`SOC_XINIT_UNIQUE=1`、`SOC_COV=1|all`（默认全关）；运行期支持 `SOC_TB_FM_STRICT=1`（MMIO/跨字 store + 18 架构 CSR + 特权级对比）与 `SOC_TB_COV_OUT`。
 - **Lint**：`scripts/lint_chip.sh`（以 `soc_top` 为顶，整芯片 Verilator `-Wall`）。
 - **冒烟**：`scripts/soc_smoke.sh`（周期对 `scripts/ref_cycles.txt`）、`scripts/cmp_trace_model.sh`（整程序周期与提交数对模型）。
 - **Linux 启动门禁**：`scripts/build_soc64_linux.sh`（rv64 测试平台，逐条对比，默认 4 个仿真线程）、`scripts/linux_gate.sh`（全程）、`scripts/linux_segments_cmp.sh`（并行窗口）。
@@ -87,9 +87,9 @@ depth 待测（由协调者补）。本模块只有连线，没有逻辑；整�
 
 ## 9. 参数与开关速查
 
-`PF_EN`（`soc_top` 参数，默认 1）；测试平台环境变量 `SOC_TB_FM`、`SOC_TB_SEMIHOST`、`SOC_TB_PMU`、`SOC_TB_LOG` 等（见 `tb/soc/soc_tb.cpp`）；构建开关 `SOC_FM`、`SOC_XLEN`、`SOC_VOPT`（`tb/soc/build.sh`）。
+`PF_EN`（`soc_top` 参数，默认 1）；测试平台环境变量 `SOC_TB_FM`、`SOC_TB_SEMIHOST`、`SOC_TB_PMU`、`SOC_TB_LOG` 等（见 `tb/core/core_tb.cpp`）；构建开关 `SOC_FM`、`SOC_XLEN`、`CORE_VOPT`/`SOC_VOPT`（`tb/core/build.sh`）。
 
 ## 10. 变更记录
 
-- 本分支（`261bd67..HEAD`）未改动 `rtl/core`；更早：见 git 历史。
+- 2026-11-26：测试台目录由 `tb/soc/`（`soc_tb`）更名为 `tb/core/`（`core_tb`），将 `tb/soc/`（`soc_tb`）让给真实全片 SoC `chip_top`；`soc_top` 端口与行为 100% 不变（`EXT_MMIO_EN=0`、`software_irq=0`），`fm_gate.sh` 77/77 PASS（0 周期差）。
 - 旧版文档（第 1~5 节的"锁步 / mutants / 16 tick 规则"）按 16 倍频方案写成，已按现行配置重写。

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# linux_segments_cmp.sh <soc_tb> <trace-model simulator> <ckpt-dir> <out-dir> [cycles-per-segment=4000000]
+# linux_segments_cmp.sh <core_tb> <trace-model simulator> <ckpt-dir> <out-dir> [cycles-per-segment=4000000]
 # Linux check in parallel windows, RTL against the trace-model: every ckpt_special_sNN_*.gz in <ckpt-dir> (function-model `--mode special-ckpt`) is restored
 # on both the RTL SoC (ckpt2image.py + ckpt2stub.py, SOC_TB_STUB, per-commit function-model check) and the trace-model (`--mode ckpt --restore-stub`), both cold,
 # and run for the same number of cycles.  PASS per segment = no [FM] mismatch/reject line and the PT / UP fingerprints are equal (scripts/align_check.py; the

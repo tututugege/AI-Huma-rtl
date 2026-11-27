@@ -147,7 +147,40 @@ module soc_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*;
  logic [XLEN_BITS-1:0] peripheral_req_mmio_wdata ;
  logic peripheral_req_wen ;
 
-  core_top u_core (.clk(clk_cpu), .*);
-  mem_top #(.PF_EN(PF_EN)) u_mem (.clk, .*);
+  /* verilator lint_off UNUSEDSIGNAL */
+  logic        unused_mmio_arvalid, unused_mmio_rready, unused_mmio_awvalid, unused_mmio_wvalid;
+  logic        unused_mmio_wlast, unused_mmio_bready, unused_mmio_arlock, unused_mmio_awlock;
+  logic [3:0]  unused_mmio_arid, unused_mmio_awid, unused_mmio_arcache, unused_mmio_awcache;
+  logic [3:0]  unused_mmio_arqos, unused_mmio_awqos, unused_mmio_arregion, unused_mmio_awregion;
+  logic [31:0] unused_mmio_araddr, unused_mmio_awaddr;
+  logic [7:0]  unused_mmio_arlen, unused_mmio_awlen, unused_mmio_wstrb;
+  logic [2:0]  unused_mmio_arsize, unused_mmio_awsize, unused_mmio_arprot, unused_mmio_awprot;
+  logic [1:0]  unused_mmio_arburst, unused_mmio_awburst;
+  logic [63:0] unused_mmio_wdata;
+  /* verilator lint_on UNUSEDSIGNAL */
+
+  core_top u_core (
+    .clk(clk_cpu),
+    .interrupt_inject_software_irq_pending(1'b0),
+    .interrupt_inject_software_irq_pending_valid(1'b0),
+    .*
+  );
+  mem_top #(.PF_EN(PF_EN), .EXT_MMIO_EN(1'b0)) u_mem (
+    .clk,
+    .mmio_arready(1'b0), .mmio_rvalid(1'b0), .mmio_rid(4'd0), .mmio_rdata(64'd0), .mmio_rresp(2'd0), .mmio_rlast(1'b0),
+    .mmio_awready(1'b0), .mmio_wready(1'b0), .mmio_bvalid(1'b0), .mmio_bid(4'd0), .mmio_bresp(2'd0),
+    .mmio_arvalid(unused_mmio_arvalid), .mmio_rready(unused_mmio_rready),
+    .mmio_arid(unused_mmio_arid), .mmio_araddr(unused_mmio_araddr), .mmio_arlen(unused_mmio_arlen),
+    .mmio_arsize(unused_mmio_arsize), .mmio_arburst(unused_mmio_arburst), .mmio_arlock(unused_mmio_arlock),
+    .mmio_arcache(unused_mmio_arcache), .mmio_arprot(unused_mmio_arprot), .mmio_arqos(unused_mmio_arqos),
+    .mmio_arregion(unused_mmio_arregion),
+    .mmio_awvalid(unused_mmio_awvalid), .mmio_wvalid(unused_mmio_wvalid), .mmio_wlast(unused_mmio_wlast),
+    .mmio_bready(unused_mmio_bready), .mmio_awid(unused_mmio_awid), .mmio_awaddr(unused_mmio_awaddr),
+    .mmio_awlen(unused_mmio_awlen), .mmio_awsize(unused_mmio_awsize), .mmio_awburst(unused_mmio_awburst),
+    .mmio_awlock(unused_mmio_awlock), .mmio_awcache(unused_mmio_awcache), .mmio_awprot(unused_mmio_awprot),
+    .mmio_awqos(unused_mmio_awqos), .mmio_awregion(unused_mmio_awregion),
+    .mmio_wdata(unused_mmio_wdata), .mmio_wstrb(unused_mmio_wstrb),
+    .*
+  );
 endmodule
 `default_nettype wire

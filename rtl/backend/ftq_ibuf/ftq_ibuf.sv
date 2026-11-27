@@ -25,10 +25,10 @@ module ftq_ibuf import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; import front_pkg:
   output ftq_fe_view_t                   ftq2fe,
   // Backend control / commit / lookup ports
   input  logic [DECODE_WIDTH-1:0] idu_consume_fire,
-  input  logic idu_br_latch_mispred,
-  input  logic [FTQ_IDX_WIDTH-1:0] idu_br_latch_ftq_idx,
-  input  logic [FTQ_OFFSET_WIDTH-1:0] idu_br_latch_ftq_offset,
-  input  logic [XLEN_BITS-1:0] idu_br_latch_redirect_pc,
+  input  logic br_redirect_mispred,
+  input  logic [FTQ_IDX_WIDTH-1:0] br_redirect_ftq_idx,
+  input  logic [FTQ_OFFSET_WIDTH-1:0] br_redirect_ftq_offset,
+  input  logic [XLEN_BITS-1:0] br_redirect_pc,
   input  logic rob_bcast_flush,
   input  logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_valid,
   input  logic [FTQ_IDX_WIDTH-1:0] rob_commit_commit_entry_uop_ftq_idx [COMMIT_WIDTH],
@@ -115,9 +115,9 @@ module ftq_ibuf import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; import front_pkg:
 
   // Gate frontend writes against backend flush/mispred (matches PreIduQueue::seq early return)
   logic s0_wr_eff, s2_wr_eff, pd_fire_eff;
-  assign s0_wr_eff   = fe2ftq_s0.wr_en && !rob_bcast_flush && !idu_br_latch_mispred;
-  assign s2_wr_eff   = fe2ftq_s2.wr_en && !rob_bcast_flush && !idu_br_latch_mispred;
-  assign pd_fire_eff = fe2ftq_pd.fire  && !rob_bcast_flush && !idu_br_latch_mispred;
+  assign s0_wr_eff   = fe2ftq_s0.wr_en && !rob_bcast_flush && !br_redirect_mispred;
+  assign s2_wr_eff   = fe2ftq_s2.wr_en && !rob_bcast_flush && !br_redirect_mispred;
+  assign pd_fire_eff = fe2ftq_pd.fire  && !rob_bcast_flush && !br_redirect_mispred;
 
   /* verilator lint_off UNUSEDSIGNAL */
   logic unused_s2_base_bpu;
@@ -166,7 +166,7 @@ module ftq_ibuf import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; import front_pkg:
   ftq_ibuf_ctrl u_ctrl (
     .clk, .rst_n,
     .front_valid (front2ftq_valid),
-    .br_mispred  (idu_br_latch_mispred),
+    .br_mispred  (br_redirect_mispred),
     .rob_flush   (rob_bcast_flush),
     .ib_count, .idu_fire,
     .ready, .fire, .lane_rank, .lane_is_last, .push_cnt, .queue_clear, .ib_pop_cnt
@@ -180,8 +180,8 @@ module ftq_ibuf import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; import front_pkg:
   ftq_ptr u_ptr (
     .clk, .rst_n,
     .flush          (rob_bcast_flush),
-    .recover        (idu_br_latch_mispred),
-    .recover_idx    (idu_br_latch_ftq_idx),
+    .recover        (br_redirect_mispred),
+    .recover_idx    (br_redirect_ftq_idx),
     .s0_wr_en       (fe2ftq_s0.wr_en),
     .s0_drop_tail_n (fe2ftq_s0.drop_tail_n),
     .s0_ifu_pop     (fe2ftq_s0.ifu_pop),
@@ -216,10 +216,10 @@ module ftq_ibuf import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; import front_pkg:
     .pd_is_rvc      (fe2ftq_pd.is_rvc),
     .pd_next_pc     (fe2ftq_pd.next_pc),
     .pd_nslots      (fe2ftq_pd.nslots),
-    .mispred_en     (idu_br_latch_mispred && !rob_bcast_flush),
-    .mispred_idx    (idu_br_latch_ftq_idx),
-    .mispred_off    (idu_br_latch_ftq_offset),
-    .mispred_target (idu_br_latch_redirect_pc),
+    .mispred_en     (br_redirect_mispred && !rob_bcast_flush),
+    .mispred_idx    (br_redirect_ftq_idx),
+    .mispred_off    (br_redirect_ftq_offset),
+    .mispred_target (br_redirect_pc),
     .ifu_ptr, .ifu_addr, .ifu_pair, .ifu_next_fa_idx, .ifu_next_b_idx,
     .pd_base_pc, .pd_is_pair, .pd_base_b, .pd_a_len, .pd_out_pred_dir, .pd_out_next_pc,
     .ftq_head       (comm_ptr),
@@ -257,8 +257,8 @@ module ftq_ibuf import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; import front_pkg:
     .pd_fire    (pd_fire_eff),
     .pd_idx     (pd_ptr),
     .pd_kind    (fe2ftq_pd.slot_kind),
-    .rd_idx     (idu_br_latch_ftq_idx),
-    .rd_offset  (idu_br_latch_ftq_offset),
+    .rd_idx     (br_redirect_ftq_idx),
+    .rd_offset  (br_redirect_ftq_offset),
     .rd_blk     (out_rf_blk),
     .rd_type    (out_rf_type)
   );

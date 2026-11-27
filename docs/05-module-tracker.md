@@ -7,8 +7,8 @@
 
 | 模块 | RTL（文件/行） | 深度 |
 | --- | --- | --- |
-| [back_top](modules/back_top.md) | 4/1597 | 142 层 |
-| [csr](modules/csr.md) | 10/742 | 29 层 |
+| [back_top](modules/back_top.md) | 4/1602 | 142 层 |
+| [csr](modules/csr.md) | 10/750 | 29 层 |
 | [dispatch](modules/dispatch.md) | 13/1325 | 57 层 |
 | [exu_ctrl](modules/exu_ctrl.md) | 14/1534 | 17 层 |
 | [exu_fu](modules/exu_fu.md) | 32/3612 | 98 层 |
@@ -37,13 +37,13 @@
 | 模块 | RTL（文件/行） | 深度 |
 | --- | --- | --- |
 | [axi_cpu_port_adapter](modules/axi_cpu_port_adapter.md) | 2/150 | 9 层 |
-| [axi_interconnect](modules/axi_interconnect.md) | 9/1256 | 53 层 |
+| [axi_interconnect](modules/axi_interconnect.md) | 9/1266 | 53 层 |
 | [axi_llc](modules/axi_llc.md) | 23/3520 | `axi_llc_bop` **75 层** |
 | [axi_subsys](modules/axi_subsys.md) | 1/304 | 353 层 |
 | [dcache](modules/dcache.md) | 18/3383 | `dcache_mshr` **99 层** |
 | [dcache_pf](modules/dcache_pf.md) | 1/185 | 75 层 |
 | [mem_route](modules/mem_route.md) | 4/382 | 9 层 |
-| [mem_top](modules/mem_top.md) | 3/705 | 待测 |
+| [mem_top](modules/mem_top.md) | 5/1126 | 待测 |
 | [peripheral_axi](modules/peripheral_axi.md) | 3/239 | 10 层 |
 | [ptw_walk](modules/ptw_walk.md) | 5/786 | 44 层 |
 
@@ -52,8 +52,16 @@
 | 模块 | RTL（文件/行） | 深度 |
 | --- | --- | --- |
 | [common](modules/common.md) | 9/871 | 待测 |
-| [core_top](modules/core_top.md) | 4/853 | 待测 |
+| [core_top](modules/core_top.md) | 4/857 | 待测 |
 | [pmu](modules/pmu.md) | 3/364 | 90 层 |
-| [soc_top](modules/soc_top.md) | 1/153 | 待测 |
+| [soc_top](modules/soc_top.md) | 1/186 | 仅顶层连线 |
 
-合计（各文档的目录有重叠时会重复计数）：298 个文件，43700 行。
+## 全片 SoC 与 AXI4 互联
+
+| 模块 | RTL（文件/行） | 深度 |
+| --- | --- | --- |
+| [chip_top](modules/chip_top.md) | 17/3367 | soc_xbar 75 层 |
+| [soc_axi](modules/soc_axi.md) | 12/2914 | 75 层 |
+| [soc_periph](modules/soc_periph.md) | 8/1395 | bootrom 27 / sram 23 / clint 26 / plic 72 / uart 20 / sysctrl 11 层 |
+
+合计（各文档的目录有重叠时会重复计数）：337 个文件，51857 行。

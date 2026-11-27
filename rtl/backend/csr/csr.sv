@@ -27,6 +27,8 @@ module csr
   input  logic        rob2csr_commit,
   input  logic [4:0]  rob2csr_fflags,       // F/D: exception flags of the instructions committing this cycle
   input  logic        rob2csr_fs_dirty,     // F/D: one of them makes mstatus.FS Dirty
+  input  logic        interrupt_inject_software_irq_pending_valid,
+  input  logic        interrupt_inject_software_irq_pending,
   input  logic        interrupt_inject_external_irq_pending_valid,
   input  logic        interrupt_inject_external_irq_pending,
   input  logic        interrupt_inject_supervisor_external_irq_pending_valid,
@@ -86,6 +88,8 @@ module csr
     .clk(clk), .rst_n(rst_n), .trap_wr_en(trap_wr_en), .trap_wr_val(trap_wr_val),
     .commit_fire(commit_fire), .commit_idx(pending_idx), .commit_wdata(commit_wdata),
     .fflags_acc(rob2csr_fflags), .fs_dirty(rob2csr_fs_dirty),
+    .inj_software_valid(interrupt_inject_software_irq_pending_valid),
+    .inj_software(interrupt_inject_software_irq_pending),
     .inj_external_valid(interrupt_inject_external_irq_pending_valid),
     .inj_external(interrupt_inject_external_irq_pending),
     .inj_supervisor_external_valid(interrupt_inject_supervisor_external_irq_pending_valid),

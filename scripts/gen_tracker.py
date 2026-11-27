@@ -7,7 +7,7 @@ The index is generated: change the module doc and rerun `make tracker`; do not e
 import glob, os, re, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-AREAS = [('backend', '后端'), ('frontend', '前端'), ('memsys', '访存子系统'), ('core', '整核、PMU 与公共代码'), ('uncore', 'uncore')]
+AREAS = [('backend', '后端'), ('frontend', '前端'), ('memsys', '访存子系统'), ('core', '整核、PMU 与公共代码'), ('soc', '全片 SoC 与 AXI4 互联'), ('uncore', 'uncore')]
 
 
 def front_matter(path):

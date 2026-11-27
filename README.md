@@ -13,34 +13,43 @@ AI-Huma 乱序 RISC-V 核的 SystemVerilog 实现。起点是把 tututugege 模�
 - 每个原子模块的设计文档位于 `docs/modules/`（索引 `docs/05-module-tracker.md`），RTL 开发流程见总仓库 `docs/WORKFLOW.md` 第 7 节。
 
 - 文档入口：[docs/README.md](docs/README.md)（范围、编码规范、模块设计笔记、风险登记簿）；子系统笔记 `RTL_FE_NOTES.md`、`RTL_MEMSPEC_NOTES.md`、`RTL_WBUF_NOTES.md`、`RTL_INTEG_NOTES.md`
-- 目录布局：`rtl/`（全部 RTL，见 [rtl/README.md](rtl/README.md)）、`docs/`、`scripts/`（[索引](scripts/README.md)）、`tb/soc/`（整核测试平台）、`spec/` 与 `tools/`（生成器，见下）、`harness/tools/`（配置包生成器）、`programs/`、`tests/`
+- 目录布局：`rtl/`（全部 RTL，含 `soc/` 流片向全片 SoC 与双层 Full-AXI4 互联，见 [rtl/README.md](rtl/README.md)）、`docs/`、`scripts/`（[索引](scripts/README.md)）、`tb/core/`（核+存储子系统测试台 `core_tb`）、`tb/soc/`（真实全片 SoC 测试台 `soc_tb`）、`tb/axi_unit/`（AXI4 互联协议单测）、`tools/`、`harness/tools/`、`programs/`、`tests/`
+
+## 双测试台分工约定（`core_tb` vs `soc_tb`）
+
+| 测试台 | 顶层 RTL | 定位与职责 | 常用入口 |
+|---|---|---|---|
+| **`tb/core/core_tb`** | `soc_top`（`core_top + mem_top`） | **核+Cache 微架构研发台**：与 `trace-model` 逐拍周期对齐、逐条 `function-model` Difftest、支持 SVA/覆盖率/Fuzzer/Linux 26 窗检查点；外设走 C++ `PeripheralModel`，不引入片上 `soc_xbar` | `SOC_FM=1 bash tb/core/build.sh`、`scripts/fm_gate.sh`、`scripts/riscv_tests_gate.sh`、`scripts/linux_segments_cmp.sh` |
+| **`tb/soc/soc_tb`** | `chip_top`（核+双层 Full-AXI4+真实片上外设） | **流片/FPGA 全片集成验证台**：仅暴露芯片引脚，含 ARM IHI 0022E 在线 `soc_axi_checker`、BootROM、64 KiB SRAM、CLINT、PLIC、NS16550A UART、SysCtrl 与 CRG | `bash tb/soc/build.sh`、`scripts/soc_gate.sh`（可选 `--linux`）、`tb/axi_unit/build.sh` |
 
 ## 常用命令（在本目录执行）
 
 ```bash
-make cfg                                    # 由 trace-model/include/config.h 生成 rtl/common/ttg_cfg_pkg.sv（不要手改；默认 -DXLEN=64 -DRVC=1 -DFP=1，额外的 -D 参数追加在后面）
-bash scripts/lint.sh                        # 编码规范 + verilator -Wall，按目录
-bash scripts/lint_chip.sh                   # 整芯片 -Wall（soc_top 为顶），输出 0 warnings 为通过；CFG=<包> 用别的配置包
+export PATH="$HOME/rv64spec/verilator_src/bin:$PATH"        # iprc-jump 必须用 Verilator 5.052
+make cfg                                                    # 由 trace-model/include/config.h 生成 rtl/common/ttg_cfg_pkg.sv（不要手改）
+bash scripts/lint.sh                                        # 编码规范 + verilator -Wall，按目录
+bash scripts/lint_chip.sh && bash scripts/lint_soc.sh       # soc_top 与 chip_top 整芯 -Wall，输出 0 warnings 为通过
 # 一次性准备：门禁程序（rv64ima，用 trace-model 的 build_tests.sh，TM_SRC 指向一棵 trace-model 树）
-TM_SRC=../trace-model bash scripts/build_progs.sh       # -> build/progs（env.sh 的 TTG_PROGS 默认值）
-# 测试平台；function-model 由 scripts/fm_lib.sh 按固定版本 FM_REV（env.sh）以 XLEN=64 FP=1 RVC=1 自动构建，不再需要 FMLIB
-SOC_FM=1 SOC_OUT=$PWD/build/soc_fm bash tb/soc/build.sh
+TM_SRC=../trace-model bash scripts/build_progs.sh           # -> build/progs（env.sh 的 TTG_PROGS 默认值）
+# 1) 核+存储子系统测试台（core_tb）：function-model 由 scripts/fm_lib.sh 按固定版本 FM_REV 自动构建
+SOC_FM=1 CORE_OUT=$PWD/build/core_fm bash tb/core/build.sh
+bash scripts/fm_gate.sh $PWD/build/core_fm/obj/core_tb $PWD/build/gate   # 77 个程序逐条对拍 + 周期比对
+# 2) 真实全片 SoC 一键回归门禁（soc_tb + axi_unit + lint_soc + DDR_DATA_W=64/128，加 --linux 测 Linux 启动）
+bash scripts/soc_gate.sh
 # 模型默认配置改了（= RTL 配置改了）之后重新生成参考周期：
 bash scripts/regen_refs.sh <trace-model 的 simulator> "说明"
-# 门禁：ref_cycles.txt 里 69 个程序逐条提交对比 function-model
-bash scripts/fm_gate.sh $PWD/build/soc_fm/obj/soc_tb $PWD/build/gate
 ```
 
-- **测试平台构建**：`tb/soc/build.sh` 默认用全部核编译 C++（`JOBS` 可改），并按 5000 条语句拆分生成的 C++（`--output-split` / `--output-split-cfuncs`）。测试平台自带 `tb/soc/fpr.h`（对齐指纹，哈希与 trace-model 相同）。
-- **正确性门禁**：逐条提交对比 function-model（`tb/soc/fm_check.h`），`fm_gate.sh` 跑 `scripts/ref_cycles.txt` 的 69 个 rv64 程序。
-- **周期**是性能指标：`ref_cycles.txt` 是 trace-model 默认配置下的周期（`scripts/regen_refs.sh` 生成），合入 main 时 RTL 与它逐个相等。
-- **跑 Linux**（长跑/集群 26 窗对齐）：测试平台建议开启 **8 线程**（`SOC_VOPT="--threads 8"`；`rob_pkg::EBREAK_TRAP` 已默认开启），集群跨机静态链接时需传 `SOC_COPT="-O2 -march=x86-64-v3 -mtune=generic"` 与 `-Wl,--whole-archive -lpthread -Wl,--no-whole-archive -latomic`。运行时设 `SOC_TB_SEMIHOST=1 SOC_TB_FM=1 SOC_TB_LOG=2000000`；分段并行检查见 `scripts/linux_segments.sh`。
+- **测试平台构建**：`tb/core/build.sh`（输出 `obj/core_tb`）与 `tb/soc/build.sh`（输出 `obj/soc_tb`）默认用全部核编译 C++（`JOBS` 可改），并按 5000 条语句拆分生成的 C++。`core_tb` 自带 `tb/core/fpr.h`（对齐指纹，哈希与 trace-model 相同）。
+- **正确性门禁**：核侧逐条提交对比 function-model（`tb/core/fm_check.h`），`fm_gate.sh` 跑 `scripts/ref_cycles.txt` 的 77 个 rv64 程序；全片 SoC 侧由 `scripts/soc_gate.sh` 守住。
+- **周期**是性能指标：`ref_cycles.txt` 是 trace-model 默认配置下的周期（`scripts/regen_refs.sh` 生成），合入 main 时 `core_tb` 与它逐个相等。
+- **跑 Linux**（长跑/集群 26 窗对齐）：`core_tb` 建议开启 **8 线程**（`CORE_VOPT="--threads 8"`；`rob_pkg::EBREAK_TRAP` 已默认开启），集群跨机静态链接时需传 `CORE_COPT="-O2 -march=x86-64-v3 -mtune=generic"` 与 `CORE_LDFLAGS="-static -Wl,--whole-archive -lpthread -Wl,--no-whole-archive -latomic"`。运行时设 `SOC_TB_SEMIHOST=1 SOC_TB_FM=1 SOC_TB_LOG=2000000`；分段并行检查见 `scripts/linux_segments_cmp.sh`。
 - 测试平台调试开关：`SOC_TB_LOG=<n>`（每 n 周期一行进度）、`SOC_TB_STLOG=<物理地址>`（打印提交到该 8 字节字的 store）、`SOC_TB_COMMIT`、`DEBUG=1`（`--public-flat-rw`）。
 
 ## 生成文件与 rv64 的已知债务
 
 - `rtl/common/ttg_cfg_pkg.sv`：由 `harness/tools/gen_cfg_pkg.py`（`make cfg`）生成。默认就是 rv64gc 的包（2026-11-16 起），构建时不再生成副本。
-- `rtl/backend/back_top/back_top.sv`、`exu.sv`、`rtl/core/soc_top/soc_top.sv` 以前由 `tools/gen_backtop.py`、`tools/gen_soc_top.py`（输入 `spec/*.io`）生成，生成器和 `spec/` 已在 2026-11-16 删除（它们为 rv64 手改过位宽，早已不同步）：**这三个文件现在直接手改**。`spec/` 已整个删除；测试平台探针用的 core_top 边界字段表是入库的快照 `tb/soc/core_top_fields.h`。
+- `rtl/backend/back_top/back_top.sv`、`exu.sv`、`rtl/core/soc_top/soc_top.sv` 以前由 `tools/gen_backtop.py`、`tools/gen_soc_top.py`（输入 `spec/*.io`）生成，生成器和 `spec/` 已在 2026-11-16 删除（它们为 rv64 手改过位宽，早已不同步）：**这三个文件现在直接手改**。`spec/` 已整个删除；测试平台探针用的 core_top 边界字段表是入库的快照 `tb/core/core_top_fields.h`。
 - 数据通路里 `XLEN_BITS` 相关的位宽：PC、寄存器、立即数、ALU/乘除、CSR、LSU/dcache 数据字 `DW = XLEN`；dcache 的行和 AXI 一侧仍是 32 位字；物理地址始终 32 位（rv64 是 Sv39 虚拟地址、32 位物理地址）。
 
 翻译阶段的"逐拍锁步 / trace 回放 / 变异检查"体系完成使命后退役，代码在标签 `legacy-reference`，文档在 [docs/history/](docs/history/)。

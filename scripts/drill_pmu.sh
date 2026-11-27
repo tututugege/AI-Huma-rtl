@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# drill_pmu.sh <soc_tb> <trace-model simulator> <vcd soc_tb> <image> <max-cycles> <out-dir> [iv=25]
+# drill_pmu.sh <core_tb> <trace-model simulator> <vcd core_tb> <image> <max-cycles> <out-dir> [iv=25]
 # Finds the first PMU interval (iv cycles) in which the RTL and the trace-model differ, from reset, in ONE model run and ONE RTL run, and then captures the
 # waveform of that window with the VCD build (soc_tb built by scripts/build_soc_vcd.sh) in ONE more RTL run: two RTL runs in total, no manual zooming.
 # prints the first differing interval (tier-1 events) and writes <out-dir>/w.vcd (query it with scripts/vcd_query.py --cyc0 <printed from>).

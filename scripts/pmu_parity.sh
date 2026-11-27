@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # PMU tier-1 parity: per-event totals of the RTL SoC testbench (SOC_TB_PMU=1) vs the trace-model (PMU=1), one program.
-#   usage: pmu_parity.sh <prog.bin> [soc_tb] [trace-model simulator]
+#   usage: pmu_parity.sh <prog.bin> [core_tb] [trace-model simulator]
 # Only the events of "RTL tier 1" (trace-model include/pmu_events.def) are compared; they must be equal.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-P=$1; SOC=${2:-$ROOT/build/soc/obj/soc_tb}; TM=${3:-$ROOT/../trace-model-pmu/build/simulator}
+P=$1; SOC=${2:-$ROOT/build/core/obj/core_tb}; TM=${3:-$ROOT/../trace-model-pmu/build/simulator}
 DEF=${PMU_EVENTS_DEF:-$ROOT/../trace-model-pmu/include/pmu_events.def}
 T1="CYCLES INSTRET COMMIT_LOAD COMMIT_STORE COMMIT_BRANCH COMMIT_JUMP CYC_COMMIT_ZERO CYC_COMMIT_FULL BR_MISPRED FLUSH_EXCEPTION FLUSH_OTHER SLOT_FIRE SLOT_KILLED SLOT_FE_EMPTY SLOT_FE_RECOV_MISPRED SLOT_FE_RECOV_FLUSH SLOT_BE CYC_RECOVERING"
 TMF=$(mktemp -d)

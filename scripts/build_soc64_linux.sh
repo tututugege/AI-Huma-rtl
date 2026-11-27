@@ -7,6 +7,6 @@
 # 注意：不带 --threads 构建出的仿真是单线程；只做几百万周期以内的检查点复现时可以用单线程（构建更快），但整段 Linux 回归一律用本脚本。
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd); . "$ROOT/scripts/env.sh"
-OUT=${1:-$ROOT/build/soc64lin}; THREADS=${THREADS:-4}
+OUT=${1:-$ROOT/build/core64lin}; THREADS=${THREADS:-4}
 cd "$ROOT"
-SOC_XLEN=64 SOC_FM=1 SOC_VOPT="--threads $THREADS" SOC_OUT=$OUT TM_DIR=${TM_DIR:-$AI_HUMA_ROOT/trace-model} bash tb/soc/build.sh
+SOC_XLEN=64 SOC_FM=1 SOC_VOPT="--threads $THREADS" CORE_OUT=$OUT TM_DIR=${TM_DIR:-$AI_HUMA_ROOT/trace-model} bash tb/core/build.sh

@@ -120,6 +120,7 @@ package csr_pkg;
   localparam int NIRQ = 3;
   localparam int IRQ_M_BIT [NIRQ] = '{3, 7, 11};  // MSIP MTIP MEIP
   localparam int IRQ_S_BIT [NIRQ] = '{1, 5, 9};   // SSIP STIP SEIP
+  localparam int MIP_MSIP = 3;
   localparam int MIP_MTIP = 7;
   localparam int MIP_SEIP = 9;
   localparam int MIP_MEIP = 11;

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# linux_segments.sh <soc_tb> <ckpt-dir> <out-dir> [cycles-per-segment=16000000]
+# linux_segments.sh <core_tb> <ckpt-dir> <out-dir> [cycles-per-segment=16000000]
 # Linux check in parallel segments: every ckpt_special_sNN_*.gz in <ckpt-dir> (function-model `--mode special-ckpt`, one per 10M
 # instructions) is restored on the RTL SoC (ckpt2image.py + ckpt2stub.py, SOC_TB_STUB) and run for <cycles> with the per-commit
 # function-model check.  PASS = no [FM] mismatch/reject line and more than 1M instructions checked.  Segments overlap slightly

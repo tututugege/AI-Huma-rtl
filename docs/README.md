@@ -25,9 +25,10 @@ rtl 是 AI-Huma 的 `rv64gc` + `Sv39` SystemVerilog 实现（含全套自研可�
 ```bash
 export PATH="$HOME/rv64spec/verilator_src/bin:$PATH"   # iprc-jump 必须用 Verilator 5.052
 make cfg                                               # 从 trace-model/include/config.h 生成 rtl/common/ttg_cfg_pkg.sv（不要手改）
-bash scripts/lint.sh && bash scripts/lint_chip.sh      # 编码规范 + 整芯片 verilator -Wall
-SOC_FM=1 SOC_OUT=$PWD/build/soc_fm bash tb/soc/build.sh
-bash scripts/fm_gate.sh $PWD/build/soc_fm/obj/soc_tb $PWD/build/gate   # 69 个程序门禁，并报告与 trace-model 周期不同的个数
+bash scripts/lint.sh && bash scripts/lint_chip.sh && bash scripts/lint_soc.sh
+SOC_FM=1 CORE_OUT=$PWD/build/core_fm bash tb/core/build.sh
+bash scripts/fm_gate.sh $PWD/build/core_fm/obj/core_tb $PWD/build/gate  # 77 个程序门禁，并报告与 trace-model 周期不同的个数
+bash scripts/soc_gate.sh                               # 真实全片 SoC（chip_top）一键门禁（lint_soc + axi_unit + 6 项 soc_tb 测试）
 bash scripts/mul_check.sh && bash scripts/div_check.sh && bash scripts/fp_synth_check.sh
 make tracker                                           # 由 docs/modules/*.md 头部重新生成 05 进度表
 ```
@@ -36,14 +37,14 @@ make tracker                                           # 由 docs/modules/*.md �
 
 ```
 docs/        本目录（模块设计笔记在 modules/）
-rtl/         所有 RTL（common/ backend/ frontend/ memsys/ core/ pmu/），说明见 rtl/README.md
+rtl/         所有 RTL（common/ backend/ frontend/ memsys/ core/ pmu/ soc/），说明见 rtl/README.md
 harness/     tools/（gen_cfg_pkg 配置包生成器、iogen、svlint）、include/trace_format.h（测试平台用）
-tb/          整核测试平台（soc/）及独立单元对拍平台（mul/、div/、fp_synth/、fp_dpi/、fe_clean_eq/）
+tb/          核+存储测试平台（core/ → core_tb）、真实全片 SoC 测试平台（soc/ → soc_tb）、AXI4 单测（axi_unit/）及独立单元对拍（mul/、div/、fp_synth/、fp_dpi/、fe_clean_eq/）
 tools/       gen_soc_probe、gen_skipmask（测试平台构建用）、ckpt2image、lint_back_top.sh、toplint.sh、fuzz/（RV64GC 随机 Fuzzer）
 sva/         非侵入式 SVA bind 断言与覆盖框架（`SOC_SVA=1` 挂载，零综合污染）
 tests/       专项测试：common/、common_prims/、dcache/、fp_*/、pmu/、ren_elim_sel/、rv64/、wb_gate/
 scripts/     索引见 scripts/README.md
-programs/    缩短版 dhrystone/coremark（programs/big）与定向短测试（programs/directed）
+programs/    缩短版 dhrystone/coremark（programs/big）、定向短测试（programs/directed）与 SoC 裸机测试（programs/soc）
 build/       构建产物（不入库）
 ```
 

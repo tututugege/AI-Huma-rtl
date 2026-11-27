@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Closed-loop check: run programs on the RTL SoC (tb/soc, Verilated core_top + mem_top) and compare the cycle count with the
+# Closed-loop check: run programs on RTL core+memsys (tb/core/core_tb, Verilated core_top + mem_top) and compare the cycle count with the
 # trace-model's (scripts/ref_cycles.txt: "<cycles> <dir>/<file>.bin" = the trace-model gate baseline; a performance reference, not a correctness one).
 #   usage: soc_smoke.sh [max_ref_cycles=20000]      env JOBS (default 4), MINC (skip programs shorter than this)
 set -uo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 . "$ROOT/scripts/env.sh"
 MAXC=${1:-20000}; MINC=${MINC:-0}
-TB=${SOC_OUT:-$ROOT/build/soc}/obj/soc_tb
-[ -x "$TB" ] || { echo "build first: bash tb/soc/build.sh"; exit 2; }
+TB=${CORE_OUT:-${SOC_OUT:-$ROOT/build/core}}/obj/core_tb
+[ -x "$TB" ] || { echo "build first: bash tb/core/build.sh"; exit 2; }
 run_one() {
   ref=$1; rel=$2
   p=$(grep -F "/$rel" "$ROOT/build/soc_progs.txt" | head -1)
