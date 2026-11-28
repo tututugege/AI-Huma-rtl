@@ -10,11 +10,6 @@ module isu_iq
   parameter int DW        = IQ_DISPATCH_WIDTH,
   parameter int NP        = 4,
   parameter int QID       = 0,   // issue queue number (its ports: isu_pkg iq_port)
-  // memory queue with shared AGUs: the SH_N ports from SH_STA_LO (store addresses) share an AGU with the SH_N ports from SH_LO_LD
-  // (loads): a load that is granted keeps it, the store-address port is not granted then (its pick stays taken)
-  parameter int SH_N      = 0,
-  parameter int SH_LD_LO  = 0,
-  parameter int SH_STA_LO = 0,
   parameter bit AGE_EN    = 1'b0,   // the oldest-on-first-port select (isu_iq_select)
   parameter bit HAS_SRC2  = 1'b1,
   parameter bit HAS_SRC3  = 1'b0,
@@ -38,7 +33,6 @@ module isu_iq
   input  logic [LSU_LDU_COUNT-1:0] cancel_valid,    // wake-up of the previous cycle was wrong: waiting again (LP_L2)
   input  logic [PRF_IDX_WIDTH-1:0] cancel_preg [LSU_LDU_COUNT],
   /* verilator lint_on UNUSEDSIGNAL */
-  input  op_set_t                  fu_ready [NP],   // per port: op classes the functional unit accepts now
   input  logic [NP-1:0]            gate_ok,         // FP write-port gate (isu_fp_gate); 1 for ports without one
   /* verilator lint_off UNUSEDSIGNAL */   // waiver: a queue whose ports have no blockable class (memory, STD, BR) does not read it
   input  logic [WB_NCLS-1:0]       cls_free [NP],   // per port and completion class: the completion cycle is free (EXP-046)
@@ -125,25 +119,10 @@ module isu_iq
   endfunction
   localparam op_set_t QCAP = q_cap_union();
 
-  // Register active QCAP op bits per slot at enqueue (eliminates per-slot op_onehot decoders on both select and fu_ready paths)
+  // Compute active QCAP op bits per enqueued uop
   op_set_t enq_op_oh [DW];
-  op_set_t slot_op_q [SIZE];
   for (genvar w = 0; w < DW; w++) begin : g_eop
     assign enq_op_oh[w] = op_onehot(enq_uop[w].op) & QCAP;
-  end
-  for (genvar i = 0; i < SIZE; i++) begin : g_sop
-    for (genvar b = 0; b < OP_NUM; b++) begin : g_b
-      if (QCAP[b]) begin : g_k
-        logic nxt;
-        always_comb begin
-          nxt = slot_op_q[i][b];
-          for (int w = 0; w < DW; w++) if (enq_slot[w][i]) nxt = enq_op_oh[w][b];
-        end
-        always_ff @(posedge clk) slot_op_q[i][b] <= nxt;
-      end else begin : g_z
-        assign slot_op_q[i][b] = 1'b0;
-      end
-    end
   end
 
   // Pre-decode per-slot FP write flag and one-hot FP completion class (c = 4..10) at enqueue for FP-capable queues
@@ -245,27 +224,11 @@ module isu_iq
 
   logic [SIZE-1:0] granted_by_port [NP];
   for (genvar p = 0; p < NP; p++) begin : g_port
-    localparam int PP = iq_port(QID, p);
-    localparam op_set_t PCAP = port_cap(PP);
-    localparam bit SINGLE_OP = ((PCAP & (PCAP - op_set_t'(1))) == '0);
     logic [UW-1:0]   sel_bits;
     logic [BYPW-1:0] sel_byp;
     isu_uop_t        sel_uop;
-    logic            sel_fu_ok;
     ttg_onehot_mux #(.N(SIZE), .W(UW))   u_read     (.sel(sel_onehot[p]), .data(slot_bits),     .out(sel_bits));
     ttg_onehot_mux #(.N(SIZE), .W(BYPW)) u_read_byp (.sel(sel_onehot[p]), .data(slot_byp_bits), .out(sel_byp));
-    if (SINGLE_OP) begin : g_fu1
-      // Single-op port (LD, STA, STD, plain ALU): FU readiness is independent of the chosen slot
-      assign sel_fu_ok = |(PCAP & fu_ready[p]);
-    end else begin : g_fum
-      logic [0:0] slot_fu_ok_arr [SIZE];
-      logic [0:0] sel_fu_ok_v;
-      for (genvar i = 0; i < SIZE; i++) begin : g_fuok
-        assign slot_fu_ok_arr[i] = |(slot_op_q[i] & fu_ready[p]);
-      end
-      ttg_onehot_mux #(.N(SIZE), .W(1)) u_read_fu (.sel(sel_onehot[p]), .data(slot_fu_ok_arr), .out(sel_fu_ok_v));
-      assign sel_fu_ok = sel_fu_ok_v[0];
-    end
     if (HAS_FPD_Q) begin : g_rdfp
       logic [FPCW-1:0] sel_fpc;
       ttg_onehot_mux #(.N(SIZE), .W(FPCW)) u_read_fpc (.sel(sel_onehot[p]), .data(slot_fpc_bits), .out(sel_fpc));
@@ -283,12 +246,8 @@ module isu_iq
     assign grant_uop[p]      = sel_uop;
     assign grant_src1_byp[p] = sel_byp[ALU_NUM-1:0];
     assign grant_src2_byp[p] = sel_byp[BYPW-1:ALU_NUM];
-    assign cand_valid[p]     = sel_valid[p] && !issue_block && sel_fu_ok;
-    if (SH_N > 0 && p >= SH_STA_LO && p < SH_STA_LO + SH_N) begin : g_shared
-      assign grant_valid[p] = cand_valid[p] && gate_ok[p] && !grant_valid[SH_LD_LO + (p - SH_STA_LO)];
-    end else begin : g_own
-      assign grant_valid[p] = cand_valid[p] && gate_ok[p];
-    end
+    assign cand_valid[p]     = sel_valid[p] && !issue_block;
+    assign grant_valid[p]    = cand_valid[p] && gate_ok[p];
     assign granted_by_port[p] = sel_onehot[p] & {SIZE{grant_valid[p]}};
   end
 

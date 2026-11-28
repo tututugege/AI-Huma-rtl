@@ -32,12 +32,12 @@ depth: 142 层（back_top，单模块综合，2026-11-20，`SYNTH_ABC="strash;ba
 | 项 | 值（常量） |
 | --- | --- |
 | 实例（文件行数） | `back_top.sv` 1660、`back_top_glue.sv` 103、`exu.sv` 657；子模块见各自文档 |
-| 发射口、FU | `ISSUE_WIDTH = 21`，`TOTAL_FU_COUNT = 31`，6 个发射队列（`dis_pkg::IQ_NUM = 6`），唤醒通道 `MAX_WAKEUP_PORTS = 22` |
+| 发射口、FU | `ISSUE_WIDTH = 19`，`ROB_WB_WIDTH = 21`，`TOTAL_FU_COUNT = 28`，6 个发射队列（`dis_pkg::IQ_NUM = 6`），唤醒通道 `MAX_WAKEUP_PORTS = 21` |
 | 译码 / 提交宽度 | `DECODE_WIDTH = 8`，`COMMIT_WIDTH = 8`，`BACKEND_FETCH_WIDTH = 16` |
-| 访存口 | `LSU_LDU_COUNT = 4`、`LSU_STA_COUNT = 3`、`LSU_SDU_COUNT = 3`、`LSU_AGU_COUNT = 7`、`LSU_AGU_SHARED = 2`、`LSU_AGU_PHYS = 5`（共用 AGU：load 口 8、9 与 STA 口 11、12；DTLB、LSU 的请求 / 响应数组按 5 个物理 AGU 配口，`back_top.sv` 的 `lsu2mmu_*`、`mmu2lsu_*`） |
+| 访存口 | `LSU_LDU_COUNT = 4`、`LSU_STA_COUNT = 3`、`LSU_SDU_COUNT = 3`、`LSU_AGU_COUNT = 5`、`LSU_AGU_SHARED = 2`（统一 5 个物理 AGU：口 6..7 只做 load，口 8..9 load/STA 共用，口 10 只做 STA；`exe2lsu_agu`、DTLB 与 LSU 按 `LSU_AGU_COUNT = 5` 配口，`back_top.sv` 的 `lsu2mmu_*`、`mmu2lsu_*`） |
 | 寄存器 | 本层只有 `rob_flush_q`、`rob_fence_q`、`rob_fence_i_q`（各 1 位）和胶水里的 `redirect_pc_q`（`XLEN_BITS = 64` 位） |
 
-`ttg_cfg_pkg.sv` 目前是手工编辑的，与 `make cfg` 生成的不同步（待统一，见 docs/TODO.md）。`back_top.sv` 和 `exu.sv` 文件头写的是"由 `tools/gen_backtop.py` 生成到 2026-11，生成器已删除"。
+`ttg_cfg_pkg.sv` 已由 `make cfg` 同步生成。`back_top.sv` 和 `exu.sv` 文件头写的是"由 `tools/gen_backtop.py` 生成到 2026-11，生成器已删除"。
 
 ## 3. 接口
 
@@ -58,8 +58,8 @@ depth: 142 层（back_top，单模块综合，2026-11-20，`SYNTH_ABC="strash;ba
 
 ```
  front2pre ─► pre ─► idu ─► ren ─► dis ─► isu ─(iss2prf)─► prf ─(prf2exe)─► exu(exu_ctrl + FU) ─┬─(exe2prf)─► prf
-   ▲                 ▲ exu2id（分支解析）     │ dis2rob/dis2lsu        ▲ exe2iss_fu_ready_mask    ├─(exu2rob)─► rob
-   │                 └ dec_bcast_* ─► ren dis isu prf exu rob dtlb lsu glue            │ prf_awake                    ├─(exe2lsu)─► lsu ─(lsu2exe 写回)─► exu
+   ▲                 ▲ exu2id（分支解析）     │ dis2rob/dis2lsu        ▲ exe2iss_div_wb_next     ├─(exu2rob [21])─► rob
+   │                 └ dec_bcast_* ─► ren dis isu prf exu rob dtlb lsu glue            │ prf_awake                    ├─(exe2lsu_agu [5])─► lsu ─(lsu2exe 写回)─► exu
    │                                                                                    └─► isu、dis    exe2csr ─► csr ─(csr2exe)─► exu
  rob ─(rob_bcast_flush)─► rob_flush_q ─► pre idu ren dis isu prf exu dtlb lsu；rob ─(mret / exception / pc …)─► csr、glue
  lsu ◄─► dtlb（按物理 AGU 的请求 / 响应）；lsu ─(lsu2iss_wake / cancel)─► isu、dis
@@ -84,12 +84,12 @@ depth: 142 层（back_top，单模块综合，2026-11-20，`SYNTH_ABC="strash;ba
 | `rob_bcast_interrupt` | `rob` | `ren`、芯片端口；不推迟 |
 | `iss2prf_*` / `prf2exe_*` | `isu` / `prf` | `prf` / `exu`；口 0 的 `csr_idx` 取 `prf2exe_iss_entry_uop_csr_idx[0]` 送 `exu`（CSR 固定在口 0） |
 | `exe2prf_entry_*`（`[WB_LANES]`，寄存器写回总线，EXP-046）、`exe2prf_bypass_*` | `exu` | `prf` |
-| `exe2iss_fu_ready_mask` | `exu` | `isu` |
+| `exe2iss_div_wb_next`、`exe2iss_div_wake_*` | `exu` | `isu`（DIV 下一拍写回通告与晚唤醒，替代原 `fu_ready_mask` 协议） |
 | `prf_awake_*`（load 晚唤醒） | `prf` | `isu`、`dispatch` |
 | `iss_awake_*`（唤醒广播） | `isu` | `dispatch` |
 | `lsu2iss_wake_* / cancel_*` | `lsu` | `isu`、`dispatch` |
-| `exe2lsu_*`（含 `*_req_occ`）、`lsu2exe_*`（写回） | `exu` / `lsu` | `lsu` / `exu`；`lsu2exe_wb_req_*` 另经 `lsu_byp_*` 去 `prf` |
-| `exu2rob_entry_*` | `exu` | `rob` |
+| `exe2lsu_agu [5]`、`exe2lsu_sdu_* [3]`、`lsu2exe_*` | `exu` / `lsu` | `lsu` / `exu`；`lsu2exe_wb_req_*` 另经 `lsu_byp_*` 去 `prf` |
+| `exu2rob [ROB_WB_WIDTH]` | `exu` | `rob` |
 | `exe2csr_*`、`csr2exe_rdata / frm` | `exu` / `csr` | `csr` / `exu` |
 | `rob2csr_*`、`csr2rob_*`、`csr2front_epc / trap_pc` | `rob` / `csr` | `csr` / `rob` / `glue` |
 | `ftq_prf_pc_*`、`ftq_rob_pc_*` | `prf`、`rob` | `pre`（请求），`pre`（回答）回 `prf`、`rob` |
@@ -136,9 +136,9 @@ depth: 142 层（back_top，单模块综合，2026-11-20，`SYNTH_ABC="strash;ba
 
 ### 5.6 `exu.sv` 与 FU 的合同
 
-- `exu_ctrl` 之外实例化：`alu_bank`（6）、`bru_bank`（2）、`agu_bank`（`LSU_AGU_COUNT = 7`）、`sdu_bank`（3）、`mul_bank`（2）、`div_bank`（2）、浮点 FU（`FP_EN` 时 `N_FPU = 8` 个：FDIV 用 `fp_div_unit`，其余用 `fp_pipe_unit`，延迟取 `FP_FMA_LAT`、`FP_MISC_LAT`、`FP_I2F_LAT`），共 30 个；CSR FU 不实例化（`exu_ctrl` 自己处理 CSR 槽的握手）；
-- 单周期 FU：`consume` 接 0，`complete` / `ready` 悬空到具名线，`exu_ctrl` 自己按"`complete = en`、`ready = !en || consume`"推；仿真断言 ALU 和 BRU 的 `complete == en`；
-- 多周期 FU 按 `exu_ctrl` 的 MC 下标映射：`MC_MUL = {0, 2}`、`MC_DIV = {1, 3}`；`func3` 截成 2 位；`flush`、`flush_mask`、`clear_mask` 复制给每个实例；
+- `exu_ctrl` 之外实例化：`alu_bank`（6）、`bru_bank`（2）、`agu_bank`（`LSU_AGU_COUNT = 5`）、`sdu_bank`（3）、`mul_bank`（2）、`div_bank`（1）、浮点 FU（`FP_EN` 时 `N_FPU = 8` 个：FDIV 用 `fp_div_unit`，其余用 `fp_pipe_unit`，延迟取 `FP_FMA_LAT`、`FP_MISC_LAT`、`FP_I2F_LAT`），共 27 个（加 CSR 槽共 `TOTAL_FU_COUNT = 28`）；CSR FU 不实例化（`exu_ctrl` 自己处理 CSR 槽）；
+- 所有 FU 不再使用 `ready` / `consume` 握手；单周期 FU（`alu`、`bru`、`agu`、`sdu`）只保留输入操作数与组合结果，无 `en`/`complete`/`ready`/`consume`；
+- 多周期 FU 按 `exu_ctrl` 的 MC 下标映射：`MC_MUL`（口 0、2）、`MC_DIV`（口 1）；`func3` 截成 2 位；`flush`、`flush_mask`、`clear_mask` 复制给每个实例；`div_wb_next` 由口 1 DIV 导出至 ISU；
 - 浮点 FU 的舍入模式取 `csr2exe_frm`；
 - 没有 F/D 时浮点组的所有 FU 侧信号接 0。
 
@@ -184,6 +184,7 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 
 ## 8. 验证
 
+- **最新整核门禁（2026-11-28，`rtl/exu-clean`，EXP-072）**：`lint_chip` & `lint_soc` 0 告警；`SOC_FM=1 SOC_SVA=1 SOC_ASSERT=1` `fm_gate` 77/77（与 `trace-model` `0` 周期差）、`riscv-tests` 152/152（1 SKIP `rv64ui-ma_data`）、`soc_gate --linux` 12/12 全通；集群 Linux 26/26 窗（5.1M insts/窗）PT/UP 100% 全等；SPEC06 INT 386/386 `geomean +0.144%`（`13.30 /GHz`）。
 - **整核门禁**：`scripts/fm_gate.sh` 67 个程序，每条提交对比函数模型，周期对 `scripts/ref_cycles_memiq6_nr_int2_ev5.txt`（模型同配置生成）。装配层的接线错误会在这里表现为提交值或周期不对。
 - **Linux**：`scripts/linux_gate.sh`（RTL 和模型启动同一镜像同样周期数，逐条提交检查，PMU 数字逐区间对比，控制台出现 `login:`）；`scripts/linux_segments_cmp.sh`（从检查点分段并行跑，头注释称为快速 Linux 门禁，从复位的完整运行是最终门禁）；构建脚本 `scripts/build_soc64_linux.sh`（`-DTTG_EBREAK_TRAP`）。
 - **Lint**：`scripts/lint_chip.sh`（`soc_top` 为顶层的整芯片 `verilator -Wall` lint）0 告警。
@@ -194,6 +195,8 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 `ISSUE_WIDTH`、`TOTAL_FU_COUNT`、`DECODE_WIDTH`、`COMMIT_WIDTH`、`BACKEND_FETCH_WIDTH`、`LSU_*_COUNT`、`LSU_AGU_SHARED`、`LSU_AGU_PHYS`、`FPRF_NUM`（决定 `FP_EN`）、`MAX_WAKEUP_PORTS`（`ttg_cfg_pkg`）；`lp_pkg::LP_L2`（决定 `lsu_byp_valid`）；`SYNTHESIS`（`exu.sv` 里的断言只在仿真）。FLUSH_REG 在 RTL 里没有开关（总是推迟一拍），模型对应 `CFG_FLUSH_REG`。
 
 ## 10. 变更记录
+
+- 2026-11-28（`rtl/exu-clean`，EXP-072）：`back_top.sv` 与 `exu.sv` 删除 `exe2iss_fu_ready_mask` 线网、取消 `ready/consume` 协议，并由逻辑 7 AGU 收敛为真 5 物理 AGU（`ISSUE_WIDTH = 19`），改接 `exe2iss_div_wb_next` 给 `isu`；TSMC 28nm DC `exu_ctrl` 面积 −38.8%（`19,432 µm²`, `WNS 0.00 ns`）、`exu` 面积 −4.84% / FF −22.4%；通过 strict+SVA `fm_gate` 77/77、`riscv-tests` 152/152、`soc_gate --linux` 12/12 与 Linux 26/26 窗对齐。
 
 - 2026-11-26（`rtl/soc-env`）：将 `idu_br_latch.sv` 重命名为 `back_br_redirect.sv`（实例 `u_br_redirect`，同步更新 `ftq_ibuf` / `back_top_glue` 端口前缀 `br_redirect_*`），消除迁出 `idu` 后的遗留命名（纯重命名，零行为变化）。
 - 2026-11-25（`idu_br_latch` 迁入 `back_top`）：将 `idu_br_latch.sv` 从 `rtl/backend/idu/` 移入 `rtl/backend/back_top/` 并直接在 `back_top.sv` 中实例化 `u_br_latch` 驱动 `dec_bcast_*` 与 `br_latch_*`，使 `u_idu` 成为纯组合 8 路译码器（零周期变化）。

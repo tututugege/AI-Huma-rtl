@@ -27,17 +27,17 @@ depth: 25 层 / 639,644 单元（EXP-060 开启 `HAS_LSU_BYP` 4 路整数 `lsu_b
 | --- | --- |
 | 整数物理寄存器 | `PRF_NUM = 256`，每个 `XLEN_BITS = 64` 位 |
 | 浮点物理寄存器 | `FPRF_NUM = 96`，每个 `FW = FLEN = 64` 位；浮点寄存器的编号从 `FP_TAG_BASE = 256` 起，和整数寄存器共用一个编号空间 `TAG_NUM = 352`，编号宽 `PRF_IDX_WIDTH = 9` |
-| 写回通道数 | `WB_LANES = 13`（`ttg_cfg_pkg`，由模型 `config.h` 的 `WB_*` 生成）：通道 `WB_ALU_BASE = 0`..5 是 ALU 口 0..5，`WB_LD_BASE = 6`..9 是 4 路 load 写回（含 SC），`WB_FP_BASE = 10`..12 是浮点口 18..20。STA / STD / BR 口不写寄存器，没有通道。整数寄存器堆 13 个写口；浮点寄存器堆 6 个（见 5.1） |
-| 发射通道数（读侧） | `NIP = ISSUE_WIDTH = 21`：每个发射口 2 个整数读口 |
-| 整数读口 | 仅按发射口实际需要生成 **27 个**（ALU 6×2 + 物理 AGU 5×1 + STD 3×2 + BR 2×2；LD/STA 不用 `src2`，共用 STA 11、12 借用 LD 8、9 的 `src1`，FP 口 18..20 不读整数） |
+| 写回通道数 | `WB_LANES = 13`（`ttg_cfg_pkg`，由模型 `config.h` 的 `WB_*` 生成）：通道 `WB_ALU_BASE = 0`..5 是 ALU 口 0..5，`WB_LD_BASE = 6`..9 是 4 路 load 写回（含 SC），`WB_FP_BASE = 10`..12 是浮点口 16..18。STA / STD / BR 口不写寄存器，没有通道。整数寄存器堆 13 个写口；浮点寄存器堆 6 个（见 5.1） |
+| 发射通道数（读侧） | `NIP = ISSUE_WIDTH = 19`：与 19 个物理发射口一一对应 |
+| 整数读口 | 仅按发射口实际需要生成 **27 个**（ALU 6×2 + 物理 AGU 5×1 + STD 3×2 + BR 2×2；5 个 AGU 口直接各有 1 个 `src1` 读口，无需 STA 借用逻辑；FP 口 16..18 不读整数） |
 | 浮点读口 | `NRD = 3 * FP_LANES + LSU_SDU_COUNT = 12`：3 个浮点口（`ISSUE_WIDTH - IQ_FP_PORT_BASE`）各 3 个源，3 个 store-data 口各 1 个数据源（fsw / fsd） |
 | 旁路源 | **唤醒驱动二维 Mask + 写回级混合架构**：整数 EXU 级直接复用 `exe2prf_entry[WB_ALU_BASE + 0..5]`（6 条 ALU/MUL/DIV/CSR 通道），由 ISU 随发射送来的 6 位独热码 `iss2prf_iss_entry_uop_src{1,2}_byp` 直驱 6:1 MUX（**0 个 EXU 级 tag 比较器**）；浮点 EXU 级仅需 1 路迭代 FDIV（`exe2prf_entry[WB_FP_BASE + 2]`，流水化 FMA/FMISC/I2F 唤醒时已完成、消费者发射时已在 `wb_fres_q`）；WB 级保留寄存 tag 比较；`lsu_byp` 4 路仅在 `LP_L2[3]` 打开时并入 |
-| FTQ pc 口 | `FTQ_PRF_PC_PORT_NUM = 8`：口 0..5（ALU 口）、6..7 对应分支口 16、17 |
+| FTQ pc 口 | `FTQ_PRF_PC_PORT_NUM = 8`：口 0..5（ALU 口）、6..7 对应分支口 14、15 |
 | 唤醒槽 | `LSU_LOAD_WB_WIDTH = 4` |
-| 共用 AGU | `LSU_AGU_SHARED = 2`：被借用的 load 口从 `IQ_LD_PORT_BASE + LSU_LDU_COUNT - 2 = 8` 起，借用的 STA 口从 `IQ_STA_PORT_BASE + LSU_STA_COUNT - 2 = 11` 起，即 load 口 8、9 与 STA 口 11、12 配对 |
-| 口号 | 与 isu.md 一致（0..5 整数、6..9 load、10..12 STA、13..15 STD、16..17 BR、18..20 FP） |
+| 物理 AGU 口 | `IQ_AGU_PORT_BASE = 6` 起共 `LSU_AGU_COUNT = 5` 个物理口（口 6..10）；无独立 load/STA 共享借用表 |
+| 口号 | 与 isu.md 一致（0..5 整数、6..10 AGU、11..13 STD、14..15 BR、16..18 FP） |
 
-`ttg_cfg_pkg.sv` 目前是手工编辑的，与 `make cfg` 生成的不同步（待统一，见 docs/TODO.md）。
+`ttg_cfg_pkg.sv` 已由 `make cfg` 同步生成。
 
 ## 3. 接口
 
@@ -45,11 +45,11 @@ depth: 25 层 / 639,644 单元（EXP-060 开启 `HAS_LSU_BYP` 4 路整数 `lsu_b
 | --- | --- | --- |
 | 入 | `iss2prf_iss_entry_valid / _uop_*  [ISSUE_WIDTH]` | ISU 本拍的发射结果，读口用其中的 `src*_preg`、`src*_en`、`src1_fp / src2_fp`、`src3_*`、`ftq_idx`、`ftq_offset` 等 |
 | 入 | `exe2prf_entry_valid / _uop_{dest_preg, result, fresult, br_mask, dest_en, op} [WB_LANES]` | 写回总线（按通道编号），进写回级 |
-| 入 | `exe2prf_bypass_valid / _uop_{dest_preg, result, fresult, dest_en} [TOTAL_FU_COUNT]` | 每个完成的执行单元一路，只作旁路源 |
-| 入 | `lsu_byp_valid / dest_preg / result / is_w [LSU_LOAD_WB_WIDTH]` | LSU 的 load 写回请求作旁路源；只在 `LP_L2` 的位 0 和位 3 同时打开时有效（`back_top.sv` 里生成），否则全 0；现行 `LP_L2 = 1907`（`rtl/backend/lsu/lp_pkg.sv`）的位 3 为 0，所以现行配置下这四路恒为 0，旁路源实际只有写回级和 31 个执行单元 |
+| 入 | `exe2prf_bypass_valid / _uop_{dest_preg, result, fresult, dest_en} [TOTAL_FU_COUNT]` | 每个完成的执行单元一路（28 路），只作旁路源 |
+| 入 | `lsu_byp_valid / dest_preg / result / is_w [LSU_LOAD_WB_WIDTH]` | LSU 的 load 写回请求作旁路源；只在 `LP_L2` 的位 0 和位 3 同时打开时有效（`back_top.sv` 里生成），否则全 0；现行 `LP_L2 = 1907`（`rtl/backend/lsu/lp_pkg.sv`）的位 3 为 0，所以现行配置下这四路恒为 0，旁路源实际只有写回级和 28 个执行单元 |
 | 入 | `ftq_prf_pc_resp_resp_{pc, pred_taken, is_rvc, next_pc} [8]` | FTQ 的回答 |
 | 入 | `dec_bcast_{mispred, br_mask, clear_mask}`、`rob_bcast_flush` | 误预测、分支号清除、全局 flush（经 `rob_flush_q` 晚一拍，docs/FLUSH_REG.md） |
-| 出 | `prf2exe_iss_entry_valid / _uop_*  [ISSUE_WIDTH]` | 发射结果原样透传，加上读出的 `src1_rdata`、`src2_rdata`、`fsrc1..3`，以及口 0..5、16、17 的 `pc`、`ftq_pred_taken`、`ftq_is_rvc`、`ftq_next_pc`（其他口为 0） |
+| 出 | `prf2exe_iss_entry_valid / _uop_*  [ISSUE_WIDTH]` | 发射结果原样透传，加上读出的 `src1_rdata`、`src2_rdata`、`fsrc1..3`，以及口 0..5、14、15 的 `pc`、`ftq_pred_taken`、`ftq_is_rvc`、`ftq_next_pc`（其他口为 0） |
 | 出 | `ftq_prf_pc_req_req_{valid, ftq_idx, ftq_offset} [8]` | 向 FTQ 要 pc |
 | 出 | `prf_awake_wake_valid / _preg [LSU_LOAD_WB_WIDTH]` | load 晚唤醒 |
 
@@ -131,6 +131,7 @@ RTL 与模型保持一致的细节：
 
 ## 8. 验证
 
+- **最新整核门禁（2026-11-28，`rtl/exu-clean`，EXP-072）**：`lint_chip` & `lint_soc` 0 告警；`SOC_FM=1 SOC_SVA=1 SOC_ASSERT=1` `fm_gate` 77/77、`riscv-tests` 152/152、`soc_gate --linux` 12/12 全通；Linux 26/26 窗对齐。
 - **EXP-046（`exp/wb-presel`，浮点写通道压缩）**：`fm_gate` 67/67 逐条对函数模型无不一致，周期对模型 `CFG_WB_PRESEL=1` 67/67 相等（参考周期要用 `LSU_PIPE_NOWD=1` 生成：模型的 LDQ / STQ 看门狗 RTL 没有，不关它 crc32、memory-stress-small 会差几十拍；早先记录的"crc32 是 main 原有的差异"就是没关看门狗造成的误判）；`prf.sv` 里的仿真检查 `[FPWB]`（写回级浮点单元 / I2F 写浮点寄存器超过 `FP_WB_PORTS`）在 67 个程序里一次都没出现。综合（单模块，`synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`）：main 1,077,848 单元、36 层 → 867,357 单元、36 层（触发器 3570 → 2546）；其中暂存只留 9 个口的部分在整芯片展平时本来也会被常量传播去掉，真正的节省是浮点单元 5 条写通道压成 2 条（96 个浮点寄存器各少 3 个写口比较和数据选择，12 个浮点读口的写回级旁路各少 3 路）。
 
 - **门禁**：`scripts/fm_gate.sh` 67 个程序，每条提交对比函数模型，周期对 `scripts/ref_cycles_memiq6_nr_int2_ev5.txt`。寄存器值（含旁路和写回级）靠这个逐条提交检查：错值会在下一个提交里被发现。浮点寄存器堆由 `fd-*` 程序和 `tests/fp_chain` 覆盖。
@@ -142,6 +143,8 @@ RTL 与模型保持一致的细节：
 `PRF_NUM`、`FPRF_NUM`、`FP_TAG_BASE`、`TAG_NUM`、`PRF_IDX_WIDTH`、`ISSUE_WIDTH`、`TOTAL_FU_COUNT`、`LSU_LOAD_WB_WIDTH`、`LSU_SDU_COUNT`、`FTQ_PRF_PC_PORT_NUM`、`LSU_AGU_SHARED`、`IQ_*_PORT_BASE`、`ALU_NUM`、`BRU_NUM`（`ttg_cfg_pkg`）；`FP_EN`、`FW`、`FLEN`（`fp_pkg`）；`lp_pkg::LP_L2`（决定 `lsu_byp_valid` 是否有效，在 `back_top.sv`）。
 
 ## 10. 变更记录
+
+- 2026-11-28（`rtl/exu-clean`，EXP-072）：随真 5 物理 AGU 与 `ISSUE_WIDTH = 21 → 19` 收敛，`prf` 删除原逻辑 AGU 共用口读借用分支，口数与旁路按 `ISSUE_WIDTH = 19` 直接映射；TSMC 28nm HPC+ DC（`0.50 ns`）新旧同条件对比：基线 vs 新版 **`WNS` 均 `0.00 ns`（MET ≥2.00 GHz）**、`CPL 0.45 ns`、`TNS −0.00`、`Seq 24,196` 持平、面积 `580,853.60 → 587,386.28 µm²`（`+1.12%`）。
 
 - 2026-11-23（`rtl/ld-wake`，EXP-060）：`prf_bypass.sv` 新增 `HAS_LSU_BYP` 参数与 4 路 `lsu_byp` 旁路（`ttg_onehot_mux`），`prf.sv` 将 `lsu_byp_{valid,dest_preg,result}` 接入整数读口旁路（FP 侧此前已接通），支持 L2 推测唤醒消费者在 L3 写回同拍直接旁路取值；`eda-08` Yosys：`prf` **25 层**（0 增长）/ 639,644 单元（+4.1%）；`fm_gate` 69/69 PASS 0 周期差，Linux 26 窗 100% 全等。
 - 2026-11-21（`rtl/be-wake-byp-opt`，后端阶段一瘦身）：整数读口按发射口需求由 42 减至 27 个（`prf_regfile` 改为平铺 `NRD` 口，裁掉 LD/STA `src2`、共用 STA `src1` 及 FP 口整数读口）；FU 旁路源按数据域裁剪（整数 35→14 路，浮点 35→8 路，`lsu_byp` 随 `LP_L2[3]` 编译期门控）；零周期变化。

@@ -397,7 +397,7 @@ long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
       std::fprintf(stderr, " ds:");
       for (int p = 0; p < LSU_STA_COUNT; ++p) if (LSUP(lsu2dcache_store_ports_valid)[p]) std::fprintf(stderr, " %d=%x/%d", p, (unsigned)LSUP(lsu2dcache_store_ports_addr)[p], (int)LSUP(lsu2dcache_store_ports_req_id)[p]);
       std::fprintf(stderr, " mmu:");
-      for (int p = 0; p < LSU_AGU_PHYS; ++p) if (LSUP(lsu2mmu_req_valid) >> p & 1) std::fprintf(stderr, " %c%d=%d", (LSUP(lsu2mmu_req_is_store) >> p & 1) ? 'S' : 'L', p, (int)LSUP(lsu2mmu_req_entry_idx)[p]);   // DTLB ports (one per physical AGU)
+      for (int p = 0; p < LSU_AGU_COUNT; ++p) if (LSUP(lsu2mmu_req_valid) >> p & 1) std::fprintf(stderr, " %c%d=%d", (LSUP(lsu2mmu_req_is_store) >> p & 1) ? 'S' : 'L', p, (int)LSUP(lsu2mmu_req_entry_idx)[p]);   // DTLB ports (one per physical AGU)
       std::fprintf(stderr, " d: sf=%d lf=%d tl=%d/%d cp=%d", (int)LSUP(lsu2dis_stq_free), (int)LSUP(lsu2dis_ldq_free), (int)LSUP(lsu2dis_stq_tail),
                    (int)LSUP(lsu2dis_stq_tail_flag), (int)LSUP(lsu2rob_committed_store_pending));
       {
@@ -407,7 +407,7 @@ long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
                      (unsigned long long)LSUP(dec_bcast_clear_mask), dsa, dla, (unsigned)LSUP(rob_commit_commit_entry_valid));
       }
       std::fprintf(stderr, " in:");
-      for (int p = 0; p < LSU_AGU_PHYS; ++p) if (LSUP(mmu2lsu_resp_valid) >> p & 1) std::fprintf(stderr, " m%d=%d/%x", p, (int)LSUP(mmu2lsu_resp_result)[p], (unsigned)LSUP(mmu2lsu_resp_paddr)[p]);
+      for (int p = 0; p < LSU_AGU_COUNT; ++p) if (LSUP(mmu2lsu_resp_valid) >> p & 1) std::fprintf(stderr, " m%d=%d/%x", p, (int)LSUP(mmu2lsu_resp_result)[p], (unsigned)LSUP(mmu2lsu_resp_paddr)[p]);
       for (int p = 0; p < LSU_LDU_COUNT; ++p) if (LSUP(dcache2lsu_load_resps_valid)[p]) std::fprintf(stderr, " dr%d=%x/%d", p, (unsigned)(LSUP(dcache2lsu_load_resps_req_id)[p] & 0x7fffffffu), (int)LSUP(dcache2lsu_load_resps_replay)[p]);
       for (int p = 0; p < LSU_STA_COUNT; ++p) if (LSUP(dcache2lsu_store_resps_valid)[p]) std::fprintf(stderr, " sr%d=%d/%d", p, (int)LSUP(dcache2lsu_store_resps_req_id)[p], (int)LSUP(dcache2lsu_store_resps_replay)[p]);
       if (LSUP(dcache2lsu_mshr_fill)) std::fprintf(stderr, " fill=%x", (unsigned)LSUP(dcache2lsu_mshr_fill_line));
@@ -418,8 +418,6 @@ long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
       std::fprintf(stderr, " x:");
       for (int p = 0; p < LSU_SDU_COUNT; ++p) if (top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__u_lsu__DOT__u_pipe__DOT__exe2lsu_sdu_req_valid >> p & 1)
         std::fprintf(stderr, " D%d=%d", p, (int)LSUP(exe2lsu_sdu_req_uop_stq_idx)[p]);
-      for (int p = 0; p < LSU_STA_COUNT; ++p) if (LSUP(exe2lsu_sta_req_valid) >> p & 1) std::fprintf(stderr, " A%d=%d", p, (int)LSUP(exe2lsu_sta_req_uop_stq_idx)[p]);
-      for (int p = 0; p < LSU_LDU_COUNT; ++p) if (LSUP(exe2lsu_ldu_req_valid) >> p & 1) std::fprintf(stderr, " G%d=%d", p, (int)LSUP(exe2lsu_ldu_req_uop_ldq_idx)[p]);
       if (const char *si = std::getenv("SOC_TB_STQ")) {
         const auto &fld = R->soc_top__DOT__u_core__DOT__u_back__DOT__u_lsu__DOT__u_pipe__DOT__u_core__DOT__sq[std::atoi(si)];
         auto bit = [&](int k) { return (int)((fld[k / 32] >> (k % 32)) & 1u); };

@@ -20,10 +20,10 @@ module isu
   input  logic [PRF_IDX_WIDTH-1:0]   lsu2iss_wake_preg [2*LSU_LDU_COUNT],
   input  logic [LSU_LDU_COUNT-1:0]   lsu2iss_cancel_valid,
   input  logic [PRF_IDX_WIDTH-1:0]   lsu2iss_cancel_preg [LSU_LDU_COUNT],
-  // load write-back wake-ups, FU readiness, broadcasts
+  // load write-back wake-ups, DIV write-back notice, broadcasts
   input  logic [LSU_LOAD_WB_WIDTH-1:0] prf_awake_wake_valid,
   input  logic [PRF_IDX_WIDTH-1:0]     prf_awake_wake_preg [LSU_LOAD_WB_WIDTH],
-  input  logic [OP_NUM-1:0]            exe2iss_fu_ready_mask [ISSUE_WIDTH],
+  input  logic                         exe2iss_div_wb_next,
   input  logic                         exe2iss_div_wake_valid,
   input  logic [PRF_IDX_WIDTH-1:0]     exe2iss_div_wake_preg,
   input  logic                         rob_bcast_flush,
@@ -41,7 +41,7 @@ module isu
 );
 
 `ifndef SYNTHESIS
-  if (IQ_LD_PORT_BASE != 6 || WAKE_PORTS != ALU_NUM || FAST_WAKE_BASE + FAST_UNITS + FPW_CH != WAKE_NUM ||
+  if (IQ_AGU_PORT_BASE != 6 || WAKE_PORTS != ALU_NUM || FAST_WAKE_BASE + FAST_UNITS + FPW_CH != WAKE_NUM ||
       IQ_DISPATCH_WIDTH != 8) begin : g_cfg_check
     $error("isu: config.h layout changed, isu_pkg port tables need updating");
   end
@@ -213,6 +213,93 @@ module isu
     assign fp_free2_cls = '1;
   end
 
+  // ---- iterative FU occupancy (DIV on port 1, FDIV on port ISSUE_WIDTH - 1) ----
+  logic                     div_busy_q, div_busy_d;
+  logic [ROB_IDX_WIDTH-1:0] div_rob_idx_q, div_rob_idx_d;
+  logic                     div_rob_flag_q, div_rob_flag_d;
+  logic                     div_iss, div_keep;
+  always_comb begin
+    div_iss        = grant_valid[1] && (grant_uop[1].op == op_t'(UOP_DIV));
+    div_keep       = div_busy_q && !exe2iss_div_wb_next &&
+                     !(flush_br && isu_rob_younger(div_rob_idx_q, div_rob_flag_q,
+                                                   dec_bcast_redirect_rob_idx, dec_bcast_redirect_rob_flag));
+    div_busy_d     = rob_bcast_flush ? 1'b0 : (div_iss || div_keep);
+    div_rob_idx_d  = rob_bcast_flush ? '0   : (div_iss ? grant_uop[1].rob_idx  : (div_keep ? div_rob_idx_q  : '0));
+    div_rob_flag_d = rob_bcast_flush ? 1'b0 : (div_iss ? grant_uop[1].rob_flag : (div_keep ? div_rob_flag_q : 1'b0));
+  end
+  always_ff @(posedge clk) begin
+    if (!rst_n) begin
+      div_busy_q     <= 1'b0;
+      div_rob_idx_q  <= '0;
+      div_rob_flag_q <= 1'b0;
+    end else begin
+      div_busy_q     <= div_busy_d;
+      div_rob_idx_q  <= div_rob_idx_d;
+      div_rob_flag_q <= div_rob_flag_d;
+    end
+  end
+
+  logic [FP_COUNT_W:0] fdiv_cnt;
+  if (FP_EN) begin : g_fdiv_occ
+    localparam int FP_LAST = ISSUE_WIDTH - 1;
+    logic                     fdiv_iss, fdiv_keep;
+    logic [FP_COUNT_W:0]      fdiv_cnt_q, fdiv_cnt_d, fdiv_lat;
+    logic [ROB_IDX_WIDTH-1:0] fdiv_rob_idx_q, fdiv_rob_idx_d;
+    logic                     fdiv_rob_flag_q, fdiv_rob_flag_d;
+    assign fdiv_cnt = fdiv_cnt_q;
+    always_comb begin
+      fdiv_iss        = grant_valid[FP_LAST] && (grant_uop[FP_LAST].op == op_t'(UOP_FDIV));
+      fdiv_lat        = fp_latency(op_t'(UOP_FDIV), grant_uop[FP_LAST].func7);
+      fdiv_keep       = (fdiv_cnt_q > (FP_COUNT_W+1)'(1)) &&
+                        !(flush_br && isu_rob_younger(fdiv_rob_idx_q, fdiv_rob_flag_q,
+                                                      dec_bcast_redirect_rob_idx, dec_bcast_redirect_rob_flag));
+      fdiv_cnt_d      = rob_bcast_flush ? '0
+                      : fdiv_iss        ? fdiv_lat
+                      : fdiv_keep       ? (fdiv_cnt_q - (FP_COUNT_W+1)'(1)) : '0;
+      fdiv_rob_idx_d  = rob_bcast_flush ? '0
+                      : fdiv_iss        ? grant_uop[FP_LAST].rob_idx
+                      : fdiv_keep       ? fdiv_rob_idx_q : '0;
+      fdiv_rob_flag_d = rob_bcast_flush ? 1'b0
+                      : fdiv_iss        ? grant_uop[FP_LAST].rob_flag
+                      : fdiv_keep       ? fdiv_rob_flag_q : 1'b0;
+    end
+    always_ff @(posedge clk) begin
+      if (!rst_n) begin
+        fdiv_cnt_q      <= '0;
+        fdiv_rob_idx_q  <= '0;
+        fdiv_rob_flag_q <= 1'b0;
+      end else begin
+        fdiv_cnt_q      <= fdiv_cnt_d;
+        fdiv_rob_idx_q  <= fdiv_rob_idx_d;
+        fdiv_rob_flag_q <= fdiv_rob_flag_d;
+      end
+    end
+`ifndef SYNTHESIS
+    always_ff @(posedge clk) if (rst_n && (fdiv_cnt_q != '0) && fdiv_iss) $error("isu: FDIV re-issued while busy");
+`endif
+  end else begin : g_no_fdiv_occ
+    assign fdiv_cnt = '0;
+  end
+
+`ifndef SYNTHESIS
+  always_ff @(posedge clk) if (rst_n && div_busy_q && div_iss) $error("isu: DIV re-issued while busy");
+`endif
+
+  logic [WB_NCLS-1:0] iss_cls_free [ISSUE_WIDTH];
+  for (genvar p = 0; p < ISSUE_WIDTH; p++) begin : g_icf
+    for (genvar c = 0; c < WB_NCLS; c++) begin : g_c
+      if (p == 1 && c == 0) begin : g_div_alu
+        assign iss_cls_free[p][c] = wb_cls_free[p][c] && !exe2iss_div_wb_next;
+      end else if (p == 1 && (c == 2 || c == 3)) begin : g_div_busy
+        assign iss_cls_free[p][c] = wb_cls_free[p][c] && !div_busy_q;
+      end else if (FP_EN && (p == ISSUE_WIDTH - 1) && (c >= 4 && c <= 7)) begin : g_fdiv_busy
+        assign iss_cls_free[p][c] = wb_cls_free[p][c] && (fdiv_cnt == '0);
+      end else begin : g_pass
+        assign iss_cls_free[p][c] = wb_cls_free[p][c];
+      end
+    end
+  end
+
   // ---- one instance per issue queue ----
   for (genvar q = 0; q < IQ_NUM; q++) begin : g_iq
     localparam int SIZE = iq_size(q);
@@ -222,7 +309,6 @@ module isu
     logic [EW-1:0]          enq_valid;
     isu_enq_t               enq [EW];
     logic [READY_NUM_W-1:0] free_slots;
-    op_set_t                fu_ready [NP];
     logic [NP-1:0]          g_valid, g_cand, g_gate_ok;
     logic [WB_NCLS-1:0]     g_cls_free [NP];
     isu_uop_t               g_uop [NP];
@@ -271,9 +357,8 @@ module isu
 
     for (genvar p = 0; p < NP; p++) begin : g_port
       localparam int PP = iq_port(q, p);
-      assign fu_ready[p]            = exe2iss_fu_ready_mask[PP];
       assign g_gate_ok[p]           = gate_ok_all[PP];
-      assign g_cls_free[p]          = wb_cls_free[PP];
+      assign g_cls_free[p]          = iss_cls_free[PP];
       assign grant_valid[PP]        = g_valid[p];
       assign cand_valid_all[PP]     = g_cand[p];
       assign grant_uop[PP]          = g_uop[p];
@@ -288,8 +373,6 @@ module isu
     assign iss2dis_ready_num[q] = (free_slots > READY_NUM_W'(EW)) ? READY_NUM_W'(EW) : free_slots;
 
     isu_iq #(.SIZE(SIZE), .DW(EW), .NP(NP), .QID(q),
-             .SH_N((q == IQ_MEM) ? LSU_AGU_SHARED : 0),
-             .SH_LD_LO(LSU_LDU_COUNT - LSU_AGU_SHARED), .SH_STA_LO(LSU_LDU_COUNT + LSU_STA_COUNT - LSU_AGU_SHARED),
              .AGE_EN(q == IQ_MEM),
              .HAS_SRC2(q != IQ_MEM),
              .HAS_SRC3(FP_EN && (q == IQ_FP)),
@@ -301,7 +384,7 @@ module isu
       .woken_slow_int(woken_slow_int), .woken_slow_fp(woken_slow_fp),
       .slow_exu_valid(slow_exu_v4), .slow_exu_preg(slow_exu_p4),
       .fast_valid(fast_wake_valid), .fast_preg(fast_wake_preg),
-      .fu_ready(fu_ready), .gate_ok(g_gate_ok), .cls_free(g_cls_free),
+      .gate_ok(g_gate_ok), .cls_free(g_cls_free),
       .fp_free1_cls(fp_free1_cls), .fp_free2_cls(fp_free2_cls),
       .issue_block(issue_block), .flush_all(rob_bcast_flush), .flush_br(flush_br),
       .flush_rob_idx(dec_bcast_redirect_rob_idx), .flush_rob_flag(dec_bcast_redirect_rob_flag),

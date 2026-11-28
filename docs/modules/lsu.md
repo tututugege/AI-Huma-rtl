@@ -38,7 +38,7 @@ depth: **TSMC 28nm HPC+ DC (`ssg0p81v125c`, `0.50ns`)：单模块 `lsu` WNS `−
 | `LSU_LDU_COUNT`（`NLD`） | 4 | load 流水线条数 = DCache load 口数 = load 写回口数（`LSU_LOAD_WB_WIDTH` = 4） |
 | `LSU_STA_COUNT`（`NST`） | 3 | STA 口数（地址 + DTLB）；也是 DCache store 口数、STA 写回口数 |
 | `LSU_SDU_COUNT`（`NSD`） | 3 | STD（store 数据）写口数 |
-| `LSU_AGU_PHYS` | 5 | 物理 AGU 数 = DTLB 口数（见下） |
+| `LSU_AGU_COUNT`（`NPH`） | 5 | 物理 AGU 数 = DTLB 口数（见下） |
 | `LSU_AGU_SHARED`（`NM`） | 2 | 共用 AGU 数：2 个 AGU 既能做 load 地址也能做 STA 地址（load 优先） |
 | `MAX_LDQ_DISPATCH_WIDTH`（`NDIS`） | 8 | 每拍最多分配的 LDQ / STQ 项数 |
 | `COMMIT_WIDTH`（`NCM`） | 8 | ROB 每拍提交口数 |
@@ -56,7 +56,7 @@ depth: **TSMC 28nm HPC+ DC (`ssg0p81v125c`, `0.50ns`)：单模块 `lsu` WNS `−
 | `DCACHE_OFFSET_BITS` / `LINEW` | 6 / 26 | 缓存行 64 B；行号位宽 `32 - 6` |
 | `DST_STRB_W` / `DST_L2_W` | 9 / 75 | store 请求的字节使能位宽（`XLEN/8 + 1`，多出的一位只用于冲突检查）/ 第二个 store 字的位宽 |
 
-**AGU 与口的对应**（`lp_l1`：`NM = 2`、`NL = NLD - NM = 2`、`NS = NST - NM = 1`、`NPH = NLD + NS = 5`）：物理口 0、1 只给 load；口 2、3 共用（load 槽 2、3 和 STA 槽 1、2）；口 4 只给 STA（STA 槽 0）。函数 `st_phys(k)`：STA 槽 `k < NS` 在口 `NLD + k`，其余在口 `NL + (k - NS)`。与 [isu.md](isu.md) 里的口号对应：load 口 6、7 = 物理口 0、1；共用的 load 口 8、9 与 STA 口 11、12 = 物理口 2、3；STA 口 10 = 物理口 4。
+**AGU 与口的对应**（`lp_l1`：`NM = 2`、`NL = NLD - NM = 2`、`NS = NST - NM = 1`、`NPH = LSU_AGU_COUNT = 5`）：物理口 0、1 只给 load；口 2、3 共用（load 优先）；口 4 只给 STA（STA 槽 0）。STA 物理口映射：`st_port(k) = (k < NS) ? (NLD + k) : (NL + NM - 1 - (k - NS))`（即 STA 槽 0/1/2 在物理 AGU 口 4/3/2）；EXU 输出 5 路共享请求 `exe2lsu_agu [LSU_AGU_COUNT]`（按 `op == UOP_STA` 区分 load/STA），在 `lsu_pipe.sv` 解包为 `agl[NLD]` 和 `ags[NST]`。与 [isu.md](isu.md) 里的发射口对应：`IQ_AGU_PORT_BASE = 6` 起共 5 个口，口 6、7 = 物理 AGU 0、1（load）；口 8、9 = 物理 AGU 2、3（load/STA 共用）；口 10 = 物理 AGU 4（STA）。
 
 **load 队列项状态**（`lp_ld_st_t`，4 位）：
 
@@ -84,14 +84,13 @@ depth: **TSMC 28nm HPC+ DC (`ssg0p81v125c`, `0.50ns`)：单模块 `lsu` WNS `−
 | --- | --- | --- |
 | 入 | `dis2lsu_alloc_req / _br_mask / _rob_idx / _rob_flag [DECODE_WIDTH]` | store 分配（STQ 项号由 LSU 自己的 tail 决定，分派不给号） |
 | 入 | `dis2lsu_ldq_alloc_req / _ldq_idx / _br_mask / _rob_idx / _rob_flag / _mdp [DECODE_WIDTH]` | load 分配（LDQ 项号由分派从 `lsu2dis_ldq_alloc_*` 里取）；`_mdp` 是 load PC 的等待表索引（在 `pre_idu_queue` 里算好：`pc[S +: B] ^ pc[S+B +: B]`，`S = SLOT_SHIFT`、`B = LSU_MDP_BITS`，与模型 `MemDepPred::idx` 同） |
-| 入 | `exe2lsu_ldu_req_valid / _occ / _uop_* [LSU_LDU_COUNT]` | load 的 AGU 结果；`_occ` 是 AGU 槽寄存器里有 uop（flush / 误预测杀死之前），重放的槽和口分配看它 |
-| 入 | `exe2lsu_sta_req_valid / _occ / _uop_* [LSU_STA_COUNT]` | STA 的 AGU 结果，`_occ` 同上；`is_atomic && amo_op == SC` 标成 SC |
+| 入 | `exe2lsu_agu [LSU_AGU_COUNT]`（`xc_agu_req_t`） | 5 个物理 AGU 的地址请求（`valid`、`raw`、`op`、`result`、`dest_preg`、`func3`、`is_atomic`、`amo_op`、`rob_idx`、`rob_flag`、`stq_idx`、`stq_flag`、`ldq_idx`）；其中 `raw` 是执行槽占位，重放口与 DTLB 口分配看它 |
 | 入 | `exe2lsu_sdu_req_valid / _uop_* [LSU_SDU_COUNT]` | STD（store 数据），带 STQ 项号和 ROB 号 |
 | 入 | `rob_commit_commit_entry_valid / _uop_type / _uop_amo_op / _uop_stq_idx [COMMIT_WIDTH]` | ROB 提交口：type 6 是 store，18 是 AMO（`amo_op != LR` 的算 store） |
 | 入 | `rob_bcast_flush`、`dec_bcast_{mispred, br_mask, clear_mask}` | 全局 flush（经 `FLUSH_REG` 已晚一拍，见 docs/FLUSH_REG.md）、误预测、分支掩码 |
 | 入 | `rob_flush_now` | 本拍 ROB 刚做出的 flush 决定（不晚一拍）：只用来限定本拍提交的 store（带 flush 提交的 store 不能写出） |
 | 入 | `rob_bcast_head_valid / _rob_idx`、`rob_bcast_head_incomplete_valid / _rob_idx` | ROB 头 / 头部未完成指令，MMIO load 判断"自己是最老的未完成指令" |
-| 入 | `mmu2lsu_resp_valid / _paddr / _result / _entry_idx [LSU_AGU_PHYS]` | DTLB 响应（同拍组合返回），`_result`：0 未命中、1 命中、2 缺页 |
+| 入 | `mmu2lsu_resp_valid / _paddr / _result / _entry_idx [LSU_AGU_COUNT]` | DTLB 响应（同拍组合返回），`_result`：0 未命中、1 命中、2 缺页 |
 | 入 | `dcache2lsu_load_resps_valid / _req_id / _data / _replay [LSU_LDU_COUNT]` | DCache load 响应；`_replay`：0 HIT、1 CONFLICT、2 MSHR_HIT、3 MSHR_FULL；`req_id[31]` 为 1 的响应不是 LSU 的（`mem_route_req.sv` 在口 3 上插入 I-cache 回填和页表遍历的请求，用这一位标记） |
 | 入 | `dcache2lsu_store_resps_valid / _req_id / _replay [LSU_STA_COUNT]` | DCache store 响应，`req_id` = 领头 store 的 STQ 项号 |
 | 入 | `dcache2lsu_mshr_fill / _fill_line` | MSHR 填充事件（唤醒等填充的 load / store） |
@@ -105,7 +104,7 @@ depth: **TSMC 28nm HPC+ DC (`ssg0p81v125c`, `0.50ns`)：单模块 `lsu` WNS `−
 | 出 | `lsu2exe_sta_wb_req_* [LSU_STA_COUNT]` | STA 完成（给 ROB）：`valid`、`result` = `diag_val` = vaddr、`br_mask`、`rob_idx`、`page_fault_store` |
 | 出 | `lsu2dcache_load_ports_valid / _addr / _req_id [30:0] / _replay [LSU_LDU_COUNT]` | DCache load 请求；`req_id = {epoch[3:0], ldq[5:0]}`；`replay` = 该 LDQ 项上一次 DCache 响应不是 HIT（EXP-009 的过滤位，`lp_core` 的 `g_rpl`） |
 | 出 | `lsu2dcache_store_ports_valid / _addr / _data / _strb / _l2 / _req_id [LSU_STA_COUNT]` | DCache store 请求；`_l2` 是同一行的第二个 store（`{strb, 字下标, 数据}`，strb 为 0 表示没有）；`req_id` 6 位 = 领头 store 的 STQ 项号 |
-| 出 | `lsu2mmu_req_valid / _vaddr / _entry_idx / _is_store [LSU_AGU_PHYS]` | DTLB 请求，每个物理口一个，访问类型随请求走 |
+| 出 | `lsu2mmu_req_valid / _vaddr / _entry_idx / _is_store [LSU_AGU_COUNT]` | DTLB 请求，每个物理口一个，访问类型随请求走 |
 | 出 | `peripheral_req_is_mmio / _wen / _mmio_addr / _mmio_wdata / _mmio_fun3` | MMIO 请求 |
 
 模型里 `lsu2rob.tma.miss_mask`（TMA 统计用）RTL 没有对应端口。
@@ -307,6 +306,7 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 
 ## 8. 验证
 
+- **最新整核门禁（2026-11-28，`rtl/exu-clean`，EXP-072）**：`lint_chip` & `lint_soc` 0 告警；`SOC_FM=1 SOC_SVA=1 SOC_ASSERT=1` `fm_gate` 77/77、`riscv-tests` 152/152、`soc_gate --linux` 12/12 全通；Linux 26/26 窗对齐；Tier 1（`Yosys+PT`，`0.50 ns`）：`Total Area = 1,049,909.78 µm²`（较 EXP-071 `1,052,504.38` −0.25%）、`WNS = −0.89 ns`（`WNS_r2r = −0.88 ns`，vs 基线 `−0.87 ns`）。
 - **整核门禁**：`scripts/fm_gate.sh <soc_tb> <outdir>`，67 个程序（`scripts/ref_cycles_memiq6_nr_int2_ev5.txt`），每个程序在 RTL SoC 上做逐条提交对功能模型的检查，周期对比参考表（模型同配置生成）。访存相关的程序有：`atomic-boundary`、`dcache-conflict-writeback`、`dcache-mshr-pressure`、`directed/memspec_addr / memspec_data / memspec_pf / memspec_vio`（`programs/directed/`，推测、缺页 load 的目的寄存器、违例重放）、`load-store-aligned`、`memory-boundary`、`memory-stress-small`、`pf-stress`、`stlf-overlap-boundary`、`timer-mmio`、`trap-precise-store`、`unalign`、`coremark`、`dhrystone`。最近一次改 LSU 的提交（312e6f8）的说明写 67/67、周期相等。本次没有重跑。
 - **SVA 断言与覆盖（`SOC_SVA=1`）**：`sva/sva_lsu.sv` 通过 `bind` 挂载至 `lp_core`（零综合污染），检查 `count_q <= SQ`、`ccount_q <= count_q`、`o_stq_free`/`o_ldq_free` 上界、`o_committed_store_pending == (ccount_q != 0)`，并带 5 个功能 cover（STQ 满、LDQ 满、已提交 store 挂起、MMIO 活跃、LR/SC 保留位有效）；定向测试已补 `programs/directed/lsu_wbp_stlf.S`。
 - **Lint**：`scripts/lint_chip.sh`（整芯片 Verilator -Wall），提交说明里写 0 告警；`scripts/lint.sh rtl/backend/lsu` 逐目录。
@@ -316,7 +316,7 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 
 ## 9. 参数与开关速查
 
-`LSU_MEMSPEC`、`LSU_MDP_BITS`、`LSU_MDP_CLR`、`LSU_AGU_SHARED`、`LSU_AGU_PHYS`、`LSU_PEPLAY_WAIT_CYCLES`、`LDQ_SIZE`、`STQ_SIZE`（`ttg_cfg_pkg`）；`LP_CUT`、`LP_L2`、`NRP`、`NDR`、`NRET`、`NWB`（`lp_pkg`）；`NINS`（`lp_wbuf`）。
+`LSU_MEMSPEC`、`LSU_MDP_BITS`、`LSU_MDP_CLR`、`LSU_AGU_SHARED`、`LSU_AGU_COUNT`、`LSU_PEPLAY_WAIT_CYCLES`、`LDQ_SIZE`、`STQ_SIZE`（`ttg_cfg_pkg`）；`LP_CUT`、`LP_L2`、`NRP`、`NDR`、`NRET`、`NWB`（`lp_pkg`）；`NINS`（`lp_wbuf`）。
 
 **`LP_CUT`（262143 = 0 到 17 位全 1）**：18 个关键路径切点。名字取自 `lp_pkg.sv` 的注释和代码位置；模型把其中七个改变周期的切点冻结成固定行为（B、R、D、F、G、H、FM，模型的位号与 RTL 的位号不同），其余为 RTL 单独的切点。
 
@@ -357,6 +357,8 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 | 11 | R | 0 | STLF 确认的晚到 store 地址比较改用阈值形式（`rel12s / rel32s`） |
 
 ## 10. 变更记录
+
+- 2026-11-28（`rtl/exu-clean`，EXP-072）：`lsu`、`lsu_pipe`、`lp_core`、`lp_l1` 删除逻辑 7 到物理 5 AGU 的口压缩与占用信号 `req_occ`，直接按真 5 物理 AGU（`LSU_AGU_COUNT=5`）接收共用口 4 的负载并驱回对应唤醒；Tier 1（`Yosys+PT`）：总面积 `1,049,909.78 µm²`（−0.25%）、`Seq 33,974`（持平）、`WNS −0.89 ns` / `WNS_r2r −0.88 ns`；通过 `lint` 0、strict+SVA `fm_gate` 77/77、`riscv-tests` 152/152、`soc_gate --linux` 12/12 与 Linux 26/26 窗对齐。
 
 本分支（exp/agu-share，相对 261bd67）对 `rtl/backend/lsu` 的提交：
 

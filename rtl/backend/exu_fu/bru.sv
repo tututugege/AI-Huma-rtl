@@ -8,8 +8,6 @@ module bru
   import exu_fu_pkg::*;
   import ttg_cfg_pkg::*;
 (
-  input  logic            en,
-  input  logic            consume,
   input  logic [OP_W-1:0] op,
   input  logic [2:0]      func3,
   input  logic            src1_en,
@@ -20,14 +18,10 @@ module bru
   input  logic            ftq_pred_taken,
   input  logic            ftq_is_rvc,
   input  logic [XLEN_BITS-1:0]     ftq_next_pc,
-  output logic            complete,
-  output logic            ready,
   output logic            br_taken,
   output logic            mispred,
   output logic [XLEN_BITS-1:0]     diag_val
 );
-
-  exu_fu_sc_ctl u_ctl (.en(en), .consume(consume), .complete(complete), .ready(ready));
 
   logic        is_br, is_jump, cond_eq, cond_lt_s, cond_lt_u, cond_taken;
   logic [XLEN_BITS-1:0] pc_plus4, target, imm_x;

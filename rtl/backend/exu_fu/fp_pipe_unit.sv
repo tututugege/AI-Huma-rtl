@@ -24,7 +24,6 @@ module fp_pipe_unit
   input  logic                       clk,
   input  logic                       rst_n,
   input  logic                       en,
-  input  logic                       consume,
   input  logic                       flush_all,
   input  logic                       flush_br,
   input  logic [ROB_IDX_WIDTH-1:0]   flush_rob_idx,
@@ -41,7 +40,6 @@ module fp_pipe_unit
   input  logic [PRF_IDX_WIDTH-1:0]   dest_preg,
   input  logic                       dest_en,
   output logic                       complete,
-  output logic                       ready,
   output logic [63:0]                fresult,
   output logic [4:0]                 fflags,
   output logic                       illegal,
@@ -127,7 +125,7 @@ module fp_pipe_unit
   mul_pipe #(.DEPTH(LAT), .UOP_T(fp_uop_t)) u_pipe (
     .clk(clk), .rst_n(rst_n), .flush_all(flush_all), .flush_br(flush_br),
     .flush_rob_idx(flush_rob_idx), .flush_rob_flag(flush_rob_flag),
-    .en(en), .consume(consume), .en_uop(en_uop), .complete(complete), .ready(ready), .done_uop(done_uop)
+    .en(en), .en_uop(en_uop), .complete(complete), .done_uop(done_uop)
   );
 
 endmodule

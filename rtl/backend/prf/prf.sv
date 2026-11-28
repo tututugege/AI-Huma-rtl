@@ -64,27 +64,18 @@ module prf
   logic [BRU_NUM-1:0]        br_valid_vec;
   logic [UOP_TYPE_WIDTH-1:0] br_op [BRU_NUM];
 
-  localparam int NSH       = LSU_AGU_SHARED;
-  localparam int SH_LD_LO  = IQ_LD_PORT_BASE + LSU_LDU_COUNT - NSH;
-  localparam int SH_STA_LO = IQ_STA_PORT_BASE + LSU_STA_COUNT - NSH;
-  function automatic bit lane_sh_ld(int i);
-    return NSH > 0 && i >= SH_LD_LO && i < SH_LD_LO + NSH;
-  endfunction
-  function automatic bit lane_sh_sta(int i);
-    return NSH > 0 && i >= SH_STA_LO && i < SH_STA_LO + NSH;
-  endfunction
   function automatic bit lane_is_fp(int i);
     return FP_EN && (i >= IQ_FP_PORT_BASE);
   endfunction
   function automatic bit lane_is_agu(int i);
-    return (i >= IQ_LD_PORT_BASE) && (i < IQ_STD_PORT_BASE);
+    return (i >= IQ_AGU_PORT_BASE) && (i < IQ_AGU_PORT_BASE + LSU_AGU_COUNT);
   endfunction
   function automatic bit lane_is_std(int i);
     return FP_EN && (i >= IQ_STD_PORT_BASE) && (i < IQ_STD_PORT_BASE + LSU_SDU_COUNT);
   endfunction
   function automatic bit int_rd_need(int s, int i);
     if (lane_is_fp(i)) return 1'b0;
-    if (s == 0) return !lane_sh_sta(i);
+    if (s == 0) return 1'b1;
     return !lane_is_agu(i);
   endfunction
   function automatic int int_rd_count();
@@ -133,19 +124,7 @@ module prf
   assign prf2exe_csr_idx = iss2prf_uop[IQ_ALU_PORT_BASE].csr_idx;
 
   for (genvar i = 0; i < NIP; i++) begin : g_lane
-    if (lane_sh_ld(i)) begin : g_sh_ld
-      localparam int S  = SH_STA_LO + (i - SH_LD_LO);
-      localparam int R0 = int_rd_idx(0, i);
-      assign int_rd_en[R0]   = iss2prf_valid[S] ? iss2prf_uop[S].src1_en   : iss2prf_uop[i].src1_en;
-      assign int_rd_preg[R0] = iss2prf_valid[S] ? iss2prf_uop[S].src1_preg : iss2prf_uop[i].src1_preg;
-      assign int_rd_byp[R0]  = iss2prf_valid[S] ? iss2prf_src1_byp[S]      : iss2prf_src1_byp[i];
-      assign src_rdata[0][i] = int_rdata[R0];
-      assign lane_src1[i]    = src_rdata[0][i];
-    end else if (lane_sh_sta(i)) begin : g_sh_sta
-      localparam int L = SH_LD_LO + (i - SH_STA_LO);
-      assign src_rdata[0][i] = '0;
-      assign lane_src1[i]    = src_rdata[0][L];
-    end else if (int_rd_need(0, i)) begin : g_own_s1
+    if (int_rd_need(0, i)) begin : g_own_s1
       localparam int R0 = int_rd_idx(0, i);
       assign int_rd_en[R0]   = iss2prf_uop[i].src1_en;
       assign int_rd_preg[R0] = iss2prf_uop[i].src1_preg;

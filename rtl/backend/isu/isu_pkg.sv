@@ -73,7 +73,7 @@ package isu_pkg;
   function automatic int iq_port_base(int q);
     case (q)
       IQ_INT0: return IQ_ALU_PORT_BASE;
-      IQ_MEM:  return IQ_LD_PORT_BASE;
+      IQ_MEM:  return IQ_AGU_PORT_BASE;
       IQ_STD:  return IQ_STD_PORT_BASE;
       IQ_FP:   return IQ_FP_PORT_BASE;
       default: return IQ_BR_PORT_BASE;
@@ -84,7 +84,7 @@ package isu_pkg;
     case (q)
       IQ_INT0: return 3;                                        // queue 0 has the ports 0, 1, 4 ...
       IQ_INT1: return 3;                                        // ... and queue 5 (IQ_INT1) the ports 2, 3, 5
-      IQ_MEM:  return LSU_LDU_COUNT + LSU_STA_COUNT;            // the memory queue serves the load and the STA ports
+      IQ_MEM:  return LSU_AGU_COUNT;                            // the memory queue serves the 5 physical AGU ports
       IQ_STD:  return LSU_SDU_COUNT;
       IQ_FP:   return FP_EN ? ISSUE_WIDTH - IQ_FP_PORT_BASE : 0;   // the FP ports come last
       default: return BRU_NUM;
@@ -112,7 +112,8 @@ package isu_pkg;
           return (p == ISSUE_WIDTH - 1) ? (MASK_FDIV | MASK_FMISC) : (MASK_FMA | MASK_FMISC);
         else if (p >= IQ_BR_PORT_BASE) return op_set_t'(OP_MASK_BR);
         else if (p >= IQ_STD_PORT_BASE) return op_set_t'(OP_MASK_STD);
-        else if (p >= IQ_STA_PORT_BASE) return op_set_t'(OP_MASK_STA);
+        else if (p >= IQ_AGU_PORT_BASE + LSU_LDU_COUNT) return op_set_t'(OP_MASK_STA);
+        else if (p >= IQ_AGU_PORT_BASE + LSU_LDU_COUNT - LSU_AGU_SHARED) return op_set_t'(OP_MASK_LD | OP_MASK_STA);
         else return op_set_t'(OP_MASK_LD);
       end
     endcase
@@ -221,13 +222,20 @@ package isu_pkg;
     for (int c = 0; c < WB_NCLS; c++) if (port_serves_cls(p, c) && wb_cls_off(c) > m) m = wb_cls_off(c);
     return m;
   endfunction
-  // can the completion cycle of class c on port p be taken: only by a uop of a longer-offset class issued earlier on the same port (a
-  // port issues one uop per cycle), so the class with the longest offset of a port (and every class of a one-class port) is always free
-  function automatic bit cls_blockable(input int p, input int c);
+  // can the completion cycle of class c on port p be taken in isu_wb_gate: only by a uop of a longer-offset class
+  // issued earlier on the same port
+  function automatic bit cls_wb_blockable(input int p, input int c);
     bit b = 1'b0;
     if (!port_serves_cls(p, c)) return 1'b0;
     for (int k = 0; k < WB_NCLS; k++) if (port_serves_cls(p, k) && wb_cls_off(k) > wb_cls_off(c)) b = 1'b1;
     return b;
+  endfunction
+  // can class c on port p be blocked before select: wb_busy conflict, port 1 DIV / div_wb_next, or port ISSUE_WIDTH-1 FDIV
+  function automatic bit cls_blockable(input int p, input int c);
+    if (cls_wb_blockable(p, c)) return 1'b1;
+    if (p == 1 && (c == 0 || c == 2 || c == 3)) return 1'b1;
+    if (FP_EN && (p == ISSUE_WIDTH - 1) && (c >= 4 && c <= 7)) return 1'b1;
+    return 1'b0;
   endfunction
   // op classes that complete later than one cycle (completion classes 1 .. 10)
   localparam op_set_t MASK_MULTI_CYC = MASK_MUL | MASK_DIV | (FP_EN ? (MASK_FDIV | MASK_FMA | MASK_FMISC | MASK_I2F) : op_set_t'(0));

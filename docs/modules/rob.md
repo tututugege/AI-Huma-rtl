@@ -39,11 +39,11 @@ depth: 65 层 / 881,101 单元（rob，单模块综合，2026-11-23，`SYNTH_ABC
 | 存储组织 | 8 个 bank × 32 行；`rob_idx` 的低 3 位是 bank，高 5 位是行 | `ROB_BANK_NUM = 8`、`ROB_LINE_NUM = 32`、`ROB_IDX_WIDTH = 8` |
 | 入队宽度 | 8 | `DECODE_WIDTH` |
 | 退休宽度 | 8 | `COMMIT_WIDTH` |
-| 写回口 | 21（口号 0..20，口号见 isu.md） | `ISSUE_WIDTH` |
+| 写回口 | 21（通道 0..20） | `ROB_WB_WIDTH` |
 | 完成组 | 3 位，一个组一位：G0 = 整数 / load / FP，G1 = 分支 / STA，G2 = STD | `rob_pkg::CPLT_G0/1/2`、`CPLT_W = 3` |
 | 数据宽度 | 64 | `XLEN_BITS`（`ROB_XLEN`） |
 
-写回口到完成组的映射（`rob_pkg::rob_port_cplt_bit`，用 `IQ_*_PORT_BASE`）：口 0..5（ALU）和 6..9（load）、18..20（FP）→ G0；口 10..12（STA）和 16、17（BR）→ G1；口 13..15（STD）→ G2。共用 AGU 的两个口在写回侧是分开的口号：load 的写回用 8、9，STA 的写回用 11、12，所以 ROB 看到的是 21 个独立的口。
+写回通道到完成组的映射（`rob_pkg::rob_port_cplt_bit`，用 `ROB_WB_*_BASE`）：通道 0..5（ALU）和 6..9（load）、18..20（FP）→ G0；通道 10..12（STA）和 16、17（BR）→ G1；通道 13..15（STD）→ G2。ISU/EXU 发射侧共有 5 个物理 AGU 口（`ISSUE_WIDTH = 19`），但 LSU 写回侧仍保持 4 load + 3 STA 共 7 个独立完成通道，所以 `ROB_WB_WIDTH = 21`。
 
 一条指令要等哪几个完成组由分派算出（`dis2rob_uop_expect_mask`，见 dispatch.md）；槽里存的是"还没完成的组"`pend_mask = expect & ~已完成`，`pend_mask == 0` 就是完成。
 
@@ -59,7 +59,7 @@ depth: 65 层 / 881,101 单元（rob，单模块综合，2026-11-23，`SYNTH_ABC
 | 入 | `front_stall`、`bpu_upd_free[3:0]`、`bpu_tq_free[3:0]` | 退休信用：BPU 更新队列和 uBTB 训练队列的空闲项（寄存值），见 5.2 |
 | 入 | `ftq_rob_pc_resp_resp_pc` | 队头指令的 pc（FTQ 读口，1 个） |
 | 入 | `dis2rob_dis_fire[8]`、`dis2rob_uop_*[8]` | 分派的指令（23 个字段，含 `rob_idx`、`expect_mask`） |
-| 入 | `exu2rob_entry_*[21]` | 写回：`valid`、`rob_idx`、`diag_val`、`result`、`mispred`、`br_taken`、缺页标志、`rob_defer`、`flush_pipe`、`illegal`、`fflags`、`op` |
+| 入 | `exu2rob_entry_*[ROB_WB_WIDTH]` | 写回（21 通道）：`valid`、`rob_idx`、`diag_val`、`result`、`mispred`、`br_taken`、缺页标志、`rob_defer`、`flush_pipe`、`illegal`、`fflags`、`op` |
 | 出 | `rob2dis_{stall, empty, ready, enq_idx, free, rob_flag}` | 给分派：队头 8 个槽里有冲刷类指令（`stall`）、空、不满、尾部位置、空闲项数、尾部的环绕标志 |
 | 出 | `rob2csr_{commit, fflags, fs_dirty, interrupt_resp}` | CSR 指令退休、本拍正常退休指令的浮点异常标志累加、FS 变脏、中断被接受 |
 | 出 | `rob_commit_commit_entry_*[8]`、`commit_extra_{src1_areg, imm}[8]` | 本拍退休的指令（槽 k 是第 k 老的），`commit_extra` 给前端 BPU 训练 |
@@ -169,6 +169,7 @@ RTL 里有、模型里没有的（模型从 trace / 函数模型取得这些，R
 
 ## 8. 验证
 
+- **最新整核门禁（2026-11-28，`rtl/exu-clean`，EXP-072）**：`lint_chip` & `lint_soc` 0 告警；`SOC_FM=1 SOC_SVA=1 SOC_ASSERT=1` `fm_gate` 77/77、`riscv-tests` 152/152、`soc_gate --linux` 12/12 全通；Linux 26/26 窗对齐。
 - **门禁**：`scripts/fm_gate.sh` 67 个程序，每条提交对比函数模型，周期对 `scripts/ref_cycles_memiq6_nr_int2_ev5.txt`（模型同配置生成）：67/67 通过，周期逐个相等。测试台从 `u_rob` 的提交端口取提交（`tb/soc/soc_tb.cpp` 里读 `u_rob` 的 `rob_commit_*`）。
 - **PMU**：`scripts/pmu_parity.sh` 比较 RTL 与模型的一级事件总数（含 `COMMIT_*`、`CYC_COMMIT_*`、`BR_MISPRED`、`FLUSH_*`），与 ROB 的提交行为直接相关。
 - **SVA 断言与覆盖（`SOC_SVA=1`）**：`sva/sva_rob.sv` 通过 `bind` 挂载至 `rob_core_cpt`（零综合污染），检查 `count_q <= ROB_NUM`、`rob2dis_empty`/`rob2dis_free` 一致性、`head_oh_q`/`hb_oh_q` one-hot、`commit_valid` 连续前缀、flush/异常/中断单发射约束，并带 5 个功能 cover（ROB 满、8 宽提交、flush、mispred、异步中断）。
@@ -177,9 +178,11 @@ RTL 里有、模型里没有的（模型从 trace / 函数模型取得这些，R
 
 ## 9. 参数与开关速查
 
-`ROB_NUM`、`ROB_BANK_NUM`、`ROB_LINE_NUM`、`COMMIT_WIDTH`、`DECODE_WIDTH`、`ISSUE_WIDTH`、`IQ_*_PORT_BASE`（写回口到完成组）、`rob_pkg::EBREAK_TRAP`（默认 1，将 `ebreak` 变为断点异常；仅在定义 `-DTTG_NO_EBREAK_TRAP` 时回退为旧的仅冲刷行为）。
+`ROB_NUM`、`ROB_BANK_NUM`、`ROB_LINE_NUM`、`COMMIT_WIDTH`、`DECODE_WIDTH`、`ROB_WB_WIDTH`、`ROB_WB_*_BASE`（写回通道到完成组）、`rob_pkg::EBREAK_TRAP`（默认 1，将 `ebreak` 变为断点异常；仅在定义 `-DTTG_NO_EBREAK_TRAP` 时回退为旧的仅冲刷行为）。
 
 ## 10. 变更记录
+
+- 2026-11-28（`rtl/exu-clean`，EXP-072）：同步真 5 物理 AGU / 5 写回通道映射（`rob_pkg`、`rob.sv`、`rob_core_cpt.sv`、`rob_entry.sv`、`rob_wb_decode.sv`）；TSMC 28nm HPC+ DC `rob_bb`（`0.50 ns`）：`WNS −0.16 ns`（vs 旧 `−0.15`）、逻辑级数 **`42 → 34`（−19.0%）**、**`TNS −452 → −239.47`（−47.0%）**、面积 `121,413.43 → 123,159.29 µm²`（`+1.44%`）；通过 `lint` 0、strict+SVA `fm_gate` 77/77、`riscv-tests` 152/152、`soc_gate --linux` 12/12 与 Linux 26/26 窗对齐。
 
 - 2026-11-17/18（exp/agu-share）：`803692f` FLUSH_REG：ROB 在决定冲刷的那一拍清空自己，不等其他模块；新增输入 `flush_pend` 屏蔽陈旧的误预测恢复；限定本拍提交的信号（中断）不晚一拍。
 - 更早（`git log -- rtl/backend/rob`）：`4e954d7`（2026-11-11）紧凑 ROB（EXP-028，当时默认 `ROB_COMPACT = 0`，现为 1）；`a2657ea`（2026-11-12）`ROB_XLEN`；`a946972`、`3791f11`（2026-11-12）F/D（FP 写回口、fflags、FS 脏、FS = Off 非法）。

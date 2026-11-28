@@ -24,17 +24,17 @@ module lp_l1
   input  logic [SQW-1:0]      srp_stq,
   input  logic                srp_ok,           // the srp store is alive, has an address, no translation and no fault
   input  logic [XLEN_BITS-1:0]         srp_vaddr,
-  // DTLB: one port per physical AGU (LSU_AGU_PHYS); a request is on the port of its AGU, a replay on the free port it took
-  input  logic [LSU_AGU_PHYS-1:0] mmu_valid,
-  input  logic [31:0]         mmu_paddr [LSU_AGU_PHYS],
-  input  logic [28:0]         mmu_paddr_p1 [LSU_AGU_PHYS],
-  input  logic [28:0]         mmu_paddr_m1 [LSU_AGU_PHYS],
-  input  logic [1:0]          mmu_result [LSU_AGU_PHYS],
-  input  logic [5:0]          mmu_entry [LSU_AGU_PHYS],
-  output logic [LSU_AGU_PHYS-1:0] mmu_req_valid,
-  output logic [XLEN_BITS-1:0] mmu_req_vaddr [LSU_AGU_PHYS],
-  output logic [5:0]          mmu_req_idx [LSU_AGU_PHYS],
-  output logic [LSU_AGU_PHYS-1:0] mmu_req_st,       // the request is a store address (the port type is per request)
+  // DTLB: one port per physical AGU (LSU_AGU_COUNT); a request is on the port of its AGU, a replay on the free port it took
+  input  logic [LSU_AGU_COUNT-1:0] mmu_valid,
+  input  logic [31:0]              mmu_paddr [LSU_AGU_COUNT],
+  input  logic [28:0]              mmu_paddr_p1 [LSU_AGU_COUNT],
+  input  logic [28:0]              mmu_paddr_m1 [LSU_AGU_COUNT],
+  input  logic [1:0]               mmu_result [LSU_AGU_COUNT],
+  input  logic [5:0]               mmu_entry [LSU_AGU_COUNT],
+  output logic [LSU_AGU_COUNT-1:0] mmu_req_valid,
+  output logic [XLEN_BITS-1:0]     mmu_req_vaddr [LSU_AGU_COUNT],
+  output logic [5:0]               mmu_req_idx [LSU_AGU_COUNT],
+  output logic [LSU_AGU_COUNT-1:0] mmu_req_st,       // the request is a store address (the port type is per request)
   // load slots
   output lp_l1in_t            l1 [NLD],
   output lp_tl_t              tl_l [NLD],       // writes into the LDQ entry
@@ -96,7 +96,7 @@ module lp_l1
   localparam int NS  = NST - NM;
   localparam int NPH = NLD + NS;
   function automatic int st_phys(input int k);
-    return (k < NS) ? NLD + k : NL + (k - NS);
+    return (k < NS) ? NLD + k : NL + NM - 1 - (k - NS);
   endfunction
 
   // ---- DTLB port allocation of the replays (a short chain over the replay registers, on thermometer counters) ----

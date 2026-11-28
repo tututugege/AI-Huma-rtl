@@ -7,8 +7,6 @@ module alu
   import exu_fu_pkg::*;
   import ttg_cfg_pkg::*;
 (
-  input  logic                en,
-  input  logic                consume,
   input  logic [OP_W-1:0]     op,
   input  logic [2:0]          func3,
   input  logic [6:0]          func7,
@@ -19,8 +17,6 @@ module alu
   input  logic [31:0]         imm,
   input  logic [XLEN_BITS-1:0]         src1_rdata,
   input  logic [XLEN_BITS-1:0]         src2_rdata,
-  output logic                complete,
-  output logic                ready,
   output logic [XLEN_BITS-1:0]         result
 );
 
@@ -32,8 +28,6 @@ module alu
   logic [XLEN_BITS-1:0] opa, opb;
   logic [SHW-1:0] shamt;
   logic [XLEN_BITS-1:0] imm_x;
-
-  exu_fu_sc_ctl u_ctl (.en(en), .consume(consume), .complete(complete), .ready(ready));
 
   alu_decode u_dec (
     .op(op), .func3(func3), .func7_in(func7), .src2_is_imm(src2_is_imm), .is_word(is_word), .imm_lo(imm[4:0]),

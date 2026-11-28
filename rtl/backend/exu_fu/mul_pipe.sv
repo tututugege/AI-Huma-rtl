@@ -1,21 +1,16 @@
 // Ref: back-end/Exu/include/AbstractFU.h  FixedLatencyFU (pipeline deque, comb_ctrl / comb_issue / comb_consume)
 `default_nettype none
 
-// In-order DEPTH-entry result pipeline of a fixed-latency FU (DEPTH = latency = MUL_MAX_LATENCY).  Entries are kept
-// compacted at the low indices (index 0 = oldest).  Only the oldest entry can complete / be consumed.  Per cycle:
-//   1. kill      : flush removes entries (all of them for an all-ones flush_mask, else those sharing a flush_mask bit)
-//   2. clear     : clear_mask bits are removed from the surviving entries' br_mask
-//   3. accept    : en pushes a new entry if the pipe is not full *before* this cycle's pop
-//   4. complete  : the oldest survivor has waited its latency (rem == 0); consume pops it
-//   5. ready     : the pipe is not full after pop and accept
-// `rem` is the C++ `done_cycle - sim_time`: it is LAT-2 in the cycle after an entry is pushed (done = push + LAT - 1)
-// and counts down to 0, where it stays (a finished entry remains finished until consumed).
+// Fixed-latency non-stalling pipeline of DEPTH cycles (STAGES = DEPTH - 1 shift-register stages). Per cycle:
+//   1. kill      : flush/younger mispred drops in-flight entries at that stage
+//   2. accept    : en shifts a new entry into stage 0
+//   3. complete  : surviving stage STAGES-1 completes after DEPTH-1 register hops
 module mul_pipe
   import ttg_cfg_pkg::*;
   import exu_fu_pkg::*;
 #(
   parameter int DEPTH = MUL_MAX_LATENCY,
-  parameter type UOP_T = fu_uop_t          // payload of an entry (must have a br_mask field); the FP units use fp_uop_t
+  parameter type UOP_T = fu_uop_t          // payload of an entry (rob_idx / rob_flag + result fields); the FP units use fp_uop_t
 ) (
   input  logic                     clk,
   input  logic                     rst_n,
@@ -24,17 +19,12 @@ module mul_pipe
   input  logic [ROB_IDX_WIDTH-1:0] flush_rob_idx,
   input  logic                     flush_rob_flag,
   input  logic                     en,
-  input  logic                     consume,
   input  UOP_T                     en_uop,
   output logic                     complete,
-  output logic                     ready,
   output UOP_T                     done_uop
 );
 
-  localparam int RW = $clog2(DEPTH);
-  localparam int UW = $bits(UOP_T);
-  localparam int EW = UW + RW;                 // one stored entry = {uop, rem}
-  localparam logic [RW-1:0] REM_NEW = RW'(DEPTH - 2);
+  localparam int STAGES = DEPTH - 1;
 
 `ifndef SYNTHESIS
   if (DEPTH < 2) begin : g_depth_check
@@ -43,97 +33,33 @@ module mul_pipe
 `endif
 
   // ---- state ----
-  logic [DEPTH-1:0] valid_q, valid_d;
-  UOP_T          uop_q [DEPTH];
-  UOP_T          uop_d [DEPTH];
-  logic [RW-1:0]    rem_q [DEPTH];
-  logic [RW-1:0]    rem_d [DEPTH];
-
-  // ---- kill / complete ----
-  logic [DEPTH-1:0] kill, surv, ripe;
-  logic [UW-1:0]    uop_c_bits [DEPTH];
-  logic [RW-1:0]    rem_n [DEPTH];
+  logic [STAGES-1:0] valid_q, valid_d, surv;
+  UOP_T              uop_q [STAGES];
+  UOP_T              uop_d [STAGES];
 
   always_comb begin
-    for (int i = 0; i < DEPTH; i++) begin
-      kill[i]       = valid_q[i] && (flush_all || (flush_br && fu_rob_younger(uop_q[i].rob_idx, uop_q[i].rob_flag, flush_rob_idx, flush_rob_flag)));
-      surv[i]       = valid_q[i] && !kill[i];
-      ripe[i]       = (rem_q[i] == '0);
-      rem_n[i]      = ripe[i] ? '0 : rem_q[i] - RW'(1);
-      uop_c_bits[i] = UW'(uop_q[i]);
+    for (int s = 0; s < STAGES; s++) begin
+      surv[s] = valid_q[s] &&
+                !(flush_all || (flush_br && fu_rob_younger(uop_q[s].rob_idx, uop_q[s].rob_flag, flush_rob_idx, flush_rob_flag)));
     end
-  end
+    complete = surv[STAGES-1];
+    done_uop = uop_q[STAGES-1];
 
-  logic [DEPTH-1:0] front_oh, keep;
-  logic             any_surv, front_ripe, pop;
-  logic [UW-1:0]    done_bits;
-
-  ttg_first_set #(.N(DEPTH)) u_front (.req(surv), .onehot(front_oh), .any(any_surv));
-  ttg_onehot_mux #(.N(DEPTH), .W(UW)) u_done (.sel(front_oh), .data(uop_c_bits), .out(done_bits));
-
-  // Ref: FixedLatencyFU::comb_issue (complete) / comb_consume (pop)
-  always_comb begin
-    front_ripe = |(front_oh & ripe);
-    complete   = any_surv && front_ripe;
-    pop        = consume && complete;
-    keep       = surv & ~(front_oh & {DEPTH{pop}});
-    done_uop   = UOP_T'(done_bits);
-  end
-
-  // ---- accept / ready ----
-  logic                       accept;
-  logic [$clog2(DEPTH+1)-1:0] n_keep, n_next;
-
-  ttg_popcount #(.N(DEPTH)) u_nkeep (.bits(keep), .count(n_keep));
-
-  always_comb begin
-    accept = en && !(&surv);                        // limit is checked before the pop
-    n_next = n_keep + ($bits(n_keep))'(accept);
-    ready  = n_next < ($bits(n_next))'(DEPTH);
-  end
-
-  // ---- next state: survivors compact down by the number of removed entries below them; the new entry goes last ----
-  localparam int CW = $clog2(DEPTH + 1);
-  logic [EW-1:0]  src_ent [DEPTH+1];             // source i for the next-state muxes (i = DEPTH is the new entry)
-  logic [DEPTH:0] sel     [DEPTH];               // sel[j][i]: destination j takes source i
-  logic [EW-1:0]  nxt     [DEPTH];
-  logic [CW-1:0]  rank    [DEPTH];               // number of kept entries below entry i = its new index
-
-  for (genvar i = 0; i < DEPTH; i++) begin : g_rank
-    localparam logic [DEPTH-1:0] BELOW = (DEPTH'(1) << i) - DEPTH'(1);
-    ttg_popcount #(.N(DEPTH)) u_rank (.bits(keep & BELOW), .count(rank[i]));
-  end
-
-  always_comb begin
-    for (int i = 0; i < DEPTH; i++) src_ent[i] = {uop_c_bits[i], rem_n[i]};
-    src_ent[DEPTH] = {UW'(en_uop), REM_NEW};
-  end
-
-  for (genvar j = 0; j < DEPTH; j++) begin : g_dst
-    always_comb begin
-      for (int i = 0; i < DEPTH; i++) sel[j][i] = keep[i] && (rank[i] == CW'(j));
-      sel[j][DEPTH] = accept && (n_keep == CW'(j));
-    end
-    ttg_onehot_mux #(.N(DEPTH + 1), .W(EW)) u_nxt (.sel(sel[j]), .data(src_ent), .out(nxt[j]));
-    always_comb begin
-      valid_d[j] = |sel[j];
-      {uop_d[j], rem_d[j]} = nxt[j];  // struct <- bit slice
+    valid_d[0] = en;
+    uop_d[0]   = en_uop;
+    for (int s = 1; s < STAGES; s++) begin
+      valid_d[s] = surv[s-1];
+      uop_d[s]   = uop_q[s-1];
     end
   end
 
   always_ff @(posedge clk) begin
     if (!rst_n) begin
       valid_q <= '0;
-      for (int i = 0; i < DEPTH; i++) begin
-        uop_q[i] <= '0;
-        rem_q[i] <= '0;
-      end
+      for (int s = 0; s < STAGES; s++) uop_q[s] <= '0;
     end else begin
       valid_q <= valid_d;
-      for (int i = 0; i < DEPTH; i++) begin
-        uop_q[i] <= uop_d[i];
-        rem_q[i] <= rem_d[i];
-      end
+      for (int s = 0; s < STAGES; s++) uop_q[s] <= uop_d[s];
     end
   end
 

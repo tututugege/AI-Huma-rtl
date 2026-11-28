@@ -19,7 +19,6 @@ module fp_div_unit
   input  logic                       clk,
   input  logic                       rst_n,
   input  logic                       en,
-  input  logic                       consume,
   input  logic                       flush_all,
   input  logic                       flush_br,
   input  logic [ROB_IDX_WIDTH-1:0]   flush_rob_idx,
@@ -37,7 +36,6 @@ module fp_div_unit
   input  logic [PRF_IDX_WIDTH-1:0]   dest_preg,
   input  logic                       dest_en,
   output logic                       complete,
-  output logic                       ready,
   output logic [63:0]                fresult,
   output logic [4:0]                 fflags,
   output logic                       illegal,
@@ -55,9 +53,9 @@ module fp_div_unit
   exu_iter_ctl #(.CW(FP_LAT_W)) u_ctl (
     .clk(clk), .rst_n(rst_n), .flush_all(flush_all), .flush_br(flush_br),
     .flush_rob_idx(flush_rob_idx), .flush_rob_flag(flush_rob_flag),
-    .en(en), .consume(consume), .en_rob_idx(rob_idx), .en_rob_flag(rob_flag),
+    .en(en), .en_rob_idx(rob_idx), .en_rob_flag(rob_flag),
     .lat_m1(FP_LAT_W'(fp_div_latency(func7) - 1)),
-    .accept(accept), .run(run), .complete(complete), .wb_next(unused_wb_next), .ready(ready), .done_rob_flag(done_rob_flag)
+    .accept(accept), .run(run), .complete(complete), .wb_next(unused_wb_next), .done_rob_flag(done_rob_flag)
   );
 
   if (!SYNTH_FPU) begin : g_dpi

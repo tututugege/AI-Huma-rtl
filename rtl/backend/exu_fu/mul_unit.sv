@@ -8,7 +8,6 @@ module mul_unit
   input  logic                     clk,
   input  logic                     rst_n,
   input  logic                     en,
-  input  logic                     consume,
   input  logic                     flush_all,
   input  logic                     flush_br,
   input  logic [ROB_IDX_WIDTH-1:0] flush_rob_idx,
@@ -22,7 +21,6 @@ module mul_unit
   input  logic [PRF_IDX_WIDTH-1:0] dest_preg,
   input  logic                     dest_en,
   output logic                     complete,
-  output logic                     ready,
   output logic [XLEN_BITS-1:0]     result,
   output logic [ROB_IDX_WIDTH-1:0] done_rob_idx,
   output logic                     done_rob_flag,
@@ -49,14 +47,10 @@ module mul_unit
     done_dest_en   = done_uop.dest_en;
   end
 
-`ifndef SYNTHESIS
-  always_ff @(posedge clk) if (rst_n && complete && !consume) $error("mul_unit: a completed product was not consumed in its completion cycle");
-`endif
-
   mul_pipe u_pipe (
     .clk(clk), .rst_n(rst_n), .flush_all(flush_all), .flush_br(flush_br),
     .flush_rob_idx(flush_rob_idx), .flush_rob_flag(flush_rob_flag),
-    .en(en), .consume(consume), .en_uop(en_uop), .complete(complete), .ready(ready), .done_uop(done_uop)
+    .en(en), .en_uop(en_uop), .complete(complete), .done_uop(done_uop)
   );
 
 endmodule

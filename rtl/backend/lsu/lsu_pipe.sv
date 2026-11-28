@@ -4,6 +4,7 @@
 module lsu_pipe
   import ttg_cfg_pkg::*;
   import lp_pkg::*;
+  import exu_ctrl_pkg::xc_agu_req_t, exu_ctrl_pkg::XC_OP_W, exu_ctrl_pkg::XC_UOP_LOAD, exu_ctrl_pkg::XC_UOP_STA;
 (
   input  logic clk,
   input  logic rst_n,
@@ -36,28 +37,9 @@ module lsu_pipe
   input  logic [ROB_IDX_WIDTH-1:0] exe2lsu_sdu_req_uop_rob_idx [LSU_SDU_COUNT],
   input  logic [LSU_SDU_COUNT-1:0] exe2lsu_sdu_req_uop_rob_flag,
   input  logic [5:0] exe2lsu_sdu_req_uop_stq_idx [LSU_SDU_COUNT],
-  input  logic [LSU_LDU_COUNT-1:0] exe2lsu_ldu_req_valid,
-  input  logic [LSU_LDU_COUNT-1:0] exe2lsu_ldu_req_occ,
-  input  logic [LSU_STA_COUNT-1:0] exe2lsu_sta_req_occ,
-  input  logic [XLEN_BITS-1:0] exe2lsu_ldu_req_uop_result [LSU_LDU_COUNT],
-  input  logic [PRF_IDX_WIDTH-1:0] exe2lsu_ldu_req_uop_dest_preg [LSU_LDU_COUNT],
-  input  logic [2:0] exe2lsu_ldu_req_uop_func3 [LSU_LDU_COUNT],
-  input  logic [LSU_LDU_COUNT-1:0] exe2lsu_ldu_req_uop_is_atomic,
-  input  logic [4:0] exe2lsu_ldu_req_uop_amo_op [LSU_LDU_COUNT],
-  input  logic [ROB_IDX_WIDTH-1:0] exe2lsu_ldu_req_uop_rob_idx [LSU_LDU_COUNT],
-  input  logic exe2lsu_ldu_req_uop_rob_flag [LSU_LDU_COUNT],
-  input  logic [5:0] exe2lsu_ldu_req_uop_stq_idx [LSU_LDU_COUNT],
-  input  logic exe2lsu_ldu_req_uop_stq_flag [LSU_LDU_COUNT],
-  input  logic [5:0] exe2lsu_ldu_req_uop_ldq_idx [LSU_LDU_COUNT],
-  input  logic [LSU_STA_COUNT-1:0] exe2lsu_sta_req_valid,
-  input  logic [XLEN_BITS-1:0] exe2lsu_sta_req_uop_result [LSU_STA_COUNT],
-  input  logic [PRF_IDX_WIDTH-1:0] exe2lsu_sta_req_uop_dest_preg [LSU_STA_COUNT],
-  input  logic [2:0] exe2lsu_sta_req_uop_func3 [LSU_STA_COUNT],
-  input  logic [LSU_STA_COUNT-1:0] exe2lsu_sta_req_uop_is_atomic,
-  input  logic [4:0] exe2lsu_sta_req_uop_amo_op [LSU_STA_COUNT],
-  input  logic [ROB_IDX_WIDTH-1:0] exe2lsu_sta_req_uop_rob_idx [LSU_STA_COUNT],
-  input  logic exe2lsu_sta_req_uop_rob_flag [LSU_STA_COUNT],
-  input  logic [5:0] exe2lsu_sta_req_uop_stq_idx [LSU_STA_COUNT],
+  /* verilator lint_off UNUSEDSIGNAL */
+  input  xc_agu_req_t exe2lsu_agu [LSU_AGU_COUNT],
+  /* verilator lint_on UNUSEDSIGNAL */
   input  logic peripheral_resp_is_mmio,
   input  logic peripheral_resp_ready,
   input  logic [XLEN_BITS-1:0] peripheral_resp_mmio_rdata,
@@ -72,12 +54,12 @@ module lsu_pipe
   input  logic [25:0] dcache2lsu_mshr_fill_line,
   input  logic dcache2lsu_load_retry_busy [LSU_LDU_COUNT],
   input  logic dcache2lsu_store_retry_busy [LSU_STA_COUNT],
-  input  logic [LSU_AGU_PHYS-1:0] mmu2lsu_resp_valid,
-  input  logic [31:0] mmu2lsu_resp_paddr [LSU_AGU_PHYS],
-  input  logic [28:0] mmu2lsu_resp_paddr_p1 [LSU_AGU_PHYS],
-  input  logic [28:0] mmu2lsu_resp_paddr_m1 [LSU_AGU_PHYS],
-  input  logic [1:0] mmu2lsu_resp_result [LSU_AGU_PHYS],
-  input  logic [5:0] mmu2lsu_resp_entry_idx [LSU_AGU_PHYS],
+  input  logic [LSU_AGU_COUNT-1:0] mmu2lsu_resp_valid,
+  input  logic [31:0] mmu2lsu_resp_paddr [LSU_AGU_COUNT],
+  input  logic [28:0] mmu2lsu_resp_paddr_p1 [LSU_AGU_COUNT],
+  input  logic [28:0] mmu2lsu_resp_paddr_m1 [LSU_AGU_COUNT],
+  input  logic [1:0] mmu2lsu_resp_result [LSU_AGU_COUNT],
+  input  logic [5:0] mmu2lsu_resp_entry_idx [LSU_AGU_COUNT],
   /* verilator lint_on UNUSEDSIGNAL */
   output logic [5:0] lsu2dis_stq_tail,
   output logic lsu2dis_stq_tail_flag,
@@ -125,10 +107,10 @@ module lsu_pipe
   output logic [DST_STRB_W-1:0] lsu2dcache_store_ports_strb [LSU_STA_COUNT],
   output logic [DST_L2_W-1:0] lsu2dcache_store_ports_l2 [LSU_STA_COUNT],
   output logic [5:0] lsu2dcache_store_ports_req_id [LSU_STA_COUNT],
-  output logic [LSU_AGU_PHYS-1:0] lsu2mmu_req_valid,
-  output logic [XLEN_BITS-1:0] lsu2mmu_req_vaddr [LSU_AGU_PHYS],
-  output logic [5:0] lsu2mmu_req_entry_idx [LSU_AGU_PHYS],
-  output logic [LSU_AGU_PHYS-1:0] lsu2mmu_req_is_store,
+  output logic [LSU_AGU_COUNT-1:0] lsu2mmu_req_valid,
+  output logic [XLEN_BITS-1:0] lsu2mmu_req_vaddr [LSU_AGU_COUNT],
+  output logic [5:0] lsu2mmu_req_entry_idx [LSU_AGU_COUNT],
+  output logic [LSU_AGU_COUNT-1:0] lsu2mmu_req_is_store,
   input  logic [LSU_LDU_COUNT-1:0] pf_xq_v,
   input  logic [38:0] pf_xq_va [LSU_LDU_COUNT],
   input  logic [LSU_LDU_COUNT-1:0] pf_xq_llc,
@@ -174,32 +156,38 @@ module lsu_pipe
       std_w[i].data = exe2lsu_sdu_req_uop_result[i];
     end
     for (int i = 0; i < NLD; i++) begin
-      agl[i].v = exe2lsu_ldu_req_valid[i];
-      agl[i].occ = exe2lsu_ldu_req_occ[i];
-      agl[i].ldq = exe2lsu_ldu_req_uop_ldq_idx[i];
-      agl[i].rob_idx = exe2lsu_ldu_req_uop_rob_idx[i];
-      agl[i].rob_flag = exe2lsu_ldu_req_uop_rob_flag[i];
-      agl[i].vaddr = exe2lsu_ldu_req_uop_result[i];
-      agl[i].dest = exe2lsu_ldu_req_uop_dest_preg[i];
-      agl[i].func3 = exe2lsu_ldu_req_uop_func3[i];
-      agl[i].snap_idx = exe2lsu_ldu_req_uop_stq_idx[i];
-      agl[i].snap_flag = exe2lsu_ldu_req_uop_stq_flag[i];
-      agl[i].lr = exe2lsu_ldu_req_uop_is_atomic[i] && exe2lsu_ldu_req_uop_amo_op[i] == AMO_LR;
-      dcl_valid_w[i] = dcache2lsu_load_resps_valid[i];
-      ldrb_w[i] = dcache2lsu_load_retry_busy[i];
+      logic is_ld;
+      is_ld           = (exe2lsu_agu[i].op == XC_OP_W'(XC_UOP_LOAD));
+      agl[i].v        = exe2lsu_agu[i].valid && is_ld;
+      agl[i].occ      = exe2lsu_agu[i].raw   && is_ld;
+      agl[i].ldq      = exe2lsu_agu[i].ldq_idx;
+      agl[i].rob_idx  = exe2lsu_agu[i].rob_idx;
+      agl[i].rob_flag = exe2lsu_agu[i].rob_flag;
+      agl[i].vaddr    = exe2lsu_agu[i].result;
+      agl[i].dest     = exe2lsu_agu[i].dest_preg;
+      agl[i].func3    = exe2lsu_agu[i].func3;
+      agl[i].snap_idx = exe2lsu_agu[i].stq_idx;
+      agl[i].snap_flag = exe2lsu_agu[i].stq_flag;
+      agl[i].lr       = exe2lsu_agu[i].is_atomic && (exe2lsu_agu[i].amo_op == AMO_LR);
+      dcl_valid_w[i]  = dcache2lsu_load_resps_valid[i];
+      ldrb_w[i]       = dcache2lsu_load_retry_busy[i];
     end
-    for (int i = 0; i < NST; i++) begin
-      ags[i].v = exe2lsu_sta_req_valid[i];
-      ags[i].occ = exe2lsu_sta_req_occ[i];
-      ags[i].stq = exe2lsu_sta_req_uop_stq_idx[i];
-      ags[i].rob_idx = exe2lsu_sta_req_uop_rob_idx[i];
-      ags[i].rob_flag = exe2lsu_sta_req_uop_rob_flag[i];
-      ags[i].vaddr = exe2lsu_sta_req_uop_result[i];
-      ags[i].dest = exe2lsu_sta_req_uop_dest_preg[i];
-      ags[i].func3 = exe2lsu_sta_req_uop_func3[i];
-      ags[i].sc = exe2lsu_sta_req_uop_is_atomic[i] && exe2lsu_sta_req_uop_amo_op[i] == AMO_SC;
-      dcs_valid_w[i] = dcache2lsu_store_resps_valid[i];
-      strb_w[i] = dcache2lsu_store_retry_busy[i];
+    for (int k = 0; k < NST; k++) begin
+      logic [2:0] p;
+      logic is_sta;
+      p               = (k < (NST - LSU_AGU_SHARED)) ? 3'(NLD + k) : 3'(NLD - 1 - (k - (NST - LSU_AGU_SHARED)));
+      is_sta          = (exe2lsu_agu[p].op == XC_OP_W'(XC_UOP_STA));
+      ags[k].v        = exe2lsu_agu[p].valid && is_sta;
+      ags[k].occ      = exe2lsu_agu[p].raw   && is_sta;
+      ags[k].stq      = exe2lsu_agu[p].stq_idx;
+      ags[k].rob_idx  = exe2lsu_agu[p].rob_idx;
+      ags[k].rob_flag = exe2lsu_agu[p].rob_flag;
+      ags[k].vaddr    = exe2lsu_agu[p].result;
+      ags[k].dest     = exe2lsu_agu[p].dest_preg;
+      ags[k].func3    = exe2lsu_agu[p].func3;
+      ags[k].sc       = exe2lsu_agu[p].is_atomic && (exe2lsu_agu[p].amo_op == AMO_SC);
+      dcs_valid_w[k]  = dcache2lsu_store_resps_valid[k];
+      strb_w[k]       = dcache2lsu_store_retry_busy[k];
     end
     cm_valid_w = rob_commit_commit_entry_valid;
   end

@@ -1,4 +1,4 @@
-// Ref: back-end/Exu/Exu.cpp  class Exu (fu_inst_r / fu_inst_r_1; comb_exu2fu_dispatch, comb_pipeline, seq)
+// Ref: back-end/Exu/Exu.cpp  class Exu (non-stalling per-port pipeline registers port_slot_valid / port_slot)
 `default_nettype none
 
 module exu_ctrl_slot
@@ -14,48 +14,54 @@ module exu_ctrl_slot
   input  logic [ISSUE_WIDTH-1:0]   iss_valid,
   input  xc_inst_t                 iss_inst [ISSUE_WIDTH],
   input  logic [CSR_IDX_WIDTH-1:0] iss_csr_idx,
-  input  logic [N_FU-1:0]          fu_ready,
   output logic [N_FU-1:0]          fu_en,
   output logic [N_FU-1:0]          fu_occ,
   output xc_inst_t                 fu_inst [N_FU],
   output logic [CSR_IDX_WIDTH-1:0] csr_idx
 );
 
+  logic [ISSUE_WIDTH-1:0]   valid_q, valid_d, port_load, port_live;
+  xc_inst_t                 slot_q [ISSUE_WIDTH];
+  xc_inst_t                 slot_d [ISSUE_WIDTH];
   logic [CSR_IDX_WIDTH-1:0] csr_idx_q, csr_idx_d;
-  logic [N_FU-1:0] load;
 
-  for (genvar f = 0; f < N_FU; f++) begin : g_slot
-    localparam int PORT = xc_fu_port(f);
-    localparam logic [31:0] KIND_OPS = 32'(xc_kind_mask(xc_fu_kind(f)));
-    logic     valid_q, valid_d;
-    xc_inst_t slot_q, slot_d;
-    logic     slot_killed;
-
+  for (genvar p = 0; p < ISSUE_WIDTH; p++) begin : g_port
+    logic slot_killed;
     always_comb begin
-      slot_killed = xc_killed(mispred, slot_q.rob_idx, slot_q.rob_flag, kill_rob_idx, kill_rob_flag);
-      fu_en[f]    = valid_q && !flush && !slot_killed;
-      fu_occ[f]   = valid_q;
-      fu_inst[f]  = slot_q;
-      load[f] = !flush && iss_valid[PORT] &&
-                !xc_killed(mispred, iss_inst[PORT].rob_idx, iss_inst[PORT].rob_flag, kill_rob_idx, kill_rob_flag) &&
-                KIND_OPS[iss_inst[PORT].op];
-      valid_d = (fu_en[f] && !fu_ready[f]) || load[f];
-      slot_d  = load[f] ? iss_inst[PORT] : slot_q;
+      slot_killed  = xc_killed(mispred, slot_q[p].rob_idx, slot_q[p].rob_flag, kill_rob_idx, kill_rob_flag);
+      port_live[p] = valid_q[p] && !flush && !slot_killed;
+      port_load[p] = !flush && iss_valid[p] &&
+                     !xc_killed(mispred, iss_inst[p].rob_idx, iss_inst[p].rob_flag, kill_rob_idx, kill_rob_flag);
+      valid_d[p]   = port_load[p];
+      slot_d[p]    = port_load[p] ? iss_inst[p] : slot_q[p];
     end
 
     always_ff @(posedge clk) begin
       if (!rst_n) begin
-        valid_q <= 1'b0;
-        slot_q  <= '0;
+        valid_q[p] <= 1'b0;
+        slot_q[p]  <= '0;
       end else begin
-        valid_q <= valid_d;
-        slot_q  <= slot_d;
+        valid_q[p] <= valid_d[p];
+        slot_q[p]  <= slot_d[p];
       end
     end
   end
 
+  for (genvar f = 0; f < N_FU; f++) begin : g_fu
+    localparam int PORT = xc_fu_port(f);
+    localparam logic [31:0] KIND_OPS = 32'(xc_kind_mask(xc_fu_kind(f)));
+    logic match;
+    always_comb begin
+      match      = KIND_OPS[slot_q[PORT].op];
+      fu_en[f]   = port_live[PORT] && match;
+      fu_occ[f]  = valid_q[PORT] && match;
+      fu_inst[f] = slot_q[PORT];
+    end
+  end
+
+  localparam logic [31:0] CSR_OPS = 32'(xc_kind_mask(XC_K_CSR));
   always_comb begin
-    csr_idx_d = load[CSR_FU] ? iss_csr_idx : csr_idx_q;
+    csr_idx_d = (port_load[CSR_PORT] && CSR_OPS[iss_inst[CSR_PORT].op]) ? iss_csr_idx : csr_idx_q;
     csr_idx   = csr_idx_q;
   end
 

@@ -22,34 +22,32 @@ package exu_ctrl_pkg;
   typedef logic [XC_OP_W-1:0]   xc_op_t;
 
   // ---- FU kinds, in the order Exu::init creates them inside one issue port (= write-back priority) ----------
-  localparam int XC_K_MUL = 0;
-  localparam int XC_K_DIV = 1;
-  localparam int XC_K_LD  = 2;
-  localparam int XC_K_STA = 3;
-  localparam int XC_K_STD = 4;
-  localparam int XC_K_BR  = 5;
-  localparam int XC_K_I2F = 6;       // integer -> FP: ahead of the ALU, which would otherwise starve it at the port
-  localparam int XC_K_ALU = 7;
-  localparam int XC_K_CSR = 8;
-  localparam int XC_K_FMA = 9;       // F/D units: pipelined FMA / MISC / I2F, iterative FDIV
-  localparam int XC_K_FDIV = 10;
-  localparam int XC_K_FMISC = 11;
-  localparam int XC_KINDS = 12;   // (the F/D kinds have no unit without F/D: their op masks do not fit xc_opset_t)
+  localparam int XC_K_MUL   = 0;
+  localparam int XC_K_DIV   = 1;
+  localparam int XC_K_AGU   = 2;
+  localparam int XC_K_STD   = 3;
+  localparam int XC_K_BR    = 4;
+  localparam int XC_K_I2F   = 5;       // integer -> FP: ahead of the ALU, which would otherwise starve it at the port
+  localparam int XC_K_ALU   = 6;
+  localparam int XC_K_CSR   = 7;
+  localparam int XC_K_FMA   = 8;       // F/D units: pipelined FMA / MISC / I2F, iterative FDIV
+  localparam int XC_K_FDIV  = 9;
+  localparam int XC_K_FMISC = 10;
+  localparam int XC_KINDS   = 11;  // (the F/D kinds have no unit without F/D: their op masks do not fit xc_opset_t)
 
   function automatic xc_opset_t xc_kind_mask(int k);
     case (k)
-      XC_K_MUL: return xc_opset_t'(OP_MASK_MUL);
-      XC_K_DIV: return xc_opset_t'(OP_MASK_DIV);
-      XC_K_LD:  return xc_opset_t'(OP_MASK_LD);
-      XC_K_STA: return xc_opset_t'(OP_MASK_STA);
-      XC_K_STD: return xc_opset_t'(OP_MASK_STD);
-      XC_K_BR:  return xc_opset_t'(OP_MASK_BR);
-      XC_K_ALU: return xc_opset_t'(OP_MASK_ALU);
-      XC_K_FMA: return xc_opset_t'(OP_MASK_FMA);
-      XC_K_FDIV: return xc_opset_t'(OP_MASK_FDIV);
+      XC_K_MUL:   return xc_opset_t'(OP_MASK_MUL);
+      XC_K_DIV:   return xc_opset_t'(OP_MASK_DIV);
+      XC_K_AGU:   return xc_opset_t'(OP_MASK_LD | OP_MASK_STA);
+      XC_K_STD:   return xc_opset_t'(OP_MASK_STD);
+      XC_K_BR:    return xc_opset_t'(OP_MASK_BR);
+      XC_K_ALU:   return xc_opset_t'(OP_MASK_ALU);
+      XC_K_FMA:   return xc_opset_t'(OP_MASK_FMA);
+      XC_K_FDIV:  return xc_opset_t'(OP_MASK_FDIV);
       XC_K_FMISC: return xc_opset_t'(OP_MASK_FMISC);
-      XC_K_I2F: return xc_opset_t'(OP_MASK_I2F);
-      default:  return xc_opset_t'(OP_MASK_CSR);
+      XC_K_I2F:   return xc_opset_t'(OP_MASK_I2F);
+      default:    return xc_opset_t'(OP_MASK_CSR);
     endcase
   endfunction
 
@@ -68,7 +66,8 @@ package exu_ctrl_pkg;
                                         : xc_opset_t'(OP_MASK_FMA | OP_MASK_FMISC);
         else if (p >= IQ_BR_PORT_BASE) return xc_opset_t'(OP_MASK_BR);
         else if (p >= IQ_STD_PORT_BASE) return xc_opset_t'(OP_MASK_STD);
-        else if (p >= IQ_STA_PORT_BASE) return xc_opset_t'(OP_MASK_STA);
+        else if (p >= IQ_AGU_PORT_BASE + LSU_LDU_COUNT) return xc_opset_t'(OP_MASK_STA);
+        else if (p >= IQ_AGU_PORT_BASE + LSU_LDU_COUNT - LSU_AGU_SHARED) return xc_opset_t'(OP_MASK_LD | OP_MASK_STA);
         else return xc_opset_t'(OP_MASK_LD);
       end
     endcase
@@ -236,12 +235,12 @@ package exu_ctrl_pkg;
   localparam int N_FU  = TOTAL_FU_COUNT;
   localparam int N_MC  = 3;                   // MUL x2, DIV x1
   localparam int N_FPU = FP_EN ? 8 : 1;       // F/D units: FMA x2, FMISC x3, FDIV, I2F x2 (one dummy entry without F/D)
-  localparam int N_AGU = LSU_AGU_COUNT;       // load AGUs 0..3, store-address AGUs 4..7 (= LSU agu ports)
+  localparam int N_AGU = LSU_AGU_COUNT;       // 5 physical AGUs (ports 6..10: 2 LD, 2 LD|STA, 1 STA)
   localparam int N_SDU = LSU_SDU_COUNT;
 
-  // fu_idx of the i-th AGU: load AGUs first, then store-address AGUs (the LSU agu port numbering)
+  // fu_idx of the i-th physical AGU
   function automatic int xc_agu_fu(int i);
-    return (i < LSU_LDU_COUNT) ? xc_kind_fu(XC_K_LD, i) : xc_kind_fu(XC_K_STA, i - LSU_LDU_COUNT);
+    return xc_kind_fu(XC_K_AGU, i);
   endfunction
   localparam int CSR_FU = 2;                  // the only CSR FU (fu_idx 2, port 0); checked in exu_ctrl.sv
   localparam int CSR_PORT = 0;
@@ -293,7 +292,6 @@ package exu_ctrl_pkg;
 
   // what the FU instances hand back for one FU (zero in the fields a FU kind does not produce)
   typedef struct packed {
-    logic                     mc_ready;
     logic                     mc_complete;
     logic [XLEN_BITS-1:0]              result;
     logic [FW-1:0]            fresult;     // F/D: 64-bit result (the FP register write data)
@@ -363,7 +361,7 @@ package exu_ctrl_pkg;
     xc_op_t                   op;
   } xc_prf_wb_t;
 
-  // One completion report sent from EXU to ROB (ISSUE_WIDTH total).
+  // One completion report sent from EXU to ROB (ROB_WB_WIDTH total).
   typedef struct packed {
     logic                     valid;
     logic [ROB_IDX_WIDTH-1:0] rob_idx;
@@ -377,6 +375,23 @@ package exu_ctrl_pkg;
     logic [FFLAGS_W-1:0]      fflags;
     logic                     illegal;
   } xc_rob_wb_t;
+
+  // One AGU request sent from EXU to LSU (LSU_AGU_COUNT total).
+  typedef struct packed {
+    logic                     valid;
+    logic                     raw;
+    xc_op_t                   op;
+    logic [XLEN_BITS-1:0]     result;
+    logic [PRF_IDX_WIDTH-1:0] dest_preg;
+    logic [2:0]               func3;
+    logic                     is_atomic;
+    logic [4:0]               amo_op;
+    logic [ROB_IDX_WIDTH-1:0] rob_idx;
+    logic                     rob_flag;
+    logic [STQ_IDX_WIDTH-1:0] stq_idx;
+    logic                     stq_flag;
+    logic [LDQ_IDX_WIDTH-1:0] ldq_idx;
+  } xc_agu_req_t;
 
 endpackage
 `default_nettype wire

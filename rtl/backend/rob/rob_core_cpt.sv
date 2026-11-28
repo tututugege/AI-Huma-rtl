@@ -34,7 +34,7 @@ module rob_core_cpt
   input  logic [ROB_XLEN-1:0]        dis_trap_val [ROB_BANK_NUM],
   input  logic                       csr_fs_off,
   input  rob_entry_t                 dis_uop [ROB_BANK_NUM],
-  input  rob_wb_t                    wb [ISSUE_WIDTH],
+  input  rob_wb_t                    wb [ROB_WB_WIDTH],
   // rob2dis
   output logic                       rob2dis_stall,
   output logic                       rob2dis_empty,
@@ -131,7 +131,7 @@ module rob_core_cpt
   logic [IW-1:0]   br_off;
   logic [IW:0]     keep;
   // ---- write-back events ----
-  rob_event_t      wb_ev [ISSUE_WIDTH];
+  rob_event_t      wb_ev [ROB_WB_WIDTH];
 
   rob_wb_decode u_wb_decode (.wb(wb), .wb_ev(wb_ev));
 
@@ -347,23 +347,23 @@ module rob_core_cpt
 
     for (int k = 0; k < LSU_LOAD_WB_WIDTH; k++) begin
       logic [IW-1:0] off_p;
-      off_p = wb_ev[IQ_LD_PORT_BASE + k].rob_idx - head_q;
-      c0[1 + k].v   = wb_ev[IQ_LD_PORT_BASE + k].valid &&
-                      (wb_ev[IQ_LD_PORT_BASE + k].pf_load || wb_ev[IQ_LD_PORT_BASE + k].pf_store) &&
+      off_p = wb_ev[ROB_WB_LD_BASE + k].rob_idx - head_q;
+      c0[1 + k].v   = wb_ev[ROB_WB_LD_BASE + k].valid &&
+                      (wb_ev[ROB_WB_LD_BASE + k].pf_load || wb_ev[ROB_WB_LD_BASE + k].pf_store) &&
                       (!recover || (off_p <= br_off));
       c0[1 + k].off = off_p;
-      c0[1 + k].idx = wb_ev[IQ_LD_PORT_BASE + k].rob_idx;
-      c0[1 + k].val = wb[IQ_LD_PORT_BASE + k].result;
+      c0[1 + k].idx = wb_ev[ROB_WB_LD_BASE + k].rob_idx;
+      c0[1 + k].val = wb[ROB_WB_LD_BASE + k].result;
     end
     for (int k = 0; k < LSU_STA_COUNT; k++) begin
       logic [IW-1:0] off_p;
-      off_p = wb_ev[IQ_STA_PORT_BASE + k].rob_idx - head_q;
-      c0[1 + LSU_LOAD_WB_WIDTH + k].v   = wb_ev[IQ_STA_PORT_BASE + k].valid &&
-                                          (wb_ev[IQ_STA_PORT_BASE + k].pf_load || wb_ev[IQ_STA_PORT_BASE + k].pf_store) &&
+      off_p = wb_ev[ROB_WB_STA_BASE + k].rob_idx - head_q;
+      c0[1 + LSU_LOAD_WB_WIDTH + k].v   = wb_ev[ROB_WB_STA_BASE + k].valid &&
+                                          (wb_ev[ROB_WB_STA_BASE + k].pf_load || wb_ev[ROB_WB_STA_BASE + k].pf_store) &&
                                           (!recover || (off_p <= br_off));
       c0[1 + LSU_LOAD_WB_WIDTH + k].off = off_p;
-      c0[1 + LSU_LOAD_WB_WIDTH + k].idx = wb_ev[IQ_STA_PORT_BASE + k].rob_idx;
-      c0[1 + LSU_LOAD_WB_WIDTH + k].val = wb[IQ_STA_PORT_BASE + k].result;
+      c0[1 + LSU_LOAD_WB_WIDTH + k].idx = wb_ev[ROB_WB_STA_BASE + k].rob_idx;
+      c0[1 + LSU_LOAD_WB_WIDTH + k].val = wb[ROB_WB_STA_BASE + k].result;
     end
 
     for (int k = 0; k < 4; k++) c1[k] = pick_older_trap(c0[2*k], c0[2*k + 1]);

@@ -25,87 +25,83 @@ depth: **61 层 / 1,033,276 cells**（Yosys `strash;balance;map`）；**TSMC 28n
 
 ## 2. 配置（`ttg_cfg_pkg` / `isu_pkg`，现行默认）
 
-执行单元共 **19 个**，按单元列（"口号"是代码里 `iss2prf` 等数组的下标，`ISSUE_WIDTH = 21`，比 19 多 2 是因为共用的 2 个 AGU 在口号里出现了两次）：
+执行单元共 **19 个**，`ISSUE_WIDTH = 19`，所有发射口号与物理执行单元一一对应：
 
 | 执行单元 | 个数 | 口号 | 能做什么 | 所属队列 |
 | --- | --- | --- | --- | --- |
-| ALU 类 | 6 | 0、1、4 / 2、3、5 | 都能做 ALU；0：+MUL +CSR；1：+DIV；2：+MUL +I2F；3：+DIV +I2F | 0、1、4 属 INT0，2、3、5 属 INT1 |
+| ALU 类 | 6 | 0、1、4 / 2、3、5 | 都能做 ALU；0：+MUL +CSR；1：+DIV；2：+MUL +I2F；3：+I2F | 0、1、4 属 INT0，2、3、5 属 INT1 |
 | load 专用 AGU | 2 | 6、7 | LOAD | 内存队列 |
-| load 与 STA 共用 AGU | 2 | load 口 8、9，也是 STA 口 11、12 | LOAD 或 STA，**同一拍只能做一个，load 优先** | 内存队列 |
+| load 与 STA 共用 AGU | 2 | 8、9 | LOAD 或 STA，同一拍各做一条，**load 优先** | 内存队列 |
 | STA 专用 AGU | 1 | 10 | STA | 内存队列 |
-| STD | 3 | 13、14、15 | STD | STD |
-| BR | 2 | 16、17 | BR | BR |
-| FP | 3 | 18、19：FMA+FMISC；20：FDIV+FMISC | FP | FP |
+| STD | 3 | 11、12、13 | STD | STD |
+| BR | 2 | 14、15 | BR | BR |
+| FP | 3 | 16、17：FMA+FMISC；18：FDIV+FMISC | FP | FP |
 
-共用 AGU 的两套口号（load 8、9 与 STA 11、12）用同一个 PRF 读口、同一个 DTLB 口；内存队列同拍最多发 5 条。队列里仍按 7 个口分别选（口 6..9 只能发 LOAD，10..12 只能发 STA），共用时由 load 口抢先。
+内存队列直接管理 `NP = LSU_AGU_COUNT = 5` 个物理 AGU 口（`IQ_AGU_PORT_BASE = 6`）：口 6、7 只服务 load，口 8、9 共享（优先填 load，空余再服务 STA），口 10 只服务 STA，同拍最多发 5 条。
 
 | 队列 | 槽数 | 入队 lane | 口数 | 备注 |
 | --- | --- | --- | --- | --- |
 | INT0（q0） | 32（`IQ_INT_SIZE`） | 4（`IQ_INT_ENQ_WIDTH`） | 3 | 两个整数队列各管三个口；CSR 进 INT0，I2F 进 INT1（口 2、3 有 I2F 能力） |
 | INT1（q5） | 32 | 4 | 3 | |
-| 内存（q1，load + STA 合并） | 64（`IQ_MEM_SIZE`） | 6（`IQ_MEM_ENQ_WIDTH`） | 7（4 load + 3 STA） | 每种能力的第一个口取最老的就绪 uop，其余口取最低槽；STA 口 11、12 与 load 口 8、9 共用 AGU（`LSU_AGU_SHARED = 2`，load 优先） |
+| 内存（q1，load + STA 合并） | 64（`IQ_MEM_SIZE`） | 6（`IQ_MEM_ENQ_WIDTH`） | 5（2 LD + 2 共享 + 1 STA） | load 挑最老 + 其余最低槽（至多 4 条）分配口 0..3；STA 挑最老 + 其余最低槽（至多 3 条）从高口往低（口 4、3、2）分配未被 load 占用的口 |
 | STD（q2） | 16 | 4 | 3 | |
 | BR（q3） | 64 | 5 | 2 | 方案 C（`rob_ptr` 冲刷）解除 31 在飞分支上限后扩容至 64 |
 | FP（q4） | 32 | 4 | 3 | 仅 F/D（`FPRF_NUM != 0`） |
 
-其他：槽分配只看寄存的 valid 位，不等本拍发射腾出的槽；`MUL_MAX_LATENCY = 3`、`DIV_MAX_LATENCY = 32`；`WAKE_NUM = MAX_WAKEUP_PORTS = 22`；`TAG_NUM = 224`（preg 个数）；`FPW_CH = 8` 路 FP 延迟唤醒通道。
+其他：槽分配只看寄存的 valid 位；`MUL_MAX_LATENCY = 3`、`DIV_MAX_LATENCY = 17`；`WAKE_NUM = MAX_WAKEUP_PORTS = 21`；`TAG_NUM = 224`；`FPW_CH = 8`。
 
 ## 3. 接口
 
-信号组按模型的 `in` / `out` 端口命名（`dis2iss_*`、`iss2prf_*` 是把模型的结构展开成平铺端口）：
+信号组按模型的 `in` / `out` 端口命名：
 
 | 方向 | 信号组 | 含义 |
 | --- | --- | --- |
 | 入 | `dis2iss_req_valid / _uop_* [IQ_NUM][8]` | 分派的 uop，按队列、按 lane；`src{1,2,3}_busy` 是入队时"还在等这个源" |
-| 入 | `lsu2iss_wake_valid/preg [2*LDU]`、`lsu2iss_cancel_valid/preg [LDU]` | LSU 的 load 唤醒（`[p]` 是 L2 推测唤醒，`[LDU+p]` 是 L3 寄存唤醒）和推测唤醒的取消；推测部分只在 `LP_L2[3]` 打开时存在 |
+| 入 | `lsu2iss_wake_valid/preg [2*LDU]`、`lsu2iss_cancel_valid/preg [LDU]` | LSU 的 load 唤醒和取消 |
 | 入 | `prf_awake_wake_valid/preg` | PRF 写回口的 load 唤醒 |
-| 入 | `exe2iss_fu_ready_mask [ISSUE_WIDTH]` | 每个口当前 FU 能接受的操作类 |
-| 入 | `rob_bcast_flush`、`dec_bcast_{mispred, br_mask, clear_mask}` | 全局 flush（`FLUSH_REG` 后已经晚一拍，见 docs/FLUSH_REG.md）、误预测、分支掩码 |
+| 入 | `exe2iss_div_wb_next` | 1-bit，EXU 口 1 的 DIV 下一拍写回通告，本拍暂停口 1 ALU 发射 |
+| 入 | `rob_bcast_flush`、`dec_bcast_{mispred, redirect_rob_idx/flag}` | 全局 flush、误预测及重定指向标 |
 | 出 | `iss2dis_ready_num [IQ_NUM]` | 每个队列还能收几个：`min(空闲槽数, 入队 lane 数)`，用寄存的 valid 数 |
-| 出 | `iss2prf_iss_entry_valid/uop_* [ISSUE_WIDTH]` | 21 个发射口的发射结果 |
-| 出 | `iss_awake_wake_valid/preg [WAKE_NUM]` | 唤醒广播，给分派（`Dispatch::is_preg_woken`）使用 |
+| 出 | `iss2prf_iss_entry_valid/uop_* [ISSUE_WIDTH]` | 19 个发射口的发射结果 |
+| 出 | `iss_awake_wake_valid/preg [WAKE_NUM]` | 唤醒广播 |
 
 ## 4. 结构
 
 ```
- dis2iss[q][w] ─► isu_iq[q]（每个队列一个实例，参数：SIZE / DW / NP / QID / SH_* / AGE_EN）
+ dis2iss[q][w] ─► isu_iq[q]（每个队列一个实例，参数：SIZE / DW / NP / QID / AGE_EN）
                     ├ isu_alloc_chain : 第 k 个有效请求 -> 第 k 个空闲槽（并行秩匹配）
-                    ├ isu_iq_store    : 每槽 valid / uop / wait1..3 寄存器；入队、唤醒、取消、发射清除、flush、掩码清除
+                    ├ isu_iq_store    : 每槽 valid / uop / wait1..3 寄存器；入队、唤醒、取消、发射清除、flush
                     ├ isu_age_matrix  : 年龄矩阵（只在 AGE_EN 的内存队列）
-                    └ isu_iq_select   : 每口按能力选一个槽（最老优先或最低槽优先）
- isu_wake_src : 唤醒通道 = prf_awake | MUL 管线末级 | DIV 倒计时槽 | ALU 快速唤醒 | FP 倒计时槽
-   ├ isu_wake_mul（MUL 移位管线）  ├ isu_wake_iter（DIV、FP 倒计时槽）  └ isu_wake_compact（FP 槽按序压到 FPW_CH 路）
- isu_wake_bus : 全部通道 -> TAG_NUM 位的 preg 位图，供队列按 src_preg 查表（等价于模型的 preg->槽 位图矩阵）
- isu_wb_gate  : 完成周期预留（EXP-035）：每个口一个按"距今几拍"索引的移位忙表（EXP-046），给选择输出每个完成类"空着"的位
+                    └ isu_iq_select   : 每口按能力选一个槽（最老优先或最低槽优先，MEM 直接 5 口映射）
+ isu_wake_src : 唤醒通道 = prf_awake | MUL 管线末级 | DIV 倒计时（由 exe2iss_div_wb_next 等价触发） | ALU 快速唤醒 | FP 倒计时槽
+ isu_wb_gate  : 完成周期预留（EXP-035）：按口移位忙表，叠加 DIV busy 与 FDIV 倒计时阻塞信号生成 cls_free
  isu_fp_gate  : FP 写口限制（EXP-032，`FP_WB_PORTS = 2`）
- isu (top)    : 端口平铺 <-> 结构体，三道闸合并，把各队列的发射结果拼到 21 个物理口
+ isu (top)    : 端口适配，本地维护 div_busy_q（口 1）与 fdiv_cnt_q（口 18）阻塞迭代单元重复发射，汇总三道闸并拼接 19 个物理口
 ```
 
 | 文件 | 行数 | 职责 |
 | --- | --- | --- |
-| `isu_pkg.sv` | 314 | 队列、口、能力表；uop 结构；完成类（`wb_class` / 独热形式 `cls_hit`，11 类）与完成偏移；每口的忙表长度 `port_max_off`、会被占的类 `cls_blockable`；唤醒通道布局 |
-| `isu.sv` | 319 | 顶层：端口适配，闸（`fp_ok`；完成周期在选择里已经查过）合成 `gate_ok`，把忙表的 `cls_free` 发给各队列，实例化各队列和唤醒网络 |
-| `isu_iq.sv` | 428 | 一个发射队列（含入队时寄存的完成类位 `slot_cls_q`、2 个 PC-ALU 口（Port 0/2）`src1_is_pc` 过滤、按队列类型裁剪 payload 参数与选择前完成周期掩码 `port_ok`） |
-| `isu_iq_store.sv` | 518 | 按 IQ 类型参数化裁剪的槽存储与次态（裁剪无用 `dest/src2/src3/ftq/stq/ldq/csr/atomic/func7/alu_fl/fp_fl` 与按队列截断 `imm` 位宽：INT 32b / BR 21b / FP 17b / MEM 12b / STD 0b，共省 ~13K FFs） |
-| `isu_iq_select.sv` | 65 | 每口的选择 |
-| `isu_alloc_chain.sv` | 57 | 入队分配（也用于延迟唤醒槽分配） |
-| `isu_age_matrix.sv` | 35 | 内存队列的年龄矩阵 |
-| `isu_wake_src/mul/iter/compact/bus.sv` | 140/90/92/45/27 | 唤醒 |
-| `isu_wb_gate.sv`、`isu_fp_gate.sv` | 64、105 | 完成周期预留、FP 写口限制 |
+| `isu_pkg.sv` | — | 队列、口（`IQ_AGU_PORT_BASE` 等）、能力表；uop 结构；完成类与偏移；`cls_blockable`（含 DIV/FDIV 可阻塞类）与 `cls_wb_blockable`（单 `wb_gate` 测验用） |
+| `isu.sv` | — | 顶层：端口适配、`div_busy_q` / `fdiv_cnt_q` 跟踪及误预测杀死、门控 `cls_free` 传入 `isu_iq` |
+| `isu_iq.sv` | — | 一个发射队列（含入队寄存的完成类位 `slot_cls_q`、Port 0/2 `src1_is_pc` 过滤、`port_ok`；不再有 `SH_*` 与 `fu_ready` 反压） |
+| `isu_iq_store.sv` | — | 按 IQ 类型参数化裁剪的槽存储与次态 |
+| `isu_iq_select.sv` | — | 每口的选择（MEM 5 口直接由 load/STA 候选归约与共享优先复用） |
+| `isu_alloc_chain.sv` | — | 入队分配 |
+| `isu_age_matrix.sv` | — | 内存队列年龄矩阵 |
+| `isu_wake_src/mul/iter/compact/bus.sv` | — | 唤醒网络 |
+| `isu_wb_gate.sv`、`isu_fp_gate.sv` | — | 完成周期预留、FP 写口限制 |
 
-状态：每个队列每槽一组 `valid_q`、`uop_q`（`isu_uop_t`，29 个字段）、`wait1_q/wait2_q/wait3_q`；MUL 唤醒管线（深度 `MUL_MAX_LATENCY - 1 = 2`）；DIV / FP 倒计时槽（FP 24 槽）；年龄矩阵 `m_q[64][64]`（只有内存队列）；`isu_wb_gate` 每个口一个 `port_max_off(p) - 1` 位的移位忙表（现行配置：口 0、2、18、19 各 2 位，口 1、3 各 32 位，口 20 23 位，其余口 0 位，共 95 位；main 原来是 21 × 64 位的环加 6 位拍号）；`isu_fp_gate` 的计数环。
+状态：各队列 `valid_q / uop_q / wait*_q`；MUL 唤醒管线；DIV/FP 倒计时；内存队列年龄矩阵；`isu_wb_gate` 移位忙表；`isu_fp_gate` 计数环；以及 `isu.sv` 内的迭代单元占用寄存器：`div_busy_q`（+ `rob_idx/flag`，由 `grant[1]` 置 1、`exe2iss_div_wb_next` 清 0）与 `fdiv_cnt_q`（5 位，+ `rob_idx/flag`，由 `grant[18]` 载入操作延迟、每拍减 1）。
 
 ## 5. 一拍内的数据流
 
 ### 5.1 选择与发射（只读寄存器）
 
-1. `slot_ready = valid & !wait1 & !wait2 & !wait3`（取消的唤醒 `cancel_v` 先让槽重新变成"在等"）。
-2. 每口 p 的候选 = `slot_ready & 能力匹配(p) & port_ok(p) & ~已被前面且能力重叠的口选走的槽`。`port_ok(p)[i]`（EXP-046）：槽 i 的 uop 在口 p 上的完成周期还空着。只看口 p 上"会被占"的完成类（`cls_blockable`：口上存在偏移更长的类；一个口按拍发射，完成周期只能被更早发射、偏移更长的 uop 占住，所以每个口偏移最长的类、单类口的所有类永远空着，编译期恒 1）；槽的类在入队时算好（`cls_hit`），只存本队列各口上会被占的那几类（`QBLK`：INT 队列、FP 队列各几位，内存 / STD / BR 队列没有），选择时 `blocked = slot_cls_q[i][类] & ~cls_free[p][类]`，两边都是寄存器；第一版每拍从 `uop_q.op` 解码，深度多 5 层。被挡的槽不进候选，下一个就绪槽拿到这个口（原来是选中后再被闸拒绝，这个口这拍空着）。只有"能力重叠"的口之间才串联（load 口和 STA 口互相独立，同类口成一条链）。
-3. 取法：普通口取候选里最低的槽（`ttg_first_set`）；内存队列里"每种能力的第一个口"（`first_of_cap`）取最老的候选，即没有更老候选的那个槽（用年龄矩阵 `older[i][j]`）。
-4. `cand_valid[p] = 有选中 & !issue_block & (fu_ready[p] 含该 uop 的操作类)`；`grant_valid[p] = cand_valid & gate_ok[p]`，共享 AGU 的 STA 口还要求对应 load 口这拍没有发。
-5. 选中的槽即使没被授予（FU 忙、被闸挡住）也算被占用，下游口不再选它。
-
-闸（`isu.sv`）：完成周期由选择保证（`isu_wb_gate` 的 `port_ok` 只给单元测试用）；`fp_ok`（FP 写口数没超 `FP_WB_PORTS`，只对会写 FP 寄存器的候选）、共享 AGU（合并配置下由内存队列自己处理）。授予后按完成类预留：忙表 `busy_q[k]` 表示"距今 k 拍"的完成周期已被占，每拍整体下移一位，偏移为 o 的授予在下一拍置位 `o - 1`；flush 清空。行为与模型的 64 项环（`WbBusy`）相同。
+1. `slot_ready = valid & !wait1 & !wait2 & !wait3`。
+2. `isu.sv` 把 `isu_wb_gate` 的 `cls_free` 同本地 `div_busy_q`（口 1 阻塞 `CLS_DIV`）、`exe2iss_div_wb_next`（口 1 阻塞 `CLS_ALU`）与 `fdiv_cnt_q != 0`（口 18 阻塞 `CLS_FDIV*`）组合成 `iss_cls_free`；`isu_iq` 内由 `port_ok[p][i]` 直接屏蔽会碰撞写回或忙碌的槽。
+3. 取法：普通口取候选最低槽；内存队列中 load 挑最老 + 其余最低槽占用口 0..3（物理 AGU 0..3），STA 挑最老 + 其余最低槽按 `4, 3, 2` 顺序填入未被 load 占用的口。
+4. `cand_valid[p] = 有选中 & !issue_block`、`grant_valid[p] = cand_valid & fp_ok[p]`（不再有 `fu_ready` 过滤，被闸拒绝时本拍不发射）。
+5. 授予后按完成类预留写回周期与 FP 写口，并于时钟沿更新 `div_busy_q` 与 `fdiv_cnt_q`。
 
 ### 5.2 唤醒
 
@@ -174,6 +170,7 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 
 ## 8. 验证
 
+- **最新整核门禁（2026-11-28，`rtl/exu-clean`，EXP-072）**：`lint_chip` & `lint_soc` 0 告警；`SOC_FM=1 SOC_SVA=1 SOC_ASSERT=1` `fm_gate` 77/77、`riscv-tests` 152/152、`soc_gate --linux` 12/12 全通；Linux 26/26 窗对齐；SPEC06 INT 386/386 `geomean +0.144%`（`ISS_REF_AGU` 由 `130,716.5` 降至 `0`）。
 - **EXP-046（`exp/wb-presel`）**：`tests/wb_gate`（`run.sh <工作目录>`）：`wrap.sv` 把忙表和 `isu_pkg` 的类表（偏移、每口服务的类）一起导出，`check.py` 随机 3 万拍对照模型的 `WbBusy`，同时检查 `port_ok` 和每口每类的 `cls_free`：0 不一致；植入错误（类 0 的 `cls_free` 恒 1）后 24140 拍不一致。原来的测试驱动的是已删除的 `off` 输入，在 main 上编译不过，这次一并改写。整核：`fm_gate` 67/67 逐条对函数模型无不一致，周期对模型（trace-model `exp/wb-port` `60aa7e8` 的 `CFG_WB_PRESEL=1`，合入版里这是唯一行为，RVC=1 构建，程序用 `build_tests.sh` 的 rv64ima 版）67/67 相等（合入 `exp/llc-plru` 后的集成分支，参考周期 `scripts/ref_cycles.txt` 用 `LSU_PIPE_NOWD=1` 生成；早先记录的"crc32 RTL 2196 / 模型 2199"是生成参考时没关模型的 LDQ / STQ 看门狗造成的误判，`tm_cycles.sh` 现在默认关掉它）。
 
 - **门禁**：`scripts/fm_gate.sh` 67 个程序，每条提交对比函数模型，周期对 `scripts/ref_cycles_memiq6_nr_int2_ev5.txt`（模型同配置生成）：67/67 通过，周期逐个相等。
@@ -185,6 +182,8 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 `IQ_INT_SIZE`、`IQ_INT_ENQ_WIDTH`、`IQ_MEM_SIZE`、`IQ_MEM_ENQ_WIDTH`、`LSU_AGU_SHARED`、`IQ_STD_*`、`IQ_BR_*`、`FP_IQ_*`、`FP_WB_PORTS`（`isu_pkg`，EXP-032）；`LP_L2[3]`（LSU 推测唤醒）。`ttg_cfg_pkg.sv` 目前是手工编辑的，与 `make cfg` 生成的不同步（待统一，见 docs/TODO.md）。
 
 ## 10. 变更记录
+
+- 2026-11-28（`rtl/exu-clean`，EXP-072）：去除 `exe2iss_fu_ready_mask` 输入，在 `isu.sv` 内增加确定性 `div_busy_q`（port 1，`exe2iss_div_wb_next` 前 1 拍让路 ALU 写回）与 `fdiv_cnt_q` 占槽；`isu_iq_select.sv` 将逻辑 7 槽合并负载在选口侧直接复用至 `NP = LSU_AGU_COUNT = 5` 物理 AGU 口（`ISSUE_WIDTH = 19`）。Tier 1（`Yosys+PT`，`0.50 ns`）实测：**总面积 `526,654.30 → 512,886.19 µm²`（−2.61%）**、**`Seq 29,106 → 28,331`（−775 FF）**、`WNS_r2r −0.38 → −0.39 ns`（`TNS_r2r −5,794.05 → −5,647.62` 改善）、总 `WNS −0.48 ns`（`in->out` `lsu2iss_cancel_preg[18] -> iss2prf_uop[1312]`）。
 
 - 2026-11-25（`isu_pkg`/`isu_fp_gate` FDIV/FSQRT 写口预留晚 1 拍修复）：迭代式 FP 单元（类 4..7 `FDIV`/`FSQRT`）实际写回周期为 `wb_cls_off(c) = lat + 1`，但 `fp_cls_lat(4..7)`（及模型 `Isu.cpp` `fp_wb_busy_.try_reserve(lat)`）此前误用 `lat`（早 1 拍），导致 `fdiv.d` 与 2 条流水线 FP 指令在真实写回拍冲突并触发 `[FPWB] 3 FP-unit register writes in one cycle` 丢弃 `fdiv.d` 结果（由 SPEC06 RTL `403.gcc/sp27` 检出）。同步修复 `isu_pkg.sv` `fp_cls_lat` 返回 `wb_cls_off(c)`、`isu_fp_gate.sv` `DEPTH = FP_FSQRT_D_LAT + 1` 以及模型 `Isu.cpp` 改传 `off`。
 - 2026-11-25（`isu_fp_gate` 跨类同延迟写回冲突修复）：2026-11-21 `g_fast_p2` 按类预结合 `cls_ok` 时 `hit_c[j]` 仅匹配同类 `cand_cls_1h[j][c]`，漏算了不同类但同延迟的跨类冲突（类 9 `FMISC` 与类 10 `I2F` 均为 2 拍），导致 2×`I2F` + 1×`FMISC` 同拍发射时放行第 3 路写回、`prf.sv` `[FPWB]` 丢弃第 3 路结果（由官方 `riscv-tests` `rv64uf-move`/`rv64ud-move` 检出）。修复为 `hit_c[j]` 匹配所有满足 `fp_cls_lat(c2) == fp_cls_lat(c)` 的前序口，不增加关键路径级数。

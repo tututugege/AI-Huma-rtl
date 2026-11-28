@@ -22,7 +22,7 @@ module rob
   input  logic [XLEN_BITS-1:0]      ftq_rob_pc_resp_resp_pc [1],
   input  logic [DECODE_WIDTH-1:0]   dis2rob_dis_fire,
   input  dis_rob_uop_t              dis2rob_uop [DECODE_WIDTH],
-  input  xc_rob_wb_t                exu2rob     [ISSUE_WIDTH],
+  input  xc_rob_wb_t                exu2rob     [ROB_WB_WIDTH],
   input  logic                      csr2rob_fs_off,
   output logic                      rob2dis_stall,
   output logic                      rob2dis_empty,
@@ -81,7 +81,7 @@ module rob
   rob_entry_t               dis_uop      [ROB_BANK_NUM];
   logic [ROB_IDX_WIDTH-1:0] dis_rob_idx  [ROB_BANK_NUM];
   logic [XLEN_BITS-1:0]     dis_trap_val [ROB_BANK_NUM];
-  rob_wb_t                  wb           [ISSUE_WIDTH];
+  rob_wb_t                  wb           [ROB_WB_WIDTH];
 
   for (genvar b = 0; b < ROB_BANK_NUM; b++) begin : g_dispatch
     assign dis_rob_idx[b]  = dis2rob_uop[b].rob_idx;
@@ -113,7 +113,7 @@ module rob
     };
   end
 
-  for (genvar p = 0; p < ISSUE_WIDTH; p++) begin : g_writeback
+  for (genvar p = 0; p < ROB_WB_WIDTH; p++) begin : g_writeback
     assign wb[p] = '{
       valid:      exu2rob[p].valid,
       result:     exu2rob[p].result,

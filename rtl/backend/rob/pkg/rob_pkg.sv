@@ -139,16 +139,16 @@ package rob_pkg;
     return e.pend_mask == '0;
   endfunction
 
-  // ---- write-back port -> completion group (rob_cplt_mask_from_issue_port, util.h) ----
+  // ---- write-back channel -> completion group (rob_cplt_mask_from_issue_port, util.h) ----
   function automatic logic [CPLT_W-1:0] rob_port_cplt_bit(input int port);
     logic [CPLT_W-1:0] bit_g;
     bit_g = '0;
-    if (port >= IQ_ALU_PORT_BASE && port < IQ_ALU_PORT_BASE + ALU_NUM) bit_g = CPLT_G0;
-    if (port >= IQ_LD_PORT_BASE && port < IQ_LD_PORT_BASE + LSU_LOAD_WB_WIDTH) bit_g = CPLT_G0;
-    if (port >= IQ_BR_PORT_BASE && port < IQ_BR_PORT_BASE + BRU_NUM) bit_g = CPLT_G1;
-    if (port >= IQ_STA_PORT_BASE && port < IQ_STA_PORT_BASE + LSU_STA_COUNT) bit_g = CPLT_G1;
-    if (port >= IQ_STD_PORT_BASE && port < IQ_STD_PORT_BASE + LSU_SDU_COUNT) bit_g = CPLT_G2;
-    if (FPRF_NUM != 0 && port >= IQ_FP_PORT_BASE) bit_g = CPLT_G0;   // F/D ports complete in group 0 like INT / LD
+    if (port >= ROB_WB_ALU_BASE && port < ROB_WB_ALU_BASE + ALU_NUM)           bit_g = CPLT_G0;
+    if (port >= ROB_WB_LD_BASE  && port < ROB_WB_LD_BASE  + LSU_LOAD_WB_WIDTH) bit_g = CPLT_G0;
+    if (port >= ROB_WB_STA_BASE && port < ROB_WB_STA_BASE + LSU_STA_COUNT)     bit_g = CPLT_G1;
+    if (port >= ROB_WB_STD_BASE && port < ROB_WB_STD_BASE + LSU_SDU_COUNT)     bit_g = CPLT_G2;
+    if (port >= ROB_WB_BR_BASE  && port < ROB_WB_BR_BASE  + BRU_NUM)           bit_g = CPLT_G1;
+    if (FPRF_NUM != 0 && port >= ROB_WB_FP_BASE)                               bit_g = CPLT_G0;   // F/D ports complete in group 0 like INT / LD
     return bit_g;
   endfunction
 

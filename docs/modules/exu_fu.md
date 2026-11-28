@@ -27,87 +27,84 @@ CSR 单元（模型 `FuKind::CSR`）没有运算也没有 FU 侧状态：CSR 指
 
 ## 2. 配置（`ttg_cfg_pkg` / `exu_fu_pkg` / `exu_ctrl_pkg`，现行默认）
 
-`back_top/exu.sv` 实例化的 FU 共 30 个（加上没有硬件的 CSR 单元，对应 `exu_ctrl` 的 31 个 FU 实例）：
+`back_top/exu.sv` 实例化的 FU 共 27 个（加上没有硬件的 CSR 单元，对应 `exu_ctrl` 的 28 个 FU 实例）：
 
 | FU | 实例数（常量） | bank 模块 → 叶子 | 模式和延迟 | 所在口 |
 | --- | --- | --- | --- | --- |
 | ALU | 6（`ALU_NUM`） | `alu_bank` → `alu` | 单周期 | 0..5 |
-| BRU | 2（`BRU_NUM`） | `bru_bank` → `bru` | 单周期 | 16、17 |
-| AGU | 7（`LSU_AGU_COUNT`；4 个 load 口的、3 个 STA 口的） | `agu_bank` → `agu` | 单周期 | 6..9、10..12 |
-| SDU | 3（`LSU_SDU_COUNT`） | `sdu_bank` → `sdu` | 单周期 | 13..15 |
+| BRU | 2（`BRU_NUM`） | `bru_bank` → `bru` | 单周期 | 14、15 |
+| AGU | 5（`LSU_AGU_COUNT`；2 仅 load、2 共享、1 仅 STA） | `agu_bank` → `agu` | 单周期 | 6..10 |
+| SDU | 3（`LSU_SDU_COUNT`） | `sdu_bank` → `sdu` | 单周期 | 11..13 |
 | MUL | 2（`exu_fu_pkg::MUL_NUM`） | `mul_bank` → `mul_unit`（`mul_core` + `mul_pipe`） | 流水线，3 拍 | 0、2 |
 | DIV | 1（`exu_fu_pkg::DIV_NUM`） | `div_bank` → `div_unit`（`exu_iter_ctl` + `div_core`） | 迭代，变延迟 2..17 拍（Radix-16 Early-out） | 1 |
-| FMA、FMISC、I2F | 2、3、2 | `fp_pipe_unit`（`mul_pipe` + `fp_core`） | 流水线，3、2、2 拍 | 18、19；18、19、20；2、3 |
-| FDIV | 1 | `fp_div_unit`（`exu_iter_ctl` + `fp_core`） | 迭代，按操作 11 / 13 / 19 / 23 拍 | 20 |
+| FMA、FMISC、I2F | 2、3、2 | `fp_pipe_unit`（`mul_pipe` + `fp_core`） | 流水线，3、2、2 拍 | 16、17；16、17、18；2、3 |
+| FDIV | 1 | `fp_div_unit`（`exu_iter_ctl` + `fp_core`） | 迭代，按操作 11 / 13 / 19 / 23 拍 | 18 |
 
-AGU 的 7 个实例是 7 个独立的加法器：共用 AGU 的两对口（load 口 8、9 与 STA 口 11、12）在本模块里没有合并，共用只体现在 ISU（同拍只发一条）、PRF（STA 口借用 load 口的 src1 读口）、DTLB（按物理 AGU `LSU_AGU_PHYS = 5` 配口）。`MUL_NUM`、`DIV_NUM` 是 `exu_fu_pkg` 里手写的常量（`ttg_cfg_pkg` 不导出），`exu_ctrl_pkg::N_MC = 4`、`N_FPU = 8` 也是手写的；`exu_ctrl.sv` 的 `g_cfg_check` 检查个数是否对得上。`ttg_cfg_pkg.sv` 目前是手工编辑的，与 `make cfg` 生成的不同步（待统一，见 docs/TODO.md）。
+5 个 AGU 即 5 个物理 AGU（统一覆盖 load 6..7、共享 8..9、STA 10）；`MUL_NUM = 2`、`DIV_NUM = 1` 是 `exu_fu_pkg` 常量，`exu_ctrl_pkg::N_MC = 3`、`N_FPU = 8`；`ttg_cfg_pkg.sv` 由 `make cfg` 同步生成。
 
 其他：`XLEN_BITS = 64`；浮点寄存器宽度 `FLEN = 64`（`fp_pkg`，`FW`）；MUL 内部 `W = XLEN`，操作数带符号位共 `AW = XLEN + 1` 位，乘积 `2 * XLEN` 位。
 
 ## 3. 接口
 
-每个 bank 的端口是"每个实例一份"的平铺数组（`en [N]`、`result [N]` 等）。信号含义：
+每个 bank 的端口是"每个实例一份"的平铺数组（`result [N]` 等）；所有 FU 均已删除 `ready` 和 `consume` 握手，单周期 FU 同时删除 `en`、`complete` 与 `clk`/`rst_n`。信号含义：
 
-| FU | 入（除 `en`、`consume`） | 出 |
+| FU | 入 | 出 |
 | --- | --- | --- |
-| ALU | `op`、`func3`、`func7`、`src1_is_pc`、`src2_is_imm`、`is_word`、`pc`、`imm`、`src1_rdata`、`src2_rdata` | `result`（`complete`、`ready` 见下） |
+| ALU | `op`、`func3`、`func7`、`src1_is_pc`、`src2_is_imm`、`is_word`、`pc`、`imm`、`src1_rdata`、`src2_rdata` | `result` |
 | BRU | `op`、`func3`、`src1_en`、`src1_rdata`、`src2_rdata`、`pc`、`imm`、`ftq_pred_taken`、`ftq_is_rvc`、`ftq_next_pc` | `br_taken`、`mispred`、`diag_val`（跳转目标或下一条顺序 pc） |
 | AGU | `src1_rdata`、`imm` | `result` = `src1 + 符号扩展的 imm`，`XLEN` 位 |
 | SDU | `is_atomic`、`amo_op`（`func7[6:2]`）、`amo_w`、`src1_rdata`、`src2_rdata` | `result`：普通 store 取 `src2`，AMO 按 `amo_op` 把 `src1`（旧值）和 `src2` 合并 |
-| MUL、DIV | `flush`、`flush_mask`、`clear_mask`、`func3[1:0]`、`is_word`、`src1_rdata`、`src2_rdata`、`rob_idx`、`dest_preg`、`dest_en`、`br_mask` | `complete`、`ready`、`result`、`done_rob_idx`、`done_dest_preg`、`done_dest_en`、`done_br_mask` |
+| MUL、DIV | `en`、`flush_all`、`flush_br`、`flush_rob_idx/flag`、`func3[1:0]`、`is_word`、`src1_rdata`、`src2_rdata`、`rob_idx`、`dest_preg`、`dest_en` | `complete`、`result`、`done_rob_idx`、`done_dest_preg`、`done_dest_en`、`done_rob_flag`（DIV 另输出 `div_wb_next`） |
 | 浮点 | 同上再加 `func7`（FDIV）、`imm`、`src1_rdata`（整数源）、`fsrc1..3`、`frm` | 同上，`result` 换成 64 位 `fresult`，再加 `fflags`、`illegal` |
 
-握手约定（`exu_ctrl` 与 FU 的合同）：单周期 FU 的 `complete = en`、`ready = !en || consume`（`exu_fu_sc_ctl`，对应模型单周期 FU 的行为）；但 `exu_ctrl` 自己按这个规则推 `complete` / `ready`，不读 FU 的这两个输出，`exu.sv` 把 `consume` 接 0、`complete` / `ready` 悬空到具名线（所以 `exu_fu_sc_ctl` 在整核里是死逻辑，只被时钟采样断言用：ALU 和 BRU 的 `complete == en`）。多周期 FU 的 `complete`、`ready` 是真输入。`op`、`pc` 等不由 FU 回传，`exu_ctrl` 从槽里取；MUL / DIV / 浮点因为指令在 FU 里停留若干拍，要自己带回 `rob_idx`、`dest_preg`、`dest_en`、`br_mask`。
+握手约定（`exu_ctrl` 与 FU 的合同）：ISU 已在发射前预约好功能单元互斥与写回周期，因此 FU 绝不会被反压；单周期 FU 的 `complete` 即 `exu_ctrl_slot` 的 `fu_en`；多周期 FU 只需按时输出 `complete` 并由 `mul_unit`/`exu_iter_ctl` 仿真断言无重入/无冲突即可。
 
 ## 4. 结构
 
 ```
- exu_ctrl ─ exu2fu_* ─► alu_bank / bru_bank / agu_bank / sdu_bank          （纯组合，各 N 个叶子）
-                    ─► mul_bank → mul_unit = mul_core（乘法，3 拍展开）+ mul_pipe（在飞指令队列）
-                    ─► div_bank → div_unit = exu_iter_ctl（忙 / 倒计时 / 杀死）+ div_core（恢复除法）+ 载荷寄存
+ exu_ctrl ─ exu2fu_* ─► alu_bank / bru_bank / agu_bank / sdu_bank          （纯组合，无握手，各 N 个叶子）
+                    ─► mul_bank → mul_unit = mul_core（乘法，3 拍展开）+ mul_pipe（STAGES=DEPTH-1 移位链）
+                    ─► div_bank → div_unit = exu_iter_ctl（无反压忙/倒计时）+ div_core（恢复除法）+ 载荷寄存
                     ─► fp_pipe_unit = fp_core（运算）+ mul_pipe（FP 载荷）     fp_div_unit = fp_core + exu_iter_ctl + 载荷寄存
 ```
 
 | 文件 | 行数 | 职责 |
 | --- | --- | --- |
-| `exu_fu_pkg.sv` | 95 | uop 类型常量、AMO 编码、`MUL_NUM`、`DIV_NUM`、`alu_ctl_t`（ALU 译码结果）、`fu_uop_t` / `fp_uop_t`（多周期 FU 在飞指令的载荷） |
-| `exu_fu_sc_ctl.sv` | 20 | 单周期握手（见第 3 节，整核里不读） |
-| `alu.sv`、`alu_bank.sv` | 150、43 | 整数 ALU（RV64I、*W、Zba / Zbb / Zbs / Zbc 子集） |
-| `alu_decode.sv` | 140 | 把 `op / func3 / func7 / imm[4:0]` 译成 `alu_ctl_t` 的互斥选择位 |
-| `alu_shift.sv`、`alu_clmul.sv`、`alu_bitcnt.sv` | 29、19、58 | 漏斗移位器、无进位乘法、clz / ctz / cpop / sext / rev8 / orc.b |
-| `bru.sv`、`bru_bank.sv` | 68、45 | 分支：条件、目标、误预测判定 |
-| `agu.sv`、`agu_bank.sv` | 22、33 | 地址加法 |
-| `sdu.sv`、`sdu_bank.sv` | 52、37 | 存储数据 / AMO |
-| `mul_unit.sv`、`mul_bank.sv` | 66、48 | 乘法 FU：乘法器 + 在飞队列 |
-| `mul_core.sv` | 172 | 乘法器，跨 3 拍：仿真用 `a * b`，综合用 Radix-4 Booth（34 行）+ Wallace 树 + Kogge-Stone 加法器 |
-| `mul_pipe.sv` | 147 | 定延迟 FU 的在飞指令队列（MUL 和浮点流水 FU 共用，载荷类型是参数） |
-| `div_unit.sv`、`div_bank.sv`、`div_core.sv`、`div_step.sv` | 77、48、239、26 | 除法 FU、恢复除法（仿真 `div_step` / 综合并行 Radix-4 + Kogge-Stone） |
-| `exu_iter_ctl.sv` | 72 | 迭代 FU 的控制骨架（DIV 和 FDIV 共用） |
-| `fp_pipe_unit.sv`、`fp_div_unit.sv`、`fp_core.sv` | 124、105、58 | 浮点 FU 封装与双路径选择：默认仿真走 `fp_core`（DPI SoftFloat），`SYNTHESIS` 或 `-DFPU_REAL` 走自研可综合核心 |
-| `fp_arith_pkg.sv`、`fp_misc_core.sv`、`fp_i2f_core.sv`、`fp_fcvt_core.sv`、`fp_fma_core.sv`、`fp_div_core.sv` | 75、176、107、239、346、342 | 自研可综合 RV64FD 算术核心：公共原语/5 模舍入器、FMISC、I2F、FCVT、3 拍全流水 FMA、迭代 3b/拍 FDIV/FSQRT |
+| `exu_fu_pkg.sv` | — | uop 类型常量、AMO 编码、`MUL_NUM`、`DIV_NUM`、`alu_ctl_t`、`fu_uop_t` / `fp_uop_t` |
+| `alu.sv`、`alu_bank.sv` | — | 整数 ALU（RV64I、*W、Zba / Zbb / Zbs / Zbc 子集） |
+| `alu_decode.sv` | — | 把 `op / func3 / func7 / imm[4:0]` 译成 `alu_ctl_t` 的互斥选择位 |
+| `alu_shift.sv`、`alu_clmul.sv`、`alu_bitcnt.sv` | — | 漏斗移位器、无进位乘法、clz / ctz / cpop / sext / rev8 / orc.b |
+| `bru.sv`、`bru_bank.sv` | — | 分支：条件、目标、误预测判定 |
+| `agu.sv`、`agu_bank.sv` | — | 地址加法（5 个实例） |
+| `sdu.sv`、`sdu_bank.sv` | — | 存储数据 / AMO |
+| `mul_unit.sv`、`mul_bank.sv` | — | 乘法 FU：乘法器 + 移位寄存器 |
+| `mul_core.sv` | — | 乘法器，跨 3 拍 |
+| `mul_pipe.sv` | — | 固定延迟无反压的 `STAGES = DEPTH - 1` 拍移位寄存器（MUL 和浮点流水 FU 共用） |
+| `div_unit.sv`、`div_bank.sv`、`div_core.sv`、`div_step.sv` | — | 除法 FU、恢复除法 |
+| `exu_iter_ctl.sv` | — | 无反压迭代 FU 的控制骨架（DIV 和 FDIV 共用，仿真断言 `!(en && live)`） |
+| `fp_pipe_unit.sv`、`fp_div_unit.sv`、`fp_core.sv` | — | 浮点 FU 封装与双路径选择：默认仿真走 `fp_core`（DPI SoftFloat），`SYNTHESIS` 或 `-DFPU_REAL` 走自研可综合核心 |
+| `fp_arith_pkg.sv`、`fp_misc_core.sv`、`fp_i2f_core.sv`、`fp_fcvt_core.sv`、`fp_fma_core.sv`、`fp_div_core.sv` | — | 自研可综合 RV64FD 算术核心 |
 
 几个非平凡的块：
 
-- **`alu`**：一个共享加减法器（add、sub、sh1 / 2 / 3add：先把操作数 1 左移 0..3 位再加）、有符号和无符号比较器（slt / sltu 与 min / max 家族共用）、位逻辑单元（操作数 B 可取反或取 `1 << shamt`，and / or / xor 的各变种都落在这里）、`alu_shift`（右移 `{填充, x}`，左移和旋转走位反转）、`alu_clmul`、`alu_bitcnt`，最后 9 路独热选择。rv64 的 *W 指令由译码给 `w_*` 位：操作数预处理（零 / 符号扩展、旋转用 `{a, a}`）和结果符号扩展。选不到任何单元时结果为 0。
-- **`mul_core`**：操作数在接受拍（t）按 `func3` 做符号 / 零扩展后寄存；t+1 拍把 `AW × AW` 的乘积算成"和 + 进位"两个向量寄存；t+2 拍做进位传播加法并按 mul / mulh / mulhsu / mulhu / mulw 选半。结果只在 t+2 这一拍有效，所以必须在完成那拍被取走：`mul_pipe` 恰好在这一拍报完成，ISU 的完成周期预留（`isu_wb_gate`）保证口空着，`mul_unit` 在仿真里用 `$error` 检查"完成了没被取走"。`STRUCT` 参数：综合（定义 `SYNTHESIS`）时 1，用显式 Wallace 树；仿真时 0，用 `a * b`；`scripts/mul_check.sh` 对比两者和一个 C++ 参考。
-- **`mul_pipe`**：深度 `DEPTH` 的按序队列，新指令放最后，最老的先完成。每拍：杀死（flush 且全 1 掩码，或与 `br_mask` 相交）、清分支位、接收（在弹出之前判满）、完成（最老的存活项倒计时 `rem == 0`）、弹出。新项接收后下一拍 `rem = DEPTH - 2`，每拍减 1，减到 0 保持（完成后没被取走就一直"已完成"）。`DEPTH >= 2`（仿真断言）。
-- **`exu_iter_ctl` + `div_core`**：`busy`、倒计时 `cnt`（接收时装 `延迟 - 1`，减到 0 为完成）、`br_mask`；接收在取走之前判忙。`div_core` 每拍做 `XLEN / LAT = 2` 步恢复除法（`div_step` 串 2 级），接收拍就做第一拍的 2 步，共 `LAT` 拍；*W 除法把被除数放在高半，只做 `XLEN / 2` 步，所以 `lat_m1 = LAT / 2 - 1`。有符号运算取绝对值，商在符号不同且除数非 0 时取负，余数取被除数的符号；除数为 0 时商全 1、余数等于被除数，`INT_MIN / -1` 自然得到 `INT_MIN` 和 0。
-
-状态：MUL：`mul_core` 的操作数寄存器（`a_q`、`b_q` 各 65 位）、"和 / 进位"寄存器（各 128 位）、`func3`、`is_word` 的两级寄存，`mul_pipe` 的 3 项 `valid_q / uop_q / rem_q`；DIV：`div_core` 的 `rem_q`、`qd_q`、`dvs_q`（各 64 位）和符号 / 类型标志，`exu_iter_ctl` 的 `busy_q`、`cnt_q`（5 位）、`br_mask_q`（32 位），载荷 `rob_idx`、`dest_preg`、`dest_en`；浮点流水 FU 是 `mul_pipe`（载荷 `fp_uop_t`：64 位结果、5 位 `fflags`、`illegal`、`rob_idx`、`dest_preg`、`dest_en`、`br_mask`）；FDIV 是 `exu_iter_ctl` 加结果和载荷寄存。单周期 FU 没有状态。
+- **`alu`**：同前，移除了 `en`/`consume`/`complete`/`ready`。
+- **`mul_core`**：同前，共 3 拍；`mul_pipe`（`STAGES = DEPTH - 1`）精确在完成拍报 `complete`。
+- **`mul_pipe`**：`STAGES = DEPTH - 1` 级无停顿移位链，`s = 0` 在 `en` 有效时压入，每拍向 `STAGES - 1` 移动并在沿上应用 Flush/误预测杀死，`complete` 取末级输出（当 `DEPTH=2` 时仅 1 级；`DEPTH >= 2`）。
+- **`exu_iter_ctl` + `div_core`**：收到 `en` 即装载 `busy_q=1`、`cnt_q = lat_m1`，每拍递减，`cnt_q == 0` 报 `complete` 且下拍自然释放（无需 `consume`），`wb_next = busy_q && (cnt_q == 1)`（即 `div_wb_next`）。仿真下 `$error` 检查 `!(en && live)` 保证不重入。
 
 ## 5. 一拍内的数据流
 
 ### 5.1 单周期 FU
 
-输入来自 `exu_ctrl` 的槽，纯组合出结果。BRU：条件（`func3` 选 `==`、`!=`、有符号 `<` / `>=`、无符号 `<` / `>=`；`func3` 为 2 / 3 不是分支编码，条件取 1）；目标 = JALR（`src1_en`）为 `(src1 + imm)` 清最低位，其余为 `pc + imm`；`br_taken = JUMP || (BR && 条件)`；`diag_val = br_taken ? 目标 : pc + (RVC ? 2 : 4)`；`mispred = br_taken ? !(预测跳 && ftq_next_pc == 目标) : 预测跳`。这与模型 `resolve_branch` 的判据等价。
+输入来自 `exu_ctrl` 的口寄存器，纯组合出结果。BRU / AGU / ALU / SDU 均无内部寄存器状态。
 
 ### 5.2 MUL（每拍一条进、一条出）
 
-t：槽里的操作数进 `mul_core` 的寄存器，同时 `mul_pipe` 接收（载荷 `rob_idx`、`dest_preg`、`dest_en`、`br_mask`，不含结果）；t+1：`rem = 1`；t+2：`rem = 0`，`complete = 1`，结果来自 `mul_core` 的组合输出（t 拍的操作数）。`complete` 那拍如果 `exu_ctrl` 不取走，结果丢失（见第 4 节）。
+t：操作数进 `mul_core`、载荷进 `mul_pipe[0]`；t+2（或 `t + DEPTH - 1`）：末级有效即 `complete = 1`。
 
 ### 5.3 DIV 和 FDIV
 
-接收（`en` 且不忙）那拍载荷入寄存器，DIV 同时开始迭代；之后每拍 `cnt` 减 1，DIV 每拍迭代 2 步；`cnt == 0` 为完成，完成后保持直到被取走；取走那拍同时不接新指令（接收在取走之前判忙，`ready` 在两者之后求）。FDIV 的结果在接收拍就由 `fp_core` 算好并存下来，只是倒计时按操作的延迟走。
+接收（`en` 且不忙）那拍载荷与操作数入寄存器，之后每拍 `cnt_q` 减 1；`cnt_q == 1` 时口 1 DIV 输出 `div_wb_next = 1`；`cnt_q == 0` 时报 `complete = 1` 并自动清空 `busy_q`，下拍起接收后续请求（ISU 由本地 `div_busy_q` / `fdiv_cnt_q` 与 `div_wb_next` 保证无重入）。
 
 ### 5.4 杀死和清分支位
 
@@ -148,7 +145,7 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 配置相关的有意取舍：
 
 - **`fp_core` 综合时是占位**：仿真时通过 DPI 调 Berkeley softfloat（`tb/fp_dpi/fp_dpi.cpp`），与函数模型逐位一致（`tests/fp_dpi`）；综合时（`SYNTHESIS`）结果恒为 0、`fflags` 恒为 0、`illegal` 恒为 0，等可综合的浮点数据通路（代码里称 S7，未做）。所以任何含浮点 FU 的综合深度和面积都不含真正的浮点运算；
-- **AGU 7 个实例各自一个加法器**：共用 AGU 的两对口没有合并成同一个加法器；
+- **AGU 5 个物理实例各服务对应端口**（共享口 4 在 `isu_iq_select` 选口并由 `exu_ctrl_lsu_req` 复用 `agu_bank[4]`）；
 - `exu_fu_pkg.sv` 的注释里引用的 `config.h:371-398` 行号和 `alu_decode.sv` 头注释里的 `docs/modules/exu_int.md` 都是过时引用；`alu_decode.sv` 说"ALU 口见不到 UOP_JUMP，所以模型里 JUMP 时 `operand2 = 4` 的分支不翻译"，该模型分支现在已不存在（Fu.h 里没有运算）。
 
 未核对（继承自旧文档）：
@@ -158,6 +155,7 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 
 ## 8. 验证
 
+- **最新整核门禁（2026-11-28，`rtl/exu-clean`，EXP-072）**：`lint_chip` & `lint_soc` 0 告警；`SOC_FM=1 SOC_SVA=1 SOC_ASSERT=1` `fm_gate` 77/77、`riscv-tests` 152/152、`soc_gate --linux` 12/12 全通；Linux 26/26 窗对齐。
 - **门禁**：`scripts/fm_gate.sh` 67 个程序，每条提交对比函数模型，周期对 `scripts/ref_cycles_memiq6_nr_int2_ev5.txt`。名字对得上 FU 的程序：`bitmanip-boundary`、`bit`、`shift`（ALU 位操作）、`mul-longlong`、`div`、`atomic-boundary`（SDU 的 AMO）、`csr-alias-boundary`、`fd-basic`、`fd-fcvt`、`fd-fdiv`、`fd-fsqrt`、`fd-matmul`（浮点 FU）；没有逐个核对每个程序实际覆盖了哪些操作。
 - **乘法器**：`scripts/mul_check.sh`（`tb/mul/mul_check_top.sv`、`tb/mul/mul_check.cpp`）：随机和角点操作数，对比 `STRUCT = 1`（Wallace 树）、`STRUCT = 0`（`a * b`）和 C++ 参考，逐拍比较（t 拍操作数对应 t+2 拍结果）；提交 `48d547e` 记录 400 万个乘积相等。
 - **浮点**：`tests/fp_dpi`（DPI 运算对函数模型的差分测试）、`tests/fp_chain`（`rv64imafd` 小程序在 RTL 上逐提交检查）。
@@ -169,6 +167,8 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 `ALU_NUM`、`BRU_NUM`、`LSU_AGU_COUNT`、`LSU_SDU_COUNT`、`MUL_MAX_LATENCY`、`DIV_MAX_LATENCY`、`FP_FMA_LAT`、`FP_MISC_LAT`、`FP_I2F_LAT`、`FP_FDIV_S_LAT`、`FP_FSQRT_S_LAT`、`FP_FDIV_D_LAT`、`FP_FSQRT_D_LAT`、`FPRF_NUM`（`ttg_cfg_pkg`）；`MUL_NUM`、`DIV_NUM`（`exu_fu_pkg`）；`mul_core` 的 `STRUCT`（由 `SYNTHESIS` 决定，`mul_pipe` 的 `DEPTH`、`UOP_T`、`div_core` 的 `LAT` 是实例化参数）；`SYNTHESIS`（`fp_core` 和 `mul_core` 的两套实现）。
 
 ## 10. 变更记录
+
+- 2026-11-28（`rtl/exu-clean`，EXP-072）：非阻塞 EXU 与真 5 物理 AGU 重构——删除 `exu_fu_sc_ctl.sv` 及全部单周期/流水线 FU 单元与 bank 上的 `ready_o`/`consume_i`/`busy_o` 握手端口；`mul_pipe` 精简为无条件固定 3 拍推进；`exu_iter_ctl` 删除 `busy_o` 保留 `div_wb_next`；`agu_bank` 按真 5 物理口（`LSU_AGU_COUNT=5`）直连。TSMC 28nm HPC+ `exu` 实测：`WNS = −0.41 ns`（与基线相同，仍为 `u_fma` 路径），**`TNS −1,230.70 → −1,008.16`（−18.1%）**、**`Seq 8,704 → 6,755`（−1,949 FF / −22.4%）**、**总面积 `217,730.69 → 207,202.80 µm²`（−4.84%）**。
 
 - 2026-11-18（exp/agu-share，`261bd67..HEAD`）：`48d547e` 乘法器摊在 3 拍延迟上（见第 6 节表），新增 `scripts/mul_check.sh`、`tb/mul`。
 - 2026-11-12：rv64（`is_word`、*W 运算、`div_core` 每拍 2 步、`MUL_MAX_LATENCY = 3`、`DIV_MAX_LATENCY = 32`）；F/D（浮点 FU）。

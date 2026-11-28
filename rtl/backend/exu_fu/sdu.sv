@@ -7,19 +7,13 @@ module sdu
   import exu_fu_pkg::*;
   import ttg_cfg_pkg::*;
 (
-  input  logic             en,
-  input  logic             consume,
   input  logic             is_atomic,
   input  logic [AMO_W-1:0] amo_op,
   input  logic             amo_w,      // amo*.w: min/max compare the low word (rv64)
   input  logic [XLEN_BITS-1:0]      src1_rdata,
   input  logic [XLEN_BITS-1:0]      src2_rdata,
-  output logic             complete,
-  output logic             ready,
   output logic [XLEN_BITS-1:0]      result
 );
-
-  exu_fu_sc_ctl u_ctl (.en(en), .consume(consume), .complete(complete), .ready(ready));
 
   logic lt_s, lt_u;
   always_comb begin

@@ -10,7 +10,6 @@ module div_unit
   input  logic                     clk,
   input  logic                     rst_n,
   input  logic                     en,
-  input  logic                     consume,
   input  logic                     flush_all,
   input  logic                     flush_br,
   input  logic [ROB_IDX_WIDTH-1:0] flush_rob_idx,
@@ -24,7 +23,6 @@ module div_unit
   input  logic [PRF_IDX_WIDTH-1:0] dest_preg,
   input  logic                     dest_en,
   output logic                     complete,
-  output logic                     ready,
   output logic                     wb_next,
   output logic                     wake_valid,
   output logic [PRF_IDX_WIDTH-1:0] wake_preg,
@@ -43,9 +41,9 @@ module div_unit
   exu_iter_ctl #(.CW(CW)) u_ctl (
     .clk(clk), .rst_n(rst_n), .flush_all(flush_all), .flush_br(flush_br),
     .flush_rob_idx(flush_rob_idx), .flush_rob_flag(flush_rob_flag),
-    .en(en), .consume(consume), .en_rob_idx(rob_idx), .en_rob_flag(rob_flag),
+    .en(en), .en_rob_idx(rob_idx), .en_rob_flag(rob_flag),
     .lat_m1(lat_m1),
-    .accept(accept), .run(run), .complete(complete), .wb_next(wb_next), .ready(ready), .done_rob_flag(done_rob_flag)
+    .accept(accept), .run(run), .complete(complete), .wb_next(wb_next), .done_rob_flag(done_rob_flag)
   );
 
   div_core #(.LAT(LAT)) u_core (

@@ -14,14 +14,12 @@ module exu_ctrl_fu_in
   input  logic [XLEN_BITS-1:0]               fu_bru_diag_val [BRU_NUM],
   input  logic                      fu_bru_mispred [BRU_NUM],
   input  logic                      fu_bru_br_taken [BRU_NUM],
-  input  logic [N_MC-1:0] fu_mc_ready,
   input  logic [N_MC-1:0] fu_mc_complete,
   input  logic [XLEN_BITS-1:0]               fu_mc_result [N_MC],
   input  logic [PRF_IDX_WIDTH-1:0]  fu_mc_dest_preg [N_MC],
   input  logic [N_MC-1:0] fu_mc_dest_en,
   input  logic [ROB_IDX_WIDTH-1:0]  fu_mc_rob_idx [N_MC],
   input  logic [N_MC-1:0] fu_mc_rob_flag,
-  input  logic [N_FPU-1:0]          fu_fp_ready,
   input  logic [N_FPU-1:0]          fu_fp_complete,
   input  logic [XLEN_BITS-1:0]      fu_fp_result [N_FPU],
   input  logic [FW-1:0]             fu_fp_fresult [N_FPU],
@@ -41,8 +39,7 @@ module exu_ctrl_fu_in
       res = '0;
       case (KIND)
         XC_K_ALU: res.result = fu_alu_result[xc_kind_rank(f)];
-        XC_K_LD:  res.result = fu_agu_result[xc_kind_rank(f)];
-        XC_K_STA: res.result = fu_agu_result[LSU_LDU_COUNT + xc_kind_rank(f)];
+        XC_K_AGU: res.result = fu_agu_result[xc_kind_rank(f)];
         XC_K_STD: res.result = fu_sdu_result[xc_kind_rank(f)];
         XC_K_BR: begin
           res.diag_val = fu_bru_diag_val[xc_kind_rank(f)];
@@ -52,7 +49,6 @@ module exu_ctrl_fu_in
         default: ;
       endcase
       if (xc_is_mc_kind(KIND)) begin
-        res.mc_ready    = fu_mc_ready[xc_mc_rank(f)];
         res.mc_complete = fu_mc_complete[xc_mc_rank(f)];
         res.result      = fu_mc_result[xc_mc_rank(f)];
         res.dest_preg   = fu_mc_dest_preg[xc_mc_rank(f)];
@@ -61,7 +57,6 @@ module exu_ctrl_fu_in
         res.rob_flag    = fu_mc_rob_flag[xc_mc_rank(f)];
       end
       if (xc_is_fp_kind(KIND) != 0) begin
-        res.mc_ready    = fu_fp_ready[xc_fp_rank(f)];
         res.mc_complete = fu_fp_complete[xc_fp_rank(f)];
         res.result      = fu_fp_result[xc_fp_rank(f)];
         res.fresult     = fu_fp_fresult[xc_fp_rank(f)];

@@ -1,7 +1,7 @@
 // Ref: back-end/Lsu/TlbMmu.cpp  class TlbMmu  (reference model commit 2f31e8d; DTLB instance of BackTop::comb_lsu_mmu)
 `default_nettype none
 
-// Back-end DTLB with page-table-walk client: one translation port per physical AGU (LSU_AGU_PHYS; with shared AGUs a
+// Back-end DTLB with page-table-walk client: one translation port per physical AGU (LSU_AGU_COUNT; with shared AGUs a
 // port serves a load or a store address, the type comes with the request). During fence / cancel cycles no request is
 // answered (mmu2lsu_io is all zero in the reference model).
 module tlb_mmu import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; #(
@@ -9,10 +9,10 @@ module tlb_mmu import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; #(
 ) (
   input  logic clk,
   input  logic rst_n,
-  input  logic [LSU_AGU_PHYS-1:0] req_valid,
-  input  logic [XLEN_BITS-1:0] req_vaddr [LSU_AGU_PHYS],
-  input  logic [IDX_W-1:0] req_entry_idx [LSU_AGU_PHYS],
-  input  logic [LSU_AGU_PHYS-1:0] req_is_store,
+  input  logic [LSU_AGU_COUNT-1:0] req_valid,
+  input  logic [XLEN_BITS-1:0] req_vaddr [LSU_AGU_COUNT],
+  input  logic [IDX_W-1:0] req_entry_idx [LSU_AGU_COUNT],
+  input  logic [LSU_AGU_COUNT-1:0] req_is_store,
   input  logic [XLEN_BITS-1:0] csr_status_satp,
   input  logic [1:0] csr_status_privilege,
   input  logic csr_status_mstatus_mxr,
@@ -31,13 +31,13 @@ module tlb_mmu import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; #(
   input  logic [LVL_W-1:0] ptw_walk_resp_leaf_level,
   input  logic pf_page_set,
   input  logic [VPN_W-1:0] pf_page_vpn,
-  output logic [LSU_AGU_PHYS-1:0] resp_valid,
-  output logic [1:0] resp_result [LSU_AGU_PHYS],
-  output logic [LSU_AGU_PHYS-1:0] resp_hit,
-  output logic [31:0] resp_paddr [LSU_AGU_PHYS],
-  output logic [28:0] resp_paddr_p1 [LSU_AGU_PHYS],
-  output logic [28:0] resp_paddr_m1 [LSU_AGU_PHYS],
-  output logic [IDX_W-1:0] resp_entry_idx [LSU_AGU_PHYS],
+  output logic [LSU_AGU_COUNT-1:0] resp_valid,
+  output logic [1:0] resp_result [LSU_AGU_COUNT],
+  output logic [LSU_AGU_COUNT-1:0] resp_hit,
+  output logic [31:0] resp_paddr [LSU_AGU_COUNT],
+  output logic [28:0] resp_paddr_p1 [LSU_AGU_COUNT],
+  output logic [28:0] resp_paddr_m1 [LSU_AGU_COUNT],
+  output logic [IDX_W-1:0] resp_entry_idx [LSU_AGU_COUNT],
   output logic ptw_walk_req_valid,
   output logic [VPN_W-1:0] ptw_walk_req_vpn,
   output logic [21:0] ptw_walk_req_root_ppn,
@@ -47,7 +47,7 @@ module tlb_mmu import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; #(
   output logic [VPN_W-1:0] walk_next_vpn
 );
 
-  localparam int LANES = LSU_AGU_PHYS;
+  localparam int LANES = LSU_AGU_COUNT;
 
   logic        lane_req_valid [LANES];
   logic        lane_req_is_store [LANES];

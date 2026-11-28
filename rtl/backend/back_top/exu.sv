@@ -46,33 +46,12 @@ module exu
   output logic [11:0] exe2csr_idx,
   output logic [XLEN_BITS-1:0] exe2csr_wdata,
   output logic [1:0] exe2csr_wcmd,
-  output logic [isu_pkg::OP_NUM-1:0] exe2iss_fu_ready_mask [ISSUE_WIDTH],
+  output logic exe2iss_div_wb_next,
   output logic exe2iss_div_wake_valid,
   output logic [PRF_IDX_WIDTH-1:0] exe2iss_div_wake_preg,
   output xc_prf_wb_t exe2prf [WB_LANES],
-  output xc_rob_wb_t exu2rob [ISSUE_WIDTH],
-  output logic [LSU_LDU_COUNT-1:0] exe2lsu_ldu_req_valid,
-  output logic [LSU_LDU_COUNT-1:0] exe2lsu_ldu_req_occ,
-  output logic [LSU_STA_COUNT-1:0] exe2lsu_sta_req_occ,
-  output logic [XLEN_BITS-1:0] exe2lsu_ldu_req_uop_result [LSU_LDU_COUNT],
-  output logic [PRF_IDX_WIDTH-1:0] exe2lsu_ldu_req_uop_dest_preg [LSU_LDU_COUNT],
-  output logic [2:0] exe2lsu_ldu_req_uop_func3 [LSU_LDU_COUNT],
-  output logic [LSU_LDU_COUNT-1:0] exe2lsu_ldu_req_uop_is_atomic,
-  output logic [4:0] exe2lsu_ldu_req_uop_amo_op [LSU_LDU_COUNT],
-  output logic [ROB_IDX_WIDTH-1:0] exe2lsu_ldu_req_uop_rob_idx [LSU_LDU_COUNT],
-  output logic exe2lsu_ldu_req_uop_rob_flag [LSU_LDU_COUNT],
-  output logic [5:0] exe2lsu_ldu_req_uop_stq_idx [LSU_LDU_COUNT],
-  output logic exe2lsu_ldu_req_uop_stq_flag [LSU_LDU_COUNT],
-  output logic [5:0] exe2lsu_ldu_req_uop_ldq_idx [LSU_LDU_COUNT],
-  output logic [LSU_STA_COUNT-1:0] exe2lsu_sta_req_valid,
-  output logic [XLEN_BITS-1:0] exe2lsu_sta_req_uop_result [LSU_STA_COUNT],
-  output logic [PRF_IDX_WIDTH-1:0] exe2lsu_sta_req_uop_dest_preg [LSU_STA_COUNT],
-  output logic [2:0] exe2lsu_sta_req_uop_func3 [LSU_STA_COUNT],
-  output logic [LSU_STA_COUNT-1:0] exe2lsu_sta_req_uop_is_atomic,
-  output logic [4:0] exe2lsu_sta_req_uop_amo_op [LSU_STA_COUNT],
-  output logic [ROB_IDX_WIDTH-1:0] exe2lsu_sta_req_uop_rob_idx [LSU_STA_COUNT],
-  output logic exe2lsu_sta_req_uop_rob_flag [LSU_STA_COUNT],
-  output logic [5:0] exe2lsu_sta_req_uop_stq_idx [LSU_STA_COUNT],
+  output xc_rob_wb_t exu2rob [ROB_WB_WIDTH],
+  output xc_agu_req_t exe2lsu_agu [LSU_AGU_COUNT],
   output logic [LSU_SDU_COUNT-1:0] exe2lsu_sdu_req_valid,
   output logic [XLEN_BITS-1:0] exe2lsu_sdu_req_uop_result [LSU_SDU_COUNT],
   output logic [ROB_IDX_WIDTH-1:0] exe2lsu_sdu_req_uop_rob_idx [LSU_SDU_COUNT],
@@ -97,7 +76,6 @@ module exu
   logic [XLEN_BITS-1:0] fu_bru_diag_val [BRU_NUM];
   logic fu_bru_mispred [BRU_NUM];
   logic fu_bru_br_taken [BRU_NUM];
-  logic [N_MC-1:0] fu_mc_ready;
   logic div_wb_next [DIV_NUM];
   logic [N_MC-1:0] fu_mc_complete;
   logic [XLEN_BITS-1:0] fu_mc_result [N_MC];
@@ -105,7 +83,6 @@ module exu
   logic [N_MC-1:0] fu_mc_dest_en;
   logic [ROB_IDX_WIDTH-1:0] fu_mc_rob_idx [N_MC];
   logic [N_MC-1:0] fu_mc_rob_flag;
-  logic [N_FPU-1:0] fu_fp_ready;
   logic [N_FPU-1:0] fu_fp_complete;
   logic [XLEN_BITS-1:0] fu_fp_result [N_FPU];
   logic [FW-1:0] fu_fp_fresult [N_FPU];
@@ -120,7 +97,6 @@ module exu
   logic exu2fu_flush_br;
   logic [ROB_IDX_WIDTH-1:0] exu2fu_flush_rob_idx;
   logic exu2fu_flush_rob_flag;
-  logic exu2fu_alu_en [ALU_NUM];
   logic [XC_OP_W-1:0] exu2fu_alu_op [ALU_NUM];
   logic [2:0] exu2fu_alu_func3 [ALU_NUM];
   logic [6:0] exu2fu_alu_func7 [ALU_NUM];
@@ -131,7 +107,6 @@ module exu
   logic [31:0] exu2fu_alu_imm [ALU_NUM];
   logic [XLEN_BITS-1:0] exu2fu_alu_src1_rdata [ALU_NUM];
   logic [XLEN_BITS-1:0] exu2fu_alu_src2_rdata [ALU_NUM];
-  logic exu2fu_bru_en [BRU_NUM];
   logic [XC_OP_W-1:0] exu2fu_bru_op [BRU_NUM];
   logic [2:0] exu2fu_bru_func3 [BRU_NUM];
   logic exu2fu_bru_src1_en [BRU_NUM];
@@ -142,17 +117,14 @@ module exu
   logic exu2fu_bru_ftq_pred_taken [BRU_NUM];
   logic exu2fu_bru_ftq_is_rvc [BRU_NUM];
   logic [XLEN_BITS-1:0] exu2fu_bru_ftq_next_pc [BRU_NUM];
-  logic exu2fu_agu_en [LSU_AGU_COUNT];
   logic [XLEN_BITS-1:0] exu2fu_agu_src1_rdata [LSU_AGU_COUNT];
   logic [31:0] exu2fu_agu_imm [LSU_AGU_COUNT];
-  logic exu2fu_sdu_en [LSU_SDU_COUNT];
   logic exu2fu_sdu_is_atomic [LSU_SDU_COUNT];
   logic [6:0] exu2fu_sdu_func7 [LSU_SDU_COUNT];
   logic exu2fu_sdu_amo_w [LSU_SDU_COUNT];
   logic [XLEN_BITS-1:0] exu2fu_sdu_src1_rdata [LSU_SDU_COUNT];
   logic [XLEN_BITS-1:0] exu2fu_sdu_src2_rdata [LSU_SDU_COUNT];
   logic [N_MC-1:0] exu2fu_mc_en;
-  logic [N_MC-1:0] exu2fu_mc_consume;
   logic [2:0] exu2fu_mc_func3 [N_MC];
   logic exu2fu_mc_is_word [N_MC];
   logic [6:0] exu2fu_mc_func7 [N_MC];
@@ -165,7 +137,6 @@ module exu
   logic [ROB_IDX_WIDTH-1:0] exu2fu_mc_rob_idx [N_MC];
   logic [N_MC-1:0] exu2fu_mc_rob_flag;
   logic [N_FPU-1:0] exu2fu_fp_en;
-  logic [N_FPU-1:0] exu2fu_fp_consume;
   logic [2:0] exu2fu_fp_func3 [N_FPU];
   logic [6:0] exu2fu_fp_func7 [N_FPU];
   logic [31:0] exu2fu_fp_imm [N_FPU];
@@ -212,30 +183,9 @@ module exu
     .exe2csr_idx(exe2csr_idx),
     .exe2csr_wdata(exe2csr_wdata),
     .exe2csr_wcmd(exe2csr_wcmd),
-    .exe2iss_fu_ready_mask(exe2iss_fu_ready_mask),
     .exe2prf(exe2prf),
     .exu2rob(exu2rob),
-    .exe2lsu_ldu_req_valid(exe2lsu_ldu_req_valid),
-    .exe2lsu_ldu_req_occ(exe2lsu_ldu_req_occ), .exe2lsu_sta_req_occ(exe2lsu_sta_req_occ),
-    .exe2lsu_ldu_req_uop_result(exe2lsu_ldu_req_uop_result),
-    .exe2lsu_ldu_req_uop_dest_preg(exe2lsu_ldu_req_uop_dest_preg),
-    .exe2lsu_ldu_req_uop_func3(exe2lsu_ldu_req_uop_func3),
-    .exe2lsu_ldu_req_uop_is_atomic(exe2lsu_ldu_req_uop_is_atomic),
-    .exe2lsu_ldu_req_uop_amo_op(exe2lsu_ldu_req_uop_amo_op),
-    .exe2lsu_ldu_req_uop_rob_idx(exe2lsu_ldu_req_uop_rob_idx),
-    .exe2lsu_ldu_req_uop_rob_flag(exe2lsu_ldu_req_uop_rob_flag),
-    .exe2lsu_ldu_req_uop_stq_idx(exe2lsu_ldu_req_uop_stq_idx),
-    .exe2lsu_ldu_req_uop_stq_flag(exe2lsu_ldu_req_uop_stq_flag),
-    .exe2lsu_ldu_req_uop_ldq_idx(exe2lsu_ldu_req_uop_ldq_idx),
-    .exe2lsu_sta_req_valid(exe2lsu_sta_req_valid),
-    .exe2lsu_sta_req_uop_result(exe2lsu_sta_req_uop_result),
-    .exe2lsu_sta_req_uop_dest_preg(exe2lsu_sta_req_uop_dest_preg),
-    .exe2lsu_sta_req_uop_func3(exe2lsu_sta_req_uop_func3),
-    .exe2lsu_sta_req_uop_is_atomic(exe2lsu_sta_req_uop_is_atomic),
-    .exe2lsu_sta_req_uop_amo_op(exe2lsu_sta_req_uop_amo_op),
-    .exe2lsu_sta_req_uop_rob_idx(exe2lsu_sta_req_uop_rob_idx),
-    .exe2lsu_sta_req_uop_rob_flag(exe2lsu_sta_req_uop_rob_flag),
-    .exe2lsu_sta_req_uop_stq_idx(exe2lsu_sta_req_uop_stq_idx),
+    .exe2lsu_agu(exe2lsu_agu),
     .exe2lsu_sdu_req_valid(exe2lsu_sdu_req_valid),
     .exe2lsu_sdu_req_uop_result(exe2lsu_sdu_req_uop_result),
     .exe2lsu_sdu_req_uop_rob_idx(exe2lsu_sdu_req_uop_rob_idx),
@@ -255,15 +205,12 @@ module exu
     .fu_bru_diag_val(fu_bru_diag_val),
     .fu_bru_mispred(fu_bru_mispred),
     .fu_bru_br_taken(fu_bru_br_taken),
-    .fu_mc_ready(fu_mc_ready),
-    .div_wb_next(div_wb_next[0]),
     .fu_mc_complete(fu_mc_complete),
     .fu_mc_result(fu_mc_result),
     .fu_mc_dest_preg(fu_mc_dest_preg),
     .fu_mc_dest_en(fu_mc_dest_en),
     .fu_mc_rob_idx(fu_mc_rob_idx),
     .fu_mc_rob_flag(fu_mc_rob_flag),
-    .fu_fp_ready(fu_fp_ready),
     .fu_fp_complete(fu_fp_complete),
     .fu_fp_result(fu_fp_result),
     .fu_fp_fresult(fu_fp_fresult),
@@ -277,7 +224,6 @@ module exu
     .exu2fu_flush_br(exu2fu_flush_br),
     .exu2fu_flush_rob_idx(exu2fu_flush_rob_idx),
     .exu2fu_flush_rob_flag(exu2fu_flush_rob_flag),
-    .exu2fu_alu_en(exu2fu_alu_en),
     .exu2fu_alu_op(exu2fu_alu_op),
     .exu2fu_alu_func3(exu2fu_alu_func3),
     .exu2fu_alu_func7(exu2fu_alu_func7),
@@ -288,7 +234,6 @@ module exu
     .exu2fu_alu_imm(exu2fu_alu_imm),
     .exu2fu_alu_src1_rdata(exu2fu_alu_src1_rdata),
     .exu2fu_alu_src2_rdata(exu2fu_alu_src2_rdata),
-    .exu2fu_bru_en(exu2fu_bru_en),
     .exu2fu_bru_op(exu2fu_bru_op),
     .exu2fu_bru_func3(exu2fu_bru_func3),
     .exu2fu_bru_src1_en(exu2fu_bru_src1_en),
@@ -299,17 +244,14 @@ module exu
     .exu2fu_bru_ftq_pred_taken(exu2fu_bru_ftq_pred_taken),
     .exu2fu_bru_ftq_is_rvc(exu2fu_bru_ftq_is_rvc),
     .exu2fu_bru_ftq_next_pc(exu2fu_bru_ftq_next_pc),
-    .exu2fu_agu_en(exu2fu_agu_en),
     .exu2fu_agu_src1_rdata(exu2fu_agu_src1_rdata),
     .exu2fu_agu_imm(exu2fu_agu_imm),
-    .exu2fu_sdu_en(exu2fu_sdu_en),
     .exu2fu_sdu_is_atomic(exu2fu_sdu_is_atomic),
     .exu2fu_sdu_func7(exu2fu_sdu_func7),
     .exu2fu_sdu_amo_w(exu2fu_sdu_amo_w),
     .exu2fu_sdu_src1_rdata(exu2fu_sdu_src1_rdata),
     .exu2fu_sdu_src2_rdata(exu2fu_sdu_src2_rdata),
     .exu2fu_mc_en(exu2fu_mc_en),
-    .exu2fu_mc_consume(exu2fu_mc_consume),
     .exu2fu_mc_func3(exu2fu_mc_func3),
     .exu2fu_mc_is_word(exu2fu_mc_is_word),
     .exu2fu_mc_func7(exu2fu_mc_func7),
@@ -322,7 +264,6 @@ module exu
     .exu2fu_mc_rob_idx(exu2fu_mc_rob_idx),
     .exu2fu_mc_rob_flag(exu2fu_mc_rob_flag),
     .exu2fu_fp_en(exu2fu_fp_en),
-    .exu2fu_fp_consume(exu2fu_fp_consume),
     .exu2fu_fp_func3(exu2fu_fp_func3),
     .exu2fu_fp_func7(exu2fu_fp_func7),
     .exu2fu_fp_imm(exu2fu_fp_imm),
@@ -336,63 +277,45 @@ module exu
     .exu2fu_fp_rob_flag(exu2fu_fp_rob_flag)
   );
 
-  // ---- single-cycle FUs (SingleCycleFU: complete == en, ready == !en || consume; exu_ctrl derives both itself,
-  //      so consume is tied low and the FUs' complete/ready outputs stay unread; only the computed fields come back)
-  logic alu_complete [ALU_NUM];
-  logic alu_ready [ALU_NUM];
-  logic alu_consume [ALU_NUM];
-  assign alu_consume = '{default: 1'b0};
+  // ---- single-cycle FUs (combinational, no ready/consume) ----
   alu_bank u_alu (
-    .clk(clk), .rst_n(rst_n), .en(exu2fu_alu_en), .consume(alu_consume), .op(exu2fu_alu_op), .func3(exu2fu_alu_func3),
+    .clk(clk), .rst_n(rst_n), .op(exu2fu_alu_op), .func3(exu2fu_alu_func3),
     .func7(exu2fu_alu_func7), .src1_is_pc(exu2fu_alu_src1_is_pc), .src2_is_imm(exu2fu_alu_src2_is_imm),
     .is_word(exu2fu_alu_is_word),
     .pc(exu2fu_alu_pc), .imm(exu2fu_alu_imm), .src1_rdata(exu2fu_alu_src1_rdata), .src2_rdata(exu2fu_alu_src2_rdata),
-    .complete(alu_complete), .ready(alu_ready), .result(fu_alu_result)
+    .result(fu_alu_result)
   );
 
-  logic bru_complete [BRU_NUM];
-  logic bru_ready [BRU_NUM];
-  logic bru_consume [BRU_NUM];
-  assign bru_consume = '{default: 1'b0};
   bru_bank u_bru (
-    .clk(clk), .rst_n(rst_n), .en(exu2fu_bru_en), .consume(bru_consume), .op(exu2fu_bru_op), .func3(exu2fu_bru_func3),
+    .clk(clk), .rst_n(rst_n), .op(exu2fu_bru_op), .func3(exu2fu_bru_func3),
     .src1_en(exu2fu_bru_src1_en), .src1_rdata(exu2fu_bru_src1_rdata), .src2_rdata(exu2fu_bru_src2_rdata),
     .pc(exu2fu_bru_pc), .imm(exu2fu_bru_imm), .ftq_pred_taken(exu2fu_bru_ftq_pred_taken),
     .ftq_is_rvc(exu2fu_bru_ftq_is_rvc),
-    .ftq_next_pc(exu2fu_bru_ftq_next_pc), .complete(bru_complete), .ready(bru_ready), .br_taken(fu_bru_br_taken),
+    .ftq_next_pc(exu2fu_bru_ftq_next_pc), .br_taken(fu_bru_br_taken),
     .mispred(fu_bru_mispred), .diag_val(fu_bru_diag_val)
   );
 
-  logic agu_complete [LSU_AGU_COUNT];
-  logic agu_ready [LSU_AGU_COUNT];
-  logic agu_consume [LSU_AGU_COUNT];
-  assign agu_consume = '{default: 1'b0};
   agu_bank u_agu (
-    .clk(clk), .rst_n(rst_n), .en(exu2fu_agu_en), .consume(agu_consume),
+    .clk(clk), .rst_n(rst_n),
     .src1_rdata(exu2fu_agu_src1_rdata), .imm(exu2fu_agu_imm),
-    .complete(agu_complete), .ready(agu_ready), .result(fu_agu_result)
+    .result(fu_agu_result)
   );
 
-  logic sdu_complete [LSU_SDU_COUNT];
-  logic sdu_ready [LSU_SDU_COUNT];
-  logic sdu_consume [LSU_SDU_COUNT];
   logic [4:0] sdu_amo_op [LSU_SDU_COUNT];
-  assign sdu_consume = '{default: 1'b0};
   for (genvar i = 0; i < LSU_SDU_COUNT; i++) begin : g_sdu_amo
     assign sdu_amo_op[i] = exu2fu_sdu_func7[i][6:2];  // Fu.h SduUnit reads func7 >> 2
   end
   sdu_bank u_sdu (
-    .clk(clk), .rst_n(rst_n), .en(exu2fu_sdu_en), .consume(sdu_consume), .is_atomic(exu2fu_sdu_is_atomic),
+    .clk(clk), .rst_n(rst_n), .is_atomic(exu2fu_sdu_is_atomic),
     .amo_op(sdu_amo_op), .amo_w(exu2fu_sdu_amo_w),
-    .src1_rdata(exu2fu_sdu_src1_rdata), .src2_rdata(exu2fu_sdu_src2_rdata), .complete(sdu_complete),
-    .ready(sdu_ready), .result(fu_sdu_result)
+    .src1_rdata(exu2fu_sdu_src1_rdata), .src2_rdata(exu2fu_sdu_src2_rdata),
+    .result(fu_sdu_result)
   );
 
   // The CSR FU (fu_idx 2) has no data path (impl_compute is empty, result 0, read data is muxed in by exu_ctrl)
-  // and only the single-cycle handshake, which exu_ctrl implements for the CSR slot itself: csr_fu is
-  // therefore not instantiated.
+  // and is handled directly by exu_ctrl: csr_fu is therefore not instantiated.
 
-  // ---- multi-cycle FUs. exu_ctrl numbers them in Exu::units order {MUL(0), DIV(3), MUL(5), DIV(7)}.
+  // ---- multi-cycle FUs. exu_ctrl numbers them in Exu::units order {MUL(0), DIV(3), MUL(5)}.
   localparam int MC_MUL [MUL_NUM] = '{0, 2};
   localparam int MC_DIV [DIV_NUM] = '{1};
 
@@ -404,14 +327,12 @@ module exu
   logic [1:0] mul_func3 [MUL_NUM];
   logic mul_is_word [MUL_NUM];
   logic mul_complete [MUL_NUM];
-  logic mul_ready [MUL_NUM];
   logic [XLEN_BITS-1:0] mul_result [MUL_NUM];
   logic [ROB_IDX_WIDTH-1:0] mul_done_rob_idx [MUL_NUM];
   logic mul_done_rob_flag [MUL_NUM];
   logic [PRF_IDX_WIDTH-1:0] mul_done_dest_preg [MUL_NUM];
   logic mul_done_dest_en [MUL_NUM];
   logic mul_en [MUL_NUM];
-  logic mul_consume [MUL_NUM];
   logic [XLEN_BITS-1:0] mul_src1_rdata [MUL_NUM];
   logic [XLEN_BITS-1:0] mul_src2_rdata [MUL_NUM];
   logic [ROB_IDX_WIDTH-1:0] mul_rob_idx [MUL_NUM];
@@ -420,7 +341,6 @@ module exu
   logic mul_dest_en [MUL_NUM];
   for (genvar i = 0; i < MUL_NUM; i++) begin : g_mul
     assign mul_en[i] = exu2fu_mc_en[MC_MUL[i]];
-    assign mul_consume[i] = exu2fu_mc_consume[MC_MUL[i]];
     assign mul_flush_all[i] = exu2fu_flush_all;
     assign mul_flush_br[i] = exu2fu_flush_br;
     assign mul_flush_rob_idx[i] = exu2fu_flush_rob_idx;
@@ -433,7 +353,6 @@ module exu
     assign mul_rob_flag[i] = exu2fu_mc_rob_flag[MC_MUL[i]];
     assign mul_dest_preg[i] = exu2fu_mc_dest_preg[MC_MUL[i]];
     assign mul_dest_en[i] = exu2fu_mc_dest_en[MC_MUL[i]];
-    assign fu_mc_ready[MC_MUL[i]] = mul_ready[i];
     assign fu_mc_complete[MC_MUL[i]] = mul_complete[i];
     assign fu_mc_result[MC_MUL[i]] = mul_result[i];
     assign fu_mc_dest_preg[MC_MUL[i]] = mul_done_dest_preg[i];
@@ -442,13 +361,13 @@ module exu
     assign fu_mc_rob_flag[MC_MUL[i]] = mul_done_rob_flag[i];
   end
   mul_bank u_mul (
-    .clk(clk), .rst_n(rst_n), .en(mul_en), .consume(mul_consume),
+    .clk(clk), .rst_n(rst_n), .en(mul_en),
     .flush_all(mul_flush_all), .flush_br(mul_flush_br),
     .flush_rob_idx(mul_flush_rob_idx), .flush_rob_flag(mul_flush_rob_flag),
     .func3(mul_func3), .is_word(mul_is_word),
     .src1_rdata(mul_src1_rdata), .src2_rdata(mul_src2_rdata),
     .rob_idx(mul_rob_idx), .rob_flag(mul_rob_flag), .dest_preg(mul_dest_preg), .dest_en(mul_dest_en),
-    .complete(mul_complete), .ready(mul_ready), .result(mul_result),
+    .complete(mul_complete), .result(mul_result),
     .done_rob_idx(mul_done_rob_idx), .done_rob_flag(mul_done_rob_flag),
     .done_dest_preg(mul_done_dest_preg), .done_dest_en(mul_done_dest_en)
   );
@@ -460,7 +379,6 @@ module exu
   logic [1:0] div_func3 [DIV_NUM];
   logic div_is_word [DIV_NUM];
   logic div_complete [DIV_NUM];
-  logic div_ready [DIV_NUM];
   logic div_wake_valid [DIV_NUM];
   logic [PRF_IDX_WIDTH-1:0] div_wake_preg [DIV_NUM];
   logic [XLEN_BITS-1:0] div_result [DIV_NUM];
@@ -469,7 +387,6 @@ module exu
   logic [PRF_IDX_WIDTH-1:0] div_done_dest_preg [DIV_NUM];
   logic div_done_dest_en [DIV_NUM];
   logic div_en [DIV_NUM];
-  logic div_consume [DIV_NUM];
   logic [XLEN_BITS-1:0] div_src1_rdata [DIV_NUM];
   logic [XLEN_BITS-1:0] div_src2_rdata [DIV_NUM];
   logic [ROB_IDX_WIDTH-1:0] div_rob_idx [DIV_NUM];
@@ -478,7 +395,6 @@ module exu
   logic div_dest_en [DIV_NUM];
   for (genvar i = 0; i < DIV_NUM; i++) begin : g_div
     assign div_en[i] = exu2fu_mc_en[MC_DIV[i]];
-    assign div_consume[i] = exu2fu_mc_consume[MC_DIV[i]];
     assign div_flush_all[i] = exu2fu_flush_all;
     assign div_flush_br[i] = exu2fu_flush_br;
     assign div_flush_rob_idx[i] = exu2fu_flush_rob_idx;
@@ -491,7 +407,6 @@ module exu
     assign div_rob_flag[i] = exu2fu_mc_rob_flag[MC_DIV[i]];
     assign div_dest_preg[i] = exu2fu_mc_dest_preg[MC_DIV[i]];
     assign div_dest_en[i] = exu2fu_mc_dest_en[MC_DIV[i]];
-    assign fu_mc_ready[MC_DIV[i]] = div_ready[i];
     assign fu_mc_complete[MC_DIV[i]] = div_complete[i];
     assign fu_mc_result[MC_DIV[i]] = div_result[i];
     assign fu_mc_dest_preg[MC_DIV[i]] = div_done_dest_preg[i];
@@ -500,17 +415,18 @@ module exu
     assign fu_mc_rob_flag[MC_DIV[i]] = div_done_rob_flag[i];
   end
   div_bank u_div (
-    .clk(clk), .rst_n(rst_n), .en(div_en), .consume(div_consume),
+    .clk(clk), .rst_n(rst_n), .en(div_en),
     .flush_all(div_flush_all), .flush_br(div_flush_br),
     .flush_rob_idx(div_flush_rob_idx), .flush_rob_flag(div_flush_rob_flag),
     .func3(div_func3), .is_word(div_is_word),
     .src1_rdata(div_src1_rdata), .src2_rdata(div_src2_rdata),
     .rob_idx(div_rob_idx), .rob_flag(div_rob_flag), .dest_preg(div_dest_preg), .dest_en(div_dest_en),
-    .complete(div_complete), .ready(div_ready),
+    .complete(div_complete),
     .wb_next(div_wb_next), .wake_valid(div_wake_valid), .wake_preg(div_wake_preg),
     .result(div_result), .done_rob_idx(div_done_rob_idx), .done_rob_flag(div_done_rob_flag),
     .done_dest_preg(div_done_dest_preg), .done_dest_en(div_done_dest_en)
   );
+  assign exe2iss_div_wb_next    = !rob_bcast_flush && div_wb_next[0];
   assign exe2iss_div_wake_valid = !rob_bcast_flush && div_wake_valid[0];
   assign exe2iss_div_wake_preg  = div_wake_preg[0];
 
@@ -522,7 +438,7 @@ module exu
       assign fu_fp_fresult[r] = fresult;
       if (KIND == XC_K_FDIV) begin : g_div
         fp_div_unit u_fp (
-          .clk(clk), .rst_n(rst_n), .en(exu2fu_fp_en[r]), .consume(exu2fu_fp_consume[r]),
+          .clk(clk), .rst_n(rst_n), .en(exu2fu_fp_en[r]),
           .flush_all(exu2fu_flush_all), .flush_br(exu2fu_flush_br),
           .flush_rob_idx(exu2fu_flush_rob_idx), .flush_rob_flag(exu2fu_flush_rob_flag),
           .func3(exu2fu_fp_func3[r]),
@@ -530,7 +446,7 @@ module exu
           .fsrc1(exu2fu_fp_fsrc1[r]), .fsrc2(exu2fu_fp_fsrc2[r]), .fsrc3(exu2fu_fp_fsrc3[r]), .frm(csr2exe_frm),
           .rob_idx(exu2fu_fp_rob_idx[r]), .rob_flag(exu2fu_fp_rob_flag[r]),
           .dest_preg(exu2fu_fp_dest_preg[r]), .dest_en(exu2fu_fp_dest_en[r]),
-          .complete(fu_fp_complete[r]), .ready(fu_fp_ready[r]), .fresult(fresult),
+          .complete(fu_fp_complete[r]), .fresult(fresult),
           .fflags(fu_fp_fflags[r]), .illegal(fu_fp_illegal[r]),
           .done_rob_idx(fu_fp_rob_idx[r]), .done_rob_flag(fu_fp_rob_flag[r]),
           .done_dest_preg(fu_fp_dest_preg[r]), .done_dest_en(fu_fp_dest_en[r])
@@ -540,7 +456,7 @@ module exu
           .LAT((KIND == XC_K_FMA) ? FP_FMA_LAT : (KIND == XC_K_FMISC) ? FP_MISC_LAT : FP_I2F_LAT),
           .MODE((KIND == XC_K_FMA) ? 0 : (KIND == XC_K_FMISC) ? 1 : 2)
         ) u_fp (
-          .clk(clk), .rst_n(rst_n), .en(exu2fu_fp_en[r]), .consume(exu2fu_fp_consume[r]),
+          .clk(clk), .rst_n(rst_n), .en(exu2fu_fp_en[r]),
           .flush_all(exu2fu_flush_all), .flush_br(exu2fu_flush_br),
           .flush_rob_idx(exu2fu_flush_rob_idx), .flush_rob_flag(exu2fu_flush_rob_flag),
           .func3(exu2fu_fp_func3[r]),
@@ -548,7 +464,7 @@ module exu
           .fsrc1(exu2fu_fp_fsrc1[r]), .fsrc2(exu2fu_fp_fsrc2[r]), .fsrc3(exu2fu_fp_fsrc3[r]), .frm(csr2exe_frm),
           .rob_idx(exu2fu_fp_rob_idx[r]), .rob_flag(exu2fu_fp_rob_flag[r]),
           .dest_preg(exu2fu_fp_dest_preg[r]), .dest_en(exu2fu_fp_dest_en[r]),
-          .complete(fu_fp_complete[r]), .ready(fu_fp_ready[r]), .fresult(fresult),
+          .complete(fu_fp_complete[r]), .fresult(fresult),
           .fflags(fu_fp_fflags[r]), .illegal(fu_fp_illegal[r]),
           .done_rob_idx(fu_fp_rob_idx[r]), .done_rob_flag(fu_fp_rob_flag[r]),
           .done_dest_preg(fu_fp_dest_preg[r]), .done_dest_en(fu_fp_dest_en[r])
@@ -556,7 +472,6 @@ module exu
       end
     end
   end else begin : g_no_fpu
-    assign fu_fp_ready = '0;
     assign fu_fp_complete = '0;
     assign fu_fp_result = '{default: '0};
     assign fu_fp_fresult = '{default: '0};
@@ -569,16 +484,6 @@ module exu
   end
 
   /* verilator lint_on UNUSEDSIGNAL */
-
-  // The FU contract exu_ctrl relies on: single-cycle FUs complete exactly when enabled.
-`ifndef SYNTHESIS
-  for (genvar i = 0; i < ALU_NUM; i++) begin : g_chk_alu
-    assert property (@(posedge clk) disable iff (!rst_n) alu_complete[i] == exu2fu_alu_en[i]);
-  end
-  for (genvar i = 0; i < BRU_NUM; i++) begin : g_chk_bru
-    assert property (@(posedge clk) disable iff (!rst_n) bru_complete[i] == exu2fu_bru_en[i]);
-  end
-`endif
 
 endmodule
 

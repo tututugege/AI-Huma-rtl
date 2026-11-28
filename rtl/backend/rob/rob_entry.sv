@@ -15,7 +15,7 @@ module rob_entry
   input  logic       commit_clr,       // Rob::comb_commit retires this slot
   input  logic       branch_clr,       // Rob::comb_branch kills this slot (younger than the redirect point)
   input  logic       mark_last,        // Rob::comb_branch: this is the redirecting branch, set ftq_is_last
-  input  rob_event_t wb_ev [ISSUE_WIDTH],
+  input  rob_event_t wb_ev [ROB_WB_WIDTH],
   output logic       entry_valid,
   output rob_entry_t entry_uop
 );
@@ -26,8 +26,8 @@ module rob_entry
   // Ref: Rob::comb_complete / comb_branch / comb_fire (uop payload, later stage overrides earlier stage)
   always_comb begin
     uop_d = uop_q;
-    // write-backs are applied in ascending port order, like the for (i < ISSUE_WIDTH) loop; no valid check on purpose
-    for (int p = 0; p < ISSUE_WIDTH; p++) begin
+    // write-backs are applied in ascending port order, like the for (i < ROB_WB_WIDTH) loop; no valid check on purpose
+    for (int p = 0; p < ROB_WB_WIDTH; p++) begin
       if (wb_ev[p].valid && wb_ev[p].rob_idx == ROB_IDX_WIDTH'(ENTRY_IDX)) uop_d = rob_apply_event(uop_d, wb_ev[p]);
     end
     if (mark_last) uop_d.ftq_is_last = 1'b1;

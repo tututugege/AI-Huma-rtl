@@ -14,7 +14,6 @@ module exu_iter_ctl
   input  logic [ROB_IDX_WIDTH-1:0] flush_rob_idx,
   input  logic                     flush_rob_flag,
   input  logic                     en,
-  input  logic                     consume,
   input  logic [CW-1:0]            lat_m1,
   input  logic [ROB_IDX_WIDTH-1:0] en_rob_idx,
   input  logic                     en_rob_flag,
@@ -22,7 +21,6 @@ module exu_iter_ctl
   output logic                     run,
   output logic                     complete,
   output logic                     wb_next,
-  output logic                     ready,
   output logic                     done_rob_flag
 );
 
@@ -31,7 +29,7 @@ module exu_iter_ctl
   logic [ROB_IDX_WIDTH-1:0] rob_idx_q, rob_idx_d;
   logic                     rob_flag_q, rob_flag_d;
 
-  logic kill, live, pop, finished;
+  logic kill, live, finished;
 
   always_comb begin
     kill          = busy_q && (flush_all || (flush_br && fu_rob_younger(rob_idx_q, rob_flag_q, flush_rob_idx, flush_rob_flag)));
@@ -40,16 +38,18 @@ module exu_iter_ctl
     complete      = live && finished;
     wb_next       = busy_q && (cnt_q == CW'(1));
     accept        = en && !live;
-    pop           = consume && complete;
     run           = live && !finished;
     done_rob_flag = rob_flag_q;
 
-    busy_d     = accept || (live && !pop);
+    busy_d     = accept || run;
     cnt_d      = accept ? lat_m1 : (finished ? '0 : cnt_q - CW'(1));
     rob_idx_d  = accept ? en_rob_idx  : rob_idx_q;
     rob_flag_d = accept ? en_rob_flag : rob_flag_q;
-    ready      = !busy_d;
   end
+
+`ifndef SYNTHESIS
+  always_ff @(posedge clk) if (rst_n && en && live) $error("exu_iter_ctl: re-entered while busy");
+`endif
 
   always_ff @(posedge clk) begin
     if (!rst_n) begin

@@ -19,6 +19,7 @@ module back_top
   import exu_ctrl_pkg::xc_inst_t;
   import exu_ctrl_pkg::xc_prf_wb_t;
   import exu_ctrl_pkg::xc_rob_wb_t;
+  import exu_ctrl_pkg::xc_agu_req_t;
 (
   input  logic clk,
   input  logic rst_n,
@@ -238,38 +239,17 @@ module back_top
   logic [1:0]                    exe2csr_wcmd;
   logic [XLEN_BITS-1:0]          exe2csr_wdata;
   logic                          exe2csr_we;
-  logic [isu_pkg::OP_NUM-1:0]    exe2iss_fu_ready_mask [ISSUE_WIDTH];
+  logic                          exe2iss_div_wb_next;
   logic                          exe2iss_div_wake_valid;
   logic [PRF_IDX_WIDTH-1:0]      exe2iss_div_wake_preg;
   xc_prf_wb_t                    exe2prf [WB_LANES];
-  xc_rob_wb_t                    exu2rob [ISSUE_WIDTH];
-  logic [4:0]                    exe2lsu_ldu_req_uop_amo_op    [LSU_LDU_COUNT];
-  logic [PRF_IDX_WIDTH-1:0]      exe2lsu_ldu_req_uop_dest_preg [LSU_LDU_COUNT];
-  logic [2:0]                    exe2lsu_ldu_req_uop_func3     [LSU_LDU_COUNT];
-  logic [LSU_LDU_COUNT-1:0]      exe2lsu_ldu_req_uop_is_atomic;
-  logic [5:0]                    exe2lsu_ldu_req_uop_ldq_idx   [LSU_LDU_COUNT];
-  logic [XLEN_BITS-1:0]          exe2lsu_ldu_req_uop_result    [LSU_LDU_COUNT];
-  logic                          exe2lsu_ldu_req_uop_rob_flag  [LSU_LDU_COUNT];
-  logic [ROB_IDX_WIDTH-1:0]      exe2lsu_ldu_req_uop_rob_idx   [LSU_LDU_COUNT];
-  logic                          exe2lsu_ldu_req_uop_stq_flag  [LSU_LDU_COUNT];
-  logic [5:0]                    exe2lsu_ldu_req_uop_stq_idx   [LSU_LDU_COUNT];
-  logic [LSU_LDU_COUNT-1:0]      exe2lsu_ldu_req_valid;
-  logic [LSU_LDU_COUNT-1:0]      exe2lsu_ldu_req_occ;
-  logic [LSU_STA_COUNT-1:0]      exe2lsu_sta_req_occ;
+  xc_rob_wb_t                    exu2rob [ROB_WB_WIDTH];
+  xc_agu_req_t                   exe2lsu_agu [LSU_AGU_COUNT];
   logic [XLEN_BITS-1:0]          exe2lsu_sdu_req_uop_result    [LSU_SDU_COUNT];
   logic [LSU_SDU_COUNT-1:0]      exe2lsu_sdu_req_uop_rob_flag;
   logic [ROB_IDX_WIDTH-1:0]      exe2lsu_sdu_req_uop_rob_idx   [LSU_SDU_COUNT];
   logic [5:0]                    exe2lsu_sdu_req_uop_stq_idx   [LSU_SDU_COUNT];
   logic [LSU_SDU_COUNT-1:0]      exe2lsu_sdu_req_valid;
-  logic [4:0]                    exe2lsu_sta_req_uop_amo_op    [LSU_STA_COUNT];
-  logic [PRF_IDX_WIDTH-1:0]      exe2lsu_sta_req_uop_dest_preg [LSU_STA_COUNT];
-  logic [2:0]                    exe2lsu_sta_req_uop_func3     [LSU_STA_COUNT];
-  logic [LSU_STA_COUNT-1:0]      exe2lsu_sta_req_uop_is_atomic;
-  logic [XLEN_BITS-1:0]          exe2lsu_sta_req_uop_result    [LSU_STA_COUNT];
-  logic                          exe2lsu_sta_req_uop_rob_flag  [LSU_STA_COUNT];
-  logic [ROB_IDX_WIDTH-1:0]      exe2lsu_sta_req_uop_rob_idx   [LSU_STA_COUNT];
-  logic [5:0]                    exe2lsu_sta_req_uop_stq_idx   [LSU_STA_COUNT];
-  logic [LSU_STA_COUNT-1:0]      exe2lsu_sta_req_valid;
   logic [XLEN_BITS-1:0]          exu2id_br_pc;
   logic                          exu2id_br_is_rvc;
   logic [5:0]                    exu2id_ftq_idx;
@@ -306,12 +286,12 @@ module back_top
   logic [COMMIT_WIDTH-1:0]       rob_commit_commit_entry_uop_dest_fp;
   /* verilator lint_on UNUSEDSIGNAL */
 
-  logic [5:0]                    mmu2lsu_resp_entry_idx [LSU_AGU_PHYS];
-  logic [31:0]                   mmu2lsu_resp_paddr     [LSU_AGU_PHYS];
-  logic [28:0]                   mmu2lsu_resp_paddr_p1  [LSU_AGU_PHYS];
-  logic [28:0]                   mmu2lsu_resp_paddr_m1  [LSU_AGU_PHYS];
-  logic [1:0]                    mmu2lsu_resp_result    [LSU_AGU_PHYS];
-  logic [LSU_AGU_PHYS-1:0]       mmu2lsu_resp_valid;
+  logic [5:0]                    mmu2lsu_resp_entry_idx [LSU_AGU_COUNT];
+  logic [31:0]                   mmu2lsu_resp_paddr     [LSU_AGU_COUNT];
+  logic [28:0]                   mmu2lsu_resp_paddr_p1  [LSU_AGU_COUNT];
+  logic [28:0]                   mmu2lsu_resp_paddr_m1  [LSU_AGU_COUNT];
+  logic [1:0]                    mmu2lsu_resp_result    [LSU_AGU_COUNT];
+  logic [LSU_AGU_COUNT-1:0]      mmu2lsu_resp_valid;
   logic                          dtlb_walk_next_v, dtlb_pf_page_set;
   logic [26:0]                   dtlb_walk_next_vpn, dtlb_pf_page_vpn;
 
@@ -338,9 +318,9 @@ module back_top
   logic [ROB_IDX_WIDTH-1:0]      lsu2exe_wb_req_uop_rob_idx [LSU_LOAD_WB_WIDTH];
   logic [LSU_LOAD_WB_WIDTH-1:0]  lsu2exe_wb_req_uop_rob_flag;
   logic [LSU_LOAD_WB_WIDTH-1:0]  lsu2exe_wb_req_valid;
-  logic [5:0]                    lsu2mmu_req_entry_idx [LSU_AGU_PHYS];
-  logic [XLEN_BITS-1:0]          lsu2mmu_req_vaddr     [LSU_AGU_PHYS];
-  logic [LSU_AGU_PHYS-1:0]       lsu2mmu_req_valid, lsu2mmu_req_is_store;
+  logic [5:0]                    lsu2mmu_req_entry_idx [LSU_AGU_COUNT];
+  logic [XLEN_BITS-1:0]          lsu2mmu_req_vaddr     [LSU_AGU_COUNT];
+  logic [LSU_AGU_COUNT-1:0]      lsu2mmu_req_valid, lsu2mmu_req_is_store;
   logic                          lsu2rob_committed_store_pending;
   logic [LSU_LOAD_WB_WIDTH-1:0]  lsu_byp_valid;
   always_comb begin
@@ -360,7 +340,7 @@ module back_top
   logic                          nc_csr2exe_rdata_vld, nc_csr2front_epc_vld, nc_csr2front_trap_pc_vld;
   logic [FTQ_PRF_PC_PORT_NUM-1:0] nc_ftq_prf_pc_resp_resp_valid;
   logic [0:0]                    nc_ftq_rob_pc_resp_resp_valid;
-  logic [LSU_AGU_PHYS-1:0]       nc_mmu2lsu_resp_hit;
+  logic [LSU_AGU_COUNT-1:0]      nc_mmu2lsu_resp_hit;
   logic                          nc_rob_bcast_trap_val_valid;
   /* verilator lint_on UNUSEDSIGNAL */
 
@@ -478,7 +458,7 @@ module back_top
     .lsu2iss_wake_valid(lsu2iss_wake_valid), .lsu2iss_wake_preg(lsu2iss_wake_preg),
     .lsu2iss_cancel_valid(lsu2iss_cancel_valid), .lsu2iss_cancel_preg(lsu2iss_cancel_preg),
     .dis2iss_req_valid(dis2iss_req_valid), .dis2iss_req_uop(dis2iss_req_uop),
-    .exe2iss_fu_ready_mask(exe2iss_fu_ready_mask),
+    .exe2iss_div_wb_next(exe2iss_div_wb_next),
     .exe2iss_div_wake_valid(exe2iss_div_wake_valid), .exe2iss_div_wake_preg(exe2iss_div_wake_preg),
     .dec_bcast_mispred(dec_bcast_mispred),
     .dec_bcast_redirect_rob_idx(dec_bcast_redirect_rob_idx),
@@ -543,30 +523,10 @@ module back_top
     .rob_bcast_flush(rob_flush_q),
     .exe2csr_we(exe2csr_we), .exe2csr_re(exe2csr_re), .exe2csr_idx(exe2csr_idx),
     .exe2csr_wdata(exe2csr_wdata), .exe2csr_wcmd(exe2csr_wcmd),
-    .exe2iss_fu_ready_mask(exe2iss_fu_ready_mask),
+    .exe2iss_div_wb_next(exe2iss_div_wb_next),
     .exe2iss_div_wake_valid(exe2iss_div_wake_valid), .exe2iss_div_wake_preg(exe2iss_div_wake_preg),
     .exe2prf(exe2prf), .exu2rob(exu2rob),
-    .exe2lsu_ldu_req_valid(exe2lsu_ldu_req_valid),
-    .exe2lsu_ldu_req_occ(exe2lsu_ldu_req_occ), .exe2lsu_sta_req_occ(exe2lsu_sta_req_occ),
-    .exe2lsu_ldu_req_uop_result(exe2lsu_ldu_req_uop_result),
-    .exe2lsu_ldu_req_uop_dest_preg(exe2lsu_ldu_req_uop_dest_preg),
-    .exe2lsu_ldu_req_uop_func3(exe2lsu_ldu_req_uop_func3),
-    .exe2lsu_ldu_req_uop_is_atomic(exe2lsu_ldu_req_uop_is_atomic),
-    .exe2lsu_ldu_req_uop_amo_op(exe2lsu_ldu_req_uop_amo_op),
-    .exe2lsu_ldu_req_uop_rob_idx(exe2lsu_ldu_req_uop_rob_idx),
-    .exe2lsu_ldu_req_uop_rob_flag(exe2lsu_ldu_req_uop_rob_flag),
-    .exe2lsu_ldu_req_uop_stq_idx(exe2lsu_ldu_req_uop_stq_idx),
-    .exe2lsu_ldu_req_uop_stq_flag(exe2lsu_ldu_req_uop_stq_flag),
-    .exe2lsu_ldu_req_uop_ldq_idx(exe2lsu_ldu_req_uop_ldq_idx),
-    .exe2lsu_sta_req_valid(exe2lsu_sta_req_valid),
-    .exe2lsu_sta_req_uop_result(exe2lsu_sta_req_uop_result),
-    .exe2lsu_sta_req_uop_dest_preg(exe2lsu_sta_req_uop_dest_preg),
-    .exe2lsu_sta_req_uop_func3(exe2lsu_sta_req_uop_func3),
-    .exe2lsu_sta_req_uop_is_atomic(exe2lsu_sta_req_uop_is_atomic),
-    .exe2lsu_sta_req_uop_amo_op(exe2lsu_sta_req_uop_amo_op),
-    .exe2lsu_sta_req_uop_rob_idx(exe2lsu_sta_req_uop_rob_idx),
-    .exe2lsu_sta_req_uop_rob_flag(exe2lsu_sta_req_uop_rob_flag),
-    .exe2lsu_sta_req_uop_stq_idx(exe2lsu_sta_req_uop_stq_idx),
+    .exe2lsu_agu(exe2lsu_agu),
     .exe2lsu_sdu_req_valid(exe2lsu_sdu_req_valid),
     .exe2lsu_sdu_req_uop_result(exe2lsu_sdu_req_uop_result),
     .exe2lsu_sdu_req_uop_rob_idx(exe2lsu_sdu_req_uop_rob_idx),
@@ -710,32 +670,12 @@ module back_top
     .mmu2lsu_resp_entry_idx(mmu2lsu_resp_entry_idx), .mmu2lsu_resp_paddr(mmu2lsu_resp_paddr),
     .mmu2lsu_resp_paddr_p1(mmu2lsu_resp_paddr_p1), .mmu2lsu_resp_paddr_m1(mmu2lsu_resp_paddr_m1),
     .mmu2lsu_resp_result(mmu2lsu_resp_result), .mmu2lsu_resp_valid(mmu2lsu_resp_valid),
-    .exe2lsu_ldu_req_uop_amo_op(exe2lsu_ldu_req_uop_amo_op),
-    .exe2lsu_ldu_req_uop_dest_preg(exe2lsu_ldu_req_uop_dest_preg),
-    .exe2lsu_ldu_req_uop_func3(exe2lsu_ldu_req_uop_func3),
-    .exe2lsu_ldu_req_uop_is_atomic(exe2lsu_ldu_req_uop_is_atomic),
-    .exe2lsu_ldu_req_uop_ldq_idx(exe2lsu_ldu_req_uop_ldq_idx),
-    .exe2lsu_ldu_req_uop_result(exe2lsu_ldu_req_uop_result),
-    .exe2lsu_ldu_req_uop_rob_flag(exe2lsu_ldu_req_uop_rob_flag),
-    .exe2lsu_ldu_req_uop_rob_idx(exe2lsu_ldu_req_uop_rob_idx),
-    .exe2lsu_ldu_req_uop_stq_flag(exe2lsu_ldu_req_uop_stq_flag),
-    .exe2lsu_ldu_req_uop_stq_idx(exe2lsu_ldu_req_uop_stq_idx),
-    .exe2lsu_ldu_req_valid(exe2lsu_ldu_req_valid),
-    .exe2lsu_ldu_req_occ(exe2lsu_ldu_req_occ), .exe2lsu_sta_req_occ(exe2lsu_sta_req_occ),
+    .exe2lsu_agu(exe2lsu_agu),
     .exe2lsu_sdu_req_uop_result(exe2lsu_sdu_req_uop_result),
     .exe2lsu_sdu_req_uop_rob_flag(exe2lsu_sdu_req_uop_rob_flag),
     .exe2lsu_sdu_req_uop_rob_idx(exe2lsu_sdu_req_uop_rob_idx),
     .exe2lsu_sdu_req_uop_stq_idx(exe2lsu_sdu_req_uop_stq_idx),
     .exe2lsu_sdu_req_valid(exe2lsu_sdu_req_valid),
-    .exe2lsu_sta_req_uop_amo_op(exe2lsu_sta_req_uop_amo_op),
-    .exe2lsu_sta_req_uop_dest_preg(exe2lsu_sta_req_uop_dest_preg),
-    .exe2lsu_sta_req_uop_func3(exe2lsu_sta_req_uop_func3),
-    .exe2lsu_sta_req_uop_is_atomic(exe2lsu_sta_req_uop_is_atomic),
-    .exe2lsu_sta_req_uop_result(exe2lsu_sta_req_uop_result),
-    .exe2lsu_sta_req_uop_rob_flag(exe2lsu_sta_req_uop_rob_flag),
-    .exe2lsu_sta_req_uop_rob_idx(exe2lsu_sta_req_uop_rob_idx),
-    .exe2lsu_sta_req_uop_stq_idx(exe2lsu_sta_req_uop_stq_idx),
-    .exe2lsu_sta_req_valid(exe2lsu_sta_req_valid),
     .rob_commit_commit_entry_uop_amo_op(rob_commit_commit_entry_uop_amo_op),
     .dec_bcast_mispred(dec_bcast_mispred),
     .dec_bcast_redirect_rob_idx(dec_bcast_redirect_rob_idx),

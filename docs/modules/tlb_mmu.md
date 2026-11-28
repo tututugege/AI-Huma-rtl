@@ -16,7 +16,7 @@ depth: TSMC 28nm HPC+ DC `tlb_mmu_bb` WNS `−0.03 ns`（`1.89 GHz`）/ `25` 级
 
 ## 1. 职责
 
-后端的数据 TLB（DTLB）和它的页表遍历客户端。每个物理 AGU 口有一个翻译口（`LSU_AGU_PHYS = 5` 个），一拍内最多服务 5 个请求；响应同拍组合返回给 LSU（没有输出寄存器）。每拍做这些事：
+后端的数据 TLB（DTLB）和它的页表遍历客户端。每个物理 AGU 口有一个翻译口（`LSU_AGU_COUNT = 5` 个），一拍内最多服务 5 个请求；响应同拍组合返回给 LSU（没有输出寄存器）。每拍做这些事：
 
 1. 对每个有效请求：直通（M 态或 satp 的 MODE 不是 Sv39 时地址不翻译）、非规范地址报缺页、查 64 项全相联表加权限检查，命中则给出物理地址，权限不符给缺页；
 2. 表里没有时走页表遍历：同一时刻只有**一个**遍历在途（一个 walk 寄存器），遍历请求发给共享的页表遍历器（PTW），响应回来后回填 TLB 并结果给请求它的口；
@@ -28,7 +28,7 @@ depth: TSMC 28nm HPC+ DC `tlb_mmu_bb` WNS `−0.03 ns`（`1.89 GHz`）/ `25` 级
 
 | 名字 | 值 | 含义 |
 | --- | --- | --- |
-| `LSU_AGU_PHYS`（`LANES`） | 5 | 翻译口数 = 物理 AGU 数（口 0、1 只给 load，口 2、3 load 与 STA 共用，口 4 只给 STA，见 lsu.md 第 2 节） |
+| `LSU_AGU_COUNT`（`LANES`） | 5 | 翻译口数 = 物理 AGU 数（口 0、1 只给 load，口 2、3 load 与 STA 共用，口 4 只给 STA，见 lsu.md 第 2 节） |
 | `DTLB_ENTRIES`（`ENTRIES`） | 64 | TLB 项数，必须是 2 的幂（`tlb_mmu_store` 里 `$error` 检查） |
 | `XLEN_BITS` | 64 | 现行配置是 rv64，`tlb_mmu_pkg.RV64 = 1`：Sv39 |
 | `ASID_W` | 16 | `satp[59:44]` |
@@ -49,11 +49,11 @@ depth: TSMC 28nm HPC+ DC `tlb_mmu_bb` WNS `−0.03 ns`（`1.89 GHz`）/ `25` 级
 
 | 方向 | 信号组 | 含义 |
 | --- | --- | --- |
-| 入 | `req_valid / req_vaddr / req_entry_idx / req_is_store [LSU_AGU_PHYS]` | 每个物理口一个请求；`req_is_store` 区分 load（访问类型 1）和 store（2），共用口按每个请求的类型走 |
+| 入 | `req_valid / req_vaddr / req_entry_idx / req_is_store [LSU_AGU_COUNT]` | 每个物理口一个请求；`req_is_store` 区分 load（访问类型 1）和 store（2），共用口按每个请求的类型走 |
 | 入 | `csr_status_satp [XLEN_BITS]`、`csr_status_privilege [1:0]`、`csr_status_mstatus_mxr / _sum / _mprv`、`csr_status_mstatus_mpp [1:0]` | 翻译上下文 |
 | 入 | `rob_bcast_fence`、`rob_bcast_flush`、`dec_bcast_mispred` | `fence` 清表；`cancel = rob_bcast_flush \|\| dec_bcast_mispred`。`back_top` 接的是 `rob_fence_q` 和 `rob_flush_q`，即全局 flush 和 fence 晚一拍（docs/FLUSH_REG.md），误预测不晚 |
 | 入 | `ptw_walk_req_ready`、`ptw_walk_resp_valid / _fault / _vpn [27] / _leaf_ppn [20] / _leaf_perm [8] / _leaf_level [2]` | PTW 的 walk 端口：能否接受请求、响应（出错，或叶子的 ppn / perm / level） |
-| 出 | `resp_valid / resp_result [1:0] / resp_hit / resp_paddr [31:0] / resp_entry_idx [IDX_W]  [LSU_AGU_PHYS]` | 响应：`resp_valid = req_valid && translate`；`resp_result`：0 未命中（还在走遍历，请再试）、1 命中、2 缺页；`resp_hit = resp_valid && result == 命中`（`back_top` 里接到未使用的 `nc_mmu2lsu_resp_hit`）；`resp_entry_idx` 是请求的项号原样带回 |
+| 出 | `resp_valid / resp_result [1:0] / resp_hit / resp_paddr [31:0] / resp_entry_idx [IDX_W]  [LSU_AGU_COUNT]` | 响应：`resp_valid = req_valid && translate`；`resp_result`：0 未命中（还在走遍历，请再试）、1 命中、2 缺页；`resp_hit = resp_valid && result == 命中`（`back_top` 里接到未使用的 `nc_mmu2lsu_resp_hit`）；`resp_entry_idx` 是请求的项号原样带回 |
 | 出 | `ptw_walk_req_valid / _req_vpn [27] / _req_root_ppn [21:0]` | 遍历请求：页号和 `satp[21:0]`（根页表） |
 | 出 | `ptw_walk_resp_consumed`、`ptw_walk_flush` | 本拍消费了 PTW 的响应；本拍 fence 或 cancel，让 PTW 丢弃在途遍历 |
 
@@ -149,6 +149,7 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 
 ## 8. 验证
 
+- **最新整核门禁（2026-11-28，`rtl/exu-clean`，EXP-072）**：`lint_chip` & `lint_soc` 0 告警；`SOC_FM=1 SOC_SVA=1 SOC_ASSERT=1` `fm_gate` 77/77、`riscv-tests` 152/152、`soc_gate --linux` 12/12 全通；Linux 26/26 窗（含 Sv39 遍历）PT/UP 全等。
 - **整核门禁**：`scripts/fm_gate.sh`，67 个程序，逐条提交对功能模型、周期对参考表 `scripts/ref_cycles_memiq6_nr_int2_ev5.txt`。涉及翻译的：`pf-stress`（缺页压力）、`trap-precise-store`、`directed/memspec_pf`（错误路径上缺页的 load），以及所有在 M 态直通下的访存。M 态以外的 Sv39 翻译主要靠 Linux 启动覆盖。最近一次改 DTLB 的提交（16de223）说明写 fm_gate 67/67、周期等于当时的参考表、lint_chip 0；本次没有重跑。
 - **Linux**：`scripts/linux_gate.sh`（从复位启动，RTL 对模型）和 `scripts/linux_segments_cmp.sh`（检查点窗口）：Sv39、ASID、fence、页表遍历在这里被真正用到。
 - **Lint**：`scripts/lint_chip.sh`；`scripts/lint.sh` 对 `rtl/frontend rtl/backend/tlb_mmu` 和 `rtl/frontend/icache rtl/backend/tlb_mmu` 另有按目录的编译组合（`icache` 用到了这里的核心）。
@@ -157,10 +158,11 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 
 ## 9. 参数与开关速查
 
-`DTLB_ENTRIES`、`ITLB_ENTRIES`、`LSU_AGU_PHYS`、`XLEN_BITS`（`ttg_cfg_pkg`）；`RV64`、`ASID_W`、`LEVELS`、`VPN_PART_W`、`VPN_W`、`LVL_W`、`VLOW_W`、`PPN_W`、`PERM_W`（`tlb_mmu_pkg`）；`tlb_mmu_core` 的参数 `LANES`、`FETCH`、`ENTRIES`；`tlb_mmu` 的参数 `IDX_W`。
+`DTLB_ENTRIES`、`ITLB_ENTRIES`、`LSU_AGU_COUNT`、`XLEN_BITS`（`ttg_cfg_pkg`）；`RV64`、`ASID_W`、`LEVELS`、`VPN_PART_W`、`VPN_W`、`LVL_W`、`VLOW_W`、`PPN_W`、`PERM_W`（`tlb_mmu_pkg`）；`tlb_mmu_core` 的参数 `LANES`、`FETCH`、`ENTRIES`；`tlb_mmu` 的参数 `IDX_W`。
 
 ## 10. 变更记录
 
+- 2026-11-28（`rtl/exu-clean`，EXP-072）：`tlb_mmu.sv` DTLB 口数随 `LSU_AGU_COUNT = 5`（真 5 物理口）统一口径并微调端口注释/参数映射，零逻辑行为变化；通过 `lint` 0、strict+SVA `fm_gate` 77/77、`soc_gate --linux` 12/12 与 Linux 26/26 窗对齐。
 - 2026-11-21（`rtl/fe-2fetch-2taken`，EXP-051 里程碑 B）：`tlb_mmu_core` 新增参数化只读 CAM peek 读口 `NPEEK`（DTLB `NPEEK=0` 零改动；ITLB `NPEEK=2` 服务双块 B 与 FDIP，先查同拍 `refill_end` 再查表，零额外 PTW walker）。Yosys 综合 `tlb_mmu` 46,624 单元 / 61 层（不变）；通过 `lint_chip` 0、`fm_gate` 68/68 与 Linux 27 窗对齐。
 - 2026-11-17（exp/agu-share）：`16de223` EXP-TLBPORTS 第 3 步：DTLB 每个物理 AGU 一个口（`LSU_AGU_PHYS = 5`），请求自带访问类型（`tlb_mmu / tlb_mmu_core / tlb_mmu_lane`：口类型由参数改为输入 `req_is_store`），响应按口回给 LSU；这是 261bd67 之后对本目录的唯一提交。
 - 2026-11-17：`1d8688e` EXP-042：口并行、`ttg_first_set` 对数深度，深度代理 163 → 67（在 261bd67 之前）。

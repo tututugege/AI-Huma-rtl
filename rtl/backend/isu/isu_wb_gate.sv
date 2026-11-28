@@ -31,7 +31,7 @@ module isu_wb_gate
     logic [M:0] busy;                         // busy[k]: the cycle now + k is taken (bits 0 and M are always 0)
     /* verilator lint_on UNUSEDSIGNAL */
     for (genvar c = 0; c < WB_NCLS; c++) begin : g_cls
-      if (cls_blockable(p, c)) begin : g_tab
+      if (cls_wb_blockable(p, c)) begin : g_tab
         assign cls_free[p][c] = !busy[wb_cls_off(c)];   // offset < M: a longer class exists
       end else begin : g_free
         assign cls_free[p][c] = 1'b1;

@@ -29,51 +29,75 @@ module isu_iq_select
     return f;
   endfunction
 
-  if (QID == IQ_MEM && AGE_EN && NP == LSU_LDU_COUNT + LSU_STA_COUNT) begin : g_mem_par
+  if (QID == IQ_MEM && AGE_EN && NP == LSU_AGU_COUNT) begin : g_mem_par
     localparam int NLD  = LSU_LDU_COUNT;
     localparam int NSTA = LSU_STA_COUNT;
+    localparam int NM   = LSU_AGU_SHARED;
+    localparam int NL   = NLD - NM;
+    localparam int NS   = NSTA - NM;
 
-    // ---- Load group: port 0 = oldest, ports 1..NLD-1 = lowest 1st..(NLD-1)-th remaining in parallel ----
+    logic [SIZE-1:0] ld_oh [NLD];
+    logic [NLD-1:0]  ld_v;
+    logic [SIZE-1:0] sta_oh [NSTA];
+    logic [NSTA-1:0] sta_v;
+
+    // ---- Load group: ld[0] = oldest, ld[1..NLD-1] = lowest remaining ----
     logic [SIZE-1:0] ld_cand, ld_rem;
     assign ld_cand = ready & port_ok[0];
     for (genvar i = 0; i < SIZE; i++) begin : g_ld0
-      assign sel_onehot[0][i] = ld_cand[i] && !(|(older[i] & ld_cand));
+      assign ld_oh[0][i] = ld_cand[i] && !(|(older[i] & ld_cand));
     end
-    assign sel_valid[0] = |ld_cand;
-    assign ld_rem       = ld_cand & ~sel_onehot[0];
+    assign ld_v[0] = |ld_cand;
+    assign ld_rem  = ld_cand & ~ld_oh[0];
 
     if (NLD > 1) begin : g_ld_rest
       localparam int K = NLD - 1;
-      logic [SIZE-1:0] ld_oh [K];
-      logic [K-1:0]    ld_v;
-      ttg_pick_k #(.N(SIZE), .K(K)) u_ld_rest (.req(ld_rem), .pick_oh(ld_oh), .valid(ld_v));
+      logic [SIZE-1:0] ld_rest_oh [K];
+      logic [K-1:0]    ld_rest_v;
+      ttg_pick_k #(.N(SIZE), .K(K)) u_ld_rest (.req(ld_rem), .pick_oh(ld_rest_oh), .valid(ld_rest_v));
       for (genvar k = 0; k < K; k++) begin : g_k
-        assign sel_onehot[1 + k] = ld_oh[k];
-        assign sel_valid[1 + k]  = ld_v[k];
+        assign ld_oh[1 + k] = ld_rest_oh[k];
+        assign ld_v[1 + k]  = ld_rest_v[k];
       end
     end
 
-    // ---- STA group: port NLD = oldest, ports NLD+1..NP-1 = lowest 1st..(NSTA-1)-th remaining in parallel ----
+    // ---- STA group: sta[0] = oldest, sta[1..NSTA-1] = lowest remaining ----
     logic [SIZE-1:0] sta_cand, sta_rem;
     assign sta_cand = ready & port_ok[NLD];
     for (genvar i = 0; i < SIZE; i++) begin : g_sta0
-      assign sel_onehot[NLD][i] = sta_cand[i] && !(|(older[i] & sta_cand));
+      assign sta_oh[0][i] = sta_cand[i] && !(|(older[i] & sta_cand));
     end
-    assign sel_valid[NLD] = |sta_cand;
-    assign sta_rem        = sta_cand & ~sel_onehot[NLD];
+    assign sta_v[0] = |sta_cand;
+    assign sta_rem  = sta_cand & ~sta_oh[0];
 
     if (NSTA > 1) begin : g_sta_rest
       localparam int K = NSTA - 1;
-      logic [SIZE-1:0] sta_oh [K];
-      logic [K-1:0]    sta_v;
-      ttg_pick_k #(.N(SIZE), .K(K)) u_sta_rest (.req(sta_rem), .pick_oh(sta_oh), .valid(sta_v));
+      logic [SIZE-1:0] sta_rest_oh [K];
+      logic [K-1:0]    sta_rest_v;
+      ttg_pick_k #(.N(SIZE), .K(K)) u_sta_rest (.req(sta_rem), .pick_oh(sta_rest_oh), .valid(sta_rest_v));
       for (genvar k = 0; k < K; k++) begin : g_k
-        assign sel_onehot[NLD + 1 + k] = sta_oh[k];
-        assign sel_valid[NLD + 1 + k]  = sta_v[k];
+        assign sta_oh[1 + k] = sta_rest_oh[k];
+        assign sta_v[1 + k]  = sta_rest_v[k];
       end
     end
 
-    /* verilator lint_off UNUSEDSIGNAL */   // waiver: port_ok[1..NLD-1] == port_ok[0] and port_ok[NLD+1..NP-1] == port_ok[NLD]
+    // Map onto NP physical AGUs: 0..NL-1 dedicated LD, NL..NLD-1 shared LD>STA (top-down sta[4,3,2]), NLD..NP-1 dedicated STA
+    for (genvar p = 0; p < NL; p++) begin : g_map_ld
+      assign sel_onehot[p] = ld_oh[p];
+      assign sel_valid[p]  = ld_v[p];
+    end
+    for (genvar i = 0; i < NM; i++) begin : g_map_sh
+      localparam int P  = NL + i;
+      localparam int SK = NS + (NM - 1 - i);
+      assign sel_onehot[P] = ld_v[P] ? ld_oh[P] : sta_oh[SK];
+      assign sel_valid[P]  = ld_v[P] || sta_v[SK];
+    end
+    for (genvar k = 0; k < NS; k++) begin : g_map_sta
+      assign sel_onehot[NLD + k] = sta_oh[k];
+      assign sel_valid[NLD + k]  = sta_v[k];
+    end
+
+    /* verilator lint_off UNUSEDSIGNAL */   // waiver: port_ok[1..NL-1] == port_ok[0] and shared ports combine load/STA
     logic unused_pok;
     always_comb begin
       unused_pok = 1'b0;
