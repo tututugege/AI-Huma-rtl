@@ -43,12 +43,14 @@ done
 wait
 
 JOBS=${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 6)}
+# GNU ld: resolve the static libraries in one group; the macOS linker has no --start-group (and needs none)
+if [ "$(uname)" = Darwin ]; then GRP_BEG=""; GRP_END=""; else GRP_BEG="-Wl,--start-group"; GRP_END="-Wl,--end-group"; fi
 verilator --cc --exe --build -j "$JOBS" --output-split 5000 --output-split-cfuncs 5000 \
   --assert -GDDR_DATA_W="$DDR_DATA_W" \
   -Wno-fatal -Wno-lint -Wno-style -Wno-UNOPTFLAT --x-assign 0 --x-initial 0 $VOPT \
   --top-module chip_top -Mdir obj \
   -CFLAGS "$COPT $DS3FLAGS -DXLEN=64 -std=c++2a -w $INC $FPINC" \
-  -LDFLAGS "-Wl,--start-group $OUT/SimDDR.o $OUT/PhysMemory.o $DS3LD $FPLD -Wl,--end-group ${SOC_LDFLAGS:-${CHIP_LDFLAGS:-}}" \
+  -LDFLAGS "$GRP_BEG $OUT/SimDDR.o $OUT/PhysMemory.o $DS3LD $FPLD $GRP_END ${SOC_LDFLAGS:-${CHIP_LDFLAGS:-}}" \
   "$ROOT/tb/soc/soc_tb.cpp" "${FPDPI[@]}" "${FILES[@]}" -o soc_tb > build.log 2>&1 || {
     grep -E "error:|%Error" build.log | grep -v "Command Failed" | head -20
     echo "BUILD FAILED, see $OUT/build.log"
