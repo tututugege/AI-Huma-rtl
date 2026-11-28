@@ -10,14 +10,12 @@
 // lint: line64 / issue_* helpers use only part of their argument.
 /* verilator lint_off UNUSEDSIGNAL */
 package axi_ic_pkg;
-  /* verilator lint_off UNUSEDPARAM */
   localparam int NR = 4;               // read masters: ICache, DCache MSHR, UNCORE_LSU (unused), peripheral
   localparam int NW = 2;               // write masters: DCache WB, peripheral
   localparam int NM = `AXI_LLC_MSHR;   // LLC MSHR slots = max in-flight DDR reads (index = LLC mem id)
   localparam int MW = $clog2(NM);
   localparam int MASTER_DCACHE_R = 1;
   localparam int MASTER_DCACHE_W = 0;
-  /* verilator lint_on UNUSEDPARAM */
 
   // 64-byte line number of an address (AXI_LLC::line_addr / external_hazard_line_addr granule)
   function automatic logic [25:0] line64(input logic [31:0] a);

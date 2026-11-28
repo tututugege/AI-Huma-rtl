@@ -1,6 +1,5 @@
 // Shared IEEE-754 F/D helper functions and rounding primitives for synthesizable FPU units.
 `default_nettype none
-/* verilator lint_off UNUSEDPARAM */
 package fp_arith_pkg;
 
   localparam logic [31:0] CANON_NAN32 = 32'h7fc0_0000;

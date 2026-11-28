@@ -1,6 +1,5 @@
 // Ref: MemSubSystem/MemRouteBlock.h  Owner, route request ids; shared constants of the CPU-phase blocks
 `default_nettype none
-/* verilator lint_off UNUSEDPARAM */  // constants package: not every constant is used by every module
 package memcpu_pkg;
   import ttg_cfg_pkg::*;
 

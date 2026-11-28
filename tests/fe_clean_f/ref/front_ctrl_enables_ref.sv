@@ -2,8 +2,8 @@
 `default_nettype none
 
 // Combinational read/write enables and BPU gating of the Unified FTQ-64 front end
-// (no ptab_bypass, no front2back_fifo, explicit inst_fifo backpressure on ifu_ptr).
-module front_ctrl_enables import ttg_cfg_pkg::*; import front_pkg::*; (
+// (no ptab_bypass, no front2back_fifo, explicit inst_fifo_ref backpressure on ifu_ptr).
+module front_ctrl_enables_ref import ttg_cfg_pkg::*; import front_pkg::*; (
   input  logic       global_refetch,
   input  logic       be_fifo_read_enable,
   input  logic       icache_ready,

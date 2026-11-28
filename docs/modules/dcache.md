@@ -192,3 +192,4 @@ depth: 123 层（子模块拆测最深 `dcache_mshr` 123 层，其余 `s1`/`s2_*
 - 2026-11-21（`rtl/fe-2fetch-2taken`，EXP-051 里程碑 B）：`dcache` / `dcache_arr` / `dcache_bank` / `dcache_wb` 新增 1 路只读周期初脏行窥探口（`fdip_snoop_line` → `fdip_snoop_dirty`），供 ICache FDIP 回填前检查 L1D 阵列脏行与 WB 缓冲，避免自修改代码（SMC）场景将旧指令行填回 L1I；通过 `lint_chip` 0、`fm_gate` 68/68（含 `fence-i-self-modify`）与 Linux 27 窗对齐。
 - 本分支（exp/agu-share）未改动 `rtl/memsys/dcache`（`git log 261bd67..HEAD -- rtl/memsys/dcache` 为空）。
 - 更早（来自 `git log`）：`cff4afe` rv64 step 5；`fb05807` rv64 step 2（数据字 XLEN 位、strb 为 XLEN/8+1 位）；`b44ab4c` EXP-024：store 合并改成逐字节并行的 `line_merge_n`；`b1e0335` EXP-024：RTL 的 store 合并（第二个 store 字通路）；`ec493f4` LSU_PIPE（EXP-014）；`5add753` 引入 dcache 域（当时是 16 节拍锁步）。
+- 2026-11-29 清理：`dcache_pkg` 删包级 `lint_off UNUSEDPARAM` 豁免（`scripts/lint.sh` 改为只编所需的包，包常量是否未用只在整芯片 lint 判定，见 `docs/01-rtl-coding-standard.md` 8.5；整芯片 lint 普通 / `-DSYNTHESIS` 下无死常量）（周期不变）。

@@ -170,3 +170,4 @@ RTL 与模型保持一致的细节：
   - `e49618c`：AGU 槽的占用 `exe2lsu_ldu_req_occ`、`exe2lsu_sta_req_occ`（`exu_ctrl_slot` 的 `fu_occ`，经 `exu_ctrl_lsu_out`）；LSU 重放口的分配看它（模型 `ExeLsuReqEntry::raw`），周期对 `ref_cycles_memiq6_nr_int2_ev2.txt`；
   - `803692f`：`rob_bcast_flush` 现在来自 `back_top` 的 `rob_flush_q`（晚一拍），本模块自身没改，见 docs/FLUSH_REG.md。
 - 更早：见 git 历史。
+- 2026-11-29 清理：`exu_ctrl_pkg` 删包级 `lint_off UNUSEDPARAM` 豁免（`scripts/lint.sh` 改为只编所需的包，包常量是否未用只在整芯片 lint 判定，见 `docs/01-rtl-coding-standard.md` 8.5；整芯片 lint 普通 / `-DSYNTHESIS` 下无死常量）（周期不变）。

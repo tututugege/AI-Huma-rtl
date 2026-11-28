@@ -1,6 +1,5 @@
 // Ref: front-end/config/frontend_feature_config.h, front-end/wire_types.h, front-end/predecode.h
 `default_nettype none
-/* verilator lint_off UNUSEDPARAM */
 // Front-end constants, instruction_FIFO entry, and Unified FTQ-64 interface bundles.
 package front_pkg;
   import ttg_cfg_pkg::*;
@@ -19,26 +18,35 @@ package front_pkg;
   localparam logic [1:0] PREDECODE_JALR                 = 2'd2;
   localparam logic [1:0] PREDECODE_JAL                  = 2'd3;
 
+  // predecode type of a control-flow kind (bpu_pkg BR_*, from predecode_lane): the checker only needs
+  // conditional (direction from the prediction) / direct jump (jal target) / indirect jump (predicted target)
+  function automatic logic [1:0] ptype_of_kind(input logic [KIND_W-1:0] k);
+    case (k)
+      bpu_pkg::BR_DIRECT:                                   return PREDECODE_BRANCH;
+      bpu_pkg::BR_CALL, bpu_pkg::BR_JAL:                    return PREDECODE_JAL;
+      bpu_pkg::BR_RET, bpu_pkg::BR_ICALL, bpu_pkg::BR_IDIRECT: return PREDECODE_JALR;
+      default:                                              return PREDECODE_NON_BRANCH;
+    endcase
+  endfunction
+
   // RISC-V major opcodes used by predecode (RISCV.h)
   localparam logic [6:0] OPCODE_JAL    = 7'b1101111;
   localparam logic [6:0] OPCODE_JALR   = 7'b1100111;
   localparam logic [6:0] OPCODE_BRANCH = 7'b1100011;
 
-  // instruction_FIFO entry: compact raw halfwords (Block A + optional same-page next line B for the line straddle);
-  // expand/predecode runs once after the A/B merge in front_head_fix.
+  // instruction_FIFO entry: one halfword window of FETCH_WIDTH slots, already merged at the write side
+  // (front_fetch_buf: Block A, and for a same-page line straddle the next line B behind A's a_len slots).
+  // The 32-bit window of slot i is {half[i+1], half[i]} while slot i+1 is valid, {up16, half[i]} on the last valid
+  // slot (up16 = the halfword above it); expand/predecode runs once in front_head_fix.
   typedef struct packed {
-    logic                         is_straddle;
-    logic [3:0]                   a_len;
-    logic [XLEN_BITS-1:0]         base_a;
-    logic [FETCH_WIDTH-1:0]       valid_a;
-    logic [FETCH_WIDTH-1:0]       pf_a;
-    logic                         single_word_a;
-    logic [FETCH_WIDTH-1:0][15:0] raw_a;
-    logic [15:0]                  up16_a;
-    logic                         b_ok;
-    logic [4:0]                   b_actual_n;
-    logic [FETCH_WIDTH-1:0][15:0] raw_b;
-    logic [15:0]                  up16_b;
+    logic                         is_straddle;   // B merged behind A (the sequential pc does not wrap to A's line)
+    logic                         single_word;   // uncached answer (one 32-bit word = 2 slots)
+    logic                         tail_ok;       // pc[5:0] == 32 and B hit: the halfword above slot 15 is real
+    logic [XLEN_BITS-1:0]         base;          // pc of slot 0
+    logic [FETCH_WIDTH-1:0]       valid;         // a prefix of the slots
+    logic [FETCH_WIDTH-1:0]       pf;            // page fault (Block A only)
+    logic [FETCH_WIDTH-1:0][15:0] half;          // slot halfword (low half of a NOP on invalid / faulting slots)
+    logic [15:0]                  up16;          // halfword above the last valid slot (0 on a fault)
   } inst_fifo_entry_t;
 
   // ---- Unified FTQ-64 frontend <-> backend interface (zero combinational loop) ----

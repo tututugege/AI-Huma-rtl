@@ -47,7 +47,7 @@
 | `ttg_onehot_mux` | N × W = 16 × 64、64 × 64 | |
 | `ttg_popcount` | N = 8 / 16 / 64 / 128 | N = 128 证明 35 s |
 | `ttg_pick_k` | N / K = 16 / 2、32 / 4、64 / 8 | 64 / 8 读入要 `--unroll-limit` 加大，yosys 0.9 GB，证明 136 s |
-| `front_head_fix` | 整个模块 | 13 万个与门，证明 5 s（2026-11-28 版本；11-29 清理 C 只删了恒 0 的 `bnd_vec` 及多段输出，两套写法所在的 `scan_starts` 没改，未重证） |
+| `front_head_fix` | 整个模块 | 13 万个与门，证明 5 s（2026-11-28 版本；11-29 清理 C 只删了恒 0 的 `bnd_vec` 及多段输出；11-29 清理 F 把 A/B 合并移到队列前（`front_fetch_buf`）、改用单一分支译码 `predecode_lane`，输入条目和输出 `kind_o` 变了，但两套写法只差在 `scan_starts`，它没改；整模块的证明对象变了，**需要重证**，未做） |
 | `bpu_hist_vec` | MAX_SYM = 1 / 2 | **只在 `sym_n ≤ MAX_SYM` 时等价**，超出时两种写法不同。现在 `bpu_spec.sv` 的三个实例都是 MAX_SYM = 1、`sym_n = {3'd0, en}`，前提由构造保证，不需要 SVA（2026-11-29 清理 C 删掉 EXP-051 双符号恢复后，原 `hr_push_n ≤ 2` 断言和唯一的 MAX_SYM = 2 实例 `u_r1_ck` 一并去掉；MAX_SYM = 2 的证明结果仍有效，只是没有实例用它）。仿真写法展开成门级网表时 yosys 峰值 8.8 GB / 16.6 GB（证明本身 ≤ 105 MB）。 |
 
 只证了上表的参数，没有逐个核对每个实例的实际参数。

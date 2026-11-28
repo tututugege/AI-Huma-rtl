@@ -3,7 +3,7 @@
 | 类别 | 脚本 | 作用 |
 | --- | --- | --- |
 | 路径配置 | `env.sh`、`ttg_env.py` | 所有脚本共用的位置（`RTL_ROOT`、`AI_HUMA_ROOT`、`TTG_PROGS`、`TTG_BIG`、`TM`、`FM_GIT` / `FM_REV`：测试平台链接的 function-model 仓库和固定版本），全部由所在位置推出，可由环境变量覆盖 |
-| 构建/检查 | `lint.sh`、`rtl_files.sh`、`gen_cfg.sh`、`gen_pmu_pkg.py`、`gen_tracker.py` | 规范检查（目录级，`rtl/` 下每个模块目录单独编译；`rtl/common/<族>`（如 `sram`）每个文件各作一次顶层）、RTL 文件序（配置包 → `rtl/common` 下其余的包 → 其他 `*_pkg.sv` → 其余）、配置包（`make cfg`，rv64gc 默认）、PMU 事件包（`rtl/pmu/pmu_ev_pkg.sv`，来自 trace-model `pmu_events.def`）、进度表生成 |
+| 构建/检查 | `lint.sh`（+ `lint_pkg.vlt`）、`rtl_files.sh`、`gen_cfg.sh`、`gen_pmu_pkg.py`、`gen_tracker.py` | 规范检查（目录级，`rtl/` 下每个模块目录单独编译，只带本目录文件用到的包及其依赖（`list_sv_files.py --pkgs`）；`rtl/common/<族>`（如 `sram`）每个文件各作一次顶层；每个目录 svlint 和 Verilator 两步都跑、所有目录都跑完，最后列出失败的步骤，有任何一步失败退出码非 0；svlint 的 S10 只是提示，不算失败；包常量未用（UNUSEDPARAM）只在 `chip_top` 整设计检查（及 `lint_soc.sh`）里报，其余目录和 `lint_chip.sh` 由 `lint_pkg.vlt` 不报）、RTL 文件序（配置包 → `rtl/common` 下其余的包 → 其他 `*_pkg.sv` → 其余）、配置包（`make cfg`，rv64gc 默认）、PMU 事件包（`rtl/pmu/pmu_ev_pkg.sv`，来自 trace-model `pmu_events.def`）、进度表生成 |
 | 整芯片检查 | `lint_chip.sh`、`lint_soc.sh` | `lint_chip.sh` 以 `soc_top` 为顶、`lint_soc.sh` 以 `chip_top` 为顶跑 Verilator `-Wall`（`lint.sh` 只按目录查），打印告警数，0 为通过 |
 | 真实 SoC 回归门禁 | `soc_gate.sh` | 一键跑 `lint_soc.sh` + `tb/axi_unit`（`--assert`）+ `tb/soc/soc_tb`（`chip_top` 全套定向测试：smoke / UART FIFO 与外部 `rxd` / PLIC 外部中断优先级与 S-mode `seip` / `sw_rst_req` 软复位转 SRAM 启动 / `boot_mode=10` park / `DDR_DATA_W=128`）；`--linux` 可选加跑 `linux_j.bin` |
 | 综合对比 | `synth_cfg.sh <标签> <配置包> <模块...>`、`synth_module.sh`、`synth_depth.sh` | 在指定配置包下逐模块综合（与 docs/09 同设置），结果在 `build/synth_<标签>/`，结束后恢复原配置包；`synth_depth.sh` 另给逻辑级数代理。需要 yosys + yosys-slang |

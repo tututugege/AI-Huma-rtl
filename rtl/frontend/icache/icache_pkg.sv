@@ -1,6 +1,5 @@
 // Ref: front-end/icache/include/icache_module.h  ICache_regs_t / ICacheState;  icache_module.cpp (address helpers)
 `default_nettype none
-/* verilator lint_off UNUSEDPARAM */  // constants package: not every constant is used by every module
 package icache_pkg;
   import ttg_cfg_pkg::*;
 
@@ -78,7 +77,6 @@ package icache_pkg;
     logic                 b_is_tail;
     logic [3:0]           a_len;
     logic [3:0]           b_nwords;
-    logic [XLEN_BITS-1:0] b_addr;
   } ic_f1_t;
 
   // DCache probe address of word `word` of the line being fetched (uses 6-bit page-line offset [11:6])

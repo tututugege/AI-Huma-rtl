@@ -1,6 +1,5 @@
 // Ref: docs/modules/chip_top.md  AI-Huma SoC v1 address map, slave IDs, and IRQ map
 `default_nettype none
-/* verilator lint_off UNUSEDPARAM */
 /* verilator lint_off UNUSEDSIGNAL */
 package soc_pkg;
 
@@ -42,5 +41,4 @@ package soc_pkg;
 
 endpackage
 /* verilator lint_on UNUSEDSIGNAL */
-/* verilator lint_on UNUSEDPARAM */
 `default_nettype wire

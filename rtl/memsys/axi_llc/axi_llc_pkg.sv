@@ -16,7 +16,6 @@
 // lint: address helpers use only part of the address; constants are used by the units.
 /* verilator lint_off UNUSEDSIGNAL */
 package axi_llc_pkg;
-  /* verilator lint_off UNUSEDPARAM */
   localparam int SETS  = `AXI_LLC_SETS;
   localparam int WAYS  = `AXI_LLC_WAYS;
   localparam int NMSHR = `AXI_LLC_MSHR;   // MSHR slot id travels in the 4-bit AXI id (8 or 16 supported)
@@ -55,7 +54,6 @@ package axi_llc_pkg;
   localparam int BINGO_MAXDENSE = 48;
   localparam int BINGO_TWIN     = 256;
   localparam int BINGO_TMIN     = 26;
-  /* verilator lint_on UNUSEDPARAM */
 
   typedef logic [511:0] line_t;
   typedef logic [31:0]  addr_t;

@@ -251,7 +251,7 @@ module bpu_spec import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
   assign spec_d = refetch ? ((hr_mode == M_CK) ? spec_r1_ck : spec_r1_ar)
                           : (issue ? spec_q1 : spec_n1);
 
-  // ---- Speculative RAS: 64-entry queue + 3-slot write overlay ----
+  // ---- Speculative RAS: 64-entry queue + 1-push write overlay ----
   function automatic logic [XLEN_BITS-1:0] arch_st(input logic [RAS_PTR_W-1:0] j);
     return aras_q.st[aras_q.ptr - aras_q.cnt[RAS_PTR_W-1:0] + RAS_PTR_W'(1) + j];
   endfunction
@@ -261,7 +261,7 @@ module bpu_spec import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
     logic [XLEN_BITS-1:0] v;
     v = st_q[i];
     if (o.arch && !i[RASQ_W-1]) v = arch_st(i[RAS_PTR_W-1:0]);
-    for (int k = 0; k < 3; k++) if (o.w[k] && o.idx[k] == i) v = o.val[k];
+    if (o.w && o.idx == i) v = o.val;
     return v;
   endfunction
 
@@ -269,7 +269,7 @@ module bpu_spec import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
     logic [RASQ_W-1:0] v;
     v = nos_q[i];
     if (o.arch && !i[RASQ_W-1]) v = (i == '0) ? '0 : i - RASQ_W'(1);
-    for (int k = 0; k < 3; k++) if (o.w[k] && o.idx[k] == i) v = o.nos[k];
+    if (o.w && o.idx == i) v = o.nos;
     return v;
   endfunction
 
@@ -289,15 +289,14 @@ module bpu_spec import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
   endfunction
   /* verilator lint_on UNUSEDSIGNAL */
 
-  function automatic rst_t do_op(input rst_t s0, input logic [1:0] op, input logic [XLEN_BITS-1:0] v,
-                                 input logic [1:0] slot);
+  function automatic rst_t do_op(input rst_t s0, input logic [1:0] op, input logic [XLEN_BITS-1:0] v);
     rst_t s;
     s = s0;
     if (op == 2'd1) begin
-      s.o.w[slot]   = 1'b1;
-      s.o.idx[slot] = s0.p.tosw;
-      s.o.val[slot] = v;
-      s.o.nos[slot] = s0.p.tosr;
+      s.o.w         = 1'b1;
+      s.o.idx       = s0.p.tosw;
+      s.o.val       = v;
+      s.o.nos       = s0.p.tosr;
       s.p.tosr      = s0.p.tosw;
       s.p.tosw      = s0.p.tosw + RASQ_W'(1);
       if (s0.p.cnt < RAS_CNT_W'(RAS_DEPTH)) s.p.cnt = s0.p.cnt + RAS_CNT_W'(1);
@@ -313,10 +312,10 @@ module bpu_spec import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
     rst_t s_n1;
     s_n1  = '0;
     s_n1.p = (r_mode == M_CK) ? '{tosr: r_ck.tosr, tosw: r_ck.tosw, cnt: r_ck.cnt} : rp_q;
-    s_old = do_op(s_n1, r_op, r_val, 2'd0);
+    s_old = do_op(s_n1, r_op, r_val);
   end
-  always_comb s_d1 = do_op(start(rr_mode, rr_ck), rr_op, rr_val, 2'd0);
-  always_comb s_q1 = do_op(start(2'd0, '0), g0_r_op, g0_r_val, 2'd2);
+  always_comb s_d1 = do_op(start(rr_mode, rr_ck), rr_op, rr_val);
+  always_comb s_q1 = do_op(start(2'd0, '0), g0_r_op, g0_r_val);
   always_comb s_d = refetch ? s_d1 : (issue ? s_q1 : s_old);
 
   always_comb begin

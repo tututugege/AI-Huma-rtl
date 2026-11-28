@@ -136,6 +136,7 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
   logic [31:0]            hf_insts   [FETCH_WIDTH];
   logic [FETCH_WIDTH-1:0] hf_valid, hf_pf, hf_pf_hi, hf_rvc;
   logic [1:0]             hf_type    [FETCH_WIDTH];
+  logic [KIND_W-1:0]      hf_kind    [FETCH_WIDTH];
   logic [XLEN_BITS-1:0]   hf_target  [FETCH_WIDTH], hf_slot_pc [FETCH_WIDTH], hf_pd_pc [FETCH_WIDTH];
   logic                   hf_carry, hf_straddle;
   logic [XLEN_BITS-1:0]   hf_end, hf_seq_next;
@@ -153,6 +154,7 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
     .pf_o         (hf_pf),
     .pf_hi_o      (hf_pf_hi),
     .ptype_o      (hf_type),
+    .kind_o       (hf_kind),
     .ptarget_o    (hf_target),
     .is_rvc_o     (hf_rvc),
     .slot_pc_o    (hf_slot_pc),
@@ -165,9 +167,8 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
   );
 
   // ---- Predecode checker ----
-  logic [FETCH_WIDTH-1:0][KIND_W-1:0] slot_kind;
-  logic [FETCH_WIDTH-1:0]             checker_dir_corrected, pd_cut_valid;
-  logic [XLEN_BITS-1:0]               checker_next_corrected;
+  logic [FETCH_WIDTH-1:0] checker_dir_corrected, pd_cut_valid;
+  logic [XLEN_BITS-1:0]   checker_next_corrected;
 
   predecode_checker u_checker (
     .predict_dir                          (ftq_pd_pred_dir),
@@ -180,10 +181,6 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
     .predecode_flush_enable               (checker_flush_enable)
   );
   assign checker_flush_address = checker_next_corrected;
-
-  for (genvar i = 0; i < FETCH_WIDTH; i++) begin : g_kind
-    front_slot_kind u_kind (.inst(hf_insts[i]), .kind(slot_kind[i]));
-  end
 
   // Cut after the first predicted-taken lane, matching FrontControl::finish:
   // pd_cut_valid[i] = hf_valid[i] && no valid taken lane below i (4-round prefix-OR).
@@ -199,7 +196,7 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
 
   front_pd_info u_pd (
     .clk, .rst_n, .checked(predecode_can_run), .flush(predecode_can_run && checker_flush_enable),
-    .slot_pc(hf_slot_pc), .is_rvc(hf_rvc), .insts(hf_insts), .inst_valid(hf_valid),
+    .slot_pc(hf_slot_pc), .is_rvc(hf_rvc), .kind(hf_kind), .inst_valid(hf_valid),
     .ptype(hf_type), .pre_target(hf_target),
     .dir_corrected(checker_dir_corrected), .predict_dir(ftq_pd_pred_dir),
     .pd_next_pc(ftq_pd_next_pc),
@@ -237,7 +234,7 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
     fe2ftq_pd.pred_dir  = pd_cut_valid & checker_dir_corrected;
     fe2ftq_pd.is_rvc    = hf_rvc;
     fe2ftq_pd.next_pc   = checker_next_corrected;
-    fe2ftq_pd.slot_kind = slot_kind;
+    for (int i = 0; i < FETCH_WIDTH; i++) fe2ftq_pd.slot_kind[i] = hf_kind[i];
 
     out_lane_valid      = predecode_can_run ? pd_cut_valid : '0;
     out_instructions    = hf_insts;

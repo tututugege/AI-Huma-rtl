@@ -172,6 +172,7 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 - 2026-11-17：`1d8688e` EXP-042：口并行、`ttg_first_set` 对数深度，深度代理 163 → 67（在 261bd67 之前）。
 - 2026-11-16：`8abb7ab` RTL 清理（删旧生成器和 spec/，折叠部分 rv32 条件）；2026-11-11：`72f2cd9` rv64 第 3 步：Sv39 TLB 和页表遍历器。
 - 更早：见 git 历史。
+- 2026-11-29 清理：`tlb_mmu_pkg` 删包级 `lint_off UNUSEDPARAM` 豁免（`scripts/lint.sh` 改为只编所需的包，包常量是否未用只在整芯片 lint 判定，见 `docs/01-rtl-coding-standard.md` 8.5；整芯片 lint 普通 / `-DSYNTHESIS` 下无死常量）（周期不变）。
 
 ## EXP-048 M3 补充：预取跨页页表遍历丢弃
 

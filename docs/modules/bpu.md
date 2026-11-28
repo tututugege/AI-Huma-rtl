@@ -103,7 +103,7 @@ SRAM 复位：`bpu_sram_1rw_banked` 有 `rst_n` 端口，复位期间把阵列�
 | `bpu_ftb_itt.sv` | 148 | 单套 4 表 512 项 2-Bank 1RW Block-ITT（零 T0 读，无 WrBypass，3-bit `start_k` 防越界） |
 | `bpu_ftb_arrays.sv` | 165 | 4 阵列容器（`u_ftb0` / `u_ftb1` / `u_ah_ex_tage` / `u_aitt`）与单口 1RW Bank 仲裁 |
 | `bpu_ftb_brq.sv` | 196 | 16 项提交分支队列 + 单 Bank 512 项 1R1W `u_rec` + `T0 → T1` 流水寄存器 |
-| `bpu_hist_vec.sv` / `bpu_spec.sv` | 138 + 360 | 256b 投机历史环 / 200b 架构移位器与投机/架构 RAS；`bpu_hist_vec` 的综合 / 仿真两种写法只在 `sym_n ≤ MAX_SYM` 时等价（[06 第 4 节](../06-equivalence-policy.md)），`bpu_spec` 的三个实例都是 `MAX_SYM = 1`、`sym_n = {3'd0, en}`，前提由构造保证 |
+| `bpu_hist_vec.sv` / `bpu_spec.sv` | 138 + 359 | 256b 投机历史环 / 200b 架构移位器与投机/架构 RAS；`bpu_hist_vec` 的综合 / 仿真两种写法只在 `sym_n ≤ MAX_SYM` 时等价（[06 第 4 节](../06-equivalence-policy.md)），`bpu_spec` 的三个实例都是 `MAX_SYM = 1`、`sym_n = {3'd0, en}`，前提由构造保证 |
 | `bpu_eval.sv` | 257 | S0（3-block ahead `ah_a1_raw_q` + `u_ftb0`）与 S2（`u_ftb1` + `self0` 并行评估、Cut A2、`fin_diff` 与元数据生成） |
 | `bpu_ctl.sv` / `bpu_cmd.sv` | 49 + 94 | 3 级单块控制与历史/RAS/PC 下一拍命令（S2 覆盖当拍恢复） |
 | `bpu_pdq.sv` | 65 | 32 项预译码检查点 FIFO |
@@ -169,6 +169,7 @@ SRAM 复位：`bpu_sram_1rw_banked` 有 `rst_n` 端口，复位期间把阵列�
 - 尺寸常量见第 2 节。
 
 ## 10. 变更记录
+- 2026-11-29 清理 F：`bpu_spec` 的投机 RAS 写覆盖层 `rov_t` 由 3 槽收为 1 槽（`w` / `idx` / `val` / `nos` 不再是数组）：每条路径（`s_old`、`s_d1`、`s_q1`）只做一次 `do_op`、至多写一槽（原来 `s_q1` 写槽 2，其余写槽 0，槽 1 清理 C 起无人写），`do_op` 去掉 `slot` 参数；随机对拍 `tests/fe_clean_f/run.sh spec`（逐拍比较输出、`rp_q`、`aras_q`、`spec_q` 和 64 项 `st_q / nos_q`）（周期不变）。
 - 2026-11-29 清理 E：改名 `ptab_write_enable` → `s2_wr_req`、`ptab_base_pc` → `s2_base_pc`（S2 块写统一 FTQ；`front_pred_path` 里对应 `bpu_s2_wr_req` / `bpu_s2_base_pc`）（只改名字，周期不变）。
 - 2026-11-29 清理 D：去重（周期不变）。`bpu_uftb` / `bpu_ftb_tab` 各自的 `set_idx` / `norm_tag` 合为 `bpu_stage_pkg::ftb_set_hash` / `ftb_tag_hash`（宽度作参数，调用处截位），两处预译码清槽的 `clr_car / clr_vok / clr_off` 合为 `ftb_clr_pos`；逐槽清除循环未合并（`u_ftb0` 是 `uftb_ent_t` 原地改整组，`u_ftb1` 是 `ftb_ent_t` 取出单项并记路号，类型和结构都不同）。`make_ah_ex_tage_index` / `make_ah_itt_index` 改为调用共用散列核 `ah_idx_hash` / `ah_tag_hash` / `ah_tag_salt`；`bpu.sv` 的读发起不再传占位参数，改用只算索引的 `ah_ex_tage_idx` / `ah_itt_idx`（读索引的 `w` / `tag` 字段原本无人读，现为 0），`ah_rd_ex_fh_eff`（整个 `ex_fh_t`）收为 `ah_rd_key_fh`（`ex_fh0_t`）。`bpu_hist_vec` 的 `rotl_const_ex` / `rotl_sym_ex` 与 `bpu_spec` 的 `arch_rotl_*` 逐字相同，移入 `bpu_stage_pkg` 一份（函数体未改，`bpu_hist_vec` 两种写法的形式等价不受影响，未重证；`-DSYNTHESIS` 下新旧 `bpu_hist_vec` 随机对拍 0 差）。`bpu_spec::arch_push_vec` 与 `bpu_hist_vec` 综合写法的折叠更新核心仍是两份：合并要改动已证明等价的综合写法（宽度 3·MAX_SYM 对 24、出位来源环对移位器），需重做形式证明，本轮不做。随机对拍（旧函数副本对新函数，100 万组）0 差。
 - 2026-11-29：文档补记 uFTB 目标高位的重拼规则；模型 `s0_lookup_with_ah` 改成与之一致（trace-model 侧修复，RTL 未改），Linux s04 / s12 窗口 RTL 与模型指纹全等。

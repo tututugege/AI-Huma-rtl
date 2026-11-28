@@ -181,3 +181,4 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 - 2026-11-12：rv64（`is_word`、*W 运算、`div_core` 每拍 2 步、`MUL_MAX_LATENCY = 3`、`DIV_MAX_LATENCY = 32`）；F/D（浮点 FU）。
 - 更早：见 git 历史。
 - 2026-11-18：删除没有被任何文件实例化的 `csr_fu.sv`（21 行，只有握手；CSR 指令的握手在 `exu_ctrl` 里做）。
+- 2026-11-29 清理：`exu_fu_pkg`、`fp_arith_pkg` 删包级 `lint_off UNUSEDPARAM` 豁免（`scripts/lint.sh` 改为只编所需的包，包常量是否未用只在整芯片 lint 判定，见 `docs/01-rtl-coding-standard.md` 8.5；整芯片 lint 普通 / `-DSYNTHESIS` 下无死常量）（周期不变）。

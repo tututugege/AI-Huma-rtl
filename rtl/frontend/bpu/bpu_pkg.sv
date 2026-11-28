@@ -1,6 +1,5 @@
 // Ref: front-end/BPU/BPU_configs.h  (shared BPU constants used by the FTB branch predictor)
 `default_nettype none
-/* verilator lint_off UNUSEDPARAM */
 package bpu_pkg;
   import ttg_cfg_pkg::*;
 
@@ -31,6 +30,5 @@ package bpu_pkg;
   localparam int RASQ_W    = 6;
 
 endpackage
-/* verilator lint_on UNUSEDPARAM */
 
 `default_nettype wire

@@ -9,7 +9,9 @@ module isu_wake_compact
   parameter int N = 24,
   parameter int M = 8
 ) (
-  input  logic                     clk,            // only used by the overflow assertion
+  /* verilator lint_off UNUSEDSIGNAL */  // waiver: clk only clocks the overflow assertion (unread under -DSYNTHESIS)
+  input  logic                     clk,
+  /* verilator lint_on UNUSEDSIGNAL */
   input  logic [N-1:0]             in_valid,
   input  logic [PRF_IDX_WIDTH-1:0] in_preg [N],
   output logic [M-1:0]             out_valid,

@@ -209,3 +209,4 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 - 2026-11-12：rv64（`is_word`、*W 除法延迟减半）；F/D（FP 队列、延迟唤醒槽、FP 写口闸，EXP-031..036）。
 - 更早：见 git 历史。
 - 2026-11-18：删除只剩一种取值的开关 `INT_CLUSTERS`、`MEM_AGE`、`IQ_SAME_CYCLE_REUSE`（`isu_pkg`、`isu.sv`、`isu_iq.sv` 里直接写成唯一取值）。
+- 2026-11-29 清理：删 `isu.sv` 里只是 `fdiv_cnt_eff` 别名的 `fdiv_cnt`（直接用 `fdiv_cnt_eff`）；`isu_wake_compact` / `isu_alloc_chain` 的 `clk` 只给溢出断言用，`-DSYNTHESIS` 下不读，改为端口处局部 `UNUSEDSIGNAL` 豁免（保留端口）；`isu_pkg` 删包级 `lint_off UNUSEDPARAM` 豁免（`scripts/lint.sh` 改为只编所需的包，包常量是否未用只在整芯片 lint 判定，见 `docs/01-rtl-coding-standard.md` 8.5；整芯片 lint 普通 / `-DSYNTHESIS` 下无死常量），`WAKE_PORTS` 只被 `isu.sv` 的配置检查（`ifndef SYNTHESIS`）读，加局部 `UNUSEDPARAM` 豁免（周期不变）。

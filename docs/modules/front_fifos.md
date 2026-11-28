@@ -11,7 +11,7 @@ depth: 13 层（2026-11-18，测的是已删除的 fetch_addr_fifo；inst_fifo �
 
 ## 1. 职责
 
-前端现在只剩一个队列：指令队列 `inst_fifo`，放 I-Cache 回来、还没做预译码检查的取指组（原始 16 位半字流）。写的一方是 I-Cache 的 F1 响应（`front_fetch_buf`），读的一方是预译码检查（`front_pred_path` 的 `front_head_fix` / `predecode_checker`）。取指地址、预测结果、送后端的缓冲都在统一 FTQ 里（[ftq_ibuf.md](ftq_ibuf.md)）；原来的 `fetch_addr_fifo`、`ptab`、`front2back_fifo` 已在 EXP-070 删除。
+前端现在只剩一个队列：指令队列 `inst_fifo`，放 I-Cache 回来、还没做预译码检查的取指组（一个已合并好的 16 槽半字窗口）。写的一方是 I-Cache 的 F1 响应（`front_fetch_buf`），读的一方是预译码检查（`front_pred_path` 的 `front_head_fix` / `predecode_checker`）。取指地址、预测结果、送后端的缓冲都在统一 FTQ 里（[ftq_ibuf.md](ftq_ibuf.md)）；原来的 `fetch_addr_fifo`、`ptab`、`front2back_fifo` 已在 EXP-070 删除。
 
 `inst_fifo` 是一读一写环形队列，条目是打包结构体 `inst_fifo_entry_t`（原来的通用队列 `front_fifo` 只有它一个使用者，2026-11-28 并入）。
 
@@ -23,10 +23,10 @@ depth: 13 层（2026-11-18，测的是已删除的 fetch_addr_fifo；inst_fifo �
 | --- | --- | --- |
 | 深度 | 16 | `INSTRUCTION_FIFO_SIZE`（`ttg_cfg_pkg`）→ `INST_FIFO_DEPTH`（`front_pkg`） |
 | "满"阈值 | 16 | 等于深度（`full = count >= INST_FIFO_DEPTH`） |
-| 条目 `inst_fifo_entry_t` | 按字段相加 652 位（没有用 `$bits` 在综合里核对） | `front_pkg` |
+| 条目 `inst_fifo_entry_t` | 按字段相加 371 位（没有用 `$bits` 在综合里核对） | `front_pkg` |
 | 清空来源 | 全局 refetch（`global_refetch`，含预译码冲刷） | `front_fetch_buf.sv` |
 
-条目字段（`front_pkg::inst_fifo_entry_t`）：`is_straddle` 1、`a_len` 4、`base_a` 64、`valid_a` 16、`pf_a` 16、`single_word_a` 1、`raw_a` 16×16、`up16_a` 16、`b_ok` 1、`b_actual_n` 5、`raw_b` 16×16、`up16_b` 16。A 块是本次取指的 16 个半字；B 块是同页下一行（跨行 2-Fetch，`is_straddle`）预读出的半字，地址恒为 A 的下一行，所以不存 B 的基址；`up16_a` 是 A 块最后一个有效槽窗口的高半字（跨行时取 B 块槽 0 的低半）。
+条目字段（`front_pkg::inst_fifo_entry_t`）：`is_straddle` 1、`single_word` 1、`tail_ok` 1、`base` 64、`valid` 16、`pf` 16、`half` 16×16、`up16` 16。写入前 `front_fetch_buf` 已把 A 块（本次取指）和 B 块（同页下一行从半字 0 起，跨行 2-Fetch）合并成一个窗口：槽 `[0, a_len)` 取 A，槽 `[a_len, a_len + b_n)` 取 B（`is_straddle`，B 未命中时这些槽无效）；`valid` 是前缀；无效 / 缺页槽的 `half` 是 NOP 的低半 `0x0013`；`up16` 是最后一个有效槽之上的半字（缺页组为 0）；`tail_ok` = `pc[5:0] == 32` 且 B 命中（槽 15 之上的半字是真的，`up16` = B 的半字 0）；`single_word` = 非缓存的单字回答。槽 i 的 32 位窗口在 `front_head_fix` 里拼：槽 i+1 有效时 `{half[i+1], half[i]}`，否则 `{0, half[i]}`。
 
 ## 3. 接口
 
@@ -60,7 +60,7 @@ depth: 13 层（2026-11-18，测的是已删除的 fetch_addr_fifo；inst_fifo �
 
 ## 6. 关键路径与深度
 
-单模块综合深度 **13 层**（2026-11-18 测的是已删除的 `fetch_addr_fifo`；`inst_fifo` 更浅，没有单独重测；`scripts/synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`，生成门代理，不是时序）。队列本身是存储读 + 指针加法；值得看的是读口后面接的 `front_head_fix` 和检查器（`rdata = mem_q[rd_ptr_q]`，16 项 × 652 位的选择），见 [predecode.md](predecode.md)。
+单模块综合深度 **13 层**（2026-11-18 测的是已删除的 `fetch_addr_fifo`；`inst_fifo` 更浅，没有单独重测；`scripts/synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`，生成门代理，不是时序）。队列本身是存储读 + 指针加法；值得看的是读口后面接的 `front_head_fix` 和检查器（`rdata = mem_q[rd_ptr_q]`，16 项 × 371 位的选择），见 [predecode.md](predecode.md)。
 
 ## 7. 与模型的差异和取舍
 
@@ -74,6 +74,7 @@ depth: 13 层（2026-11-18，测的是已删除的 fetch_addr_fifo；inst_fifo �
 - **门禁**：`scripts/fm_gate.sh` 77/77，周期对 `scripts/ref_cycles.txt` 逐个相等。
 - **仿真断言**：`inst_fifo` 的溢出断言；深度非 2 的幂的展开期错误。
 - **Lint**：`scripts/lint_chip.sh` 0 告警。
+- **等价测试**：`tests/fe_clean_f/run.sh chain`（清理 F 前后的取指链 `icache_resp → front_fetch_buf → inst_fifo → front_head_fix` 随机对拍，100 万拍，见 [predecode.md](predecode.md) 第 8 节）。
 - **没有模块级的独立测试**。**待补**：`inst_fifo` 与参考队列的随机对拍。
 
 ## 9. 参数与开关速查
@@ -82,6 +83,7 @@ depth: 13 层（2026-11-18，测的是已删除的 fetch_addr_fifo；inst_fifo �
 
 ## 10. 变更记录
 
+- 2026-11-29 清理 F：A/B 跨行合并移到队列前（`front_fetch_buf`），条目从 `raw_a` + `raw_b` 两组半字（+`a_len`、`b_actual_n`、`up16_a`、`up16_b`、`b_ok`）改为一个合并好的窗口 `half[16]` + `up16` + `tail_ok`，`base_a / valid_a / pf_a / single_word_a` 改名 `base / valid / pf / single_word`，条目 652 → 371 位（16 项共省 4,496 个触发器）（周期不变）。
 - 2026-11-29 清理 E：改名 `inst_fifo_entry_t.is_pair` → `is_straddle`（同页跨行 B 块，不是旧的 2-taken 双块）（只改名字，周期不变）。
 - 2026-11-29 清理 C：删 EXP-051 2-taken 双块残留（EXP-070 起不再产生）：`inst_fifo_entry_t.base_b`（64 位）删除，唯一读者 `front_head_fix` 的 `pair_discontinuity` 恒为 0（跨行 B 块恒为 A 的下一行），条目 716 → 652 位（周期不变）。
 - 2026-11-28 清理：删 `front_fifo` 的死功能（`drop_tail` 恒 0、`BYPASS` 恒 0、`FULL_AT` 恒等于深度、`next_rdata` / `head_fresh`（`fresh_v_q` / `fresh_slot_q`）无读者），把剩下的队列并入 `inst_fifo.sv`；删 `inst_fifo` 无读者的 `rd_valid` 输出与 `front_pkg::INST_FIFO_FULL_AT`（周期不变）。

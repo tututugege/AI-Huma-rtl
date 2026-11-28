@@ -1,12 +1,14 @@
-// Ref: front-end/front_top.cpp  InstPort::comb_read (line-straddle raw A/B merge, single expand+predecode, O(log N) prefix start scan, FTQ PD PC cut, rvc_head_fix)
+// Ref: front-end/front_top.cpp  InstPort::comb_read (single expand+predecode, O(log N) prefix start scan,
+// FTQ PD PC cut, rvc_head_fix)
 `default_nettype none
 
-// Instruction-queue head preparation before predecode_checker:
-//   1) Line-straddle raw A/B merge (fused A + next line B when inst_e.is_straddle, else intact Block A);
-//   2) Single 16-lane RVC expand + predecode + 4-round O(log N) Kogge-Stone start_a/start_b prefix scan;
+// Instruction-queue head preparation before predecode_checker (the A/B line-straddle merge is done before the queue,
+// in front_fetch_buf; the entry is one halfword window with a prefix of valid slots):
+//   1) 32-bit window per slot ({next slot, slot}; {0, slot} on the last valid slot), sequential pc;
+//   2) Single 16-lane RVC expand + branch decode + 4-round O(log N) Kogge-Stone start_a/start_b prefix scan;
 //   3) Parallel FTQ PD PC agreement cut (4-round prefix-OR) + log-depth valid count (ttg_first_set);
 //   4) RVC=1 C910-style carry assembly, cross-page 2nd-halfword page-fault offset (+2), and straddler handling.
-module front_head_fix import ttg_cfg_pkg::*; import front_pkg::*; (
+module front_head_fix import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; (
   input  inst_fifo_entry_t        inst_e,
   input  logic [XLEN_BITS-1:0]    pd_base_pc,
   input  logic [FETCH_WIDTH-1:0]  predict_dir,
@@ -17,7 +19,8 @@ module front_head_fix import ttg_cfg_pkg::*; import front_pkg::*; (
   output logic [FETCH_WIDTH-1:0]  valid_o,
   output logic [FETCH_WIDTH-1:0]  pf_o,
   output logic [FETCH_WIDTH-1:0]  pf_hi_o,
-  output logic [1:0]              ptype_o      [FETCH_WIDTH],
+  output logic [1:0]              ptype_o      [FETCH_WIDTH],   // 0 (non-branch) on an invalid slot
+  output logic [KIND_W-1:0]       kind_o       [FETCH_WIDTH],   // BR_* of insts_o (every slot; the FTQ slot kind)
   output logic [XLEN_BITS-1:0]    ptarget_o    [FETCH_WIDTH],
   output logic [FETCH_WIDTH-1:0]  is_rvc_o,
   output logic [XLEN_BITS-1:0]    slot_pc_o    [FETCH_WIDTH],
@@ -29,43 +32,22 @@ module front_head_fix import ttg_cfg_pkg::*; import front_pkg::*; (
   output logic [XLEN_BITS-1:0]    seq_next_o
 );
 
-  localparam logic [15:0] INST_NOP_LO = 16'h0013;
   localparam int          IC_OFF_W    = $clog2(ICACHE_LINE_SIZE);
 
-  // ---- Step 1: Same-Page Line-Straddle 2-Fetch contiguous halfword assembly ----
+  // ---- Step 1: slot windows from the merged halfword window ----
   logic                   use_straddle;
   logic [FETCH_WIDTH-1:0] s1_v, s1_pf;
   logic [XLEN_BITS-1:0]   s1_pc   [FETCH_WIDTH], pd_pc [FETCH_WIDTH];
-  logic [15:0]            s1_lo   [FETCH_WIDTH], s1_hi   [FETCH_WIDTH];
+  logic [15:0]            s1_lo   [FETCH_WIDTH];
 
   assign use_straddle = inst_e.is_straddle;
+  assign s1_v         = inst_e.valid;
+  assign s1_pf        = inst_e.pf;
 
   always_comb begin
     for (int i = 0; i < FETCH_WIDTH; i++) begin
-      logic [3:0] j;
-      j = 4'(i) - inst_e.a_len;
-      if (use_straddle && (4'(i) >= inst_e.a_len)) begin
-        s1_v[i]  = inst_e.b_ok && ({1'b0, j} < inst_e.b_actual_n);
-        s1_pf[i] = 1'b0;
-        s1_pc[i] = inst_e.base_a + XLEN_BITS'(SLOT_BYTES * i);
-        s1_lo[i] = s1_v[i] ? inst_e.raw_b[j] : INST_NOP_LO;
-        s1_hi[i] = s1_v[i]
-                   ? (({1'b0, j} + 5'd1 < inst_e.b_actual_n) ? inst_e.raw_b[j + 4'd1] : inst_e.up16_b)
-                   : 16'h0000;
-      end else begin
-        s1_v[i]  = inst_e.valid_a[i];
-        s1_pf[i] = inst_e.pf_a[i];
-        s1_pc[i] = inst_e.base_a + XLEN_BITS'(SLOT_BYTES * i);
-        s1_lo[i] = inst_e.raw_a[i];
-        if (inst_e.pf_a[i] || !inst_e.valid_a[i]) begin
-          s1_hi[i] = 16'h0000;
-        end else if (use_straddle && inst_e.b_ok && (inst_e.b_actual_n != 5'd0) && (4'(i) == inst_e.a_len - 4'd1)) begin
-          // Stitch 32-bit instruction straddling the 64B cache-line boundary directly from Line L+1 slot 0!
-          s1_hi[i] = inst_e.raw_b[0];
-        end else begin
-          s1_hi[i] = ((i + 1 < FETCH_WIDTH) && inst_e.valid_a[i + 1]) ? inst_e.raw_a[i + 1] : inst_e.up16_a;
-        end
-      end
+      s1_lo[i] = inst_e.half[i];
+      s1_pc[i] = inst_e.base + XLEN_BITS'(SLOT_BYTES * i);
       pd_pc[i] = pd_base_pc + XLEN_BITS'(SLOT_BYTES * i);
     end
   end
@@ -79,32 +61,35 @@ module front_head_fix import ttg_cfg_pkg::*; import front_pkg::*; (
   ttg_first_set #(.N(FETCH_WIDTH)) u_s1_inv (.req(~s1_v), .onehot(s1_inv_oh), .any(s1_any_inv));
   assign s1_last_oh = s1_any_inv ? {1'b0, s1_inv_oh[FETCH_WIDTH-1:1]} : {1'b1, {(FETCH_WIDTH-1){1'b0}}};
   assign s1_has_v   = s1_v[0];
-  ttg_onehot_mux #(.N(FETCH_WIDTH), .W(16))        u_s1_up16 (.sel(s1_last_oh), .data(s1_hi), .out(s1_up16));
+  assign s1_up16    = inst_e.up16;
   ttg_onehot_mux #(.N(FETCH_WIDTH), .W(XLEN_BITS)) u_s1_lpc  (.sel(s1_last_oh), .data(s1_pc), .out(s1_last_pc));
-  assign s1_up_ok   = s1_has_v && (!inst_e.single_word_a) &&
+  assign s1_up_ok   = s1_has_v && (!inst_e.single_word) &&
                       ((((s1_last_pc + XLEN_BITS'(SLOT_BYTES)) & XLEN_BITS'(ICACHE_LINE_SIZE - 1)) != '0) ||
-                       (!use_straddle && inst_e.b_ok));
-  assign s1_seq_raw = s1_has_v ? (s1_last_pc + XLEN_BITS'(SLOT_BYTES)) : inst_e.base_a;
-  assign s1_seq     = (!use_straddle && (s1_seq_raw[XLEN_BITS-1:IC_OFF_W] != inst_e.base_a[XLEN_BITS-1:IC_OFF_W]))
+                       inst_e.tail_ok);
+  assign s1_seq_raw = s1_has_v ? (s1_last_pc + XLEN_BITS'(SLOT_BYTES)) : inst_e.base;
+  assign s1_seq     = (!use_straddle && (s1_seq_raw[XLEN_BITS-1:IC_OFF_W] != inst_e.base[XLEN_BITS-1:IC_OFF_W]))
                       ? {s1_seq_raw[XLEN_BITS-1:IC_OFF_W], {IC_OFF_W{1'b0}}}
                       : s1_seq_raw;
 
-  // ---- Step 2: Single 16-lane RVC expand + predecode + 4-round O(log N) prefix start scan ----
+  // ---- Step 2: Single 16-lane RVC expand + branch decode + 4-round O(log N) prefix start scan ----
   logic [31:0]            s1_win  [FETCH_WIDTH], s1_inst [FETCH_WIDTH];
   logic [FETCH_WIDTH-1:0] s1_rvc, s1_sa, s1_sb;
-  logic [1:0]             s1_ty   [FETCH_WIDTH];
+  logic [KIND_W-1:0]      s1_kind [FETCH_WIDTH];
   logic [XLEN_BITS-1:0]   s1_tgt  [FETCH_WIDTH];
 
+  // the window of slot i takes slot i+1 as its upper half while slot i+1 is valid (valid is a prefix, so this is every
+  // valid slot but the last).  A faulting group holds NOP low halves, so its windows decode as non-branch either way.
   for (genvar i = 0; i < FETCH_WIDTH; i++) begin : g_dec
     logic [31:0] ex;
-    assign s1_win[i]  = s1_last_oh[i] ? {16'h0000, s1_lo[i]} : {s1_hi[i], s1_lo[i]};
+    if (i + 1 < FETCH_WIDTH) begin : g_mid
+      assign s1_win[i] = s1_v[i + 1] ? {s1_lo[i + 1], s1_lo[i]} : {16'h0000, s1_lo[i]};
+    end else begin : g_end
+      assign s1_win[i] = {16'h0000, s1_lo[i]};
+    end
     rvc_expand u_exp (.h(s1_lo[i]), .inst(ex));
     assign s1_rvc[i]  = (RVC_ENABLE != 0) && s1_v[i] && (s1_lo[i][1:0] != 2'b11);
     assign s1_inst[i] = s1_rvc[i] ? ex : s1_win[i];
-    predecode_lane u_pd (
-      .pc(s1_pc[i]), .inst(s1_inst[i]), .inst_valid(s1_v[i]),
-      .predecode_type(s1_ty[i]), .predecode_target_address(s1_tgt[i])
-    );
+    predecode_lane u_pd (.pc(s1_pc[i]), .inst(s1_inst[i]), .kind(s1_kind[i]), .target(s1_tgt[i]));
   end
 
   // 4-round Kogge-Stone prefix scan for start_a (no carry: lane 0 starts) / start_b (carry: lane 1 starts)
@@ -174,8 +159,6 @@ module front_head_fix import ttg_cfg_pkg::*; import front_pkg::*; (
 
   // ---- Step 3: Parallel FTQ PD PC agreement cut ----
   logic [FETCH_WIDTH-1:0] mm_raw, cut_mask, s2_v;
-  logic [1:0]             s2_ty  [FETCH_WIDTH];
-  logic [XLEN_BITS-1:0]   s2_tgt [FETCH_WIDTH];
   logic                   dropped;
   logic [FETCH_WIDTH-1:0] s2_inv_oh, s2_last_oh;
   logic                   s2_any_inv, s2_has_v;
@@ -195,10 +178,6 @@ module front_head_fix import ttg_cfg_pkg::*; import front_pkg::*; (
     cut_mask = cut_mask | (cut_mask << 8);
     dropped  = |(s1_v & cut_mask);
     s2_v     = s1_v & ~cut_mask;
-    for (int i = 0; i < FETCH_WIDTH; i++) begin
-      s2_ty[i]  = cut_mask[i] ? PREDECODE_NON_BRANCH : s1_ty[i];
-      s2_tgt[i] = cut_mask[i] ? '0                   : s1_tgt[i];
-    end
   end
 
   ttg_first_set #(.N(FETCH_WIDTH)) u_s2_inv (.req(~s2_v), .onehot(s2_inv_oh), .any(s2_any_inv));
@@ -222,7 +201,7 @@ module front_head_fix import ttg_cfg_pkg::*; import front_pkg::*; (
   // ---- Step 4: RVC=1 carry assembly + instruction-start filter + straddler ----
   logic [XLEN_BITS-1:0]   asm_pc, comp_pc;
   logic [31:0]            asm_word, comp_word;
-  logic [1:0]             asm_type, comp_type;
+  logic [KIND_W-1:0]      asm_kind, comp_kind;
   logic [XLEN_BITS-1:0]   asm_tgt, comp_tgt;
   logic [FETCH_WIDTH-1:0] chain, straddle_raw_oh, complete_oh, straddle_oh, keep;
   logic [15:0]            raw_low [FETCH_WIDTH];
@@ -230,12 +209,9 @@ module front_head_fix import ttg_cfg_pkg::*; import front_pkg::*; (
 
   assign carry    = (RVC_ENABLE != 0) && lh_valid && (lh_pc == s1_pc[0]) && s2_v[0];
   assign asm_pc   = s1_pc[0] - XLEN_BITS'(SLOT_BYTES);
-  assign asm_word = {inst_e.raw_a[0], lh_data};
+  assign asm_word = {s1_lo[0], lh_data};   // carry => slot 0 valid => slot 0 is a Block A slot (a_len >= 1)
 
-  predecode_lane u_asm (
-    .pc(asm_pc), .inst(asm_word), .inst_valid(1'b1),
-    .predecode_type(asm_type), .predecode_target_address(asm_tgt)
-  );
+  predecode_lane u_asm (.pc(asm_pc), .inst(asm_word), .kind(asm_kind), .target(asm_tgt));
 
   always_comb begin
     chain = carry ? s1_sb : s1_sa;
@@ -252,37 +228,41 @@ module front_head_fix import ttg_cfg_pkg::*; import front_pkg::*; (
   end
 
   // Select straddler candidate directly from s2_last_oh & s1_lo (100% parallel with scan_starts/chain and complete_oh!)
-  // Proof: complete_oh[i] => s2_last_oh[i] && !s1_rvc[i] && !(i==0 && carry), so comp_pc === s2_last_pc and comp_low === s1_lo[last].
+  // Proof: complete_oh[i] => s2_last_oh[i] && !s1_rvc[i] && !(i==0 && carry), so comp_pc === s2_last_pc and
+  // comp_low === s1_lo[last].
   assign comp_pc = s2_last_pc;
   ttg_onehot_mux #(.N(FETCH_WIDTH), .W(16)) u_comp_low (.sel(s2_last_oh), .data(s1_lo), .out(comp_low));
   assign comp_word = {s2_up16, comp_low};
 
-  predecode_lane u_comp (
-    .pc(comp_pc), .inst(comp_word), .inst_valid(1'b1),
-    .predecode_type(comp_type), .predecode_target_address(comp_tgt)
-  );
+  predecode_lane u_comp (.pc(comp_pc), .inst(comp_word), .kind(comp_kind), .target(comp_tgt));
 
   logic [XLEN_BITS-1:0] last_slot_pc;
   ttg_onehot_mux #(.N(FETCH_WIDTH), .W(XLEN_BITS)) u_end_pc (.sel(s2_last_oh), .data(slot_pc_o), .out(last_slot_pc));
 
   always_comb begin
     for (int i = 0; i < FETCH_WIDTH; i++) begin
+      logic [KIND_W-1:0]    k;
+      logic [XLEN_BITS-1:0] t;
       if (i == 0 && carry) begin
-        insts_o[i]   = asm_word;
-        is_rvc_o[i]  = 1'b0;
-        ptype_o[i]   = valid_o[i] ? asm_type : PREDECODE_NON_BRANCH;
-        ptarget_o[i] = valid_o[i] ? asm_tgt  : '0;
+        insts_o[i]  = asm_word;
+        is_rvc_o[i] = 1'b0;
+        k           = asm_kind;
+        t           = asm_tgt;
       end else if (complete_oh[i]) begin
-        insts_o[i]   = comp_word;
-        is_rvc_o[i]  = 1'b0;
-        ptype_o[i]   = valid_o[i] ? comp_type : PREDECODE_NON_BRANCH;
-        ptarget_o[i] = valid_o[i] ? comp_tgt  : '0;
+        insts_o[i]  = comp_word;
+        is_rvc_o[i] = 1'b0;
+        k           = comp_kind;
+        t           = comp_tgt;
       end else begin
-        insts_o[i]   = s1_inst[i];
-        is_rvc_o[i]  = (RVC_ENABLE != 0) && s1_rvc[i];
-        ptype_o[i]   = valid_o[i] ? s2_ty[i]  : PREDECODE_NON_BRANCH;
-        ptarget_o[i] = valid_o[i] ? s2_tgt[i] : '0;
+        insts_o[i]  = s1_inst[i];
+        is_rvc_o[i] = (RVC_ENABLE != 0) && s1_rvc[i];
+        k           = s1_kind[i];
+        t           = s1_tgt[i];
       end
+      // the checker sees the decode of the assembled word even on a fault (valid_o => !cut); the FTQ kind is the NOP's
+      ptype_o[i]   = valid_o[i] ? ptype_of_kind(k) : PREDECODE_NON_BRANCH;
+      ptarget_o[i] = valid_o[i] ? t : '0;
+      kind_o[i]    = s1_pf[i] ? BR_NONCTL : k;
       // Explicit 1-bit flag for cross-page 2nd-halfword instruction page-fault (+2 in ROB stval)
       pf_hi_o[i] = s1_pf[i] && (i == 0) && carry;
       if (s1_pf[i]) insts_o[i] = 32'h00000013;

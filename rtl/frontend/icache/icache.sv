@@ -42,15 +42,15 @@ module icache import ttg_cfg_pkg::*; import icache_pkg::*; import tlb_mmu_pkg::*
   output logic [XLEN_BITS-1:0] fetch_pc,
   output logic [FETCH_WIDTH-1:0] inst_valid,
   output logic [FETCH_WIDTH-1:0] page_fault_inst,
-  output logic [31:0] fetch_group [FETCH_WIDTH],
-  output logic [FETCH_WIDTH-1:0] fetch_upper_ok,
+  output logic [15:0] fetch_half [FETCH_WIDTH],
+  output logic [15:0] fetch_up16,
   output logic        fetch_single_word,
   output logic        b_hit,
   output logic        b_is_straddle,
   output logic        b_is_tail,
   output logic [3:0]  b_a_len,
-  output logic [4:0]  b_actual_n,
-  output logic [31:0] b_fetch_group [FETCH_WIDTH],
+  output logic [3:0]  b_actual_n,
+  output logic [15:0] b_half [FETCH_WIDTH],
   output logic mem_req_valid,
   output logic [31:0] mem_req_addr,
   output logic [7:0]  mem_req_total_size,
@@ -160,7 +160,6 @@ module icache import ttg_cfg_pkg::*; import icache_pkg::*; import tlb_mmu_pkg::*
     f1_d.b_is_tail   = f0_b_en && f0_tail;
     f1_d.a_len       = f0_a_len;
     f1_d.b_nwords    = f0_b_nwords;
-    f1_d.b_addr      = f0_b_addr;
   end
 
   always_ff @(posedge clk) begin
@@ -222,28 +221,24 @@ module icache import ttg_cfg_pkg::*; import icache_pkg::*; import tlb_mmu_pkg::*
 
   // ---- F1 Data SRAM output / halfword slicing -> inst_fifo ----
   logic                   f1_v;
-  logic [IC_LINE_W-1:0]   f1_line_a, f1_line_b;
-  logic [FETCH_WIDTH-1:0] b_inst_v_unused, b_pf_unused, b_up_unused;
-  logic [XLEN_BITS-1:0]   b_pc_unused;
+  logic [IC_LINE_W-1:0]   f1_line_a;
 
   assign f1_v      = !refetch && f1_q.valid;
   assign f1_line_a = f1_q.from_sram ? (f1_q.use_hi_only ? {hi_rdata, 256'd0} : {hi_rdata, lo_rdata})
                                     : f1_byp_line_q;
-  assign f1_line_b = {256'd0, lo_rdata};
 
   icache_resp u_resp (
     .resp_valid(f1_v), .resp_pc(f1_q.pc), .resp_page_fault(f1_q.page_fault),
     .resp_single_word(f1_q.single_word), .resp_line(f1_line_a),
-    .fetch_pc, .fetch_group, .upper_ok(fetch_upper_ok), .page_fault_inst, .inst_valid
+    .fetch_pc, .fetch_half, .fetch_up16, .page_fault_inst, .inst_valid
   );
-  icache_resp u_resp_b (
-    .resp_valid(f1_v && f1_q.b_hit), .resp_pc(f1_q.b_addr), .resp_page_fault(1'b0),
-    .resp_single_word(1'b0), .resp_line(f1_line_b),
-    .fetch_pc(b_pc_unused), .fetch_group(b_fetch_group),
-    .upper_ok(b_up_unused), .page_fault_inst(b_pf_unused), .inst_valid(b_inst_v_unused)
-  );
+  // Block B always starts at halfword 0 of the next line (Lo half of the SRAM row): its lanes are the Lo halfwords.
+  // They are read only while b_hit (front_fetch_buf), so no lane gating is needed.
+  for (genvar i = 0; i < FETCH_WIDTH; i++) begin : g_b_half
+    assign b_half[i] = lo_rdata[16 * i +: 16];
+  end
 
-  assign b_actual_n        = {1'b0, f1_q.b_nwords};
+  assign b_actual_n        = f1_q.b_nwords;
   assign b_hit             = f1_v && f1_q.b_hit && (f1_q.b_nwords != 4'd0);
   assign b_is_straddle     = f1_v && f1_q.b_is_straddle;
   assign b_is_tail         = f1_v && f1_q.b_is_tail;
@@ -253,7 +248,7 @@ module icache import ttg_cfg_pkg::*; import icache_pkg::*; import tlb_mmu_pkg::*
   assign ic_inflight       = {1'b0, f1_q.valid} + {1'b0, r_req_valid_o};
 
   logic unused_ic;
-  assign unused_ic = ^{b_inst_v_unused, b_pf_unused, b_up_unused, b_pc_unused, f0_ppn[IC_TAG_W-2:0],
+  assign unused_ic = ^{f0_ppn[IC_TAG_W-2:0],
                        arr_rd_pc[XLEN_BITS-1:IC_OFF_W], arr_rd_pc[IC_OFF_W-2:0]};
 
 endmodule

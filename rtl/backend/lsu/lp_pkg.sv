@@ -3,7 +3,6 @@
 package lp_pkg;
   import ttg_cfg_pkg::*;
 
-  /* verilator lint_off UNUSEDPARAM */  // package constants are used by other files
   localparam int NLD  = LSU_LDU_COUNT;      // load pipelines (L1/L2) = DCache load ports = load write-back ports
   localparam int NWBP = 2;                  // V2 WBP load write-back wake/pick bandwidth (64 -> 2)
   localparam int NWK  = 3 * NLD + NWBP;     // wakeup channels: [0..NLD-1] L1 spec, [NLD..2*NLD-1] L3, [2*NLD..3*NLD-1] L2b/L2a, [3*NLD..NWK-1] WBP
@@ -25,7 +24,6 @@ package lp_pkg;
   localparam int ROBW = ROB_IDX_WIDTH;
   localparam int PRFW = PRF_IDX_WIDTH;
   localparam int LINEW = 32 - DCACHE_OFFSET_BITS;
-  /* verilator lint_on UNUSEDPARAM */
 
   // LDQ entry state
   typedef enum logic [3:0] {
@@ -53,9 +51,7 @@ package lp_pkg;
   // DTLB outcome stored in PL12.tlb.  Its own encoding (hit = 0), NOT the DTLB response code
   // (tlb_mmu_pkg::RES_MISS / RES_HIT / RES_FAULT = 0 / 1 / 2): lp_l1 builds it from booleans, the two never mix.
   // Replay type: memcpu_pkg::REPLAY_*; AMO funct7[6:2]: dis_pkg::AMO_LR / AMO_SC.
-  /* verilator lint_off UNUSEDPARAM */
   localparam logic [1:0] PL12_TLB_HIT = 2'd0, PL12_TLB_MISS = 2'd1, PL12_TLB_PF = 2'd2;
-  /* verilator lint_on UNUSEDPARAM */
 
   // decision of one L2 port (what happens to the load of PL12[p])
   typedef struct packed {

@@ -5,7 +5,7 @@ ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 OUT=${OUT:-$ROOT/build/test_ren_elim_sel}
 mkdir -p "$OUT"
 JOBS=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
-verilator --cc --exe --build -j "$JOBS" -Wall -Wno-DECLFILENAME \
+verilator --cc --exe --build -j "$JOBS" -Wall -Wno-DECLFILENAME -Wno-UNUSEDPARAM \
   --top-module ren_elim_sel -Mdir "$OUT/obj" \
   "$ROOT/rtl/common/ttg_cfg_pkg.sv" \
   "$ROOT/rtl/backend/dispatch/dis_pkg.sv" \

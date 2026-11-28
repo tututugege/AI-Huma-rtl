@@ -240,14 +240,12 @@ module isu
     end
   end
 
-  logic [FP_COUNT_W:0] fdiv_cnt;
   localparam int FP_LAST = ISSUE_WIDTH - 1;
   logic                     fdiv_iss, fdiv_keep;
   logic [FP_COUNT_W:0]      fdiv_cnt_q, fdiv_cnt_eff, fdiv_cnt_d, fdiv_lat;
   logic [LSU_LDU_COUNT-1:0] fdiv_spec_mask_q, fdiv_spec_mask_d;
   logic [ROB_IDX_WIDTH-1:0] fdiv_rob_idx_q, fdiv_rob_idx_d;
   logic                     fdiv_rob_flag_q, fdiv_rob_flag_d;
-  assign fdiv_cnt = fdiv_cnt_eff;
   always_comb begin
     fdiv_cnt_eff     = (|(fdiv_spec_mask_q & lsu2iss_cancel_valid)) ? '0 : fdiv_cnt_q;
     fdiv_iss         = grant_valid[FP_LAST] && (grant_uop[FP_LAST].op == op_t'(dis_pkg::UOP_FDIV));
@@ -295,7 +293,7 @@ module isu
       end else if (p == 1 && (c == 2 || c == 3)) begin : g_div_busy
         assign iss_cls_free[p][c] = wb_cls_free[p][c] && !div_busy_eff;
       end else if ((p == ISSUE_WIDTH - 1) && (c >= 4 && c <= 7)) begin : g_fdiv_busy
-        assign iss_cls_free[p][c] = wb_cls_free[p][c] && (fdiv_cnt == '0);
+        assign iss_cls_free[p][c] = wb_cls_free[p][c] && (fdiv_cnt_eff == '0);
       end else begin : g_pass
         assign iss_cls_free[p][c] = wb_cls_free[p][c];
       end

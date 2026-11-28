@@ -3,7 +3,6 @@
 
 // waiver (reviewed): a package is linted standalone, where its constants and types look unused; they are used by the
 // ftq_ibuf_* modules.
-/* verilator lint_off UNUSEDPARAM */
 package ftq_ibuf_pkg;
   import ttg_cfg_pkg::*;
 
@@ -51,6 +50,5 @@ package ftq_ibuf_pkg;
     logic                       ftq_is_last;
   } ib_entry_t;
 endpackage
-/* verilator lint_on UNUSEDPARAM */
 
 `default_nettype wire

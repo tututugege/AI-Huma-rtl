@@ -173,3 +173,4 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 - 2026-11-28（`rtl/fe-2ahead`，文档核对）：`hz_mshr_*` 位宽改为 `[NM]`；第 6 节补 2026-11-20 的 53 层；测试平台目录说明更新；门禁改为 77/77 对 `scripts/ref_cycles.txt`。
 - 2026-11-26：`axi_ic_aw.sv` 解除 `o_bready` 对 `d_bid` 的组合依赖（改为仿真断言检查 `d_bid == w_q.id`），消除接入真实 AXI4 Crossbar 时的潜在 `BVALID→BREADY` 组合环，对 `soc_top`/`core_tb` 0 周期变化（`fm_gate` 77/77 PASS）。
 - 本分支（`261bd67..HEAD`）未改动本目录；更早：见 git 历史。
+- 2026-11-29 清理：`axi_ic_pkg` 删包级 `lint_off UNUSEDPARAM` 豁免（`scripts/lint.sh` 改为只编所需的包，包常量是否未用只在整芯片 lint 判定，见 `docs/01-rtl-coding-standard.md` 8.5；整芯片 lint 普通 / `-DSYNTHESIS` 下无死常量）（周期不变）。

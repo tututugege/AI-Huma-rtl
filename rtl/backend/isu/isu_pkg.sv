@@ -1,6 +1,5 @@
 // Ref: back-end/Isu.cpp  class Isu; back-end/include/IssueQueue.h  class IssueQueue (types and static configuration)
 `default_nettype none
-/* verilator lint_off UNUSEDPARAM */  // constants package: not every constant is used by every top
 package isu_pkg;
   import ttg_cfg_pkg::*;
 
@@ -268,7 +267,9 @@ package isu_pkg;
   localparam int MUL_UNITS = port_count(MASK_MUL);
   localparam int DIV_UNITS = port_count(MASK_DIV);
   // issue ports that can have a wake-up consequence (ALU/MUL/DIV capable); they are ports 0..WAKE_PORTS-1
+  /* verilator lint_off UNUSEDPARAM */  // waiver: read only by isu's config check (`ifndef SYNTHESIS)
   localparam int WAKE_PORTS = port_count(MASK_ALU | MASK_MUL | MASK_DIV);
+  /* verilator lint_on UNUSEDPARAM */
   localparam int FAST_UNITS = port_count(MASK_ALU);
   localparam int MUL_WAKE_BASE = LD_WAKE_BASE + LSU_LOAD_WB_WIDTH;
   localparam int DIV_WAKE_BASE = MUL_WAKE_BASE + MUL_UNITS;

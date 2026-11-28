@@ -1,6 +1,5 @@
 // Ref: front-end/BPU/BPU_pipe.h & BpuSc.h  (Single-Set 2-Ahead BPU: S0->S1->S2, ex_fh[3][6], HR_BITS=256)
 `default_nettype none
-/* verilator lint_off UNUSEDPARAM */
 package bpu_stage_pkg;
   import ttg_cfg_pkg::*;
   import bpu_pkg::*;
@@ -236,17 +235,17 @@ package bpu_stage_pkg;
     logic [RAS_CNT_W-1:0] cnt;
   } rptr_t;
 
+  // RAS write overlay of one cycle: every path of bpu_spec applies at most one RAS op, so at most one push
   typedef struct packed {
-    logic                       arch;
-    logic [2:0]                 w;
-    logic [2:0][RASQ_W-1:0]     idx;
-    logic [2:0][XLEN_BITS-1:0]  val;
-    logic [2:0][RASQ_W-1:0]     nos;
+    logic                  arch;   // read the architectural RAS below the queue
+    logic                  w;      // one push: entry idx <- (val, nos)
+    logic [RASQ_W-1:0]     idx;
+    logic [XLEN_BITS-1:0]  val;
+    logic [RASQ_W-1:0]     nos;
   } rov_t;
 
   typedef struct packed { rptr_t p; rov_t o; } rst_t;
 
 endpackage
-/* verilator lint_on UNUSEDPARAM */
 
 `default_nettype wire

@@ -3,7 +3,6 @@
 
 // waiver (reviewed): a package is linted standalone, where its constants and the whole-struct arguments of its
 // classification functions look unused; every one of them is used by the rob_* modules.
-/* verilator lint_off UNUSEDPARAM */
 /* verilator lint_off UNUSEDSIGNAL */
 package rob_pkg;
   import ttg_cfg_pkg::*;

@@ -1,6 +1,5 @@
 // Ref: back-end/include/config.h  FP / FPRF_NUM; F/D constants shared by the PRF, the execution units and the Exu
 `default_nettype none
-/* verilator lint_off UNUSEDPARAM */  // package constants are used by other files; a package linted alone looks unused
 package fp_pkg;
   import ttg_cfg_pkg::*;
 

@@ -5,7 +5,7 @@
 // committed branch): beq..bgeu = conditional, jal rd=ra = call, other jal = jal, jalr x0,ra,0 = return, jalr rd=ra =
 // indirect call, other jalr = indirect, everything else = not a control instruction.  Stored per slot with the fetch
 // group so that the back end can hand it back with a mispredict.
-module front_slot_kind import front_pkg::*; import bpu_pkg::*; (
+module front_slot_kind_ref import front_pkg::*; import bpu_pkg::*; (
   /* verilator lint_off UNUSEDSIGNAL */   // only opcode, rd, rs1 and the 12-bit immediate decide the type
   input  logic [31:0]          inst,
   /* verilator lint_on UNUSEDSIGNAL */

@@ -118,3 +118,4 @@ depth: bootrom 27 / sram 23 / clint 26 / plic 72 / uart 20 / sysctrl 11 层（ed
 - 2026-11-28 清理：`soc_pkg` 删无引用的 `NSLV_MMIO`、`IRQ_UART` 和与 `soc_axi_pkg::AXI4_RESP_*` 重复的 `AXI_RESP_*`（`soc_uart` / `soc_clint` / `soc_sysctrl` / `soc_plic` 改用 `soc_axi_pkg::AXI4_RESP_OKAY`），`soc_decode_slave` 改用 `ADDR_*` 常量的高位比较（同一组比较，结果不变）；删各外设 `unused_*` 汇点外不起作用的 `UNUSEDSIGNAL` 豁免（周期不变）。
 - 2026-11-28（`rtl/fe-2ahead`）：`soc_sram` 的 `ttg_sram_1rw` 设 `INIT_SWEEP = 0`（软件 RAM，复位不清零，73761fa）；文档按 TEMPLATE 十节重排。
 - 2026-11-26（`5fa54e2`）：新增 v1 片上外设。
+- 2026-11-29 清理：`soc_pkg` 删包级 `lint_off UNUSEDPARAM` 豁免（`scripts/lint.sh` 改为只编所需的包，包常量是否未用只在整芯片 lint 判定，见 `docs/01-rtl-coding-standard.md` 8.5；整芯片 lint 普通 / `-DSYNTHESIS` 下无死常量）（周期不变）。

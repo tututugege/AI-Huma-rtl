@@ -1,6 +1,5 @@
 // Ref: back-end/Dispatch.cpp  class Dispatch (types shared by the dispatch_* modules)
 `default_nettype none
-/* verilator lint_off UNUSEDPARAM */  // constants package: not every constant is used by every top
 package dis_pkg;
   import ttg_cfg_pkg::*;
 

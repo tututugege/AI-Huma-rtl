@@ -193,3 +193,4 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 
 - 2026-11-19（`exp/llc-plru`，EXP-045）：替换从"每组一个下一受害路指针"改为 SRRIP（每路 2 位 RRPV，查表解析时读改写；分配时更新，重填 / 写提交不再写替换状态；写口被写提交占用时丢弃分配的更新）。29 个 SPEC06 高权重点几何平均 +1.23%（omnetpp +9.0%）。
 - 更早：见 git 历史。
+- 2026-11-29 清理：`axi_llc_pkg` 删包级 `lint_off UNUSEDPARAM` 豁免（`scripts/lint.sh` 改为只编所需的包，包常量是否未用只在整芯片 lint 判定，见 `docs/01-rtl-coding-standard.md` 8.5；整芯片 lint 普通 / `-DSYNTHESIS` 下无死常量）（周期不变）。

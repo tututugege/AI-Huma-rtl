@@ -1,14 +1,14 @@
 // Ref: front-end/front_top.cpp  FrontChecker::comb (log-depth parallel PdInfo: up to 1 history symbol & 1 RAS op)
 `default_nettype none
 
-module front_pd_info import ttg_cfg_pkg::*; import front_pkg::*; import bpu_stage_pkg::*; (
+module front_pd_info import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; (
   input  logic                    clk,
   input  logic                    rst_n,
   input  logic                    checked,
   input  logic                    flush,
   input  logic [XLEN_BITS-1:0]    slot_pc    [FETCH_WIDTH],
   input  logic [FETCH_WIDTH-1:0]  is_rvc,
-  input  logic [31:0]             insts      [FETCH_WIDTH],
+  input  logic [KIND_W-1:0]       kind       [FETCH_WIDTH],   // BR_* (predecode_lane; NONCTL on a faulting slot)
   input  logic [FETCH_WIDTH-1:0]  inst_valid,
   input  logic [1:0]              ptype      [FETCH_WIDTH],
   input  logic [XLEN_BITS-1:0]    pre_target [FETCH_WIDTH],
@@ -54,11 +54,11 @@ module front_pd_info import ttg_cfg_pkg::*; import front_pkg::*; import bpu_stag
       lane_sym[i]  = hsym_of(slot_pc[i], tgt);
       lane_rop[i]  = 2'd0;
       lane_rval[i] = '0;
-      if ((ptype[i] == PREDECODE_JAL) && (insts[i][11:7] == 5'd1)) begin
+      // a call pushes its return address, a return pops (an indirect call is not a RAS op here)
+      if (kind[i] == BR_CALL) begin
         lane_rop[i]  = 2'd1;
         lane_rval[i] = slot_pc[i] + (is_rvc[i] ? XLEN_BITS'(2) : XLEN_BITS'(4));
-      end else if ((ptype[i] == PREDECODE_JALR) && (insts[i][11:7] == 5'd0) &&
-                   (insts[i][19:15] == 5'd1) && (insts[i][31:20] == 12'd0)) begin
+      end else if (kind[i] == BR_RET) begin
         lane_rop[i] = 2'd2;
       end
     end

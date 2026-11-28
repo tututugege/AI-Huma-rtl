@@ -154,3 +154,4 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 - 本分支（exp/agu-share，`261bd67..HEAD`）：本目录没有改动。
 - 2026-11-12：rv64（寄存器 `XLEN_BITS` 位、`misa` / `mstatus` 复位值和掩码）；F/D（`fcsr`、`FS`、`csr2exe_frm`、`csr2rob_fs_off`）。
 - 更早：见 git 历史。
+- 2026-11-29 清理：`csr_pkg` 删包级 `lint_off UNUSEDPARAM` 豁免（`scripts/lint.sh` 改为只编所需的包，包常量是否未用只在整芯片 lint 判定，见 `docs/01-rtl-coding-standard.md` 8.5；整芯片 lint 普通 / `-DSYNTHESIS` 下无死常量）（周期不变）。

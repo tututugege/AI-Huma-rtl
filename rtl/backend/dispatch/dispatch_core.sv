@@ -18,9 +18,8 @@ module dispatch_core
   input  logic                          rob_ready,
   input  logic                          rob_empty,
   input  logic                          rob_stall,
-  input  logic [ROB_IDX_WIDTH-1:0]      rob_enq_idx,    // line ROB: the line the group will occupy (zero extended);
-                                                        // compact ROB: the tail entry
-  input  logic [ROB_IDX_WIDTH:0]        rob_free,       // compact ROB: free entries
+  input  logic [ROB_IDX_WIDTH-1:0]      rob_enq_idx,    // ROB tail entry (the first dispatched instruction goes here)
+  input  logic [ROB_IDX_WIDTH:0]        rob_free,       // free ROB entries
   input  logic                          rob_enq_flag,
   output logic [NUM_SLOTS-1:0] dis_fire,
   output logic [NUM_SLOTS-1:0] slot_valid,  // PMU: the dispatch stage register holds an instruction in this slot

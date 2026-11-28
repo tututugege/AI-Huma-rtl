@@ -98,3 +98,4 @@ depth: 75 层（100,853 cells，eda-05 Yosys `SYNTH_ABC="strash;balance;map"`，
 
 - `rtl/memsys/axi_interconnect/axi_ic_aw.sv`：`o_bready` 解除对 `d_bid` 的组合依赖（单写在途，改为仿真断言检查 `d_bid == w_q.id`），对 `soc_top` 零周期变化。
 - `rtl/memsys/mem_top/mem_mmio_axi.sv`：升级为完整 64-bit Full-AXI4 Master（输出真实 `ARSIZE/AWSIZE`、`ARCACHE/AWCACHE = Device-nGnRnE`、`ARBURST/AWBURST = INCR`、`ARLOCK/AWLOCK`、`ARQOS/AWQOS`、`ARREGION/AWREGION`、`WLAST`），保留低 3 位字节地址。
+- 2026-11-29 清理：`soc_axi_pkg` 删包级 `lint_off UNUSEDPARAM` 豁免（`scripts/lint.sh` 改为只编所需的包，包常量是否未用只在整芯片 lint 判定，见 `docs/01-rtl-coding-standard.md` 8.5；整芯片 lint 普通 / `-DSYNTHESIS` 下无死常量）（周期不变）。

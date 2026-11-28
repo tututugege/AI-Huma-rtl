@@ -10,7 +10,9 @@ module isu_alloc_chain #(
   parameter int NREQ  = 8,
   parameter int NSLOT = 64
 ) (
-  input  logic             clk,           // only used by the overflow assertion
+  /* verilator lint_off UNUSEDSIGNAL */  // waiver: clk only clocks the overflow assertion (unread under -DSYNTHESIS)
+  input  logic             clk,
+  /* verilator lint_on UNUSEDSIGNAL */
   input  logic [NREQ-1:0]  req,
   input  logic [NSLOT-1:0] free,
   output logic [NSLOT-1:0] slot_onehot [NREQ]   // slot taken by each request (all zero when it gets none)

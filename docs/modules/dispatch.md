@@ -197,3 +197,4 @@ RTL 与模型保持一致的细节（读模型时容易误判）：
 - 更早：见 git 历史。
 - 2026-11-23（`rtl/ld-wake`，EXP-060）：随 `LP_L2[3]=1` 启用 `g_cancel` 取消向量与 30 路唤醒；`eda-08` Yosys：`dispatch` **57 层**（较 EXP-059 57 层 0 增长）/ 212,064 单元（+5.9%）；`fm_gate` 69/69 PASS 0 周期差，Linux 26 窗 100% 全等。
 - 2026-11-18：删除 `ROB_COMPACT == 0`（行式 ROB）的分支：`dispatch_core` 里 `rob_idx` 按行编号的写法、`dispatch_fire_ctl` 里 `rob_fit` 恒真的写法，以及 `dis_pkg` 里只给它们用的 `ROB_BANK_W`、`ROB_LINE_W`。
+- 2026-11-29 清理：核对 `rob2dis_enq_idx` / `rob2dis_free` 仍在用（`dispatch_core` 算 ROB 下标、`dispatch_fire_ctl` 判 ROB 空位），不删，只改 `dispatch_core` 端口注释里过时的 line ROB 说法；`dis_pkg` 删包级 `lint_off UNUSEDPARAM` 豁免（`scripts/lint.sh` 改为只编所需的包，包常量是否未用只在整芯片 lint 判定，见 `docs/01-rtl-coding-standard.md` 8.5；整芯片 lint 普通 / `-DSYNTHESIS` 下无死常量）（周期不变）。

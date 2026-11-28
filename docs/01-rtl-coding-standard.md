@@ -14,7 +14,7 @@
    - 核心子模块：按硬件功能拆分（例：重命名拆成 RAT、空闲表、组内依赖检查、checkpoint 各一个模块），内部可用 packed struct / enum。
    - 通用原语：`rtl/common/ttg_*.sv`（find-first-set、独热 mux、popcount 等）。新原语先放在本模块目录并以模块名为前缀（`ren_xxx.sv`），由协调者统一提升到 common。
 3. **用硬件构造表达并行**：优先级选择用 `ttg_first_set`；多路选择用独热 mux；"数前面有几个"用前缀和/popcount；队列用读写指针+满空标志。**禁止**把 C++ 的"for 循环 + break + 运行计数器"搬进 `always_comb`（S11 检查）。
-4. **体量上限**：一个文件 ≤ 400 行，一个 `always_comb` ≤ 60 行（S10 检查）。超了说明该拆模块或拆成具名阶段，而不是放宽限制。
+4. **体量（建议，不是硬性规定）**：一个文件大约 800 行、一个 `always_comb` 大约 120 行时，`svlint` 会给出一条 S10 提示（不算失败）。超一点没关系；明显超过、而且有清楚的功能边界（一个能单独讲清楚、单独验证的单元）时再拆。不要为了凑行数把一段连贯的逻辑切成小模块。（2026-11-29 改：原来是硬上限 400 / 60 行，结果一半文件不到 100 行、不少 `always_comb` 卡在 45–60 行被硬切开，模块间的端口和连线比逻辑本身还长。）
 5. **命名表达含义**：信号名说明它是什么（`free_preg_onehot`、`rename_group_conflict`），不用 `tmp`、`flag1`、`cnt2`；一个信号一个含义，不复用变量。
 6. **全参数化**：车道数、深度、位宽都是参数或来自 `ttg_cfg_pkg`；用 `generate for` 展开车道，不手工复制粘贴 N 份。
 7. **状态集中**：每个状态数组一个明确的"写端口"逻辑块；写冲突的优先级写成显式规则并注释对应的 C++ 行为。
@@ -113,7 +113,7 @@ end
 
 ## 8.5 lint 豁免（仅限以下三种，其余一律不允许）
 
-1. `*_pkg.sv` 里的 `/* verilator lint_off UNUSEDPARAM */`（包里的常量被别的文件使用，单独 lint 包时会误报）。
+1. 包常量未用（UNUSEDPARAM）：不再在 `*_pkg.sv` 里写包级 `lint_off UNUSEDPARAM`。`scripts/lint.sh` 每个目录只编它用到的包，包常量是否未用只在整设计 lint（`chip_top` 目录、`lint_soc.sh`）里判定，那里报的就是死常量，删掉；其余目录和 `lint_chip.sh`（顶层 `soc_top`，不含芯片级外设）通过 `scripts/lint_pkg.vlt` 统一不报（共享包在单个目录里只用到一部分）。例外：生成的 `ttg_cfg_pkg` / `pmu_ev_pkg` 保留包级豁免；只在 `ifndef SYNTHESIS` 里读的常量（如 `isu_pkg::WAKE_PORTS`）在该常量处加局部豁免并写明原因。
 2. 端口位宽由 spec/参考模型规定、但高位确实不用时，在该端口附近用**局部** `lint_off UNUSEDSIGNAL` 并写明原因（如 `rob2dis.enq_idx` 的高位）。
 3. 通用原语的输出端口未被某个实例使用时：接到一个**具名**哑信号，并在该信号声明处加局部 `/* verilator lint_off UNUSEDSIGNAL */`（写明原因）。空连接 `.any()` 会被 `-Wall` 的 PINCONNECTEMPTY 拒绝，不要用。
 每处豁免必须带注释，评审逐个核对。
@@ -121,7 +121,7 @@ end
 ## 9. 评审清单
 
 - [ ] 有设计笔记；顶层只做端口适配；按硬件功能拆分了子模块
-- [ ] 无 C++ 式循环/break/运行计数器；每个文件 ≤400 行、每个 always_comb ≤60 行
+- [ ] 无 C++ 式循环/break/运行计数器；过长的文件 / always_comb 看过 S10 提示，有清楚功能边界的已拆
 - [ ] 文件头有 Ref 注释；每个 `always_comb` 有 Ref 函数名
 - [ ] 无手写位宽魔数；常量来自 `ttg_cfg_pkg`
 - [ ] 所有寄存器有复位，复位值与 C++ `init()` 一致

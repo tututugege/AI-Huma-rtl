@@ -1,6 +1,5 @@
 // Ref: front-end/BPU/BpuFtb.h & BpuSc.h  (Single-Set 2-Ahead BPU: uFTB256 + FTB1 + 2-Way ExTAGE + 4-Tbl ITT)
 `default_nettype none
-/* verilator lint_off UNUSEDPARAM */
 package bpu_types_pkg;
   import ttg_cfg_pkg::*;
   import bpu_pkg::*;
@@ -386,6 +385,5 @@ package bpu_types_pkg;
   /* verilator lint_on UNUSEDSIGNAL */
 
 endpackage
-/* verilator lint_on UNUSEDPARAM */
 
 `default_nettype wire

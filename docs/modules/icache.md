@@ -13,7 +13,7 @@ depth: Tier 1 TSMC 28nm (Yosys+PrimeTime STA, clk=0.65ns, eda-07): icache 77 层
 > - **容量与宏重构（64 KiB，`16 × 1024×32` 1RW 宏）**：由 `8 ways × 64 sets`（`4-Bank 16×512b` 填满 `256 × 64×64`，`1,476.4k µm²`）改为 **`4 ways × 256 sets × 64B`**，按 **Lo-32B / Hi-32B** 垂直切分为两套独立单口 `ttg_sram_1rw #(DEPTH=1024, WIDTH=256)`（共 **`16 × TEM5N28HPCPLVTA1024X32M4SWSO`**，仅 `213.7k µm²`，`-85.5%` 宏面积且容量翻倍），彻底消灭 `4.00×` 深度 padding 与 8 路 512b Data Mux。
 > - **2 级串联流水（`F0 → F1`）彻底斩断 92 级组合环**：
 >   - **F0（ITLB + Even/Odd 2-Bank Tag + `hit_way` → 启动 1RW Data SRAM）**：仅用寄存 `ifu_addr` / `r_q.req_pc` 查 64 项 ITLB 与按 `idx[0]` 分奇偶 2-Bank FF 的 Tag/Valid（Block A 与同页下一行 Block B 奇偶永反、0 冲突，并行完成 4 路比对与 `arr_b_hit`），选定单路 `{hit_way, idx}`（和 `rd_pc[5]` 时 `Lo` 读 Block B）直接送入 `u_data_lo`/`u_data_hi`（取消 `fast_fire` 组合反推 `next_rd_index` 与 `ic_next_b_idx`）。
->   - **F1（Data SRAM 读出 + 半字切片拼接 → `inst_fifo`）**：锁存 `ic_f1_t` 与旁路行，直接从 `lo_rdata` / `hi_rdata` 经 `u_resp` / `u_resp_b` 切出指令槽推入 `inst_fifo`。
+>   - **F1（Data SRAM 读出 + 半字切片拼接 → `inst_fifo`）**：锁存 `ic_f1_t` 与旁路行，直接从 `lo_rdata` / `hi_rdata` 经 `u_resp`（A 块）切出指令槽、B 块取 `lo_rdata` 的半字，推入 `inst_fifo`。
 > - **严格单口 FDIP 1 项回填缓冲 + 零 SRRIP/hit 耦合**：`icache_fdip` 新增 1 项 `fb_v_q` 锁存 AXI 回填行，仅在 `!demand_tw_we && !demand_idle_req`（此时 `!fdip_fb_busy` 保证 `req_valid_in=0`）时写入 `u_arr`；`eff_fdip_we` 选路仅读寄存 `repl_q`/`valid_q`，彻底切断旧版 `hit_onehot -> SRRIP -> bank_we` 组合长路。
 > - **VIPT 别名安全**：`256 sets` 使用 8-bit 虚拟索引 `VA[13:6]`（跨出 4 KiB 页 2-bit）；Tag 强制保留完整 20-bit 物理 PPN `PA[31:12]`，`icache` 只读且 `FENCE.I` 全清 `valid_q`，天然免疫同物理页不同 VA 颜色别名。
 >
@@ -45,7 +45,7 @@ depth: Tier 1 TSMC 28nm (Yosys+PrimeTime STA, clk=0.65ns, eda-07): icache 77 层
 4. 响应重取指（`refetch`）、FENCE.I（作废全部有效位）、SFENCE.VMA（`itlb_flush`）、预译码冲刷（`invalidate`，同拍的第二步）：取消在途请求和在途缺失；
 5. 请求在途时记账 AXI 事务号：被取消的缺失的迟到响应要丢掉。
 
-现行结构（2026-11-28，`rtl/fe-2ahead`）是两级流水：**F0** 用寄存的取指地址查 ITLB 和按 `idx[0]` 分奇偶两组的触发器标签 / 有效位，选出命中路后启动数据 SRAM 读；**F1** 拿到 Lo / Hi 两半的数据，由 `icache_resp`（A 块）和第二个 `icache_resp`（`u_resp_b`，B 块）切出取指组。B 块是同页下一行（取指块跨 64 字节行但不跨 4 KiB 页时，`b_is_straddle` / `b_is_tail`）。另有 `icache_fdip`：接 BPU S2 确认的下一取指地址（`fdip_s2_*`，前端已打一拍），8 项去重队列（`FDIP_Q = 8`）、2 个 AXI 预取事务（`FDIP_N = 2`，事务号从 `FDIP_TX_BASE = 8` 起）和 1 项回填缓冲 `fb_v_q`（只在需求侧不写阵列时写入，保证阵列单口）。
+现行结构（2026-11-28，`rtl/fe-2ahead`）是两级流水：**F0** 用寄存的取指地址查 ITLB 和按 `idx[0]` 分奇偶两组的触发器标签 / 有效位，选出命中路后启动数据 SRAM 读；**F1** 拿到 Lo / Hi 两半的数据，由 `icache_resp`（A 块）切出取指组，B 块直接取 `lo_rdata` 的 16 个半字（2026-11-29 清理 F 之前是第二个 `icache_resp` `u_resp_b`）。B 块是同页下一行（取指块跨 64 字节行但不跨 4 KiB 页时，`b_is_straddle` / `b_is_tail`）。另有 `icache_fdip`：接 BPU S2 确认的下一取指地址（`fdip_s2_*`，前端已打一拍），8 项去重队列（`FDIP_Q = 8`）、2 个 AXI 预取事务（`FDIP_N = 2`，事务号从 `FDIP_TX_BASE = 8` 起）和 1 项回填缓冲 `fb_v_q`（只在需求侧不写阵列时写入，保证阵列单口）。
 
 模型里是一个调度单元 `front.core.icache`（`ICacheTop`）：`comb_fetch` 做取指步 N，`comb_invalidate` 做预译码冲刷的第二步 K；时序更新在 `seq`。RTL 的模块边界是为综合划的，模型里没有对应的类（`icache_module.cpp` 的 `ICache` 是它的状态机）。
 
@@ -81,8 +81,8 @@ depth: Tier 1 TSMC 28nm (Yosys+PrimeTime STA, clk=0.65ns, eda-07): icache 77 层
 | 入 | `ptw_walk_req_ready`、`ptw_walk_resp_*` | 页表遍历器对 ITLB 的响应 |
 | 出 | `icache_ready` | 能接新请求：`!(itlb_flush | fence_i) & ifu_ready_q & !req_valid_q & !miss_txv & 状态为 IDLE` |
 | 出 | `ic_inflight` | 在途取指数（0..2：F1 有效 + 登记槽有效），给 `inst_fifo_room` |
-| 出 | `read_complete`、`fetch_pc`、`inst_valid[16]`、`page_fault_inst[16]`、`fetch_group[16]`、`fetch_upper_ok[16]`、`fetch_single_word` | A 块取指组；`fetch_upper_ok[i]` = 第 i 个窗口有真实的高半字；`fetch_single_word` = 不缓存的单字取指 |
-| 出 | `b_hit`、`b_is_straddle`、`b_is_tail`、`b_a_len`、`b_actual_n`、`b_fetch_group[16]` | B 块（同页下一行）：是否命中、是跨行续接还是只取尾半字、A 块槽数、有效槽数、取指组（B 的地址恒为 A 的下一行，不再输出） |
+| 出 | `read_complete`、`fetch_pc`、`inst_valid[16]`、`page_fault_inst[16]`、`fetch_half[16]`、`fetch_up16`、`fetch_single_word` | A 块取指组：每槽一个半字（无效 / 缺页槽为 NOP 低半 `0x0013`）；`fetch_up16` = 槽 15 之上的半字（槽 15 无效或缺页时 0）；`fetch_single_word` = 不缓存的单字取指 |
+| 出 | `b_hit`、`b_is_straddle`、`b_is_tail`、`b_a_len`、`b_actual_n`（4 位）、`b_half[16]` | B 块（同页下一行）：是否命中、是跨行续接还是只取尾半字、A 块槽数、有效槽数（`a_len + b_actual_n = 16`）、B 行 Lo 半的 16 个半字（不门控，只在 `b_hit` 时被读；B 的地址恒为 A 的下一行，不再输出） |
 | 出 | `mem_req_valid / addr / total_size / bypass / id`、`mem_resp_ready` | AXI 读请求（地址 32 位） |
 | 出 | `dc_req_valid`、`dc_req_addr` | DCache 探针请求（一拍脉冲，没有 ready） |
 | 出 | `ptw_walk_req_valid / vpn / root_ppn`、`ptw_walk_resp_consumed`、`ptw_walk_flush` | ITLB 向页表遍历器的请求 |
@@ -97,13 +97,13 @@ depth: Tier 1 TSMC 28nm (Yosys+PrimeTime STA, clk=0.65ns, eda-07): icache 77 层
                                    ├ icache_kill  : 取消一步 K（作用于 R0 或 R1）
                                    ├ icache_txn   : AXI 响应分类（有效 / 被取消 / 孤儿）
                                    ├ icache_probe : DCache 探针一步
-                                   └ 响应 ─► icache_resp ×2 : 从 A 行 / B 行切出取指组（u_resp / u_resp_b）
+                                   └ 响应 ─► icache_resp : 从 A 行切出取指组（u_resp）；B 块 = lo_rdata 的 16 个半字
  fdip_s2_* ─► icache_fdip : 8 项去重队列、2 个预取事务、1 项回填缓冲 ─► icache_arr 的回填写口（需求侧空闲时）
 ```
 
 | 文件 | 行数 | 职责 |
 | --- | --- | --- |
-| `icache.sv` | 260 | 顶层：F0 → F1 两级（`f1_q`）、A / B 两路响应、连线、`ptw_walk_flush` 在复位后第一拍也置位 |
+| `icache.sv` | 255 | 顶层：F0 → F1 两级（`f1_q`）、A 块响应与 B 块半字、连线、`ptw_walk_flush` 在复位后第一拍也置位 |
 | `icache_pkg.sv` | 95 | 参数、`ic_regs_t`（控制寄存器）、复位值、状态编码、地址函数 |
 | `icache_ctl.sv` | 238 | 例化下面各块，选择、寄存器、冲刷合并、存储侧输出 |
 | `icache_arr.sv` | 211 | 阵列：Lo / Hi 数据 SRAM（`ttg_sram_1rw` ×2）、奇偶两组触发器标签 / 有效位、A / B 两路命中比较、第一个无效路、SRRIP 选路与更新、FDIP 回填写口 |
@@ -114,7 +114,7 @@ depth: Tier 1 TSMC 28nm (Yosys+PrimeTime STA, clk=0.65ns, eda-07): icache 77 层
 | `icache_kill.sv` | 90 | 取消一步 |
 | `icache_probe.sv` | 72 | 探针一步 |
 | `icache_txn.sv` | 40 | 响应分类 |
-| `icache_resp.sv` | 75 | 取指组切片（例化两次：A 行、B 行） |
+| `icache_resp.sv` | 54 | A 块取指组切片：16 个槽半字 + 槽 15 之上的半字 |
 | `icache_fdip.sv` | 282 | FDIP 预取：S2 地址去重队列、预取事务、1 项回填缓冲 |
 
 状态：`ic_regs_t` 共 136 位（请求有效 1、请求 pc 64、`ifu_ready` 1、状态 3、缺失事务号有效 1 + 号 4（`IC_TXID_W`）、`ready_seen` 1、在途 16 + 被取消 16（`IC_TXID_N`）、探针 3 位控制 + 字号 4、`ppn` 20、替换指针 2（`IC_WAY_W`））；两个 512 位的数据寄存器 `resp_line_q`（响应行）、`probe_line_q`（探针行，按字写使能）；阵列；替换状态 `repl_q`（`IC_SETS` = 256 组 × `IC_RB` = 8 位，复位清 0，`fence.i` 不清）；F0 → F1 寄存器 `f1_q`；FDIP 的队列、事务槽和回填缓冲；ITLB 的 64 项。
@@ -129,7 +129,7 @@ depth: Tier 1 TSMC 28nm (Yosys+PrimeTime STA, clk=0.65ns, eda-07): icache 77 层
 
 ### 5.1 取指组的切片（`icache_resp`）
 
-槽 i 的窗口 = 从行内半字 `pc[5:1] + i` 起的 32 位（`{半字[h+1], 半字[h]}`）；半字下标超出这行的槽无效；行的最后一个半字的窗口高半是 0（`upper_ok = 0`）。页故障时 16 个槽全有效、全带 `page_fault_inst`、指令字为 NOP（`0x00000013`）。不缓存的响应只有一个字：槽 0、1 有效，槽 1 的高半为 0。`fetch_pc = resp_valid ? resp_pc : 0`。（`RVC_ENABLE = 0` 时改成按字切、16 个字槽，该分支未用于当前配置。）
+槽 i 是行内半字 `pc[5:1] + i`；半字下标超出这行的槽无效；槽 i 的 32 位窗口 `{槽 i+1, 槽 i}` 由前端拼（`front_head_fix`），所以只另给一个高半字 `fetch_up16`：槽 15 有效时为它之上的半字（行末之上为 0），否则 0（取指组止于行末或单字）。页故障时 16 个槽全有效、全带 `page_fault_inst`、半字为 NOP 低半（`0x0013`），`fetch_up16 = 0`。不缓存的响应只有一个字：槽 0、1 有效。`fetch_pc = resp_valid ? resp_pc : 0`。B 块不经 `icache_resp`：B 恒从下一行半字 0 起、全在行内，`b_half[i]` 直接取 `lo_rdata` 的第 i 个半字。（只支持 `RVC_ENABLE = 1`：按字切的分支 2026-11-29 删除。）
 
 ### 5.2 请求、查表和快速通路
 
@@ -226,6 +226,7 @@ RTL 与模型保持一致的细节（容易误判为 bug）：
 
 ## 10. 变更记录
 
+- 2026-11-29 清理 F：`icache_resp` 改出半字：`fetch_group[16]`（32 位，前端只用低半和末槽高半）→ `fetch_half[16]` + `fetch_up16`，删 `upper_ok`（两个实例都没读）和 `RVC_ENABLE = 0` 的按字分支；B 块的 `u_resp_b` 删除（`fetch_pc / inst_valid / page_fault_inst / upper_ok` 没人读，基址恒为行首），`b_fetch_group` → `b_half`（`lo_rdata` 的半字）；`ic_f1_t.b_addr`（64 位，唯一读者 `u_resp_b`）删除；`b_actual_n` 5 → 4 位（周期不变）。
 - 2026-11-29 清理 E：改名，“pair”只剩同页跨行 B 块一种含义，统一叫 straddle / B：`b_is_pair` → `b_is_straddle`（`icache`、`icache_pkg` 的 F1 寄存器字段）、`icache_fdip` 入口 `pair_miss_en / pair_miss_va` → `b_miss_en / b_miss_va`（内部 `lva_pm` → `lva_bm`）；IFU 请求连线 `fa_rd_valid / fa_rd_address` → `ifu_rd_valid / ifu_rd_address`；`icache_resp.sv` 头注释断行修正（只改名字，周期不变）。
 - 2026-11-29 清理 C：删 EXP-051 2-taken 双块残留（EXP-070 起不再产生）：删 `b_addr` 输出（唯一读者 `inst_fifo_entry_t.base_b` 只供恒 0 的 `pair_disc`）；`f1_q.b_addr` 仍驱动 B 口响应 `u_resp_b`；跨行 B 块读取本身（`b_is_pair` / `b_a_len` 等）是现行功能，不动（周期不变）。
 - 2026-11-28 清理：删 `icache.sv` / `icache_fdip.sv` / `icache_kill.sv` 里不起作用的 `UNUSEDSIGNAL` 豁免（`unused_*` 汇点本就不报）；第 0 节提到的 `front_fifo.next_rdata` 已随 `front_fifo` 删除（周期不变）。

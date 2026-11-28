@@ -116,10 +116,9 @@ module front_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; 
   logic                 ifu_rd_valid, ic_read_complete, ic_fetch_single_word;
   logic                 b_hit, b_is_straddle, b_is_tail, fdip_s2_en, fdip_s2_clear;
   logic [1:0]           ic_inflight;
-  logic [3:0]           b_a_len;
-  logic [4:0]           b_actual_n;
-  logic [FETCH_WIDTH-1:0] ic_inst_valid, ic_page_fault_inst, ic_upper_ok_unused;
-  logic [31:0]          ic_fetch_group [FETCH_WIDTH], b_fetch_group [FETCH_WIDTH];
+  logic [3:0]           b_a_len, b_actual_n;
+  logic [FETCH_WIDTH-1:0] ic_inst_valid, ic_page_fault_inst;
+  logic [15:0]          ic_fetch_half [FETCH_WIDTH], b_half [FETCH_WIDTH], ic_fetch_up16;
   inst_fifo_entry_t     inst_rd;
 
   icache u_icache (
@@ -142,10 +141,10 @@ module front_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; 
     .fetch_pc          (ic_fetch_pc),
     .inst_valid        (ic_inst_valid),
     .page_fault_inst   (ic_page_fault_inst),
-    .fetch_group       (ic_fetch_group),
-    .fetch_upper_ok    (ic_upper_ok_unused),
+    .fetch_half        (ic_fetch_half),
+    .fetch_up16        (ic_fetch_up16),
     .fetch_single_word (ic_fetch_single_word),
-    .b_hit, .b_is_straddle, .b_is_tail, .b_a_len, .b_actual_n, .b_fetch_group,
+    .b_hit, .b_is_straddle, .b_is_tail, .b_a_len, .b_actual_n, .b_half,
     .mem_req_valid, .mem_req_addr, .mem_req_total_size, .mem_req_bypass, .mem_req_id, .mem_resp_ready,
     .dc_req_valid, .dc_req_addr,
     .ptw_walk_req_valid, .ptw_walk_req_vpn, .ptw_walk_req_root_ppn, .ptw_walk_resp_consumed, .ptw_walk_flush
@@ -157,9 +156,10 @@ module front_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; 
     .ifu_rd_en,
     .ifu_rd_valid, .ifu_rd_address, .inst_fifo_room,
     .ic_inflight,
-    .ic_read_complete, .ic_fetch_pc, .ic_inst_valid, .ic_page_fault_inst, .ic_fetch_group, .ic_fetch_single_word,
+    .ic_read_complete, .ic_fetch_pc, .ic_inst_valid, .ic_page_fault_inst, .ic_fetch_half, .ic_fetch_up16,
+    .ic_fetch_single_word,
     .ic_b_is_straddle(b_is_straddle), .ic_b_is_tail(b_is_tail), .ic_b_a_len(b_a_len),
-    .b_hit, .b_actual_n, .b_fetch_group,
+    .b_hit, .b_actual_n, .b_half,
     .inst_rd_en          (predecode_can_run),
     .inst_empty,
     .inst_rd
@@ -198,7 +198,7 @@ module front_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; 
   end
 
   logic unused_ok;
-  assign unused_ok = ^{ic_upper_ok_unused, ftq2fe.ifu_next_set_idx};
+  assign unused_ok = ^ftq2fe.ifu_next_set_idx;
 
 endmodule
 

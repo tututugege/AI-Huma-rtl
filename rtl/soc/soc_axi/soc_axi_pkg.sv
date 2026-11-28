@@ -1,6 +1,5 @@
 // Ref: docs/modules/soc_axi.md  ARM IHI 0022E AXI4 constants and burst address helpers
 `default_nettype none
-/* verilator lint_off UNUSEDPARAM */
 package soc_axi_pkg;
 
   // ---- AXI4 Burst types ----
@@ -85,5 +84,4 @@ package soc_axi_pkg;
   endfunction
 
 endpackage
-/* verilator lint_on UNUSEDPARAM */
 `default_nettype wire

@@ -1,7 +1,6 @@
 // Ref: back-end/Ren.cpp  class Ren  (shared types; commit 2f31e8d)
 `default_nettype none
 // constants are consumed by other files; same pragma as the generated ttg_cfg_pkg
-/* verilator lint_off UNUSEDPARAM */
 package ren_pkg;
   import ttg_cfg_pkg::*;
 

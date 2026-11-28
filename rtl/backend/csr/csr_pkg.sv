@@ -1,6 +1,5 @@
 // Ref: back-end/Exu/include/Csr.h  enum_number_csr_code / enum_csr
 `default_nettype none
-/* verilator lint_off UNUSEDPARAM */  // package constants are used by other files
 package csr_pkg;
   import ttg_cfg_pkg::*;
 
@@ -133,5 +132,4 @@ package csr_pkg;
   localparam int MEDELEG_PF_STORE = 15;
 
 endpackage
-/* verilator lint_on UNUSEDPARAM */
 `default_nettype wire

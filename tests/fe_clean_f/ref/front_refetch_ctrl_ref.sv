@@ -4,7 +4,7 @@
 // Global refetch: a backend refetch or the delayed predecode refetch (the checker found a wrong prediction last cycle).
 // The backend wins the address select.  The delayed refetch is the only real state of the front-end control: one
 // flag plus the corrected fetch address, both loaded at the end of the cycle that decided the flush.
-module front_refetch_ctrl import ttg_cfg_pkg::*; (
+module front_refetch_ctrl_ref import ttg_cfg_pkg::*; (
   input  logic        clk,
   input  logic        rst_n,
   input  logic        be_refetch,

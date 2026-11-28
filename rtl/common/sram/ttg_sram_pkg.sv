@@ -8,8 +8,6 @@
 package ttg_sram_pkg;
   // deepest swept wrapper: the LLC tables (axi_llc_pkg::SETS = 4096); +1 for a counter starting out of range, +3 spare
   // read by the SRAM wrappers and soc_top only: per-directory lint (lint.sh) compiles this package without them
-  /* verilator lint_off UNUSEDPARAM */
   localparam int SRAM_SWEEP_CYCLES = 4100;
-  /* verilator lint_on UNUSEDPARAM */
 endpackage
 `default_nettype wire

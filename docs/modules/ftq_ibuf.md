@@ -171,3 +171,4 @@ EXP-070 统一 FTQ 之后没有单模块重测。从代码读出、未综合验�
 **EXP-051 里程碑 B 升级**：
 1. `pre_idu_ftq_pc` 新增 `nslots_q[FTQ_SIZE]`：当 `pred_taken_q[idx][off] && off+1 < nslots_q[idx] && slot_pc_q[idx][off+1] != slot_pc_q[idx][off] + ilen` 时，`rd_next_pc` 返回 `slot_pc_q[idx][off+1]`（Block A 跳转后同组内续接 Block B）；`dis_pc[p]` 直接读 `slot_pc_q[dis_idx[p]][dis_off[p]]`（兼容不连续双块 PC）；
 2. `pre_idu_ftq_bpu` 删除原 168 位 `bpu_ck` 存储，仅存 `{blk_id[16], kind[16]}`；误预测恢复直接按 4 位 `idu_br_latch_ftq_offset`（由 `prf -> exu_ctrl -> idu_br_latch` 透传）索引 `rec.blk_id[rd_offset]` 与 `rec.kind[rd_offset]`，彻底消除同 PC 在 Block A 与 Block B 中重复出现时的 PC 扫描歧义并省去 16×64b 比较器，输出 `out_rf_blk[9:0]` 与 `out_rf_type[2:0]` 供 BPU 内部 `rec_q[256]` 修复。
+- 2026-11-29 清理：`ftq_ibuf_pkg` 删包级 `lint_off UNUSEDPARAM` 豁免（`scripts/lint.sh` 改为只编所需的包，包常量是否未用只在整芯片 lint 判定，见 `docs/01-rtl-coding-standard.md` 8.5；整芯片 lint 普通 / `-DSYNTHESIS` 下无死常量）（周期不变）。

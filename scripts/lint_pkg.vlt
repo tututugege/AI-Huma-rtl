@@ -1,0 +1,6 @@
+`verilator_config
+// Used by scripts/lint.sh for every directory lint except the whole-design one (chip_top), and by lint_chip.sh (top
+// soc_top, without the chip-level peripherals): a package shared by several directories is only partly used by any one
+// of them, so an unused package constant is judged only where the whole design is compiled (lint.sh rtl/soc/chip_top
+// and lint_soc.sh, top chip_top): there, UNUSEDPARAM in a package means a dead constant.
+lint_off -rule UNUSEDPARAM -file "*_pkg.sv"

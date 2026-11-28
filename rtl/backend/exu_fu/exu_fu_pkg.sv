@@ -1,6 +1,5 @@
 // Ref: back-end/Exu/include/Fu.h  AluUnit/BruUnit/SduUnit (constants shared by the exu_fu leaf modules)
 `default_nettype none
-/* verilator lint_off UNUSEDPARAM */  // package constants are used by other files; a package linted alone looks unused
 
 package exu_fu_pkg;
 

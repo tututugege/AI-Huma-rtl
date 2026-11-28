@@ -1,7 +1,6 @@
 // Ref: back-end/Exu/Exu.cpp  Exu::init (port_mappings); back-end/Exu/include/ExuTypes.h  struct ExuInst
 // (port capabilities: config.h GLOBAL_ISSUE_PORT_CONFIG, table in dis_pkg::issue_port_cap)
 `default_nettype none
-/* verilator lint_off UNUSEDPARAM */  // constants package: not every constant is used by every module
 package exu_ctrl_pkg;
   import ttg_cfg_pkg::*;
 
