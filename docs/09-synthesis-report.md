@@ -153,3 +153,49 @@
 - **零黑盒综合揭示的下一阶段核心抓手**：
   1. **前端实宏面积/布线优化**：`icache_arr` `4×8×16×512b` 映射到 64-depth 真宏存在约 4× 深度填充浪费，BPU 8-bank 切分带来 156 颗宏（`1.69 mm²`）及 `u_ftb1 → u_spec` 扇出；后续拟将 `icache_arr` 重构为 64-depth 友好形状、BPU 合并为 2~4 bank、`axi_llc` 数据/标签评估 1R1W→1RW。
   2. **后端子系统提频**：DTLB/LSU 长链已解开，下一瓶颈为 `u_lsu/u_ldq → u_isu/g_iq[5]`（`1.16 ns`）及 `Issue / RegRead` 紧耦合，下轮将推进 `Issue/RegRead` 拆拍并全面转入无黑盒真实 SRAM 综合签核。
+
+## 22. 快速 PPA 评估体系（Tier 0 ~ Tier 2b）基准实测（EXP-071，2026-11-28）
+
+为解决日常微架构探索中 `compile_ultra` 全套综合耗时过长（单次 `0.7–4.4 h`）的问题，项目落地了四层快速 PPA 工具链（统一入口 [scripts/fast_ppa.sh](../scripts/README.md)，完整复现报告存放在集群 `/nfs_global/S/houruyao/fast_ppa_eval/summary_report.txt`），并在同一 RTL 快照（`0dceb0d`）下以 Tier 3 `compile_ultra` 为基准完成全量实测对标：
+
+- **Tier 0 Analytical / Fast Elab**（总仓 `scripts/ppa_est.py`）：`analytical` 模式（`0.00–0.02 ms`）基于架构参数直算 SRAM `.lib` 拼装；`elab` 模式（`0.41–10.94 s`）通过 `yosys-slang` 直接展开 RTL 层次，**SRAM 宏数（`180`/`256`/`436`）与宏面积误差 0.000%（`Fallback=0`）**，并自动暴露 Padding 浪费（`icache 4.00x`、`bpu 1.07x`、`front_top 1.25x`）与 SRAM 时序下界（`0.336–0.359 ns`）。
+- **Tier 1 Yosys + PrimeTime**（`run_tier1_yosys_pt.sh` + `buf_high_fanout.py`）：Yosys (`strash;balance;map` / `dfflegalize` + `dfflibmap` + `abc -constr BUFFD1BWP12T40P140LVT` + `buffer -p -N 16 -S 80`) 映射 TSMC 28nm LVT + 真实 SRAM 宏，经 `buf_high_fanout.py` 修复高扇出未缓冲线网（如 `bpu` 插入 `1034` 缓冲器、`front_top` `2062` 缓冲器）后，送入 Synopsys `pt_shell W-2024.09-SP2` 做真实 STA。
+- **Tier 2a DC Fast Mode**（`run_tier2_dc_fast.sh`）：`dc-ultra-relax` 模式（在 `5.00 ns` 宽松时钟下运行 `compile_ultra -no_autoungroup -no_boundary_optimization -no_design_rule` + 本地预热 `alib-52` + 排除 `/rtl/soc/`，再切回目标时钟 `update_timing` 并导出 `<mod>.ddc`）。
+- **Tier 2b DC 增量拼装**（`run_tier2b_dc_inc.sh`）：读入预编译的 `bpu.ddc`（`20M`）与 `icache.ddc`（`18M`）并设 `set_dont_touch`，仅重编译 `front_top` 胶水逻辑。
+
+### 22.1 全量模块准确率与耗时对比（vs Tier 3 `compile_ultra` Ground Truth）
+
+| 模块 (`clk_ns`) | Tier 3 GT 时间 / TotalArea / WNS / Fmax | **Tier 0** Ana(ms) / Elab(s) / TotalArea(误差) | **Tier 1 (`Yosys+PT`)** 时间(提速) / TotalArea(误差) / WNS / Fmax (`GT/T1`) | **Tier 2a (`dc-ultra-relax`)** 时间(提速) / TotalArea(误差) / WNS* | **Tier 2b (`front_top_inc`)** |
+|---|---|---|---:|---:|---|
+| **`tlb_mmu`** (`0.50`, `bb`) | `2527 s` / `94,793.5` / `−0.03` / `1.887G` | `0.01 ms` / `0.45 s` / `94,793.0` (`−0.0%`) | **`52 s` (`48.6×`)** / `68,494.3` (`−27.7%`) / `−0.31` / `1.235G` (`1.53`) | `319 s` (`7.9×`) / `59,682.2` (`−37.0%`) / `−3.37` | — |
+| **`ftq_ibuf`** (`0.50`, `bb`) | `4878 s` / `239,315.2` / `−0.15` / `1.538G` | `0.00 ms` / `0.41 s` / `239,315.0` (`−0.0%`) | **`175 s` (`27.9×`)** / `329,629.4` (`+37.7%`) / `−0.60` / `0.909G` (`1.69`) | `2393 s` (`2.0×`) / `218,098.6` (`−8.9%`) / `−3.98` | — |
+| **`isu`** (`0.50`, `none`) | `8425 s` / `467,899.3` / `−0.23` / `1.370G` | `0.00 ms` / `10.94 s` / `467,899.0` (`−0.0%`) | **`331 s` (`25.5×`)** / `526,654.3` (`+12.6%`) / `−0.39` / `1.124G` (`1.22`) | `1617 s` (`5.2×`) / `389,676.3` (`−16.7%`) / `−3.26` | — |
+| **`lsu`** (`0.50`, `none`) | `9645 s` / `767,221.2` / `−0.39` / `1.124G` | `0.00 ms` / `9.76 s` / `767,221.0` (`−0.0%`) | **`705 s` (`13.7×`)** / `1,052,504.4` (`+37.2%`) / `−0.87` / `0.730G` (`1.54`) | `2834 s` (`3.4×`) / `621,212.1` (`−19.0%`) / `−4.48` | — |
+| **`icache`** (`0.65`, `real`) | GT 子实例：`1,716,827.7`（`256` 宏） | `0.01 ms` / `0.68 s` / `1,716,558.3` (`−0.0%`) | — | `2245 s` / **`1,713,504.4` (`−0.2%`)** / `−4.33` | 复用 `.ddc`（`0.00%` 漂移） |
+| **`bpu`** (`0.65`, `real`) | 独立(`a1a2`, `156`宏)：`4523 s` / `2.076M` / `0.877G`<br>HEAD(`u_bpu`, `180`宏)：`2,395,127.6` | `0.02 ms` / `4.15 s` / `2,404,871.8` (`+0.4%`) | **`235 s` (`19.2×`)** / `2,504,493.7` (`+4.6%`, `180`宏) / `−1.99` / `0.379G` (`1.75`) | `2320 s` (`1.9×`) / **`2,391,605.1` (`−0.1%`, 逻辑 −0.9%)** / `−4.35` | 复用 `.ddc`（`0.00%` 漂移） |
+| **`front_top`** (`0.65`, `real`) | `15774 s` (`4.38h`) / `4,229,477.7` / `−0.86` / `0.662G`（`436`宏） | `0.02 ms` / `5.39 s` / `4,233,430.1` (`+0.1%`) | **`463 s` (`34.1×`)** / `4,372,183.6` (`+3.4%`, `436`宏) / `−2.64` / `0.304G` (`2.18`) | `4593 s` (`3.4×`) / **`4,205,649.1` (`−0.6%`)** / `−4.35` | **`1982 s` (`8.0×` 仅拼装)** / **`4302 s` (`3.7×` 改 bpu+拼装)**<br>`4,208,780.9` (`−0.5%`, `436` 宏) / `WNS −5.85` |
+
+### 22.2 统计结论与工具链踩坑记录
+
+- **统计学相关性（6 模块汇总）**：
+  - **Tier 1 (`Yosys + PrimeTime`)**：**提速 `13.7×–48.6×`**，总面积 `MAPE = 20.5%`、**`Spearman(Area) = 1.000`**、**`Spearman(Fmax) = 0.929`**，标定比例因子稳定为 **`Fmax_GT / Fmax_Tier1 = 1.65 ± 0.29`（CV = `17.6%`）**；`reg->reg` 分组 WNS 为 `tlb_mmu −0.28`、`isu −0.38`、`ftq_ibuf −0.56`、`lsu −0.87`、`bpu −1.99`、`front_top −2.13`。**适合作为日常 RTL 迭代主力工具**。
+  - **Tier 2a (`dc-ultra-relax`)**：**提速 `1.9×–7.9×`**，总面积 `MAPE = 13.7%`、**`Spearman(Area) = 1.000`**、`Spearman(Fmax) = 0.829`；含真宏前端面积误差仅 **`−0.1% ~ −0.6%`**。纯逻辑模块因 `5.00 ns` 宽松综合且禁用 DRC 修复，工具优先选用最小驱动 SVT D1 单元且不对高扇出插缓冲，因此纯逻辑面积偏小（`−8.9% ~ −37.0%`）、回放时序偏悲观（`WNS* −3.26 ~ −4.48 ns`），适合用于精准评估 SRAM 前端面积与结构瓶颈。
+  - **Tier 2b (`front_top_inc`)**：`t_assemble = 1982 s`（`7.96×`）、`DC_LINK_STATUS=1`、`436` 宏零丢失、`dont_touch` 实例面积漂移 `0.00%`、总面积误差 `−0.5%`。
+- **DC `W-2024.09-SP2` 负向实测与工程规则**：
+  1. `compile -map_effort low` 已废弃（`OPT-1303` 自动回退 `medium`）：`tlb_mmu dc-low` 运行 `26m36s+` 仍未结束（面积 `139,774.7`、`WNS −0.28`）；`bpu dc-low-relax` 运行 `12m30s+` 仍卡在 Pass 1，均不具实用价值。
+  2. `compile_use_low_timing_effort` 在 `W-2024.09-SP2` 中已失效被忽略（`INFO-100`）；紧约束 `tlb_mmu dc-ultra-fast`（`0.50 ns`）至 `28m30s` 仍未收尾（`area=85,318.6, WNS −0.10`），不足 GT 半倍速。
+  3. **`alib-52` 与 `/rtl/soc/` 坑**：DC 默认在 `./alib-52` 建库导致多节点在 NFS `$HOME` 争用锁；`run_tier2*.sh` 改为拷贝预热 `alib-52` 至节点本地 `/tmp` 运行；此外通用 `files.f` 含 `soc_axi_checker.sv`（line 16 `string` 触发 `VER-700`/`VER-518`），非 SoC 核心模块在 DC 脚本中自动过滤 `/rtl/soc/` 后全量达成 `VER_ERR=0`。
+
+### 22.3 常用快速评估命令
+
+```bash
+# Tier 0 零延迟计算 SRAM 宏数量、面积与 Padding 浪费（在 iprc-jump 自动转发至 eda）
+bash scripts/fast_ppa.sh --tier 0 --mod all --host eda-05
+
+# Tier 1 分钟级 Yosys + PrimeTime 迭代验证（支持 tlb_mmu / ftq_ibuf / isu / lsu / bpu / front_top）
+bash scripts/fast_ppa.sh --tier 1 --mod front_top --host eda-05
+
+# Tier 2a DC 快速模式 + 导出 .ddc；Tier 2b 增量拼装 front_top
+bash scripts/fast_ppa.sh --tier 2a --effort dc-ultra-relax --mod bpu --host eda-06 --out /nfs_global/S/houruyao/out/bpu_relax
+bash scripts/fast_ppa.sh --tier 2b --mod front_top --bpu-ddc ... --icache-ddc ... --host eda-06 --out /nfs_global/S/houruyao/out/ft_inc
+```
