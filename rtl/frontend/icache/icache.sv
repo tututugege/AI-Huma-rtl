@@ -49,7 +49,6 @@ module icache import ttg_cfg_pkg::*; import icache_pkg::*; import tlb_mmu_pkg::*
   output logic        b_is_pair,
   output logic        b_is_tail,
   output logic [3:0]  b_a_len,
-  output logic [XLEN_BITS-1:0] b_addr,
   output logic [4:0]  b_actual_n,
   output logic [31:0] b_fetch_group [FETCH_WIDTH],
   output logic mem_req_valid,
@@ -249,7 +248,6 @@ module icache import ttg_cfg_pkg::*; import icache_pkg::*; import tlb_mmu_pkg::*
   assign b_is_pair         = f1_v && f1_q.b_is_pair;
   assign b_is_tail         = f1_v && f1_q.b_is_tail;
   assign b_a_len           = f1_q.a_len;
-  assign b_addr            = f1_q.b_addr;
   assign read_complete     = f1_v;
   assign fetch_single_word = f1_q.single_word;
   assign ic_inflight       = {1'b0, f1_q.valid} + {1'b0, r_req_valid_o};

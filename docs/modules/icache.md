@@ -82,7 +82,7 @@ depth: Tier 1 TSMC 28nm (Yosys+PrimeTime STA, clk=0.65ns, eda-07): icache 77 层
 | 出 | `icache_ready` | 能接新请求：`!(itlb_flush | fence_i) & ifu_ready_q & !req_valid_q & !miss_txv & 状态为 IDLE` |
 | 出 | `ic_inflight` | 在途取指数（0..2：F1 有效 + 登记槽有效），给 `inst_fifo_room` |
 | 出 | `read_complete`、`fetch_pc`、`inst_valid[16]`、`page_fault_inst[16]`、`fetch_group[16]`、`fetch_upper_ok[16]`、`fetch_single_word` | A 块取指组；`fetch_upper_ok[i]` = 第 i 个窗口有真实的高半字；`fetch_single_word` = 不缓存的单字取指 |
-| 出 | `b_hit`、`b_is_pair`、`b_is_tail`、`b_a_len`、`b_addr`、`b_actual_n`、`b_fetch_group[16]` | B 块（同页下一行）：是否命中、是跨行续接还是只取尾半字、A 块槽数、地址、有效槽数、取指组 |
+| 出 | `b_hit`、`b_is_pair`、`b_is_tail`、`b_a_len`、`b_actual_n`、`b_fetch_group[16]` | B 块（同页下一行）：是否命中、是跨行续接还是只取尾半字、A 块槽数、有效槽数、取指组（B 的地址恒为 A 的下一行，不再输出） |
 | 出 | `mem_req_valid / addr / total_size / bypass / id`、`mem_resp_ready` | AXI 读请求（地址 32 位） |
 | 出 | `dc_req_valid`、`dc_req_addr` | DCache 探针请求（一拍脉冲，没有 ready） |
 | 出 | `ptw_walk_req_valid / vpn / root_ppn`、`ptw_walk_resp_consumed`、`ptw_walk_flush` | ITLB 向页表遍历器的请求 |
@@ -103,7 +103,7 @@ depth: Tier 1 TSMC 28nm (Yosys+PrimeTime STA, clk=0.65ns, eda-07): icache 77 层
 
 | 文件 | 行数 | 职责 |
 | --- | --- | --- |
-| `icache.sv` | 262 | 顶层：F0 → F1 两级（`f1_q`）、A / B 两路响应、连线、`ptw_walk_flush` 在复位后第一拍也置位 |
+| `icache.sv` | 260 | 顶层：F0 → F1 两级（`f1_q`）、A / B 两路响应、连线、`ptw_walk_flush` 在复位后第一拍也置位 |
 | `icache_pkg.sv` | 95 | 参数、`ic_regs_t`（控制寄存器）、复位值、状态编码、地址函数 |
 | `icache_ctl.sv` | 238 | 例化下面各块，选择、寄存器、冲刷合并、存储侧输出 |
 | `icache_arr.sv` | 211 | 阵列：Lo / Hi 数据 SRAM（`ttg_sram_1rw` ×2）、奇偶两组触发器标签 / 有效位、A / B 两路命中比较、第一个无效路、SRRIP 选路与更新、FDIP 回填写口 |
@@ -226,6 +226,7 @@ RTL 与模型保持一致的细节（容易误判为 bug）：
 
 ## 10. 变更记录
 
+- 2026-11-29 清理 C：删 EXP-051 2-taken 双块残留（EXP-070 起不再产生）：删 `b_addr` 输出（唯一读者 `inst_fifo_entry_t.base_b` 只供恒 0 的 `pair_disc`）；`f1_q.b_addr` 仍驱动 B 口响应 `u_resp_b`；跨行 B 块读取本身（`b_is_pair` / `b_a_len` 等）是现行功能，不动（周期不变）。
 - 2026-11-28 清理：删 `icache.sv` / `icache_fdip.sv` / `icache_kill.sv` 里不起作用的 `UNUSEDSIGNAL` 豁免（`unused_*` 汇点本就不报）；第 0 节提到的 `front_fifo.next_rdata` 已随 `front_fifo` 删除（周期不变）。
 - 2026-11-28（`rtl/fe-2ahead`，文档核对）：补 `icache_fdip.sv` 与 B 块 / FDIP 端口、文件行数、`ic_regs_t` 136 位、`repl_q` 256 × 8、组索引 `[13:6]`、SRAM 复位清零；删掉已不存在的 `FE_RFAST` 位 2、`FE_PAIR` / `ICacheCompactKernel.h` 的说法；门禁改为对 `scripts/ref_cycles.txt`。
 - 本轮（`rtl/fe-2ahead`）：升级为 **64 KiB（`256 sets × 4 ways × 64B`）Lo-32B / Hi-32B 2 级串联 Tag-then-Data (`F0→F1`) VIPT ICache**：

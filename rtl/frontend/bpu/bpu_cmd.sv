@@ -15,12 +15,10 @@ module bpu_cmd import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*
   input  pred_t                fin,
   /* verilator lint_on UNUSEDSIGNAL */
   input  ck_t                  pd_ck,
-  input  logic [1:0]           pd_hn,
-  input  logic [5:0]           pd_hbits,
+  input  logic                 pd_hn,
+  input  logic [HSYM_W-1:0]    pd_hbits,
   input  logic [1:0]           pd_ras_op,
   input  logic [XLEN_BITS-1:0] pd_ras_val,
-  input  logic [1:0]           pd_ras_op2,
-  input  logic [XLEN_BITS-1:0] pd_ras_val2,
   input  ck_t                  rf_ck_rec,
   input  logic [2:0]           rf_type,
   input  logic [XLEN_BITS-1:0] rf_pc,
@@ -38,14 +36,12 @@ module bpu_cmd import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*
   // refetch-only restore command
   output logic [1:0]           hr_mode,
   output hist_ck_t             hr_ck,
-  output logic [1:0]           hr_push_n,
-  output logic [5:0]           hr_push_bits,
+  output logic                 hr_push_n,
+  output logic [HSYM_W-1:0]    hr_push_bits,
   output logic [1:0]           rr_mode,
   output ras_ck_t              rr_ck,
   output logic [1:0]           rr_op,
-  output logic [XLEN_BITS-1:0] rr_val,
-  output logic [1:0]           rr_op2,
-  output logic [XLEN_BITS-1:0] rr_val2
+  output logic [XLEN_BITS-1:0] rr_val
 );
 
   localparam logic [1:0] M_HOLD = 2'd0;
@@ -80,15 +76,14 @@ module bpu_cmd import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*
   end
 
   always_comb begin
-    hr_mode = M_ARCH; hr_ck = pd_ck.h; hr_push_n = 2'd0; hr_push_bits = '0;
-    rr_mode = M_ARCH; rr_ck = pd_ck.r; rr_op = 2'd0; rr_val = '0; rr_op2 = 2'd0; rr_val2 = '0;
+    hr_mode = M_ARCH; hr_ck = pd_ck.h; hr_push_n = 1'b0; hr_push_bits = '0;
+    rr_mode = M_ARCH; rr_ck = pd_ck.r; rr_op = 2'd0; rr_val = '0;
     if (pd_restore) begin
       hr_mode = M_CK; hr_ck = pd_ck.h; hr_push_n = pd_hn; hr_push_bits = pd_hbits;
       rr_mode = M_CK; rr_ck = pd_ck.r; rr_op = pd_ras_op; rr_val = pd_ras_val;
-      rr_op2 = pd_ras_op2; rr_val2 = pd_ras_val2;
     end else if (rep_ok) begin
-      hr_mode = M_CK; hr_ck = rf_ck_rec.h; hr_push_n = rf_taken ? 2'd1 : 2'd0;
-      hr_push_bits = {3'd0, hsym_of(rf_pc, refetch_address)};
+      hr_mode = M_CK; hr_ck = rf_ck_rec.h; hr_push_n = rf_taken;
+      hr_push_bits = hsym_of(rf_pc, refetch_address);
       rr_mode = M_CK; rr_ck = rf_ck_rec.r;
       rr_op   = (rf_type == BR_CALL || rf_type == BR_ICALL) ? 2'd1 : (rf_type == BR_RET) ? 2'd2 : 2'd0;
       rr_val  = rf_pc_next;

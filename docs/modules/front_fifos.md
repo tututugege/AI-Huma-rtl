@@ -23,10 +23,10 @@ depth: 13 层（2026-11-18，测的是已删除的 fetch_addr_fifo；inst_fifo �
 | --- | --- | --- |
 | 深度 | 16 | `INSTRUCTION_FIFO_SIZE`（`ttg_cfg_pkg`）→ `INST_FIFO_DEPTH`（`front_pkg`） |
 | "满"阈值 | 16 | 等于深度（`full = count >= INST_FIFO_DEPTH`） |
-| 条目 `inst_fifo_entry_t` | 按字段相加 716 位（没有用 `$bits` 在综合里核对） | `front_pkg` |
+| 条目 `inst_fifo_entry_t` | 按字段相加 652 位（没有用 `$bits` 在综合里核对） | `front_pkg` |
 | 清空来源 | 全局 refetch（`global_refetch`，含预译码冲刷） | `front_fetch_buf.sv` |
 
-条目字段（`front_pkg::inst_fifo_entry_t`）：`is_pair` 1、`a_len` 4、`base_a` 64、`base_b` 64、`valid_a` 16、`pf_a` 16、`single_word_a` 1、`raw_a` 16×16、`up16_a` 16、`b_ok` 1、`b_actual_n` 5、`raw_b` 16×16、`up16_b` 16。A 块是本次取指的 16 个半字；B 块是同页下一行（跨行 2-Fetch，`is_pair`）预读出的半字；`up16_a` 是 A 块最后一个有效槽窗口的高半字（跨行时取 B 块槽 0 的低半）。
+条目字段（`front_pkg::inst_fifo_entry_t`）：`is_pair` 1、`a_len` 4、`base_a` 64、`valid_a` 16、`pf_a` 16、`single_word_a` 1、`raw_a` 16×16、`up16_a` 16、`b_ok` 1、`b_actual_n` 5、`raw_b` 16×16、`up16_b` 16。A 块是本次取指的 16 个半字；B 块是同页下一行（跨行 2-Fetch，`is_pair`）预读出的半字，地址恒为 A 的下一行，所以不存 B 的基址；`up16_a` 是 A 块最后一个有效槽窗口的高半字（跨行时取 B 块槽 0 的低半）。
 
 ## 3. 接口
 
@@ -60,7 +60,7 @@ depth: 13 层（2026-11-18，测的是已删除的 fetch_addr_fifo；inst_fifo �
 
 ## 6. 关键路径与深度
 
-单模块综合深度 **13 层**（2026-11-18 测的是已删除的 `fetch_addr_fifo`；`inst_fifo` 更浅，没有单独重测；`scripts/synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`，生成门代理，不是时序）。队列本身是存储读 + 指针加法；值得看的是读口后面接的 `front_head_fix` 和检查器（`rdata = mem_q[rd_ptr_q]`，16 项 × 716 位的选择），见 [predecode.md](predecode.md)。
+单模块综合深度 **13 层**（2026-11-18 测的是已删除的 `fetch_addr_fifo`；`inst_fifo` 更浅，没有单独重测；`scripts/synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`，生成门代理，不是时序）。队列本身是存储读 + 指针加法；值得看的是读口后面接的 `front_head_fix` 和检查器（`rdata = mem_q[rd_ptr_q]`，16 项 × 652 位的选择），见 [predecode.md](predecode.md)。
 
 ## 7. 与模型的差异和取舍
 
@@ -82,6 +82,7 @@ depth: 13 层（2026-11-18，测的是已删除的 fetch_addr_fifo；inst_fifo �
 
 ## 10. 变更记录
 
+- 2026-11-29 清理 C：删 EXP-051 2-taken 双块残留（EXP-070 起不再产生）：`inst_fifo_entry_t.base_b`（64 位）删除，唯一读者 `front_head_fix` 的 `pair_discontinuity` 恒为 0（跨行 B 块恒为 A 的下一行），条目 716 → 652 位（周期不变）。
 - 2026-11-28 清理：删 `front_fifo` 的死功能（`drop_tail` 恒 0、`BYPASS` 恒 0、`FULL_AT` 恒等于深度、`next_rdata` / `head_fresh`（`fresh_v_q` / `fresh_slot_q`）无读者），把剩下的队列并入 `inst_fifo.sv`；删 `inst_fifo` 无读者的 `rd_valid` 输出与 `front_pkg::INST_FIFO_FULL_AT`（周期不变）。
 - 2026-11-28（`rtl/fe-2ahead`）：文档按现行 RTL 重写（第 1–9 节；旧正文描述的是 EXP-070 之前 / 删除分支标签之前的结构）。
 - 2026-11-18（exp/agu-share）：`front_fifo` 加 `head_fresh`，取指地址队列在 push 后一拍才弹出 `4eb8f0e`。

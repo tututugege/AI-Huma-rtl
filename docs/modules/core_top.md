@@ -125,6 +125,7 @@ RTL 里注释和代码不一致、值得清理的地方（只记录，没有改�
 
 ## 10. 变更记录
 
+- 2026-11-29 清理 C：删 EXP-051 2-taken 双块残留（EXP-070 起不再产生）：`rtl/core` 文件没有改动；它整体透传的结构体 `fe2ftq_s0 / s2 / pd`、`ftq2fe`（`front_pkg`）删了 `pair`、`is_pair / base_b / a_len`、`nslots`、`ifu_pair / ifu_next_b_idx / pd_is_pair / pd_base_b / pd_a_len` 字段，见 front_top.md、ftq_ibuf.md（周期不变）。
 - 2026-11-28（`rtl/fe-2ahead`，文档核对）：按统一 FTQ 后的 RTL 更新：截断已移到 `front_pred_path`、hold 寄存器只存指令与 `ftq_idx`、训练包用块号、修复信息用块号；删掉已不存在的 `TN_MAX`、`HCK_W`、`BCK_W`、`bpu_ck` / `slot_kind` 传递和 `FE_PAIR` 说法；文件行数更新；门禁改为 77/77 对 `scripts/ref_cycles.txt`。
 - 2026-11-26：新增 `interrupt_inject_software_irq_pending(_valid)` 输入端口并透传至 `back_top` → `csr`（支持 `chip_top` CLINT `msip` 软中断；`soc_top` 接 `1'b0` 保持原行为，0 周期变化）。
 - 本分支（`261bd67..HEAD`）未改动 `rtl/core`；更早：见 git 历史。

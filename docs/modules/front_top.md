@@ -38,12 +38,12 @@ depth: Tier 1（Yosys + PrimeTime，clk=0.65 ns，eda-07，2026-11-28）64 级 /
 | 入 | `be_refetch`、`be_refetch_address` | 后端重定向（寄存后的 back2front） |
 | 入 | `be_rf_valid / _blk / _type / _pc / _is_rvc`、`be_next_rf_blk` | 后端误预测带回的修复信息（块号，BPU 用内部 `u_rf_rec` 恢复） |
 | 入 | `itlb_flush`、`fence_i`、`fifo_read_enable` | SFENCE.VMA、FENCE.I、后端本拍收取指组 |
-| 入 | `ftq2fe`（`ftq_fe_view_t`） | 统一 FTQ 的寄存视图：`ftq_full`、`fa_empty`、`fa_cnt_sat`、`s2_empty`、`ifu_addr`、`pd_idx / pd_base_pc / pd_is_pair / pd_base_b / pd_a_len / pd_pred_dir / pd_next_pc` 等 |
+| 入 | `ftq2fe`（`ftq_fe_view_t`） | 统一 FTQ 的寄存视图：`ftq_full`、`fa_empty`、`fa_cnt_sat`、`s2_empty`、`ifu_addr`、`ifu_next_fa_idx`、`pd_idx / pd_base_pc / pd_pred_dir / pd_next_pc` |
 | 入 | `csr_status_*` | satp、特权级、mxr、sum、mprv、mpp，给 ITLB |
 | 入 | `upd_valid`、`base_pc`、`actual_dir`、`upd_is_rvc`、`br_type`、`target`、`pred_dir`、`alt_pred`、`pcpn`、`blk_id`（各 `[NCOMMIT]`） | 提交流的 BPU 训练包 |
 | 入 | `mem_*`、`dc_*`、`ptw_walk_*` | I-Cache 的存储侧响应 |
 | 出 | `out_lane_valid`、`out_instructions`、`out_page_fault_inst`、`out_pf_inst_hi`、`out_ftq_idx` | 送后端的取指组（已在第一个预测跳转之后截断），后端由 `out_ftq_idx` 向 FTQ 查 pc 与预测 |
-| 出 | `fe2ftq_s0`、`fe2ftq_s2`、`fe2ftq_pd` | 写统一 FTQ：S0 分配 / 丢尾 / IFU 弹出；S2 预测与训练元数据；预译码结果（修正后方向、`is_rvc`、`next_pc`、`nslots`、`slot_kind`、`carry`） |
+| 出 | `fe2ftq_s0`、`fe2ftq_s2`、`fe2ftq_pd` | 写统一 FTQ：S0 分配 / 丢尾 / IFU 弹出；S2 预测与训练元数据；预译码结果（修正后方向、`is_rvc`、`next_pc`、`slot_kind`、`carry`、`pc0`、`empty_blk`） |
 | 出 | `mem_req_*`、`mem_resp_ready`、`dc_req_*`、`ptw_walk_req_*`、`ptw_walk_resp_consumed`、`ptw_walk_flush` | I-Cache 的存储侧请求 |
 | 出 | `commit_upd_free`、`commit_tq_free` | BPU 训练队列的空闲项数，给 ROB 做提交信用 |
 
@@ -60,9 +60,9 @@ depth: Tier 1（Yosys + PrimeTime，clk=0.65 ns，eda-07，2026-11-28）64 级 /
 
 | 文件 | 行数 | 职责 |
 | --- | --- | --- |
-| `front_top.sv` | 211 | 连线；`fe2ftq_s0`；`refetch_pd` |
-| `front_fetch_buf.sv` | 110 | 取指侧：IFU 读口、`inst_fifo_room`、`inst_fifo` 写条目 |
-| `front_pred_path.sv` | 326 | 预测侧：BPU、FDIP 打拍、头修正、检查器、截断、PD 信息、携带寄存器、FTQ 写请求 |
+| `front_top.sv` | 205 | 连线；`fe2ftq_s0`；`refetch_pd` |
+| `front_fetch_buf.sv` | 108 | 取指侧：IFU 读口、`inst_fifo_room`、`inst_fifo` 写条目 |
+| `front_pred_path.sv` | 251 | 预测侧：BPU、FDIP 打拍、头修正、检查器、截断、PD 信息、携带寄存器、FTQ 写请求 |
 
 状态：`front_top`、`front_fetch_buf` 自己没有（队列状态在 `inst_fifo`）；`front_pred_path` 有携带寄存器 `lh_valid_q`（1）、`lh_pc_q`（64）、`lh_data_q`（16）和 FDIP 打拍寄存器 `fdip_s2_{en,va,clear}_q`。
 
@@ -71,8 +71,8 @@ depth: Tier 1（Yosys + PrimeTime，clk=0.65 ns，eda-07，2026-11-28）64 级 /
 1. 寄存器值：FTQ 视图 `ftq2fe`、`inst_fifo` 计数、`predecode_refetch_q`、携带寄存器、BPU、I-Cache 寄存器。`front_ctrl` 算 `global_refetch` 和各使能。
 2. `fa_rd_en` 时 FTQ 队首地址 `ftq2fe.ifu_addr` 作为请求送 I-Cache（`fe2ftq_s0.ifu_pop` 让 `ifu_ptr` 前进）；I-Cache 的 F1 响应回来（A 块 16 槽 + 可能的 B 块）。
 3. `front_fetch_buf`：`ic_read_complete & !global_refetch & !full` 时整组原始半字写进 `inst_fifo`。
-4. BPU：S0 块经 `fa_wr_en` 分配 FTQ 项（`fe2ftq_s0.wr_en/addr/pair`），S2 覆盖经 `fa_drop_tail_n` 丢尾；S2 块经 `s2_wr_en` 写预测（`fe2ftq_s2`）。
-5. `predecode_can_run` 时读 `inst_fifo` 队首：`front_head_fix` 选 A / A+B、单份展开与预译码、指令起点扫描、按 FTQ `pd_ptr` 项的 pc 截断、RVC 携带；`predecode_checker` 与 FTQ 里的预测比较；第一个修正后跳转之后截断（`pd_cut_valid`，前缀扫描）；`fe2ftq_pd` 把结果写回 FTQ；同一组直接作为 `out_*` 送后端。
+4. BPU：S0 块经 `fa_wr_en` 分配 FTQ 项（`fe2ftq_s0.wr_en/addr`），S2 覆盖经 `fa_drop_tail_n` 丢尾；S2 块经 `s2_wr_en` 写预测（`fe2ftq_s2`）。
+5. `predecode_can_run` 时读 `inst_fifo` 队首：`front_head_fix` 选 A / 跨行 A+B、单份展开与预译码、指令起点扫描、按 FTQ `pd_ptr` 项的 pc 截断、RVC 携带；`predecode_checker` 与 FTQ 里的预测比较；第一个修正后跳转之后截断（`pd_cut_valid = hf_valid & ~(低位已有有效 taken 槽)`，4 轮前缀或）；`fe2ftq_pd` 把结果写回 FTQ；同一组直接作为 `out_*` 送后端。
 6. `do_predecode_flush`：进 `predecode_refetch_q`（下一拍全局 refetch）、I-Cache 的 `invalidate`、`front_pd_info`、FTQ 的 `pd_flush`（回滚 `pd_ptr` 之后的项）。
 
 没有组合环：`do_predecode_flush` 只进寄存器、I-Cache 次态和 FTQ 次态。
@@ -92,7 +92,7 @@ depth: Tier 1（Yosys + PrimeTime，clk=0.65 ns，eda-07，2026-11-28）64 级 /
 - PMU 前端分类（`FrontControl::finish` 的 `g_pmu_front.feo_*`）：RTL 前端里没有，RTL 只有一级事件（见 [pmu.md](pmu.md)）；
 - 模型的 `ReadData` 快照、`front_state` 的 `d` 值、`*_full / *_empty` 锁存：RTL 由计数直接算；
 - `front.in.reset`（模型只在 `FrontTop::init()` 一拍有效）：RTL 用 `rst_n`；
-- `ftq2fe.ifu_next_fa_idx / ifu_next_b_idx / ifu_pair`、I-Cache 的 `fetch_upper_ok` 在顶层没有用（接 `unused_ok`）；
+- `ftq2fe.ifu_next_fa_idx`、I-Cache 的 `fetch_upper_ok` 在顶层没有用（接 `unused_ok`）；
 - 携带寄存器在后端重定向或复位时清；预译码冲刷时除非冲刷的那组自己产生了新的携带且续在其后，否则也等于被清（`lh_new_valid` 含 `!checker_flush_enable || corrected == lh_new_pc`）。
 
 ## 8. 验证
@@ -108,6 +108,7 @@ depth: Tier 1（Yosys + PrimeTime，clk=0.65 ns，eda-07，2026-11-28）64 级 /
 
 ## 10. 变更记录
 
+- 2026-11-29 清理 C：删 EXP-051 2-taken 双块残留（EXP-070 起不再产生）：`front_pkg` 删 `fetch_pair_t`、`fe_ftq_s0_t.pair`、`fe_ftq_s2_t.is_pair / base_b / a_len`、`fe_ftq_pd_t.nslots`、`ftq_fe_view_t.ifu_pair / ifu_next_b_idx / pd_is_pair / pd_base_b / pd_a_len`、`inst_fifo_entry_t.base_b`（唯一读者 `pair_disc` 恒 0）、无人调用的 `pair_slot_pc()`；`front_top` / `front_fetch_buf` 删 `bpu_fetch_pair`、`b_addr` / `ic_b_addr` 连线；`front_pred_path` 删 BPU `pair_*` / `ptab_is_pair / base_b / a_len` 连线、`hf_multi / hf_in_range / hf_seg_first`、`checker_keep_n` / `pd_raw_valid`（恒等于 `hf_valid`），截断前缀扫描的 `disc_pc / set_nt` Kogge-Stone（生成项只有槽 0）收为前缀或，`pd_nslots` 及其 `ttg_first_set` / `ttg_onehot_to_idx`（唯一读者是 FTQ 的双块 `next_pc` 修正）删去，携带寄存器的“最后一段”判断收为整组（周期不变）。
 - 2026-11-28 清理：删 `front_ctrl` 无读者的 `bpu_can_run` 输出及其 `unused_ok` 汇点、`inst_fifo` 无读者的 `rd_valid`（`inst_rd_valid`）、`predecode_checker` 未用的 `clk / rst_n` 连线、`front_pred_path` 前缀扫描末级不用的 `p4` 与 `if (1'b0)` 静默写法、`front_fetch_buf` / `front_top` 不起作用的 `UNUSEDSIGNAL` 豁免，`front_fetch_buf` 的 `unused_hi` 汇点去掉其实有读者的 `ic_page_fault_inst[15:1]` / `b_fetch_group[*][31:16]`（周期不变）。
 - 2026-11-28（`rtl/fe-2ahead`）：文档按现行 RTL 重写（第 1–9 节；旧正文描述的是 EXP-070 之前 / 删除分支标签之前的结构）。
 - 2026-11-21（`rtl/fe-2fetch-2taken`，EXP-051 里程碑 B）：`fetch_addr_fifo` 与 `pend_pair_q` 携带 `FetchPair`；`front_fetch_buf` 实现双块融合与 `alt_a` 完整 A 兜底；`ptab` / `front2back_fifo` 用紧凑字段 `{is_pair, a_len, base_b}` 重建 16 槽 PC 并删除 166 位 `bpu_ck`；`front_top` 接入 ICache FDIP S2 信号。Yosys 综合 `front_top` `1,582,763` 单元 / `356` 层（最长路径 `u_pred_path.u_bpu.r1_q[1074] → u_pd.pd_ras_op2_q[1]`，已登记至 TODO）；通过 `lint_chip` 0、`fm_gate` 68/68（0 周期偏差）与 Linux 27 窗检查点对齐。

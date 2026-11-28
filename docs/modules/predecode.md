@@ -12,9 +12,9 @@ depth: 27 层 / 10,144 单元（predecode，单模块综合，2026-11-21，`SYNT
 > **EXP-053 前端结构清理（Phase 1 + P2-2）升级**：
 > - `front_head_fix` 承接来自 `inst_fifo` 的紧凑原始半字流，统一做单份 `rvc_expand` + `predecode` 及 4 轮 Kogge-Stone `start_a`/`start_b` 前缀扫描（`` `ifdef SYNTHESIS `` 综合走并行树、仿真走快速扫描，与 `fe_clean_eq_tb` 65,536 全枚举双路径零差异），并用按 64B 行掩码对齐的 `s1_seq` 兼容错路奇地址；
 > - 跨 4KB 页 RVC 第二半字取指缺页改为输出显式 1-bit `pf_inst_hi`（替代原先写 `insts_o[0]=32'd2` 借 `diag_val[1]` 透传）；
-> - `front_pd_info` 复用公用 `ttg_pick_k #(.N(FETCH_WIDTH), .K(2))` 与 `ttg_first_set` / `ttg_onehot_mux`（继承 `rtl/common` 双路径加速），`predecode_checker` 与新 `front_head_fix` 零周期偏差对齐。
+> - `front_pd_info` 复用公用 `ttg_first_set` / `ttg_onehot_mux`（原 `ttg_pick_k K=2` 在 2026-11-29 清理 C 换成 `ttg_first_set`）（继承 `rtl/common` 双路径加速），`predecode_checker` 与新 `front_head_fix` 零周期偏差对齐。
 >
-> **EXP-051 里程碑 B 升级**：
+> **EXP-051 里程碑 B 升级**（历史；EXP-070 起 BPU 不再产生双块，其中 3、4 两条的多段 / 双符号 / 双 RAS / `pd_nb_base` 已在 2026-11-29 清理 C 删除，只剩单段规则）：
 > 1. `predecode` 支持每槽独立 `slot_pc[FETCH_WIDTH]`（兼容 Block A + Block B 不连续 PC）；
 > 2. `front_head_fix` 接收 S2-mux 及 PC 对齐截断后的 `slot_pc[FETCH_WIDTH]`、`up16`、`up_ok`，按实际段末槽计算 `group_end_pc`、`complete` 与 `seq_next_o`；
 > 3. `predecode_checker` 新增多段模式（`multi`、`in_range`、`seg_first`、`slot_pc`、`inst_valid`、`is_rvc`），逐段核验 `corrected != claimed || (!last && (ft != e || !inst_valid[e+1]))`，并输出截断槽数 `keep_n`；
@@ -25,11 +25,11 @@ depth: 27 层 / 10,144 单元（predecode，单模块综合，2026-11-21，`SYNT
 I-Cache 回来的取指组（16 个 2 字节的槽，原始半字，存在 `inst_fifo` 里）在送后端之前要经过预译码检查，全部在检查侧（`inst_fifo` 队首和统一 FTQ 的 `pd_ptr` 项一起读出，在 `front_pred_path`，见 [front_top.md](front_top.md)）：
 
 1. `front_head_fix`：
-   - 选块：取指组带 B 块（同页下一行，`is_pair`）时把 A 的前 `a_len` 槽和 B 的槽拼起来；
+   - 选块：取指组跨 64 字节行（同页下一行由 I-Cache B 口读出，`inst_e.is_pair`）时把 A 的前 `a_len` 槽和 B 的槽拼起来，B 恒为 A 的下一行，拼出的槽 pc 连续；
    - 单份 `rvc_expand`（窗口低两位不是 `11` 的是 16 位压缩指令，展开成等价的 32 位指令，非法编码展开成 0）和 `predecode_lane`（判断 JAL / 条件分支 / JALR / 其他，算直接目标）；
    - 指令起点扫描（`start_a / start_b`，4 轮前缀扫描）；按 FTQ 项的 pc（`ptab_base_pc` 等端口，名字是旧的，接的是 `ftq2fe.pd_*`）截断；
    - 16 位 / 32 位混排带来的组间"携带"（见下）、跨页 RVC 第二半字缺页（`pf_hi_o`）、末槽 32 位指令的处理、顺序续接地址 `seq_next_o`；
-2. `predecode_checker`：用预译码结果检查 FTQ 里的 BPU 预测：取第一个"确实跳"的槽，它的目标（JAL / 条件分支用预译码目标，JALR 沿用 BPU 的目标）应当等于预测的下一取指地址；不等就是一次预译码冲刷，下一拍用修正后的地址重取；`keep_n` 给出检查器认可的槽数；
+2. `predecode_checker`：用预译码结果检查 FTQ 里的 BPU 预测：取第一个"确实跳"的槽，它的目标（JAL / 条件分支用预译码目标，JALR 沿用 BPU 的目标）应当等于预测的下一取指地址；不等就是一次预译码冲刷，下一拍用修正后的地址重取；
 3. `front_pd_info`：把检查结果登记一拍后告诉 BPU（丢不丢 PDCKPT 记录；冲刷时修正后的块往历史和 RAS 里推什么）；
 4. `front_slot_kind`：按指令位给每个槽译出 BPU 的分支类别，写进 FTQ（`fe2ftq_pd.slot_kind`），误预测时由 `ftq_bpu` 读回给前端（RTL 独有，见第 7 节）。
 
@@ -51,11 +51,11 @@ I-Cache 回来的取指组（16 个 2 字节的槽，原始半字，存在 `inst
 
 | 模块 | 输入 | 输出 |
 | --- | --- | --- |
-| `front_head_fix` | `inst_fifo` 队首 `inst_e`、FTQ 项的 `ptab_base_pc / is_pair / base_b / a_len`、预测方向、携带寄存器 `lh_valid / lh_pc / lh_data` | 修正后的指令字 `insts_o`、`valid_o`、`pf_o`、`pf_hi_o`、`ptype_o`、`ptarget_o`、`is_rvc_o`、`slot_pc_o`、`ptab_pc_o`、`multi_o`、`in_range_o`、`seg_first_o`、`carry`、`straddle`、`carry_low`、`group_end_pc`、`seq_next_o` |
+| `front_head_fix` | `inst_fifo` 队首 `inst_e`、FTQ 项的 `ptab_base_pc`、预测方向、携带寄存器 `lh_valid / lh_pc / lh_data` | 修正后的指令字 `insts_o`、`valid_o`、`pf_o`、`pf_hi_o`、`ptype_o`、`ptarget_o`、`is_rvc_o`、`slot_pc_o`、`ptab_pc_o`、`carry`、`straddle`、`carry_low`、`group_end_pc`、`seq_next_o` |
 | `rvc_expand` | 16 位半字 | 32 位指令 |
 | `predecode_lane` | 一个槽的 `pc`、指令字、`inst_valid` | 类型、目标（无效槽给 非分支 / 0） |
-| `predecode_checker` | `multi`、`in_range`、`seg_first`、`slot_pc`、`inst_valid`、`is_rvc`、预测方向和下一地址、修正后的类型和目标、`seq_next_pc` | `predict_dir_corrected`、`predict_next_fetch_address_corrected`、`predecode_flush_enable`、`keep_n` |
-| `front_pd_info` | `checked`、`flush`、`multi`、`keep_n`、`seg_first`、`slot_pc`、`ptab_pc`、`is_rvc`、指令字、`inst_valid`、类型、目标、修正后方向、预测方向、`ptab_next` | `pd_valid / flush / hn / hbits / ras_op / ras_val / ras_op2 / ras_val2 / nb_valid / nb_pc / nb_base`（寄存一拍） |
+| `predecode_checker` | 预测方向和下一地址、修正后的类型和目标、`seq_next_pc` | `predict_dir_corrected`、`predict_next_fetch_address_corrected`、`predecode_flush_enable` |
+| `front_pd_info` | `checked`、`flush`、`slot_pc`、`is_rvc`、指令字、`inst_valid`、类型、目标、修正后方向、预测方向、`ptab_next` | `pd_valid / flush / hn（1 位）/ hbits（3 位）/ ras_op / ras_val / nb_valid / nb_pc`（寄存一拍） |
 | `front_slot_kind` | 一个指令字 | 3 位类别 |
 
 `predecode_checker` 是纯组合，没有 `clk / rst_n` 端口（2026-11-28 删掉了原来未用的这两个口）。
@@ -64,11 +64,11 @@ I-Cache 回来的取指组（16 个 2 字节的槽，原始半字，存在 `inst
 
 | 文件 | 行数 | 职责 |
 | --- | --- | --- |
-| `front_head_fix.sv` | 320 | 头修正：A / B 选择、单份展开与预译码、起点扫描、FTQ pc 截断、携带、末槽、`seq_next_o` |
+| `front_head_fix.sv` | 302 | 头修正：跨行 A / B 拼接、单份展开与预译码、起点扫描、FTQ pc 截断、携带、末槽、`seq_next_o` |
 | `rvc_expand.sv` | 171 | 16 位指令展开（RV64 含 c.addiw / c.subw / c.addw / c.ld / c.sd / c.ldsp / c.sdsp，开 FP 时含 c.fld / c.fsd 一族） |
 | `predecode_lane.sv` | 45 | 一个槽：按操作码分类，JAL 的 21 位、条件分支的 13 位立即数符号扩展后加 pc |
-| `predecode_checker.sv` | 148 | 检查器：单段 / 双段（`multi`）规则、`ttg_first_set` + 独热选择、`keep_n` |
-| `front_pd_info.sv` | 185 | PDCKPT 信息：第一个 taken 槽的历史符号（双段至多 6 位）、两组 RAS 操作、`nb_pc / nb_base` |
+| `predecode_checker.sv` | 49 | 检查器：第一个 taken 槽（`ttg_first_set` + 独热选择）决定修正后的下一地址 |
+| `front_pd_info.sv` | 124 | PDCKPT 信息：第一个 taken 槽的历史符号（至多 1 个，3 位）、一组 RAS 操作、`nb_pc` |
 | `front_slot_kind.sv` | 30 | 译 BPU 分支类别 |
 
 状态：只有 `front_pd_info` 里的一拍寄存器（`pd_valid_q` 等）；`front_head_fix`、检查器等是纯组合。携带寄存器 `lh_valid_q / lh_pc_q / lh_data_q` 在 `front_pred_path.sv`（见 [front_top.md](front_top.md)）。
@@ -88,7 +88,6 @@ I-Cache 回来的取指组（16 个 2 字节的槽，原始半字，存在 `inst
 
 - 逐槽修正方向：非分支 → 不跳；条件分支 → 用 BPU 的方向；JAL、JALR → 跳；
 - 第一个"跳"的槽决定下一地址：JAL / 条件分支用它的预译码目标，JALR 沿用 FTQ 里的预测下一地址；没有跳就用 `seq_next_pc`（头修正后的）；
-- 双段（`multi`，A + B 拼接）时逐段检查，`keep_n` 截掉检查器不认可的后缀；
 - `predecode_flush_enable = (FTQ 里的预测下一地址 != 修正后的下一地址)`。
 
 ### front_pd_info 的规则
@@ -100,9 +99,9 @@ I-Cache 回来的取指组（16 个 2 字节的槽，原始半字，存在 `inst
 检查侧（寄存器出发：`inst_fifo` 读口 + FTQ 的 `pd_ptr` 寄存视图）：
 
 1. `front_head_fix`：A / B 选择 → 16 路展开与预译码 → `carry`（`lh_valid & lh_pc == 本组基址 & 槽 0 有效`）→ 拼接槽 0 → 重预译码；`chain = carry ? start_b : start_a` → FTQ pc 截断 → 末槽判定（`straddle / complete`）→ 修正后的 `valid_o / ptype_o / ptarget_o`；`seq_next_o`；
-2. `predecode_checker`：16 路 `taken` → 第一个 taken 的独热 → 目标选择 → 与 FTQ 的预测下一地址比较 → `predecode_flush_enable`、`keep_n`；
+2. `predecode_checker`：16 路 `taken` → 第一个 taken 的独热 → 目标选择 → 与 FTQ 的预测下一地址比较 → `predecode_flush_enable`；
 3. 同拍 `front_slot_kind`（16 路）、`front_pd_info`（第一个 taken 槽的选择）、`front_pred_path` 里第一个修正后跳转之后的截断（`pd_cut_valid`）；
-4. 携带寄存器次态：`lh_new_valid = straddle & !最后一段有 taken & (!flush | 修正后下一地址 == group_end_pc)`，只在 `predecode_can_run` 时更新，后端重定向或复位清零。
+4. 携带寄存器次态：`lh_new_valid = straddle & !组内有 taken & (!flush | 修正后下一地址 == group_end_pc)`，只在 `predecode_can_run` 时更新，后端重定向或复位清零。
 
 ## 6. 关键路径与深度
 
@@ -146,6 +145,7 @@ RTL 与模型保持一致的细节（容易误判为 bug）：
 
 ## 10. 变更记录
 
+- 2026-11-29 清理 C：删 EXP-051 2-taken 双块残留（EXP-070 起不再产生）：`front_head_fix` 删 `ptab_is_pair / ptab_base_b / ptab_a_len` 输入（原恒 0）、`pair_disc` / `bnd_vec`（跨行拼接时 B 恒为 A 的下一行，`base_a + a_len × 2 == base_b`，恒 0）及由它导出的 `seg_first_o / multi_o / in_range_o`，保留跨行 A / B 拼接与 `gb_gen` 在 i = 1 的项；`predecode_checker` 删整个 `multi` 分支（13 个 `ttg_*` 实例）及 `multi / in_range / seg_first / slot_pc / inst_valid / is_rvc` 入口和 `keep_n` 出口（原恒 `FETCH_WIDTH`）；`front_pd_info` 删段 1 逻辑、第二个 taken 槽（`ttg_pick_k K=2` 换成 `ttg_first_set`）、第二组 RAS 操作 `pd_ras_op2 / pd_ras_val2`、`pd_nb_base`、`multi / keep_n / seg_first / ptab_pc` 入口，`pd_hn` 收为 1 位、`pd_hbits` 收为 3 位；删临时 `batch C probe` 断言（周期不变）。
 - 2026-11-28 清理：删 `predecode_checker` 未用的 `clk / rst_n` 端口，删 `predecode_checker` / `front_head_fix` / `front_pd_info` 里不起作用的 `UNUSEDSIGNAL` 豁免（`unused_*` 汇点本就不报）（周期不变）。
 - 2026-11-28（`rtl/fe-2ahead`，文档核对）：第 1、3、5 节按现行 RTL 重写（展开 / 预译码 / 起点扫描都在 `front_head_fix`；PTAB 改为统一 FTQ；双段检查 `multi` / `keep_n` 是现行功能）；文件表更新行数并去掉没有被例化的 `predecode.sv`、`sequential_next_pc.sv`（RTL 清理中删除）；第 6 节补 2026-11-21 的深度；门禁改为 77/77 对 `scripts/ref_cycles.txt`。
 - 2026-11-21（`rtl/fe-2fetch-2taken`，EXP-051 里程碑 B）：`predecode` 支持每槽独立 `slot_pc[FETCH_WIDTH]`；`front_head_fix`、`predecode_checker`、`front_pd_info` 升级支持双块多段（`multi`/`in_range`/`seg_first`/`keep_n`、双历史符号/双 RAS 操作、`pd_nb_base` 修复 RVC 携带假分支清槽）。Yosys 综合 `predecode` 10,144 单元 / 27 层（原 11,780 / 29）；通过 `lint_chip` 0、`fm_gate` 68/68（0 周期偏差，含 `directed/fe_2taken_fdip.bin`）与 Linux 27 窗检查点对齐。

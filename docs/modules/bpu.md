@@ -17,7 +17,7 @@ depth: Tier 1 TSMC28 LVT + PrimeTime STA：`bpu` `WNS -1.75 ns`（`55` 级，`0.
 
 ## 1. 职责（含 3 级流水概览）
 
-每拍预测一个至多 32B（16 个 2B 槽）的取指块，仅在 **4KB 页边界**截断（同页跨 64B 缓存行 2-Fetch），外部端口与 `front_pred_path` / Unified FTQ-64 100% 兼容（`pair_valid = 0`、`ptab_is_pair = 0`）：
+每拍预测一个至多 32B（16 个 2B 槽）的取指块，仅在 **4KB 页边界**截断（同页跨 64B 缓存行 2-Fetch），外部端口与 `front_pred_path` / Unified FTQ-64 100% 兼容（只出单块，EXP-051 的 `pair_*` / `ptab_is_pair` 等双块端口 2026-11-29 已删）：
 
 1. **A0 / A1（2-Ahead 提前 SRAM 读取）**：
    - `s0_go` 时以 `(s0_base, spec_ex_fh)` 发起 `u_ah_ex_tage` 与 `u_aitt` 同步 1RW 读（`ah_key_q` 锁存关键帧，上一拍 `ah_key_q + ah_sram_raw` 推入 `ah_a1_raw_q`）；
@@ -26,7 +26,7 @@ depth: Tier 1 TSMC28 LVT + PrimeTime STA：`bpu` `WNS -1.75 ns`（`55` 级，`0.
 2. **S0（0 气泡主力预测，`pc_q` / `spec_q` / `ah_a1_raw_q` / `u_ftb0` 纯寄存驱动）**：
    - 无同拍 `refetch` 发射（`2A`：`issue = !refetch && !ovr && icache_read_ready`）；
    - 并行查找紧凑 FF `u_ftb0`（`64 × 4 = 256` 项，槽位存储 `20b` 压缩目标；仅对 `tgt_fits` 槽或 `BR_RET` 镜像）并与 `ah_a1_raw_q`（若 `valid`，使用当前 `spec_ex_fh` 与 `prev_base_q` 算 tag）经 2 路 `ah_ex_tage_select_slot` + 4 表 ITT 选路融合得出 `g0`，捕获只读 `ah_pred_meta_t`；
-   - 将 `s0_base` 送入 Unified FTQ-64（`pair_valid = 0`），推进 `spec_q` 与投机 RAS，并更新 `prev_base_q <= s0_base`。
+   - 将 `s0_base` 送入 Unified FTQ-64，推进 `spec_q` 与投机 RAS，并更新 `prev_base_q <= s0_base`。
 3. **S1（`r0_q`，Main FTB 1RW 同步读 & `self0` 捕获）**：
    - 单块读取 **Main FTB**（`u_ftb1`，2-Bank 1RW）；
    - 若 `!r0_q.ah_v && ah_key_q.valid && (ah_key_q.key_base == r0_q.base)`，将本拍 SRAM 返回的 `ah_sram_raw` 捕获至 `self0_raw_q` 并置 `self0_v_q <= 1'b1`。
@@ -66,11 +66,11 @@ SRAM 复位：`bpu_sram_1rw_banked` 有 `rst_n` 端口，复位期间把阵列�
 | 入 | `refetch`、`refetch_address`、`refetch_pd` | 全局重取指、地址、是否来自预译码冲刷 |
 | 入 | `icache_read_ready` | 前端允许 S0 发射（`front_ctrl` 的 `bpu_icache_read_ready`） |
 | 入 | `rf_valid`、`rf_blk`、`next_rf_blk`、`rf_type`、`rf_pc`、`rf_is_rvc` | 后端误预测修复：块号（读 `u_rf_rec`）、下一拍要读的块号（同步 SRAM 预读）、分支类别、pc |
-| 入 | `pd_valid`、`pd_flush`、`pd_hn`、`pd_hbits`、`pd_ras_op / _val`、`pd_ras_op2 / _val2`、`pd_nb_valid / _pc / _base` | 预译码检查结果（`front_pd_info`，寄存一拍） |
+| 入 | `pd_valid`、`pd_flush`、`pd_hn`（1 位：是否压 1 个历史符号）、`pd_hbits`（`HSYM_W` = 3 位）、`pd_ras_op / _val`、`pd_nb_valid / _pc` | 预译码检查结果（`front_pd_info`，寄存一拍）；假分支清槽用 `bpu_pdq` 队首的 `pd_base` |
 | 入 | `upd_valid`、`base_pc`、`actual_dir`、`upd_is_rvc`、`br_type`、`target`、`pred_dir`、`alt_pred`、`pcpn`、`blk_id`（各 `[NCOMMIT]`） | 提交训练包 |
-| 出 | `icache_read_valid`、`fetch_address`、`pair_valid`、`pair_addr2`、`pair_a_len`、`pair_b_len` | S0 块（写 FTQ 的 `bpu_ptr`）；`pair_*` 现恒为单块（`pair_valid = 0`） |
+| 出 | `icache_read_valid`、`fetch_address` | S0 块（写 FTQ 的 `bpu_ptr`） |
 | 出 | `override_valid`、`override_squash_n`、`hold_n` | S2 覆盖、要丢的块数、S1 里可能被丢的块数 |
-| 出 | `ptab_write_enable`、`ptab_base_pc`、`ptab_is_pair`、`ptab_base_b`、`ptab_a_len`、`predict_next_fetch_address`、`out_pred_dir`、`out_alt_pred`、`out_pcpn`、`out_blk_id` | S2 块写 FTQ（端口名里的 `ptab` 是旧名，现写统一 FTQ 的 `s2_ptr`） |
+| 出 | `ptab_write_enable`、`ptab_base_pc`、`predict_next_fetch_address`、`out_pred_dir`、`out_alt_pred`、`out_pcpn`、`out_blk_id` | S2 块写 FTQ（端口名里的 `ptab` 是旧名，现写统一 FTQ 的 `s2_ptr`） |
 | 出 | `commit_upd_free`、`commit_tq_free` | 训练队列空闲项数，给 ROB 做提交信用 |
 
 ## 4. 结构
@@ -88,11 +88,11 @@ SRAM 复位：`bpu_sram_1rw_banked` 有 `rst_n` 端口，复位期间把阵列�
 | `bpu_ftb_itt.sv` | 148 | 单套 4 表 512 项 2-Bank 1RW Block-ITT（零 T0 读，无 WrBypass，3-bit `start_k` 防越界） |
 | `bpu_ftb_arrays.sv` | 165 | 4 阵列容器（`u_ftb0` / `u_ftb1` / `u_ah_ex_tage` / `u_aitt`）与单口 1RW Bank 仲裁 |
 | `bpu_ftb_brq.sv` | 196 | 16 项提交分支队列 + 单 Bank 512 项 1R1W `u_rec` + `T0 → T1` 流水寄存器 |
-| `bpu_hist_vec.sv` / `bpu_spec.sv` | 159 + 394 | 256b 投机历史环 / 200b 架构移位器与投机/架构 RAS；`bpu_hist_vec` 的综合 / 仿真两种写法只在 `sym_n ≤ MAX_SYM` 时等价（[06 第 4 节](../06-equivalence-policy.md)），`bpu_spec` 用 SVA 断言 `hr_push_n ≤ 2` |
+| `bpu_hist_vec.sv` / `bpu_spec.sv` | 160 + 382 | 256b 投机历史环 / 200b 架构移位器与投机/架构 RAS；`bpu_hist_vec` 的综合 / 仿真两种写法只在 `sym_n ≤ MAX_SYM` 时等价（[06 第 4 节](../06-equivalence-policy.md)），`bpu_spec` 的三个实例都是 `MAX_SYM = 1`、`sym_n = {3'd0, en}`，前提由构造保证 |
 | `bpu_eval.sv` | 257 | S0（2-Ahead `ah_a1_raw_q` + `u_ftb0`）与 S2（`u_ftb1` + `self0` 并行评估、Cut A2、`fin_diff` 与元数据生成） |
-| `bpu_ctl.sv` / `bpu_cmd.sv` | 49 + 99 | 3 级单块控制与历史/RAS/PC 下一拍命令（S2 覆盖当拍恢复） |
+| `bpu_ctl.sv` / `bpu_cmd.sv` | 49 + 94 | 3 级单块控制与历史/RAS/PC 下一拍命令（S2 覆盖当拍恢复） |
 | `bpu_pdq.sv` | 65 | 32 项预译码检查点 FIFO |
-| `bpu.sv` | 337 | 顶层：`A0 → A1 → S0 → S1 → S2` 流水、`self0` 捕获、`u_rf_rec[256]` 与外部兼容接口 |
+| `bpu.sv` | 317 | 顶层：`A0 → A1 → S0 → S1 → S2` 流水、`self0` 捕获、`u_rf_rec[256]` 与外部兼容接口 |
 
 
 ## 5. 一拍内的数据流
@@ -155,6 +155,7 @@ SRAM 复位：`bpu_sram_1rw_banked` 有 `rst_n` 端口，复位期间把阵列�
 
 ## 10. 变更记录
 
+- 2026-11-29 清理 C：删 EXP-051 2-taken 双块残留（EXP-070 起不再产生）：`bpu.sv` 的 `pair_valid / pair_addr2 / pair_a_len / pair_b_len`、`ptab_is_pair / ptab_base_b / ptab_a_len` 输出（原恒 0）与 `pd_ras_op2 / pd_ras_val2 / pd_nb_base` 输入，`clr_base_eff` 改为直接用 `pd_base`（`pd_nb_base` 恒 0）；`pd_hn` / `hr_push_n` 由 2 位收为 1 位、`pd_hbits` / `hr_push_bits` 由 6 位收为 `HSYM_W` 位；`bpu_cmd` 删 `rr_op2 / rr_val2`；`bpu_spec` 删第二个 `do_op`（槽 1），`pack_syms` 收为单符号 `pack_sym`，`u_r1_ck` 由 `MAX_SYM = 2` 改为 1，删 `hr_push_n ≤ 2` 的 SVA（单符号时 `bpu_hist_vec` 前提恒成立）（周期不变）。
 - 2026-11-28 清理：删 `BPU_FAST_OVR`（只取过 1）及慢覆盖状态 `ovr_pend_q` / `ovr_ck_q` / `ovr_out_q` / `ovr_base_q` / `issue_no_ovr`、`bpu_ctl.ovr_pend`、`bpu_cmd` 的 `ovr_pend / ovr_ck / ovr_out` 口与 `act_*` 选择、`bpu_spec.ovr` 口与恒假三目；2-Ahead 键的折叠历史只存 `k = 0` 片（新类型 `ex_fh0_t`，`ah_key_q` / `ah_a1_raw_q` / `r0_q` / `r1_q` / `ftb_rec_t`（`u_rec` SRAM 宽度 −144 位）/ `train_t1_rc_q` 各少 144 位，原 `[2:1]` 片只写不读）；删 `bpu_ftb_tab.clr_hold_valid_q`（只写不读）、包内死项 `bpu_pkg::PC_W / BANK_W`、`bpu_stage_pkg::LANE_W / hist_push / hist_push_sym / ras_push / ras_pop`，`u_rf_rec` / `u_rec` 不再显式传 `WRITE_FIRST`（`ttg_sram_1r1w` 固定写优先）；删不起作用的 `UNUSED*` 豁免，`bpu.sv` 的 `unused_ok` 汇点去掉其实有读者的项（只留 `upd_pc`、`next_rf_blk` 高位）（周期不变；第 4 节 `u_rec` 宏数未重测）。
 - 2026-11-28（`rtl/fe-2ahead`）：基于 `main`（`6c42731` Clean BPU v11 + EXP-071 快速 PPA 工具链）重构为 **Pure Single-Set Unified 2-Ahead BPU**，修复 `bpu.sv` `u_spec.issue` 在 `BPU_FAST_OVR=1` 下的 override 门控后通过 `lint`/`lint_chip`/77 程序 `fm_gate`（0 周期差），并在 `eda` 集群完成 `Tier 0-elab` 与 `Tier 1` 实测（含 `BPU_FAST_OVR=0` A/B 对照与 `front_top` 整前端综合）。
 - 2026-11-28（`rtl/fe-2ahead`）：文档按 TEMPLATE 十节重排（新增第 2 节常量表、第 3 节端口表、文件行数），补 SRAM 复位清零说明，门禁改为对 `scripts/ref_cycles.txt`；`front_top` 的 32 KiB ICache 数字标为已被取代。

@@ -34,14 +34,12 @@ module bpu_spec import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
   input  logic [XLEN_BITS-1:0] g0_r_val,
   input  logic [1:0]          hr_mode,
   input  hist_ck_t            hr_ck,
-  input  logic [1:0]          hr_push_n,
-  input  logic [5:0]          hr_push_bits,
+  input  logic                hr_push_n,
+  input  logic [HSYM_W-1:0]   hr_push_bits,
   input  logic [1:0]          rr_mode,
   input  ras_ck_t             rr_ck,
   input  logic [1:0]          rr_op,
-  input  logic [XLEN_BITS-1:0] rr_val,
-  input  logic [1:0]          rr_op2,
-  input  logic [XLEN_BITS-1:0] rr_val2
+  input  logic [XLEN_BITS-1:0] rr_val
 );
 
   localparam logic [1:0] M_CK   = 2'd2;
@@ -244,14 +242,8 @@ module bpu_spec import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
   end
 
   // ---- Speculative history update (2A+2B: pure registered spec_q / arch_sr_q!) ----
-  function automatic logic [23:0] pack_syms(input logic [1:0] n1, input logic [5:0] b1,
-                                            input logic en2, input logic [2:0] b2);
-    logic [23:0] d;
-    d = '0;
-    if (n1 >= 2'd1) d = {d[20:0], b1[0], b1[1], b1[2]};
-    if (n1 >= 2'd2) d = {d[20:0], b1[3], b1[4], b1[5]};
-    if (en2)        d = {d[20:0], b2[0], b2[1], b2[2]};
-    return d;
+  function automatic logic [23:0] pack_sym(input logic en, input logic [HSYM_W-1:0] b);
+    return en ? {21'd0, b[0], b[1], b[2]} : 24'd0;
   endfunction
 
   logic n1_en;
@@ -263,13 +255,13 @@ module bpu_spec import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
   always_comb base_rck = hist_restore(spec_q, hr_ck);
 
   bpu_hist_vec #(.MAX_SYM(1)) u_n1_ck (.h(base_ck), .sym_n({3'd0, n1_en}),
-                     .d(pack_syms(2'd0, 6'd0, n1_en, h_push_bits)), .h_next(spec_n1));
+                     .d(pack_sym(n1_en, h_push_bits)), .h_next(spec_n1));
 
   bpu_hist_vec #(.MAX_SYM(1)) u_q1 (.h(spec_q), .sym_n({3'd0, g0_h_en}),
-                     .d(pack_syms(2'd0, 6'd0, g0_h_en, g0_h_bits)), .h_next(spec_q1));
+                     .d(pack_sym(g0_h_en, g0_h_bits)), .h_next(spec_q1));
 
-  bpu_hist_vec #(.MAX_SYM(2)) u_r1_ck (.h(base_rck), .sym_n({2'd0, hr_push_n}),
-                     .d(pack_syms(hr_push_n, hr_push_bits, 1'b0, '0)), .h_next(spec_r1_ck));
+  bpu_hist_vec #(.MAX_SYM(1)) u_r1_ck (.h(base_rck), .sym_n({3'd0, hr_push_n}),
+                     .d(pack_sym(hr_push_n, hr_push_bits)), .h_next(spec_r1_ck));
 
   always_comb begin
     arch_hist_t a_reg;
@@ -345,7 +337,7 @@ module bpu_spec import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
     s_n1.p = (r_mode == M_CK) ? '{tosr: r_ck.tosr, tosw: r_ck.tosw, cnt: r_ck.cnt} : rp_q;
     s_old = do_op(s_n1, r_op, r_val, 2'd0);
   end
-  always_comb s_d1 = do_op(do_op(start(rr_mode, rr_ck), rr_op, rr_val, 2'd0), rr_op2, rr_val2, 2'd1);
+  always_comb s_d1 = do_op(start(rr_mode, rr_ck), rr_op, rr_val, 2'd0);
   always_comb s_q1 = do_op(start(2'd0, '0), g0_r_op, g0_r_val, 2'd2);
   always_comb s_d = refetch ? s_d1 : (issue ? s_q1 : s_old);
 
@@ -382,12 +374,8 @@ module bpu_spec import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
   logic unused_ok;
   assign unused_ok = ^{r_ck.top, rr_ck.top};
 
-`ifndef SYNTHESIS
-  // bpu_hist_vec precondition (docs/06-equivalence-policy.md 4): its SYNTHESIS and simulation paths are equal only for
-  // sym_n <= MAX_SYM. u_n1_ck / u_q1 (MAX_SYM = 1) take a 1-bit count; u_r1_ck (MAX_SYM = 2) takes the 2-bit hr_push_n.
-  assert property (@(posedge clk) disable iff (!rst_n) hr_push_n <= 2'd2)
-    else $error("bpu_spec: hr_push_n = %0d > 2 (bpu_hist_vec u_r1_ck MAX_SYM = 2)", hr_push_n);
-`endif
+  // bpu_hist_vec precondition (docs/06-equivalence-policy.md 4) sym_n <= MAX_SYM holds by construction:
+  // all three instances are MAX_SYM = 1 and take a 1-bit count ({3'd0, en}).
 
 endmodule
 

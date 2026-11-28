@@ -446,7 +446,7 @@ auto tick = [&](int phase) {
       if (fpr::on()) {   // alignment fingerprints: PTAB writes and predictor-table updates of this cycle (the cycle number is the PMU cycle counter)
         auto *R = top->rootp;
         fpr::set_raw_cycle(pmu_total[0]);
-        if ((R->soc_top__DOT__u_core__DOT__fe2ftq_s2[8] >> 31) & 1u)
+        if (R->soc_top__DOT__u_core__DOT__u_front__DOT__u_front__DOT__u_pred_path__DOT__s2_wr_en)   // the S2 write into the FTQ (by name, not by struct bit position)
           fpr::pt(R->soc_top__DOT__u_core__DOT__u_front__DOT__u_front__DOT__u_pred_path__DOT__bpu_ptab_base_pc,
                   R->soc_top__DOT__u_core__DOT__u_front__DOT__u_front__DOT__u_pred_path__DOT__bpu_predict_next_fetch_address,
                   R->soc_top__DOT__u_core__DOT__u_front__DOT__u_front__DOT__u_pred_path__DOT__bpu_pred_dir);

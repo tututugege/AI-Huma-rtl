@@ -1,17 +1,14 @@
-// Ref: front-end/front_top.cpp  InstPort::comb_read (S2-confirmed raw A/B mux, single expand+predecode, O(log N) prefix start scan, PTAB PC cut, rvc_head_fix)
+// Ref: front-end/front_top.cpp  InstPort::comb_read (line-straddle raw A/B merge, single expand+predecode, O(log N) prefix start scan, PTAB PC cut, rvc_head_fix)
 `default_nettype none
 
 // Instruction-queue head preparation before predecode_checker:
-//   1) S2-confirmed raw A/B mux (select fused A+B when inst_e.is_pair && ptab_is_pair, else intact Block A);
+//   1) Line-straddle raw A/B merge (fused A + next line B when inst_e.is_pair, else intact Block A);
 //   2) Single 16-lane RVC expand + predecode + 4-round O(log N) Kogge-Stone start_a/start_b prefix scan;
 //   3) Parallel PTAB PC agreement cut (4-round prefix-OR) + log-depth valid count (ttg_first_set);
 //   4) RVC=1 C910-style carry assembly, cross-page 2nd-halfword page-fault offset (+2), and straddler handling.
 module front_head_fix import ttg_cfg_pkg::*; import front_pkg::*; (
   input  inst_fifo_entry_t        inst_e,
   input  logic [XLEN_BITS-1:0]    ptab_base_pc,
-  input  logic                    ptab_is_pair,
-  input  logic [XLEN_BITS-1:0]    ptab_base_b,
-  input  logic [3:0]              ptab_a_len,
   input  logic [FETCH_WIDTH-1:0]  predict_dir,
   input  logic                    lh_valid,
   input  logic [XLEN_BITS-1:0]    lh_pc,
@@ -25,9 +22,6 @@ module front_head_fix import ttg_cfg_pkg::*; import front_pkg::*; (
   output logic [FETCH_WIDTH-1:0]  is_rvc_o,
   output logic [XLEN_BITS-1:0]    slot_pc_o    [FETCH_WIDTH],
   output logic [XLEN_BITS-1:0]    ptab_pc_o    [FETCH_WIDTH],
-  output logic                    multi_o,
-  output logic [FETCH_WIDTH-1:0]  in_range_o,
-  output logic [FETCH_WIDTH-1:0]  seg_first_o,
   output logic                    carry,
   output logic                    straddle,
   output logic [15:0]             carry_low,
@@ -113,8 +107,8 @@ module front_head_fix import ttg_cfg_pkg::*; import front_pkg::*; (
     );
   end
 
-  // 4-round Kogge-Stone prefix scan for start_a / start_b with inner A/B segment boundary reset
-  logic [FETCH_WIDTH-1:0] s1_v_pre, bnd_vec, ga_gen, gb_gen;
+  // 4-round Kogge-Stone prefix scan for start_a (no carry: lane 0 starts) / start_b (carry: lane 1 starts)
+  logic [FETCH_WIDTH-1:0] s1_v_pre, ga_gen, gb_gen;
   always_comb begin
     // Leading valid prefix mask: bits strictly before first zero in s1_v
     logic [FETCH_WIDTH-1:0] z_pre;
@@ -125,20 +119,11 @@ module front_head_fix import ttg_cfg_pkg::*; import front_pkg::*; (
     z_pre = z_pre | (z_pre << 8);
     s1_v_pre = ~z_pre;
 
-    // Precompute pair discontinuity directly from inst_e (eliminates serial s1_pc[i-1] + 2 chain!)
-    begin
-      logic pair_disc;
-      pair_disc = (inst_e.base_b != (inst_e.base_a + (XLEN_BITS'(inst_e.a_len) << SLOT_SHIFT)));
-      bnd_vec   = '0;
-      for (int i = 1; i < FETCH_WIDTH; i++)
-        bnd_vec[i] = use_pair && (4'(i) == inst_e.a_len) && pair_disc;
-    end
-
     ga_gen[0] = 1'b1;
     gb_gen[0] = 1'b0;
     for (int i = 1; i < FETCH_WIDTH; i++) begin
-      ga_gen[i] = bnd_vec[i] || s1_rvc[i - 1];
-      gb_gen[i] = (i == 1) ? 1'b1 : (bnd_vec[i] || s1_rvc[i - 1]);
+      ga_gen[i] = s1_rvc[i - 1];
+      gb_gen[i] = (i == 1) ? 1'b1 : s1_rvc[i - 1];
     end
   end
 
@@ -187,7 +172,7 @@ module front_head_fix import ttg_cfg_pkg::*; import front_pkg::*; (
   assign s1_sa = (RVC_ENABLE != 0) ? scan_starts(ga_gen, s1_v_pre) : '0;
   assign s1_sb = (RVC_ENABLE != 0) ? scan_starts(gb_gen, s1_v_pre) : '0;
 
-  // ---- Step 3: Parallel PTAB PC agreement cut & segment descriptors ----
+  // ---- Step 3: Parallel PTAB PC agreement cut ----
   logic [FETCH_WIDTH-1:0] mm_raw, cut_mask, s2_v;
   logic [1:0]             s2_ty  [FETCH_WIDTH];
   logic [XLEN_BITS-1:0]   s2_tgt [FETCH_WIDTH];
@@ -211,12 +196,9 @@ module front_head_fix import ttg_cfg_pkg::*; import front_pkg::*; (
     dropped  = |(s1_v & cut_mask);
     s2_v     = s1_v & ~cut_mask;
     for (int i = 0; i < FETCH_WIDTH; i++) begin
-      s2_ty[i]       = cut_mask[i] ? PREDECODE_NON_BRANCH : s1_ty[i];
-      s2_tgt[i]      = cut_mask[i] ? '0                   : s1_tgt[i];
-      in_range_o[i]  = s2_v[i];
-      seg_first_o[i] = (i > 0) && s2_v[i] && s2_v[i - 1] && bnd_vec[i];
+      s2_ty[i]  = cut_mask[i] ? PREDECODE_NON_BRANCH : s1_ty[i];
+      s2_tgt[i] = cut_mask[i] ? '0                   : s1_tgt[i];
     end
-    multi_o = |seg_first_o;
   end
 
   ttg_first_set #(.N(FETCH_WIDTH)) u_s2_inv (.req(~s2_v), .onehot(s2_inv_oh), .any(s2_any_inv));
@@ -313,7 +295,7 @@ module front_head_fix import ttg_cfg_pkg::*; import front_pkg::*; (
   ttg_onehot_mux #(.N(FETCH_WIDTH), .W(16)) u_carry_low (.sel(straddle_oh), .data(raw_low), .out(carry_low));
 
   logic unused_hf;
-  assign unused_hf = s1_inv_oh[0] ^ ptab_is_pair ^ (^ptab_base_b) ^ (^ptab_a_len);
+  assign unused_hf = s1_inv_oh[0];
 
 endmodule
 

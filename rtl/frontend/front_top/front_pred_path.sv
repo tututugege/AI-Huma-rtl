@@ -16,9 +16,6 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
   // Unified FTQ-64 registered pd_ptr prediction view (from ftq_ibuf)
   input  logic [FTQ_IDX_WIDTH-1:0] ftq_pd_idx,
   input  logic [XLEN_BITS-1:0]     ftq_pd_base_pc,
-  input  logic                     ftq_pd_is_pair,
-  input  logic [XLEN_BITS-1:0]     ftq_pd_base_b,
-  input  logic [3:0]               ftq_pd_a_len,
   input  logic [FETCH_WIDTH-1:0]   ftq_pd_pred_dir,
   input  logic [XLEN_BITS-1:0]     ftq_pd_next_pc,
   // repair information of a back-end branch mispredict (uses internal BPU rec_q[256])
@@ -44,7 +41,6 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
   // to control / fetch / icache FDIP
   output logic                bpu_icache_read_valid,
   output logic [XLEN_BITS-1:0] bpu_fetch_address,
-  output fetch_pair_t         bpu_fetch_pair,
   output logic                bpu_ptab_write_enable,
   output logic [1:0]          bpu_override_squash_n,
   output logic [1:0]          bpu_hold_n,
@@ -67,22 +63,16 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
 );
 
   // ---- BPU ----
-  logic [XLEN_BITS-1:0]   bpu_predict_next_fetch_address, bpu_ptab_base_pc, bpu_ptab_base_b;
-  logic                   bpu_ptab_is_pair, bpu_override_valid;
-  logic [3:0]             bpu_ptab_a_len;
-  logic                   bpu_pair_valid;
-  logic [XLEN_BITS-1:0]   bpu_pair_addr2;
-  logic [3:0]             bpu_pair_a_len, bpu_pair_b_len;
+  logic [XLEN_BITS-1:0]   bpu_predict_next_fetch_address, bpu_ptab_base_pc;
+  logic                   bpu_override_valid;
   logic [FETCH_WIDTH-1:0] bpu_pred_dir, bpu_alt_pred;
   logic [front_pkg::PCPN_W-1:0] bpu_pcpn [FETCH_WIDTH];
   logic [FTB_BLK_ID_W-1:0] bpu_blk_id;
 
-  logic                 pd_valid, pd_flush, pd_nb_valid;
-  logic [1:0]           pd_hn, pd_ras_op, pd_ras_op2;
-  logic [5:0]           pd_hbits;
-  logic [XLEN_BITS-1:0] pd_ras_val, pd_ras_val2, pd_nb_pc, pd_nb_base;
-
-  assign bpu_fetch_pair = '{valid: bpu_pair_valid, addr2: bpu_pair_addr2, a_len: bpu_pair_a_len, b_len: bpu_pair_b_len};
+  logic                 pd_valid, pd_flush, pd_nb_valid, pd_hn;
+  logic [1:0]           pd_ras_op;
+  logic [HSYM_W-1:0]    pd_hbits;
+  logic [XLEN_BITS-1:0] pd_ras_val, pd_nb_pc;
 
   // Cut B1: 1-cycle register decoupling BPU S2 (ovr / fin.next) & global_refetch from icache_fdip 8-entry dedup CAM
   logic                 fdip_s2_en_q, fdip_s2_clear_q;
@@ -109,23 +99,16 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
     .refetch_pd,
     .icache_read_ready          (bpu_icache_read_ready),
     .rf_valid, .rf_blk, .next_rf_blk, .rf_type, .rf_pc, .rf_is_rvc,
-    .pd_valid, .pd_flush, .pd_hn, .pd_hbits, .pd_ras_op, .pd_ras_val, .pd_ras_op2, .pd_ras_val2,
-    .pd_nb_valid, .pd_nb_pc, .pd_nb_base,
+    .pd_valid, .pd_flush, .pd_hn, .pd_hbits, .pd_ras_op, .pd_ras_val,
+    .pd_nb_valid, .pd_nb_pc,
     .upd_valid, .base_pc, .actual_dir, .upd_is_rvc, .br_type, .target, .pred_dir, .alt_pred, .pcpn, .blk_id,
     .icache_read_valid          (bpu_icache_read_valid),
     .fetch_address              (bpu_fetch_address),
-    .pair_valid                 (bpu_pair_valid),
-    .pair_addr2                 (bpu_pair_addr2),
-    .pair_a_len                 (bpu_pair_a_len),
-    .pair_b_len                 (bpu_pair_b_len),
     .override_valid             (bpu_override_valid),
     .override_squash_n          (bpu_override_squash_n),
     .hold_n                     (bpu_hold_n),
     .ptab_write_enable          (bpu_ptab_write_enable),
     .ptab_base_pc               (bpu_ptab_base_pc),
-    .ptab_is_pair               (bpu_ptab_is_pair),
-    .ptab_base_b                (bpu_ptab_base_b),
-    .ptab_a_len                 (bpu_ptab_a_len),
     .predict_next_fetch_address (bpu_predict_next_fetch_address),
     .out_pred_dir               (bpu_pred_dir),
     .out_alt_pred               (bpu_alt_pred),
@@ -139,9 +122,6 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
     fe2ftq_s2          = '0;
     fe2ftq_s2.wr_en    = s2_wr_en;
     fe2ftq_s2.base_pc  = bpu_ptab_base_pc;
-    fe2ftq_s2.is_pair  = bpu_ptab_is_pair;
-    fe2ftq_s2.base_b   = bpu_ptab_base_b;
-    fe2ftq_s2.a_len    = bpu_ptab_a_len;
     fe2ftq_s2.pred_dir = bpu_pred_dir;
     fe2ftq_s2.next_pc  = bpu_predict_next_fetch_address;
     fe2ftq_s2.alt_pred = bpu_alt_pred;
@@ -149,24 +129,21 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
     fe2ftq_s2.blk_id   = bpu_blk_id;
   end
 
-  // ---- Head fix (A/B mux + FTQ pd_ptr PC cut + RVC carry/straddler) ----
+  // ---- Head fix (line-straddle A/B merge + FTQ pd_ptr PC cut + RVC carry/straddler) ----
   logic                   lh_valid_q;
   logic [XLEN_BITS-1:0]   lh_pc_q;
   logic [15:0]            lh_data_q;
   logic [31:0]            hf_insts   [FETCH_WIDTH];
-  logic [FETCH_WIDTH-1:0] hf_valid, hf_pf, hf_pf_hi, hf_rvc, hf_in_range, hf_seg_first;
+  logic [FETCH_WIDTH-1:0] hf_valid, hf_pf, hf_pf_hi, hf_rvc;
   logic [1:0]             hf_type    [FETCH_WIDTH];
   logic [XLEN_BITS-1:0]   hf_target  [FETCH_WIDTH], hf_slot_pc [FETCH_WIDTH], hf_ptab_pc [FETCH_WIDTH];
-  logic                   hf_multi, hf_carry, hf_straddle;
+  logic                   hf_carry, hf_straddle;
   logic [XLEN_BITS-1:0]   hf_end, hf_seq_next;
   logic [15:0]            hf_low;
 
   front_head_fix u_head_fix (
     .inst_e       (inst_rd),
     .ptab_base_pc (ftq_pd_base_pc),
-    .ptab_is_pair (ftq_pd_is_pair),
-    .ptab_base_b  (ftq_pd_base_b),
-    .ptab_a_len   (ftq_pd_a_len),
     .predict_dir  (ftq_pd_pred_dir),
     .lh_valid     (lh_valid_q),
     .lh_pc        (lh_pc_q),
@@ -180,9 +157,6 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
     .is_rvc_o     (hf_rvc),
     .slot_pc_o    (hf_slot_pc),
     .ptab_pc_o    (hf_ptab_pc),
-    .multi_o      (hf_multi),
-    .in_range_o   (hf_in_range),
-    .seg_first_o  (hf_seg_first),
     .carry        (hf_carry),
     .straddle     (hf_straddle),
     .carry_low    (hf_low),
@@ -192,17 +166,10 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
 
   // ---- Predecode checker ----
   logic [FETCH_WIDTH-1:0][KIND_W-1:0] slot_kind;
-  logic [FETCH_WIDTH-1:0]             checker_dir_corrected, pd_raw_valid, pd_cut_valid;
+  logic [FETCH_WIDTH-1:0]             checker_dir_corrected, pd_cut_valid;
   logic [XLEN_BITS-1:0]               checker_next_corrected;
-  logic [4:0]                         checker_keep_n, pd_nslots;
 
   predecode_checker u_checker (
-    .multi                                (hf_multi),
-    .in_range                             (hf_in_range),
-    .seg_first                            (hf_seg_first),
-    .slot_pc                              (hf_slot_pc),
-    .inst_valid                           (hf_valid),
-    .is_rvc                               (hf_rvc),
     .predict_dir                          (ftq_pd_pred_dir),
     .predict_next_fetch_address           (ftq_pd_next_pc),
     .predecode_type                       (hf_type),
@@ -210,84 +177,43 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
     .seq_next_pc                          (hf_seq_next),
     .predict_dir_corrected                (checker_dir_corrected),
     .predict_next_fetch_address_corrected (checker_next_corrected),
-    .predecode_flush_enable               (checker_flush_enable),
-    .keep_n                               (checker_keep_n)
+    .predecode_flush_enable               (checker_flush_enable)
   );
   assign checker_flush_address = checker_next_corrected;
 
   for (genvar i = 0; i < FETCH_WIDTH; i++) begin : g_kind
     front_slot_kind u_kind (.inst(hf_insts[i]), .kind(slot_kind[i]));
-    assign pd_raw_valid[i] = hf_valid[i] && (5'(i) < checker_keep_n);
   end
 
-  // Cut after predicted-taken lane (resetting on 2-taken PC discontinuity), matching FrontControl::finish.
-  // 4-level Kogge-Stone parallel prefix + O(log N) ttg_first_set for pd_nslots (zero carry chain).
-  logic [FETCH_WIDTH-1:0] pd_rev_v, pd_rev_oh;
-  logic                   pd_any_cut;
-  logic [3:0]             pd_rev_idx;
-
+  // Cut after the first predicted-taken lane, matching FrontControl::finish:
+  // pd_cut_valid[i] = hf_valid[i] && no valid taken lane below i (4-round prefix-OR).
   always_comb begin
-    logic [FETCH_WIDTH-1:0] disc_pc, set_nt, clr_nt;
-    logic [FETCH_WIDTH-1:0] g0, p0, g1, p1, g2, p2, g3, p3, g4;
-
-    disc_pc[0] = 1'b0;
-    set_nt[0]  = 1'b1;
-    clr_nt[0]  = 1'b0;
-    for (int i = 1; i < FETCH_WIDTH; i++) begin
-      disc_pc[i] = (hf_ptab_pc[i] != (hf_ptab_pc[i - 1] + (hf_rvc[i - 1] ? XLEN_BITS'(2) : XLEN_BITS'(4))));
-      set_nt[i]  = pd_raw_valid[i - 1] && pd_raw_valid[i] && disc_pc[i] && checker_dir_corrected[i - 1];
-      clr_nt[i]  = !set_nt[i] && pd_raw_valid[i - 1] && checker_dir_corrected[i - 1];
-    end
-
-    g0 = set_nt;
-    p0 = ~(set_nt | clr_nt);
-    for (int i = 0; i < FETCH_WIDTH; i++) begin
-      g1[i] = (i >= 1) ? (g0[i] | (p0[i] & g0[i - 1])) : g0[i];
-      p1[i] = (i >= 1) ? (p0[i] & p0[i - 1])           : p0[i];
-    end
-    for (int i = 0; i < FETCH_WIDTH; i++) begin
-      g2[i] = (i >= 2) ? (g1[i] | (p1[i] & g1[i - 2])) : g1[i];
-      p2[i] = (i >= 2) ? (p1[i] & p1[i - 2])           : p1[i];
-    end
-    for (int i = 0; i < FETCH_WIDTH; i++) begin
-      g3[i] = (i >= 4) ? (g2[i] | (p2[i] & g2[i - 4])) : g2[i];
-      p3[i] = (i >= 4) ? (p2[i] & p2[i - 4])           : p2[i];
-    end
-    for (int i = 0; i < FETCH_WIDTH; i++) begin
-      g4[i] = (i >= 8) ? (g3[i] | (p3[i] & g3[i - 8])) : g3[i];   // last level: no propagate term needed
-    end
-
-    pd_cut_valid = g4 & pd_raw_valid;
-    for (int i = 0; i < FETCH_WIDTH; i++) pd_rev_v[i] = pd_cut_valid[FETCH_WIDTH - 1 - i];
+    logic [FETCH_WIDTH-1:0] tk_below;
+    tk_below     = (hf_valid & checker_dir_corrected) << 1;
+    tk_below     = tk_below | (tk_below << 1);
+    tk_below     = tk_below | (tk_below << 2);
+    tk_below     = tk_below | (tk_below << 4);
+    tk_below     = tk_below | (tk_below << 8);
+    pd_cut_valid = hf_valid & ~tk_below;
   end
-
-  ttg_first_set #(.N(FETCH_WIDTH)) u_pd_ns_fs (.req(pd_rev_v), .onehot(pd_rev_oh), .any(pd_any_cut));
-  ttg_onehot_to_idx #(.N(FETCH_WIDTH)) u_pd_ns_idx (.onehot(pd_rev_oh), .idx(pd_rev_idx));
-  assign pd_nslots = pd_any_cut ? (5'(FETCH_WIDTH) - {1'b0, pd_rev_idx}) : 5'd0;
 
   front_pd_info u_pd (
     .clk, .rst_n, .checked(predecode_can_run), .flush(predecode_can_run && checker_flush_enable),
-    .multi(hf_multi), .keep_n(checker_keep_n), .seg_first(hf_seg_first),
-    .slot_pc(hf_slot_pc), .ptab_pc(hf_ptab_pc), .is_rvc(hf_rvc), .insts(hf_insts), .inst_valid(hf_valid),
+    .slot_pc(hf_slot_pc), .is_rvc(hf_rvc), .insts(hf_insts), .inst_valid(hf_valid),
     .ptype(hf_type), .pre_target(hf_target),
     .dir_corrected(checker_dir_corrected), .predict_dir(ftq_pd_pred_dir),
     .ptab_next(ftq_pd_next_pc),
-    .pd_valid, .pd_flush, .pd_hn, .pd_hbits, .pd_ras_op, .pd_ras_val, .pd_ras_op2, .pd_ras_val2,
-    .pd_nb_valid, .pd_nb_pc, .pd_nb_base
+    .pd_valid, .pd_flush, .pd_hn, .pd_hbits, .pd_ras_op, .pd_ras_val,
+    .pd_nb_valid, .pd_nb_pc
   );
 
-  // RVC carry state (only last segment's taken branches inhibit sequential continuation)
+  // RVC carry state (a taken branch in the group inhibits sequential continuation)
   logic [XLEN_BITS-1:0] lh_new_pc;
-  logic                 lh_new_valid, any_taken_last;
+  logic                 lh_new_valid, any_taken;
   always_comb begin
-    logic [3:0] last_seg;
-    last_seg       = 4'd0;
-    any_taken_last = 1'b0;
-    for (int i = 0; i < FETCH_WIDTH; i++) if (hf_seg_first[i]) last_seg = 4'(i);
-    for (int i = 0; i < FETCH_WIDTH; i++)
-      if ((4'(i) >= last_seg) && hf_valid[i] && checker_dir_corrected[i]) any_taken_last = 1'b1;
+    any_taken    = |(hf_valid & checker_dir_corrected);
     lh_new_pc    = hf_end;
-    lh_new_valid = hf_straddle && !any_taken_last &&
+    lh_new_valid = hf_straddle && !any_taken &&
                    (!checker_flush_enable || (checker_next_corrected == lh_new_pc));
   end
 
@@ -311,7 +237,6 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
     fe2ftq_pd.pred_dir  = pd_cut_valid & checker_dir_corrected;
     fe2ftq_pd.is_rvc    = hf_rvc;
     fe2ftq_pd.next_pc   = checker_next_corrected;
-    fe2ftq_pd.nslots    = pd_nslots;
     fe2ftq_pd.slot_kind = slot_kind;
 
     out_lane_valid      = predecode_can_run ? pd_cut_valid : '0;

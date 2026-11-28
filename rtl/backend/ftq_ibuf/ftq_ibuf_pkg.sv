@@ -23,11 +23,9 @@ package ftq_ibuf_pkg;
     logic [PCPN_W-1:0]   pcpn;
   } ftq_meta_t;
 
-  // Per-FTQ-entry compact training metadata: 15b block descriptor + 16 x 4b slot metadata = 79b/entry.
+  // Per-FTQ-entry compact training metadata: 10b block ID + 16 x 4b slot metadata = 74b/entry.
   typedef struct packed {
     logic [BLK_ID_W-1:0]                       blk_id;
-    logic                                      is_pair;
-    logic [3:0]                                a_len;
     ftq_meta_t [BACKEND_FETCH_WIDTH-1:0]       slots;
   } ftq_meta_entry_t;
 

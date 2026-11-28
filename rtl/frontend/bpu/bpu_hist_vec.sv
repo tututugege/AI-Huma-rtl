@@ -2,8 +2,9 @@
 `default_nettype none
 
 // Precondition: sym_n <= MAX_SYM. The SYNTHESIS path and the simulation path are formally equivalent
-// under it (yosys-slang + ABC, docs/06-equivalence-policy.md 4) and differ above it; this module has no
-// clock, so the SVA is at the instances (bpu_spec.sv).
+// under it (yosys-slang + ABC, docs/06-equivalence-policy.md 4) and differ above it. All instances
+// (bpu_spec.sv u_n1_ck / u_q1 / u_r1_ck) are MAX_SYM = 1 and drive sym_n = {3'd0, en}, so it holds by
+// construction and needs no SVA.
 module bpu_hist_vec import bpu_pkg::*; import bpu_stage_pkg::*; #(
   parameter int MAX_SYM = 2,
   parameter int DW      = 24

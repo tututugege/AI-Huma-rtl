@@ -19,15 +19,12 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
   input  logic                    rf_is_rvc,
   input  logic                    pd_valid,
   input  logic                    pd_flush,
-  input  logic [1:0]              pd_hn,
-  input  logic [5:0]              pd_hbits,
+  input  logic                    pd_hn,
+  input  logic [HSYM_W-1:0]       pd_hbits,
   input  logic [1:0]              pd_ras_op,
   input  logic [XLEN_BITS-1:0]    pd_ras_val,
-  input  logic [1:0]              pd_ras_op2,
-  input  logic [XLEN_BITS-1:0]    pd_ras_val2,
   input  logic                    pd_nb_valid,
   input  logic [XLEN_BITS-1:0]    pd_nb_pc,
-  input  logic [XLEN_BITS-1:0]    pd_nb_base,
   input  logic [NCOMMIT-1:0]      upd_valid,
   input  logic [XLEN_BITS-1:0]    base_pc    [NCOMMIT],
   input  logic [NCOMMIT-1:0]      actual_dir,
@@ -40,18 +37,11 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
   input  logic [FTB_BLK_ID_W-1:0] blk_id     [NCOMMIT],
   output logic                    icache_read_valid,
   output logic [XLEN_BITS-1:0]    fetch_address,
-  output logic                    pair_valid,
-  output logic [XLEN_BITS-1:0]    pair_addr2,
-  output logic [3:0]              pair_a_len,
-  output logic [3:0]              pair_b_len,
   output logic                    override_valid,
   output logic [1:0]              override_squash_n,
   output logic [1:0]              hold_n,
   output logic                    ptab_write_enable,
   output logic [XLEN_BITS-1:0]    ptab_base_pc,
-  output logic                    ptab_is_pair,
-  output logic [XLEN_BITS-1:0]    ptab_base_b,
-  output logic [3:0]              ptab_a_len,
   output logic [XLEN_BITS-1:0]    predict_next_fetch_address,
   output logic [NLANE-1:0]        out_pred_dir,
   output logic [NLANE-1:0]        out_alt_pred,
@@ -181,10 +171,8 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
   ftb_ent_t             ftb0_ent, s2_ftb_ent;
   ftb_ah_raw_t          ah_sram_raw;
   logic [1:0]           s2_ftb_way;
-  logic [XLEN_BITS-1:0] clr_base_eff;
   pred_t                g0, fin;
 
-  assign clr_base_eff = (pd_nb_base != '0) ? pd_nb_base : pd_base;
   assign ff_en        = d_valid && s2_ftb_hit && !r1_q.g.hit && fin.taken;
 
   bpu_ftb_arrays u_arrays (
@@ -196,7 +184,7 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
     .ff_en, .ff_base(r1_q.base), .ff_ent(s2_ftb_ent),
     .upd_en, .upd_start, .upd_ex_fh, .upd_ah_v, .upd_ah_self0, .upd_ah_key_base, .upd_prev_base,
     .upd_ah_key_ex_fh, .upd_ftb1_meta, .upd_ah_meta, .upd_br,
-    .clr_en(pd_valid && pd_nb_valid && pdq_have), .clr_base(clr_base_eff), .clr_pc(pd_nb_pc)
+    .clr_en(pd_valid && pd_nb_valid && pdq_have), .clr_base(pd_base), .clr_pc(pd_nb_pc)
   );
 
   // ---- S0 / S2 evaluation ----
@@ -216,13 +204,12 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
   );
 
   // ---- Control, speculative history/RAS, PDCKPT ----
-  logic [1:0]           h_mode, r_mode, r_op, hr_mode, hr_push_n, rr_mode, rr_op, rr_op2;
+  logic [1:0]           h_mode, r_mode, r_op, hr_mode, rr_mode, rr_op;
   hist_ck_t             h_ck, hr_ck;
-  logic                 h_push_en;
-  logic [5:0]           hr_push_bits;
-  logic [HSYM_W-1:0]    h_push_bits;
+  logic                 h_push_en, hr_push_n;
+  logic [HSYM_W-1:0]    h_push_bits, hr_push_bits;
   ras_ck_t              r_ck, rr_ck;
-  logic [XLEN_BITS-1:0] r_val, rr_val, rr_val2;
+  logic [XLEN_BITS-1:0] r_val, rr_val;
 
   bpu_ctl u_ctl (
     .refetch, .refetch_pd, .rep_ok_in,
@@ -234,10 +221,10 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
   bpu_cmd u_cmd (
     .refetch, .pd_restore, .rep_ok, .ovr, .r1_ck(r1_q.ck),
     .issue, .pc(pc_q), .refetch_address, .g0, .fin,
-    .pd_ck, .pd_hn, .pd_hbits, .pd_ras_op, .pd_ras_val, .pd_ras_op2, .pd_ras_val2,
+    .pd_ck, .pd_hn, .pd_hbits, .pd_ras_op, .pd_ras_val,
     .rf_ck_rec(rf_rc.ck), .rf_type, .rf_pc, .rf_is_rvc,
     .h_mode, .h_ck, .h_push_en, .h_push_bits, .r_mode, .r_ck, .r_op, .r_val, .pc_d,
-    .hr_mode, .hr_ck, .hr_push_n, .hr_push_bits, .rr_mode, .rr_ck, .rr_op, .rr_val, .rr_op2, .rr_val2
+    .hr_mode, .hr_ck, .hr_push_n, .hr_push_bits, .rr_mode, .rr_ck, .rr_op, .rr_val
   );
 
   bpu_spec u_spec (
@@ -246,7 +233,7 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
     .spec_ck, .spec_ras_nonempty, .spec_ras_top, .spec_ex_fh,
     .refetch, .issue,
     .g0_h_en(g0.taken), .g0_h_bits(g0.hbits), .g0_r_op(g0.ras_op), .g0_r_val(g0.ras_val),
-    .hr_mode, .hr_ck, .hr_push_n, .hr_push_bits, .rr_mode, .rr_ck, .rr_op, .rr_val, .rr_op2, .rr_val2
+    .hr_mode, .hr_ck, .hr_push_n, .hr_push_bits, .rr_mode, .rr_ck, .rr_op, .rr_val
   );
 
   bpu_pdq u_pdq (
@@ -316,18 +303,11 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
   // ---- External ports ----
   assign icache_read_valid          = s0_go;
   assign fetch_address              = s0_base;
-  assign pair_valid                 = 1'b0;
-  assign pair_addr2                 = '0;
-  assign pair_a_len                 = '0;
-  assign pair_b_len                 = '0;
   assign override_valid             = ovr;
   assign override_squash_n          = squash_n;
   assign hold_n                     = ctl_hold_n;
   assign ptab_write_enable          = d_valid;
   assign ptab_base_pc               = r1_q.base;
-  assign ptab_is_pair               = 1'b0;
-  assign ptab_base_b                = '0;
-  assign ptab_a_len                 = '0;
   assign predict_next_fetch_address = fin.next;
 
   logic unused_ok;

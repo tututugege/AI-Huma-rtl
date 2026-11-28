@@ -5,8 +5,8 @@
 //   ftq_ibuf_ctrl    front-end ibuf handshake, group compaction ranks, ibuf pop count
 //   ibuf             instruction ring buffer (feeds the Idu issue group)
 //   ftq_ptr          Unified FTQ-64 5-pointer ring (comm_ptr/pd_ptr/s2_ptr/ifu_ptr/bpu_ptr)
-//   ftq_pc           Unified FTQ-64 PC & FetchPair storage (FE + PRF + ROB + Commit + Dispatch)
-//   ftq_meta         8 x (8 x 79b) strict sync 1R1W SRAM for BPU training metadata (pre-launched on next_comm_ptr)
+//   ftq_pc           Unified FTQ-64 PC storage (FE + PRF + ROB + Commit + Dispatch)
+//   ftq_meta         8 x (8 x 74b) strict sync 1R1W SRAM for BPU training metadata (pre-launched on next_comm_ptr)
 //   ftq_bpu          Block ID (S2) + slot kind (PD) lookup for mispredict repair
 module ftq_ibuf import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; import front_pkg::*;
   import bpu_types_pkg::FTB_BLK_ID_W; (
@@ -100,11 +100,8 @@ module ftq_ibuf import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; import front_pkg:
   logic [FTQ_IDX_WIDTH-1:0]       comm_ptr, next_comm_ptr, pd_ptr, s2_ptr, ifu_ptr, bpu_ptr_unused, s0_wr_idx;
   logic                           ftq_full, fa_empty, s2_empty;
   logic [1:0]                     fa_cnt_sat;
-  logic [XLEN_BITS-1:0]           ifu_addr, pd_base_pc, pd_base_b, pd_out_next_pc;
-  fetch_pair_t                    ifu_pair;
-  logic [5:0]                     ifu_next_fa_idx, ifu_next_b_idx;
-  logic                           pd_is_pair;
-  logic [3:0]                     pd_a_len;
+  logic [XLEN_BITS-1:0]           ifu_addr, pd_base_pc, pd_out_next_pc;
+  logic [5:0]                     ifu_next_fa_idx;
   logic [BACKEND_FETCH_WIDTH-1:0] pd_out_pred_dir;
 
   // Gate frontend writes against backend flush/mispred (matches PreIduQueue::seq early return)
@@ -114,7 +111,7 @@ module ftq_ibuf import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; import front_pkg:
   assign pd_fire_eff = fe2ftq_pd.fire  && !rob_bcast_flush && !br_redirect_mispred;
 
   logic unused_s2_base_bpu;
-  assign unused_s2_base_bpu = ^{fe2ftq_s2.base_pc, fe2ftq_s2.base_b, bpu_ptr_unused};
+  assign unused_s2_base_bpu = ^{fe2ftq_s2.base_pc, bpu_ptr_unused};
 
   always_comb begin
     for (int i = 0; i < BACKEND_FETCH_WIDTH; i++) begin
@@ -187,10 +184,8 @@ module ftq_ibuf import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; import front_pkg:
     .s0_wr_en       (s0_wr_eff),
     .s0_idx         (s0_wr_idx),
     .s0_addr        (fe2ftq_s0.addr),
-    .s0_pair        (fe2ftq_s0.pair),
     .s2_wr_en       (s2_wr_eff),
     .s2_idx         (s2_ptr),
-    .s2_is_pair     (fe2ftq_s2.is_pair),
     .s2_pred_dir    (fe2ftq_s2.pred_dir),
     .s2_next_pc     (fe2ftq_s2.next_pc),
     .pd_fire        (pd_fire_eff),
@@ -200,13 +195,11 @@ module ftq_ibuf import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; import front_pkg:
     .pd_pred_dir    (fe2ftq_pd.pred_dir),
     .pd_is_rvc      (fe2ftq_pd.is_rvc),
     .pd_next_pc     (fe2ftq_pd.next_pc),
-    .pd_nslots      (fe2ftq_pd.nslots),
     .mispred_en     (br_redirect_mispred && !rob_bcast_flush),
     .mispred_idx    (br_redirect_ftq_idx),
-    .mispred_off    (br_redirect_ftq_offset),
     .mispred_target (br_redirect_pc),
-    .ifu_ptr, .ifu_addr, .ifu_pair, .ifu_next_fa_idx, .ifu_next_b_idx,
-    .pd_base_pc, .pd_is_pair, .pd_base_b, .pd_a_len, .pd_out_pred_dir, .pd_out_next_pc,
+    .ifu_ptr, .ifu_addr, .ifu_next_fa_idx,
+    .pd_base_pc, .pd_out_pred_dir, .pd_out_next_pc,
     .ftq_head       (comm_ptr),
     .prf_idx(ftq_prf_pc_req_req_ftq_idx), .prf_off(ftq_prf_pc_req_req_ftq_offset),
     .prf_pc(prf_rd_pc), .prf_pred_taken(prf_rd_pred_taken), .prf_is_rvc(prf_rd_is_rvc), .prf_next_pc(prf_rd_next_pc),
@@ -223,8 +216,6 @@ module ftq_ibuf import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; import front_pkg:
     .wr_en         (s2_wr_eff),
     .wr_idx        (s2_ptr),
     .wr_blk_id     (fe2ftq_s2.blk_id),
-    .wr_is_pair    (fe2ftq_s2.is_pair),
-    .wr_a_len      (fe2ftq_s2.a_len),
     .wr_meta       (s2_meta),
     .next_comm_ptr (next_comm_ptr),
     .rd_idx        (rob_commit_commit_entry_uop_ftq_idx),
@@ -237,8 +228,6 @@ module ftq_ibuf import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; import front_pkg:
     .s2_wr_en   (s2_wr_eff),
     .s2_idx     (s2_ptr),
     .s2_blk_id  (fe2ftq_s2.blk_id),
-    .s2_is_pair (fe2ftq_s2.is_pair),
-    .s2_a_len   (fe2ftq_s2.a_len),
     .pd_fire    (pd_fire_eff),
     .pd_idx     (pd_ptr),
     .pd_kind    (fe2ftq_pd.slot_kind),
@@ -255,14 +244,9 @@ module ftq_ibuf import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; import front_pkg:
     ftq2fe.fa_cnt_sat      = fa_cnt_sat;
     ftq2fe.s2_empty        = s2_empty;
     ftq2fe.ifu_addr        = ifu_addr;
-    ftq2fe.ifu_pair        = ifu_pair;
     ftq2fe.ifu_next_fa_idx = ifu_next_fa_idx;
-    ftq2fe.ifu_next_b_idx  = ifu_next_b_idx;
     ftq2fe.pd_idx          = pd_ptr;
     ftq2fe.pd_base_pc      = pd_base_pc;
-    ftq2fe.pd_is_pair      = pd_is_pair;
-    ftq2fe.pd_base_b       = pd_base_b;
-    ftq2fe.pd_a_len        = pd_a_len;
     ftq2fe.pd_pred_dir     = pd_out_pred_dir;
     ftq2fe.pd_next_pc      = pd_out_next_pc;
   end

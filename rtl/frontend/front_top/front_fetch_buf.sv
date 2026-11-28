@@ -23,7 +23,6 @@ module front_fetch_buf import ttg_cfg_pkg::*; import front_pkg::*; (
   input  logic                   ic_b_is_pair,
   input  logic                   ic_b_is_tail,
   input  logic [3:0]             ic_b_a_len,
-  input  logic [XLEN_BITS-1:0]   ic_b_addr,
   input  logic                   b_hit,
   input  logic [4:0]             b_actual_n,
   input  logic [31:0]            b_fetch_group [FETCH_WIDTH],
@@ -76,7 +75,6 @@ module front_fetch_buf import ttg_cfg_pkg::*; import front_pkg::*; (
     inst_wr_entry.is_pair       = want_pair;
     inst_wr_entry.a_len         = want_pair ? ic_b_a_len : 4'd0;
     inst_wr_entry.base_a        = ic_fetch_pc;
-    inst_wr_entry.base_b        = ic_b_addr;
     inst_wr_entry.valid_a       = ic_inst_valid;
     inst_wr_entry.pf_a          = ic_page_fault_inst;
     inst_wr_entry.single_word_a = ic_fetch_single_word;

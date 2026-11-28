@@ -1,7 +1,7 @@
 // Ref: back-end/PreIduQueue.cpp  ftq_train_meta_fifo[] (8-bank strict 1-cycle sync 1R1W SRAM, pre-launched on next_comm_ptr)
 `default_nettype none
 
-// FTQ training-metadata storage: 8 x (8 x 79b) strict 1-cycle synchronous 1R1W SRAM (`ttg_sram_1r1w`, write-first).
+// FTQ training-metadata storage: 8 x (8 x 74b) strict 1-cycle synchronous 1R1W SRAM (`ttg_sram_1r1w`, write-first).
 // Written once at BPU S2 (s2_ptr); pre-launched every cycle for the 8-bank commit window [next_comm_ptr .. next_comm_ptr+7].
 module ftq_meta import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; (
   input  logic                        clk,
@@ -9,8 +9,6 @@ module ftq_meta import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; (
   input  logic                        wr_en,
   input  logic [FTQ_IDX_WIDTH-1:0]    wr_idx,
   input  logic [BLK_ID_W-1:0]         wr_blk_id,
-  input  logic                        wr_is_pair,
-  input  logic [3:0]                  wr_a_len,
   input  ftq_meta_t                   wr_meta [BACKEND_FETCH_WIDTH],
   input  logic [FTQ_IDX_WIDTH-1:0]    next_comm_ptr,
   input  logic [FTQ_IDX_WIDTH-1:0]    rd_idx [COMMIT_WIDTH],
@@ -27,16 +25,14 @@ module ftq_meta import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; (
 
   ftq_meta_entry_t wr_entry;
   always_comb begin
-    wr_entry.blk_id  = wr_blk_id;
-    wr_entry.is_pair = wr_is_pair;
-    wr_entry.a_len   = wr_a_len;
+    wr_entry.blk_id = wr_blk_id;
     for (int s = 0; s < BACKEND_FETCH_WIDTH; s++) wr_entry.slots[s] = wr_meta[s];
   end
 
   logic [EW-1:0]   bank_rd [NB];
   ftq_meta_entry_t win     [NB];
 
-  // 8 x (8 x 79b) strict sync 1R1W SRAM pre-launched from next_comm_ptr
+  // 8 x (8 x 74b) strict sync 1R1W SRAM pre-launched from next_comm_ptr
   for (genvar b = 0; b < NB; b++) begin : g_bank
     logic [LW-1:0] raddr;
     logic          bank_we;
@@ -73,7 +69,7 @@ module ftq_meta import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; (
       ftq_meta_entry_t e;
       e            = win[rd_idx[p][BW-1:0]];
       rd_meta[p]   = e.slots[rd_offset[p]];
-      rd_blk_id[p] = (e.is_pair && (rd_offset[p] >= e.a_len)) ? (e.blk_id + BLK_ID_W'(1)) : e.blk_id;
+      rd_blk_id[p] = e.blk_id;
     end
   end
 
