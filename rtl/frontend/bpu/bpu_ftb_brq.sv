@@ -1,4 +1,4 @@
-// Ref: front-end/BPU/BPU_pipe.h  FTB_BRQ (16-entry BRQ + single-bank u_rec + FE_TRAIN_LAT=1 T0->T1 pipeline)
+// Ref: front-end/BPU/BPU_pipe.h  FTB_BRQ (16-entry BRQ + single-bank u_rec + T0->T1 training register)
 `default_nettype none
 
 module bpu_ftb_brq import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; import bpu_types_pkg::*; (
@@ -19,7 +19,7 @@ module bpu_ftb_brq import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
   input  logic [NCOMMIT-1:0]      alt_pred,
   input  logic [PCPN_W-1:0]       pcpn       [NCOMMIT],
   input  logic [FTB_BLK_ID_W-1:0] blk_id     [NCOMMIT],
-  // 2-cycle registered head output (FE_TRAIN_LAT=1: decoupled from u_rec read!)
+  // 2-cycle registered head output (T0 -> T1: decoupled from the u_rec read)
   output logic                    upd_en,
   output logic [XLEN_BITS-1:0]    upd_start,
   output ex_fh_t                  upd_ex_fh,
@@ -80,7 +80,7 @@ module bpu_ftb_brq import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
     .wmask(1'b1)
   );
 
-  // ---- Stage T0 decode -> Stage T1 pipeline registers (FE_TRAIN_LAT = 1) ----
+  // ---- Stage T0 decode -> Stage T1 pipeline registers ----
   logic                 do_pop, carried, in_blk, t1_v_d;
   brq_ent_t             q_head;
   ftb_rec_t             rc;

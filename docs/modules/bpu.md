@@ -13,7 +13,7 @@ depth: Tier 1 TSMC28 LVT + PrimeTime STA：`bpu` `WNS -1.75 ns`（`55` 级，`0.
 > 在保留 `Clean BPU v11` 深宏单口 1RW SRAM、零 `T0` 读 `Meta/WRBypass/PLRU` 提交、`2A`（无同拍 refetch S0 发射）、单一 `ex_fh[3][6]`（`HR_BITS=256`、`ARCH_SR_W=200`）与同页跨 64B 行 2-Fetch 的基础上，采用**彻底单套预测器架构**（无 `u_aftb`、无 `u_s2_tage`、无 `u_s2_itt`、无 `u_atage`、无 `SC`）：
 > - **2-Ahead（`A0 → A1 → S0`）**：`A0` 拍以 `(base_t, H_t)` 提前 2 拍启动唯一一套 **2-Way 6 表 2-Ahead ExBlockTage**（`2048 sets × 2 ways = 4096` 项/表，4-Bank `512×128b` 1RW）与 **4 表 2-Ahead ITT**（`512` 项/表，2-Bank `256×52b` 1RW）同步读；`A1` 拍锁存进纯 FF 寄存器 `ah_a1_raw_q`；`S0` 拍用最新历史 `H_{t+2}` 与前一拍块地址 `prev_base_q`（MORSL secondary tag）在 FF 上完成并行选路，与扩展为 `64×4=256` 项（紧凑 `141b/entry`）的 `u_ftb0`（支持 S2 `FastFill` + 提交镜像）组合成 S0 零气泡预测 `g0`。
 > - **`self0` 零额外 SRAM 冷块自愈**：当冷启动块或紧接 `ovr`/`refetch` 的块在 S0 未拿到 2-Ahead 读数（`!ah_v`）时，直接在 S1 截取该块自己于 S0 启动并已完成同步读出的 `old_ah_a0` 到 `self0_raw_q`，于 S2 与 `u_ftb1`（`1024×4` 2-Bank 1RW）读出并行完成 0-Ahead 6 表 TAGE + 4 表 ITT 选路，在同套 SRAM 阵列完成训练（tag 加区分 XOR 常量 `0x555`/`0x2aa`），**零额外 SRAM 宏、零额外读口**。
-> - **可配 `BPU_FAST_OVR` 与 `tlat=1` 提交流水**：默认 `BPU_FAST_OVR = 1'b1`（S2 `ovr` 仅 2 气泡并立即用 `r1_q.base / r1_q.ck.h.ex_fh` 重启 A0）；`u_brq` 增加 1 拍 `T0 → T1` 寄存流水（`FE_TRAIN_LAT = 1`），切断 `u_rec`（单 Bank `512` 项 `1R1W`）到 `u_ah_ex_tage`/`u_aitt`/`u_ftb1` 的长提交路径。
+> - **`BPU_FAST_OVR` 与 `T0 → T1` 提交流水**：默认 `BPU_FAST_OVR = 1'b1`（S2 `ovr` 仅 2 气泡并立即用 `r1_q.base / r1_q.ck.h.ex_fh` 重启 A0）；`u_brq` 增加 1 拍 `T0 → T1` 寄存流水，切断 `u_rec`（单 Bank `512` 项 `1R1W`）到 `u_ah_ex_tage`/`u_aitt`/`u_ftb1` 的长提交路径。
 
 ## 1. 职责、配置与 3 级流水
 
@@ -37,7 +37,7 @@ depth: Tier 1 TSMC28 LVT + PrimeTime STA：`bpu` `WNS -1.75 ns`（`55` 级，`0.
 5. **修复**：
    - `refetch` 时优先级 `pd_restore`（`bpu_pdq`）> 后端 `u_rf_rec[256]` > 架构状态直映 `arch_sr_q/arch_ex_fh_q/aras_q` 并递增 `epoch_q`。
 6. **训练（`T0 → T1` 2 拍提交，零 `T0` 读单拍纯写）**：
-   - `bpu_ftb_brq` `T0` 弹队首并读出 `u_rec[512]` 与解码偏移后打 1 拍入 `train_t1_*_q`（`FE_TRAIN_LAT = 1`）；
+   - `bpu_ftb_brq` `T0` 弹队首并读出 `u_rec[512]` 与解码偏移后打 1 拍入 `train_t1_*_q`（`T0 → T1`）；
    - `T1` 拍单拍纯写更新 `u_ftb1`、`u_ftb0`（同步 `u_ftb1` 新条目镜像）、`u_ah_ex_tage`（优先写 + 2-Way 8 项 `WRBypass`）与 `u_aitt`。
 
 ## 2. 接口清单（外部兼容，100% 与 `main` 一致）
@@ -70,7 +70,7 @@ depth: Tier 1 TSMC28 LVT + PrimeTime STA：`bpu` `WNS -1.75 ns`（`55` 级，`0.
 | `bpu_ftb_ex_tage.sv` | 单套 2-Way 6 表 4-Bank 1RW 2-Ahead ExBlockTage（无 Base SRAM，`(tbl,sl,idx,way)` WRBypass，per-PC `use_alt`，双路并行 `uhi` 复位） |
 | `bpu_ftb_itt.sv` | 单套 4 表 512 项 2-Bank 1RW Block-ITT（零 T0 读，无 WrBypass，3-bit `start_k` 防越界） |
 | `bpu_ftb_arrays.sv` | 4 阵列容器（`u_ftb0` / `u_ftb1` / `u_ah_ex_tage` / `u_aitt`）与单口 1RW Bank 仲裁 |
-| `bpu_ftb_brq.sv` | 16 项提交分支队列 + 单 Bank 512 项 1R1W `u_rec` + `FE_TRAIN_LAT=1` (`T0 → T1`) 流水寄存器 |
+| `bpu_ftb_brq.sv` | 16 项提交分支队列 + 单 Bank 512 项 1R1W `u_rec` + `T0 → T1` 流水寄存器 |
 | `bpu_hist_vec.sv` / `bpu_spec.sv` | 256b 投机历史环 / 200b 架构移位器与投机/架构 RAS（支持 `BPU_FAST_OVR`） |
 | `bpu_eval.sv` | S0（2-Ahead `ah_a1_raw_q` + `u_ftb0`）与 S2（`u_ftb1` + `self0` 并行评估、Cut A2、`fin_diff` 与元数据生成） |
 | `bpu_ctl.sv` / `bpu_cmd.sv` | 3 级单块控制与历史/RAS/PC 下一拍命令（支持 `BPU_FAST_OVR=1/0`） |
@@ -83,7 +83,7 @@ depth: Tier 1 TSMC28 LVT + PrimeTime STA：`bpu` `WNS -1.75 ns`（`55` 级，`0.
 
 - **A0 → S0**：`ah_a1_raw_q` 保持已在 `A0` 读出并稳定寄存的数据；`S0` 拍用当前 `spec_ex_fh` 与 `prev_base_q` 做 2-Way tag 比较（2 路并行 `hit0/hit1` 选路，无串行循环），`u_ftb0` 64 组 × 4 路并行读出后按 `resolve_ah_dir` 选中 4 槽方向并与 `g0` 求值合并。
 - **S2**：`self0_raw_q` 仅使用寄存 FF 数据，与 `u_ftb1` 同步 1RW 宏读（`CLK→Q`）及 tag 比对**并行**完成 0-Ahead 2-Way 6 表 TAGE + 4 表 ITT 选路；若 `BPU_FAST_OVR=1` 触发 `ovr`，当拍同步驱动 `u_spec` 检查点恢复、`ah_rd_en_eff` 重启 A0 并清 `r0_q`/`r1_q`/`ah_a1_raw_q`；若 Tier 1/DC 发现 `ovr → u_spec` 或 `ovr → A0` 成为瓶颈，可将 `bpu_stage_pkg::BPU_FAST_OVR` 一键切回 `1'b0` 验证 `ovr_pend_q` 解耦收益。
-- **Train**：`FE_TRAIN_LAT=1` 将 `u_rec` 宏读与 `compute_commit_plan` 彻底切分到 `T0`/`T1` 两拍，避免 `u_rec → WRBypass → u_ftb1/u_ah_ex_tage` 跨宏长路径。
+- **Train**：`T0 → T1` 提交流水将 `u_rec` 宏读与 `compute_commit_plan` 彻底切分到 `T0`/`T1` 两拍，避免 `u_rec → WRBypass → u_ftb1/u_ah_ex_tage` 跨宏长路径。
 
 ## 6. 面积与综合实测结果
 
@@ -110,13 +110,13 @@ depth: Tier 1 TSMC28 LVT + PrimeTime STA：`bpu` `WNS -1.75 ns`（`55` 级，`0.
 
 - **结论**：
   1. **面积显著下降**：去掉第二套预测器（`u_aftb` / `u_s2_tage` / `u_s2_itt` / `u_atage`）后，即使 `u_ftb0` 从 `16×4` FF 扩展为 `64×4=256` 紧凑 FF（`Logic+FF` 增加约 `158k`），SRAM 宏从 `180` 颗降至 `100` 颗（`Macro Area` 减少 `590.5k`，`-29.2%`），`bpu` 总面积净降 **`-432.4k`（`-17.3%`）**，`front_top` 总面积净降 **`-416.4k`（`-9.5%`）**。
-  2. **时序/主频优于 `main`**：受益于 `FE_TRAIN_LAT=1` 切断 `u_brq.u_rec -> u_ftb1` 跨宏提交长路，`bpu` Tier 1 `WNS` 从 `−1.99 ns` 改善至 `−1.75 ns`（按 `EXP-071` 标定系数 `Fmax_GT/Fmax_T1 = 1.65` 折算约 `0.688 GHz`，按 `main bpu` 比值 `1.75` 折算约 `0.729 GHz`），`front_top` 的全局 `reg->reg WNS` 由 `−2.13 ns` 改善至 `−1.90 ns`，瓶颈仍在 `u_icache.u_arr`（`satp` / data SRAM 地址多路复用），`u_bpu` 未拖慢前端主频。
+  2. **时序/主频优于 `main`**：受益于 `T0 → T1` 提交流水切断 `u_brq.u_rec -> u_ftb1` 跨宏提交长路，`bpu` Tier 1 `WNS` 从 `−1.99 ns` 改善至 `−1.75 ns`（按 `EXP-071` 标定系数 `Fmax_GT/Fmax_T1 = 1.65` 折算约 `0.688 GHz`，按 `main bpu` 比值 `1.75` 折算约 `0.729 GHz`），`front_top` 的全局 `reg->reg WNS` 由 `−2.13 ns` 改善至 `−1.90 ns`，瓶颈仍在 `u_icache.u_arr`（`satp` / data SRAM 地址多路复用），`u_bpu` 未拖慢前端主频。
   3. **`BPU_FAST_OVR=1` 无时序/面积惩罚**：`FAST_OVR=1` 与 `FAST_OVR=0` A/B 对照的 `WNS` 完全一致（均为 `−1.75 ns`、55 级至 `u_ftb1.../A[0]`），可无额外代价保留 0 气泡 fast-override（少 1 拍 `ovr_pend` 气泡）。
 
 ## 7. 与模型的差异
 
 - `u_ftb0` 内部按 20-bit 槽压缩目标存储（`141b/项`），仅镜像 `ftb_s0_tgt_fits`（`±1 MB`）或 `BR_RET`；C++ 模型 `FtbTab` 保留全宽 `target` 字段。经 77 程序 `fm_gate.sh` 实测，功能与周期全部 0 差异。
-- `BPU_FAST_OVR` 编译期由 `bpu_stage_pkg::BPU_FAST_OVR` 控制（默认 `1'b1`）。模型 `front-end/BPU/BpuSc.h` 里 `FE_*` 开关的默认值（2026-11-28 起）就是 RTL 配置（`FE_PRED_ARCH=2 FE_AH_MODE=3 FE_BPU_S3=0 FE_FAST_OVR=1 FE_UFTB_N=256 FE_AH_CUR_TAG=1 FE_AH_SELF0=1 FE_AH_WAYS=2 FE_AH_SEC_TAG=1 FE_UFTB_FAST_FILL=1 FE_ITT_CFG=1 FE_TRAIN_LAT=1`），和 RTL 比周期不需要设环境变量；77 程序 `fm_gate.sh` 逐拍完全等价（2026-11-28 本机实测，合入 EXP-073 后）。交接时记录的 "44/77 周期差" 是模型没带这组环境变量跑出来的参考表造成的，不是 RTL 回退。
+- `BPU_FAST_OVR` 编译期由 `bpu_stage_pkg::BPU_FAST_OVR` 控制（默认 `1'b1`）。模型只实现这一种配置：2026-11-28 删掉了 fe-2ahead 的 20 个 `FE_*` 运行时开关（`FE_PRED_ARCH`、`FE_AH_MODE`、`FE_TRAIN_LAT`、`FE_ICACHE_PIPE` 等）和它们的死分支（第二套预测器 aftb / atage / S2 ExBlockTage / S2 ITT、1-Ahead、`ovr_pend`、S3 级），77 程序周期与删除前逐个相同；和 RTL 比周期不需要设环境变量，`fm_gate.sh` 77/77 逐拍等价。交接时记录的 "44/77 周期差" 是模型没带当时那组环境变量跑出来的参考表造成的，不是 RTL 回退。
 
 ## 8. 验证状态
 

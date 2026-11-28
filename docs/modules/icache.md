@@ -2,7 +2,7 @@
 module: icache
 area: frontend
 rtl: rtl/frontend/icache
-model: trace-model-fe-2ahead front-end/icache/icache_top.h、icache_top.cpp、icache_module.cpp、include/icache_module.h、front-end/front_top.cpp（`FE_ICACHE_PIPE=1`、64 KiB `256×4` Lo/Hi 2 级流水、1 项 FDIP fill buffer）；ITLB 是 back-end 的 `TlbMmu`（`Kind::ITLB`）
+model: trace-model-fe-2ahead front-end/icache/icache_top.h、icache_top.cpp、icache_module.cpp、include/icache_module.h、front-end/front_top.cpp（F0 → F1 两级 ICache 流水、64 KiB `256×4` Lo/Hi 2 级流水、1 项 FDIP fill buffer）；ITLB 是 back-end 的 `TlbMmu`（`Kind::ITLB`）
 status: 已实现并完成 77/77 fm_gate 与 Tier 0-elab / Tier 1 PPA 验证（64 KiB `256×4` Lo-32B/Hi-32B 2 级串联 Tag-then-Data VIPT，`rtl/fe-2ahead`）
 depth: Tier 1 TSMC 28nm (Yosys+PrimeTime STA, clk=0.65ns, eda-07): icache 77 层 / Total 490,495.9 / WNS -1.24ns (Fmax_T1 0.529 GHz, pt_timing_reg2reg -1.18ns / 0.546 GHz)；front_top 64 层 / Total 2,682,267.5 / WNS -1.82ns (Fmax_T1 0.405 GHz，瓶颈已移出 u_icache)
 ---
@@ -216,7 +216,7 @@ RTL 与模型保持一致的细节（容易误判为 bug）：
 ## 10. 变更记录
 
 - 本轮（`rtl/fe-2ahead`）：升级为 **64 KiB（`256 sets × 4 ways × 64B`）Lo-32B / Hi-32B 2 级串联 Tag-then-Data (`F0→F1`) VIPT ICache**：
-  - 配置与生成：`trace-model-fe-2ahead/include/config.h` 改为 `ICACHE_WAY_NUM=4`、`ICACHE_INDEX_BITS=8`、`ICACHE_SET_NUM=256`、`ICACHE_TAG_BITS=20`、`FE_ICACHE_PIPE=1`；`gen_cfg.sh` 重生成 `ttg_cfg_pkg.sv`；`ttg_sram_1rw.sv` 新增 `DEPTH == 1024`（`TEM5N28HPCPLVTA1024X32M4SWSO`）硬宏映射。
+  - 配置与生成：`trace-model-fe-2ahead/include/config.h` 改为 `ICACHE_WAY_NUM=4`、`ICACHE_INDEX_BITS=8`、`ICACHE_SET_NUM=256`、`ICACHE_TAG_BITS=20`，F0 → F1 两级流水是模型唯一实现（原 `FE_ICACHE_PIPE` 开关 2026-11-28 删除）；`gen_cfg.sh` 重生成 `ttg_cfg_pkg.sv`；`ttg_sram_1rw.sv` 新增 `DEPTH == 1024`（`TEM5N28HPCPLVTA1024X32M4SWSO`）硬宏映射。
   - RTL 实现：`icache_pkg.sv`、`icache_probe.sv`、`icache_idle.sv`、`icache_ctl.sv`、`icache_fdip.sv`、`icache_arr.sv`、`icache.sv` 及 `front_fetch_buf.sv` / `front_top.sv` 改为 strict 1RW Lo/Hi 两级取指流水与 1 项 FDIP fill buffer（`fb_v`），消除组合环（`OPT-150`）与 `4×` 拼宏面积开销。
   - 验证结果：`fm_gate` 77/77 PASS（0 diffs, SVA clean）；`lint_chip` 0 告警；`eda-07` Tier 1 `icache` 面积 `490,495.9`（`-71.4%` vs `main` 32K Tier 2a），`WNS -1.24ns`（`0.529 GHz`）；`front_top` 面积 `2,682,267.5`（`-38.7%` vs `main`），`WNS -1.82ns`（`0.405 GHz`，`+33.2%` vs `main`），关键路径已由 `u_icache` 退至 BPU `u_ftb1.u_wrb -> bk_addr[9]`。
 - 2026-11-21（`rtl/fe-2fetch-2taken`，EXP-051 里程碑 B）：`icache_arr` 升级 4-Bank 1R1W 支持同拍双块取指（`fetch_second`）；`icache_itlb` 启用 `tlb_mmu_core` `NPEEK=2` 只读 CAM 翻译口；新增 `icache_fdip.sv`（S2 确认 2-slot 实 AXI FDIP，txid `8..9`，8 项 VA 队列，1-pop/cycle，`issued` 保护 + `resp_popped_q` 抑制 1 拍回声 + 周期初 L1D/WB 脏行窥探）；修复 `IC_CANCEL_WAIT` 盲置 `mem_resp_ready`。Yosys 综合 `icache` 916,659 单元 / 106 层（路径起于 `u_ctl.r_q[136] -> mmu_req_vtag[4]`）；通过 `lint_chip` 0、`fm_gate` 68/68（含 `directed/fe_2taken_fdip.bin` 与 `fence-i-self-modify`）与 Linux 27 窗检查点对齐。

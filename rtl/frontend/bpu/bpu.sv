@@ -1,7 +1,7 @@
 // Ref: front-end/BPU/BPU_pipe.h & BpuFtb.h
 // Pure Single-Set Unified 2-Ahead BPU (uFTB 256 + 1x Main FTB + 1x 2-Way 6-tbl 2-Ahead TAGE + 1x 4-tbl 2-Ahead ITT)
 //   - A0 -> A1 (ah_a1_raw_q) -> S0 (2-Ahead + uFTB) -> S1 (Main FTB read + self0 capture) -> S2 (Main FTB + self0 eval)
-//   - FE_TRAIN_LAT = 1 (u_brq T0 -> T1) + uFTB FastFill + MORSL prev_base sec_tag; external port 100% compatible
+//   - T0 -> T1 training register in u_brq + uFTB FastFill + MORSL prev_base sec_tag; external port unchanged
 `default_nettype none
 
 module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; import bpu_types_pkg::*; (
