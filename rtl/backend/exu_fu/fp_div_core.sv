@@ -74,7 +74,9 @@ module fp_div_core
       sig   = 53'd0;
     end else if (e_zero) begin
       logic [6:0]  lz;
+      /* verilator lint_off UNUSEDSIGNAL */  // normalisation keeps only the leading 53 bits
       logic [63:0] norm64;
+      /* verilator lint_on UNUSEDSIGNAL */
       lz     = clz64({m_raw, 12'd0});
       norm64 = {m_raw, 12'd0} << lz[5:0];
       sig    = norm64[63:11];
@@ -96,6 +98,7 @@ module fp_div_core
   logic [56:0]        acc_dvs;
   logic [55:0]        acc_quo;
 
+  /* verilator lint_off LATCH */  // block-local temporaries, each read only on the path that assigns it: no latch
   always_comb begin
     logic [6:0]  funct7;
     logic [4:0]  funct5, rs2;
@@ -186,12 +189,14 @@ module fp_div_core
       end
     end
   end
+  /* verilator lint_on LATCH */
 
   // ---- run-cycle: 3 restoring steps per cycle ----
   logic [57:0] run_rem;
   logic [56:0] run_dvs;
   logic [55:0] run_quo;
 
+  /* verilator lint_off LATCH */  // block-local temporaries, each read only on the path that assigns it: no latch
   always_comb begin
     logic [57:0] r, r_sh, trial;
     logic [56:0] q_sq;
@@ -226,6 +231,7 @@ module fp_div_core
     run_dvs = is_sqrt_q ? q_sq : dvs_q;
     run_quo = is_sqrt_q ? bk   : q_dv;
   end
+  /* verilator lint_on LATCH */
 
   always_ff @(posedge clk) begin
     if (!rst_n) begin
@@ -265,6 +271,7 @@ module fp_div_core
   end
 
   // ---- result rounding & packing (valid when complete) ----
+  /* verilator lint_off LATCH */  // block-local temporaries, each read only on the path that assigns it: no latch
   always_comb begin
     logic [54:0] sig55;   // [54]=1 (MSB), [53:2]=52-bit mantissa (S in [53:31]), [1]=guard, [0]=sticky
     logic        rem_nz;
@@ -315,7 +322,9 @@ module fp_div_core
         end
       end else begin
         logic [12:0] rsh;
+        /* verilator lint_off UNUSEDSIGNAL */  // the rounding shift drops its top bit / low bits by design
         logic [54:0] shifted, smask;
+        /* verilator lint_on UNUSEDSIGNAL */
         logic        lost, g, s, rinc, tiny_after;
         logic [52:0] mant_inc;
         rsh = 13'd1 - e_biased;
@@ -366,7 +375,9 @@ module fp_div_core
         end
       end else begin
         logic [12:0] rsh;
+        /* verilator lint_off UNUSEDSIGNAL */  // the rounding shift drops its top bit / low bits by design
         logic [25:0] shifted, smask;
+        /* verilator lint_on UNUSEDSIGNAL */
         logic        lost, g, s, rinc, tiny_after;
         logic [23:0] mant_inc;
         rsh = 13'd1 - e_biased;
@@ -391,6 +402,7 @@ module fp_div_core
       end
     end
   end
+  /* verilator lint_on LATCH */
 
 endmodule
 `default_nettype wire

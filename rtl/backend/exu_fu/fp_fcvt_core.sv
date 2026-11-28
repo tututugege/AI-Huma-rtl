@@ -24,6 +24,7 @@ module fp_fcvt_core
 
   logic [31:0] a32;
 
+  /* verilator lint_off LATCH */  // block-local temporaries, each read only on the path that assigns it: no latch
   always_comb begin
     funct7  = imm[11:5];
     rs2     = imm[4:0];
@@ -63,7 +64,9 @@ module fp_fcvt_core
               result = {sa, 63'd0};
             end else begin
               logic [6:0]  lz;
+              /* verilator lint_off UNUSEDSIGNAL */  // the normalising shift keeps only the bits the result needs
               logic [63:0] norm;
+              /* verilator lint_on UNUSEDSIGNAL */
               logic [10:0] ed;
               lz     = clz64({ma, 41'd0});       // 0..22
               norm   = {ma, 41'd0} << (lz[4:0] + 5'd1);
@@ -118,7 +121,9 @@ module fp_fcvt_core
             end else begin
               // Subnormal or underflow (includes double subnormals where ea == 0)
               logic [11:0] rsh;
+              /* verilator lint_off UNUSEDSIGNAL */  // the normalising shift keeps only the bits the result needs
               logic [53:0] sig54, shifted, mask;
+              /* verilator lint_on UNUSEDSIGNAL */
               logic        g, s, rinc, lost, tiny_after;
               logic [23:0] mant_inc;
               rsh   = 12'd1 - e_s;
@@ -244,6 +249,7 @@ module fp_fcvt_core
       illegal = 1'b1;
     end
   end
+  /* verilator lint_on LATCH */
 
 endmodule
 `default_nettype wire

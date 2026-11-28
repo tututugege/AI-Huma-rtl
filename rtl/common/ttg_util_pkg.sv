@@ -1,5 +1,6 @@
 `default_nettype none
-// Ref: (new common package) shared helper functions that several modules had their own copies of (docs/modules/common.md).
+// Ref: (new common package) shared helpers that several modules had their own copies of
+// (docs/modules/common.md).
 package ttg_util_pkg;
   import ttg_cfg_pkg::*;
 

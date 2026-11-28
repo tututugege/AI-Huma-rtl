@@ -24,10 +24,13 @@ module fp_i2f_core
 
   // Integer magnitude & normalization
   logic        is_long, is_signed, sign;
+  /* verilator lint_off UNUSEDSIGNAL */  // the top bit after normalisation is the implicit 1
   logic [63:0] val_ext, mag, norm;
+  /* verilator lint_on UNUSEDSIGNAL */
   logic [6:0]  lz;
   logic        is_zero;
 
+  /* verilator lint_off LATCH */  // block-local temporaries, each read only on the path that assigns it: no latch
   always_comb begin
     funct7    = imm[11:5];
     rs2       = imm[4:0];
@@ -102,6 +105,7 @@ module fp_i2f_core
       illegal = 1'b1;
     end
   end
+  /* verilator lint_on LATCH */
 
 endmodule
 `default_nettype wire

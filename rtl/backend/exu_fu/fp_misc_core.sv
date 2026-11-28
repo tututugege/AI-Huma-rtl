@@ -27,9 +27,10 @@ module fp_misc_core
   logic [51:0] ma, mb;
   logic        ea_zero, eb_zero, ea_max, eb_max;
   logic        ma_zero, mb_zero;
-  logic        a_zero, b_zero, a_sub, b_sub, a_inf, b_inf, a_nan, b_nan, a_snan, b_snan;
+  logic        a_zero, b_zero, a_sub, a_inf, a_nan, b_nan, a_snan, b_snan;
   logic        mag_eq, mag_lt, a_lt_b, a_eq_b;
 
+  /* verilator lint_off LATCH */  // block-local temporaries, each read only on the path that assigns it: no latch
   always_comb begin
     funct7 = imm[11:5];
     rs2    = imm[4:0];
@@ -69,9 +70,7 @@ module fp_misc_core
     a_zero  = ea_zero && ma_zero;
     b_zero  = eb_zero && mb_zero;
     a_sub   = ea_zero && !ma_zero;
-    b_sub   = eb_zero && !mb_zero;
     a_inf   = ea_max  && ma_zero;
-    b_inf   = eb_max  && mb_zero;
     a_nan   = ea_max  && !ma_zero;
     b_nan   = eb_max  && !mb_zero;
     a_snan  = a_nan   && !ma[51];
@@ -175,6 +174,7 @@ module fp_misc_core
       endcase
     end
   end
+  /* verilator lint_on LATCH */
 
 endmodule
 `default_nettype wire

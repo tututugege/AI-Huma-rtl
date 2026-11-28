@@ -1,23 +1,26 @@
 #!/usr/bin/env bash
 # Lint RTL: project style rules (svlint) + Verilator -Wall (all warnings fatal).
-#   usage: lint.sh [rtl-dir...]     default: every module directory under rtl/ (e.g. rtl/backend/prf) and rtl/common
-#   env  LINT_ROOT  lint another checkout (coordinator review)
-# Cost is linear in the number of modules: a module directory is compiled once with its own files, the common
-# primitives and only the packages those files need (the packages they reference by pkg::sym / import, and the
-# packages those reference: scripts/list_sv_files.py --pkgs). Other modules' code is NOT pulled in.
-# Unused package constants (UNUSEDPARAM in *_pkg.sv) are judged only by the whole-design lint (directory chip_top, like
-# lint_soc.sh), where unused means dead; every other directory lint (soc_top too) waives them through
-# scripts/lint_pkg.vlt, because a shared package is only partly used by any one directory. Packages need no in-source
-# package-wide UNUSEDPARAM waiver (only the generated ttg_cfg_pkg / pmu_ev_pkg keep one).
-# Both stages run in every directory (a Verilator problem is never hidden behind svlint items) and every directory is
-# linted; the exit status is non-zero if any stage failed anywhere, and the failing stages are listed at the end.
+#   usage: lint.sh [rtl-dir...]     default: every module directory under rtl/ (e.g. rtl/backend/prf) and rtl/common,
+#                                   plus scripts/lint_chip.sh (top soc_top) and scripts/lint_soc.sh (top chip_top)
+#   env  LINT_ROOT  lint another checkout (coordinator review);  LINT_JOBS  parallel directories (default 4)
+# Directories run in parallel (one job per directory, output printed in directory order). A module directory is compiled
+# once with its own files, the common primitives and only the packages those files need (scripts/list_sv_files.py --pkgs).
+# Assembly directories (back_top, core_top, soc_top, mem_top, chip_top, axi_subsys) only get svlint here: their Verilator
+# check is the whole-design lint, which lint_chip.sh / lint_soc.sh do (with no arguments this script runs both).
+# Unused package constants (UNUSEDPARAM in *_pkg.sv) are judged only by the whole-design lint of chip_top (lint_soc.sh),
+# where unused means dead; directory lints waive them through scripts/lint_pkg.vlt.
+# Both stages run in every directory; the exit status is non-zero if any stage failed anywhere, and the failing stages
+# are listed at the end. svlint S10 (size) lines are notes and never fail.
 set -uo pipefail
 TOOLS=$(cd "$(dirname "$0")" && pwd)
 ROOT=${LINT_ROOT:-$(cd "$TOOLS/.." && pwd)}
 cd "$ROOT" || exit 1
 PRIMS=(); while IFS= read -r f; do PRIMS+=("$f"); done < <(find rtl/common -name 'ttg_*.sv' ! -name '*_pkg.sv' | sort)
 
-if [ $# -gt 0 ]; then DIRS=("$@"); else
+# ---- worker: lint one directory (internal: lint.sh --one <dir>) ----
+if [ "${1:-}" = --one ]; then ONE=$2; set --; fi
+
+if [ -n "${ONE:-}" ]; then DIRS=("$ONE"); elif [ $# -gt 0 ]; then DIRS=("$@"); else
   DIRS=(); while IFS= read -r d; do DIRS+=("$d"); done < <(find rtl -mindepth 2 -maxdepth 2 -type d | sort)
   DIRS+=(rtl/common)
 fi
@@ -28,11 +31,33 @@ vlint() {   # vlint <top> <files...>   (NOPRIMS=1: without the rtl/common primit
   local pk=(); while IFS= read -r f; do pk+=("$f"); done < <(python3 "$TOOLS/list_sv_files.py" --pkgs . "${src[@]}")
   local vlt=("$TOOLS/lint_pkg.vlt"); [ "$top" != chip_top ] || vlt=()
   local out
-  out=$(verilator --lint-only -Wall ${VLINT_EXTRA:-} --top-module "$top" -Irtl/common ${vlt[@]+"${vlt[@]}"} "${pk[@]}" "${src[@]}" 2>&1 || true)
+  out=$(verilator --lint-only -Wall ${VLINT_EXTRA:-} --top-module "$top" -Irtl/common ${vlt[@]+"${vlt[@]}"} ${pk[@]+"${pk[@]}"} "${src[@]}" 2>&1 || true)
   if echo "$out" | grep -qE "^%(Warning|Error)"; then
     echo "$out" | grep -E "^%(Warning|Error)" -A3 | head -${LINT_LINES:-40}; echo "LINT FAIL: top=$top"; return 1
   fi
 }
+
+if [ -z "${ONE:-}" ]; then
+  TMP=$(mktemp -d "${TMPDIR:-/tmp}/lint.XXXXXX")
+  JOBS=${LINT_JOBS:-4}
+  # whole-design lints (only for a full run) start first: they are the longest jobs
+  WHOLE=(); [ $# -gt 0 ] || WHOLE=(lint_chip lint_soc)
+  { for w in ${WHOLE[@]+"${WHOLE[@]}"}; do echo "@$w"; done; printf '%s\n' "${DIRS[@]}"; } | awk '{print NR" "$0}' |
+    xargs -P "$JOBS" -L 1 bash -c 'i=$0; d=$1; out="'"$TMP"'/$(printf %04d $i)";
+      if [ "${d#@}" != "$d" ]; then bash "'"$TOOLS"'/${d#@}.sh" > "$out.log" 2>&1; echo $? > "$out.rc"; echo "${d#@}.sh" > "$out.name"
+      else bash "'"$TOOLS"'/lint.sh" --one "$d" > "$out.log" 2>&1; echo $? > "$out.rc"; echo "$d" > "$out.name"; fi'
+  FAILS=(); nf=0
+  for f in "$TMP"/*.log; do
+    b=${f%.log}; cat "$f"; rc=$(cat "$b.rc"); name=$(cat "$b.name")
+    if [ "$rc" != 0 ]; then
+      got=0; while IFS= read -r s; do FAILS+=("$s"); got=1; done < <(grep -h '^  ' "$f" | sed 's/^  //')
+      [ $got = 1 ] || FAILS+=("$name")
+    fi
+    m=$(grep -ho 'lint ok ([0-9]* files' "$f" | grep -o '[0-9]*' | head -1); nf=$((nf + ${m:-0}))
+  done
+  if [ ${#FAILS[@]} -gt 0 ]; then echo "lint FAILED: ${#FAILS[@]} stage(s) (${#DIRS[@]} dirs)"; printf '  %s\n' "${FAILS[@]}"; exit 1; fi
+  echo "lint ok (${#DIRS[@]} dirs${WHOLE[@]+, + lint_chip, lint_soc})"; exit 0
+fi
 
 n=0; FAILS=()
 for d in "${DIRS[@]}"; do
@@ -45,9 +70,7 @@ for d in "${DIRS[@]}"; do
   base=$(basename "$d"); vok=1
   if [ "$base" = back_top ] || [ "$base" = core_top ] || [ "$base" = soc_top ] || [ "$base" = mem_top ] || [ "$base" = chip_top ] ||
      [ "$base" = axi_subsys ]; then
-    # assembly of several modules from other directories: compile against all RTL, top = back_top
-    ALL=(); while IFS= read -r f; do ALL+=("$f"); done < <(bash "$TOOLS/rtl_files.sh" . | grep -v '_pkg\.sv$' | grep -v -e '^rtl/common/')
-    vlint "$base" "${ALL[@]}" || vok=0
+    :   # assembly of modules from other directories: Verilator check = whole-design lint (lint_chip.sh / lint_soc.sh)
   elif [ "$base" = front_top ]; then
     FT=(); while IFS= read -r f; do FT+=("$f"); done < <(find rtl/frontend rtl/backend/tlb_mmu -name '*.sv' ! -name '*_pkg.sv' | sort)
     vlint front_top "${FT[@]}" || vok=0

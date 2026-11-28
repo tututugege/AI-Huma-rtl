@@ -79,7 +79,9 @@ module fp_fma_core
     end else if (e_zero) begin
       // Subnormal: normalize left so sig[52] == 1
       logic [6:0]  lz;
+      /* verilator lint_off UNUSEDSIGNAL */  // carry-out / normalisation bits not needed by the result
       logic [63:0] norm64;
+      /* verilator lint_on UNUSEDSIGNAL */
       lz     = clz64({m_raw, 12'd0});   // 0..51
       norm64 = {m_raw, 12'd0} << lz[5:0];
       sig    = norm64[63:11];           // norm64[63] == 1
@@ -90,6 +92,7 @@ module fp_fma_core
     end
   endtask
 
+  /* verilator lint_off LATCH */  // block-local temporaries, each read only on the path that assigns it: no latch
   always_comb begin
     logic        is_fma_op, is_add, is_sub, is_mul;
     logic        neg_a, neg_c;
@@ -163,6 +166,7 @@ module fp_fma_core
       s0_spec_res = s0_is_d ? {z_sgn, 63'd0} : fp_nanbox32({z_sgn, 31'd0});
     end
   end
+  /* verilator lint_on LATCH */
 
   // ---- Stage 0 -> Stage 1 registers ----
   logic        s1_is_d_q, s1_ill_q, s1_spec_q;
@@ -221,6 +225,7 @@ module fp_fma_core
   logic               s1a_p_stk, s1a_c_stk, s1a_eff_sub;
   logic signed [12:0] s1a_e_top;
 
+  /* verilator lint_off LATCH */  // block-local temporaries, each read only on the path that assigns it: no latch
   always_comb begin
     logic [105:0]       prod106;
     logic signed [12:0] ep, rsh_c;
@@ -264,6 +269,7 @@ module fp_fma_core
 
     s1a_prod106 = use_prod ? prod106 : 106'd0;
   end
+  /* verilator lint_on LATCH */
 
   // ---- Stage 1a -> Stage 1b registers ----
   logic               s1b_is_d_q, s1b_ill_q, s1b_spec_q;
@@ -303,7 +309,9 @@ module fp_fma_core
 
   always_comb begin
     logic [AW-1:0] p_aligned;
+    /* verilator lint_off UNUSEDSIGNAL */  // carry-out / normalisation bits not needed by the result
     logic [AW:0]   sum_add, sub_cp, sub_pc;
+    /* verilator lint_on UNUSEDSIGNAL */
     logic          c_gt_p;
 
     p_aligned = {55'd0, s1b_prod106_q, 2'd0};
@@ -350,6 +358,7 @@ module fp_fma_core
   // =========================================================================
   // Stage 2 (cycle t+3): CLZ normalize, subnormal shift, IEEE-754 round & pack
   // =========================================================================
+  /* verilator lint_off LATCH */  // block-local temporaries, each read only on the path that assigns it: no latch
   always_comb begin
     logic [6:0]         lz_hi, lz_mid, lz_lo;
     logic [7:0]         lz;
@@ -406,7 +415,9 @@ module fp_fma_core
       end else begin
         // Double subnormal / underflow
         logic [12:0] rsh;
+        /* verilator lint_off UNUSEDSIGNAL */  // carry-out / normalisation bits not needed by the result
         logic [54:0] sig55, shifted, smask;
+        /* verilator lint_on UNUSEDSIGNAL */
         logic        lost, g, s, rinc, tiny_after;
         logic [52:0] mant_inc;
         rsh   = 13'd1 - e_biased;
@@ -457,7 +468,9 @@ module fp_fma_core
       end else begin
         // Single subnormal / underflow
         logic [12:0] rsh;
+        /* verilator lint_off UNUSEDSIGNAL */  // carry-out / normalisation bits not needed by the result
         logic [25:0] sig26, shifted, smask;
+        /* verilator lint_on UNUSEDSIGNAL */
         logic        lost, g, s, rinc, tiny_after;
         logic [23:0] mant_inc;
         rsh   = 13'd1 - e_biased;
@@ -483,6 +496,7 @@ module fp_fma_core
       end
     end
   end
+  /* verilator lint_on LATCH */
 
 endmodule
 `default_nettype wire

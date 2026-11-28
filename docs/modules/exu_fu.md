@@ -171,6 +171,7 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 `ALU_NUM`、`BRU_NUM`、`LSU_AGU_COUNT`、`LSU_SDU_COUNT`、`MUL_MAX_LATENCY`、`DIV_MAX_LATENCY`、`FP_FMA_LAT`、`FP_MISC_LAT`、`FP_I2F_LAT`、`FP_FDIV_S_LAT`、`FP_FSQRT_S_LAT`、`FP_FDIV_D_LAT`、`FP_FSQRT_D_LAT`、`FPRF_NUM`（`ttg_cfg_pkg`）；`MUL_NUM`、`DIV_NUM`（`exu_fu_pkg`）；`mul_core` 的 `STRUCT`（由 `SYNTHESIS` 决定，`mul_pipe` 的 `DEPTH`、`UOP_T`、`div_core` 的 `LAT` 是实例化参数）；`SYNTHESIS`（`fp_core` 和 `mul_core` 的两套实现）。
 
 ## 10. 变更记录
+- 2026-11-29 清理：5 个 FP 核（`fp_div_core`、`fp_fcvt_core`、`fp_fma_core`、`fp_i2f_core`、`fp_misc_core`）原有的 Verilator 告警清零：块内临时变量只在赋值的分支里读，Verilator 按整个 `always_comb` 报 LATCH（不会综合出锁存器），这几个块加窄范围 `lint_off LATCH` 并注明原因；规格化 / 移位结果有意丢掉的位加窄范围 UNUSEDSIGNAL 豁免；删 `fp_misc_core` 算了没人读的 `b_sub`、`b_inf`（周期不变）。
 
 - 2026-11-29 清理 D：去重——FU bank 包装层（`alu_bank` / `bru_bank` / `agu_bank` / `sdu_bank` / `mul_bank` / `div_bank`，各只有一个 generate 循环）不再使用，`exu.sv` 直接在 `g_alu` / `g_bru` / `g_agu` / `g_sdu` / `g_mul` / `g_div` 循环里实例化叶子（纯连线，同一组信号，层次名从 `u_exu.u_alu.g_alu[i].u_alu` 变为 `u_exu.g_alu[i].u_alu`，tb / sva / 脚本无引用）；`exu_fu_pkg` 删 uop 类型副本 `OP_W` / `UOP_JUMP/ADD/BR/WFI`（`alu` / `alu_decode` / `bru` 改用 `dis_pkg::UOP_TYPE_W` / `dis_pkg::UOP_*`，数值相同）与 `fu_rob_younger`（`exu_iter_ctl` / `mul_pipe` 改用同体的 `ttg_util_pkg::ttg_rob_younger`）（周期不变）。
 - 2026-11-28 清理：删 `alu_bank` / `bru_bank` / `agu_bank` / `sdu_bank` 未用的 `clk` / `rst_n` 端口与其豁免；`div_bank` / `div_unit` 的 `wb_next` 输出口（`div_unit` 内部保留）；`div_unit` / `div_core` 未用的参数 `LAT`；bank 头注释里已删的 `spec/*.io`（周期不变）。
