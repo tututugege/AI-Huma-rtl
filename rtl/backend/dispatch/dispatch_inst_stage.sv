@@ -15,12 +15,6 @@ module dispatch_inst_stage
   input  logic [NUM_SLOTS-1:0] ren_valid,
   input  dis_inst_t                  ren_inst  [NUM_SLOTS],
   input  logic [NUM_SLOTS-1:0] fire,
-  input  logic [NUM_SLOTS-1:0] alloc_src1_busy,  // busy after comb_wake
-  input  logic [NUM_SLOTS-1:0] alloc_src2_busy,
-  input  logic [NUM_SLOTS-1:0] alloc_src3_busy,
-  input  logic [NUM_SLOTS-1:0] woken1,        // src preg woken by this cycle's wakeups
-  input  logic [NUM_SLOTS-1:0] woken2,
-  input  logic [NUM_SLOTS-1:0] woken3,
   output logic [NUM_SLOTS-1:0] valid_q,
   output dis_inst_t                  inst_q    [NUM_SLOTS]
 );
@@ -30,16 +24,13 @@ module dispatch_inst_stage
 
   for (genvar i = 0; i < NUM_SLOTS; i++) begin : g_lane
     logic      held_valid;   // instruction stays because it did not fire this cycle
-    dis_inst_t held_inst;    // ... with busy bits refreshed by the wakeups of this cycle
+    dis_inst_t held_inst;
     dis_inst_t new_inst;     // incoming rename instruction with resolved branch bits removed
 
-    // Ref: Dispatch::comb_pipeline (ready == 0 branch: busy from inst_alloc, then apply_wakeup_to_uop)
+    // Ref: Dispatch::comb_pipeline (held lanes keep inst_q; busy is re-derived next cycle)
     always_comb begin
       held_valid = valid_q[i] && !fire[i];
       held_inst  = inst_q[i];
-      held_inst.src1_busy = alloc_src1_busy[i] && !(inst_q[i].src1_en && woken1[i]);
-      held_inst.src2_busy = alloc_src2_busy[i] && !(inst_q[i].src2_en && woken2[i]);
-      held_inst.src3_busy = alloc_src3_busy[i] && !(inst_q[i].src3_en && woken3[i]);
       new_inst = ren_inst[i];
     end
 

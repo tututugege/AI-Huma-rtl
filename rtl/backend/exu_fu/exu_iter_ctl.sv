@@ -21,6 +21,7 @@ module exu_iter_ctl
   output logic                     run,
   output logic                     complete,
   output logic                     wb_next,
+  output logic                     wb_in2,
   output logic                     done_rob_flag
 );
 
@@ -36,8 +37,9 @@ module exu_iter_ctl
     live          = busy_q && !kill;
     finished      = (cnt_q == '0);
     complete      = live && finished;
-    wb_next       = busy_q && (cnt_q == CW'(1));
+    wb_next       = live && (cnt_q == CW'(1));
     accept        = en && !live;
+    wb_in2        = (accept && (lat_m1 == CW'(1))) || (live && (cnt_q == CW'(2)));
     run           = live && !finished;
     done_rob_flag = rob_flag_q;
 

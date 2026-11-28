@@ -1,6 +1,6 @@
-// Synthesizable 3-stage pipelined RV64FD FMA core:
+// Synthesizable 4-stage pipelined RV64FD FMA core:
 //   fmadd / fmsub / fnmsub / fnmadd / fadd / fsub / fmul (single & double precision).
-// Latency = 3 cycles (accept at t, result valid at t+2, matching FP_FMA_LAT = 3).
+// Latency = 4 cycles (accept at t, result valid at t+3, matching FP_FMA_LAT = 4).
 // Bit-exact against Berkeley SoftFloat (verified by scripts/fp_synth_check.sh).
 `default_nettype none
 module fp_fma_core
@@ -193,7 +193,7 @@ module fp_fma_core
   end
 
   // =========================================================================
-  // Stage 1 (cycle t+1): 53x53 multiply, 163-bit align & add/sub
+  // Stage 1a (cycle t+1): 53x53 multiply & 163-bit addend C alignment
   // =========================================================================
   // Fixed-point accumulator width AW = 163 bits:
   //   prod (106 bits, bit 104 = 2^ep, bit 105 = 2^(ep+1)) is placed at bits [107:2]
@@ -201,8 +201,7 @@ module fp_fma_core
   //     c_top_pos = 106 (represents 2^(ep+2)) .. 160 (represents 2^(ep+56))
   //   Anchor exponent e_top corresponds to MSB bit 162 = 2^(e_top).
   //   Specifically, when c_shift >= 0 (c shifted right relative to top):
-  //     bit 162 has weight 2^(ep + 56), so prod[105:0] sits at [107:2] (bit 106 = 2^ep? Wait:
-  //     162 - 56 = 106 -> bit 106 has weight 2^ep, bit 107 has weight 2^(ep+1), bit 2 has weight 2^(ep-104)!)
+  //     bit 162 has weight 2^(ep + 56), so prod[105:0] sits at [107:2] (bit 106 = 2^ep!
   //   Check: prod = ma * mb where ma[52]=2^0, mb[52]=2^0 -> prod[104] = 2^0 * 2^ep = 2^ep,
   //          prod[105] = 2^(ep+1), prod[0] = 2^(ep-104).
   //   So placing prod[105:0] at [107:2] puts:
@@ -217,92 +216,115 @@ module fp_fma_core
   //       - If rsh_c >= 163: c collapses into c_sticky (unless cz); e_top = ep + 56.
   localparam int AW = 163;
 
-  logic [AW-1:0]      s1_abs_sum;
-  logic               s1_res_sgn, s1_sticky, s1_exact_zero;
-  logic signed [12:0] s1_e_top;
+  logic [105:0]       s1a_prod106;
+  logic [AW-1:0]      s1a_c_aligned;
+  logic               s1a_p_stk, s1a_c_stk, s1a_eff_sub;
+  logic signed [12:0] s1a_e_top;
 
   always_comb begin
     logic [105:0]       prod106;
     logic signed [12:0] ep, rsh_c;
-    logic [AW-1:0]      p_aligned, c_aligned, big_v, small_v;
-    logic               p_stk, c_stk, eff_sub, c_gt_p;
-    logic [AW:0]        sum_raw;
+    logic               use_prod;
 
-    prod106 = s1_pzero_q ? 106'd0 : (106'(s1_ma_q) * 106'(s1_mb_q));
-    ep      = s1_ea_q + s1_eb_q;
-    eff_sub = s1_sp_q ^ s1_sc_q;
+    prod106     = s1_pzero_q ? 106'd0 : (106'(s1_ma_q) * 106'(s1_mb_q));
+    ep          = s1_ea_q + s1_eb_q;
+    rsh_c       = (ep + 13'sd56) - s1_ec_q;
+    s1a_eff_sub = s1_sp_q ^ s1_sc_q;
 
-    p_stk   = 1'b0;
-    c_stk   = 1'b0;
+    s1a_p_stk   = 1'b0;
+    s1a_c_stk   = 1'b0;
+    use_prod    = s1_cz_q || (!s1_pzero_q && (rsh_c > 13'sd0));
 
     if (s1_cz_q) begin
       // c == 0: result is just prod
-      s1_e_top  = ep + 13'sd56;
-      p_aligned = {55'd0, prod106, 2'd0};
-      c_aligned = '0;
+      s1a_e_top     = ep + 13'sd56;
+      s1a_c_aligned = '0;
     end else if (s1_pzero_q) begin
       // prod == 0: result is just c
-      s1_e_top  = s1_ec_q;
-      p_aligned = '0;
-      c_aligned = {s1_mc_q, 110'd0};
+      s1a_e_top     = s1_ec_q;
+      s1a_c_aligned = {s1_mc_q, 110'd0};
+    end else if (rsh_c <= 13'sd0) begin
+      // c >= 2^(ep+56): prod is strictly below bit 108, collapses into p_stk
+      s1a_e_top     = s1_ec_q;
+      s1a_c_aligned = {s1_mc_q, 110'd0};
+      s1a_p_stk     = 1'b1;   // prod != 0 since !s1_pzero_q
+    end else if (rsh_c >= 13'sd163) begin
+      // c is completely below bit 0 of accumulator
+      s1a_e_top     = ep + 13'sd56;
+      s1a_c_aligned = '0;
+      s1a_c_stk     = 1'b1;   // c != 0 since !s1_cz_q
     end else begin
-      rsh_c = (ep + 13'sd56) - s1_ec_q;
-      if (rsh_c <= 13'sd0) begin
-        // c >= 2^(ep+56): prod is strictly below bit 108, collapses into p_stk
-        s1_e_top  = s1_ec_q;
-        c_aligned = {s1_mc_q, 110'd0};
-        p_aligned = '0;
-        p_stk     = 1'b1;   // prod != 0 since !s1_pzero_q
-      end else if (rsh_c >= 13'sd163) begin
-        // c is completely below bit 0 of accumulator
-        s1_e_top  = ep + 13'sd56;
-        p_aligned = {55'd0, prod106, 2'd0};
-        c_aligned = '0;
-        c_stk     = 1'b1;   // c != 0 since !s1_cz_q
-      end else begin
-        logic [AW-1:0] c_full, c_mask;
-        s1_e_top  = ep + 13'sd56;
-        p_aligned = {55'd0, prod106, 2'd0};
-        c_full    = {s1_mc_q, 110'd0};
-        c_aligned = c_full >> rsh_c[7:0];
-        c_mask    = (AW'(1) << rsh_c[7:0]) - AW'(1);
-        c_stk     = (c_full & c_mask) != '0;
-      end
+      logic [AW-1:0] c_full, c_mask;
+      s1a_e_top     = ep + 13'sd56;
+      c_full        = {s1_mc_q, 110'd0};
+      s1a_c_aligned = c_full >> rsh_c[7:0];
+      c_mask        = (AW'(1) << rsh_c[7:0]) - AW'(1);
+      s1a_c_stk     = (c_full & c_mask) != '0;
     end
 
-    // Add or subtract magnitudes (including sticky bit at position -1!)
-    // Exact value of p = (p_aligned, p_stk), c = (c_aligned, c_stk) where at most one of p_stk, c_stk is 1.
-    if (!eff_sub) begin
-      sum_raw       = {1'b0, p_aligned} + {1'b0, c_aligned};
-      // Note: sum_raw[AW] is 0 because p_aligned[162:108]==0 when rsh_c>0, and p_aligned==0 when rsh_c<=0.
-      s1_abs_sum    = sum_raw[AW-1:0];
-      s1_res_sgn    = s1_cz_q ? s1_sp_q : (s1_pzero_q ? s1_sc_q : s1_sp_q);
-      s1_sticky     = p_stk | c_stk;
-      s1_exact_zero = (s1_abs_sum == '0) && !s1_sticky;
+    s1a_prod106 = use_prod ? prod106 : 106'd0;
+  end
+
+  // ---- Stage 1a -> Stage 1b registers ----
+  logic               s1b_is_d_q, s1b_ill_q, s1b_spec_q;
+  logic [2:0]         s1b_rm_q;
+  logic [63:0]        s1b_spec_res_q;
+  logic [4:0]         s1b_spec_flg_q;
+  logic               s1b_sp_q, s1b_sc_q, s1b_pzero_q, s1b_cz_q;
+  logic               s1b_eff_sub_q, s1b_p_stk_q, s1b_c_stk_q;
+  logic signed [12:0] s1b_e_top_q;
+  logic [105:0]       s1b_prod106_q;
+  logic [AW-1:0]      s1b_c_aligned_q;
+
+  always_ff @(posedge clk) begin
+    s1b_is_d_q     <= s1_is_d_q;
+    s1b_ill_q      <= s1_ill_q;
+    s1b_spec_q     <= s1_spec_q;
+    s1b_rm_q       <= s1_rm_q;
+    s1b_spec_res_q <= s1_spec_res_q;
+    s1b_spec_flg_q <= s1_spec_flg_q;
+    s1b_sp_q       <= s1_sp_q;
+    s1b_sc_q       <= s1_sc_q;
+    s1b_pzero_q    <= s1_pzero_q;
+    s1b_cz_q       <= s1_cz_q;
+    s1b_eff_sub_q  <= s1a_eff_sub;
+    s1b_p_stk_q    <= s1a_p_stk;
+    s1b_c_stk_q    <= s1a_c_stk;
+    s1b_e_top_q    <= s1a_e_top;
+    s1b_prod106_q  <= s1a_prod106;
+    s1b_c_aligned_q <= s1a_c_aligned;
+  end
+
+  // =========================================================================
+  // Stage 1b (cycle t+2): 163-bit add / dual-sub & sign / exact_zero
+  // =========================================================================
+  logic [AW-1:0] s1b_abs_sum;
+  logic          s1b_res_sgn, s1b_sticky, s1b_exact_zero;
+
+  always_comb begin
+    logic [AW-1:0] p_aligned;
+    logic [AW:0]   sum_add, sub_cp, sub_pc;
+    logic          c_gt_p;
+
+    p_aligned = {55'd0, s1b_prod106_q, 2'd0};
+    sum_add   = {1'b0, p_aligned} + {1'b0, s1b_c_aligned_q};
+    sub_cp    = {1'b0, s1b_c_aligned_q} - {1'b0, p_aligned} - {{AW{1'b0}}, s1b_p_stk_q};
+    sub_pc    = {1'b0, p_aligned} - {1'b0, s1b_c_aligned_q} - {{AW{1'b0}}, s1b_c_stk_q};
+    c_gt_p    = sub_pc[AW];
+
+    s1b_sticky = s1b_p_stk_q | s1b_c_stk_q;
+    if (!s1b_eff_sub_q) begin
+      s1b_abs_sum    = sum_add[AW-1:0];
+      s1b_res_sgn    = s1b_cz_q ? s1b_sp_q : (s1b_pzero_q ? s1b_sc_q : s1b_sp_q);
+      s1b_exact_zero = (s1b_abs_sum == '0) && !s1b_sticky;
     end else begin
-      // Compare (c_aligned, c_stk) > (p_aligned, p_stk)
-      c_gt_p = (c_aligned > p_aligned) || ((c_aligned == p_aligned) && c_stk && !p_stk);
-      if (c_gt_p) begin
-        big_v      = c_aligned;
-        small_v    = p_aligned;
-        s1_res_sgn = s1_sc_q;
-        // (big_v + c_stk*eps) - (small_v + p_stk*eps):
-        // if p_stk==1 (and c_stk==0), borrow 1 from LSB and set sticky=1
-        s1_abs_sum = big_v - small_v - {{(AW-1){1'b0}}, p_stk};
-        s1_sticky  = p_stk | c_stk;
-      end else begin
-        big_v      = p_aligned;
-        small_v    = c_aligned;
-        s1_res_sgn = s1_sp_q;
-        s1_abs_sum = big_v - small_v - {{(AW-1){1'b0}}, c_stk};
-        s1_sticky  = p_stk | c_stk;
-      end
-      s1_exact_zero = (s1_abs_sum == '0) && !s1_sticky;
-      if (s1_exact_zero) s1_res_sgn = (s1_rm_q == 3'd2);   // exact cancellation: -0.0 iff RDN
+      s1b_abs_sum    = c_gt_p ? sub_cp[AW-1:0] : sub_pc[AW-1:0];
+      s1b_exact_zero = (s1b_abs_sum == '0) && !s1b_sticky;
+      s1b_res_sgn    = s1b_exact_zero ? (s1b_rm_q == 3'd2) : (c_gt_p ? s1b_sc_q : s1b_sp_q);
     end
   end
 
-  // ---- Stage 1 -> Stage 2 registers ----
+  // ---- Stage 1b -> Stage 2 registers ----
   logic               s2_is_d_q, s2_ill_q, s2_spec_q;
   logic [2:0]         s2_rm_q;
   logic [63:0]        s2_spec_res_q;
@@ -312,21 +334,21 @@ module fp_fma_core
   logic signed [12:0] s2_e_top_q;
 
   always_ff @(posedge clk) begin
-    s2_is_d_q       <= s1_is_d_q;
-    s2_ill_q        <= s1_ill_q;
-    s2_spec_q       <= s1_spec_q;
-    s2_rm_q         <= s1_rm_q;
-    s2_spec_res_q   <= s1_spec_res_q;
-    s2_spec_flg_q   <= s1_spec_flg_q;
-    s2_abs_sum_q    <= s1_abs_sum;
-    s2_res_sgn_q    <= s1_res_sgn;
-    s2_sticky_q     <= s1_sticky;
-    s2_exact_zero_q <= s1_exact_zero;
-    s2_e_top_q      <= s1_e_top;
+    s2_is_d_q       <= s1b_is_d_q;
+    s2_ill_q        <= s1b_ill_q;
+    s2_spec_q       <= s1b_spec_q;
+    s2_rm_q         <= s1b_rm_q;
+    s2_spec_res_q   <= s1b_spec_res_q;
+    s2_spec_flg_q   <= s1b_spec_flg_q;
+    s2_abs_sum_q    <= s1b_abs_sum;
+    s2_res_sgn_q    <= s1b_res_sgn;
+    s2_sticky_q     <= s1b_sticky;
+    s2_exact_zero_q <= s1b_exact_zero;
+    s2_e_top_q      <= s1b_e_top_q;
   end
 
   // =========================================================================
-  // Stage 2 (cycle t+2): CLZ normalize, subnormal shift, IEEE-754 round & pack
+  // Stage 2 (cycle t+3): CLZ normalize, subnormal shift, IEEE-754 round & pack
   // =========================================================================
   always_comb begin
     logic [6:0]         lz_hi, lz_mid, lz_lo;

@@ -188,7 +188,7 @@ module lp_stq_ent
     d_rdy = d_elig && (rw5g == '0);
     rw_dec = d_elig && rw5 != '0;
     rw13 = rw_dec ? rw5 - RWW'(1) : rw5;
-    trp_v = trp8;
+    trp_v = ent_q.trp && !al_v && !sa_any;
   end
 
   // ---- registers ----

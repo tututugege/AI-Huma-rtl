@@ -24,6 +24,7 @@ module div_bank
   input  logic                     dest_en        [N],
   output logic                     complete       [N],
   output logic                     wb_next        [N],
+  output logic                     wb_in2         [N],
   output logic                     wake_valid     [N],
   output logic [PRF_IDX_WIDTH-1:0] wake_preg      [N],
   output logic [XLEN_BITS-1:0]     result         [N],
@@ -41,7 +42,7 @@ module div_bank
       .func3(func3[i]), .is_word(is_word[i]), .src1_rdata(src1_rdata[i]), .src2_rdata(src2_rdata[i]),
       .rob_idx(rob_idx[i]), .rob_flag(rob_flag[i]), .dest_preg(dest_preg[i]), .dest_en(dest_en[i]),
       .complete(complete[i]),
-      .wb_next(wb_next[i]), .wake_valid(wake_valid[i]), .wake_preg(wake_preg[i]),
+      .wb_next(wb_next[i]), .wb_in2(wb_in2[i]), .wake_valid(wake_valid[i]), .wake_preg(wake_preg[i]),
       .result(result[i]),
       .done_rob_idx(done_rob_idx[i]), .done_rob_flag(done_rob_flag[i]),
       .done_dest_preg(done_dest_preg[i]), .done_dest_en(done_dest_en[i])

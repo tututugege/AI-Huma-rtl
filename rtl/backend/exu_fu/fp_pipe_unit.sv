@@ -4,14 +4,14 @@
 // A pipelined F/D unit:
 //   SYNTH_FPU = 0 (default in simulation): DPI SoftFloat via fp_core at accept + mul_pipe delay queue (fast sim).
 //   SYNTH_FPU = 1 (default in synthesis, or -DFPU_REAL): synthesizable RV64FD datapath:
-//     MODE = 0 (FMA, LAT=3)   : 3-stage pipelined fp_fma_core (result valid at t+2, like mul_core) + mul_pipe payload
+//     MODE = 0 (FMA, LAT=4)   : 4-stage pipelined fp_fma_core (result valid at t+3, like mul_pipe DEPTH=4) + payload
 //     MODE = 1 (FMISC, LAT=2) : fp_misc_core + fp_fcvt_core + mul_pipe
 //     MODE = 2 (I2F, LAT=2)   : fp_i2f_core + mul_pipe
 module fp_pipe_unit
   import ttg_cfg_pkg::*;
   import exu_fu_pkg::*;
 #(
-  parameter int LAT  = 3,
+  parameter int LAT  = FP_FMA_LAT,
   parameter int MODE = 0,
 `ifdef SYNTHESIS
   parameter bit SYNTH_FPU = 1'b1
@@ -69,7 +69,7 @@ module fp_pipe_unit
       illegal = done_uop.illegal;
     end
   end else if (MODE == 0) begin : g_fma
-    // 3-stage pipelined FMA: result arrives at t+2 matching mul_pipe completion (guaranteed consumed by wb_gate)
+    // 4-stage pipelined FMA: result arrives at t+3 matching mul_pipe completion (guaranteed consumed by wb_gate)
     fp_fma_core u_fma (
       .clk(clk), .func3(func3), .imm(imm), .fsrc1(fsrc1), .fsrc2(fsrc2), .fsrc3(fsrc3), .frm(frm),
       .result(res), .fflags(flags), .illegal(bad)

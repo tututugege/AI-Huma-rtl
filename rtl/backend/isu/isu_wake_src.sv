@@ -13,22 +13,27 @@ module isu_wake_src
   input  logic                     rst_n,
   input  logic [LSU_LOAD_WB_WIDTH-1:0] prf_wake_valid,
   input  logic [PRF_IDX_WIDTH-1:0] prf_wake_preg [LSU_LOAD_WB_WIDTH],
-  input  logic                     exe_div_wake_valid,
-  input  logic [PRF_IDX_WIDTH-1:0] exe_div_wake_preg,
+  input  logic                         exe_div_wake_valid,
+  input  logic [PRF_IDX_WIDTH-1:0]     exe_div_wake_preg,
+  input  logic [LSU_LDU_COUNT-1:0]     cn_port_mask,
   /* verilator lint_off UNUSEDSIGNAL */   // waiver: ports that cannot start a delayed-wake op are not read
-  input  logic [ISSUE_WIDTH-1:0]   cand_valid,    // pre-fp-gate grants (equal to grant_valid for single-cycle ALU ops)
-  input  logic [ISSUE_WIDTH-1:0]   grant_valid,   // grants of every issue port
-  input  isu_uop_t [ISSUE_WIDTH-1:0] grant_uop,
+  input  logic [ISSUE_WIDTH-1:0]       cand_valid,    // pre-fp-gate grants (equal to grant_valid for single-cycle ALU ops)
+  input  logic [ISSUE_WIDTH-1:0]       grant_valid,   // grants of every issue port
+  input  isu_uop_t [ISSUE_WIDTH-1:0]   grant_uop,
+  input  logic [LSU_LDU_COUNT-1:0]     grant_spec_mask [ISSUE_WIDTH],
   /* verilator lint_on UNUSEDSIGNAL */
-  input  logic                     flush_all,
-  input  logic                     flush_br,
-  input  logic [ROB_IDX_WIDTH-1:0] flush_rob_idx,
-  input  logic                     flush_rob_flag,
-  output logic [WAKE_NUM-1:0]      wake_valid,
-  output logic [PRF_IDX_WIDTH-1:0] wake_preg [WAKE_NUM],
-  // Per-ALU-lane registered EXU bypass wake-up (MUL on lanes 0,2; DIV on lanes 1,3) for wakeup-driven bypass masks
-  output logic [ALU_NUM-1:0]       slow_exu_valid,
-  output logic [$clog2(PRF_NUM)-1:0] slow_exu_preg [ALU_NUM],
+  input  logic                         flush_all,
+  input  logic                         flush_br,
+  input  logic [ROB_IDX_WIDTH-1:0]     flush_rob_idx,
+  input  logic                         flush_rob_flag,
+  output logic [WAKE_NUM-1:0]          wake_valid,
+  output logic [PRF_IDX_WIDTH-1:0]     wake_preg [WAKE_NUM],
+  output logic [ALU_NUM-1:0]           fast_cancel_raw,
+  output logic [ALU_NUM-1:0]           fast_cancel_valid,
+  output logic [PRF_IDX_WIDTH-1:0]     fast_cancel_preg [ALU_NUM],
+  // Per-ALU-lane registered EXU bypass wake-up (MUL on lanes 0,2) for wakeup-driven bypass masks
+  output logic [ALU_NUM-1:0]           slow_exu_valid,
+  output logic [$clog2(PRF_NUM)-1:0]   slow_exu_preg [ALU_NUM],
   // Uncompacted FP wake-up slots (bypass u_compact when building isu's internal slow wake-up bitmaps)
   output logic [FP_REQ_UNITS*5-1:0] fp_raw_valid,
   output logic [PRF_IDX_WIDTH-1:0]  fp_raw_preg [FP_REQ_UNITS*5]
@@ -45,16 +50,34 @@ module isu_wake_src
   logic [PRF_IDX_WIDTH-1:0] mul_req_preg [MUL_UNITS];
   logic [ROB_IDX_WIDTH-1:0] mul_req_rob_idx [MUL_UNITS];
   logic [MUL_UNITS-1:0]     mul_req_rob_flag;
+  logic [LSU_LDU_COUNT-1:0] mul_req_spec_mask [MUL_UNITS];
+
+  logic [ALU_NUM-1:0]       fast_spec_v_q, fast_spec_v_d;
+  logic [LSU_LDU_COUNT-1:0] fast_spec_mask_q [ALU_NUM], fast_spec_mask_d [ALU_NUM];
+  logic [PRF_IDX_WIDTH-1:0] fast_spec_preg_q [ALU_NUM], fast_spec_preg_d [ALU_NUM];
+  logic [ROB_IDX_WIDTH-1:0] fast_spec_ridx_q [ALU_NUM], fast_spec_ridx_d [ALU_NUM];
+  logic [ALU_NUM-1:0]       fast_spec_rflag_q, fast_spec_rflag_d;
+
+  always_comb begin
+    for (int a = 0; a < ALU_NUM; a++) begin
+      fast_cancel_raw[a]   = fast_spec_v_q[a] && (|(fast_spec_mask_q[a] & cn_port_mask));
+      fast_cancel_valid[a] = fast_cancel_raw[a] && !flush_all &&
+                             !(flush_br && isu_rob_younger(fast_spec_ridx_q[a], fast_spec_rflag_q[a],
+                                                           flush_rob_idx, flush_rob_flag));
+      fast_cancel_preg[a]  = fast_spec_preg_q[a];
+    end
+  end
 
   // Only a port whose capability includes the class can be granted such a uop, so requests come from those ports only.
   for (genvar p = 0; p < ISSUE_WIDTH; p++) begin : g_port
     if (port_has(MASK_MUL, p)) begin : g_mul
       localparam int R = port_rank(MASK_MUL, p);
-      assign mul_req_valid[R]    = (MUL_DELAYED != 0) && grant_valid[p] && grant_uop[p].dest_en &&
-                                   (grant_uop[p].op == op_t'(UOP_MUL));
-      assign mul_req_preg[R]     = grant_uop[p].dest_preg;
-      assign mul_req_rob_idx[R]  = grant_uop[p].rob_idx;
-      assign mul_req_rob_flag[R] = grant_uop[p].rob_flag;
+      assign mul_req_valid[R]     = (MUL_DELAYED != 0) && grant_valid[p] && grant_uop[p].dest_en &&
+                                    (grant_uop[p].op == op_t'(UOP_MUL));
+      assign mul_req_preg[R]      = grant_uop[p].dest_preg;
+      assign mul_req_rob_idx[R]   = grant_uop[p].rob_idx;
+      assign mul_req_rob_flag[R]  = grant_uop[p].rob_flag;
+      assign mul_req_spec_mask[R] = grant_spec_mask[p];
     end
     // fast wake-up: single-cycle uop with a destination (ports that can issue ALU ops own a fast channel)
     if (port_has(MASK_ALU, p)) begin : g_fast
@@ -65,6 +88,32 @@ module isu_wake_src
                           (FP_EN && grant_uop[p].op == op_t'(UOP_I2F));   // integer -> FP: multi-cycle
       assign wake_valid[FAST_WAKE_BASE + R] = cand_valid[p] && grant_uop[p].dest_en && !delayed_op;
       assign wake_preg[FAST_WAKE_BASE + R]  = grant_uop[p].dest_preg;
+      assign fast_spec_v_d[R]     = !flush_all && grant_valid[p] && grant_uop[p].dest_en &&
+                                    !delayed_op && (|grant_spec_mask[p]);
+      assign fast_spec_mask_d[R]  = grant_spec_mask[p];
+      assign fast_spec_preg_d[R]  = grant_uop[p].dest_preg;
+      assign fast_spec_ridx_d[R]  = grant_uop[p].rob_idx;
+      assign fast_spec_rflag_d[R] = grant_uop[p].rob_flag;
+    end
+  end
+
+  always_ff @(posedge clk) begin
+    if (!rst_n) begin
+      fast_spec_v_q     <= '0;
+      fast_spec_rflag_q <= '0;
+      for (int a = 0; a < ALU_NUM; a++) begin
+        fast_spec_mask_q[a] <= '0;
+        fast_spec_preg_q[a] <= '0;
+        fast_spec_ridx_q[a] <= '0;
+      end
+    end else begin
+      fast_spec_v_q     <= fast_spec_v_d;
+      fast_spec_rflag_q <= fast_spec_rflag_d;
+      for (int a = 0; a < ALU_NUM; a++) begin
+        fast_spec_mask_q[a] <= fast_spec_mask_d[a];
+        fast_spec_preg_q[a] <= fast_spec_preg_d[a];
+        fast_spec_ridx_q[a] <= fast_spec_ridx_d[a];
+      end
     end
   end
 
@@ -75,6 +124,7 @@ module isu_wake_src
     logic [ROB_IDX_WIDTH-1:0] fp_req_rob_idx [FP_REQ_UNITS];
     logic [FP_REQ_UNITS-1:0]  fp_req_rob_flag;
     logic [FP_COUNT_W-1:0]    fp_req_count [FP_REQ_UNITS];
+    logic [LSU_LDU_COUNT-1:0] fp_req_spec_mask [FP_REQ_UNITS];
     for (genvar p = 0; p < ISSUE_WIDTH; p++) begin : g_port
       if (port_has(MASK_FPD, p)) begin : g_req
         localparam int R = port_rank(MASK_FPD, p);
@@ -83,11 +133,12 @@ module isu_wake_src
         assign lat       = fp_latency(grant_uop[p].op, grant_uop[p].func7);
         assign is_fp_op  = (grant_uop[p].op == op_t'(UOP_FMA)) || (grant_uop[p].op == op_t'(UOP_FMISC)) ||
                            (grant_uop[p].op == op_t'(UOP_FDIV)) || (grant_uop[p].op == op_t'(UOP_I2F));
-        assign fp_req_valid[R]    = grant_valid[p] && grant_uop[p].dest_en && is_fp_op;
-        assign fp_req_preg[R]     = grant_uop[p].dest_preg;
-        assign fp_req_rob_idx[R]  = grant_uop[p].rob_idx;
-        assign fp_req_rob_flag[R] = grant_uop[p].rob_flag;
-        assign fp_req_count[R]    = FP_COUNT_W'(lat - (FP_COUNT_W+1)'(1));
+        assign fp_req_valid[R]     = grant_valid[p] && grant_uop[p].dest_en && is_fp_op;
+        assign fp_req_preg[R]      = grant_uop[p].dest_preg;
+        assign fp_req_rob_idx[R]   = grant_uop[p].rob_idx;
+        assign fp_req_rob_flag[R]  = grant_uop[p].rob_flag;
+        assign fp_req_count[R]     = FP_COUNT_W'(lat - (FP_COUNT_W+1)'(1));
+        assign fp_req_spec_mask[R] = grant_spec_mask[p];
       end
     end
 
@@ -101,6 +152,7 @@ module isu_wake_src
       logic [PRF_IDX_WIDTH-1:0] p_preg [1];
       logic [ROB_IDX_WIDTH-1:0] p_ridx [1];
       logic [FP_COUNT_W-1:0]    p_cnt  [1];
+      logic [LSU_LDU_COUNT-1:0] p_sm   [1];
       logic [FP_PORT_SLOTS-1:0] p_wv;
       logic [PRF_IDX_WIDTH-1:0] p_wp [FP_PORT_SLOTS];
       /* verilator lint_off UNUSEDSIGNAL */   // waiver: FP slots do not use the 1-bit source-port tag
@@ -109,10 +161,11 @@ module isu_wake_src
       assign p_preg[0] = fp_req_preg[r];
       assign p_ridx[0] = fp_req_rob_idx[r];
       assign p_cnt[0]  = fp_req_count[r];
+      assign p_sm[0]   = fp_req_spec_mask[r];
       isu_wake_iter #(.SLOTS(FP_PORT_SLOTS), .NREQ(1), .CW(FP_COUNT_W)) u_fp (
         .clk(clk), .rst_n(rst_n), .req_valid(fp_req_valid[r]), .req_preg(p_preg),
         .req_rob_idx(p_ridx), .req_rob_flag(fp_req_rob_flag[r]),
-        .req_countdown(p_cnt), .req_lane(1'b0),
+        .req_countdown(p_cnt), .req_lane(1'b0), .req_spec_mask(p_sm), .cn_port_mask(cn_port_mask),
         .flush_all(flush_all), .flush_br(flush_br), .flush_rob_idx(flush_rob_idx), .flush_rob_flag(flush_rob_flag),
         .wake_valid(p_wv), .wake_preg(p_wp), .wake_lane(p_wl));
       for (genvar s = 0; s < FP_PORT_SLOTS; s++) begin : g_s
@@ -150,7 +203,7 @@ module isu_wake_src
   isu_wake_mul #(.SLOTS(MUL_UNITS), .NREQ(MUL_UNITS)) u_mul (
     .clk(clk), .rst_n(rst_n), .req_valid(mul_req_valid), .req_preg(mul_req_preg),
     .req_rob_idx(mul_req_rob_idx), .req_rob_flag(mul_req_rob_flag),
-    .req_lane(mul_req_lane),
+    .req_lane(mul_req_lane), .req_spec_mask(mul_req_spec_mask), .cn_port_mask(cn_port_mask),
     .flush_all(flush_all), .flush_br(flush_br), .flush_rob_idx(flush_rob_idx), .flush_rob_flag(flush_rob_flag),
     .wake_valid(mul_wake_valid), .wake_preg(mul_wake_preg), .wake_lane(mul_wake_lane));
 
@@ -162,7 +215,7 @@ module isu_wake_src
   assign wake_valid[DIV_WAKE_BASE] = exe_div_wake_valid;
   assign wake_preg[DIV_WAKE_BASE]  = exe_div_wake_preg;
 
-  // Map MUL (ports 0, 2) and DIV (port 1) delayed wake-ups onto their ALU write-back lanes (0..5)
+  // Map MUL (ports 0, 2) delayed wake-ups onto ALU write-back lanes; DIV reads wb_result_q in RR (no slow EXU bypass)
   always_comb begin
     slow_exu_valid = '0;
     for (int l = 0; l < ALU_NUM; l++) slow_exu_preg[l] = '0;
@@ -174,10 +227,6 @@ module isu_wake_src
         slow_exu_valid[2] = 1'b1;
         slow_exu_preg[2]  = mul_wake_preg[k][INT_W-1:0];
       end
-    end
-    if (exe_div_wake_valid) begin
-      slow_exu_valid[1] = 1'b1;
-      slow_exu_preg[1]  = exe_div_wake_preg[INT_W-1:0];
     end
   end
 

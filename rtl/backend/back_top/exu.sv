@@ -46,7 +46,7 @@ module exu
   output logic [11:0] exe2csr_idx,
   output logic [XLEN_BITS-1:0] exe2csr_wdata,
   output logic [1:0] exe2csr_wcmd,
-  output logic exe2iss_div_wb_next,
+  output logic exe2iss_div_wb_in2,
   output logic exe2iss_div_wake_valid,
   output logic [PRF_IDX_WIDTH-1:0] exe2iss_div_wake_preg,
   output xc_prf_wb_t exe2prf [WB_LANES],
@@ -76,7 +76,7 @@ module exu
   logic [XLEN_BITS-1:0] fu_bru_diag_val [BRU_NUM];
   logic fu_bru_mispred [BRU_NUM];
   logic fu_bru_br_taken [BRU_NUM];
-  logic div_wb_next [DIV_NUM];
+  logic div_wb_next [DIV_NUM], div_wb_in2 [DIV_NUM];
   logic [N_MC-1:0] fu_mc_complete;
   logic [XLEN_BITS-1:0] fu_mc_result [N_MC];
   logic [PRF_IDX_WIDTH-1:0] fu_mc_dest_preg [N_MC];
@@ -422,11 +422,11 @@ module exu
     .src1_rdata(div_src1_rdata), .src2_rdata(div_src2_rdata),
     .rob_idx(div_rob_idx), .rob_flag(div_rob_flag), .dest_preg(div_dest_preg), .dest_en(div_dest_en),
     .complete(div_complete),
-    .wb_next(div_wb_next), .wake_valid(div_wake_valid), .wake_preg(div_wake_preg),
+    .wb_next(div_wb_next), .wb_in2(div_wb_in2), .wake_valid(div_wake_valid), .wake_preg(div_wake_preg),
     .result(div_result), .done_rob_idx(div_done_rob_idx), .done_rob_flag(div_done_rob_flag),
     .done_dest_preg(div_done_dest_preg), .done_dest_en(div_done_dest_en)
   );
-  assign exe2iss_div_wb_next    = !rob_bcast_flush && div_wb_next[0];
+  assign exe2iss_div_wb_in2     = !rob_bcast_flush && div_wb_in2[0];
   assign exe2iss_div_wake_valid = !rob_bcast_flush && div_wake_valid[0];
   assign exe2iss_div_wake_preg  = div_wake_preg[0];
 

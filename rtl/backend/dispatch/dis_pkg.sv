@@ -27,6 +27,7 @@ package dis_pkg;
   localparam int K_FP  = 5;                                 // only exists when FP_EN
   localparam int IQ_PORTS = MAX_IQ_DISPATCH_WIDTH;          // request ports per IQ
   localparam int IQ_PORT_W = $clog2(IQ_PORTS);
+  localparam int IQ_POS_W = $clog2(2 * NUM_SLOTS + 1);      // full pre-fire IQ queue position (no mod-8 alias for AMOs)
   localparam int STQ_PORTS = MAX_STQ_DISPATCH_WIDTH;
   localparam int LDQ_PORTS = MAX_LDQ_DISPATCH_WIDTH;
   localparam int STQ_PORT_W = $clog2(STQ_PORTS);
@@ -35,8 +36,8 @@ package dis_pkg;
   localparam int LDQ_FREE_W = $clog2(LDQ_SIZE + 1);
   localparam int STQ_POS_W = STQ_IDX_WIDTH + 1;             // STQ ring position incl. wrap carry
   // iss_awake already includes the LSU_LOAD_WB_WIDTH prf_awake channels at [0..LSU_LOAD_WB_WIDTH-1];
-  // LSU drives both speculative L2 [0..LSU_LDU_COUNT-1] and L3 [LSU_LDU_COUNT..2*LSU_LDU_COUNT-1] wake-ups.
-  localparam int NUM_LSU_WAKE  = 2 * LSU_LDU_COUNT;
+  // LSU drives 14 wake channels: [0..3] L1 spec, [4..7] L3, [8..11] L2b STLF / L2a fallback, [12..13] WBP.
+  localparam int NUM_LSU_WAKE  = 3 * LSU_LDU_COUNT + 2;
   localparam int NUM_WAKE      = MAX_WAKEUP_PORTS + NUM_LSU_WAKE;
   localparam int INST_TYPE_W = 5;                           // bit_width_for_count(20 InstType values)
   localparam int UOP_TYPE_W = 5;                            // bit_width_for_count(18 UopType values)
@@ -80,7 +81,6 @@ package dis_pkg;
     logic                      src1_fp;
     logic                      src2_fp;
     logic                      src3_en;
-    logic                      src3_busy;
     logic [2:0]                fp_cls;
     logic [FTQ_IDX_WIDTH-1:0]  ftq_idx;
     logic [FTQ_OFFSET_WIDTH-1:0] ftq_offset;
@@ -90,8 +90,6 @@ package dis_pkg;
     logic                      src1_en;
     logic                      src2_en;
     logic                      is_atomic;
-    logic                      src1_busy;
-    logic                      src2_busy;
     logic                      src1_is_pc;
     logic                      src2_is_imm;
     logic                      is_word;

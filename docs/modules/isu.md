@@ -9,6 +9,10 @@ depth: **61 层 / 1,033,276 cells**（Yosys `strash;balance;map`）；**TSMC 28n
 
 # isu 设计文档
 
+> **2026-11-28 `rtl/iss-rr`（Wall #2 + Wall #5，合入 EXP-072 主线）**：
+> - 适配 **ISS → RR → EX/LSU** 两拍及 L1 推测唤醒（`lf=7`）：`isu_iq_store` 新增每槽 `spec_t1_q` / `spec_rr_q`（1 拍 RR 停泊与取消恢复）、4 路 LSU L1 推测取消与基于既有 `byp*_q` + 2-bit `mul_byp*_q` 的 1 级 ALU 孙代 `fast_cancel_raw` 取消；`isu_wake_src` 新增 `fast_spec_q[ALU_NUM]` 并导出 `fast_cancel_valid/preg`；`isu_wake_mul` / `isu_wake_iter` / `isu_wb_gate` / `isu_fp_gate` 与 `isu.sv` 中的 `div_busy_eff` / `fdiv_cnt_eff`（及提前 2 拍 `exe2iss_div_wb_in2`）均支持基于 `spec_mask` 与 `lsu2iss_cancel_valid` 的取消/预留回滚；`isu_iq` 并行输出预译码独热 `grant_wb_cls1h` 直驱静态 `genvar` `isu_wb_gate`（取代 `wb_class` 重译码）；`lsu2iss_wake` 扩至 14 路（`3*LSU_LDU_COUNT + 2`）；
+> - **Wall #5（0 周期变化）**：`isu_iq` 将每拍 `ttg_popcount(slot_valid)` 替换为寄存计数器 `used_q` / `ready_num_q`（仅 `flush_br` 拍切至寄存态 `popcount(slot_surv_br)`；附带仿真 `used_q == used_chk` SVA 断言），彻底切断 `dispatch → isu_alloc_chain → popcount → ready_num` 组合长链。
+
 > **2026-11-26 `rtl/area-opt` 按队列定制载荷 + 统一命名**：
 > - 6 个发射队列改用统一枚举 `IQ_INT0 / IQ_MEM / IQ_STD / IQ_BR / IQ_FP / IQ_INT1`，并按需裁剪每队列载荷与 `imm` 位宽（剔除各队列无关字段与死开关），发射队列总寄存器位宽净降 **−37.9%**，零周期变化。
 
@@ -57,13 +61,13 @@ depth: **61 层 / 1,033,276 cells**（Yosys `strash;balance;map`）；**TSMC 28n
 | 方向 | 信号组 | 含义 |
 | --- | --- | --- |
 | 入 | `dis2iss_req_valid / _uop_* [IQ_NUM][8]` | 分派的 uop，按队列、按 lane；`src{1,2,3}_busy` 是入队时"还在等这个源" |
-| 入 | `lsu2iss_wake_valid/preg [2*LDU]`、`lsu2iss_cancel_valid/preg [LDU]` | LSU 的 load 唤醒和取消 |
+| 入 | `lsu2iss_wake_valid/preg [3*LDU + 2]`、`lsu2iss_cancel_valid/preg [LDU]` | LSU 的 load 唤醒（`[0..LDU-1]` L1 推测、`[LDU..2*LDU-1]` L3 直发、`[2*LDU..3*LDU-1]` L2b STLF/L2a fallback、`[3*LDU..3*LDU+1]` WBP `64→2` one-hot，`LSU_W_N = 14`）和 L1 推测唤醒取消 |
 | 入 | `prf_awake_wake_valid/preg` | PRF 写回口的 load 唤醒 |
-| 入 | `exe2iss_div_wb_next` | 1-bit，EXU 口 1 的 DIV 下一拍写回通告，本拍暂停口 1 ALU 发射 |
+| 入 | `exe2iss_div_wb_in2` | 1-bit，EXU 口 1 的 DIV 提前 2 拍写回通告，本拍屏蔽口 1 ALU 发射 |
 | 入 | `rob_bcast_flush`、`dec_bcast_{mispred, redirect_rob_idx/flag}` | 全局 flush、误预测及重定指向标 |
-| 出 | `iss2dis_ready_num [IQ_NUM]` | 每个队列还能收几个：`min(空闲槽数, 入队 lane 数)`，用寄存的 valid 数 |
-| 出 | `iss2prf_iss_entry_valid/uop_* [ISSUE_WIDTH]` | 19 个发射口的发射结果 |
-| 出 | `iss_awake_wake_valid/preg [WAKE_NUM]` | 唤醒广播 |
+| 出 | `iss2dis_ready_num [IQ_NUM]` | 每个队列还能收几个：`min(空闲槽数, 入队 lane 数)`，寄存态 `ready_num_q` |
+| 出 | `iss2prf_valid / uop / src{1,2}_byp / spec_mask [ISSUE_WIDTH]` | 19 个发射口的发射结果与 L1 推测掩码（进 `iss_rr_reg`） |
+| 出 | `iss_awake_wake_valid/preg [WAKE_NUM]`、`iss_awake_cancel_valid/preg [ALU_NUM]` | 唤醒广播与 6 路 1 周期 ALU 孙代取消 |
 
 ## 4. 结构
 
@@ -107,7 +111,7 @@ depth: **61 层 / 1,033,276 cells**（Yosys `strash;balance;map`）；**TSMC 28n
 
 授予生成延迟唤醒请求（MUL 进管线、DIV / FP 进倒计时槽，下拍起可见）和快速唤醒（6 路单周期 ALU 授予直接在本拍广播，仅整数域）。为压缩 `select → grant → wakeup` 关键环路深度，唤醒网络按**数据域**与**快慢路径**拆分：
 
-1. **慢速唤醒**（全部来自寄存输出：PRF 写回 load 4 路、MUL 2 路、DIV 2 路、FP 倒计时 8 路、LSU L3 4 路）：在拍初即稳定，由 `isu_wake_bus` 分别生成整数域 `woken_slow_int[PRF_NUM]`（128 位）和浮点域 `woken_slow_fp[FPRF_NUM]`（96 位），与 `select → grant` 并行；
+1. **慢速唤醒**（全部来自寄存输出：PRF 写回 load 4 路、MUL 2 路、DIV 2 路、FP 倒计时 8 路、LSU 14 路（L1 推测 4 + L3 4 + L2b/L2a 4 + WBP `64→2` 2），`SLOW_INT_N = 46` / `SLOW_FP_N = 42`）：在拍初即稳定，由 `isu_wake_bus` 分别生成整数域 `woken_slow_int[PRF_NUM]`（128 位）和浮点域 `woken_slow_fp[FPRF_NUM]`（96 位），与 `select → grant` 并行；
 2. **快速唤醒**（6 路 ALU 授予，`fast_valid[FAST_UNITS]` / `fast_preg[FAST_UNITS]` 低 7 位）：不经 224 位位图展开，直接广播至监听整数域的队列槽位，在槽内用 6 路 7 位并行比较（CAM）生成 `fast_hit`，与慢速唤醒结果单级相与更新 `wait_d`；
 3. **按队列裁剪源与域**：INT0/INT1/BR 仅整数域且无 `src3`；MEM 仅整数域且仅 `src1`（无 `src2`/`src3`）；STD 无 `src3`（`src1` 整数域、`src2` 双域）；FP 仅浮点域（3 源，完全不接 6 路快速唤醒）。本拍授予的槽的寄存器状态不受本拍唤醒影响（模型先 issue 后 awake）。
 
@@ -121,7 +125,7 @@ depth: **61 层 / 1,033,276 cells**（Yosys `strash;balance;map`）；**TSMC 28n
 
 ### 5.5 ready_num
 
-`SIZE - popcount(valid_q)`，再取 `min(·, 入队 lane 数)`，用寄存值。
+由寄存计数器 `used_q`（与 `used_d` 同步计算并打一拍至 `ready_num_q`）给出 `min(SIZE - used_q, 入队 lane 数)`。正常拍 `used_d` 按 `used_q + popcount(enq_valid) - popcount(grant_free) - popcount(slot_rr_ret)` 更新，不经过 `isu_alloc_chain` 和 64 位 `slot_valid_d` 归约；`flush_br` 拍切到基于 `slot_q` 存活掩码 `slot_surv_br` 的 `popcount`。
 
 ## 6. 关键路径与深度
 

@@ -13,15 +13,17 @@ module isu_fp_gate
   input  logic          clk,
   input  logic          rst_n,
   input  logic          flush_all,      // the reference clears every reservation on a global flush
+  input  logic [LSU_LDU_COUNT-1:0] cancel_valid,
   input  logic [NC-1:0] cand_valid,     // candidate is granted by its queue (before this gate)
   input  logic [NC-1:0] cand_fpw,       // ... and writes the FP register file (dest_en & dest_fp & an FP-unit op)
+  input  logic [LSU_LDU_COUNT-1:0] cand_spec_mask [NC],
   /* verilator lint_off UNUSEDSIGNAL */   // waiver: non-FP classes 0..3 are always 0; cand_f1/f2 used when P == 2
   input  logic [WB_NCLS-1:0] cand_cls_1h [NC], // pre-decoded one-hot completion class of the candidate
-  input  logic [NC-1:0] cand_f1,        // pre-evaluated per-slot free1 (busy_q[lat-1] < 2), parallel with u_read
-  input  logic [NC-1:0] cand_f2,        // pre-evaluated per-slot free2 (busy_q[lat-1] == 0), parallel with u_read
+  input  logic [NC-1:0] cand_f1,        // pre-evaluated per-slot free1 (eff_busy[lat-1] < 2), parallel with u_read
+  input  logic [NC-1:0] cand_f2,        // pre-evaluated per-slot free2 (eff_busy[lat-1] == 0), parallel with u_read
   /* verilator lint_on UNUSEDSIGNAL */
-  output logic [6:0]    fp_free1_cls,   // registered per-class (4..10) busy_q[lat-1] < 2 (ready at layer 1)
-  output logic [6:0]    fp_free2_cls,   // registered per-class (4..10) busy_q[lat-1] == 0 (ready at layer 1)
+  output logic [6:0]    fp_free1_cls,   // registered per-class (4..10) eff_busy[lat-1] < 2 (ready at layer 1)
+  output logic [6:0]    fp_free2_cls,   // registered per-class (4..10) eff_busy[lat-1] == 0 (ready at layer 1)
   output logic [NC-1:0] gate_ok         // candidate may issue (not an FP write, or a port is free in its cycle)
 );
 
@@ -30,10 +32,27 @@ module isu_fp_gate
 
   // busy_q[d] = number of reserved FP write ports (d + 1) cycles from now (d = 0 .. DEPTH - 1)
   // Packed vector prevents Yosys memory_share from inferring a multi-port memory on busy_q.
-  logic [DEPTH-1:0][CNT_W-1:0] busy_q;
+  logic [DEPTH-1:0][CNT_W-1:0] busy_q, eff_busy;
   logic [NC-1:0]               req;
   logic [DEPTH-1:0]            lat_1h [NC];
   logic [NC-1:0]               same_slot [NC];
+  logic [NC-1:0]               spec_v_q, cancel_k;
+  logic [LSU_LDU_COUNT-1:0]    spec_mask_q [NC];
+  logic [DEPTH-1:0]            spec_lat_q [NC];
+
+  always_comb begin
+    for (int k = 0; k < NC; k++) cancel_k[k] = spec_v_q[k] && (|(spec_mask_q[k] & cancel_valid));
+    for (int d = 0; d < DEPTH; d++) begin
+      logic [NC-1:0]    hit_d;
+      logic [CNT_W-1:0] cn_d;
+      cn_d = '0;
+      for (int k = 0; k < NC; k++) begin
+        hit_d[k] = cancel_k[k] && spec_lat_q[k][d];
+        cn_d     = cn_d + CNT_W'(hit_d[k]);
+      end
+      eff_busy[d] = busy_q[d] - cn_d;
+    end
+  end
 
   assign req = cand_valid & cand_fpw;
 
@@ -71,8 +90,8 @@ module isu_fp_gate
     localparam int C = 4 + ci;
     localparam int L = fp_cls_lat(C);
     if (L > 0) begin : g_on
-      assign fp_free1_cls[ci] = (busy_q[L - 1] < CNT_W'(2));
-      assign fp_free2_cls[ci] = (busy_q[L - 1] == '0);
+      assign fp_free1_cls[ci] = (eff_busy[L - 1] < CNT_W'(2));
+      assign fp_free2_cls[ci] = (eff_busy[L - 1] == '0);
     end else begin : g_off
       assign fp_free1_cls[ci] = 1'b1;
       assign fp_free2_cls[ci] = 1'b1;
@@ -119,7 +138,7 @@ module isu_fp_gate
       always_comb begin
         occ0[k] = '0;
         for (int d = 0; d < DEPTH; d++) begin
-          if (lat_1h[k][d]) occ0[k] = busy_q[d];
+          if (lat_1h[k][d]) occ0[k] = eff_busy[d];
         end
       end
     end
@@ -133,7 +152,7 @@ module isu_fp_gate
   end
 
   // Shift down by 1 every cycle, adding reservations targeting (d + 2) cycles from now into next busy_q[d].
-  // Because grants are greedy up to P, next_busy[d] = min(P, busy_q[d+1] + popcount(req targeting d+2)),
+  // Because grants are greedy up to P, next_busy[d] = min(P, eff_busy[d+1] + popcount(req targeting d+2)),
   // completely decoupled from gate_ok[k].
   for (genvar d = 0; d < DEPTH; d++) begin : g_shift
     if (d + 1 < DEPTH) begin : g_mid
@@ -150,9 +169,9 @@ module isu_fp_gate
           for (int a = 0; a < NC; a++)
             for (int b = a + 1; b < NC; b++)
               two_req = two_req | (lat_req[a] & lat_req[b]);
-          if (busy_q[d + 1] == '0)             next_busy = two_req ? CNT_W'(2) : (any_req ? CNT_W'(1) : '0);
-          else if (busy_q[d + 1] == CNT_W'(1)) next_busy = any_req ? CNT_W'(2) : CNT_W'(1);
-          else                                 next_busy = busy_q[d + 1];
+          if (eff_busy[d + 1] == '0)             next_busy = two_req ? CNT_W'(2) : (any_req ? CNT_W'(1) : '0);
+          else if (eff_busy[d + 1] == CNT_W'(1)) next_busy = any_req ? CNT_W'(2) : CNT_W'(1);
+          else                                   next_busy = eff_busy[d + 1];
         end
         always_ff @(posedge clk) begin
           if (!rst_n || flush_all) busy_q[d] <= '0;
@@ -167,13 +186,29 @@ module isu_fp_gate
         ttg_popcount #(.N(NC), .CW(CNT_W)) u_hit (.bits(hit), .count(n_hit));
         always_ff @(posedge clk) begin
           if (!rst_n || flush_all) busy_q[d] <= '0;
-          else                     busy_q[d] <= busy_q[d + 1] + n_hit;
+          else                     busy_q[d] <= eff_busy[d + 1] + n_hit;
         end
       end
     end else begin : g_top
       always_ff @(posedge clk) begin
         if (!rst_n || flush_all) busy_q[d] <= '0;
         else                     busy_q[d] <= '0;
+      end
+    end
+  end
+
+  always_ff @(posedge clk) begin
+    if (!rst_n || flush_all) begin
+      spec_v_q <= '0;
+      for (int k = 0; k < NC; k++) begin
+        spec_mask_q[k] <= '0;
+        spec_lat_q[k]  <= '0;
+      end
+    end else begin
+      for (int k = 0; k < NC; k++) begin
+        spec_v_q[k]    <= req[k] && gate_ok[k] && (|cand_spec_mask[k]);
+        spec_mask_q[k] <= cand_spec_mask[k];
+        spec_lat_q[k]  <= {1'b0, lat_1h[k][DEPTH - 1 : 1]};
       end
     end
   end

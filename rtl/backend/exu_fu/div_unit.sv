@@ -24,6 +24,7 @@ module div_unit
   input  logic                     dest_en,
   output logic                     complete,
   output logic                     wb_next,
+  output logic                     wb_in2,
   output logic                     wake_valid,
   output logic [PRF_IDX_WIDTH-1:0] wake_preg,
   output logic [XLEN_BITS-1:0]     result,
@@ -43,7 +44,7 @@ module div_unit
     .flush_rob_idx(flush_rob_idx), .flush_rob_flag(flush_rob_flag),
     .en(en), .en_rob_idx(rob_idx), .en_rob_flag(rob_flag),
     .lat_m1(lat_m1),
-    .accept(accept), .run(run), .complete(complete), .wb_next(wb_next), .done_rob_flag(done_rob_flag)
+    .accept(accept), .run(run), .complete(complete), .wb_next(wb_next), .wb_in2(wb_in2), .done_rob_flag(done_rob_flag)
   );
 
   div_core #(.LAT(LAT)) u_core (

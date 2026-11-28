@@ -70,9 +70,9 @@ module lsu
   output logic [DECODE_WIDTH-1:0] lsu2dis_ldq_alloc_valid,
   output logic [5:0] lsu2dis_ldq_alloc_idx [DECODE_WIDTH],
   output logic lsu2rob_committed_store_pending,
-  // wake-ups of the load consumers driven by the LSU (LP_L2): [p] L2 speculative, [LDU+p] L3
-  output logic [2*LSU_LDU_COUNT-1:0] lsu2iss_wake_valid,
-  output logic [PRF_IDX_WIDTH-1:0] lsu2iss_wake_preg [2*LSU_LDU_COUNT],
+  // wake-ups of the load consumers driven by the LSU: L1 spec + L3 + L2b/L2a + WBP
+  output logic [3*LSU_LDU_COUNT+1:0] lsu2iss_wake_valid,
+  output logic [PRF_IDX_WIDTH-1:0] lsu2iss_wake_preg [3*LSU_LDU_COUNT+2],
   output logic [LSU_LDU_COUNT-1:0] lsu2iss_cancel_valid,
   output logic [PRF_IDX_WIDTH-1:0] lsu2iss_cancel_preg [LSU_LDU_COUNT],
   output logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_valid,

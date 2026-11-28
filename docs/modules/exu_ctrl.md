@@ -18,7 +18,7 @@ depth: 17 层（rtl/be-wake-byp-opt，20,037 单元，已删除 31 路 `exe2prf_
 3. 每个发射口内由写回预约保证每拍至多一个 FU 完成（仿真 `$onehot0` 断言检查），直接用一热选择器选出赢家（无 `consume` 反压）；
 4. 把结果送出去：写回 PRF（`exe2prf_entry`）、旁路广播（`exe2prf_bypass`，每个完成的 FU 一路）、完成报告给 ROB（`exu2rob`，21 通道 `ROB_WB_WIDTH`）、AGU 结果变成 5 路统一 LSU 请求（`exe2lsu_agu`）、CSR 指令的读写请求（`exe2csr`）；
 5. 汇总 BRU 的结果：最老的一条误预测分支触发重定向（`exu2id_*`）；
-6. 仅从口 1 迭代除法器输出 1-bit `exe2iss_div_wb_next`（下一拍写回通告，供 ISU 预留写回口；取消原 `exe2iss_fu_ready_mask` 反压协议）。
+6. 仅从 `exu.sv` 顶层口 1 迭代除法器输出 1-bit `exe2iss_div_wb_in2`（提前 2 拍即 DIV accept 且 `lat_m1 == 1` 或 `live && cnt_q == 2` 时屏蔽 Port 1 ALU 发射，适配 **ISS → RR → EX** 两拍；`div_wb_next` 保留用于延迟唤醒；EXP-072 已删除 `exu_ctrl_ready` 与 `exe2iss_fu_ready_mask`）。
 
 模型里对应一个调度单元 `back.exu`（类 `Exu`）。RTL 把它拆成三块：控制和仲裁在本模块；FU 的时序状态和运算在 `exu_fu`（模型的 FU 没有运算，结果直接取自 trace 的事实，只有"何时完成"的时序）；模型 `Exu::load_wake`（load 写回寄存器后的晚唤醒，输出 `prf_awake`）在 RTL 里落在 `prf` 的 `prf_awake`，不在本模块。
 

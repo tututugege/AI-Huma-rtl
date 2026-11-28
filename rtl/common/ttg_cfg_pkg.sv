@@ -73,7 +73,7 @@ package ttg_cfg_pkg;
   localparam int LSU_AGU_SHARED = 2;
   localparam int IQ_INT_SIZE = 32;
   localparam int IQ_INT_ENQ_WIDTH = 4;
-  localparam int FP_FMA_LAT = 3;
+  localparam int FP_FMA_LAT = 4;
   localparam int FP_FDIV_S_LAT = 11;
   localparam int FP_FSQRT_S_LAT = 13;
   localparam int ISSUE_WIDTH = 19;

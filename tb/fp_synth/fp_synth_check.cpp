@@ -136,9 +136,9 @@ int main() {
     n_fcvt++;
   }
 
-  // 4. FMA (3-stage pipelined): fmadd/fmsub/fnmsub/fnmadd (op5=0x10..0x13) + fadd/fsub/fmul (op5=0x14, f5=0..2)
+  // 4. FMA (4-stage pipelined): fmadd/fmsub/fnmsub/fnmadd (op5=0x10..0x13) + fadd/fsub/fmul (op5=0x14, f5=0..2)
   struct FmaExp { uint32_t op5, f3, f7rs2, frm; uint64_t a, b, c, r; uint32_t f, bad; bool v; };
-  FmaExp pipe[2] = {};
+  FmaExp pipe[3] = {};
   uint64_t n_fma = 0;
   for (int i = 0; i < 1000000; i++) {
     uint32_t kind = nxt() % 7;
@@ -163,8 +163,8 @@ int main() {
     }
     top.func3 = f3; top.imm = (op5 << 12) | f7rs2; top.fsrc1 = a; top.fsrc2 = b; top.fsrc3 = c; top.frm = frm;
     top.clk = 0; top.eval();
-    if (pipe[1].v) {
-      const auto &e = pipe[1];
+    if (pipe[2].v) {
+      const auto &e = pipe[2];
       if (top.fma_bad != e.bad || (!e.bad && (top.fma_res != e.r || top.fma_flg != e.f))) {
         std::fprintf(stderr, "FAIL FMA op5=%02x f3=%u f7rs2=%03x frm=%u a=%016llx b=%016llx c=%016llx | "
                              "exp=(r=%016llx f=%02x bad=%u) got=(r=%016llx f=%02x bad=%u)\n",
@@ -181,6 +181,7 @@ int main() {
     cur.r   = cur.bad ? 0 : fp_dpi_res(op5, f3, f7rs2, a, b, c, 0, frm, 64);
     cur.f   = cur.bad ? 0 : fp_dpi_flags(op5, f3, f7rs2, a, b, c, 0, frm, 64);
     top.clk = 1; top.eval();
+    pipe[2] = pipe[1];
     pipe[1] = pipe[0];
     pipe[0] = cur;
   }

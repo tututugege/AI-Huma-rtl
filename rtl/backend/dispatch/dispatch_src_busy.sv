@@ -1,18 +1,15 @@
 // Ref: back-end/Dispatch.cpp  Dispatch::comb_wake
 `default_nettype none
 
-// Source-operand busy bits of the dispatch group: busy-table read, same-cycle wakeup, and the
-// intra-group RAW rule (a source whose preg is written by an older lane of this group is busy).
+// Source-operand busy bits of the dispatch group: busy-table read and the intra-group RAW rule
+// (same-cycle wakeups are folded into enqueue wait bits directly at isu_iq and into busy_q at busy_table).
 module dispatch_src_busy
   import ttg_cfg_pkg::*;
   import dis_pkg::*;
 (
-  input  logic [TAG_NUM-1:0] busy_table,
-  input  dis_inst_t          inst      [NUM_SLOTS],
+  input  logic [TAG_NUM-1:0]   busy_table,
+  input  dis_inst_t            inst      [NUM_SLOTS],
   input  logic [NUM_SLOTS-1:0] inst_valid,
-  input  logic [NUM_SLOTS-1:0] woken1,
-  input  logic [NUM_SLOTS-1:0] woken2,
-  input  logic [NUM_SLOTS-1:0] woken3,
   output logic [NUM_SLOTS-1:0] busy1,
   output logic [NUM_SLOTS-1:0] busy2,
   output logic [NUM_SLOTS-1:0] busy3
@@ -43,11 +40,11 @@ module dispatch_src_busy
         older_writes_src3 = older_writes_src3 || (dest_written[j] && (inst[i].src3_preg == inst[j].dest_preg));
       end
     end
-    // a lane that fires is the only one whose busy bits reach an IQ; held lanes re-derive them next cycle
+    // a lane that fires is the only one whose busy bits reach an IQ (isu_iq folds same-cycle wakeups)
     always_comb begin
-      busy1[i] = inst[i].src1_en && ((busy_table[inst[i].src1_preg] && !woken1[i]) || older_writes_src1);
-      busy2[i] = inst[i].src2_en && ((busy_table[inst[i].src2_preg] && !woken2[i]) || older_writes_src2);
-      busy3[i] = inst[i].src3_en && ((busy_table[inst[i].src3_preg] && !woken3[i]) || older_writes_src3);
+      busy1[i] = inst[i].src1_en && (busy_table[inst[i].src1_preg] || older_writes_src1);
+      busy2[i] = inst[i].src2_en && (busy_table[inst[i].src2_preg] || older_writes_src2);
+      busy3[i] = inst[i].src3_en && (busy_table[inst[i].src3_preg] || older_writes_src3);
     end
   end
 

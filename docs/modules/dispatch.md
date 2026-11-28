@@ -9,6 +9,10 @@ depth: 57 层（`rtl/ld-wake`，212,064 单元，开启 `LP_L2[3]` 取消向量�
 
 # dispatch 设计文档
 
+> **2026-11-28 `rtl/iss-rr`（Wall #2 + Wall #5）**：
+> - `dis_pkg::NUM_LSU_WAKE` 扩至 `3 * LSU_LDU_COUNT + 2 = 14` 路，并新增 `iss_awake_cancel[ALU_NUM]`（6 路 1 周期 ALU 孙代取消）与 `lsu2iss_cancel[4]` 共同并入 `cancel_v` 恢复忙表；
+> - **Wall #5（0 周期变化）**：`dispatch_iq_alloc` 直接导出未截断前向占用位置 `used_pos[NUM_SLOTS][IQ_NUM]`（防止 `IQ_MEM` 多条 AMO 绕回冲突），`dispatch_iq_req` 据此仅用 `inst_valid` 与 `used_pos` 选择 `req_uop`，将 `dis_fire` 从 8:1 数据选择器树剥离，仅用于门控 `req_valid`；同时移除冗余 `dispatch_wake_match`，`dispatch_src_busy` 仅读取 `busy_table | cancel_v` 与组内 RAW（同拍唤醒由 `dispatch_busy_table` 为滞留/下拍指令清忙位、由 `isu_iq` 在入队口叠加至已分派 uop，消除 LSU/EXU 唤醒经 Dispatch 再绕回 IQ 入队的跨模块组合长链）。
+
 ## 1. 职责
 
 分派：重命名之后、进发射队列之前的一级寄存器。每拍对这一级里的 8 条指令（每条占一个 lane）做：
@@ -32,7 +36,7 @@ depth: 57 层（`rtl/ld-wake`，212,064 单元，开启 `LP_L2[3]` 取消向量�
 | STQ / LDQ 分配口 | 各 8 | `MAX_STQ_DISPATCH_WIDTH`、`MAX_LDQ_DISPATCH_WIDTH` |
 | STQ / LDQ 项数 | 各 64 | `STQ_SIZE`、`LDQ_SIZE` |
 | 忙表 | 224 位（每个物理寄存器标号一位；整数 0..127，FP 从 128 起） | `TAG_NUM`、`FP_TAG_BASE = 128` |
-| 唤醒通道数 | 26（`LP_L2[3]=0` 时）= 22（`iss_awake`，已含 4 路 `prf_awake`）+ 4（LSU L3 唤醒）；`LP_L2[3]=1` 时为 30（+4 路 L2 推测唤醒） | `dis_pkg::NUM_WAKE = MAX_WAKEUP_PORTS + (((lp_pkg::LP_L2 & 8) != 0) ? (2 * LSU_LDU_COUNT) : LSU_LDU_COUNT)` |
+| 唤醒通道数 | `3*LSU_LDU_COUNT + 2 = 14` 路 LSU 唤醒（L1 推测 4 + L3 直发 4 + L2b STLF/L2a fallback 4 + WBP `64→2` one-hot 2）；加上 `iss_awake`（`MAX_WAKEUP_PORTS`）与 6 路 `iss_awake_cancel` 共同组成唤醒/取消输入 | `dis_pkg::NUM_LSU_WAKE = 3 * LSU_LDU_COUNT + 2`，`NUM_WAKE = MAX_WAKEUP_PORTS + NUM_LSU_WAKE` |
 | 完成组 | G0 = INT / LD / FP，G1 = BR / STA，G2 = STD | `dis_pkg::CPLT_G0/1/2` |
 
 uop 种类到队列的映射（`dispatch_core.sv` 里的 `has_iq`；模型 `route_iq`，`include/util.h`）：
@@ -57,7 +61,7 @@ uop 种类到队列的映射（`dispatch_core.sv` 里的 `has_iq`；模型 `rout
 | 入 | `rob2dis_{ready, empty, stall, enq_idx, free, rob_flag}` | ROB 的状态：不满、空、队头 8 槽里有冲刷类、尾部位置、空闲项数、环绕标志 |
 | 入 | `iss2dis_ready_num[IQ_NUM]` | 每个队列还能收几个（`min(空闲槽, 入队 lane 数)`，寄存值，见 isu.md） |
 | 入 | `lsu2dis_{stq_tail, stq_tail_flag, stq_free, ldq_free, ldq_alloc_idx[8], ldq_alloc_valid[8]}` | LSU 的 STQ 尾、空闲数、LDQ 空闲项的编号 |
-| 入 | `prf_awake_*`、`iss_awake_*`、`lsu2iss_wake_*`、`lsu2iss_cancel_*` | 唤醒（34 路）；推测唤醒的取消，只在 `LP_L2[3]` 打开时有消费者（现行 `LP_L2 = 1907`，该位为 0，取消恒为 0） |
+| 入 | `prf_awake_*`、`iss_awake_*`、`iss_awake_cancel_*`、`lsu2iss_wake_*`、`lsu2iss_cancel_*` | 唤醒（`MAX_WAKEUP_PORTS` + `NUM_LSU_WAKE=14` 路：L1 推测 4 + L3 直发 4 + L2b STLF/L2a fallback 4 + WBP `64→2` 2）；取消输入含 `lsu2iss_cancel`（4 路 L1 取消）与 `iss_awake_cancel`（6 路 ALU 孙代取消） |
 | 入 | `rob_bcast_flush`、`dec_bcast_{mispred, clear_mask}` | 全局冲刷（`FLUSH_REG` 后晚一拍，docs/FLUSH_REG.md）、误预测、分支掩码清除 |
 | 出 | `dis2ren_ready` | 重命名可以送下一组 |
 | 出 | `dis2rob_dis_fire[8]`、`dis2rob_uop_*[8]` | 本拍分派的 lane 和写进 ROB 的字段（含 `rob_idx`、`expect_mask`、`fs_need`） |
@@ -74,7 +78,7 @@ uop 种类到队列的映射（`dispatch_core.sv` 里的 `has_iq`；模型 `rout
               │
               ├─► dispatch_lsu_alloc  : load / store 的 LDQ / STQ 项和请求口（按序秩）
               ├─ rob_idx = 尾 + 有效 lane 的序号
-              ├─► dispatch_wake_match + dispatch_src_busy : 24 个源 × 34 路唤醒 ─► busy1/2/3（含组内 RAW）
+              ├─► dispatch_src_busy   : busy_table | cancel_v + 组内 RAW ─► busy1/2/3
               ├─► dispatch_decompose × 8 : 一条指令 ─► 每种 uop 一个 + expect_mask
               ├─► dispatch_iq_alloc   : 每队列的请求口号、整条指令是否放得下（fit）
               ├─► dispatch_fire_ctl   : dis_fire、dis2ren_ready
@@ -91,7 +95,7 @@ uop 种类到队列的映射（`dispatch_core.sv` 里的 `has_iq`；模型 `rout
 | `dispatch_inst_stage.sv` | 72 | 输入寄存器，见下 |
 | `dispatch_decompose.sv` | 142 | 一条指令拆成 uop；`expect_mask` |
 | `dispatch_lsu_alloc.sv` | 79 | LDQ / STQ 分配 |
-| `dispatch_src_busy.sv`、`dispatch_wake_match.sv` | 56、29 | busy 位计算；源寄存器和唤醒的比较 |
+| `dispatch_src_busy.sv` | 44 | busy 位计算（`busy_table | cancel_v` + 组内 RAW；`dispatch_wake_match.sv` 保留未实例化） |
 | `dispatch_busy_table.sv` | 47 | 忙表 |
 | `dispatch_iq_alloc.sv`、`dispatch_iq_req.sv` | 49、51 | 队列请求口号与 fit；请求口的数据选择 |
 | `dispatch_fire_ctl.sv` | 71 | 哪些 lane 分派，`dis2ren.ready` |
@@ -99,7 +103,7 @@ uop 种类到队列的映射（`dispatch_core.sv` 里的 `has_iq`；模型 `rout
 
 状态：`dispatch_inst_stage` 的 `valid_q[8]`、`inst_q[8]`（`dis_inst_t`）；忙表 `busy_q[224]`。其余都是组合逻辑。
 
-输入寄存器 `dispatch_inst_stage`：分派 ready 时（`dis2ren_ready`）整组换成重命名送来的新组；没 ready 时保留没 fire 的 lane，并用本拍唤醒刷新它们的 busy 位；冲刷或误预测（`kill = rob_flush | dec_mispred`）清所有 valid；每拍从所有 lane 的 `br_mask` 里去掉 `clear_mask`。
+输入寄存器 `dispatch_inst_stage`：分派 ready 时（`dis2ren_ready`）整组换成重命名送来的新组；没 ready 时保留没 fire 的 lane（下一拍直接重新查 `busy_table`）；冲刷或误预测（`kill = rob_flush | dec_mispred`）清所有 valid；每拍从所有 lane 的 `br_mask` 里去掉 `clear_mask`。
 
 ## 5. 一拍内的数据流
 
@@ -112,7 +116,7 @@ uop 种类到队列的映射（`dispatch_core.sv` 里的 `has_iq`；模型 `rout
 
 ### 5.2 busy 位
 
-`busy = en & ((忙表[preg] & 本拍没被唤醒) | 本组里比我老的有效 lane 写了同一个 preg)`；"写了寄存器"指 `dest_en` 且（目的寄存器不是 x0 或是 FP 寄存器），并且不是被消除的 move（它没有自己的寄存器）。忙表在读口上先和 `cancel_v` 相或（推测唤醒被取消的寄存器重新变忙）。
+`busy = en & ((忙表[preg]) | 本组里比我老的有效 lane 写了同一个 preg)`；"写了寄存器"指 `dest_en` 且（目的寄存器不是 x0 或是 FP 寄存器），并且不是被消除的 move（它没有自己的寄存器）。忙表在读口上先和 `cancel_v` 相或（推测唤醒被取消的寄存器重新变忙）；同拍唤醒不在此重复做 CAM，而是在 `isu_iq` 入队侧 `enq_wait` 与 `dispatch_busy_table` 中叠加。
 
 ### 5.3 拆分与入队
 

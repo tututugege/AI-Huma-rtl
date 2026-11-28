@@ -13,6 +13,7 @@ module lp_l1
   input  logic [NLD-1:0]      ag_acc,
   input  logic [EPW-1:0]      ag_epoch [NLD],
   input  logic [NLD-1:0]      ag_wait_b,
+  input  logic [7:0]          ag_pc8 [NLD],
   input  lp_agu_st_t          sa [NST],
   input  logic [NST-1:0]      sa_acc,
   // replay registers
@@ -192,6 +193,11 @@ module lp_l1
           l1[k].epoch = ag_epoch[i];
           l1[k].second = 1'b0;
           l1[k].wait_b = ag_wait_b[i];
+          l1[k].dest = ag[i].dest;
+          l1[k].rob_idx = ag[i].rob_idx;
+          l1[k].rob_flag = ag[i].rob_flag;
+          l1[k].no_l1_spec = 1'b0;
+          l1[k].pc8 = ag_pc8[i];
         end
       end
       for (int r = 0; r < NRP; r++) begin
@@ -212,6 +218,11 @@ module lp_l1
           l1[k].epoch = rp_f[r].epoch;
           l1[k].second = rp_f[r].second;
           l1[k].wait_b = rp_f[r].wait_b;
+          l1[k].dest = rp_f[r].dest_preg;
+          l1[k].rob_idx = rp_f[r].rob_idx;
+          l1[k].rob_flag = rp_f[r].rob_flag;
+          l1[k].no_l1_spec = rp_f[r].no_l1_spec;
+          l1[k].pc8 = '0;
         end
       end
     end

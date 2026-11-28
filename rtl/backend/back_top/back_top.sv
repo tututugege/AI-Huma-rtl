@@ -217,11 +217,20 @@ module back_top
   // ---- isu -> prf / dispatch ----
   logic [IQ_READY_NUM_WIDTH-1:0] iss2dis_ready_num [dis_pkg::IQ_NUM];
   logic [ISSUE_WIDTH-1:0]        iss2prf_valid;
-  isu_uop_t                      iss2prf_uop      [ISSUE_WIDTH];
-  logic [ALU_NUM-1:0]            iss2prf_src1_byp [ISSUE_WIDTH];
-  logic [ALU_NUM-1:0]            iss2prf_src2_byp [ISSUE_WIDTH];
+  isu_uop_t                      iss2prf_uop       [ISSUE_WIDTH];
+  logic [ALU_NUM-1:0]            iss2prf_src1_byp  [ISSUE_WIDTH];
+  logic [ALU_NUM-1:0]            iss2prf_src2_byp  [ISSUE_WIDTH];
+  logic [LSU_LDU_COUNT-1:0]      iss2prf_spec_mask [ISSUE_WIDTH];
   logic [PRF_IDX_WIDTH-1:0]      iss_awake_wake_preg [MAX_WAKEUP_PORTS];
   logic [MAX_WAKEUP_PORTS-1:0]   iss_awake_wake_valid;
+  logic [ALU_NUM-1:0]            iss_awake_cancel_valid;
+  logic [PRF_IDX_WIDTH-1:0]      iss_awake_cancel_preg [ALU_NUM];
+
+  // ---- iss_rr_reg -> prf ----
+  logic [ISSUE_WIDTH-1:0]        rr_valid;
+  isu_uop_t                      rr_uop       [ISSUE_WIDTH];
+  logic [ALU_NUM-1:0]            rr_src1_byp  [ISSUE_WIDTH];
+  logic [ALU_NUM-1:0]            rr_src2_byp  [ISSUE_WIDTH];
 
   // ---- prf -> exu / ftq / isu ----
   logic [5:0]                    ftq_prf_pc_req_req_ftq_idx    [FTQ_PRF_PC_PORT_NUM];
@@ -239,7 +248,7 @@ module back_top
   logic [1:0]                    exe2csr_wcmd;
   logic [XLEN_BITS-1:0]          exe2csr_wdata;
   logic                          exe2csr_we;
-  logic                          exe2iss_div_wb_next;
+  logic                          exe2iss_div_wb_in2;
   logic                          exe2iss_div_wake_valid;
   logic [PRF_IDX_WIDTH-1:0]      exe2iss_div_wake_preg;
   xc_prf_wb_t                    exe2prf [WB_LANES];
@@ -327,8 +336,8 @@ module back_top
     for (int k = 0; k < LSU_LOAD_WB_WIDTH; k++)
       lsu_byp_valid[k] = lsu2exe_wb_req_valid[k] && lsu2exe_wb_req_uop_dest_en[k];
   end
-  logic [2*LSU_LDU_COUNT-1:0]    lsu2iss_wake_valid;
-  logic [PRF_IDX_WIDTH-1:0]      lsu2iss_wake_preg [2*LSU_LDU_COUNT];
+  logic [3*LSU_LDU_COUNT+1:0]    lsu2iss_wake_valid;
+  logic [PRF_IDX_WIDTH-1:0]      lsu2iss_wake_preg [3*LSU_LDU_COUNT+2];
   logic [LSU_LDU_COUNT-1:0]      lsu2iss_cancel_valid;
   logic [PRF_IDX_WIDTH-1:0]      lsu2iss_cancel_preg [LSU_LDU_COUNT];
 
@@ -433,6 +442,7 @@ module back_top
     .dec_bcast_mispred(dec_bcast_mispred),
     .iss2dis_ready_num(iss2dis_ready_num),
     .iss_awake_wake_preg(iss_awake_wake_preg), .iss_awake_wake_valid(iss_awake_wake_valid),
+    .iss_awake_cancel_valid(iss_awake_cancel_valid), .iss_awake_cancel_preg(iss_awake_cancel_preg),
     .lsu2iss_wake_valid(lsu2iss_wake_valid), .lsu2iss_wake_preg(lsu2iss_wake_preg),
     .lsu2iss_cancel_valid(lsu2iss_cancel_valid), .lsu2iss_cancel_preg(lsu2iss_cancel_preg),
     .lsu2dis_ldq_alloc_idx(lsu2dis_ldq_alloc_idx), .lsu2dis_ldq_alloc_valid(lsu2dis_ldq_alloc_valid),
@@ -458,7 +468,7 @@ module back_top
     .lsu2iss_wake_valid(lsu2iss_wake_valid), .lsu2iss_wake_preg(lsu2iss_wake_preg),
     .lsu2iss_cancel_valid(lsu2iss_cancel_valid), .lsu2iss_cancel_preg(lsu2iss_cancel_preg),
     .dis2iss_req_valid(dis2iss_req_valid), .dis2iss_req_uop(dis2iss_req_uop),
-    .exe2iss_div_wb_next(exe2iss_div_wb_next),
+    .exe2iss_div_wb_in2(exe2iss_div_wb_in2),
     .exe2iss_div_wake_valid(exe2iss_div_wake_valid), .exe2iss_div_wake_preg(exe2iss_div_wake_preg),
     .dec_bcast_mispred(dec_bcast_mispred),
     .dec_bcast_redirect_rob_idx(dec_bcast_redirect_rob_idx),
@@ -468,7 +478,22 @@ module back_top
     .iss2dis_ready_num(iss2dis_ready_num),
     .iss2prf_valid(iss2prf_valid), .iss2prf_uop(iss2prf_uop),
     .iss2prf_src1_byp(iss2prf_src1_byp), .iss2prf_src2_byp(iss2prf_src2_byp),
-    .iss_awake_wake_valid(iss_awake_wake_valid), .iss_awake_wake_preg(iss_awake_wake_preg)
+    .iss2prf_spec_mask(iss2prf_spec_mask),
+    .iss_awake_wake_valid(iss_awake_wake_valid), .iss_awake_wake_preg(iss_awake_wake_preg),
+    .iss_awake_cancel_valid(iss_awake_cancel_valid), .iss_awake_cancel_preg(iss_awake_cancel_preg)
+  );
+
+  // ================= iss_rr_reg
+  iss_rr_reg u_iss_rr (
+    .clk(clk), .rst_n(rst_n),
+    .flush(rob_flush_q), .mispred(dec_bcast_mispred),
+    .dec_rob_idx(dec_bcast_redirect_rob_idx), .dec_rob_flag(dec_bcast_redirect_rob_flag),
+    .cancel_valid(lsu2iss_cancel_valid),
+    .iss_valid(iss2prf_valid), .iss_uop(iss2prf_uop),
+    .iss_src1_byp(iss2prf_src1_byp), .iss_src2_byp(iss2prf_src2_byp),
+    .iss_spec_mask(iss2prf_spec_mask),
+    .rr_valid(rr_valid), .rr_uop(rr_uop),
+    .rr_src1_byp(rr_src1_byp), .rr_src2_byp(rr_src2_byp)
   );
 
   // ================= prf
@@ -480,8 +505,8 @@ module back_top
     .dec_bcast_mispred(dec_bcast_mispred),
     .dec_bcast_redirect_rob_idx(dec_bcast_redirect_rob_idx),
     .dec_bcast_redirect_rob_flag(dec_bcast_redirect_rob_flag),
-    .iss2prf_valid(iss2prf_valid), .iss2prf_uop(iss2prf_uop),
-    .iss2prf_src1_byp(iss2prf_src1_byp), .iss2prf_src2_byp(iss2prf_src2_byp),
+    .iss2prf_valid(rr_valid), .iss2prf_uop(rr_uop),
+    .iss2prf_src1_byp(rr_src1_byp), .iss2prf_src2_byp(rr_src2_byp),
     .ftq_prf_pc_resp_resp_next_pc(ftq_prf_pc_resp_resp_next_pc),
     .ftq_prf_pc_resp_resp_pc(ftq_prf_pc_resp_resp_pc),
     .ftq_prf_pc_resp_resp_pred_taken(ftq_prf_pc_resp_resp_pred_taken),
@@ -523,7 +548,7 @@ module back_top
     .rob_bcast_flush(rob_flush_q),
     .exe2csr_we(exe2csr_we), .exe2csr_re(exe2csr_re), .exe2csr_idx(exe2csr_idx),
     .exe2csr_wdata(exe2csr_wdata), .exe2csr_wcmd(exe2csr_wcmd),
-    .exe2iss_div_wb_next(exe2iss_div_wb_next),
+    .exe2iss_div_wb_in2(exe2iss_div_wb_in2),
     .exe2iss_div_wake_valid(exe2iss_div_wake_valid), .exe2iss_div_wake_preg(exe2iss_div_wake_preg),
     .exe2prf(exe2prf), .exu2rob(exu2rob),
     .exe2lsu_agu(exe2lsu_agu),

@@ -222,6 +222,8 @@ module lp_ldq_ent
   logic [ROBW-1:0]  ridx7;
   logic             rflg7;
   logic             kill;
+  logic [EPW-1:0]   epoch_p1;
+  assign epoch_p1 = f_q.epoch + EPW'(1);
   always_comb begin
     st7   = al ? LS_ALLOC : st6;
     ridx7 = al ? al_d.rob_idx : f_q.rob_idx;
@@ -229,8 +231,11 @@ module lp_ldq_ent
     kill  = flush || (mispred && st7 != LS_EMPTY && lp_rob_younger(ridx7, rflg7, dec_rob_idx, dec_rob_flag));
     st8   = kill ? LS_EMPTY : st7;
     dead_r = flush || (mispred && st_q != LS_EMPTY && lp_rob_younger(f_q.rob_idx, f_q.rob_flag, dec_rob_idx, dec_rob_flag));
-    epoch_nx = f_q.epoch + EPW'(al) + EPW'(!dead_r && (|(l1_tgt & l1_launch)));
+    epoch_nx = (al || (!dead_r && (|(l1_tgt & l1_launch)))) ? epoch_p1 : f_q.epoch;
   end
+`ifndef SYNTHESIS
+  assert property (@(posedge clk) disable iff (!rst_n) !(al && !dead_r && (|(l1_tgt & l1_launch))));
+`endif
 
   // ---- P13 wake-up ----
   lp_ld_st_t     st9;
@@ -247,12 +252,16 @@ module lp_ldq_ent
               .l_func3(f_q.func3), .ev_sta(ev_sta), .ev_data(ev_data), .ev_ret(ev_ret), .ev_sc(ev_sc),
               .alive_post(alive_post), .sta_info(sta_info), .sdw(sdw), .o(wk_e));
   logic rpw_a;
+  logic no_l1_spec_p3, no_l1_spec_p13;
   always_comb begin
     rpw_a = (st3 == LS_RPW) && !dead_r;
     ew = w_port ? l2w : wk_e;
     fill_hit = fill_v && rt3 == RT_MSHR_HIT && fill_line == f_q.paddr[31 -: LINEW];
     wake_dc = fill_hit || (fill_v && rt3 == RT_MSHR_FULL && full_ok);
     full_cand = (st_q == LS_RPW) && !dead_r && (f_q.rcause == 3'(RC_DC)) && fill_v && (f_q.rtype == RT_MSHR_FULL);
+    no_l1_spec_p3 = (l2_ok && (l2_dec.act == L2_PARK) && (l2_dec.cause == RC_TLB)) ? 1'b1 :
+                    ((rs_ok && !rs_hit && (rs_rep != RT_CONFLICT)) ? 1'b1 : f_q.no_l1_spec);
+    no_l1_spec_p13 = (rpw_a && (rc3 == 3'(RC_DC)) && fill_hit) ? 1'b0 : no_l1_spec_p3;
   end
 
   always_comb begin
@@ -324,7 +333,9 @@ module lp_ldq_ent
       f_q.blk      <= '0;
       f_q.rwait    <= '0;
       f_q.rtype    <= '0;
+      f_q.no_l1_spec <= 1'b0;
     end else begin
+      f_q.no_l1_spec <= no_l1_spec_p13;
       if (|ag_acc) begin
         f_q.vaddr    <= ag_s.vaddr;
         f_q.dest_preg <= ag_s.dest;

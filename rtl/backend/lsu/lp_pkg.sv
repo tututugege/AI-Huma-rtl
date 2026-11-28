@@ -6,6 +6,8 @@ package lp_pkg;
   import ttg_cfg_pkg::*;
 
   localparam int NLD  = LSU_LDU_COUNT;      // load pipelines (L1/L2) = DCache load ports = load write-back ports
+  localparam int NWBP = 2;                  // V2 WBP load write-back wake/pick bandwidth (64 -> 2)
+  localparam int NWK  = 3 * NLD + NWBP;     // wakeup channels: [0..NLD-1] L1 spec, [NLD..2*NLD-1] L3, [2*NLD..3*NLD-1] L2b/L2a, [3*NLD..NWK-1] WBP
   localparam int NST  = LSU_STA_COUNT;      // STA ports (AGU + DTLB)
   localparam int NSD  = LSU_SDU_COUNT;      // STD ports
   // Memory-dependence speculation (EXP-018, model CFG_LSU_MEMSPEC): loads pass older stores with an unknown address
@@ -98,6 +100,10 @@ package lp_pkg;
     logic [SQW-1:0]  snap_idx;     // carried for L2a STQ CAM
     logic            snap_flag;
     logic            spec_ok;
+    logic            replay;
+    logic            spec_w;
+    logic [PRFW-1:0] spec_preg;
+    logic [7:0]      pc8;
   } lp_pl12_t;
 
   // L2a -> L2b pipeline register (STLF-only: decouples 64-entry STQ CAM from stlf_confirm + lp_wk)
@@ -130,6 +136,11 @@ package lp_pkg;
     logic [EPW-1:0]  epoch;        // pre-launch LDQ epoch (avoids 64:1 mux on epoch_nx)
     logic            second;       // memory speculation second pass (replay: from rp_f_q)
     logic            wait_b;       // memory speculation wait-table bit
+    logic [PRFW-1:0] dest;
+    logic [ROBW-1:0] rob_idx;
+    logic            rob_flag;
+    logic            no_l1_spec;
+    logic [7:0]      pc8;
   } lp_l1in_t;
 
   // pre-registered immutable LDQ payload stored in each replay register (removes 64:1 LDQ mux from L1/CAM critical path)
@@ -145,6 +156,10 @@ package lp_pkg;
     logic [EPW-1:0]  epoch;
     logic            second;
     logic            wait_b;
+    logic [PRFW-1:0] dest_preg;
+    logic [ROBW-1:0] rob_idx;
+    logic            rob_flag;
+    logic            no_l1_spec;
   } lp_rp_ent_t;
 
   // DTLB result of one L1 slot
@@ -288,6 +303,7 @@ package lp_pkg;
     logic            wait_b;       // predictor: does not pass unknown-address stores
     logic [MDPW-1:0] mdp;          // wait-table index
     logic [31:0]     pc;
+    logic            no_l1_spec;   // parked on doomed polling replay (RC_TLB / MSHR miss): skip L1 spec wake until filled
   } lp_ldq_t;
 
   // ---- helpers ----

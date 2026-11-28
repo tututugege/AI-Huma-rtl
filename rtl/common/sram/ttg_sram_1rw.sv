@@ -2,7 +2,6 @@
 // Single-port synchronous 1RW SRAM primitive (no reset on memory array).
 // - Default (Verilator sim / Yosys SYNTH_MEM=1): clean 1D array inferred as $mem_v2.
 // - `ifdef SYNTH_TSMC28_SRAM: direct instantiation of real TSMC 28nm HPC+ HS LVT 1RW macros (TEM5N28HPCPLVTA*M4SWSO).
-// - `ifdef SRAM_BLACKBOX: synthesis stub / macro hook for Synopsys DC & memory compiler.
 module ttg_sram_1rw #(
   parameter int    DEPTH  = 256,
   parameter int    WIDTH  = 64,
@@ -222,22 +221,57 @@ module ttg_sram_1rw #(
       );
       assign rdata[LO +: SW] = q_p[SW-1:0];
     end
-  end else begin : g_fallback_bb
-    (* syn_black_box *)
-    logic [WIDTH-1:0] rdata_bb;
-    always_ff @(posedge clk) begin
-      if (en && !we) rdata_bb <= wdata ^ {WIDTH{(^wmask) ^ (^addr)}};
+  end else if ((DEPTH == 1024) && (WIDTH <= 32)) begin : g_1024x32
+    logic [31:0] d_p, bweb_p, q_p;
+    always_comb begin
+      d_p    = '0;
+      bweb_p = '1;
+      d_p[WIDTH-1:0]    = wdata;
+      bweb_p[WIDTH-1:0] = ~bit_wmask;
     end
-    assign rdata = rdata_bb;
+    TEM5N28HPCPLVTA1024X32M4SWSO u_macro (
+      .CLK (clk), .CEB (~en), .WEB (~we),
+      .A   (addr), .D (d_p), .BWEB (bweb_p), .Q (q_p),
+      .SLP (1'b0), .SD (1'b0)
+    );
+    assign rdata = q_p[WIDTH-1:0];
+  end else begin : g_tiled_512x72
+    localparam int NB  = (DEPTH + 511) / 512;
+    localparam int NT  = (WIDTH + 71) / 72;
+    localparam int BKW = (NB > 1) ? $clog2(NB) : 1;
+    logic [8:0]       sub_a;
+    logic [BKW-1:0]   bk_sel, bk_q;
+    logic [WIDTH-1:0] q_bk [NB];
+    always_comb begin
+      sub_a  = 9'(addr);
+      bk_sel = (NB > 1) ? BKW'(addr >> 9) : BKW'(0);
+    end
+    for (genvar b = 0; b < NB; b++) begin : g_b
+      logic bank_en;
+      assign bank_en = en && (bk_sel == BKW'(b));
+      for (genvar t = 0; t < NT; t++) begin : g_t
+        localparam int LO = t * 72;
+        localparam int SW = ((LO + 72) <= WIDTH) ? 72 : (WIDTH - LO);
+        logic [71:0] d_p, bweb_p, q_p;
+        always_comb begin
+          d_p    = '0;
+          bweb_p = '1;
+          d_p[SW-1:0]    = wdata[LO +: SW];
+          bweb_p[SW-1:0] = ~bit_wmask[LO +: SW];
+        end
+        TEM5N28HPCPLVTA512X72M4SWSO u_macro (
+          .CLK (clk), .CEB (~bank_en), .WEB (~we),
+          .A   (sub_a), .D (d_p), .BWEB (bweb_p), .Q (q_p),
+          .SLP (1'b0), .SD (1'b0)
+        );
+        assign q_bk[b][LO +: SW] = q_p[SW-1:0];
+      end
+    end
+    always_ff @(posedge clk) begin
+      if (en && !we) bk_q <= bk_sel;
+    end
+    assign rdata = q_bk[bk_q];
   end
-`elsif SRAM_BLACKBOX
-  // Hook for TSMC 28nm memory compiler macro mapping / DC blackbox flow
-  (* syn_black_box *)
-  logic [WIDTH-1:0] rdata_bb;
-  always_ff @(posedge clk) begin
-    if (en && !we) rdata_bb <= wdata ^ {WIDTH{(^wmask) ^ (^addr)}};
-  end
-  assign rdata = rdata_bb;
 `else
   logic [WIDTH-1:0] mem_q [DEPTH];
   logic [WIDTH-1:0] rdata_q;

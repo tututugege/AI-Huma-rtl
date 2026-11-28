@@ -9,6 +9,10 @@ depth: 142 层（back_top，单模块综合，2026-11-20，`SYNTH_ABC="strash;ba
 
 # back_top 设计文档
 
+> **2026-11-28 `rtl/iss-rr` 后端五墙合一时序切分**：
+> - 在 `u_isu` 与 `u_prf` 之间插入 `iss_rr_reg`（`u_iss_rr`）打通 **ISS → RR → EX/LSU** 两拍，斩断 `u_lsu/u_wake → u_isu → u_prf(27R) → u_exu` 跨模块环；
+> - `lsu2iss_wake` 扩宽至 14 路（`3*LSU_LDU_COUNT + 2`：L1 推测 4 + L3 直发 4 + L2b STLF/L2a fallback 4 + V2 WBP 2）；`u_isu` 向 `u_dis` 传 `iss_awake_cancel[ALU_NUM]`（ALU 孙代取消）；`u_exu` 改传提前 2 拍 `exe2iss_div_wb_in2`。
+
 > **2026-11-26 `rtl/area-opt` 后端内部总线 `packed struct` 化与命名统一**：
 > - 将后端 9 条内部总线（`ibuf2idu`、`dec2ren`、`ren2dis`、`dis2rob`、`dis2iss`、`iss2prf`、`prf2exe`、`exe2prf`、`exu2rob`）统一打包为结构体（新增 `dis_rob_uop_t`、`xc_prf_wb_t`、`xc_rob_wb_t`），端口前缀同步统一为 `front2ftq_*` / `ftq2front_*` / `ibuf2idu_*`；`back_top.sv` 由 1,650 行精简至 563 行（连同 `ren`/`dispatch`/`prf` 共净减 2,000+ 行样板连线），同时保持全部顶层对外端口与 `soc_public.vlt` 探针不变；
 > - `back_top_glue.sv` 删除 ROB 64-bit `diag_val` 后改为直接由 `ftq_commit_next_pc` / 顺序 PC 重建提交分支训练目标。
@@ -82,12 +86,13 @@ depth: 142 层（back_top，单模块综合，2026-11-20，`SYNTH_ABC="strash;ba
 | `rob_bcast_flush`（ROB 这拍的决定） | `rob` | 寄存器输入；`glue`；`lsu`（`rob_flush_now`）；芯片端口 |
 | `rob_bcast_{mret, sret, ecall, breakpoint, exception, page_fault_*, illegal_inst, trap_val, pc}` | `rob` | `csr`、`glue`（部分）和芯片端口；不推迟 |
 | `rob_bcast_interrupt` | `rob` | `ren`、芯片端口；不推迟 |
-| `iss2prf_*` / `prf2exe_*` | `isu` / `prf` | `prf` / `exu`；口 0 的 `csr_idx` 取 `prf2exe_iss_entry_uop_csr_idx[0]` 送 `exu`（CSR 固定在口 0） |
+| `iss2prf_*` → `u_iss_rr` → `rr_*` / `prf2exe_*` | `isu` / `iss_rr_reg` / `prf` | `prf` / `exu`（1 拍 ISS→RR 流水级，按 `lsu2iss_cancel_valid` 与 `spec_mask_q` 取消未命中 L1 推测消费者；口 0 的 `csr_idx` 随 `prf2exe` 送 `exu`） |
 | `exe2prf_entry_*`（`[WB_LANES]`，寄存器写回总线，EXP-046）、`exe2prf_bypass_*` | `exu` | `prf` |
-| `exe2iss_div_wb_next`、`exe2iss_div_wake_*` | `exu` | `isu`（DIV 下一拍写回通告与晚唤醒，替代原 `fu_ready_mask` 协议） |
+| `exe2iss_div_wb_in2`、`exe2iss_div_wake_*` | `exu` | `isu`（DIV 提前 2 拍写回通告与晚唤醒） |
 | `prf_awake_*`（load 晚唤醒） | `prf` | `isu`、`dispatch` |
 | `iss_awake_*`（唤醒广播） | `isu` | `dispatch` |
-| `lsu2iss_wake_* / cancel_*` | `lsu` | `isu`、`dispatch` |
+| `iss_awake_cancel_*` | `isu` | `dispatch`（6 路 1 周期 ALU 孙代取消） |
+| `lsu2iss_wake_* / cancel_*` | `lsu` | `isu`、`dispatch`（`lsu2iss_wake_*` 为 14 路：L1 推测 4 + L3 4 + L2b STLF/L2a fallback 4 + WBP 2） |
 | `exe2lsu_agu [5]`、`exe2lsu_sdu_* [3]`、`lsu2exe_*` | `exu` / `lsu` | `lsu` / `exu`；`lsu2exe_wb_req_*` 另经 `lsu_byp_*` 去 `prf` |
 | `exu2rob [ROB_WB_WIDTH]` | `exu` | `rob` |
 | `exe2csr_*`、`csr2exe_rdata / frm` | `exu` / `csr` | `csr` / `exu` |

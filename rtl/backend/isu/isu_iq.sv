@@ -17,7 +17,8 @@ module isu_iq
   parameter int SRC1_DOM  = 0,      // 0 = INT, 1 = FP
   parameter int SRC2_DOM  = 0,      // 0 = INT, 1 = FP, 2 = BOTH
   parameter int FP_TAGS   = FP_EN ? FPRF_NUM : 1,
-  parameter int INT_W     = $clog2(PRF_NUM)
+  parameter int INT_W     = $clog2(PRF_NUM),
+  parameter int CANCEL_N  = LSU_LDU_COUNT
 ) (
   input  logic                     clk,
   input  logic                     rst_n,
@@ -26,12 +27,17 @@ module isu_iq
   /* verilator lint_off UNUSEDSIGNAL */   // waiver: queues use only their domain's slow bitmap / fast wake-ups
   input  logic [PRF_NUM-1:0]       woken_slow_int,
   input  logic [FP_TAGS-1:0]       woken_slow_fp,
+  input  logic [LSU_LDU_COUNT-1:0] lsu_l1_wake_valid,
+  input  logic [PRF_IDX_WIDTH-1:0] lsu_l1_wake_preg [LSU_LDU_COUNT],
   input  logic [3:0]               slow_exu_valid,
   input  logic [INT_W-1:0]         slow_exu_preg [4],
   input  logic [FAST_UNITS-1:0]    fast_valid,
   input  logic [INT_W-1:0]         fast_preg [FAST_UNITS],
-  input  logic [LSU_LDU_COUNT-1:0] cancel_valid,    // wake-up of the previous cycle was wrong: waiting again (LP_L2)
-  input  logic [PRF_IDX_WIDTH-1:0] cancel_preg [LSU_LDU_COUNT],
+  input  logic [CANCEL_N-1:0]      cancel_valid,          // wrong L1-spec load
+  input  logic [PRF_IDX_WIDTH-1:0] cancel_preg [CANCEL_N],
+  input  logic [ALU_NUM-1:0]       fast_cancel_raw,       // ALU grandchild cancel (fast-only byp match)
+  input  logic [ALU_NUM-1:0]       fast_cancel_valid_chk, // simulation SVA oracle only
+  input  logic [PRF_IDX_WIDTH-1:0] fast_cancel_preg_chk [ALU_NUM],
   /* verilator lint_on UNUSEDSIGNAL */
   input  logic [NP-1:0]            gate_ok,         // FP write-port gate (isu_fp_gate); 1 for ports without one
   /* verilator lint_off UNUSEDSIGNAL */   // waiver: a queue whose ports have no blockable class (memory, STD, BR) does not read it
@@ -44,14 +50,16 @@ module isu_iq
   input  logic                     flush_br,
   input  logic [ROB_IDX_WIDTH-1:0] flush_rob_idx,
   input  logic                     flush_rob_flag,
-  output logic [READY_NUM_W-1:0]   free_slots,      // registered occupancy, as seen by dispatch
+  output logic [READY_NUM_W-1:0]   ready_num,       // registered capped capacity reported to dispatch
   output logic [NP-1:0]            cand_valid,      // port's pick passes FU readiness and issue block (before the gate)
   output logic [NP-1:0]            grant_valid,
   output isu_uop_t                 grant_uop [NP],
   output logic [ALU_NUM-1:0]       grant_src1_byp [NP],
   output logic [ALU_NUM-1:0]       grant_src2_byp [NP],
+  output logic [LSU_LDU_COUNT-1:0] grant_spec_mask [NP],
   output logic [NP-1:0]            grant_fpw,       // pre-decoded FP register-file write flag (parallel with u_read)
   output logic [WB_NCLS-1:0]       grant_fp_cls1h [NP], // pre-decoded one-hot FP completion class (parallel with u_read)
+  output logic [WB_NCLS-1:0]       grant_wb_cls1h [NP], // pre-decoded one-hot WB gate completion class (MUL + FP)
   output logic [NP-1:0]            grant_fp_f1,     // pre-evaluated free1 for the picked slot
   output logic [NP-1:0]            grant_fp_f2      // pre-evaluated free2 for the picked slot
 );
@@ -59,10 +67,11 @@ module isu_iq
   localparam int UW = $bits(isu_uop_t);
   localparam int CW = $clog2(SIZE + 1);
 
-  logic [SIZE-1:0] slot_valid, slot_ready;
+  logic [SIZE-1:0] slot_valid, slot_rr_ret, slot_surv_br, slot_ready;
   isu_uop_t        slot_uop  [SIZE];
   logic [ALU_NUM-1:0] slot_byp1 [SIZE];
   logic [ALU_NUM-1:0] slot_byp2 [SIZE];
+  logic [LSU_LDU_COUNT-1:0] slot_spec_t1 [SIZE];
   logic [SIZE-1:0] sel_onehot [NP];
   logic [NP-1:0]   sel_valid;
   logic [SIZE-1:0] granted_slot;
@@ -72,6 +81,9 @@ module isu_iq
   logic [DW-1:0]   enq_wait1, enq_wait2, enq_wait3;
   logic [ALU_NUM-1:0] enq_byp1 [DW];
   logic [ALU_NUM-1:0] enq_byp2 [DW];
+  logic [1:0]         enq_mul1 [DW];
+  logic [1:0]         enq_mul2 [DW];
+  logic [LSU_LDU_COUNT-1:0] enq_spec_t1 [DW];
 
   // ---- select and grant (reads registered state only) ----
   logic [SIZE-1:0] older [SIZE];
@@ -206,7 +218,7 @@ module isu_iq
   isu_iq_select #(.SIZE(SIZE), .NP(NP), .QID(QID), .AGE_EN(AGE_EN)) u_select (
     .ready(slot_ready), .older(older), .port_ok(port_ok), .sel_onehot(sel_onehot), .sel_valid(sel_valid));
 
-  localparam int BYPW = 2 * ALU_NUM;
+  localparam int BYPW = 2 * ALU_NUM + LSU_LDU_COUNT;
   localparam int FPCW = 3 + WB_NCLS;
   logic [UW-1:0]   slot_bits [SIZE];
   logic [BYPW-1:0] slot_byp_bits [SIZE];
@@ -218,12 +230,13 @@ module isu_iq
     assign sf1              = |(slot_fp_cls_q[i][10:4] & fp_free1_cls);
     assign sf2              = |(slot_fp_cls_q[i][10:4] & fp_free2_cls);
     assign slot_bits[i]     = slot_uop[i];
-    assign slot_byp_bits[i] = {slot_byp2[i], slot_byp1[i]};
+    assign slot_byp_bits[i] = {slot_spec_t1[i], slot_byp2[i], slot_byp1[i]};
     assign slot_fpc_bits[i] = {sf2, sf1, slot_fpw_q[i], slot_fp_cls_q[i]};
   end
 
   logic [SIZE-1:0] granted_by_port [NP];
   for (genvar p = 0; p < NP; p++) begin : g_port
+    localparam int PP = iq_port(QID, p);
     logic [UW-1:0]   sel_bits;
     logic [BYPW-1:0] sel_byp;
     isu_uop_t        sel_uop;
@@ -242,10 +255,31 @@ module isu_iq
       assign grant_fpw[p]      = 1'b0;
       assign grant_fp_cls1h[p] = '0;
     end
-    assign sel_uop           = isu_uop_t'(sel_bits);
-    assign grant_uop[p]      = sel_uop;
-    assign grant_src1_byp[p] = sel_byp[ALU_NUM-1:0];
-    assign grant_src2_byp[p] = sel_byp[BYPW-1:ALU_NUM];
+    logic mul_cls_hit;
+    if (port_serves_cls(PP, 1)) begin : g_wbmul
+      logic [0:0] slot_mul_arr [SIZE];
+      logic [0:0] sel_mul_v;
+      for (genvar i = 0; i < SIZE; i++) begin : g_sm
+        assign slot_mul_arr[i] = (slot_uop[i].op == op_t'(UOP_MUL));
+      end
+      ttg_onehot_mux #(.N(SIZE), .W(1)) u_read_mul (.sel(sel_onehot[p]), .data(slot_mul_arr), .out(sel_mul_v));
+      assign mul_cls_hit = sel_mul_v[0];
+    end else begin : g_nomul
+      assign mul_cls_hit = 1'b0;
+    end
+    assign grant_wb_cls1h[p][0]   = 1'b0;
+    assign grant_wb_cls1h[p][1]   = mul_cls_hit;
+    assign grant_wb_cls1h[p][3:2] = 2'b00;
+    if (FP_EN) begin : g_wbfp
+      for (genvar c = 4; c < WB_NCLS; c++) begin : g_c
+        assign grant_wb_cls1h[p][c] = grant_fp_cls1h[p][c];
+      end
+    end
+    assign sel_uop            = isu_uop_t'(sel_bits);
+    assign grant_uop[p]       = sel_uop;
+    assign grant_src1_byp[p]  = sel_byp[ALU_NUM-1:0];
+    assign grant_src2_byp[p]  = sel_byp[2*ALU_NUM-1:ALU_NUM];
+    assign grant_spec_mask[p] = sel_byp[BYPW-1:2*ALU_NUM];
     assign cand_valid[p]     = sel_valid[p] && !issue_block;
     assign grant_valid[p]    = cand_valid[p] && gate_ok[p];
     assign granted_by_port[p] = sel_onehot[p] & {SIZE{grant_valid[p]}};
@@ -275,6 +309,7 @@ module isu_iq
     if (SRC1_DOM == 1) begin : g_e1_fp
       assign e1_woken    = enq_fp_slow(enq[w].uop.src1_preg);
       assign enq_byp1[w] = '0;
+      assign enq_mul1[w] = 2'b00;
     end else begin : g_e1_int
       logic [ALU_NUM-1:0] e1_fast_m, e1_slow_m;
       always_comb begin
@@ -287,6 +322,8 @@ module isu_iq
       assign e1_woken    = enq_int_slow(enq[w].uop.src1_preg) || (|e1_fast_m);
       assign enq_byp1[w] = (enq[w].uop.src1_en && (enq[w].uop.src1_preg != '0))
                            ? (e1_slow_m | e1_fast_m) : '0;
+      assign enq_mul1[w] = (enq[w].uop.src1_en && (enq[w].uop.src1_preg != '0))
+                           ? {e1_slow_m[2], e1_slow_m[0]} : 2'b00;
     end
     assign enq_wait1[w] = enq[w].uop.src1_en && enq[w].src1_busy && !e1_woken;
 
@@ -295,6 +332,7 @@ module isu_iq
       if (SRC2_DOM == 1) begin : g_e2_fp
         assign e2_woken    = enq_fp_slow(enq[w].uop.src2_preg);
         assign enq_byp2[w] = '0;
+        assign enq_mul2[w] = 2'b00;
       end else if (SRC2_DOM == 2) begin : g_e2_both
         logic e2_is_int;
         logic [ALU_NUM-1:0] e2_fast_m, e2_slow_m;
@@ -310,6 +348,8 @@ module isu_iq
                                        : enq_fp_slow(enq[w].uop.src2_preg);
         assign enq_byp2[w] = (enq[w].uop.src2_en && (enq[w].uop.src2_preg != '0))
                              ? (e2_slow_m | e2_fast_m) : '0;
+        assign enq_mul2[w] = (enq[w].uop.src2_en && (enq[w].uop.src2_preg != '0))
+                             ? {e2_slow_m[2], e2_slow_m[0]} : 2'b00;
       end else begin : g_e2_int
         logic [ALU_NUM-1:0] e2_fast_m, e2_slow_m;
         always_comb begin
@@ -322,11 +362,14 @@ module isu_iq
         assign e2_woken    = enq_int_slow(enq[w].uop.src2_preg) || (|e2_fast_m);
         assign enq_byp2[w] = (enq[w].uop.src2_en && (enq[w].uop.src2_preg != '0))
                              ? (e2_slow_m | e2_fast_m) : '0;
+        assign enq_mul2[w] = (enq[w].uop.src2_en && (enq[w].uop.src2_preg != '0))
+                             ? {e2_slow_m[2], e2_slow_m[0]} : 2'b00;
       end
       assign enq_wait2[w] = enq[w].uop.src2_en && enq[w].src2_busy && !e2_woken;
     end else begin : g_no_e2
       assign enq_wait2[w] = 1'b0;
       assign enq_byp2[w]  = '0;
+      assign enq_mul2[w]  = 2'b00;
     end
 
     if (HAS_SRC3) begin : g_e3
@@ -335,6 +378,15 @@ module isu_iq
       assign enq_wait3[w] = enq[w].uop.src3_en && enq[w].src3_busy && !e3_woken;
     end else begin : g_no_e3
       assign enq_wait3[w] = 1'b0;
+    end
+    always_comb begin
+      for (int k = 0; k < LSU_LDU_COUNT; k++) begin
+        logic hit1, hit2, hit3;
+        hit1 = enq[w].uop.src1_en && (enq[w].uop.src1_preg == lsu_l1_wake_preg[k]);
+        hit2 = HAS_SRC2 && enq[w].uop.src2_en && (enq[w].uop.src2_preg == lsu_l1_wake_preg[k]);
+        hit3 = HAS_SRC3 && enq[w].uop.src3_en && (enq[w].uop.src3_preg == lsu_l1_wake_preg[k]);
+        enq_spec_t1[w][k] = lsu_l1_wake_valid[k] && (hit1 || hit2 || hit3);
+      end
     end
   end
 
@@ -373,24 +425,66 @@ module isu_iq
     .HAS_ALU_FL(HAS_ALU_FL_Q), .HAS_FP_FL(HAS_FP_FL_Q),
     .IMM_W(IMM_W_Q), .IMM_SEXT(IMM_SEXT_Q),
     .HAS_CANCEL(HAS_CANCEL), .SRC1_DOM(SRC1_DOM), .SRC2_DOM(SRC2_DOM),
-    .FP_TAGS(FP_TAGS), .INT_W(INT_W)
+    .FP_TAGS(FP_TAGS), .INT_W(INT_W), .CANCEL_N(CANCEL_N)
   ) u_store (
     .clk(clk), .rst_n(rst_n),
     .enq_slot(enq_slot), .enq_uop(enq_uop), .enq_wait1(enq_wait1), .enq_wait2(enq_wait2), .enq_wait3(enq_wait3),
-    .enq_byp1(enq_byp1), .enq_byp2(enq_byp2),
+    .enq_byp1(enq_byp1), .enq_byp2(enq_byp2), .enq_mul1(enq_mul1), .enq_mul2(enq_mul2), .enq_spec_t1(enq_spec_t1),
     .woken_slow_int(woken_slow_int), .woken_slow_fp(woken_slow_fp),
+    .lsu_l1_wake_valid(lsu_l1_wake_valid), .lsu_l1_wake_preg(lsu_l1_wake_preg),
     .slow_exu_valid(slow_exu_valid), .slow_exu_preg(slow_exu_preg),
     .fast_valid(fast_valid), .fast_preg(fast_preg),
     .cancel_valid(cancel_valid), .cancel_preg(cancel_preg),
+    .fast_cancel_raw(fast_cancel_raw),
+    .fast_cancel_valid_chk(fast_cancel_valid_chk), .fast_cancel_preg_chk(fast_cancel_preg_chk),
     .issue_clear(granted_slot), .flush_all(flush_all), .flush_br(flush_br),
     .flush_rob_idx(flush_rob_idx), .flush_rob_flag(flush_rob_flag),
-    .slot_valid(slot_valid), .slot_ready(slot_ready), .slot_uop(slot_uop),
-    .slot_byp1(slot_byp1), .slot_byp2(slot_byp2));
+    .slot_valid(slot_valid), .slot_rr_ret(slot_rr_ret), .slot_surv_br(slot_surv_br), .slot_ready(slot_ready), .slot_uop(slot_uop),
+    .slot_byp1(slot_byp1), .slot_byp2(slot_byp2), .slot_spec_t1(slot_spec_t1));
 
-  // ---- occupancy reported to dispatch (Isu::comb_ready) ----
-  logic [CW-1:0] used_count;
-  ttg_popcount #(.N(SIZE), .CW(CW)) u_count (.bits(slot_valid), .count(used_count));
-  assign free_slots = READY_NUM_W'(SIZE) - READY_NUM_W'(used_count);
+  // ---- registered occupancy & capped ready_num (bypasses isu_alloc_chain & 64b slot_valid_d popcount) ----
+  localparam int DW_CW = $clog2(DW + 1);
+  localparam int NP_CW = $clog2(NP + 1);
+  logic [DW_CW-1:0]       enq_cnt;
+  logic [NP-1:0]          grant_free;
+  logic [NP_CW-1:0]       grant_free_cnt;
+  logic [CW-1:0]          rr_ret_cnt, used_br, used_base, used_norm, used_d, used_q;
+  logic [CW-1:0]          free_base, free_norm, free_br, free_next;
+  logic [READY_NUM_W-1:0] ready_num_d, ready_num_q;
+
+  always_comb begin
+    for (int p = 0; p < NP; p++) grant_free[p] = grant_valid[p] && !(|grant_spec_mask[p]);
+  end
+  ttg_popcount #(.N(DW),   .CW(DW_CW)) u_enq_cnt   (.bits(enq_valid),    .count(enq_cnt));
+  ttg_popcount #(.N(NP),   .CW(NP_CW)) u_gfree_cnt (.bits(grant_free),   .count(grant_free_cnt));
+  ttg_popcount #(.N(SIZE), .CW(CW))    u_rr_cnt    (.bits(slot_rr_ret),  .count(rr_ret_cnt));
+  ttg_popcount #(.N(SIZE), .CW(CW))    u_br_cnt    (.bits(slot_surv_br), .count(used_br));
+  always_comb begin
+    used_base   = used_q + CW'(enq_cnt) - rr_ret_cnt;
+    used_norm   = used_base - CW'(grant_free_cnt);
+    used_d      = flush_all ? '0 : (flush_br ? used_br : used_norm);
+    free_base   = CW'(SIZE) - used_base;
+    free_norm   = free_base + CW'(grant_free_cnt);
+    free_br     = CW'(SIZE) - used_br;
+    free_next   = flush_all ? CW'(SIZE) : (flush_br ? free_br : free_norm);
+    ready_num_d = (free_next > CW'(DW)) ? READY_NUM_W'(DW) : READY_NUM_W'(free_next);
+  end
+  always_ff @(posedge clk) begin
+    if (!rst_n) begin
+      used_q      <= '0;
+      ready_num_q <= (SIZE > DW) ? READY_NUM_W'(DW) : READY_NUM_W'(SIZE);
+    end else begin
+      used_q      <= used_d;
+      ready_num_q <= ready_num_d;
+    end
+  end
+  assign ready_num = ready_num_q;
+
+`ifndef SYNTHESIS
+  logic [CW-1:0] used_chk;
+  ttg_popcount #(.N(SIZE), .CW(CW)) u_chk (.bits(slot_valid), .count(used_chk));
+  assert property (@(posedge clk) disable iff (!rst_n) used_q == used_chk);
+`endif
 
 endmodule
 

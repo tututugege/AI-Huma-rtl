@@ -9,6 +9,11 @@ depth: **TSMC 28nm HPC+ DC (`ssg0p81v125c`, `0.50ns`)：单模块 `lsu` WNS `−
 
 # lsu 设计文档
 
+> **2026-11-28 `rtl/iss-rr`（Walls #1 + #2 + #4，合入 EXP-072 主线）**：
+> - **Wall #1**：合入 `exp/wbp-v2` 64→2 WBP 解耦唤醒与最低优先级 1 拍预寄存 SC（`lp_wb.sv`）；
+> - **Wall #2（`lf=7` L1 推测唤醒 + L2b STLF / L2a fallback）**：`lp_ldq_ent` 新增 `no_l1_spec`（`RC_TLB` 及非 `RT_CONFLICT` miss 置位，MSHR fill 命中清零），并用预计算 `epoch_p1` 替代串联 `al + l1_launch` 加法器；`lp_rp` 在 `rp_f_q` 中预寄存 `dest_preg / rob_idx / rob_flag / no_l1_spec`；`lp_wake` 维护复位为 `2'd2` 的 256×2-bit PC 命中预测器 `l1_hit_pred_q`（预译码 `pc8_oh` + 256 桶并行 generate 更新，严格保持模型顺序更新语义），并在 `NWK = 3*NLD + NWBP = 14` 通路上驱动 L1 推测 `[0..3]`、L3 直发 `[4..7]`、L2b 已确认 STLF / L2a fallback `[8..11]`、WBP `[12..13]`；取消判据 `hit_direct` 严格校验 `TLB_HIT`；
+> - **Wall #4（切分 DTLB → STQ → lp_rp 尾链）**：`lp_stq_ent` 导出纯寄存态 `trp_v = ent_q.trp && !al_v && !sa_any`（不再直连 `trp8`）；`lp_rp` 用预寄存 `trp_ge_q` 替代 `64'(-1) << srp_ptr_q` 组合移位。
+
 > **EXP-070 后端子系统时序优化（0 周期变化）**：
 > - `lp_l1` / `lp_l1b` / `lp_rp` / `lp_stq_ent` 直接接收 `tlb_mmu` 并行输出的 `mmu_paddr_p1` / `mmu_paddr_m1`，消除 EXU/LSU ↔ DTLB 往返路径上的 29-bit 加法器与 `u_stq/vw` 64:1 mux 依赖；
 > - `lp_core` 的 256-bit `stq_bloom_d` 改为显式按 bit 并行 OR 归约，消除综合器生成的 64 级串行 mux 链（0 周期变化）。
@@ -99,7 +104,7 @@ depth: **TSMC 28nm HPC+ DC (`ssg0p81v125c`, `0.50ns`)：单模块 `lsu` WNS `−
 | 出 | `lsu2dis_stq_tail / _tail_flag / _stq_free [6:0] / _ldq_free [6:0]` | STQ 尾和空闲数、LDQ 空闲数 |
 | 出 | `lsu2dis_ldq_alloc_valid / _idx [DECODE_WIDTH]` | 最低的 8 个空 LDQ 项（分派的 load 按序取） |
 | 出 | `lsu2rob_committed_store_pending` | `ccount != 0`（有已提交未退休的 store） |
-| 出 | `lsu2iss_wake_valid / _wake_preg [2*LSU_LDU_COUNT]`、`lsu2iss_cancel_valid / _cancel_preg [LSU_LDU_COUNT]` | load 消费者的唤醒与取消：`[p]` 是 L2 推测唤醒，`[LDU+p]` 是 L3 寄存器写回的唤醒；现行配置 `LP_L2[3] = 0`，推测唤醒和取消恒为 0 |
+| 出 | `lsu2iss_wake_valid / _wake_preg [3*LSU_LDU_COUNT + 2]`、`lsu2iss_cancel_valid / _cancel_preg [LSU_LDU_COUNT]` | load 消费者的唤醒与取消：`[0..NLD-1]` 为 L1 推测唤醒，`[NLD..2*NLD-1]` 为 L3 直发写回唤醒，`[2*NLD..3*NLD-1]` 为 L2b 已确认 STLF / L2a fallback 唤醒，`[3*NLD..3*NLD+1]` 为 `NWBP=2` 路 WBP `64→2` one-hot 解耦唤醒（`lp_pkg::NWK = 14`）；未命中 direct hit 时于下拍驱动 `lsu2iss_cancel` |
 | 出 | `lsu2exe_wb_req_* [LSU_LOAD_WB_WIDTH]` | load（和 SC）的写回：`valid`、`result`、`diag_val`（= vaddr）、`dest_preg`、`br_mask`、`rob_idx`、`dest_en`、`page_fault_load / _store`、`rob_defer`（推测：ROB 完成推迟）、`flush_pipe`（推测违例的最终写回）、`is_w`（`func3[1:0] == 2`，flw 数据要 NaN-box） |
 | 出 | `lsu2exe_sta_wb_req_* [LSU_STA_COUNT]` | STA 完成（给 ROB）：`valid`、`result` = `diag_val` = vaddr、`br_mask`、`rob_idx`、`page_fault_store` |
 | 出 | `lsu2dcache_load_ports_valid / _addr / _req_id [30:0] / _replay [LSU_LDU_COUNT]` | DCache load 请求；`req_id = {epoch[3:0], ldq[5:0]}`；`replay` = 该 LDQ 项上一次 DCache 响应不是 HIT（EXP-009 的过滤位，`lp_core` 的 `g_rpl`） |
@@ -138,7 +143,7 @@ depth: **TSMC 28nm HPC+ DC (`ssg0p81v125c`, `0.50ns`)：单模块 `lsu` WNS `−
 | `lp_ovl.sv` | 57 | 两个访问区间是否重叠（对数深度，W = 12 或 32） |
 | `lp_l2.sv` | 89 | 每个 load 口的 L2 决定（读候选 store 的寄存器项做 STLF 确认），转发数据 |
 | `lp_l3.sv` | 58 | L3 寄存器：L2 的直接完成晚一拍写回 |
-| `lp_wake.sv` | 77 | 对 load 消费者的唤醒和（推测唤醒的）取消 |
+| `lp_wake.sv` | — | 对 load 消费者的唤醒（L1 推测 + 256×2b PC 预测器 + L3 直发 + L2b STLF/L2a fallback + WBP `64→2` one-hot 直醒）与 L1 推测取消 |
 | `lp_wk.sv` | 92 | 一个停车 load 的唤醒判断（事件 + STLF 确认） |
 | `lp_ldq.sv` | 214 | LDQ 阵列：把各口事件译码成每项事件；MMIO load 挑选；MSHR_FULL 唤醒限额；各种向量视图；DCache 响应按（项号, epoch）匹配，同项旧请求的过期响应不会遮住当前请求的响应 |
 | `lp_ldq_ent.sv` | 369 | 一个 LDQ 项：状态链（按模型阶段顺序施加事件）和字段 |
@@ -148,7 +153,7 @@ depth: **TSMC 28nm HPC+ DC (`ssg0p81v125c`, `0.50ns`)：单模块 `lsu` WNS `−
 | `lp_stq.sv` | 135 | STQ 阵列：事件译码、MSHR_FULL 唤醒限额、写缓冲的"已处理"位 |
 | `lp_stq_ent.sv` | 269 | 一个 STQ 项：提交、DCache 响应、STD / STA 到达、DTLB 结果、排空资格 |
 | `lp_ptr.sv` | 228 | STQ 指针（head、count、ccount）：提交接受、分配槽位、flush / 误预测截断、退休、各种窗口向量 |
-| `lp_wb.sv` | 236 | 写回口分配：load 直接完成 > SC > WBP load；STA 完成；LR / SC 预约效果 |
+| `lp_wb.sv` | — | 写回口分配：load L3 直发 > WBP (`NWBP=2`) > 预寄存最低优先级 SC；直接 one-hot `wb_go`；STA 完成；LR/SC 预约 |
 | `lp_rp.sv` | 111 | 重放寄存器：4 个 load 重放寄存器（轮转 find-first 填充）、1 个 STA 重放寄存器 |
 | `lp_out.sv` | 45 | 给分派 / ROB 的视图：空 LDQ 项、STQ 尾 / 空闲数 |
 | `lp_drain.sv` | 56 | 已提交 store 的排空：写缓冲实例 + MMIO store（队首且为 MMIO） |
@@ -191,8 +196,8 @@ depth: **TSMC 28nm HPC+ DC (`ssg0p81v125c`, `0.50ns`)：单模块 `lsu` WNS `−
 1. **L2 决定**（`lp_l2`，每口一个，要求 LDQ 项仍是 `LS_PIPE` 且 epoch 相同，否则这个结果被丢弃）：缺页 → `L2_WBD`（直接完成，带缺页）；`TLB_MISS` → 停车 `RC_TLB`；`mmio` → `LS_MMW`；无候选 且 `dcblk` → 停车 `RC_DC`（等待 0）；无候选 → `LS_DCW`（等本拍或之后的 DCache 响应）；有候选 → 读候选 store 的**寄存器项**做 STLF 确认（用全物理地址）：store 已没了 / 被取消 / 地址不重叠 → `LS_RDY`（重放，此时完整比较会排除它）；还没有地址（无 va，或有 va 没有 pa 且页内偏移无法证明不重叠） → 停车 `RC_ADDR(blk = cand)`；部分重叠、或未决的 SC → `RC_HOLD`；盖住但数据没到 → `RC_DATA`；盖住且数据在 → `L2_WBD`，转发数据 = `extract_data(store 数据, 偏移, func3)`。
 2. **DCache 响应**（`dcl_valid && !req_id[31]`，按 `req_id` 的低 6 位找 LDQ 项，要求项处在 `LS_DCW` 且 epoch 相同）：HIT → 直接完成（数据按 LDQ 项的 paddr 偏移和 func3 从响应里取）；该口本拍已被 L2 的直接完成占用时改为 `LS_WBP`；CONFLICT / MSHR_HIT / MSHR_FULL → 停车 `RC_DC`，等待拍数 `replay_wait`（MSHR_HIT 和 MSHR_FULL 为 `RWAIT = 4`，CONFLICT 为 0）。
 3. **L3 寄存器**（`LP_L2[0] = 1`，`lp_l3`）：直接完成不在 L2 同拍写回，进 L3 寄存器（项状态 `LS_WB3`），下一拍由 `lp_wb` 分配写回口、释放 LDQ 项、更新 LR 预约；被杀的 load 因为项不再是 `LS_WB3` 而丢掉。
-4. **写回口分配**（`lp_wb`）：load 口 p 上依次是：口 p 自己的直接完成（来自 L3 寄存器）、SC 结果（占空闲口，口号升序）、WBP 的 load（LDQ 号最低的优先，占剩下的口）。`LP_L2[6]` 限制每拍最多一个 SC 完成。写回内容来自 LDQ 项（`rob_idx / dest_preg / br_mask / vaddr`；缺页的 load 不写目的寄存器、`result = vaddr`）；LR 写回时把物理地址写进预约。
-5. **对消费者的唤醒**（`lp_wake`，`LP_L2[1] = 1`）：从 L3 寄存器写回的 load 在发出写回请求的同一拍唤醒消费者（`lsu2iss_wake_valid[LDU + p]`），条件：目的寄存器非 0、不是缺页、不是第二遍写回（`second`）、没有 flush、没被误预测杀死。WBP 写回的 load 不经过这里（isu 的唤醒网络另有 PRF 写回口一侧的 load 唤醒 `prf_awake_*`，见 isu.md 第 3 节，本文没有核对它的来源）。推测唤醒（`LP_L2[3]`）和取消在现行配置下关闭，代码保留。
+4. **写回口分配与解耦的 WBP / SC**（`lp_wb`，`NWBP = 2`）：load 口 `p` 上 L3 直发（`wbd_v[p]`）始终拥有本口最高优先级；空白端口数 `nfree_l3 = popcount(~wbd_v)` 仅依赖寄存态。`lp_wb` 将 SC 请求预寄存 1 拍（`sc_req_v_q` / `sc_req_idx_q`，由 `alive_w`、`flush`、`mispred` 资格门控）并放到**最低优先级**（占 `wp_cnt` 之后的第 1 个空口 `fr_oh[wp_cnt]`），使 WBP 挑选完全脱离 `head_q -> rotr64 -> u_sc -> u_fr -> u_f2` 串行链。WBP 侧用 `lp_pickn #(.N(LQ), .K(NWBP))` 从 `wbp_vec` 直接挑出至多 `NWBP = 2` 个最低下标 load，输出 `wp_acc[NWBP]` 与 `wp_oh[NWBP][LQ]`；`wb_go` 直接由 `wb_go_d | (wp_oh 中已接收位)` OR 生成，消除了 `64→idx→译码` 回环。写回内容仍来自 LDQ / STQ 项；LR 写回时把物理地址写进预约。
+5. **对消费者的唤醒**（`lp_wake`，`NWK = 3*NLD + NWBP = 14` 路）：`[0..NLD-1]` 为 L1 推测唤醒（由 256×2b PC 预测器门控，命中即在 L1 发唤醒）；`[NLD..2*NLD-1]` 为 L3 直发写回唤醒；`[2*NLD..3*NLD-1]` 为 L2b 已确认 STLF / L2a fallback 唤醒；`[3*NLD..NWK-1]` 为 `NWBP=2` 路 WBP 并行直醒——对 64 个 LDQ 项预先并行判断资格打包 `ent_pack = {ok, dest_preg}`，再用 `ttg_onehot_mux` 直接由 `wp_oh[m]` 选通并经 `wp_acc[m]` 门控，直驱 `lsu2iss_wake_valid/preg[12..13]`。未在 L2 直接完成时于下拍驱动 `lsu2iss_cancel`。
 
 ### 5.4 停车、唤醒和重放
 
@@ -357,6 +362,8 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 | 11 | R | 0 | STLF 确认的晚到 store 地址比较改用阈值形式（`rel12s / rel32s`） |
 
 ## 10. 变更记录
+
+- 2026-11-28（`rtl/iss-rr`，Walls #1 + #2 + #4）：合入 `exp/wbp-v2`（`NWBP = 2` 解耦 WBP 唤醒 + 最低优先级预寄存 SC，消除 `64→idx→译码` 与 SC/WBP 串行链）、L1 推测唤醒（`lf=7` 256×2-bit PC 命中预测器 + `no_l1_spec` + `L2b STLF / L2a fallback` + `NWK = 14`）以及 Wall #4（`lp_stq_ent.trp_v` 纯寄存 + `lp_rp.trp_ge_q` 预寄存，切分 DTLB → STQ → lp_rp 尾链）；按 EXP-072 主线保留 `LSU_AGU_COUNT = 5` 真物理 AGU 接口（无 `req_occ`）。
 
 - 2026-11-28（`rtl/exu-clean`，EXP-072）：`lsu`、`lsu_pipe`、`lp_core`、`lp_l1` 删除逻辑 7 到物理 5 AGU 的口压缩与占用信号 `req_occ`，直接按真 5 物理 AGU（`LSU_AGU_COUNT=5`）接收共用口 4 的负载并驱回对应唤醒；Tier 1（`Yosys+PT`）：总面积 `1,049,909.78 µm²`（−0.25%）、`Seq 33,974`（持平）、`WNS −0.89 ns` / `WNS_r2r −0.88 ns`；通过 `lint` 0、strict+SVA `fm_gate` 77/77、`riscv-tests` 152/152、`soc_gate --linux` 12/12 与 Linux 26/26 窗对齐。
 

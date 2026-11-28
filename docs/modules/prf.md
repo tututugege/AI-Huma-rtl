@@ -9,6 +9,8 @@ depth: 25 层 / 639,644 单元（EXP-060 开启 `HAS_LSU_BYP` 4 路整数 `lsu_b
 
 # prf 设计文档
 
+> **2026-11-28 `rtl/iss-rr`**：`u_prf` 现接在 `iss_rr_reg`（`u_iss_rr`）输出端读取寄存器并在 RR 拍送入 `exu_ctrl` 槽：1 周期 ALU / 3 周期 MUL 保持 0 气泡旁路（`exe2prf[0..5]`）、L1 推测 load 经 `lsu_byp` 在 L3 写回同拍旁路（4 路常开），DIV 改走 `wb_result_q` 写回级旁路。
+
 ## 1. 职责
 
 物理寄存器堆，是 ISU 和执行单元之间的一环。每拍做五件事：
@@ -31,7 +33,7 @@ depth: 25 层 / 639,644 单元（EXP-060 开启 `HAS_LSU_BYP` 4 路整数 `lsu_b
 | 发射通道数（读侧） | `NIP = ISSUE_WIDTH = 19`：与 19 个物理发射口一一对应 |
 | 整数读口 | 仅按发射口实际需要生成 **27 个**（ALU 6×2 + 物理 AGU 5×1 + STD 3×2 + BR 2×2；5 个 AGU 口直接各有 1 个 `src1` 读口，无需 STA 借用逻辑；FP 口 16..18 不读整数） |
 | 浮点读口 | `NRD = 3 * FP_LANES + LSU_SDU_COUNT = 12`：3 个浮点口（`ISSUE_WIDTH - IQ_FP_PORT_BASE`）各 3 个源，3 个 store-data 口各 1 个数据源（fsw / fsd） |
-| 旁路源 | **唤醒驱动二维 Mask + 写回级混合架构**：整数 EXU 级直接复用 `exe2prf_entry[WB_ALU_BASE + 0..5]`（6 条 ALU/MUL/DIV/CSR 通道），由 ISU 随发射送来的 6 位独热码 `iss2prf_iss_entry_uop_src{1,2}_byp` 直驱 6:1 MUX（**0 个 EXU 级 tag 比较器**）；浮点 EXU 级仅需 1 路迭代 FDIV（`exe2prf_entry[WB_FP_BASE + 2]`，流水化 FMA/FMISC/I2F 唤醒时已完成、消费者发射时已在 `wb_fres_q`）；WB 级保留寄存 tag 比较；`lsu_byp` 4 路仅在 `LP_L2[3]` 打开时并入 |
+| 旁路源 | **唤醒驱动二维 Mask + 写回级混合架构**：整数 EXU 级直接复用 `exe2prf_entry[WB_ALU_BASE + 0..5]`（6 条 ALU/MUL/CSR/WB 通道），由 ISU 随发射送来的 6 位独热码 `src{1,2}_byp`（经 `iss_rr_reg` 锁存一拍）直驱 6:1 MUX（**0 个 EXU 级 tag 比较器**）；浮点 EXU 级仅需 1 路迭代 FDIV（`exe2prf_entry[WB_FP_BASE + 2]`，流水化 FMA/FMISC/I2F 唤醒时已完成、消费者发射时已在 `wb_fres_q`）；WB 级保留寄存 tag 比较；`lsu_byp` 4 路常开并入 |
 | FTQ pc 口 | `FTQ_PRF_PC_PORT_NUM = 8`：口 0..5（ALU 口）、6..7 对应分支口 14、15 |
 | 唤醒槽 | `LSU_LOAD_WB_WIDTH = 4` |
 | 物理 AGU 口 | `IQ_AGU_PORT_BASE = 6` 起共 `LSU_AGU_COUNT = 5` 个物理口（口 6..10）；无独立 load/STA 共享借用表 |

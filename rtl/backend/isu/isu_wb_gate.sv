@@ -14,15 +14,17 @@ module isu_wb_gate
   import ttg_cfg_pkg::*;
   import isu_pkg::*;
 (
-  input  logic                  clk,
-  input  logic                  rst_n,
-  input  logic                  flush_all,        // every reservation is cleared on a global flush
-  input  logic [WB_CLS_W-1:0]   cls [ISSUE_WIDTH],  // completion class of the port's pick (its offset is a constant of the class)
+  input  logic                   clk,
+  input  logic                   rst_n,
+  input  logic                   flush_all,        // every reservation is cleared on a global flush
+  input  logic [LSU_LDU_COUNT-1:0] cancel_valid,
+  input  logic [WB_NCLS-1:0]     cls_1h [ISSUE_WIDTH], // one-hot completion class of each port's pick
   /* verilator lint_off UNUSEDSIGNAL */   // waiver: a port whose classes all have offset 1 keeps no table
-  input  logic [ISSUE_WIDTH-1:0] reserve,         // the port's pick is granted (after every gate)
+  input  logic [ISSUE_WIDTH-1:0] reserve,          // the port's pick is granted (after every gate)
+  input  logic [LSU_LDU_COUNT-1:0] reserve_spec_mask [ISSUE_WIDTH],
   /* verilator lint_on UNUSEDSIGNAL */
-  output logic [ISSUE_WIDTH-1:0] port_ok,         // the pick's completion cycle is free
-  output logic [WB_NCLS-1:0]    cls_free [ISSUE_WIDTH]   // per port and class: that class's completion cycle is free (registered only)
+  output logic [ISSUE_WIDTH-1:0] port_ok,          // the pick's completion cycle is free
+  output logic [WB_NCLS-1:0]     cls_free [ISSUE_WIDTH]   // per port and class: that class's completion cycle is free (registered only)
 );
 
   for (genvar p = 0; p < ISSUE_WIDTH; p++) begin : g_port
@@ -37,25 +39,46 @@ module isu_wb_gate
         assign cls_free[p][c] = 1'b1;
       end
     end
-    always_comb begin
-      port_ok[p] = 1'b1;
-      for (int c = 0; c < WB_NCLS; c++) if (cls[p] == WB_CLS_W'(c)) port_ok[p] = cls_free[p][c];
-    end
+    assign port_ok[p] = !(|(cls_1h[p] & ~cls_free[p]));
     assign busy[0] = 1'b0;
     assign busy[M] = 1'b0;
     if (M >= 2) begin : g_q
-      logic [M-1:1] busy_q;
-      logic [M-1:1] set_d;                      // bit k of the next cycle: a grant of offset k + 1 now
+      logic [M-1:1]             busy_q, eff_busy_q, set_d;
+      logic                     spec_v_q, spec_cancel, has_multi_cls;
+      logic [LSU_LDU_COUNT-1:0] spec_mask_q;
+      logic [M-1:1]             spec_bit_q;
       always_comb begin
-        set_d = '0;
-        for (int c = 0; c < WB_NCLS; c++)
-          if (port_serves_cls(p, c) && wb_cls_off(c) >= 2 && cls[p] == WB_CLS_W'(c)) set_d[wb_cls_off(c) - 1] = reserve[p];
+        spec_cancel   = spec_v_q && (|(spec_mask_q & cancel_valid));
+        eff_busy_q    = spec_cancel ? (busy_q & ~spec_bit_q) : busy_q;
+        has_multi_cls = 1'b0;
+        for (int c = 1; c < WB_NCLS; c++) begin
+          if (port_serves_cls(p, c) && (wb_cls_off(c) >= 2))
+            has_multi_cls = has_multi_cls | cls_1h[p][c];
+        end
+      end
+      for (genvar k = 1; k < M; k++) begin : g_set
+        always_comb begin
+          set_d[k] = 1'b0;
+          for (int c = 1; c < WB_NCLS; c++) begin
+            if (port_serves_cls(p, c) && (wb_cls_off(c) == k + 1))
+              set_d[k] = set_d[k] | (reserve[p] & cls_1h[p][c]);
+          end
+        end
       end
       always_ff @(posedge clk) begin
-        if (!rst_n || flush_all) busy_q <= '0;
-        else                     busy_q <= busy[M:2] | set_d;   // shift down by one, plus this cycle's grant
+        if (!rst_n || flush_all) begin
+          busy_q      <= '0;
+          spec_v_q    <= 1'b0;
+          spec_mask_q <= '0;
+          spec_bit_q  <= '0;
+        end else begin
+          busy_q      <= busy[M:2] | set_d;   // shift down by one, plus this cycle's grant
+          spec_v_q    <= reserve[p] && (|reserve_spec_mask[p]) && has_multi_cls;
+          spec_mask_q <= reserve_spec_mask[p];
+          spec_bit_q  <= set_d;
+        end
       end
-      assign busy[M-1:1] = busy_q;
+      assign busy[M-1:1] = eff_busy_q;
     end
   end
 

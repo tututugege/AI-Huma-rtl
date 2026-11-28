@@ -29,7 +29,8 @@ module isu_iq_store
   parameter int SRC1_DOM   = 0,
   parameter int SRC2_DOM   = 0,
   parameter int FP_TAGS    = FP_EN ? FPRF_NUM : 1,
-  parameter int INT_W      = $clog2(PRF_NUM)
+  parameter int INT_W      = $clog2(PRF_NUM),
+  parameter int CANCEL_N   = LSU_LDU_COUNT
 ) (
   input  logic                     clk,
   input  logic                     rst_n,
@@ -42,26 +43,37 @@ module isu_iq_store
   input  logic [DW-1:0]            enq_wait3,
   input  logic [ALU_NUM-1:0]       enq_byp1 [DW],
   input  logic [ALU_NUM-1:0]       enq_byp2 [DW],
+  input  logic [1:0]               enq_mul1 [DW],
+  input  logic [1:0]               enq_mul2 [DW],
+  input  logic [LSU_LDU_COUNT-1:0] enq_spec_t1 [DW],
   input  logic [PRF_NUM-1:0]       woken_slow_int,
   input  logic [FP_TAGS-1:0]       woken_slow_fp,
+  input  logic [LSU_LDU_COUNT-1:0] lsu_l1_wake_valid,
+  input  logic [PRF_IDX_WIDTH-1:0] lsu_l1_wake_preg [LSU_LDU_COUNT],
   input  logic [3:0]               slow_exu_valid,
   input  logic [INT_W-1:0]         slow_exu_preg [4],
   input  logic [FAST_UNITS-1:0]    fast_valid,
   input  logic [INT_W-1:0]         fast_preg [FAST_UNITS],
-  input  logic [LSU_LDU_COUNT-1:0] cancel_valid,   // wrong speculative load wake-up (LP_L2[3]): 4-way direct compare
-  input  logic [PRF_IDX_WIDTH-1:0] cancel_preg [LSU_LDU_COUNT],
+  input  logic [CANCEL_N-1:0]      cancel_valid,          // wrong L1-spec load
+  input  logic [PRF_IDX_WIDTH-1:0] cancel_preg [CANCEL_N],
+  input  logic [ALU_NUM-1:0]       fast_cancel_raw,       // ALU grandchild cancel (fast-only byp match)
+  input  logic [ALU_NUM-1:0]       fast_cancel_valid_chk, // simulation SVA oracle only
+  input  logic [PRF_IDX_WIDTH-1:0] fast_cancel_preg_chk [ALU_NUM],
   /* verilator lint_on UNUSEDSIGNAL */
   input  logic [SIZE-1:0]          issue_clear,    // slots granted this cycle
   input  logic                     flush_all,
   input  logic                     flush_br,       // misprediction without a global flush
   input  logic [ROB_IDX_WIDTH-1:0] flush_rob_idx,
   input  logic                     flush_rob_flag,
-  // registered view (what select and the PRF read this cycle)
+  // registered & occupancy-tracking views
   output logic [SIZE-1:0]          slot_valid,
+  output logic [SIZE-1:0]          slot_rr_ret,
+  output logic [SIZE-1:0]          slot_surv_br,
   output logic [SIZE-1:0]          slot_ready,
   output isu_uop_t                 slot_uop  [SIZE],
   output logic [ALU_NUM-1:0]       slot_byp1 [SIZE],
-  output logic [ALU_NUM-1:0]       slot_byp2 [SIZE]
+  output logic [ALU_NUM-1:0]       slot_byp2 [SIZE],
+  output logic [LSU_LDU_COUNT-1:0] slot_spec_t1 [SIZE]
 );
 
   localparam int FP_W = (FP_TAGS > 1) ? $clog2(FP_TAGS) : 1;
@@ -78,13 +90,13 @@ module isu_iq_store
   localparam int CORE_W = $bits(iq_core_t);
 
   function automatic logic match_cancel(
-    input logic [LSU_LDU_COUNT-1:0] cn_v,
-    input logic [PRF_IDX_WIDTH-1:0] cn_p [LSU_LDU_COUNT],
+    input logic [CANCEL_N-1:0]      cn_v,
+    input logic [PRF_IDX_WIDTH-1:0] cn_p [CANCEL_N],
     input logic [PRF_IDX_WIDTH-1:0] preg
   );
     logic m;
     m = 1'b0;
-    for (int k = 0; k < LSU_LDU_COUNT; k++)
+    for (int k = 0; k < CANCEL_N; k++)
       m = m || (cn_v[k] && (cn_p[k] == preg));
     return m;
   endfunction
@@ -381,8 +393,9 @@ module isu_iq_store
       assign s1_fast      = 1'b0;
       assign slot_byp1[i] = '0;
     end else begin : g_s1_int
-      logic [ALU_NUM-1:0] s1_fast_match, s1_slow_exu_match, enq_byp1_sel, byp1_q, byp1_d;
-      assign s1_cancel = HAS_CANCEL ? match_cancel(cancel_valid, cancel_preg, uop_q.src1_preg) : 1'b0;
+      logic [ALU_NUM-1:0] s1_fast_match, s1_slow_exu_match, enq_byp1_sel, byp1_q, byp1_d, fast_only_byp1;
+      logic [1:0]         enq_mul1_sel, mul_byp1_q, mul_byp1_d;
+      logic               s1_fast_cancel;
       assign s1_slow   = lookup_int_map(woken_slow_int, uop_q.src1_preg);
       always_comb begin
         s1_slow_exu_match = '0;
@@ -393,14 +406,26 @@ module isu_iq_store
       end
       assign s1_fast = |s1_fast_match;
       ttg_onehot_mux #(.N(DW), .W(ALU_NUM)) u_eb1 (.sel(hit), .data(enq_byp1), .out(enq_byp1_sel));
+      ttg_onehot_mux #(.N(DW), .W(2))       u_em1 (.sel(hit), .data(enq_mul1), .out(enq_mul1_sel));
       assign byp1_d = write ? enq_byp1_sel
                             : ((wait1_c && uop_q.src1_en && (uop_q.src1_preg != '0))
                                ? (s1_slow_exu_match | s1_fast_match) : '0);
+      assign mul_byp1_d = write ? enq_mul1_sel
+                                : ((wait1_c && uop_q.src1_en && (uop_q.src1_preg != '0))
+                                   ? {s1_slow_exu_match[2], s1_slow_exu_match[0]} : 2'b00);
       always_ff @(posedge clk) begin
-        if (!rst_n) byp1_q <= '0;
-        else        byp1_q <= byp1_d;
+        if (!rst_n) begin
+          byp1_q     <= '0;
+          mul_byp1_q <= 2'b00;
+        end else begin
+          byp1_q     <= byp1_d;
+          mul_byp1_q <= mul_byp1_d;
+        end
       end
-      assign slot_byp1[i] = byp1_q;
+      assign fast_only_byp1 = byp1_q & ~{{(ALU_NUM-3){1'b0}}, mul_byp1_q[1], 1'b0, mul_byp1_q[0]};
+      assign s1_fast_cancel = |(fast_only_byp1 & fast_cancel_raw);
+      assign s1_cancel      = HAS_CANCEL ? (match_cancel(cancel_valid, cancel_preg, uop_q.src1_preg) || s1_fast_cancel) : 1'b0;
+      assign slot_byp1[i]   = byp1_q;
     end
     assign wait1_c       = HAS_CANCEL ? (wait1_q || (uop_q.src1_en && s1_cancel)) : wait1_q;
     assign s1_after_slow = wait1_c & ~s1_slow;
@@ -416,10 +441,10 @@ module isu_iq_store
         assign s2_fast      = 1'b0;
         assign slot_byp2[i] = '0;
       end else if (SRC2_DOM == 2) begin : g_s2_both
-        logic s2_is_int;
-        logic [ALU_NUM-1:0] s2_fast_match, s2_slow_exu_match, enq_byp2_sel, byp2_q, byp2_d;
+        logic s2_is_int, s2_fast_cancel;
+        logic [ALU_NUM-1:0] s2_fast_match, s2_slow_exu_match, enq_byp2_sel, byp2_q, byp2_d, fast_only_byp2;
+        logic [1:0]         enq_mul2_sel, mul_byp2_q, mul_byp2_d;
         assign s2_is_int = uop_q.src2_preg < PRF_IDX_WIDTH'(PRF_NUM);
-        assign s2_cancel = HAS_CANCEL ? match_cancel(cancel_valid, cancel_preg, uop_q.src2_preg) : 1'b0;
         assign s2_slow   = s2_is_int ? lookup_int_map(woken_slow_int, uop_q.src2_preg)
                                      : lookup_fp_map(woken_slow_fp, uop_q.src2_preg);
         always_comb begin
@@ -431,17 +456,30 @@ module isu_iq_store
         end
         assign s2_fast = |s2_fast_match;
         ttg_onehot_mux #(.N(DW), .W(ALU_NUM)) u_eb2 (.sel(hit), .data(enq_byp2), .out(enq_byp2_sel));
+        ttg_onehot_mux #(.N(DW), .W(2))       u_em2 (.sel(hit), .data(enq_mul2), .out(enq_mul2_sel));
         assign byp2_d = write ? enq_byp2_sel
                               : ((wait2_c && uop_q.src2_en && (uop_q.src2_preg != '0))
                                  ? (s2_slow_exu_match | s2_fast_match) : '0);
+        assign mul_byp2_d = write ? enq_mul2_sel
+                                  : ((wait2_c && uop_q.src2_en && (uop_q.src2_preg != '0))
+                                     ? {s2_slow_exu_match[2], s2_slow_exu_match[0]} : 2'b00);
         always_ff @(posedge clk) begin
-          if (!rst_n) byp2_q <= '0;
-          else        byp2_q <= byp2_d;
+          if (!rst_n) begin
+            byp2_q     <= '0;
+            mul_byp2_q <= 2'b00;
+          end else begin
+            byp2_q     <= byp2_d;
+            mul_byp2_q <= mul_byp2_d;
+          end
         end
-        assign slot_byp2[i] = byp2_q;
+        assign fast_only_byp2 = byp2_q & ~{{(ALU_NUM-3){1'b0}}, mul_byp2_q[1], 1'b0, mul_byp2_q[0]};
+        assign s2_fast_cancel = |(fast_only_byp2 & fast_cancel_raw);
+        assign s2_cancel      = HAS_CANCEL ? (match_cancel(cancel_valid, cancel_preg, uop_q.src2_preg) || s2_fast_cancel) : 1'b0;
+        assign slot_byp2[i]   = byp2_q;
       end else begin : g_s2_int
-        logic [ALU_NUM-1:0] s2_fast_match, s2_slow_exu_match, enq_byp2_sel, byp2_q, byp2_d;
-        assign s2_cancel = HAS_CANCEL ? match_cancel(cancel_valid, cancel_preg, uop_q.src2_preg) : 1'b0;
+        logic [ALU_NUM-1:0] s2_fast_match, s2_slow_exu_match, enq_byp2_sel, byp2_q, byp2_d, fast_only_byp2;
+        logic [1:0]         enq_mul2_sel, mul_byp2_q, mul_byp2_d;
+        logic               s2_fast_cancel;
         assign s2_slow   = lookup_int_map(woken_slow_int, uop_q.src2_preg);
         always_comb begin
           s2_slow_exu_match = '0;
@@ -452,14 +490,26 @@ module isu_iq_store
         end
         assign s2_fast = |s2_fast_match;
         ttg_onehot_mux #(.N(DW), .W(ALU_NUM)) u_eb2 (.sel(hit), .data(enq_byp2), .out(enq_byp2_sel));
+        ttg_onehot_mux #(.N(DW), .W(2))       u_em2 (.sel(hit), .data(enq_mul2), .out(enq_mul2_sel));
         assign byp2_d = write ? enq_byp2_sel
                               : ((wait2_c && uop_q.src2_en && (uop_q.src2_preg != '0))
                                  ? (s2_slow_exu_match | s2_fast_match) : '0);
+        assign mul_byp2_d = write ? enq_mul2_sel
+                                  : ((wait2_c && uop_q.src2_en && (uop_q.src2_preg != '0))
+                                     ? {s2_slow_exu_match[2], s2_slow_exu_match[0]} : 2'b00);
         always_ff @(posedge clk) begin
-          if (!rst_n) byp2_q <= '0;
-          else        byp2_q <= byp2_d;
+          if (!rst_n) begin
+            byp2_q     <= '0;
+            mul_byp2_q <= 2'b00;
+          end else begin
+            byp2_q     <= byp2_d;
+            mul_byp2_q <= mul_byp2_d;
+          end
         end
-        assign slot_byp2[i] = byp2_q;
+        assign fast_only_byp2 = byp2_q & ~{{(ALU_NUM-3){1'b0}}, mul_byp2_q[1], 1'b0, mul_byp2_q[0]};
+        assign s2_fast_cancel = |(fast_only_byp2 & fast_cancel_raw);
+        assign s2_cancel      = HAS_CANCEL ? (match_cancel(cancel_valid, cancel_preg, uop_q.src2_preg) || s2_fast_cancel) : 1'b0;
+        assign slot_byp2[i]   = byp2_q;
       end
       assign wait2_c       = HAS_CANCEL ? (wait2_q || (uop_q.src2_en && s2_cancel)) : wait2_q;
       assign s2_after_slow = wait2_c & ~s2_slow;
@@ -468,6 +518,20 @@ module isu_iq_store
         if (!rst_n) wait2_q <= 1'b0;
         else        wait2_q <= wait2_d;
       end
+`ifndef SYNTHESIS
+      logic s2_lsu_cn_chk, s2_fast_cam_chk;
+      assign s2_lsu_cn_chk = HAS_CANCEL ? match_cancel(cancel_valid, cancel_preg, uop_q.src2_preg) : 1'b0;
+      always_comb begin
+        s2_fast_cam_chk = 1'b0;
+        if (HAS_CANCEL && (SRC2_DOM != 1)) begin
+          for (int a = 0; a < ALU_NUM; a++)
+            s2_fast_cam_chk = s2_fast_cam_chk || (fast_cancel_valid_chk[a] && (fast_cancel_preg_chk[a] == uop_q.src2_preg));
+        end
+      end
+      assert property (@(posedge clk) disable iff (!rst_n)
+        (valid_q && !old_killed && !flush_all) |->
+          (wait2_c == (wait2_q || (uop_q.src2_en && (s2_lsu_cn_chk || s2_fast_cam_chk)))));
+`endif
     end else begin : g_no_s2
       assign wait2_c      = 1'b0;
       assign slot_byp2[i] = '0;
@@ -489,28 +553,75 @@ module isu_iq_store
       assign wait3_c = 1'b0;
     end
 
+    logic [LSU_LDU_COUNT-1:0] spec_t1_q, spec_t1_d, spec_rr_q, spec_rr_d;
+    logic [LSU_LDU_COUNT-1:0] cn_port_mask, enq_spec_t1_sel, wake_spec_m;
+    logic                     enq_killed_hit;
+    logic                     rr_active, rr_cancelled, rr_retired, park_spec;
+
+    assign cn_port_mask = cancel_valid[LSU_LDU_COUNT-1:0];
+    ttg_onehot_mux #(.N(DW), .W(LSU_LDU_COUNT)) u_et1 (.sel(hit), .data(enq_spec_t1), .out(enq_spec_t1_sel));
+
     // Ref: IssueQueue::enqueue / comb_wakeup / commit_issue / flush_br / clear_br / flush_all
     // Evaluate branch kill in parallel with u_alloc / u_new (enq_killed per lane, old_killed from core_q)
     always_comb begin
-      old_killed = flush_br && isu_rob_younger(core_q.rob_idx, core_q.rob_flag, flush_rob_idx, flush_rob_flag);
-      valid_d    = ((|(hit & ~enq_killed)) || (valid_q && !issue_clear[i] && !old_killed)) && !flush_all;
+      enq_killed_hit = |(hit & enq_killed);
+      old_killed     = flush_br && isu_rob_younger(core_q.rob_idx, core_q.rob_flag, flush_rob_idx, flush_rob_flag);
+      rr_active      = |spec_rr_q;
+      rr_cancelled   = |(spec_rr_q & cn_port_mask);
+      rr_retired     = rr_active && !rr_cancelled;
+      park_spec      = issue_clear[i] && (|spec_t1_q);
+      valid_d        = ((|(hit & ~enq_killed)) ||
+                        (valid_q && !old_killed && !(issue_clear[i] && !(|spec_t1_q)) && !rr_retired)) && !flush_all;
+      spec_rr_d      = (flush_all || old_killed || write || rr_active) ? '0
+                                                                        : (park_spec ? spec_t1_q : '0);
+      for (int k = 0; k < LSU_LDU_COUNT; k++) begin
+        logic m1, m2, m3;
+        m1 = wait1_c && uop_q.src1_en && (uop_q.src1_preg == lsu_l1_wake_preg[k]);
+        m2 = HAS_SRC2 && wait2_c && uop_q.src2_en && (uop_q.src2_preg == lsu_l1_wake_preg[k]);
+        m3 = HAS_SRC3 && wait3_c && uop_q.src3_en && (uop_q.src3_preg == lsu_l1_wake_preg[k]);
+        wake_spec_m[k] = lsu_l1_wake_valid[k] && (m1 || m2 || m3);
+      end
+      spec_t1_d = (!valid_d || park_spec) ? '0
+                                            : (write ? (enq_killed_hit ? '0 : enq_spec_t1_sel) : wake_spec_m);
     end
 
     always_ff @(posedge clk) begin
       if (!rst_n) begin
-        valid_q <= 1'b0;
-        core_q  <= '0;
-        wait1_q <= 1'b0;
+        valid_q   <= 1'b0;
+        core_q    <= '0;
+        wait1_q   <= 1'b0;
+        spec_t1_q <= '0;
+        spec_rr_q <= '0;
       end else begin
-        valid_q <= valid_d;
+        valid_q   <= valid_d;
         if (write) core_q <= iq_core_t'(new_core);
-        wait1_q <= wait1_d;
+        wait1_q   <= wait1_d;
+        spec_t1_q <= spec_t1_d;
+        spec_rr_q <= spec_rr_d;
       end
     end
 
-    assign slot_valid[i] = valid_q;
-    assign slot_ready[i] = valid_q && !wait1_c && !wait2_c && !wait3_c;
-    assign slot_uop[i]   = uop_q;
+    assign slot_valid[i]   = valid_q;
+    assign slot_rr_ret[i]  = valid_q && rr_retired;
+    assign slot_surv_br[i] = valid_q && !old_killed && !rr_retired;
+    assign slot_ready[i]   = valid_q && !rr_active && !wait1_c && !wait2_c && !wait3_c;
+    assign slot_uop[i]     = uop_q;
+    assign slot_spec_t1[i] = spec_t1_q;
+
+`ifndef SYNTHESIS
+    logic s1_lsu_cn_chk, s1_fast_cam_chk;
+    assign s1_lsu_cn_chk = HAS_CANCEL ? match_cancel(cancel_valid, cancel_preg, uop_q.src1_preg) : 1'b0;
+    always_comb begin
+      s1_fast_cam_chk = 1'b0;
+      if (HAS_CANCEL && (SRC1_DOM != 1)) begin
+        for (int a = 0; a < ALU_NUM; a++)
+          s1_fast_cam_chk = s1_fast_cam_chk || (fast_cancel_valid_chk[a] && (fast_cancel_preg_chk[a] == uop_q.src1_preg));
+      end
+    end
+    assert property (@(posedge clk) disable iff (!rst_n)
+      (valid_q && !old_killed && !flush_all) |->
+        (wait1_c == (wait1_q || (uop_q.src1_en && (s1_lsu_cn_chk || s1_fast_cam_chk)))));
+`endif
   end
 
 endmodule

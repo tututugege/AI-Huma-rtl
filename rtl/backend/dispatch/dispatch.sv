@@ -31,8 +31,10 @@ module dispatch
   input  logic [DECODE_WIDTH-1:0]       lsu2dis_ldq_alloc_valid,
   input  logic [MAX_WAKEUP_PORTS-1:0]   iss_awake_wake_valid,
   input  logic [PRF_IDX_WIDTH-1:0]      iss_awake_wake_preg [MAX_WAKEUP_PORTS],
-  input  logic [2*LSU_LDU_COUNT-1:0]    lsu2iss_wake_valid,
-  input  logic [PRF_IDX_WIDTH-1:0]      lsu2iss_wake_preg [2*LSU_LDU_COUNT],
+  input  logic [ALU_NUM-1:0]            iss_awake_cancel_valid,
+  input  logic [PRF_IDX_WIDTH-1:0]      iss_awake_cancel_preg [ALU_NUM],
+  input  logic [NUM_LSU_WAKE-1:0]       lsu2iss_wake_valid,
+  input  logic [PRF_IDX_WIDTH-1:0]      lsu2iss_wake_preg [NUM_LSU_WAKE],
   input  logic [LSU_LDU_COUNT-1:0]      lsu2iss_cancel_valid,
   input  logic [PRF_IDX_WIDTH-1:0]      lsu2iss_cancel_preg [LSU_LDU_COUNT],
   input  logic                          rob_bcast_flush,
@@ -81,7 +83,6 @@ module dispatch
         src1_fp:         ren2dis_uop[i].src1_fp,
         src2_fp:         ren2dis_uop[i].src2_fp,
         src3_en:         ren2dis_uop[i].src3_en,
-        src3_busy:       1'b0,
         fp_cls:          ren2dis_uop[i].fp_cls,
         ftq_idx:         ren2dis_uop[i].ftq_idx,
         ftq_offset:      ren2dis_uop[i].ftq_offset,
@@ -91,8 +92,6 @@ module dispatch
         src1_en:         ren2dis_uop[i].src1_en,
         src2_en:         ren2dis_uop[i].src2_en,
         is_atomic:       ren2dis_uop[i].is_atomic,
-        src1_busy:       1'b0,
-        src2_busy:       1'b0,
         src1_is_pc:      ren2dis_uop[i].src1_is_pc,
         src2_is_imm:     ren2dis_uop[i].src2_is_imm,
         is_word:         ren2dis_uop[i].is_word,
@@ -123,6 +122,8 @@ module dispatch
     cancel_v = '0;
     for (int k = 0; k < LSU_LDU_COUNT; k++)
       if (lsu2iss_cancel_valid[k]) cancel_v[lsu2iss_cancel_preg[k]] = 1'b1;
+    for (int a = 0; a < ALU_NUM; a++)
+      if (iss_awake_cancel_valid[a]) cancel_v[iss_awake_cancel_preg[a]] = 1'b1;
   end
 
   dispatch_core u_core (

@@ -14,11 +14,11 @@ module dispatch_iq_alloc
   input  logic [NUM_SLOTS-1:0] inst_valid,
   input  logic [1:0]                   cnt_iq     [NUM_SLOTS][IQ_NUM],  // uops lane i sends to IQ q
   input  logic [IQ_READY_NUM_WIDTH-1:0] ready_num [IQ_NUM],
-  output logic [IQ_PORT_W-1:0]         port_idx   [NUM_SLOTS][IQ_NUM],  // request port of lane's first uop in IQ q
+  output logic [IQ_POS_W-1:0]          used_pos   [NUM_SLOTS][IQ_NUM],  // request position of lane's first uop in IQ q
   output logic [NUM_SLOTS-1:0] fit           // every targeted IQ has room
 );
 
-  localparam int CNT_W = $clog2(2 * NUM_SLOTS + 1);
+  localparam int CNT_W = IQ_POS_W;
 
   logic [CNT_W-1:0] used [NUM_SLOTS][IQ_NUM];   // uops older lanes already put into IQ q
 
@@ -27,7 +27,7 @@ module dispatch_iq_alloc
       for (int q = 0; q < IQ_NUM; q++) begin
         used[i][q] = '0;
         for (int j = 0; j < i; j++) if (inst_valid[j]) used[i][q] = used[i][q] + CNT_W'(cnt_iq[j][q]);
-        port_idx[i][q] = used[i][q][IQ_PORT_W-1:0];
+        used_pos[i][q] = used[i][q];
       end
     end
   end

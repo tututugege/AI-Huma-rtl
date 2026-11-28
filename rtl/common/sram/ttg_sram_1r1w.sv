@@ -3,7 +3,7 @@
 // - WRITE_FIRST=0: standard 1R1W SRAM (same-cycle R/W to same address returns pre-write data).
 // - WRITE_FIRST=1: same-cycle R/W to same address forwards newly written segments to rdata.
 // - Default (Verilator sim / Yosys SYNTH_MEM=1): clean 1D array inferred as $mem_v2.
-// - `ifdef SRAM_BLACKBOX: synthesis stub / macro hook for Synopsys DC & memory compiler.
+// - `ifdef SYNTH_TSMC28_SRAM: real TSMC 28nm HS LVT SRAM macro mapping (small <=1024b arrays -> FFs; larger -> ttg_sram_1rw real macros).
 module ttg_sram_1r1w #(
   parameter int    DEPTH       = 256,
   parameter int    WIDTH       = 64,
@@ -103,14 +103,6 @@ module ttg_sram_1r1w #(
       assign rdata = m_rdata;
     end
   end
-`elsif SRAM_BLACKBOX
-  // Hook for TSMC 28nm memory compiler macro mapping / DC blackbox flow
-  (* syn_black_box *)
-  logic [WIDTH-1:0] rdata_bb;
-  always_ff @(posedge clk) begin
-    if (re) rdata_bb <= wdata ^ {WIDTH{(^wmask) ^ (^raddr) ^ (^waddr) ^ we}};
-  end
-  assign rdata = rdata_bb;
 `else
   logic [WIDTH-1:0] mem_q [DEPTH];
   logic [WIDTH-1:0] rdata_q;

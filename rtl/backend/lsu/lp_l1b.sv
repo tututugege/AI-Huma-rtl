@@ -19,6 +19,7 @@ module lp_l1b
   input  logic [255:0]        stq_bloom_q,     // 256-bit registered bloom filter of STQ vaddr[10:3]
   input  logic [LQ-1:0]       pipe8,
   input  logic [NLD-1:0]      spec_ok,         // memory speculation: the load of slot k may pass unknown-address stores
+  input  logic [NLD-1:0]      l1_spec_w,       // L1 speculative wakeup fired (from lp_wake)
   output logic [NLD-1:0]      l1_launch,
   output logic [NLD-1:0]      dcl_req_valid,
   output logic [31:0]         dcl_req_addr [NLD],
@@ -59,6 +60,10 @@ module lp_l1b
       pl12_d[k].snap_idx  = l1[k].snap_idx;
       pl12_d[k].snap_flag = l1[k].snap_flag;
       pl12_d[k].spec_ok   = spec_ok[k];
+      pl12_d[k].replay    = l1[k].replay;
+      pl12_d[k].spec_w    = ok8[k] && l1_spec_w[k];
+      pl12_d[k].spec_preg = l1[k].dest;
+      pl12_d[k].pc8       = l1[k].pc8;
     end
   end
 

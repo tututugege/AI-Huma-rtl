@@ -7,7 +7,8 @@ module isu_wake_iter
 #(
   parameter int SLOTS = 2,
   parameter int NREQ  = 2,
-  parameter int CW    = COUNT_W
+  parameter int CW    = COUNT_W,
+  parameter int CN_W  = LSU_LDU_COUNT
 ) (
   input  logic                     clk,
   input  logic                     rst_n,
@@ -17,6 +18,8 @@ module isu_wake_iter
   input  logic [NREQ-1:0]          req_rob_flag,
   input  logic [CW-1:0]            req_countdown [NREQ],
   input  logic [NREQ-1:0]          req_lane,
+  input  logic [CN_W-1:0]          req_spec_mask [NREQ],
+  input  logic [CN_W-1:0]          cn_port_mask,
   input  logic                     flush_all,
   input  logic                     flush_br,
   input  logic [ROB_IDX_WIDTH-1:0] flush_rob_idx,
@@ -57,59 +60,67 @@ module isu_wake_iter
     logic [CW-1:0]            count_q, count_d;
     logic [PRF_IDX_WIDTH-1:0] preg_q, preg_d;
     logic [RPW-1:0]           rptr_q, rptr_d;
+    logic [CN_W-1:0]          spec_mask_q, spec_mask_d, new_spec_mask;
     logic [NREQ-1:0]          hit;
     logic [DW-1:0]            new_bits;
     logic                     counting;
-    logic                     old_killed;
+    logic                     old_killed, spec_cancelled;
 
     for (genvar r = 0; r < NREQ; r++) begin : g_hit
       assign hit[r] = alloc_slot[r][j];
     end
     if (NREQ == 1) begin : g_new1
-      assign new_bits = req_bits[0];
+      assign new_bits      = req_bits[0];
+      assign new_spec_mask = req_spec_mask[0];
     end else begin : g_newn
       ttg_onehot_mux #(.N(NREQ), .W(DW)) u_new (.sel(hit), .data(req_bits), .out(new_bits));
+      ttg_onehot_mux #(.N(NREQ), .W(CN_W)) u_nsm (.sel(hit), .data(req_spec_mask), .out(new_spec_mask));
     end
 
-    assign counting     = valid_q && (count_q != '0);
-    assign slot_free[j] = !counting;
-    assign old_killed   = flush_br && isu_rob_younger(rptr_q[ROB_IDX_WIDTH-1:0], rptr_q[ROB_IDX_WIDTH],
-                                                      flush_rob_idx, flush_rob_flag);
+    assign counting       = valid_q && (count_q != '0);
+    assign slot_free[j]   = !counting;
+    assign old_killed     = flush_br && isu_rob_younger(rptr_q[ROB_IDX_WIDTH-1:0], rptr_q[ROB_IDX_WIDTH],
+                                                        flush_rob_idx, flush_rob_flag);
+    assign spec_cancelled = |(spec_mask_q & cn_port_mask);
 
     always_comb begin
       if (NREQ == 1) begin
-        valid_d = (req_valid[0] && !req_killed[0] && !flush_all && alloc_slot[0][j]) ||
-                  (counting && !old_killed && !flush_all);
-        lane_d  = slot_free[j] ? new_bits[DW-1] : lane_q;
-        count_d = slot_free[j] ? new_bits[CW-1:0] : (count_q - CW'(1));
-        preg_d  = slot_free[j] ? new_bits[(CW + RPW) +: PRF_IDX_WIDTH] : preg_q;
-        rptr_d  = slot_free[j] ? new_bits[CW +: RPW] : rptr_q;
+        valid_d     = (req_valid[0] && !req_killed[0] && !flush_all && alloc_slot[0][j]) ||
+                      (counting && !old_killed && !spec_cancelled && !flush_all);
+        lane_d      = slot_free[j] ? new_bits[DW-1] : lane_q;
+        count_d     = slot_free[j] ? new_bits[CW-1:0] : (count_q - CW'(1));
+        preg_d      = slot_free[j] ? new_bits[(CW + RPW) +: PRF_IDX_WIDTH] : preg_q;
+        rptr_d      = slot_free[j] ? new_bits[CW +: RPW] : rptr_q;
+        spec_mask_d = slot_free[j] ? new_spec_mask : '0;
       end else begin
-        valid_d = ((|(hit & ~req_killed)) || (counting && !old_killed)) && !flush_all;
-        lane_d  = (|hit) ? new_bits[DW-1] : lane_q;
-        count_d = (|hit) ? new_bits[CW-1:0] : (count_q - CW'(1));
-        preg_d  = (|hit) ? new_bits[(CW + RPW) +: PRF_IDX_WIDTH] : preg_q;
-        rptr_d  = (|hit) ? new_bits[CW +: RPW] : rptr_q;
+        valid_d     = ((|(hit & ~req_killed)) || (counting && !old_killed && !spec_cancelled)) && !flush_all;
+        lane_d      = (|hit) ? new_bits[DW-1] : lane_q;
+        count_d     = (|hit) ? new_bits[CW-1:0] : (count_q - CW'(1));
+        preg_d      = (|hit) ? new_bits[(CW + RPW) +: PRF_IDX_WIDTH] : preg_q;
+        rptr_d      = (|hit) ? new_bits[CW +: RPW] : rptr_q;
+        spec_mask_d = (|hit) ? new_spec_mask : '0;
       end
     end
 
     always_ff @(posedge clk) begin
       if (!rst_n) begin
-        valid_q <= 1'b0;
-        lane_q  <= 1'b0;
-        count_q <= '0;
-        preg_q  <= '0;
-        rptr_q  <= '0;
+        valid_q     <= 1'b0;
+        lane_q      <= 1'b0;
+        count_q     <= '0;
+        preg_q      <= '0;
+        rptr_q      <= '0;
+        spec_mask_q <= '0;
       end else begin
-        valid_q <= valid_d;
-        lane_q  <= lane_d;
-        count_q <= count_d;
-        preg_q  <= preg_d;
-        rptr_q  <= rptr_d;
+        valid_q     <= valid_d;
+        lane_q      <= lane_d;
+        count_q     <= count_d;
+        preg_q      <= preg_d;
+        rptr_q      <= rptr_d;
+        spec_mask_q <= spec_mask_d;
       end
     end
 
-    assign wake_valid[j] = valid_q && (count_q == '0);
+    assign wake_valid[j] = valid_q && (count_q == '0) && !spec_cancelled;
     assign wake_preg[j]  = preg_q;
     assign wake_lane[j]  = lane_q;
   end

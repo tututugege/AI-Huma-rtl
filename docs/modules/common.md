@@ -102,5 +102,7 @@ depth 待测（由协调者补）。从代码读出的、未综合验证的情�
 
 - `261bd67..HEAD` 里 `rtl/common` 的改动（均为配置包）：`b9ae0d5`（共享 AGU：`LSU_AGU_SHARED`、`LSU_AGU_PHYS`）、`237738c` / `120701a`（合并的内存发射队列、6 条入队 lane、`MEM_AGE`）、`0e82d3f`（`IQ_SAME_CYCLE_REUSE`）、`6d7ed85`（两个 INT 队列：`INT_CLUSTERS`、`IQ_INT_SIZE`、`IQ_INT_ENQ_WIDTH`）、`2e6acb6`（去掉 `MEM_MERGE`、`IQ_LD_*`、`IQ_STA_*`）；另有 `1db84c7` 及其回退 `ad24170`。
 - 更早：见 git 历史。
+- 2026-11-28（`rtl/iss-rr`，0 周期变化）：`ttg_popcount` 综合树改用逐层收窄位宽加法器（第 `d` 层仅取 `min(d+1, CW)` 比特做 `min(d+2, CW)` 比特加法，消除叶层全宽 `CW` 进位链；`tests/common_prims` 与仿真路径保持逐位等价）。
+- 2026-11-28（`exp/wbp-v2`）：彻底移除 `` `ifdef SRAM_BLACKBOX `` / `syn_black_box` 分支，所有综合统一走 `` `ifdef SYNTH_TSMC28_SRAM `` 真实 TSMC 28nm HS LVT SRAM 宏映射（含新增 `1024x32` 与通用 `512x72` bank/bit tiling）。
 - 2026-11-26（`rtl/area-opt`）：新增 `rtl/common/sram/` 独立 SRAM 原语层：`ttg_sram_1rw.sv`（单口同步 1RW）与 `ttg_sram_1r1w.sv`（伪双口同步 1R1W，支持 `WRITE_FIRST` 与仿真初始化 `INIT_VAL`），彻底删除组合异步读封装 `ttg_sram_rf.sv`；两者均内置 `` `ifdef SRAM_BLACKBOX `` 宏分支供 Synopsys DC 黑盒与工艺宏映射（全芯片 `lint_chip.sh` 与 `-DSRAM_BLACKBOX` lint 均为 0 告警）；全芯片大存储已统一收口为严格 1 拍同步 SRAM：LLC（4 MiB+）、L1 D-Cache（64 KiB Data + Tag）、Bingo PHT（25.6 KiB）、L2 TLB STLB（9.5 KiB）、L1 I-Cache Data（32 KiB，4-bank 预发起）、ROB 非法指令字表（8×32×32b = 1 KiB）与 BPU 全部大表（~590 KiB，含 Main FTB / 1-Ahead A / 2-Ahead B / S2 8-table TAGE / S2 SC / S2 ITT / 2-bank `ftb_rec` / 2-bank `rf_rec`，经 `bpu_sram_sync` 统一封装）。
 - 2026-11-18：删除只剩一种取值的常量：`INT_CLUSTERS`（2）、`MEM_AGE`（1）、`IQ_SAME_CYCLE_REUSE`（0）、`LSU_WAIT_MSHR_FILL`（1）、`LP_STAEV_REG`（1，在 `lp_pkg`），用到它们的地方直接写成唯一取值。

@@ -1,13 +1,19 @@
 // Ref: back-end/Lsu/RealLsuPipe.cpp  RealLsu (comb_lsu2exe_p: direct completions > STA / SC write-back > WBP loads,
 `default_nettype none
 
-// Write-back ports of the staged LSU.  Load port p carries, in this order of priority: the direct completion of its own
-// pipeline (L2 forward / page fault, DCache hit), then SC results (free ports, ascending), then WBP loads (lowest LDQ
-// index first, the ports left).  STA completions: the oldest NST stores with `wbp` (SC through a load port).
+// Write-back ports of the staged LSU (V2 decoupled WBP + 1-cycle pre-registered lowest-priority SC):
+//   Load port p carries, in priority order: L3 direct completion on port p (`wbd_v[p]`), then up to NWBP WBP loads
+//   (`wbp_vec`, lowest LDQ index first, parallel 64->NWBP pick), then at most one pre-registered SC result
+//   (`sc_req_v_q`). WBP wake-up reads `wp_acc` / `wp_oh` in parallel with `wb_go` and `wb_dest` / `wb_result`.
+//   STA completions: oldest NST stores with `wbp`.
 module lp_wb
   import ttg_cfg_pkg::*;
   import lp_pkg::*;
 (
+  input  logic                clk,
+  input  logic                rst_n,
+  input  logic                flush,
+  input  logic                mispred,
   input  logic [NLD-1:0]      wbd_v,
   input  logic [LQW-1:0]      wbd_idx [NLD],
   input  logic [NLD-1:0]      wbd_hasdata,
@@ -16,6 +22,7 @@ module lp_wb
   input  logic [XLEN_BITS-1:0]         ldq_res [LQ],
   input  logic [LQ-1:0]       wbp_vec,
   input  lp_stq_t             sq [SQ],
+  input  logic [SQ-1:0]       alive_w,
   input  logic [CNTW-1:0]     count_q,
   input  logic [SQW-1:0]      head_q,
   input  logic                rsv_valid,
@@ -24,8 +31,8 @@ module lp_wb
   output logic [LQ-1:0]       wb_go_d,             // ... of them, those of the direct / L3 write-back (not a WBP pick)
   output logic [SQ-1:0]       wb_go_s,             // STQ entries whose STA / SC completion is sent
   output logic [SQ-1:0]       sc_go,
-  output logic [NLD-1:0]      wp_v,                // WBP load picked on port p (for same-cycle lp_wake)
-  output logic [LQW-1:0]      wp_idx [NLD],
+  output logic [NWBP-1:0]     wp_acc,              // accepted WBP picks (to lp_wake for direct one-hot wake-up)
+  output logic [LQ-1:0]       wp_oh [NWBP],
   // load write-back ports
   output logic [NLD-1:0]      wb_valid,
   output logic [XLEN_BITS-1:0]         wb_diag [NLD],
@@ -57,30 +64,30 @@ module lp_wb
   output logic                lr2_rob_flag
 );
 
-  // At most one SC completion per cycle (the pick is one find-first instead of NLD chained ones)
-  localparam int KSC = 1;
-  // ---- picks: SC / STA in age order from the head, free ports, WBP loads in index order ----
+  localparam int KSC  = 1;
+  localparam int NF_W = $clog2(NLD + 1);
+  localparam int WC_W = $clog2(NWBP + 1);
+
+  // ---- picks: SC / STA in age order from head, free ports (~wbd_v), WBP loads (64->NWBP) ----
   logic [SQ-1:0]  sc_vec, st_vec, sc_rot, st_rot, alive_unrot;
-  /* verilator lint_off UNUSEDSIGNAL */  // primitive outputs not needed here
+  /* verilator lint_off UNUSEDSIGNAL */
   logic [SQ-1:0]  sc_oh [KSC], st_oh [NST], st_oh_unrot [NST];
-  logic [SQW-1:0] sc_ix [KSC], st_ix [NST];
+  logic [SQW-1:0] st_ix [NST];
+  logic [1:0]     fr_ix [NLD];
+  /* verilator lint_on UNUSEDSIGNAL */
+  logic [SQW-1:0] sc_ix [KSC];
   logic [KSC-1:0] sc_pv;
   logic [NST-1:0] st_pv;
-  logic [LQ-1:0]  wp_oh [NLD];
-  /* verilator lint_on UNUSEDSIGNAL */
-  logic [LQW-1:0] wp_ix [NLD];
-  logic [NLD-1:0] wp_pv;
-  logic [NLD-1:0] free1, free2;
-  logic [NLD-1:0] fr_oh [NLD], f2_oh [NLD];
-  /* verilator lint_off UNUSEDSIGNAL */  // primitive outputs not needed here
-  logic [1:0]     fr_ix [NLD], f2_ix [NLD];
-  /* verilator lint_on UNUSEDSIGNAL */
-  logic [NLD-1:0] fr_pv, f2_pv;
-  logic [NLD-1:0] sc_acc, wp_acc;
-  logic [SQW-1:0] sc_abs [NLD];
+  logic [LQ-1:0]  wp_oh_w [NWBP];
+  logic [LQW-1:0] wp_ix [NWBP];
+  logic [NWBP-1:0] wp_pv, wp_acc_w;
+  logic [NLD-1:0] free1;
+  logic [NF_W-1:0] nfree_l3;
+  logic [NLD-1:0] fr_oh [NLD];
+  logic [NLD-1:0] fr_pv;
+  logic [WC_W-1:0] wp_cnt;
 
   // Algebraic identity: rotr64(vec & rotl64(alive_unrot, head_q), head_q) == alive_unrot & rotr64(vec, head_q).
-  // Eliminates rotl64(alive_w) + rotr64 serial chain on count_q -> u_st -> sta_*!
   always_comb begin
     for (int j = 0; j < SQ; j++) begin
       alive_unrot[j] = (CNTW'(j) < count_q);
@@ -91,56 +98,65 @@ module lp_wb
     sc_rot = alive_unrot & SQ'(rotr64(64'(sc_vec), head_q));
     st_rot = alive_unrot & SQ'(rotr64(64'(st_vec), head_q));
   end
-  lp_pickn #(.N(SQ), .K(KSC)) u_sc (.vec(sc_rot), .onehot(sc_oh), .idx(sc_ix), .v(sc_pv));
-  lp_pickn #(.N(SQ), .K(NST)) u_st (.vec(st_rot), .onehot(st_oh), .idx(st_ix), .v(st_pv));
-  lp_pickn #(.N(NLD), .K(NLD)) u_fr (.vec(free1), .onehot(fr_oh), .idx(fr_ix), .v(fr_pv));
-  lp_pickn #(.N(LQ), .K(NLD)) u_wp (.vec(wbp_vec), .onehot(wp_oh), .idx(wp_ix), .v(wp_pv));
-  lp_pickn #(.N(NLD), .K(NLD)) u_f2 (.vec(free2), .onehot(f2_oh), .idx(f2_ix), .v(f2_pv));
+  lp_pickn #(.N(SQ),  .K(KSC))  u_sc (.vec(sc_rot),  .onehot(sc_oh),   .idx(sc_ix), .v(sc_pv));
+  lp_pickn #(.N(SQ),  .K(NST))  u_st (.vec(st_rot),  .onehot(st_oh),   .idx(st_ix), .v(st_pv));
+  lp_pickn #(.N(NLD), .K(NLD))  u_fr (.vec(free1),   .onehot(fr_oh),   .idx(fr_ix), .v(fr_pv));
+  ttg_popcount #(.N(NLD), .CW(NF_W))  u_nf  (.bits(free1),    .count(nfree_l3));
+  lp_pickn #(.N(LQ),  .K(NWBP)) u_wp (.vec(wbp_vec), .onehot(wp_oh_w), .idx(wp_ix), .v(wp_pv));
 
-  always_comb begin
-    free2 = free1;
-    sc_acc = '0;
-    for (int m = 0; m < NLD; m++) sc_abs[m] = '0;
-    for (int m = 0; m < KSC; m++) begin
-      sc_acc[m] = sc_pv[m] && fr_pv[m];       // the m-th SC needs the m-th free port
-      sc_abs[m] = sc_ix[m] + head_q;
-      if (sc_acc[m]) free2 = free2 & ~fr_oh[m];
+  // 1-cycle pre-registered SC request (decouples rotr64(sq) -> u_sc from WBP and wake-up)
+  logic           sc_req_v_q;
+  logic [SQW-1:0] sc_req_idx_q;
+  logic           sc_req_live, sc_fire;
+  assign sc_req_live = sc_req_v_q && alive_w[sc_req_idx_q] &&
+                       sq[sc_req_idx_q].wbp && sq[sc_req_idx_q].lrsc;
+  always_ff @(posedge clk) begin
+    if (!rst_n || flush || mispred) begin
+      sc_req_v_q   <= 1'b0;
+      sc_req_idx_q <= '0;
+    end else if (sc_req_live) begin
+      sc_req_v_q   <= !sc_fire;
+    end else begin
+      sc_req_v_q   <= sc_pv[0];
+      sc_req_idx_q <= sc_ix[0] + head_q;
     end
-    for (int m = 0; m < NST; m++) st_oh_unrot[m] = SQ'(rotl64(64'(st_oh[m]), head_q));
-    for (int m = 0; m < NLD; m++) wp_acc[m] = wp_pv[m] && f2_pv[m];
   end
 
-  // ---- what each load port carries ----
-  logic [NLD-1:0] kind_sc, kind_wp;
-  logic [SQW-1:0] sc_idx_p [NLD];
-  logic [LQW-1:0] wp_idx_p [NLD];
   always_comb begin
+    for (int m = 0; m < NST; m++) st_oh_unrot[m] = SQ'(rotl64(64'(st_oh[m]), head_q));
+    for (int m = 0; m < NWBP; m++) wp_acc_w[m] = wp_pv[m] && (nfree_l3 > NF_W'(m));
+  end
+  assign wp_acc = wp_acc_w;
+  assign wp_oh  = wp_oh_w;
+  ttg_popcount #(.N(NWBP), .CW(WC_W)) u_wpc (.bits(wp_acc_w), .count(wp_cnt));
+
+  // ---- what each load port carries: L3 direct > WBP > lowest-priority pre-registered SC ----
+  logic [NLD-1:0] sc_port_oh, kind_sc, kind_wp;
+  logic [LQW-1:0] wp_idx_p [NLD];
+  logic [LQW-1:0] ld_i [NLD];
+  logic [NLD-1:0] ld_v;
+  always_comb begin
+    sc_fire    = 1'b0;
+    sc_port_oh = '0;
+    for (int p = 0; p < NLD; p++) begin
+      if (sc_req_live && (int'(wp_cnt) == p) && fr_pv[p]) begin
+        sc_fire    = 1'b1;
+        sc_port_oh = fr_oh[p];
+      end
+    end
     kind_sc = '0;
     kind_wp = '0;
     for (int p = 0; p < NLD; p++) begin
-      sc_idx_p[p] = '0;
       wp_idx_p[p] = '0;
-      for (int m = 0; m < NLD; m++) begin
-        if (sc_acc[m] && fr_oh[m][p]) begin
-          kind_sc[p] = 1'b1;
-          sc_idx_p[p] = sc_abs[m];
-        end
-        if (wp_acc[m] && f2_oh[m][p]) begin
-          kind_wp[p] = 1'b1;
+      if (sc_fire && sc_port_oh[p]) kind_sc[p] = 1'b1;
+      for (int m = 0; m < NWBP; m++) begin
+        if (wp_acc_w[m] && fr_oh[m][p]) begin
+          kind_wp[p]  = 1'b1;
           wp_idx_p[p] = wp_ix[m];
         end
       end
-    end
-  end
-
-  logic [LQW-1:0] ld_i [NLD];             // LDQ entry of the port (direct or WBP)
-  logic [NLD-1:0] ld_v;                   // the port carries a load
-  always_comb begin
-    for (int p = 0; p < NLD; p++) begin
       ld_v[p] = wbd_v[p] || kind_wp[p];
       ld_i[p] = wbd_v[p] ? wbd_idx[p] : wp_idx_p[p];
-      wp_v[p] = kind_wp[p];
-      wp_idx[p] = wp_idx_p[p];
     end
   end
 
@@ -179,33 +195,31 @@ module lp_wb
         wb_dest_en[p] = !ldq_q[ld_i[p]].pf && ldq_q[ld_i[p]].dest_preg != '0;
         wb_pf_load[p] = ldq_q[ld_i[p]].pf;
       end else if (kind_sc[p]) begin
-        wb_diag[p] = sq[sc_idx_p[p]].vaddr;
-        wb_result[p] = sq[sc_idx_p[p]].pf ? sq[sc_idx_p[p]].vaddr
-                                          : ((rsv_valid && rsv_addr == sq[sc_idx_p[p]].paddr)
-                                             ? XLEN_BITS'(0) : XLEN_BITS'(1));
-        wb_dest[p] = sq[sc_idx_p[p]].pf ? PRFW'(0) : sq[sc_idx_p[p]].dest_preg;
-        wb_rob[p] = sq[sc_idx_p[p]].rob_idx;
-        wb_rob_flag[p] = sq[sc_idx_p[p]].rob_flag;
-        wb_dest_en[p] = !sq[sc_idx_p[p]].pf && sq[sc_idx_p[p]].dest_preg != '0;
-        wb_pf_store[p] = sq[sc_idx_p[p]].pf;
+        wb_diag[p] = sq[sc_req_idx_q].vaddr;
+        wb_result[p] = sq[sc_req_idx_q].pf ? sq[sc_req_idx_q].vaddr
+                                           : ((rsv_valid && rsv_addr == sq[sc_req_idx_q].paddr)
+                                              ? XLEN_BITS'(0) : XLEN_BITS'(1));
+        wb_dest[p] = sq[sc_req_idx_q].pf ? PRFW'(0) : sq[sc_req_idx_q].dest_preg;
+        wb_rob[p] = sq[sc_req_idx_q].rob_idx;
+        wb_rob_flag[p] = sq[sc_req_idx_q].rob_flag;
+        wb_dest_en[p] = !sq[sc_req_idx_q].pf && sq[sc_req_idx_q].dest_preg != '0;
+        wb_pf_store[p] = sq[sc_req_idx_q].pf;
       end
     end
   end
 
-  // ---- bookkeeping: freed LDQ entries, STQ completions ----
+  // ---- bookkeeping: direct one-hot wb_go (zero wp_ix -> decoder loop) and STQ completions ----
   always_comb begin
-    wb_go = '0;
     wb_go_d = '0;
-    for (int p = 0; p < NLD; p++) if (ld_v[p]) wb_go[ld_i[p]] = 1'b1;
     for (int p = 0; p < NLD; p++) if (wbd_v[p]) wb_go_d[wbd_idx[p]] = 1'b1;
+    wb_go = wb_go_d;
+    for (int m = 0; m < NWBP; m++) if (wp_acc_w[m]) wb_go = wb_go | wp_oh_w[m];
     wb_go_s = '0;
     sc_go = '0;
     for (int m = 0; m < NST; m++) if (st_pv[m]) wb_go_s = wb_go_s | st_oh_unrot[m];
-    for (int m = 0; m < KSC; m++) begin
-      if (sc_acc[m]) begin
-        wb_go_s[sc_abs[m]] = 1'b1;
-        if (!sq[sc_abs[m]].pf) sc_go[sc_abs[m]] = 1'b1;
-      end
+    if (sc_fire) begin
+      wb_go_s[sc_req_idx_q] = 1'b1;
+      if (!sq[sc_req_idx_q].pf) sc_go[sc_req_idx_q] = 1'b1;
     end
   end
 

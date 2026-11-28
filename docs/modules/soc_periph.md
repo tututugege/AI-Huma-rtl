@@ -52,7 +52,7 @@ depth: bootrom 27 / sram 23 / clint 26 / plic 72 / uart 20 / sysctrl 11 层（ed
 
 ## 6. `soc_sram`（`0x3000_0000`, 64 KiB）
 
-8192 × 64-bit 单口同步 1RW SRAM（通过 `ttg_sram_1rw #(.TAG("SOC_SRAM_64KB"))` 例化，支持 `SRAM_BLACKBOX` 宏替换；8-bit 字节写掩码），用于无 DDR 阶段裸机启动与代码/数据暂存，可同时接受 LSU 读写与 ICache 取指执行，且内容在 `sw_rst_req` 软复位后保持不变。
+8192 × 64-bit 单口同步 1RW SRAM（通过 `ttg_sram_1rw #(.TAG("SOC_SRAM_64KB"))` 例化，综合通过 `SYNTH_TSMC28_SRAM` 平铺映射 16 颗 `512x72` 真实 28nm HS LVT 宏；8-bit 字节写掩码），用于无 DDR 阶段裸机启动与代码/数据暂存，可同时接受 LSU 读写与 ICache 取指执行，且内容在 `sw_rst_req` 软复位后保持不变。
 
 ## 7. 综合面积与深度（`eda-05` Yosys，`SYNTH_ABC="strash;balance;map"`，2026-11-26）
 

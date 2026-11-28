@@ -113,34 +113,15 @@ module dispatch_core
     end
   end
 
-  // ---- comb_wake: wakeup CAM and source busy bits ----
+  // ---- comb_wake: source busy bits ----
   logic [TAG_NUM-1:0]      busy_table;
-  logic [PRF_IDX_WIDTH-1:0] src_preg [3 * NUM_SLOTS];   // {src1, src2, src3} of lane i at 3i, 3i+1, 3i+2
-  logic                    woken_all [3 * NUM_SLOTS];
-  logic [NUM_SLOTS-1:0] woken1;
-  logic [NUM_SLOTS-1:0] woken2;
-  logic [NUM_SLOTS-1:0] woken3;
   logic [NUM_SLOTS-1:0] busy1;
   logic [NUM_SLOTS-1:0] busy2;
   logic [NUM_SLOTS-1:0] busy3;
 
-  always_comb begin
-    for (int i = 0; i < NUM_SLOTS; i++) begin
-      src_preg[3*i]   = inst_q[i].src1_preg;
-      src_preg[3*i+1] = inst_q[i].src2_preg;
-      src_preg[3*i+2] = inst_q[i].src3_preg;
-      woken1[i] = woken_all[3*i];
-      woken2[i] = woken_all[3*i+1];
-      woken3[i] = woken_all[3*i+2];
-    end
-  end
-
-  dispatch_wake_match u_wake_match (
-    .wake_valid(wake_valid), .wake_preg(wake_preg), .src_preg(src_preg), .woken(woken_all));
-
   dispatch_src_busy u_src_busy (
     .busy_table(busy_table | cancel_v), .inst(alloc_inst), .inst_valid(inst_valid),
-    .woken1(woken1), .woken2(woken2), .woken3(woken3), .busy1(busy1), .busy2(busy2), .busy3(busy3));
+    .busy1(busy1), .busy2(busy2), .busy3(busy3));
 
   // ---- comb_dispatch: uop split and IQ port allocation ----
   logic [IQ_NUM-1:0]       has_iq [NUM_SLOTS];          // the lane has a uop for queue q
@@ -148,7 +129,7 @@ module dispatch_core
   dis_iss_uop_t            uop_mem2 [NUM_SLOTS];        // its second memory-queue uop (the STA of an AMO's LD + STA)
   logic [1:0]              cnt_mem [NUM_SLOTS];         // memory-queue uops of the lane: the load and / or the store address
   logic [CPLT_MASK_W-1:0]  expect_mask [NUM_SLOTS];
-  logic [IQ_PORT_W-1:0]    port_idx [NUM_SLOTS][IQ_NUM];
+  logic [IQ_POS_W-1:0]     used_pos [NUM_SLOTS][IQ_NUM];
   logic [NUM_SLOTS-1:0] fit;
 
   for (genvar i = 0; i < NUM_SLOTS; i++) begin : g_decompose
@@ -213,7 +194,7 @@ module dispatch_core
 
   dispatch_iq_alloc u_iq_alloc (
     .inst_valid(inst_valid), .cnt_iq(cnt_iq), .ready_num(ready_num),
-    .port_idx(port_idx), .fit(fit));
+    .used_pos(used_pos), .fit(fit));
 
   // ---- comb_fire ----
   dispatch_fire_ctl u_fire_ctl (
@@ -223,8 +204,8 @@ module dispatch_core
     .dis_fire(dis_fire), .dis2ren_ready(dis2ren_ready));
 
   dispatch_iq_req u_iq_req (
-    .fire(dis_fire), .cnt_iq(cnt_iq), .port_idx(port_idx), .uop_iq(uop_iq), .uop_mem2(uop_mem2),
-    .req_valid(req_valid), .req_uop(req_uop));
+    .inst_valid(inst_valid), .fire(dis_fire), .cnt_iq(cnt_iq), .used_pos(used_pos),
+    .uop_iq(uop_iq), .uop_mem2(uop_mem2), .req_valid(req_valid), .req_uop(req_uop));
 
   logic [LSU_MDP_BITS-1:0] inst_mdp [NUM_SLOTS];
   logic [31:0]             inst_pc  [NUM_SLOTS];
@@ -266,8 +247,6 @@ module dispatch_core
   dispatch_inst_stage u_inst_stage (
     .clk(clk), .rst_n(rst_n), .kill(rob_flush || dec_mispred), .ready(dis2ren_ready),
     .ren_valid(ren_valid), .ren_inst(ren_inst), .fire(dis_fire),
-    .alloc_src1_busy(busy1), .alloc_src2_busy(busy2), .alloc_src3_busy(busy3),
-    .woken1(woken1), .woken2(woken2), .woken3(woken3),
     .valid_q(inst_valid), .inst_q(inst_q));
 
 endmodule

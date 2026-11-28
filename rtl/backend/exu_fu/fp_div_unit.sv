@@ -46,8 +46,8 @@ module fp_div_unit
 );
 
   logic accept;
-  /* verilator lint_off UNUSEDSIGNAL */   // waiver: run used when SYNTH_FPU=1; wb_next unused by FDIV
-  logic run, unused_wb_next;
+  /* verilator lint_off UNUSEDSIGNAL */   // waiver: run used when SYNTH_FPU=1; wb_next/wb_in2 unused by FDIV
+  logic run, unused_wb_next, unused_wb_in2;
   /* verilator lint_on UNUSEDSIGNAL */
 
   exu_iter_ctl #(.CW(FP_LAT_W)) u_ctl (
@@ -55,7 +55,7 @@ module fp_div_unit
     .flush_rob_idx(flush_rob_idx), .flush_rob_flag(flush_rob_flag),
     .en(en), .en_rob_idx(rob_idx), .en_rob_flag(rob_flag),
     .lat_m1(FP_LAT_W'(fp_div_latency(func7) - 1)),
-    .accept(accept), .run(run), .complete(complete), .wb_next(unused_wb_next), .done_rob_flag(done_rob_flag)
+    .accept(accept), .run(run), .complete(complete), .wb_next(unused_wb_next), .wb_in2(unused_wb_in2), .done_rob_flag(done_rob_flag)
   );
 
   if (!SYNTH_FPU) begin : g_dpi

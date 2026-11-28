@@ -77,6 +77,10 @@ module lp_rp
       ldq_rp_v[e].epoch     = ldq_q[e].epoch;
       ldq_rp_v[e].second    = ldq_q[e].second;
       ldq_rp_v[e].wait_b    = ldq_q[e].wait_b;
+      ldq_rp_v[e].dest_preg  = ldq_q[e].dest_preg;
+      ldq_rp_v[e].rob_idx    = ldq_q[e].rob_idx;
+      ldq_rp_v[e].rob_flag   = ldq_q[e].rob_flag;
+      ldq_rp_v[e].no_l1_spec = ldq_q[e].no_l1_spec;
     end
   end
   for (genvar j = 0; j < NRP; j++) begin : g_rpf
@@ -135,18 +139,18 @@ module lp_rp
   // rotates over the STQ index (srp_ptr, like rp_ptr for the loads): the DTLB walk is shared between pages, and always
   // taking the oldest store starves a younger walk owner (Linux boot, ROB deadlock).
   // first set bit at or after srp_ptr, else the first set bit overall (no rotation of the late request vector)
-  logic [SQ-1:0] trp_vec, trp_hi, trp_oh_hi, trp_oh_lo, trp_oh, trp_ge;
-  logic [SQW-1:0] trp_ix, srp_new, srp_ptr_q;
+  logic [SQ-1:0] trp_vec, trp_hi, trp_oh_hi, trp_oh_lo, trp_oh, trp_ge_q;
+  logic [SQW-1:0] trp_ix, srp_new, srp_ptr_q, srp_ptr_d;
   logic trp_any, trp_any_hi, trp_any_lo, srp_v_c, srp_take_any;
   always_comb begin
     srp_v_c = srp_v_q && !srp_cons && alive_fl[srp_stq_q];
     trp_vec = trp_v & alive_post;
-    trp_ge  = SQ'(64'(-1) << srp_ptr_q);
-    trp_hi  = trp_vec & trp_ge;
+    trp_hi  = trp_vec & trp_ge_q;
     trp_any = trp_any_hi || trp_any_lo;
     trp_oh  = trp_any_hi ? trp_oh_hi : trp_oh_lo;
     srp_new = trp_ix;
     srp_take_any = !srp_v_c && trp_any;
+    srp_ptr_d = srp_take_any ? (srp_new + SQW'(1)) : srp_ptr_q;
   end
   lp_ffs #(.N(SQ)) u_trp_hi (.req(trp_hi),  .onehot(trp_oh_hi), .any(trp_any_hi));
   lp_ffs #(.N(SQ)) u_trp_lo (.req(trp_vec), .onehot(trp_oh_lo), .any(trp_any_lo));
@@ -155,11 +159,13 @@ module lp_rp
 
   always_ff @(posedge clk) begin
     if (!rst_n) begin
-      srp_v_q <= 1'b0;
+      srp_v_q   <= 1'b0;
       srp_ptr_q <= '0;
+      trp_ge_q  <= '1;
     end else begin
-      srp_v_q <= srp_v_c || trp_any;
-      if (srp_take_any) srp_ptr_q <= srp_new + SQW'(1);
+      srp_v_q   <= srp_v_c || trp_any;
+      srp_ptr_q <= srp_ptr_d;
+      trp_ge_q  <= SQ'(64'(-1) << srp_ptr_d);
     end
     if (srp_take_any) srp_stq_q <= srp_new;
   end

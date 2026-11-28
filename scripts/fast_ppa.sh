@@ -64,9 +64,8 @@ done
 # Auto-defaults per module
 if [ -z "$SRAM_MODE" ]; then
   case "$MOD" in
-    tlb_mmu|ftq_ibuf) SRAM_MODE="bb" ;;
-    isu|lsu)          SRAM_MODE="none" ;;
-    *)                SRAM_MODE="real" ;;
+    isu|lsu) SRAM_MODE="none" ;;
+    *)       SRAM_MODE="real" ;;
   esac
 fi
 
@@ -117,7 +116,7 @@ ensure_files_f() {
     mkdir -p "$gen_dir"
     local list_py="$SCRIPT_DIR/list_sv_files.py"
     [ -f "$list_py" ] || list_py="$NFS_EVAL_ROOT/scripts/list_sv_files.py"
-    python3 "$list_py" --rtl-dir "$RTL_ROOT/rtl" --out "$gen_dir/files.f"
+    python3 "$list_py" "$RTL_ROOT" > "$gen_dir/files.f"
     # Stage lightweight symlink wrapper dir if files.f is outside RTL_ROOT
     ln -sfn "$RTL_ROOT/rtl" "$gen_dir/rtl"
     RTL_ROOT="$gen_dir"

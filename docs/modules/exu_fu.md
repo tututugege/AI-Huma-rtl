@@ -9,6 +9,10 @@ depth: 98 层（exu（含 exu_ctrl、优化后乘除法与全部自研可综合 
 
 # exu_fu 设计文档
 
+> **2026-11-28 `rtl/iss-rr`（Wall #2 + Wall #3）**：
+> - **Wall #3**：将 `fp_fma_core` 原 Stage 1（`53×53` 乘 + `163b` 对齐 + `163b` 比较/加减/判零）拆为 **S1a（乘法 + C 对齐 → `s1b_*_q`）** 与 **S1b（加减 + 符号 + exact_zero → `s2_*_q`）**，总延迟从 3 拍增至 **4 拍**（`FP_FMA_LAT = 4`，由 `trace-model` `CFG_FP_FMA_LAT = 5` 同步至 `ttg_cfg_pkg.sv`）；
+> - **Wall #2**：`exu_iter_ctl` 将 `wb_next = live && (cnt_q == 1)` 对齐到 `live`，并新增提前 2 拍组合信号 `wb_in2 = (accept && (lat_m1 == 1)) || (live && (cnt_q == 2))`（经 `div_unit` / `div_bank` 输出 `div_wb_in2`，兼容 early-out `L=2`）。
+
 旧文档名 `exu_int`，现与目录名一致改为 `exu_fu`；旧内容描述的是 rv32 时期的 spec / trace 回放体系，没有沿用。
 
 ## 1. 职责
@@ -16,8 +20,8 @@ depth: 98 层（exu（含 exu_ctrl、优化后乘除法与全部自研可综合 
 功能单元：真正做运算的部分，以及多周期单元自己的在飞状态。分三类（和模型 `FuMode` 一致）：
 
 - **单周期**（SINGLE）：ALU、BRU、AGU、SDU，输入槽里的指令这一拍就出结果，没有状态；CSR 单元没有硬件（见下）；
-- **流水线**（PIPE）：定延迟、每拍可收一条：MUL（延迟 `MUL_MAX_LATENCY = 3`），浮点的 FMA（`FP_FMA_LAT = 3`）、FMISC（`FP_MISC_LAT = 2`）、I2F（`FP_I2F_LAT = 2`）；
-- **迭代**（ITER）：一次只做一条、延迟按操作而变：DIV（**1 个 Radix-16 双 Radix-4 + Early-out 变延迟除法器**，`DIV_MAX_LATENCY = 17`，实际延迟 `2..17` 拍，完成前 1 拍经 `wb_next` 独占 Port 1 写回并由 EXU 动态唤醒消费者）、浮点的 FDIV（除法 / 开方，单精度 `FP_FDIV_S_LAT = 11`、`FP_FSQRT_S_LAT = 13`，双精度 `FP_FDIV_D_LAT = 19`、`FP_FSQRT_D_LAT = 23`）。
+- **流水线**（PIPE）：定延迟、每拍可收一条：MUL（延迟 `MUL_MAX_LATENCY = 3`），浮点的 FMA（`FP_FMA_LAT = 4`）、FMISC（`FP_MISC_LAT = 2`）、I2F（`FP_I2F_LAT = 2`）；
+- **迭代**（ITER）：一次只做一条、延迟按操作而变：DIV（**1 个 Radix-16 双 Radix-4 + Early-out 变延迟除法器**，`DIV_MAX_LATENCY = 17`，实际延迟 `2..17` 拍，完成前 2 拍经 `wb_in2` 通知 ISU 预留写回口，完成前 1 拍在 EXU 侧唤醒消费者）、浮点的 FDIV（除法 / 开方，单精度 `FP_FDIV_S_LAT = 11`、`FP_FSQRT_S_LAT = 13`，双精度 `FP_FDIV_D_LAT = 19`、`FP_FSQRT_D_LAT = 23`）。
 
 槽、口内仲裁、写回、flush / 分支号清除的分发都在 `exu_ctrl`；本模块只在两个地方自己处理 flush 和分支掩码：MUL / DIV / 浮点这些会把指令留在单元里若干拍的 FU，要自己杀掉被 flush 或被误预测杀死的指令，并清掉在飞指令 `br_mask` 里已解析的位。
 

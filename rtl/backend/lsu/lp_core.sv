@@ -59,9 +59,9 @@ module lp_core
   output logic [NDIS-1:0]     o_ldq_alloc_valid,
   output logic [LQW-1:0]      o_ldq_alloc_idx [NDIS],
   output logic                o_committed_store_pending,
-  // LP_L2 wake-ups of the load consumers: [p] L2 speculative, [NLD+p] L3 register; cancel of a wrong one
-  output logic [2*NLD-1:0]    o_wk_valid,
-  output logic [PRFW-1:0]     o_wk_preg [2*NLD],
+  // Wake-ups of the load consumers: [0..NLD-1] L1 spec, [NLD..2*NLD-1] L3, [2*NLD..3*NLD-1] L2b/L2a, [3*NLD..NWK-1] WBP
+  output logic [NWK-1:0]      o_wk_valid,
+  output logic [PRFW-1:0]     o_wk_preg [NWK],
   output logic [NLD-1:0]      o_cn_valid,
   output logic [PRFW-1:0]     o_cn_preg [NLD],
   output logic [NLD-1:0]      wb_valid,
@@ -166,7 +166,7 @@ module lp_core
   lp_pl2b_t        pl2b_q [NLD];
   lp_l2dec_t       l2a_dec [NLD], l2b_dec [NLD];
   logic [XLEN_BITS-1:0]     fwd_data [NLD];
-  logic [NLD-1:0]  wbd_l2a, wbd_l2b, wbd_l2, rs_dir, wbd_v, wbd_hasdata, cam_en, cam_unk;
+  logic [NLD-1:0]  wbd_l2a, wbd_l2b, wbd_l2b_ep, wbd_l2, rs_dir, wbd_v, wbd_hasdata, cam_en, cam_unk;
   logic [LQW-1:0]  rs_idx [NLD], wbd_idx [NLD];
   logic [XLEN_BITS-1:0]     wbd_data [NLD];
   lp_l2 u_l2 (.clk(clk), .rst_n(rst_n), .pl12(pl12_q), .l2_ok(l2_ok), .sq(sq),
@@ -181,16 +181,17 @@ module lp_core
       // piggyback on the live entry's rs_ok/l2_ok bit.
       wbd_l2a[p] = (l2a_dec[p].act == L2_WBD) && l2_ok[pl12_q[p].ldq] &&
                    (pl12_q[p].epoch == ldq_q[pl12_q[p].ldq].epoch);
-      wbd_l2[p]  = (wbd_l2b[p] && (pl2b_q[p].epoch == ldq_q[pl2b_q[p].ldq].epoch)) || wbd_l2a[p];
+      wbd_l2b_ep[p] = wbd_l2b[p] && (pl2b_q[p].epoch == ldq_q[pl2b_q[p].ldq].epoch);
+      wbd_l2[p]  = wbd_l2b_ep[p] || wbd_l2a[p];
       rs_dir[p]  = dcl_valid[p] && !dcl_req_id[p][31] && rs_ok[rs_idx[p]] &&
                    (dcl_req_id[p][LQW +: EPW] == ldq_q[rs_idx[p]].epoch) &&
                    dcl_replay[p] == RT_HIT && !wbd_l2[p];
       wbd_v[p]   = wbd_l2[p] || rs_dir[p];
-      wbd_idx[p] = (wbd_l2b[p] && (pl2b_q[p].epoch == ldq_q[pl2b_q[p].ldq].epoch))
+      wbd_idx[p] = wbd_l2b_ep[p]
                    ? pl2b_q[p].ldq : (wbd_l2a[p] ? pl12_q[p].ldq : rs_idx[p]);
-      wbd_hasdata[p] = (wbd_l2b[p] && (pl2b_q[p].epoch == ldq_q[pl2b_q[p].ldq].epoch))
+      wbd_hasdata[p] = wbd_l2b_ep[p]
                        ? 1'b1 : (wbd_l2a[p] ? 1'b0 : 1'b1);
-      wbd_data[p] = (wbd_l2b[p] && (pl2b_q[p].epoch == ldq_q[pl2b_q[p].ldq].epoch)) ? fwd_data[p]
+      wbd_data[p] = wbd_l2b_ep[p] ? fwd_data[p]
                                : lsu_pkg::extract_data(dcl_data[p], ldq_q[rs_idx[p]].paddr[lsu_pkg::OW-1:0],
                                                      ldq_q[rs_idx[p]].func3);
     end
@@ -200,16 +201,25 @@ module lp_core
   logic [NLD-1:0]  wbw_v, wbw_hd;
   logic [LQW-1:0]  wbw_idx [NLD];
   logic [XLEN_BITS-1:0]     wbw_data [NLD];
-  logic [NLD-1:0]  wb_wp_v;
-  logic [LQW-1:0]  wb_wp_idx [NLD];
+  logic [NWBP-1:0] wb_wp_acc;
+  logic [LQ-1:0]   wb_wp_oh [NWBP];
+  logic [NLD-1:0]  l1_spec_w;
+  lp_l1in_t        l1 [NLD];
+  logic [LQW-1:0]  pl2b_idx [NLD];
+  always_comb begin
+    for (int p = 0; p < NLD; p++) pl2b_idx[p] = pl2b_q[p].ldq;
+  end
   lp_l3 u_l3 (.clk(clk), .rst_n(rst_n), .wbd_v(wbd_v), .wbd_idx(wbd_idx), .wbd_hasdata(wbd_hasdata),
               .wbd_data(wbd_data), .wb3_r(wb3_r), .wbw_v(wbw_v), .wbw_idx(wbw_idx), .wbw_hd(wbw_hd),
               .wbw_data(wbw_data));
   lp_wake u_wake (.clk(clk), .rst_n(rst_n), .flush(rb_flush), .mispred(dec_mispred),
                   .dec_rob_idx(dec_rob_idx), .dec_rob_flag(dec_rob_flag),
-                  .pl12(pl12_q), .l2_ok(l2_ok), .ldq_q(ldq_q), .wbd_v(wbd_v), .wbd_idx(wbd_idx),
-                  .wbw_v(wbw_v), .wbw_idx(wbw_idx), .wp_v(wb_wp_v), .wp_idx(wb_wp_idx),
-                  .wk_valid(o_wk_valid), .wk_preg(o_wk_preg), .cn_valid(o_cn_valid), .cn_preg(o_cn_preg));
+                  .l1(l1), .ld_retry_busy(ld_retry_busy),
+                  .pl12(pl12_q), .pl2b_idx(pl2b_idx), .l2_ok(l2_ok), .pipe_r(pipe_r), .ldq_q(ldq_q),
+                  .wbd_v(wbd_v), .wbd_idx(wbd_idx), .wbd_l2b_ep(wbd_l2b_ep),
+                  .wbw_v(wbw_v), .wbw_idx(wbw_idx), .wp_acc(wb_wp_acc), .wp_oh(wb_wp_oh),
+                  .l1_spec_w(l1_spec_w), .wk_valid(o_wk_valid), .wk_preg(o_wk_preg),
+                  .cn_valid(o_cn_valid), .cn_preg(o_cn_preg));
 
   // ------------------------------------------------------------------ write-back (P5)
   logic [LQ-1:0]   wb_go, wb_go_d;
@@ -223,10 +233,11 @@ module lp_core
   assign pipe8_sel = ~dead_r;
   assign wbp_sel   = wbp_r | wbp_m;
   lp_wb u_wb (
+    .clk(clk), .rst_n(rst_n), .flush(rb_flush), .mispred(dec_mispred),
     .wbd_v(wbw_v), .wbd_idx(wbw_idx), .wbd_hasdata(wbw_hd), .wbd_data(wbw_data),
-    .ldq_q(ldq_q), .ldq_res(res_v), .wbp_vec(wbp_sel), .sq(sq), .count_q(count_q), .head_q(head_q),
+    .ldq_q(ldq_q), .ldq_res(res_v), .wbp_vec(wbp_sel), .sq(sq), .alive_w(alive_w), .count_q(count_q), .head_q(head_q),
     .rsv_valid(rsv_valid_q), .rsv_addr(rsv_addr_q), .wb_go(wb_go), .wb_go_d(wb_go_d), .wb_go_s(wb_go_s),
-    .sc_go(sc_go), .wp_v(wb_wp_v), .wp_idx(wb_wp_idx),
+    .sc_go(sc_go), .wp_acc(wb_wp_acc), .wp_oh(wb_wp_oh),
     .wb_valid(wb_valid), .wb_diag(wb_diag), .wb_result(wb_result), .wb_dest(wb_dest),
     .wb_rob(wb_rob), .wb_rob_flag(wb_rob_flag), .wb_dest_en(wb_dest_en), .wb_pf_load(wb_pf_load),
     .wb_pf_store(wb_pf_store),
@@ -236,7 +247,6 @@ module lp_core
     .lr2_v(lr2_v), .lr2_addr(lr2_addr), .lr2_rob_idx(lr2_rob_idx), .lr2_rob_flag(lr2_rob_flag));
 
   // ------------------------------------------------------------------ L1 (P6 .. P9, P12)
-  lp_l1in_t        l1 [NLD];
   lp_tl_t          tl_l [NLD], tl_s [NST];
   logic [1:0]      l_tlb [NLD];
   logic            l_hit [NLD], l_mmio [NLD];
@@ -247,6 +257,7 @@ module lp_core
   lp_rp_ent_t      rp_f_q [NRP];
   logic [EPW-1:0]  ag_epoch [NLD];
   logic [NLD-1:0]  ag_wait_b;
+  logic [7:0]      ag_pc8 [NLD];
   logic [NST-1:0]  s1_v, s1_replay, tl_s_miss;
   logic [SQW-1:0]  s1_stq [NST];
   logic            srp_cons, srp_ok, pf_any;
@@ -254,6 +265,7 @@ module lp_core
     for (int i = 0; i < NLD; i++) begin
       ag_epoch[i]  = ldq_q[agl[i].ldq].epoch;
       ag_wait_b[i] = ldq_q[agl[i].ldq].wait_b;
+      ag_pc8[i]    = ldq_q[agl[i].ldq].pc[8:1];
     end
     for (int r = 0; r < NRP; r++) begin
       rp_pipe[r] = pipe_r[rp_ldq_q[r]];
@@ -262,7 +274,7 @@ module lp_core
   end
 
   lp_l1 u_l1 (
-    .ag(agl), .ag_acc(ag_acc), .ag_epoch(ag_epoch), .ag_wait_b(ag_wait_b), .sa(ags), .sa_acc(sa_acc),
+    .ag(agl), .ag_acc(ag_acc), .ag_epoch(ag_epoch), .ag_wait_b(ag_wait_b), .ag_pc8(ag_pc8), .sa(ags), .sa_acc(sa_acc),
     .rp_v(rp_v_q), .rp_ldq(rp_ldq_q), .rp_pipe(rp_pipe), .rp_f(rp_f_q),
     .srp_v(srp_v_q), .srp_stq(srp_stq_q), .srp_ok(srp_ok), .srp_vaddr(sq[srp_stq_q].vaddr),
     .mmu_valid(mmu_valid), .mmu_paddr(mmu_paddr), .mmu_paddr_p1(mmu_paddr_p1), .mmu_paddr_m1(mmu_paddr_m1),
@@ -311,6 +323,7 @@ module lp_core
   lp_l1b u_l1b (.clk(clk), .l1(l1), .l_hit(l_hit), .l_mmio(l_mmio), .l_paddr(l_paddr),
                 .l_paddr_p1(l_paddr_p1), .l_paddr_m1(l_paddr_m1), .l_tlb(l_tlb),
                 .ld_retry_busy(ld_retry_busy), .stq_bloom_q(stq_bloom_q), .pipe8(pipe8_sel), .spec_ok(spec_ok),
+                .l1_spec_w(l1_spec_w),
                 .l1_launch(l1_launch), .dcl_req_valid(dcl_req_valid), .dcl_req_addr(dcl_req_addr),
                 .dcl_req_id_o(dcl_req_id_o), .pl12_q(pl12_q));
 
