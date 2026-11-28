@@ -116,7 +116,7 @@ depth: Tier 1 TSMC28 LVT + PrimeTime STA：`bpu` `WNS -1.75 ns`（`55` 级，`0.
 ## 7. 与模型的差异
 
 - `u_ftb0` 内部按 20-bit 槽压缩目标存储（`141b/项`），仅镜像 `ftb_s0_tgt_fits`（`±1 MB`）或 `BR_RET`；C++ 模型 `FtbTab` 保留全宽 `target` 字段。经 77 程序 `fm_gate.sh` 实测，功能与周期全部 0 差异。
-- `BPU_FAST_OVR` 编译期由 `bpu_stage_pkg::BPU_FAST_OVR` 控制（默认 `1'b1`）；与 `trace-model-fe-2ahead` 在 `FE_PRED_ARCH=2 FE_AH_MODE=3 FE_BPU_S3=0 FE_FAST_OVR=1 FE_UFTB_N=256 FE_AH_CUR_TAG=1 FE_AH_SELF0=1 FE_AH_WAYS=2 FE_AH_SEC_TAG=1 FE_UFTB_FAST_FILL=1 FE_ITT_CFG=1 FE_TRAIN_LAT=1` 下 77 程序逐拍完全等价。
+- `BPU_FAST_OVR` 编译期由 `bpu_stage_pkg::BPU_FAST_OVR` 控制（默认 `1'b1`）。模型 `front-end/BPU/BpuSc.h` 里 `FE_*` 开关的默认值（2026-11-28 起）就是 RTL 配置（`FE_PRED_ARCH=2 FE_AH_MODE=3 FE_BPU_S3=0 FE_FAST_OVR=1 FE_UFTB_N=256 FE_AH_CUR_TAG=1 FE_AH_SELF0=1 FE_AH_WAYS=2 FE_AH_SEC_TAG=1 FE_UFTB_FAST_FILL=1 FE_ITT_CFG=1 FE_TRAIN_LAT=1`），和 RTL 比周期不需要设环境变量；77 程序 `fm_gate.sh` 逐拍完全等价（2026-11-28 本机实测，合入 EXP-073 后）。交接时记录的 "44/77 周期差" 是模型没带这组环境变量跑出来的参考表造成的，不是 RTL 回退。
 
 ## 8. 验证状态
 
