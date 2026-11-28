@@ -156,6 +156,7 @@ RTL 与模型保持一致的细节：
 `ISSUE_WIDTH`、`TOTAL_FU_COUNT`、`ALU_NUM`、`BRU_NUM`、`LSU_LDU_COUNT`、`LSU_STA_COUNT`、`LSU_SDU_COUNT`、`LSU_AGU_COUNT`、`LSU_LOAD_WB_WIDTH`、`IQ_*_PORT_BASE`、`FPRF_NUM`（F/D 总是有，`ttg_cfg_pkg`）；`N_MC`、`N_FPU`、`CSR_FU`、`CSR_PORT`（`exu_ctrl_pkg`）；口能力表 `issue_port_cap()`（`dis_pkg`，手写）。没有运行时开关。
 
 ## 10. 变更记录
+- 2026-11-29：`exu_ctrl_fu_in` 每个 FU 按种类取结果的写法从运行时 `case (KIND)` 改成 generate 分支：原来不属于本种类的那几个分支也会被展开，它们用本种类的序号去索引别的种类的数组，常量下标越界（不可达，但综合 / lint 工具会报）；现在只展开本种类那一支（周期不变）。
 
 - 2026-11-29 清理 E：改名 `lsu2exe_{,sta_}wb_req_valid` / `_wb_req_uop_*` → `lsu2exe_{,sta_}wb_valid` / `_wb_uop_*`（只改名字，周期不变）。
 - 2026-11-29 清理 D：去重——删 `xc_port_cap`（与 `isu_pkg::port_cap` 同一张表，现只留 `dis_pkg::issue_port_cap`，`xc_port_has` 直接读它）；删 uop 编码副本 `XC_OP_NUM`、`XC_UOP_MUL/DIV/FMA/FMISC/FDIV/I2F`，`xc_mc_op` / `xc_fp_op` 改用 `dis_pkg::UOP_*`，`xc_opset_t` / `xc_op_t` 由 `dis_pkg::uop_set_t` / `UOP_TYPE_W` 定义；`exu_ctrl` / `exu_ctrl_fu_out` / `exu_ctrl_wb_prf` / `exu_ctrl_wb_rob` 改用 `dis_pkg::UOP_TYPE_W` / `UOP_LOAD` / `UOP_STA`；`XC_OP_W` / `XC_UOP_LOAD` / `XC_UOP_STA` 仅为 `lsu.sv` 留作别名（数值不变）（周期不变）。

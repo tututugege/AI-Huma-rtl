@@ -32,41 +32,53 @@ module exu_ctrl_fu_in
   output xc_fu_res_t                fu_res [N_FU]
 );
 
+  // Each FU's kind is a constant, so the per-kind selection is a generate branch: only the arm of this FU's kind is
+  // elaborated (a run-time case over KIND would also elaborate the other arms, whose rank indexes another kind's array
+  // and can be out of range there).
   for (genvar f = 0; f < N_FU; f++) begin : g_res
     localparam int KIND = xc_fu_kind(f);
+    localparam int RK   = xc_kind_rank(f);
     xc_fu_res_t res;
-    always_comb begin
-      res = '0;
-      case (KIND)
-        XC_K_ALU: res.result = fu_alu_result[xc_kind_rank(f)];
-        XC_K_AGU: res.result = fu_agu_result[xc_kind_rank(f)];
-        XC_K_STD: res.result = fu_sdu_result[xc_kind_rank(f)];
-        XC_K_BR: begin
-          res.diag_val = fu_bru_diag_val[xc_kind_rank(f)];
-          res.mispred  = fu_bru_mispred[xc_kind_rank(f)];
-          res.br_taken = fu_bru_br_taken[xc_kind_rank(f)];
-        end
-        default: ;
-      endcase
-      if (xc_is_mc_kind(KIND)) begin
-        res.mc_complete = fu_mc_complete[xc_mc_rank(f)];
-        res.result      = fu_mc_result[xc_mc_rank(f)];
-        res.dest_preg   = fu_mc_dest_preg[xc_mc_rank(f)];
-        res.dest_en     = fu_mc_dest_en[xc_mc_rank(f)];
-        res.rob_idx     = fu_mc_rob_idx[xc_mc_rank(f)];
-        res.rob_flag    = fu_mc_rob_flag[xc_mc_rank(f)];
+    if (KIND == XC_K_ALU) begin : g_alu
+      always_comb begin res = '0; res.result = fu_alu_result[RK]; end
+    end else if (KIND == XC_K_AGU) begin : g_agu
+      always_comb begin res = '0; res.result = fu_agu_result[RK]; end
+    end else if (KIND == XC_K_STD) begin : g_std
+      always_comb begin res = '0; res.result = fu_sdu_result[RK]; end
+    end else if (KIND == XC_K_BR) begin : g_br
+      always_comb begin
+        res          = '0;
+        res.diag_val = fu_bru_diag_val[RK];
+        res.mispred  = fu_bru_mispred[RK];
+        res.br_taken = fu_bru_br_taken[RK];
       end
-      if (xc_is_fp_kind(KIND) != 0) begin
-        res.mc_complete = fu_fp_complete[xc_fp_rank(f)];
-        res.result      = fu_fp_result[xc_fp_rank(f)];
-        res.fresult     = fu_fp_fresult[xc_fp_rank(f)];
-        res.fflags      = fu_fp_fflags[xc_fp_rank(f)];
-        res.illegal     = fu_fp_illegal[xc_fp_rank(f)];
-        res.dest_preg   = fu_fp_dest_preg[xc_fp_rank(f)];
-        res.dest_en     = fu_fp_dest_en[xc_fp_rank(f)];
-        res.rob_idx     = fu_fp_rob_idx[xc_fp_rank(f)];
-        res.rob_flag    = fu_fp_rob_flag[xc_fp_rank(f)];
+    end else if (xc_is_mc_kind(KIND)) begin : g_mc
+      localparam int MR = xc_mc_rank(f);
+      always_comb begin
+        res             = '0;
+        res.mc_complete = fu_mc_complete[MR];
+        res.result      = fu_mc_result[MR];
+        res.dest_preg   = fu_mc_dest_preg[MR];
+        res.dest_en     = fu_mc_dest_en[MR];
+        res.rob_idx     = fu_mc_rob_idx[MR];
+        res.rob_flag    = fu_mc_rob_flag[MR];
       end
+    end else if (xc_is_fp_kind(KIND) != 0) begin : g_fp
+      localparam int FR = xc_fp_rank(f);
+      always_comb begin
+        res             = '0;
+        res.mc_complete = fu_fp_complete[FR];
+        res.result      = fu_fp_result[FR];
+        res.fresult     = fu_fp_fresult[FR];
+        res.fflags      = fu_fp_fflags[FR];
+        res.illegal     = fu_fp_illegal[FR];
+        res.dest_preg   = fu_fp_dest_preg[FR];
+        res.dest_en     = fu_fp_dest_en[FR];
+        res.rob_idx     = fu_fp_rob_idx[FR];
+        res.rob_flag    = fu_fp_rob_flag[FR];
+      end
+    end else begin : g_none
+      assign res = '0;
     end
     assign fu_res[f] = res;
   end
