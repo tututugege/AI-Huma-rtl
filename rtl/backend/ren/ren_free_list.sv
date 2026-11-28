@@ -145,14 +145,12 @@ module ren_free_list
     end
   end
 
-  // waiver: upper bits of reclaim_preg are 0 for INT domain
-  /* verilator lint_off UNUSEDSIGNAL */
+  // lint sink (Verilator ignores unused_* names): upper bits of reclaim_preg are 0 for the INT domain
   logic unused_reclaim_hi;
   always_comb begin
     unused_reclaim_hi = 1'b0;
     for (int k = 0; k < C; k++) unused_reclaim_hi ^= ^reclaim_preg[k][PRF_IDX_WIDTH-1:PW];
   end
-  /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule
 

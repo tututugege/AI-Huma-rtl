@@ -227,10 +227,8 @@ module mem_mmio_axi import ttg_cfg_pkg::*; (
     else $error("mem_mmio_axi: B response ID mismatch (bid=%0d)", m_bid);
 `endif
 
-  /* verilator lint_off UNUSEDSIGNAL */
   logic [12:0] unused_resp;
   assign unused_resp = {m_rid, m_rlast, m_bid, m_rresp, m_bresp};
-  /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule
 

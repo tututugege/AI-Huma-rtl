@@ -1,7 +1,7 @@
 // Ref: back-end/PreIduQueue.cpp  ftq_train_meta_fifo[] (8-bank strict 1-cycle sync 1R1W SRAM, pre-launched on next_comm_ptr)
 `default_nettype none
 
-// FTQ training-metadata storage: 8 x (8 x 79b) strict 1-cycle synchronous 1R1W SRAM (`ttg_sram_1r1w`, WRITE_FIRST=1).
+// FTQ training-metadata storage: 8 x (8 x 79b) strict 1-cycle synchronous 1R1W SRAM (`ttg_sram_1r1w`, write-first).
 // Written once at BPU S2 (s2_ptr); pre-launched every cycle for the 8-bank commit window [next_comm_ptr .. next_comm_ptr+7].
 module ftq_meta import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; (
   input  logic                        clk,
@@ -13,9 +13,7 @@ module ftq_meta import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; (
   input  logic [3:0]                  wr_a_len,
   input  ftq_meta_t                   wr_meta [BACKEND_FETCH_WIDTH],
   input  logic [FTQ_IDX_WIDTH-1:0]    next_comm_ptr,
-  /* verilator lint_off UNUSEDSIGNAL */
   input  logic [FTQ_IDX_WIDTH-1:0]    rd_idx [COMMIT_WIDTH],
-  /* verilator lint_on UNUSEDSIGNAL */
   input  logic [FTQ_OFFSET_WIDTH-1:0] rd_offset [COMMIT_WIDTH],
   output ftq_meta_t                   rd_meta [COMMIT_WIDTH],
   output logic [BLK_ID_W-1:0]         rd_blk_id [COMMIT_WIDTH]
@@ -55,7 +53,6 @@ module ftq_meta import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; (
       .DEPTH      (NL),
       .WIDTH      (EW),
       .MASK_W     (1),
-      .WRITE_FIRST(1'b1),
       .TAG        ("FTQ_META")
     ) u_sram (
       .clk  (clk), .rst_n(rst_n),

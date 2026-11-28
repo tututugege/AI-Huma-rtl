@@ -254,11 +254,9 @@ module icache import ttg_cfg_pkg::*; import icache_pkg::*; import tlb_mmu_pkg::*
   assign fetch_single_word = f1_q.single_word;
   assign ic_inflight       = {1'b0, f1_q.valid} + {1'b0, r_req_valid_o};
 
-  /* verilator lint_off UNUSEDSIGNAL */
   logic unused_ic;
   assign unused_ic = ^{b_inst_v_unused, b_pf_unused, b_up_unused, b_pc_unused, f0_ppn[IC_TAG_W-2:0],
                        arr_rd_pc[XLEN_BITS-1:IC_OFF_W], arr_rd_pc[IC_OFF_W-2:0]};
-  /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule
 `default_nettype wire

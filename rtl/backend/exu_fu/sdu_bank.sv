@@ -1,17 +1,13 @@
 // Ref: back-end/Exu/Exu.cpp  Exu::init (SDU instances), back-end/Exu/include/Fu.h  SduUnit
 `default_nettype none
 
-// The LSU_SDU_COUNT store-data units, ports flattened as in spec/sdu_bank.io.
+// The LSU_SDU_COUNT store-data units, ports flattened (combinational).
 module sdu_bank
   import ttg_cfg_pkg::*;
   import exu_fu_pkg::*;
 #(
   parameter int N = LSU_SDU_COUNT
 ) (
-  /* verilator lint_off UNUSEDSIGNAL */
-  input  logic             clk,    // wired by the harness wrapper to every module; the SDUs are combinational
-  input  logic             rst_n,
-  /* verilator lint_on UNUSEDSIGNAL */
   input  logic             is_atomic  [N],
   input  logic [AMO_W-1:0] amo_op     [N],
   input  logic             amo_w      [N],

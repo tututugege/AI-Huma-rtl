@@ -6,8 +6,7 @@ package isu_pkg;
 
   // ---- operation classes (base_types.h UopType) ------------------------------------------------
   localparam int OP_W = 5;                                  // UOP_TYPE_WIDTH
-  localparam bit FP_EN = (FPRF_NUM != 0);                   // F/D: FP queue, FP units, I2F on two integer ports
-  localparam int OP_NUM = FP_EN ? 21 : 17;                  // MAX_UOP_TYPE
+  localparam int OP_NUM = 21;                               // MAX_UOP_TYPE (F/D is always built)
   localparam int UOP_MUL = 14;
   localparam int UOP_DIV = 15;
   localparam int UOP_FMA = 17;
@@ -52,7 +51,7 @@ package isu_pkg;
       IQ_INT0: return IQ_INT_SIZE;
       IQ_MEM:  return IQ_MEM_SIZE;
       IQ_STD:  return IQ_STD_SIZE;
-      IQ_FP:   return FP_EN ? FP_IQ_SIZE : 1;
+      IQ_FP:   return FP_IQ_SIZE;
       IQ_INT1: return IQ_INT_SIZE;
       default: return IQ_BR_SIZE;
     endcase
@@ -64,7 +63,7 @@ package isu_pkg;
       IQ_INT0: return IQ_INT_ENQ_WIDTH;
       IQ_MEM:  return IQ_MEM_ENQ_WIDTH;
       IQ_STD:  return IQ_STD_ENQ_WIDTH;
-      IQ_FP:   return FP_EN ? FP_IQ_ENQ_WIDTH : 1;
+      IQ_FP:   return FP_IQ_ENQ_WIDTH;
       IQ_INT1: return IQ_INT_ENQ_WIDTH;
       default: return IQ_BR_ENQ_WIDTH;
     endcase
@@ -86,7 +85,7 @@ package isu_pkg;
       IQ_INT1: return 3;                                        // ... and queue 5 (IQ_INT1) the ports 2, 3, 5
       IQ_MEM:  return LSU_AGU_COUNT;                            // the memory queue serves the 5 physical AGU ports
       IQ_STD:  return LSU_SDU_COUNT;
-      IQ_FP:   return FP_EN ? ISSUE_WIDTH - IQ_FP_PORT_BASE : 0;   // the FP ports come last
+      IQ_FP:   return ISSUE_WIDTH - IQ_FP_PORT_BASE;   // the FP ports come last
       default: return BRU_NUM;
     endcase
   endfunction
@@ -103,12 +102,12 @@ package isu_pkg;
     case (p)
       0: return op_set_t'(OP_MASK_ALU | OP_MASK_MUL | OP_MASK_CSR);
       1: return op_set_t'(OP_MASK_ALU | OP_MASK_DIV);
-      2: return op_set_t'(OP_MASK_ALU | OP_MASK_MUL) | (FP_EN ? MASK_I2F : op_set_t'(0));
-      3: return op_set_t'(OP_MASK_ALU) | (FP_EN ? MASK_I2F : op_set_t'(0));
+      2: return op_set_t'(OP_MASK_ALU | OP_MASK_MUL) | MASK_I2F;
+      3: return op_set_t'(OP_MASK_ALU) | MASK_I2F;
       4, 5: return op_set_t'(OP_MASK_ALU);
       default: begin
         // F/D ports (last): two FMA + MISC pipes, then a divide / square-root unit that also takes MISC
-        if (FP_EN && p >= IQ_FP_PORT_BASE)
+        if (p >= IQ_FP_PORT_BASE)
           return (p == ISSUE_WIDTH - 1) ? (MASK_FDIV | MASK_FMISC) : (MASK_FMA | MASK_FMISC);
         else if (p >= IQ_BR_PORT_BASE) return op_set_t'(OP_MASK_BR);
         else if (p >= IQ_STD_PORT_BASE) return op_set_t'(OP_MASK_STD);
@@ -150,57 +149,42 @@ package isu_pkg;
   endfunction
   /* verilator lint_on UNUSEDSIGNAL */
 
-  // Completion offset of a uop (Isu::comb_issue gate): cycles from the issue cycle to its completion in the unit.
-  // The wake-up latency, except for the iterative units (DIV, FDIV), which finish one cycle later.
-  localparam int WB_OFF_MAX = (DIV_MAX_LATENCY + 1 > FP_FSQRT_D_LAT + 1) ? DIV_MAX_LATENCY + 1 : FP_FSQRT_D_LAT + 1;
-  localparam int WB_OFF_W = $clog2(WB_OFF_MAX + 1);
-  /* verilator lint_off UNUSEDSIGNAL */   // waiver: only func7[6:2] / func7[0] and is_word of the class are read
-  function automatic logic [WB_OFF_W-1:0] wb_offset(input op_t op, input logic [6:0] func7, input logic is_word);
-    if (op == op_t'(UOP_MUL)) return WB_OFF_W'((MUL_MAX_LATENCY <= 0) ? 1 : MUL_MAX_LATENCY);
-    else if (op == op_t'(UOP_DIV))
-      return WB_OFF_W'(((is_word) ? DIV_MAX_LATENCY / 2 : DIV_MAX_LATENCY) + 1);
-    else if (FP_EN && op == op_t'(UOP_FDIV)) return WB_OFF_W'(fp_latency(op, func7)) + WB_OFF_W'(1);
-    else if (FP_EN && (op == op_t'(UOP_FMA) || op == op_t'(UOP_FMISC) || op == op_t'(UOP_I2F)))
-      return WB_OFF_W'(fp_latency(op, func7));
-    else return WB_OFF_W'(1);
-  endfunction
-  /* verilator lint_on UNUSEDSIGNAL */
-
   // ---- completion classes: the write-back and FP write-port gates look the state up per class (the offset is a constant of the
   // class) before the pick is known, instead of decoding the picked uop first ----
-  localparam int WB_NCLS  = FP_EN ? 11 : 4;
+  localparam int WB_NCLS  = 11;
   localparam int WB_CLS_W = $clog2(WB_NCLS);
   // 0: one cycle, 1: MUL, 2 / 3: DIV word / double, 4 .. 7: FDIV S / D, FSQRT S / D, 8: FMA, 9: FMISC, 10: I2F
   /* verilator lint_off UNUSEDSIGNAL */   // waiver: only func7[6:2] / func7[0] of the FDIV class are read
   function automatic logic [WB_CLS_W-1:0] wb_class(input op_t op, input logic [6:0] func7, input logic is_word);
     if (op == op_t'(UOP_MUL)) return WB_CLS_W'(1);
     else if (op == op_t'(UOP_DIV)) return is_word ? WB_CLS_W'(2) : WB_CLS_W'(3);
-    else if (FP_EN && op == op_t'(UOP_FDIV)) return WB_CLS_W'(4) + WB_CLS_W'({(func7[6:2] == 5'h0b), func7[0]});
-    else if (FP_EN && op == op_t'(UOP_FMA)) return WB_CLS_W'(8);
-    else if (FP_EN && op == op_t'(UOP_FMISC)) return WB_CLS_W'(9);
-    else if (FP_EN && op == op_t'(UOP_I2F)) return WB_CLS_W'(10);
+    else if (op == op_t'(UOP_FDIV)) return WB_CLS_W'(4) + WB_CLS_W'({(func7[6:2] == 5'h0b), func7[0]});
+    else if (op == op_t'(UOP_FMA)) return WB_CLS_W'(8);
+    else if (op == op_t'(UOP_FMISC)) return WB_CLS_W'(9);
+    else if (op == op_t'(UOP_I2F)) return WB_CLS_W'(10);
     else return '0;
   endfunction
   /* verilator lint_on UNUSEDSIGNAL */
-  // completion offset of a class (equals wb_offset of any uop of the class)
+  // completion offset of a class: cycles from the issue cycle to the completion in the unit (Isu::comb_issue gate), the
+  // wake-up latency except for the iterative units (DIV, FDIV), which finish one cycle later
   function automatic int wb_cls_off(input int c);
     case (c)
       1: return (MUL_MAX_LATENCY <= 0) ? 1 : MUL_MAX_LATENCY;
       2: return DIV_MAX_LATENCY / 2 + 1;
       3: return DIV_MAX_LATENCY + 1;
-      4: return FP_EN ? FP_FDIV_S_LAT + 1 : 1;
-      5: return FP_EN ? FP_FDIV_D_LAT + 1 : 1;
-      6: return FP_EN ? FP_FSQRT_S_LAT + 1 : 1;
-      7: return FP_EN ? FP_FSQRT_D_LAT + 1 : 1;
-      8: return FP_EN ? FP_FMA_LAT : 1;
-      9: return FP_EN ? FP_MISC_LAT : 1;
-      10: return FP_EN ? FP_I2F_LAT : 1;
+      4: return FP_FDIV_S_LAT + 1;
+      5: return FP_FDIV_D_LAT + 1;
+      6: return FP_FSQRT_S_LAT + 1;
+      7: return FP_FSQRT_D_LAT + 1;
+      8: return FP_FMA_LAT;
+      9: return FP_MISC_LAT;
+      10: return FP_I2F_LAT;
       default: return 1;
     endcase
   endfunction
   // FP register-file write latency of a class (= completion offset wb_cls_off(c)); 0 for a class that does not write FP
   function automatic int fp_cls_lat(input int c);
-    if (!FP_EN || c < 4) return 0;
+    if (c < 4) return 0;
     else return wb_cls_off(c);
   endfunction
   // can issue port p complete a uop of class c (its capability includes the class's unit)
@@ -208,11 +192,11 @@ package isu_pkg;
     case (c)
       0: return 1'b1;
       1: return (port_cap(p) & MASK_MUL) != '0;
-      2, 3: return 1'b0;   // variable-latency DIV uses exe2iss div_wb_next instead of wb_busy reservation
-      4, 5, 6, 7: return FP_EN && (port_cap(p) & MASK_FDIV) != '0;
-      8: return FP_EN && (port_cap(p) & MASK_FMA) != '0;
-      9: return FP_EN && (port_cap(p) & MASK_FMISC) != '0;
-      10: return FP_EN && (port_cap(p) & MASK_I2F) != '0;
+      2, 3: return 1'b0;   // variable-latency DIV: div_busy / exe2iss_div_wb_in2 instead of a reservation
+      4, 5, 6, 7: return (port_cap(p) & MASK_FDIV) != '0;
+      8: return (port_cap(p) & MASK_FMA) != '0;
+      9: return (port_cap(p) & MASK_FMISC) != '0;
+      10: return (port_cap(p) & MASK_I2F) != '0;
       default: return 1'b0;
     endcase
   endfunction
@@ -230,15 +214,15 @@ package isu_pkg;
     for (int k = 0; k < WB_NCLS; k++) if (port_serves_cls(p, k) && wb_cls_off(k) > wb_cls_off(c)) b = 1'b1;
     return b;
   endfunction
-  // can class c on port p be blocked before select: wb_busy conflict, port 1 DIV / div_wb_next, or port ISSUE_WIDTH-1 FDIV
+  // can class c on port p be blocked before select: wb_busy conflict, port 1 DIV / div_wb_in2, or last-port FDIV
   function automatic bit cls_blockable(input int p, input int c);
     if (cls_wb_blockable(p, c)) return 1'b1;
     if (p == 1 && (c == 0 || c == 2 || c == 3)) return 1'b1;
-    if (FP_EN && (p == ISSUE_WIDTH - 1) && (c >= 4 && c <= 7)) return 1'b1;
+    if ((p == ISSUE_WIDTH - 1) && (c >= 4 && c <= 7)) return 1'b1;
     return 1'b0;
   endfunction
   // op classes that complete later than one cycle (completion classes 1 .. 10)
-  localparam op_set_t MASK_MULTI_CYC = MASK_MUL | MASK_DIV | (FP_EN ? (MASK_FDIV | MASK_FMA | MASK_FMISC | MASK_I2F) : op_set_t'(0));
+  localparam op_set_t MASK_MULTI_CYC = MASK_MUL | MASK_DIV | MASK_FDIV | MASK_FMA | MASK_FMISC | MASK_I2F;
   // the uop (one-hot op class, is_word, func7) belongs to completion class c (the one-hot form of wb_class)
   /* verilator lint_off UNUSEDSIGNAL */   // waiver: only func7[6:2] / func7[0] are read
   function automatic logic cls_hit(input op_set_t op1h, input logic is_word, input logic [6:0] func7, input int c);
@@ -247,10 +231,10 @@ package isu_pkg;
       1: return (op1h & MASK_MUL) != '0;
       2: return (op1h & MASK_DIV) != '0 && is_word;
       3: return (op1h & MASK_DIV) != '0 && !is_word;
-      4, 5, 6, 7: return FP_EN && (op1h & MASK_FDIV) != '0 && ({(func7[6:2] == 5'h0b), func7[0]} == 2'(c - 4));
-      8: return FP_EN && (op1h & MASK_FMA) != '0;
-      9: return FP_EN && (op1h & MASK_FMISC) != '0;
-      10: return FP_EN && (op1h & MASK_I2F) != '0;
+      4, 5, 6, 7: return (op1h & MASK_FDIV) != '0 && ({(func7[6:2] == 5'h0b), func7[0]} == 2'(c - 4));
+      8: return (op1h & MASK_FMA) != '0;
+      9: return (op1h & MASK_FMISC) != '0;
+      10: return (op1h & MASK_I2F) != '0;
       default: return 1'b0;
     endcase
   endfunction
@@ -319,8 +303,7 @@ package isu_pkg;
   localparam int FAST_WAKE_BASE = DIV_WAKE_BASE + DIV_UNITS;
   // F/D: delayed FP wake-ups on FPW_CH channels after the fast ones; the issue ports that can start a multi-cycle FP op
   localparam int FP_WAKE_BASE = FAST_WAKE_BASE + FAST_UNITS;
-  localparam int FP_REQ_UNITS = FP_EN ? port_count(MASK_FPD) : 1;
-  localparam int FP_SLOTS = 24;                              // ISU_FP_WAKE_SLOT_NUM
+  localparam int FP_REQ_UNITS = port_count(MASK_FPD);
 
 endpackage
 `default_nettype wire

@@ -97,13 +97,11 @@ module isu_iq_select
       assign sel_valid[NLD + k]  = sta_v[k];
     end
 
-    /* verilator lint_off UNUSEDSIGNAL */   // waiver: port_ok[1..NL-1] == port_ok[0] and shared ports combine load/STA
     logic unused_pok;
     always_comb begin
       unused_pok = 1'b0;
       for (int p = 0; p < NP; p++) unused_pok ^= ^port_ok[p];
     end
-    /* verilator lint_on UNUSEDSIGNAL */
   end else begin : g_serial
     // Port p takes the lowest ready slot it can serve that no earlier port took. A slot taken by a port whose capabilities do not
     // overlap port p's could not be p's candidate anyway, so the chain only runs over ports with overlapping capabilities.

@@ -10,10 +10,8 @@ module exu_ctrl_wb_rob
   input  logic                     mispred,
   input  logic [ROB_IDX_WIDTH-1:0] kill_rob_idx,
   input  logic                     kill_rob_flag,
-  /* verilator lint_off UNUSEDSIGNAL */   // waiver: AGU ports do not complete directly to ROB
   input  logic [ISSUE_WIDTH-1:0]   win_valid,
   input  xc_done_t                 win    [ISSUE_WIDTH],
-  /* verilator lint_on UNUSEDSIGNAL */
   input  xc_lsu_wb_t               ld_wb  [LSU_LOAD_WB_WIDTH],
   input  xc_lsu_wb_t               sta_wb [LSU_STA_COUNT],
   output xc_rob_wb_t               wb     [ROB_WB_WIDTH]

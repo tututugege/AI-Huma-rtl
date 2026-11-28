@@ -5,9 +5,7 @@ module bpu_ftb_itt import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
   parameter int    N_ENT    = FTB_ITT_N,
   parameter int    NB       = BPU_ITT_BANKS,
   parameter bit    HOLD_RD0 = 1'b1,
-  /* verilator lint_off UNUSEDPARAM */
   parameter [255:0] TAG     = "BPU_AITT"
-  /* verilator lint_on UNUSEDPARAM */
 ) (
   input  logic                 clk,
   input  logic                 rst_n,
@@ -143,10 +141,8 @@ module bpu_ftb_itt import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
     assign rd_raw[k] = rd0_sup_q[k] ? '0 : ftb_itt_ent_t'(rd0_raw[k]);
   end
 
-  /* verilator lint_off UNUSEDSIGNAL */
   logic unused_ok;
   assign unused_ok = ^upd_target;
-  /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule
 `default_nettype wire

@@ -58,10 +58,8 @@ module dcache_pf_berti_tab (
   ttg_onehot_to_idx #(.N(DPCS), .IDXW(4)) u_inv_i (.onehot(inv_oh), .idx(inv_idx));
   ttg_onehot_to_idx #(.N(DPCS), .IDXW(4)) u_lru_i (.onehot(lru_oh), .idx(lru_idx));
 
-  /* verilator lint_off UNUSEDSIGNAL */
   logic unused_lru_any;
   assign unused_lru_any = lru_any;
-  /* verilator lint_on UNUSEDSIGNAL */
 
   always_comb begin
     srch_do = srch_v && (hit_any || (|srch_uniq));

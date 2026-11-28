@@ -5,9 +5,6 @@
 // on that tick).
 module dcache
   import dcache_pkg::*;
-#(
-  parameter bit PF_EN = 1'b1                   // L1D data prefetcher (Berti, dcache_pf); 0: no new state is used
-)
 (
   input  logic                 clk,
   input  logic                 rst_n,
@@ -94,9 +91,7 @@ module dcache
   logic [NLD-1:0]       slot_pf, slot_pf_llc, slot_perf_replay, slot_lsu;
   logic [31:0]          slot_pc [NLD];
   logic [38:0]          slot_va [NLD];
-  // verilator lint_off UNUSEDSIGNAL
-  logic                 pf_head_valid, pf_head_llc, pf_taken, fr_pf, rel_event;   // unused with PF_EN = 0
-  // verilator lint_on UNUSEDSIGNAL
+  logic                 pf_head_valid, pf_head_llc, pf_taken, fr_pf, rel_event;
   logic [LINE_W-1:0]    pf_head_line;
   logic [MSHR_IDW-1:0]  s2f_id;
   logic [LINE_W-1:0]    s2f_line;
@@ -164,10 +159,8 @@ module dcache
   logic [DW-1:0]          s2ld_data [NLD];
   logic [1:0]           s2ld_replay [NLD], ld_lu_way [NLD];
   logic [CNT_W-1:0]     ld_alloc_cnt, st_alloc_cnt, pf_free;
-  // verilator lint_off UNUSEDSIGNAL
-  logic [NLD-1:0]       pf_cand, pf_ok, acc_valid, acc_miss, acc_pf_hit, pfc_en;   // training events: PF_EN only
+  logic [NLD-1:0]       pf_cand, pf_ok, acc_valid, acc_miss, acc_pf_hit, pfc_en;   // training events of dcache_pf
   logic [LINE_W-1:0]    acc_line [NLD];
-  // verilator lint_on UNUSEDSIGNAL
   logic [NLD-1:0]       ld_byp_and_hit;
   logic [NST-1:0]       st_mreq, st_pw, st_lu, st_mrg, s2st_valid;
   logic [1:0]           s2st_replay [NST], st_pw_way [NST];
@@ -264,25 +257,14 @@ module dcache
   // probe allocation: lowest priority, MSHR entries left after the demand loads and stores (reserve 0)
   assign pf_free = mshr_free - ld_alloc_cnt - st_alloc_cnt;
   assign pf_ok   = pf_cand & {NLD{pf_free != '0}};
-  if (PF_EN) begin : g_pf
-    dcache_pf u_pf (
-      .clk(clk), .rst_n(rst_n),
-      .head_valid(pf_head_valid), .head_line(pf_head_line), .head_llc(pf_head_llc), .head_taken(pf_taken),
-      .fill_valid(fill_valid), .fill_line(s2f_line), .fill_is_pf(s2f_pf),
-      .acc_valid(acc_valid), .acc_line(acc_line), .acc_pc(slot_pc), .acc_va(slot_va),
-      .acc_miss(acc_miss), .acc_pf_hit(acc_pf_hit),
-      .pf_xq_v, .pf_xq_va, .pf_xq_llc, .pf_xq_pop, .pf_xans_v, .pf_xans_line, .pf_xans_llc
-    );
-  end else begin : g_nopf
-    assign pf_head_valid = 1'b0;
-    assign pf_head_line  = '0;
-    assign pf_head_llc   = 1'b0;
-    assign pf_xq_v       = '0;
-    assign pf_xq_llc     = '0;
-    for (genvar i = 0; i < NLD; i++) begin : g_noxq
-      assign pf_xq_va[i] = '0;
-    end
-  end
+  dcache_pf u_pf (
+    .clk(clk), .rst_n(rst_n),
+    .head_valid(pf_head_valid), .head_line(pf_head_line), .head_llc(pf_head_llc), .head_taken(pf_taken),
+    .fill_valid(fill_valid), .fill_line(s2f_line), .fill_is_pf(s2f_pf),
+    .acc_valid(acc_valid), .acc_line(acc_line), .acc_pc(slot_pc), .acc_va(slot_va),
+    .acc_miss(acc_miss), .acc_pf_hit(acc_pf_hit),
+    .pf_xq_v, .pf_xq_va, .pf_xq_llc, .pf_xq_pop, .pf_xans_v, .pf_xans_line, .pf_xans_llc
+  );
 
   // ------------------------------------------------------------ MSHR
   logic [LINE_BITS-1:0] mshr_resp_line;

@@ -14,9 +14,7 @@ module ptw_walk_pte import memcpu_pkg::*; import ttg_cfg_pkg::*; (
   output logic [PT_PERM_W-1:0] perm       // pte[7:0]
 );
 
-  /* verilator lint_off UNUSEDSIGNAL */  // the high ppn bits (they would exceed the 32-bit physical space) and RSW
   wire [63:0] pte_w = 64'(pte);
-  /* verilator lint_on UNUSEDSIGNAL */
   wire v = pte_w[0];
   wire r = pte_w[1];
   wire w = pte_w[2];

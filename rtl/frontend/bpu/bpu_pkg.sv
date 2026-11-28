@@ -4,10 +4,8 @@
 package bpu_pkg;
   import ttg_cfg_pkg::*;
 
-  localparam int BANK_W  = $clog2(FETCH_WIDTH);
   localparam int NLANE   = FETCH_WIDTH;       // lanes of one fetch group (RVC=1: 16 two-byte slots)
   localparam int NCOMMIT = COMMIT_WIDTH;      // commit lanes (8)
-  localparam int PC_W    = XLEN_BITS;
 
   // branch types (BPU_configs.h)
   localparam logic [2:0] BR_DIRECT  = 3'd0;   // conditional branch

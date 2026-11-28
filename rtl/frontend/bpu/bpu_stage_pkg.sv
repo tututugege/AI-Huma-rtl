@@ -13,10 +13,6 @@ package bpu_stage_pkg;
   localparam int NITT      = 4;
   localparam int ITT_EX_MAP [NITT] = '{1, 2, 3, 5};
   localparam int EPOCH_W   = 8;
-  localparam int LANE_W    = $clog2(NLANE);
-
-  // Compile-time switch: 1 = S2 fast override (0 extra ovr_pend bubble); 0 = 1-cycle registered ovr_pend_q decoupling
-  localparam bit BPU_FAST_OVR = 1'b1;
 
   // ---- Unified 6-table geometric history engine (shared by 2-Way 2-Ahead ExBlockTage & 4-Table ITT) ----
   localparam int EX_TN   = 6;
@@ -69,6 +65,8 @@ package bpu_stage_pkg;
 
   // ---- Unified history ring + folded histories, RAS ----
   typedef logic [EX_FH_K-1:0][EX_TN-1:0][EX_FH_W-1:0] ex_fh_t;
+  // k = 0 slice of ex_fh_t (the index fold): all a 2-Ahead key needs (make_ah_*_index reads only key_ex_fh[0])
+  typedef logic [EX_TN-1:0][EX_FH_W-1:0] ex_fh0_t;
 
   typedef struct packed {
     logic [HR_BITS-1:0]  ring;
@@ -137,7 +135,7 @@ package bpu_stage_pkg;
     logic                 ah_hit;
     logic [XLEN_BITS-1:0] ah_key_base;
     logic [XLEN_BITS-1:0] prev_base;
-    ex_fh_t               ah_key_ex_fh;
+    ex_fh0_t              ah_key_ex_fh;
     logic [XLEN_BITS-1:0] base;
     pred_t                g;
     ck_t                  ck;
@@ -170,35 +168,6 @@ package bpu_stage_pkg;
   /* verilator lint_on UNUSEDSIGNAL */
 
   // ---- Unified history ring ----
-  function automatic hist_t hist_push(input hist_t h, input logic dir);
-    hist_t n;
-    logic [EX_FH_W-1:0] ev, emsk;
-    logic               hi;
-    logic               old_bit;
-    n = h;
-    for (int k = 0; k < EX_FH_K; k++) begin
-      emsk = EX_FH_W'((32'd1 << ex_fh_len(k)) - 32'd1);
-      for (int i = 0; i < EX_TN; i++) begin
-        ev      = h.ex_fh[k][i];
-        hi      = ev[ex_fh_len(k) - 1];
-        old_bit = h.ring[HR_PTR_W'(h.head - HR_PTR_W'(ex_ghr_len(i)))];
-        ev      = ((ev << 1) & emsk) | EX_FH_W'(dir ^ hi);
-        ev      = ev ^ (EX_FH_W'(old_bit) << (ex_ghr_len(i) % ex_fh_len(k)));
-        n.ex_fh[k][i] = ev;
-      end
-    end
-    n.ring[h.head] = dir;
-    n.head         = h.head + HR_PTR_W'(1);
-    return n;
-  endfunction
-
-  function automatic hist_t hist_push_sym(input hist_t h, input logic en, input logic [HSYM_W-1:0] bits);
-    hist_t n;
-    n = h;
-    if (en) for (int i = 0; i < HSYM_W; i++) n = hist_push(n, bits[i]);
-    return n;
-  endfunction
-
   function automatic hist_t hist_restore(input hist_t h, input hist_ck_t c);
     hist_t n;
     n       = h;
@@ -208,25 +177,6 @@ package bpu_stage_pkg;
   endfunction
 
   // ---- RAS ----
-  function automatic rasc_t ras_push(input rasc_t r, input logic [XLEN_BITS-1:0] v);
-    rasc_t n;
-    n = r;
-    n.ptr = r.ptr + RAS_PTR_W'(1);
-    n.st[n.ptr] = v;
-    if (r.cnt < RAS_CNT_W'(RAS_DEPTH)) n.cnt = r.cnt + RAS_CNT_W'(1);
-    return n;
-  endfunction
-
-  function automatic rasc_t ras_pop(input rasc_t r);
-    rasc_t n;
-    n = r;
-    if (r.cnt != '0) begin
-      n.ptr = r.ptr - RAS_PTR_W'(1);
-      n.cnt = r.cnt - RAS_CNT_W'(1);
-    end
-    return n;
-  endfunction
-
   typedef struct packed {
     logic [RASQ_W-1:0]    tosr;
     logic [RASQ_W-1:0]    tosw;

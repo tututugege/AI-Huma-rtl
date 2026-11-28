@@ -9,7 +9,7 @@
 //   +0x20 SCRATCH0   (RW): 64-bit scratchpad
 //   +0x28 SCRATCH1   (RW): 64-bit scratchpad
 //   +0x30 UPTIME     (RO): 64-bit free-running cycle counter
-module soc_sysctrl import soc_pkg::*; (
+module soc_sysctrl import soc_axi_pkg::*; (
   input  logic        clk,
   input  logic        rst_n,
   input  logic [1:0]  boot_mode,
@@ -63,11 +63,11 @@ module soc_sysctrl import soc_pkg::*; (
   assign s_arready    = !rvalid_q;
   assign s_rvalid     = rvalid_q;
   assign s_rdata      = rdata_q;
-  assign s_rresp      = AXI_RESP_OKAY;
+  assign s_rresp      = AXI4_RESP_OKAY;
   assign s_awready    = !aw_v_q && !bvalid_q;
   assign s_wready     = !w_v_q  && !bvalid_q;
   assign s_bvalid     = bvalid_q;
-  assign s_bresp      = AXI_RESP_OKAY;
+  assign s_bresp      = AXI4_RESP_OKAY;
   assign sw_rst_req   = (rst_cnt_q != 3'd0);
   assign core_ctl_out = core_ctl_q;
 
@@ -165,10 +165,8 @@ module soc_sysctrl import soc_pkg::*; (
     end
   end
 
-  /* verilator lint_off UNUSEDSIGNAL */
   logic [53:0] unused_addr;
   assign unused_addr = {s_araddr[31:8], s_araddr[2:0], s_awaddr[31:8], s_awaddr[2:0]};
-  /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule
 

@@ -103,7 +103,7 @@ depth: Tier 1 TSMC 28nm (Yosys+PrimeTime STA, clk=0.65ns, eda-07): icache 77 层
 
 | 文件 | 行数 | 职责 |
 | --- | --- | --- |
-| `icache.sv` | 264 | 顶层：F0 → F1 两级（`f1_q`）、A / B 两路响应、连线、`ptw_walk_flush` 在复位后第一拍也置位 |
+| `icache.sv` | 262 | 顶层：F0 → F1 两级（`f1_q`）、A / B 两路响应、连线、`ptw_walk_flush` 在复位后第一拍也置位 |
 | `icache_pkg.sv` | 95 | 参数、`ic_regs_t`（控制寄存器）、复位值、状态编码、地址函数 |
 | `icache_ctl.sv` | 238 | 例化下面各块，选择、寄存器、冲刷合并、存储侧输出 |
 | `icache_arr.sv` | 211 | 阵列：Lo / Hi 数据 SRAM（`ttg_sram_1rw` ×2）、奇偶两组触发器标签 / 有效位、A / B 两路命中比较、第一个无效路、SRRIP 选路与更新、FDIP 回填写口 |
@@ -111,11 +111,11 @@ depth: Tier 1 TSMC 28nm (Yosys+PrimeTime STA, clk=0.65ns, eda-07): icache 77 层
 | `icache_slot.sv` | 50 | 单项请求槽 `req_valid / req_pc / ifu_ready`、ITLB 请求 |
 | `icache_idle.sv` | 58 | 空闲态一步 |
 | `icache_swap.sv` | 125 | 缺失服务一步 |
-| `icache_kill.sv` | 92 | 取消一步 |
+| `icache_kill.sv` | 90 | 取消一步 |
 | `icache_probe.sv` | 72 | 探针一步 |
 | `icache_txn.sv` | 40 | 响应分类 |
 | `icache_resp.sv` | 75 | 取指组切片（例化两次：A 行、B 行） |
-| `icache_fdip.sv` | 284 | FDIP 预取：S2 地址去重队列、预取事务、1 项回填缓冲 |
+| `icache_fdip.sv` | 282 | FDIP 预取：S2 地址去重队列、预取事务、1 项回填缓冲 |
 
 状态：`ic_regs_t` 共 136 位（请求有效 1、请求 pc 64、`ifu_ready` 1、状态 3、缺失事务号有效 1 + 号 4（`IC_TXID_W`）、`ready_seen` 1、在途 16 + 被取消 16（`IC_TXID_N`）、探针 3 位控制 + 字号 4、`ppn` 20、替换指针 2（`IC_WAY_W`））；两个 512 位的数据寄存器 `resp_line_q`（响应行）、`probe_line_q`（探针行，按字写使能）；阵列；替换状态 `repl_q`（`IC_SETS` = 256 组 × `IC_RB` = 8 位，复位清 0，`fence.i` 不清）；F0 → F1 寄存器 `f1_q`；FDIP 的队列、事务槽和回填缓冲；ITLB 的 64 项。
 
@@ -226,6 +226,7 @@ RTL 与模型保持一致的细节（容易误判为 bug）：
 
 ## 10. 变更记录
 
+- 2026-11-28 清理：删 `icache.sv` / `icache_fdip.sv` / `icache_kill.sv` 里不起作用的 `UNUSEDSIGNAL` 豁免（`unused_*` 汇点本就不报）；第 0 节提到的 `front_fifo.next_rdata` 已随 `front_fifo` 删除（周期不变）。
 - 2026-11-28（`rtl/fe-2ahead`，文档核对）：补 `icache_fdip.sv` 与 B 块 / FDIP 端口、文件行数、`ic_regs_t` 136 位、`repl_q` 256 × 8、组索引 `[13:6]`、SRAM 复位清零；删掉已不存在的 `FE_RFAST` 位 2、`FE_PAIR` / `ICacheCompactKernel.h` 的说法；门禁改为对 `scripts/ref_cycles.txt`。
 - 本轮（`rtl/fe-2ahead`）：升级为 **64 KiB（`256 sets × 4 ways × 64B`）Lo-32B / Hi-32B 2 级串联 Tag-then-Data (`F0→F1`) VIPT ICache**：
   - 配置与生成：`trace-model-fe-2ahead/include/config.h` 改为 `ICACHE_WAY_NUM=4`、`ICACHE_INDEX_BITS=8`、`ICACHE_SET_NUM=256`、`ICACHE_TAG_BITS=20`，F0 → F1 两级流水是模型唯一实现（原 `FE_ICACHE_PIPE` 开关 2026-11-28 删除）；`gen_cfg.sh` 重生成 `ttg_cfg_pkg.sv`；`ttg_sram_1rw.sv` 新增 `DEPTH == 1024`（`TEM5N28HPCPLVTA1024X32M4SWSO`）硬宏映射。

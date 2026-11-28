@@ -6,7 +6,6 @@
 //   + Native AXI4 BootROM & 64 KiB SRAM + AXI4-to-Lite Bridge + CLINT + PLIC + UART16550A + SysCtrl.
 // Exposes only realistic chip pins with complete ARM IHI 0022E AXI4 DDR master port (default DDR_DATA_W=64).
 module chip_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import soc_pkg::*; #(
-  parameter bit PF_EN      = 1'b1,
   parameter int DDR_DATA_W = 64,    // 64 (8-beat 64B line), 128 (4-beat), or 256 (2-beat)
   parameter int DDR_ID_W   = 7
 ) (
@@ -182,7 +181,7 @@ module chip_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; import soc_pkg::*;
     .*
   );
 
-  mem_top #(.PF_EN(PF_EN), .EXT_MMIO_EN(1'b1)) u_mem (
+  mem_top #(.EXT_MMIO_EN(1'b1)) u_mem (
     .clk(clk_core), .rst_n(sys_rst_n),
     .env_modeled(1'b0), .env_rdata(64'd0),
     .d_arvalid(c_arvalid), .d_arready(c_arready), .d_arid(c_arid), .d_araddr(c_araddr), .d_arlen(c_arlen),

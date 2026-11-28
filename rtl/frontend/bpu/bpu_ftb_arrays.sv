@@ -32,7 +32,7 @@ module bpu_ftb_arrays import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage
   input  logic                    upd_ah_self0,
   input  logic [XLEN_BITS-1:0]    upd_ah_key_base,
   input  logic [XLEN_BITS-1:0]    upd_prev_base,
-  input  ex_fh_t                  upd_ah_key_ex_fh,
+  input  ex_fh0_t                 upd_ah_key_ex_fh,
   input  ftb1_lookup_meta_t       upd_ftb1_meta,
   input  ah_pred_meta_t           upd_ah_meta,
   input  ftb_br_upd_t             upd_br,
@@ -57,7 +57,7 @@ module bpu_ftb_arrays import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage
   logic                  s2_slot_meta_ok, has_ah, is_s0_train;
   logic                  ah_tage_upd_en, ah_itt_upd_en;
   logic [XLEN_BITS-1:0]  ah_kbase, ah_pbase;
-  ex_fh_t                ah_kfh;
+  ex_fh0_t               ah_kfh;
   ex_tage_ix_t           upd_ah_ex_ix;
   itt_ix_t               upd_ah_itt_ix;
 
@@ -67,7 +67,7 @@ module bpu_ftb_arrays import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage
     has_ah          = upd_ah_v || upd_ah_self0;
     is_s0_train     = !upd_ah_v && upd_ah_self0;
     ah_kbase        = is_s0_train ? upd_start : upd_ah_key_base;
-    ah_kfh          = is_s0_train ? upd_ex_fh : upd_ah_key_ex_fh;
+    ah_kfh          = is_s0_train ? upd_ex_fh[0] : upd_ah_key_ex_fh;
     ah_pbase        = is_s0_train ? '0 : upd_prev_base;
     upd_ah_ex_ix    = make_ah_ex_tage_index(ah_kbase, upd_start, ah_kfh, upd_ex_fh, ah_pbase, is_s0_train);
     upd_ah_itt_ix   = make_ah_itt_index(ah_kbase, upd_start, ah_kfh, upd_ex_fh, ah_pbase, is_s0_train);
@@ -158,10 +158,8 @@ module bpu_ftb_arrays import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage
     .wr_mask_o(ah_itt_wr_mask)
   );
 
-  /* verilator lint_off UNUSEDSIGNAL */
   logic unused_arr;
   assign unused_arr = ^{ftb1_sl_v, ah_rd_ex_ix.w};
-  /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule
 `default_nettype wire

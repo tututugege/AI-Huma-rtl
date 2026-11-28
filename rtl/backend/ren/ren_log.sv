@@ -128,14 +128,12 @@ module ren_log
     };
   end
 
-  // waiver: MSB of wr_entry.dest_preg / old_dest_preg equals dest_fp
-  /* verilator lint_off UNUSEDSIGNAL */
+  // lint sink (Verilator ignores unused_* names): MSB of wr_entry.dest_preg / old_dest_preg equals dest_fp
   logic unused_msb;
   always_comb begin
     unused_msb = 1'b0;
     for (int i = 0; i < N; i++) unused_msb ^= wr_entry[i].dest_preg[PRF_IDX_WIDTH-1] ^ wr_entry[i].old_dest_preg[PRF_IDX_WIDTH-1];
   end
-  /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule
 

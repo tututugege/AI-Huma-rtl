@@ -32,7 +32,6 @@ module rob_core_cpt
   input  logic [ROB_BANK_NUM-1:0]    dis_fire,
   input  logic [ROB_IDX_WIDTH-1:0]   dis_rob_idx [ROB_BANK_NUM],
   input  logic [ROB_XLEN-1:0]        dis_trap_val [ROB_BANK_NUM],
-  input  logic                       csr_fs_off,
   input  rob_entry_t                 dis_uop [ROB_BANK_NUM],
   input  rob_wb_t                    wb [ROB_WB_WIDTH],
   // rob2dis
@@ -63,7 +62,6 @@ module rob_core_cpt
   output logic                       bcast_page_fault_store,
   output logic                       bcast_illegal_inst,
   output logic                       bcast_interrupt,
-  output logic                       bcast_trap_val_valid,
   output logic [ROB_XLEN-1:0]            bcast_trap_val,
   output logic [ROB_XLEN-1:0]            bcast_pc,
   output logic [ROB_IDX_WIDTH-1:0]   bcast_head_rob_idx,
@@ -71,7 +69,6 @@ module rob_core_cpt
   output logic [ROB_IDX_WIDTH-1:0]   bcast_head_incomplete_rob_idx,
   output logic                       bcast_head_incomplete_valid,
   // ftq_pc_req
-  output logic                       ftq_req_valid,
   output logic [FTQ_IDX_WIDTH-1:0]   ftq_req_ftq_idx,
   output logic [FTQ_OFFSET_WIDTH-1:0] ftq_req_ftq_offset
 );
@@ -218,7 +215,6 @@ module rob_core_cpt
   always_comb begin
     logic found;
     rob2dis_stall = |(w_in & w_flush);
-    ftq_req_valid = nonempty;
     ftq_req_ftq_idx = w_uop[0].ftq_idx;
     ftq_req_ftq_offset = w_uop[0].ftq_offset;
     bcast_head_valid = nonempty;
@@ -276,7 +272,6 @@ module rob_core_cpt
       .DEPTH      (NL),
       .WIDTH      (32),
       .MASK_W     (1),
-      .WRITE_FIRST(1'b1),
       .TAG        ("ROB_INST_WORD")
     ) u_inst_sram (
       .clk  (clk), .rst_n(rst_n),
@@ -391,7 +386,7 @@ module rob_core_cpt
     .fence(bcast_fence), .fence_i(bcast_fence_i),
     .page_fault_inst(bcast_page_fault_inst), .page_fault_load(bcast_page_fault_load),
     .page_fault_store(bcast_page_fault_store), .illegal_inst(bcast_illegal_inst), .breakpoint(bcast_breakpoint),
-    .rob2csr_commit(rob2csr_commit), .trap_val_valid(bcast_trap_val_valid), .trap_val(bcast_trap_val), .pc(bcast_pc)
+    .rob2csr_commit(rob2csr_commit), .trap_val(bcast_trap_val), .pc(bcast_pc)
   );
   assign bcast_flush            = flush_w;
   assign bcast_interrupt        = interrupt_fire;
@@ -459,14 +454,13 @@ module rob_core_cpt
     end
   end
 
-  // waiver: w_valid is the stored valid bit of the window slots; the window position (w_in) is what the logic uses
-  /* verilator lint_off UNUSEDSIGNAL */
+  // lint sink (Verilator ignores unused_* names): w_valid is the stored valid bit of the window slots; the window
+  // position (w_in) is what the logic uses
   logic unused_ok;
   always_comb begin
-    unused_ok = (^w_valid) ^ csr_fs_off;
+    unused_ok = ^w_valid;
     for (int i = 0; i < NB; i++) unused_ok = unused_ok ^ (^dis_trap_val[i][ROB_XLEN-1:32]);
   end
-  /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule
 

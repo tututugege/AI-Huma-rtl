@@ -1,17 +1,13 @@
 // Ref: back-end/Exu/Exu.cpp  Exu::init (BRU instances), back-end/Exu/include/Fu.h  BruUnit
 `default_nettype none
 
-// The BRU_NUM branch units of the Exu, ports flattened as in spec/bru_bank.io.
+// The BRU_NUM branch units of the Exu, ports flattened (combinational).
 module bru_bank
   import ttg_cfg_pkg::*;
   import exu_fu_pkg::*;
 #(
   parameter int N = BRU_NUM
 ) (
-  /* verilator lint_off UNUSEDSIGNAL */
-  input  logic            clk,    // wired by the harness wrapper to every module; the BRUs are combinational
-  input  logic            rst_n,
-  /* verilator lint_on UNUSEDSIGNAL */
   input  logic [OP_W-1:0] op             [N],
   input  logic [2:0]      func3          [N],
   input  logic            src1_en        [N],

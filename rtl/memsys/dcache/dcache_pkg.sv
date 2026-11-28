@@ -1,10 +1,10 @@
 `default_nettype none
-// Ref: MemSubSystem/DcacheConfig.cpp  apply_strobe/plru_touch_way/choose_plru_tree_victim; RealDcache.h  S1S2Reg
+// Ref: MemSubSystem/DcacheConfig.cpp  plru_touch_way/choose_plru_tree_victim; RealDcache.h  decode() / ReplayType
 // Shared constants and small functions of the DCache domain (docs/modules/dcache.md).
-/* verilator lint_off UNUSEDPARAM */
 package dcache_pkg;
   import ttg_cfg_pkg::*;
 
+  /* verilator lint_off UNUSEDPARAM */  // package constants are used by other files
   localparam int NLD       = LSU_LDU_COUNT;                // load ports            (slots 0..NLD-1)
   localparam int NST       = LSU_STA_COUNT;                // store ports           (slots NLD..NSLOT-1)
   localparam int NSLOT     = NLD + NST;
@@ -29,7 +29,8 @@ package dcache_pkg;
   localparam int MSHR_IDW  = DCACHE_MSHR_BITS;
   localparam int WB_N      = DCACHE_WB_ENTRIES;
   localparam int WB_IDW    = DCACHE_WB_BITS;
-  localparam int CNT_W     = DCACHE_MSHR_COUNT_BITS;       // 4: counts 0..8 (MSHR and WB have the same size)
+  localparam int CNT_W     = DCACHE_MSHR_COUNT_BITS;       // free counts 0..MSHR_N (16) and 0..WB_N
+  /* verilator lint_on UNUSEDPARAM */
 
   // second store word of a merged store request (EXP-024, model LSU_PIPE_MERGE): same line as the first word of
   // its port; strb == 0 means no second word, so every consumer can apply it unconditionally after the first
@@ -40,37 +41,21 @@ package dcache_pkg;
   } st2_t;
 
   // ReplayType
+  /* verilator lint_off UNUSEDPARAM */
   localparam logic [1:0] RP_HIT       = 2'd0;
   localparam logic [1:0] RP_CONFLICT  = 2'd1;
   localparam logic [1:0] RP_MSHR_HIT  = 2'd2;
   localparam logic [1:0] RP_MSHR_FULL = 2'd3;
+  /* verilator lint_on UNUSEDPARAM */
 
-  // address fields (C++ decode()): line = addr[31:6], set = addr[13:6], bank = addr[9:6], word = addr[5:2]
-
-  // apply_strobe(): byte lanes of `nw` selected by strb replace `old`
-  function automatic logic [DW-1:0] apply_strobe(input logic [DW-1:0] old, input logic [DW-1:0] nw,
-                                                  input logic [SBW-1:0] strb);
-    logic [DW-1:0] r;
-    r = old;
-    for (int b = 0; b < SBW; b++) if (strb[b]) r[8*b +: 8] = nw[8*b +: 8];
-    return r;
-  endfunction
+  // address fields (C++ decode()): line = addr[31:6], set = addr[13:6], bank = addr[9:6], word = addr[5:3]
 
   function automatic logic [DW-1:0] line_word(input logic [LINE_BITS-1:0] l, input logic [WORD_W-1:0] w);
     return l[(32'(w) * DW) +: DW];
   endfunction
 
-  // one word of a 512-bit line is replaced under a byte strobe
-  function automatic logic [LINE_BITS-1:0] line_merge(input logic [LINE_BITS-1:0] l, input logic [WORD_W-1:0] w,
-                                                      input logic [DW-1:0] d, input logic [SBW-1:0] s);
-    logic [LINE_BITS-1:0] r;
-    r = l;
-    r[(32'(w) * DW) +: DW] = apply_strobe(line_word(l, w), d, s);
-    return r;
-  endfunction
-
   // All store words of one tick merged into a line in one parallel step per byte (EXP-024: two words per port).
-  // Priority (later wins): port order, lane 1 before lane 2.  Replaces a chain of line_merge() calls.
+  // Priority (later wins): port order, lane 1 before lane 2.
   function automatic logic [LINE_BITS-1:0] line_merge_n(
     input logic [LINE_BITS-1:0]       l,
     input logic [NST-1:0]             en,
@@ -85,22 +70,6 @@ package dcache_pkg;
       end
     end
     return r;
-  endfunction
-
-  // byte mask of the bytes written by the same set of store words
-  function automatic logic [LINE_BITS/8-1:0] line_strb_n(
-    input logic [NST-1:0]             en,
-    input logic [NST-1:0][WORD_W-1:0] w1, input logic [NST-1:0][SBW-1:0] s1,
-    input logic [NST-1:0][WORD_W-1:0] w2, input logic [NST-1:0][SBW-1:0] s2);
-    logic [LINE_BITS/8-1:0] m;
-    m = '0;
-    for (int bi = 0; bi < LINE_BITS / 8; bi++) begin
-      for (int k = 0; k < NST; k++) begin
-        if (en[k] && w1[k] == WORD_W'(bi / SBW) && s1[k][bi % SBW]) m[bi] = 1'b1;
-        if (en[k] && w2[k] == WORD_W'(bi / SBW) && s2[k][bi % SBW]) m[bi] = 1'b1;
-      end
-    end
-    return m;
   endfunction
 
   // tree-PLRU (4 ways): bit0 root (1 = victim on the right), bit1 = left pair, bit2 = right pair

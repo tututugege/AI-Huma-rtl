@@ -55,9 +55,9 @@ depth: soc_xbar 75 层（100,853 cells）；全部片上外设 ≤72 层（eda-0
 
 | 文件 | 行数 | 职责 |
 | --- | --- | --- |
-| `soc/chip_top/chip_top.sv` | 317 | 芯片顶层：`soc_crg`、`core_top`、`mem_top`、`soc_xbar` 与六个外设的例化和连线；`OC_ID_W = DDR_ID_W + 1` |
-| `soc/soc_pkg/soc_pkg.sv` | 53 | 从口编号 `SLV_*`、地址 `ADDR_*`、`PLIC_NUM_SRC = 8`、`IRQ_UART = 1`、AXI 响应码 |
-| `soc/soc_crg/soc_crg.sv` | 45 | 复位合并（`por_rst_n & ~ext_ndmreset & ~sw_rst_req`，DFT 测试模式只看 `por_rst_n`）、同步释放、`ttg_rst_sweep` 展宽、RTC 脉冲 |
+| `soc/chip_top/chip_top.sv` | 316 | 芯片顶层：`soc_crg`、`core_top`、`mem_top`、`soc_xbar` 与六个外设的例化和连线；`OC_ID_W = DDR_ID_W + 1` |
+| `soc/soc_pkg/soc_pkg.sv` | 46 | 从口编号 `SLV_*`、地址 `ADDR_*`（`soc_decode_slave` 用它们译码）、`PLIC_NUM_SRC = 8`；AXI 响应码在 `soc_axi_pkg` |
+| `soc/soc_crg/soc_crg.sv` | 43 | 复位合并（`por_rst_n & ~ext_ndmreset & ~sw_rst_req`，DFT 测试模式只看 `por_rst_n`）、同步释放、`ttg_rst_sweep` 展宽、RTC 脉冲 |
 | `soc/soc_crg/soc_rst_sync.sv` | 22 | 2 级触发器的异步置位、同步释放 |
 | `soc/soc_crg/soc_cdc_pulse.sv` | 23 | `clk_rtc` 上升沿同步成 `clk_core` 的一拍脉冲 |
 
@@ -85,11 +85,12 @@ depth: soc_xbar 75 层（100,853 cells）；全部片上外设 ≤72 层（eda-0
 
 ## 9. 参数与开关速查
 
-- `chip_top` 参数：`PF_EN`（默认 `1'b1`）、`DDR_DATA_W`（默认 `64`，可选 `64`/`128`/`256`）、`DDR_ID_W`（默认 `7`）。
+- `chip_top` 参数：`DDR_DATA_W`（默认 `64`，可选 `64`/`128`/`256`）、`DDR_ID_W`（默认 `7`）。
 - `tb/soc/build.sh` 参数：`DDR_DATA_W=64|128|256`、`SOC_VOPT="--threads 8"`、`SOC_OUT=<dir>`。
 - `soc_tb` 参数：`--boot-mode`、`--max-cycles`、`--rtc-div`、`--uart-div`、`--stop-str`、`--fail-str`、`--uart-rx`、`--uart-rx-on-str`、`--ext-irq-on-str`、`--boot-mode-on-str`、`--expect-silent`。
 
 ## 10. 变更记录
 
+- 2026-11-28 清理：删参数 `PF_EN`（默认 1、没人覆盖，L1D 预取器固定开），`mem_top` 实例不再传它（周期不变）。
 - 2026-11-28（`rtl/fe-2ahead`）：`soc_crg` 在同步释放后经 `ttg_rst_sweep` 展宽 `SRAM_SWEEP_CYCLES` 拍（SRAM 复位清零，DFT 测试模式旁路）；文档按 TEMPLATE 十节重排（新增结构、数据流、深度、与模型的差异、变更记录）。
 - 2026-11-26：新增 `chip_top`（双层 Full-AXI4 互联、可综合外设、`tb/soc/soc_tb`、`scripts/soc_gate.sh`，`5fa54e2`）。

@@ -13,9 +13,6 @@ module div_core
   import ttg_cfg_pkg::*;
   import fp_arith_pkg::clz64;
 #(
-  /* verilator lint_off UNUSEDPARAM */
-  parameter int LAT = DIV_MAX_LATENCY,
-  /* verilator lint_on UNUSEDPARAM */
 `ifdef SYNTHESIS
   parameter bit STRUCT = 1'b1
 `else

@@ -64,7 +64,7 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
   typedef struct packed {
     logic                 valid;
     logic [XLEN_BITS-1:0] key_base;
-    ex_fh_t               key_ex_fh;
+    ex_fh0_t              key_ex_fh;
   } ah_key_t;
 
   // ---- Pipeline registers (A0 -> ah_key_q -> ah_a1_raw_q [S0] -> r0_q [S1] -> r1_q [S2]) ----
@@ -77,17 +77,13 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
   ftb_ah_raw_t             self0_raw_q;
   logic [EPOCH_W-1:0]      epoch_q, epoch_d;
   logic [FTB_BLK_ID_W-1:0] blk_seq_q, blk_seq_d;
-  logic                    ovr_pend_q, ovr_pend_d;
-  ck_t                     ovr_ck_q;
-  pred_t                   ovr_out_q;
-  logic [XLEN_BITS-1:0]    ovr_base_q;
 
   // ---- Control & S0 state ----
   ck_t                 spec_ck, pd_ck;
   logic                spec_ras_nonempty, pdq_have, rep_ok_in;
   logic [XLEN_BITS-1:0] spec_ras_top, pd_base, s0_base, s0_bnd;
   ex_fh_t              spec_ex_fh;
-  logic                d_valid, ovr, issue, issue_no_ovr, s0_go, pd_restore, rep_ok;
+  logic                d_valid, ovr, issue, s0_go, pd_restore, rep_ok;
   logic [1:0]          squash_n, ctl_hold_n;
 
   assign s0_base = pc_q;
@@ -110,7 +106,7 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
   end
 
   ttg_sram_1r1w #(
-    .DEPTH(FTB_RF_REC_N), .WIDTH(RF_BITS), .MASK_W(1), .WRITE_FIRST(1'b1), .TAG("BPU_RF_REC")
+    .DEPTH(FTB_RF_REC_N), .WIDTH(RF_BITS), .MASK_W(1), .TAG("BPU_RF_REC")
   ) u_rf_rec (
     .clk, .rst_n(rst_n), .re(1'b1), .raddr(next_rf_blk[FTB_RF_REC_W-1:0]), .rdata(rf_rd_raw),
     .we(d_valid), .waddr(blk_seq_q[FTB_RF_REC_W-1:0]), .wdata(RF_BITS'(rf_wd)), .wmask(1'b1)
@@ -132,7 +128,8 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
   // ---- Commit branch queue (T0 -> T1) + single-bank u_rec[512] ----
   logic                 upd_en, upd_ah_v, upd_ah_self0;
   logic [XLEN_BITS-1:0] upd_start, upd_ah_key_base, upd_prev_base, upd_pc;
-  ex_fh_t               upd_ex_fh, upd_ah_key_ex_fh;
+  ex_fh_t               upd_ex_fh;
+  ex_fh0_t              upd_ah_key_ex_fh;
   ftb1_lookup_meta_t    s2_ftb1_meta, upd_ftb1_meta;
   ah_pred_meta_t        s0_ah_meta, s2_ah_meta, upd_ah_meta;
   ftb_br_upd_t          upd_br;
@@ -170,17 +167,12 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
   itt_ix_t              ah_rd_itt_ix;
 
   always_comb begin
-    if (BPU_FAST_OVR) begin
-      ah_rd_en_eff    = !refetch && (ovr || icache_read_ready);
-      ah_rd_base_eff  = ovr ? r1_q.base       : s0_base;
-      ah_rd_ex_fh_eff = ovr ? r1_q.ck.h.ex_fh : spec_ex_fh;
-    end else begin
-      ah_rd_en_eff    = !refetch && !ovr && (ovr_pend_q || icache_read_ready);
-      ah_rd_base_eff  = ovr_pend_q ? ovr_base_q       : s0_base;
-      ah_rd_ex_fh_eff = ovr_pend_q ? ovr_ck_q.h.ex_fh : spec_ex_fh;
-    end
-    ah_rd_ex_ix  = make_ah_ex_tage_index(ah_rd_base_eff, '0, ah_rd_ex_fh_eff, ah_rd_ex_fh_eff, '0, 1'b0);
-    ah_rd_itt_ix = make_ah_itt_index(ah_rd_base_eff, '0, ah_rd_ex_fh_eff, ah_rd_ex_fh_eff, '0, 1'b0);
+    // an S2 override relaunches the read for its own block (fast override, no registered ovr_pend bubble)
+    ah_rd_en_eff    = !refetch && (ovr || icache_read_ready);
+    ah_rd_base_eff  = ovr ? r1_q.base       : s0_base;
+    ah_rd_ex_fh_eff = ovr ? r1_q.ck.h.ex_fh : spec_ex_fh;
+    ah_rd_ex_ix  = make_ah_ex_tage_index(ah_rd_base_eff, '0, ah_rd_ex_fh_eff[0], ah_rd_ex_fh_eff, '0, 1'b0);
+    ah_rd_itt_ix = make_ah_itt_index(ah_rd_base_eff, '0, ah_rd_ex_fh_eff[0], ah_rd_ex_fh_eff, '0, 1'b0);
   end
 
   // ---- Single-Set Predictor Arrays ----
@@ -232,18 +224,15 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
   ras_ck_t              r_ck, rr_ck;
   logic [XLEN_BITS-1:0] r_val, rr_val, rr_val2;
 
-  assign issue_no_ovr = !refetch && (BPU_FAST_OVR || !ovr_pend_q) && icache_read_ready;
-
   bpu_ctl u_ctl (
-    .refetch, .refetch_pd, .ovr_pend(BPU_FAST_OVR ? 1'b0 : ovr_pend_q), .rep_ok_in,
+    .refetch, .refetch_pd, .rep_ok_in,
     .pd_valid, .pd_flush, .pdq_have, .icache_read_ready,
     .r0(r0_q), .r1(r1_q), .fin_diff,
     .d_valid, .ovr, .squash_n, .hold_n(ctl_hold_n), .issue, .s0_go, .pd_restore, .rep_ok
   );
 
   bpu_cmd u_cmd (
-    .refetch, .pd_restore, .rep_ok, .ovr,
-    .ovr_pend(ovr_pend_q), .ovr_ck(ovr_ck_q), .r1_ck(r1_q.ck), .ovr_out(ovr_out_q),
+    .refetch, .pd_restore, .rep_ok, .ovr, .r1_ck(r1_q.ck),
     .issue, .pc(pc_q), .refetch_address, .g0, .fin,
     .pd_ck, .pd_hn, .pd_hbits, .pd_ras_op, .pd_ras_val, .pd_ras_op2, .pd_ras_val2,
     .rf_ck_rec(rf_rc.ck), .rf_type, .rf_pc, .rf_is_rvc,
@@ -255,7 +244,7 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
     .clk, .rst_n, .upd_valid, .base_pc, .br_type, .actual_dir, .upd_is_rvc, .target,
     .h_mode, .h_ck, .h_push_en, .h_push_bits, .r_mode, .r_ck, .r_op, .r_val,
     .spec_ck, .spec_ras_nonempty, .spec_ras_top, .spec_ex_fh,
-    .refetch, .ovr, .issue(BPU_FAST_OVR ? issue : issue_no_ovr),
+    .refetch, .issue,
     .g0_h_en(g0.taken), .g0_h_bits(g0.hbits), .g0_r_op(g0.ras_op), .g0_r_val(g0.ras_val),
     .hr_mode, .hr_ck, .hr_push_n, .hr_push_bits, .rr_mode, .rr_ck, .rr_op, .rr_val, .rr_op2, .rr_val2
   );
@@ -284,7 +273,6 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
     self0_v_d         = r1_d.valid && !r0_q.ah_v && ah_key_q.valid && (ah_key_q.key_base == r0_q.base);
     epoch_d           = epoch_q + EPOCH_W'(refetch && !pd_restore && !rep_ok);
     blk_seq_d         = blk_seq_q + FTB_BLK_ID_W'(d_valid);
-    ovr_pend_d        = !BPU_FAST_OVR && !refetch && !ovr_pend_q && ovr;
   end
 
   always_comb begin
@@ -295,20 +283,12 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
       ah_key_d.valid    = 1'b0;
       ah_a1_raw_d.valid = 1'b0;
       prev_base_d       = '0;
-    end else if (!BPU_FAST_OVR && ovr_pend_q) begin
-      ah_key_d          = '{valid: 1'b1, key_base: ovr_base_q, key_ex_fh: ovr_ck_q.h.ex_fh};
-      ah_a1_raw_d.valid = 1'b0;
-      prev_base_d       = ovr_base_q;
     end else if (ovr) begin
       ah_a1_raw_d.valid = 1'b0;
-      if (BPU_FAST_OVR) begin
-        ah_key_d    = '{valid: 1'b1, key_base: r1_q.base, key_ex_fh: r1_q.ck.h.ex_fh};
-        prev_base_d = r1_q.base;
-      end else begin
-        ah_key_d.valid = 1'b0;
-      end
+      ah_key_d          = '{valid: 1'b1, key_base: r1_q.base, key_ex_fh: r1_q.ck.h.ex_fh[0]};
+      prev_base_d       = r1_q.base;
     end else if (icache_read_ready) begin
-      ah_key_d    = '{valid: 1'b1, key_base: s0_base, key_ex_fh: spec_ex_fh};
+      ah_key_d    = '{valid: 1'b1, key_base: s0_base, key_ex_fh: spec_ex_fh[0]};
       ah_a1_raw_d = '{valid: ah_key_q.valid, key_base: ah_key_q.key_base,
                       key_ex_fh: ah_key_q.key_ex_fh, raw: ah_sram_raw};
       prev_base_d = s0_base;
@@ -320,15 +300,12 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
       pc_q <= '0; prev_base_q <= '0; r0_q <= '0; r1_q <= '0;
       epoch_q <= '0; blk_seq_q <= '0;
       ah_key_q.valid <= 1'b0; ah_a1_raw_q.valid <= 1'b0;
-      self0_v_q <= 1'b0; ovr_pend_q <= 1'b0;
+      self0_v_q <= 1'b0;
     end else begin
       pc_q <= pc_d; prev_base_q <= prev_base_d; r0_q <= r0_d; r1_q <= r1_d;
       epoch_q <= epoch_d; blk_seq_q <= blk_seq_d;
       ah_key_q <= ah_key_d; ah_a1_raw_q <= ah_a1_raw_d;
-      self0_v_q <= self0_v_d; ovr_pend_q <= ovr_pend_d;
-    end
-    if (!BPU_FAST_OVR && !refetch && !ovr_pend_q && ovr) begin
-      ovr_ck_q <= r1_q.ck; ovr_out_q <= fin; ovr_base_q <= r1_q.base;
+      self0_v_q <= self0_v_d;
     end
     if (!rst_n) self0_raw_q <= '0;
     else if (self0_v_d) self0_raw_q <= ah_sram_raw;
@@ -353,12 +330,8 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
   assign ptab_a_len                 = '0;
   assign predict_next_fetch_address = fin.next;
 
-  /* verilator lint_off UNUSEDSIGNAL */
   logic unused_ok;
-  assign unused_ok = ^{g0.ty, fin.slot, fin.ty, fin.rvc, fin.carried,
-                       upd_pc, next_rf_blk, rf_diff, r1_q.ah_hit,
-                       ovr_ck_q, ovr_out_q, ovr_base_q, issue_no_ovr};
-  /* verilator lint_on UNUSEDSIGNAL */
+  assign unused_ok = ^{upd_pc, next_rf_blk[FTB_BLK_ID_W-1:FTB_RF_REC_W]};
 
 endmodule
 `default_nettype wire

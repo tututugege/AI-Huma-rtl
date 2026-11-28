@@ -34,7 +34,6 @@ depth: 待测（由协调者补）
 | AXI 主口 | 读 4 个（0 ICache、1 数据缓存 MSHR、2 未使用 `UNCORE_LSU_R`、3 外设）；写 2 个（0 写回缓冲、1 外设） | `mem_axi.sv` |
 | DDR 从口 | 数据 256 位、地址 32 位、id 6 位 | `mem_top` 端口 |
 | AXI id | CPU 侧主口 4 位（`AX_ID_W`），3 个适配通道（`AX_NCH`：ICache 读、外设读、外设写） | `memcpu_pkg` |
-| 预取开关 | 参数 `PF_EN`（默认 1，传给 `dcache`） | |
 | 外部 MMIO 开关 | 参数 `EXT_MMIO_EN`（默认 0 走仿真 `peripheral_axi`；1 走独立 64-bit 完整 AXI4（单拍传输、真实 `ARSIZE/AWSIZE`）`mmio_*` 绕开 LLC，`chip_top` 开启） | `mem_top.sv` / `mem_periph_wrap.sv` / `mem_mmio_axi.sv` |
 
 ## 3. 接口
@@ -70,10 +69,10 @@ depth: 待测（由协调者补）
 
 | 文件 | 行数 | 职责 |
 | --- | --- | --- |
-| `mem_top.sv` | 397 | 顶层：端口、节拍、各模块连线、两个核侧寄存器 |
+| `mem_top.sv` | 396 | 顶层：端口、节拍、各模块连线、两个核侧寄存器 |
 | `mem_axi.sv` | 237 | AXI 一侧：四个主口的输入整形、实例化 `axi_subsys` 和 `axi_cpu_port_adapter`、把响应拆回各主口 |
-| `mem_periph_wrap.sv` | 184 | 外设路径二选一：`EXT_MMIO_EN = 0` 走仿真 `peripheral_axi`，1 走 `mem_mmio_axi`，保持寄存的响应边界 |
-| `mem_mmio_axi.sv` | 237 | 64-bit 完整 AXI4 MMIO 主口：LSU 的非缓存请求直接变成单拍 AXI4 读写（Device-nGnRnE，精确 `ARSIZE/AWSIZE` 与字节地址），绕开 LLC |
+| `mem_periph_wrap.sv` | 180 | 外设路径二选一：`EXT_MMIO_EN = 0` 走仿真 `peripheral_axi`，1 走 `mem_mmio_axi`，保持寄存的响应边界 |
+| `mem_mmio_axi.sv` | 235 | 64-bit 完整 AXI4 MMIO 主口：LSU 的非缓存请求直接变成单拍 AXI4 读写（Device-nGnRnE，精确 `ARSIZE/AWSIZE` 与字节地址），绕开 LLC |
 | `../memcpu_pkg/memcpu_pkg.sv`（`rtl/memsys/memcpu_pkg/`） | 71 | 共用常量：端口数（`NLD`、`NST`、`P3`）、id 宽度（`LD_ID_W`、`ST_ID_W`、`RT_ID_W`、`FILL_LINE_W`）、路由主人枚举、ReplayType、Sv39 页表常量、遍历器状态枚举、外设和 AXI 适配器常量 |
 
 状态：`phase_q`（4 位）；ICache 探测响应寄存器（valid / retry / miss / 32 位数据）；外设响应保持寄存器（ready / is_mmio / 64 位数据）。其余状态都在各子模块里。
@@ -113,7 +112,7 @@ depth: 待测（由协调者补）。`mem_top` 自己没有逻辑，深度完全
 - **设备**：不在 RTL 内，见 peripheral_axi.md。
 
 代码里看起来不一致的地方（未改，仅记录）：
-- `memcpu_pkg.sv` 里 `NST` 的注释写 "4 store ports"，实际 `LSU_STA_COUNT = 3`；`NLD` 的注释和 `mem_top.sv` 里 "ICache 读主口"、"16 倍频" 的措辞是旧结构的表述；
+- `NLD` 的注释和 `mem_top.sv` 里 "ICache 读主口"、"16 倍频" 的措辞是旧结构的表述；
 - `mem_top.sv` 文件头注释写 "`clk` is the fast tick clock (16 ticks per CPU cycle)"，现行配置是 1 拍；
 - `memcpu_pkg::PT_LEVELS = 3` 但遍历器状态枚举只有 `L1` / `L2` 两组（见 ptw_walk.md 第 4 节）；
 - `mem_axi.sv` 的主口 2（`UNCORE_LSU_R`）整个未使用，只是占位（输入恒 0）。
@@ -129,10 +128,11 @@ depth: 待测（由协调者补）。`mem_top` 自己没有逻辑，深度完全
 
 ## 9. 参数与开关速查
 
-`PF_EN`（`mem_top` 参数，来自 `soc_top`）；`AXI_SUBSYSTEM_FREQ_DIV`（`ttg_cfg_pkg`，决定 `TICKS`）；`LSU_LDU_COUNT`、`LSU_STA_COUNT`、`XLEN_BITS`、`DCACHE_WORD_NUM`、`ICACHE_WORD_NUM`；`memcpu_pkg` 的 `RT_ID_W`、`LD_ID_W`、`ST_ID_W`、`FILL_LINE_W`、`PT_*`、`PA_SIZE_W`、`AX_ID_W`、`AX_NCH`。
+`AXI_SUBSYSTEM_FREQ_DIV`（`ttg_cfg_pkg`，决定 `TICKS`）；`LSU_LDU_COUNT`、`LSU_STA_COUNT`、`XLEN_BITS`、`DCACHE_WORD_NUM`、`ICACHE_WORD_NUM`；`memcpu_pkg` 的 `RT_ID_W`、`LD_ID_W`、`ST_ID_W`、`FILL_LINE_W`、`PT_*`、`PA_SIZE_W`、`AX_ID_W`、`AX_NCH`。
 
 ## 10. 变更记录
 
+- 2026-11-28 清理：删参数 `PF_EN`（默认 1、没人覆盖，L1D 预取器固定开）；`mem_top.sv` 外设注释 AXI4-Lite 改为 AXI4；`memcpu_pkg.sv` `NST` 注释改正（STA 数，3）；删 `mem_mmio_axi.sv`、`mem_periph_wrap.sv` 包住 `unused_*` 的多余 waiver（周期不变）。
 - 2026-11-28（文档核对，无 RTL 变化）：文件表补 `mem_periph_wrap.sv`、`mem_mmio_axi.sv`，`memcpu_pkg.sv` 路径；外部 MMIO 口是完整 AXI4（单拍）不是 AXI4-Lite；rtl 5e5d40f 起没有 `-Wno-UNOPTFLAT`；门禁参考改为 `scripts/ref_cycles.txt`（77 个程序）。
 - 2026-11-26（`rtl/soc-env`）：新增 `EXT_MMIO_EN` 参数及 `mem_periph_wrap.sv`、`mem_mmio_axi.sv`，为 `chip_top` 提供绕开 LLC 的独立 **64-bit Full-AXI4** MMIO 主口（带真实 `ARSIZE/AWSIZE`、`Device-nGnRnE` 属性、1/2/4/8 字节读写及精确字节偏移副作用识别）；`axi_ic_aw.sv` 解耦 `o_bready` 对 `d_bid` 的组合依赖；默认 `EXT_MMIO_EN=0` 保持 `soc_top` 与 `fm_gate` 行为零变化。
 - 2026-11-21（`rtl/fe-2fetch-2taken`，EXP-051 里程碑 B）：`mem_top.sv` 透传 `fdip_snoop_line` / `fdip_snoop_dirty` 连接 `core_top`（ICache FDIP）与 `dcache`；修复 `mem_axi.sv` 在 `AXI_SUBSYSTEM_FREQ_DIV == 1` 下 `raw_accepted[0]` / `raw_accepted_id[0]` 误接组合 `ax_rd_acc_new[0]` 导致 ICache 通道接受脉冲早到 1 拍的问题（改为使用已寄存 `ax_rd_accepted[0]`，严格对齐 `SimCpu` 的 `icache_axi_q` 语义），单拍消除 2-slot FDIP 在 7 个程序上的 1 拍偏差；通过 `lint_chip` 0、`fm_gate` 68/68（0 周期偏差）与 Linux 27 窗对齐。

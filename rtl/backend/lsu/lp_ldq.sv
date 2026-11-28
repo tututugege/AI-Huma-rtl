@@ -84,7 +84,6 @@ module lp_ldq
   output logic [LQ-1:0]       wbp_m,
   output logic [NLD-1:0]      ag_acc,
   output logic [LQ-1:0]       dead_r,
-  output logic [EPW-1:0]      epoch_nx [LQ],
   output logic [LQ-1:0]       rdy9,
   output logic                mi_v,
   output logic [LQW-1:0]      mi_idx,
@@ -120,7 +119,7 @@ module lp_ldq
   // Wake-up of the STLF load that parks at L2b in this cycle (purely registered pl2b -> zero CAM on lp_wk)
   lp_wk_t l2w [NLD];
   for (genvar p = 0; p < NLD; p++) begin : g_l2w
-    lp_wk u_wk (.cause(3'(l2b_dec[p].cause)), .blk(pl2b[p].cand), .wt(l2b_dec[p].wait_c[lsu_pkg::OW-1:0]),
+    lp_wk u_wk (.cause(3'(l2b_dec[p].cause)), .blk(pl2b[p].cand), .wt(l2b_dec[p].wait_c[OW-1:0]),
                 .l_voff(pl2b[p].voff), .l_paddr(pl2b[p].paddr), .l_func3(pl2b[p].func3), .ev_sta(ev_sta),
                 .ev_data(ev_data), .ev_ret(ev_ret), .ev_sc(ev_sc), .alive_post(alive_post),
                 .sta_info(sta_info), .sdw(sdw), .o(l2w[p]));
@@ -202,7 +201,6 @@ module lp_ldq
       .mmw_ok(mmw_ok[e]), .mi_pick(mi_oh[e]),
       .dis(dis),
       .l1_tgt(l1_tgt), .l1_launch(l1_launch), .dead_r(dead_r[e]),
-      .epoch_nx(epoch_nx[e]),
       .ev_sta(ev_sta), .ev_data(ev_data), .ev_ret(ev_ret), .ev_sc(ev_sc), .alive_post(alive_post),
       .sta_info(sta_info), .sdw(sdw), .fill_v(fill_v), .fill_line(fill_line), .l2w(l2w_e), .full_ok(full_ok[e]),
       .full_cand(full_cand[e]), .rdy9(rdy9[e]), .rp_pick(rp_pick[e]),

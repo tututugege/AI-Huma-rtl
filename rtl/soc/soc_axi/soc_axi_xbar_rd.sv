@@ -295,11 +295,9 @@ module soc_axi_xbar_rd import soc_axi_pkg::*; #(
     end
   end
 
-  /* verilator lint_off UNUSEDSIGNAL */
   logic unused_err_ax;
   assign unused_err_ax = &{1'b0, vs_araddr[NS], vs_arsize[NS], vs_arburst[NS], vs_arlock[NS],
                            vs_arcache[NS], vs_arprot[NS], vs_arqos[NS], vs_arregion[NS]};
-  /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule
 

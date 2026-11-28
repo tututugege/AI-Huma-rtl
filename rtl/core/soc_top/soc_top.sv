@@ -4,9 +4,7 @@
 `default_nettype none
 
 module soc_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*;
-#(
-  parameter bit PF_EN = 1'b1      // L1D data prefetcher h1 (EXP-009)
-) (
+(
   input  logic clk,
   input  logic clk_cpu,
   input  logic rst_n,
@@ -171,7 +169,7 @@ module soc_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*;
     .interrupt_inject_software_irq_pending_valid(1'b0),
     .*
   );
-  mem_top #(.PF_EN(PF_EN), .EXT_MMIO_EN(1'b0)) u_mem (
+  mem_top #(.EXT_MMIO_EN(1'b0)) u_mem (
     .clk,
     .rst_n(core_rst_n),
     .mmio_arready(1'b0), .mmio_rvalid(1'b0), .mmio_rid(4'd0), .mmio_rdata(64'd0), .mmio_rresp(2'd0), .mmio_rlast(1'b0),

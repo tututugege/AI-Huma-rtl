@@ -1,4 +1,4 @@
-// Ref: back-end/Lsu/RealLsuPipe.cpp  RealLsu (LSU_MEMSPEC: SPD defer / release in comb_lsu2exe_p, violation check)
+// Ref: back-end/Lsu/RealLsuPipe.cpp  RealLsu (memory speculation: SPD defer / release, violation check)
 `default_nettype none
 
 // Memory-dependence speculation of one LDQ entry, between the write-back step (P5) and the AGU arrival (P6):
@@ -25,11 +25,9 @@ module lp_ent_ms
   input  logic                unk_any,   // some store of the STQ ring has no address yet
   input  logic [SQW-1:0]      unk_rank,  // rank (from the head) of the oldest such store
   input  logic [NST-1:0]      sa_v,      // accepted STA arrivals of this cycle
-  /* verilator lint_off UNUSEDSIGNAL */  // the STA view is used with LSU_MEMSPEC only
   input  logic [SQW-1:0]      sa_rank [NST],
   input  logic [11:0]         sa_voff [NST],
   input  logic [2:0]          sa_f3 [NST],
-  /* verilator lint_on UNUSEDSIGNAL */
   output lp_ld_st_t           st4v,
   output logic                dfr,       // this write-back is deferred (the entry stays)
   output logic                sec4v,     // next value of `second`
@@ -37,41 +35,29 @@ module lp_ent_ms
   output logic                vio_new    // the entry became a violator in this cycle
 );
 
-  if (MS) begin : g_on
-    lp_ld_st_t       st4r;
-    logic            rel, sec4, v_elig;
-    logic [NST-1:0]  ovl, ov12;
-    for (genvar k = 0; k < NST; k++) begin : g_ov
-      lp_ovl #(.W(12)) u_ovl (.lo(f_q.vaddr[11:0]), .lf(f_q.func3), .so(sa_voff[k]), .sf(sa_f3[k]), .ovl(ov12[k]));
-    end
-    logic [CNTW-1:0] older_e;
-    always_comb begin
-      dfr = wb_go && !f_q.second && f_q.spec && !f_q.pf && !f_q.mmio && !f_q.lrsc;
-      older_e = older_cnt(f_q.snap_flag, f_q.snap_idx, head_tag[SQW], head_tag[SQW-1:0], count_q);
-      st4r = st4;
-      if (dfr) st4r = f_q.vio ? LS_RDY : LS_SPD;
-      rel = st4r == LS_SPD && !(wb_go && !wb_go_d) && (!unk_any || older_e <= CNTW'(unk_rank));
-      if (rel) st4r = LS_WBP;
-      sec4 = f_q.second || (dfr && f_q.vio) || rel;
-      v_elig = spec_cur && !f_q.vio && !sec4 &&
-               (st4r == LS_PIPE || st4r == LS_DCW || st4r == LS_WBP || st4r == LS_WB3 || st4r == LS_SPD ||
-                st4r == LS_RPW);   // RPW: a parked load forwards from its blocker when woken, no second CAM pass
-      for (int k = 0; k < NST; k++) ovl[k] = sa_v[k] && CNTW'(sa_rank[k]) < older_e && ov12[k];
-      vio_new = v_elig && (|ovl);
-      st4v = (vio_new && st4r == LS_SPD) ? LS_RDY : st4r;
-      sec4v = sec4 || (vio_new && st4r == LS_SPD);
-      vio_n = f_q.vio || vio_new;
-    end
-  end else begin : g_off
-    /* verilator lint_off UNUSEDSIGNAL */
-    logic unused;
-    assign unused = wb_go ^ wb_go_d ^ (^f_q) ^ spec_cur ^ (^head_tag) ^ (^count_q) ^ unk_any ^ (^unk_rank) ^ (^sa_v);
-    /* verilator lint_on UNUSEDSIGNAL */
-    assign st4v = st4;
-    assign dfr = 1'b0;
-    assign sec4v = f_q.second;
-    assign vio_n = f_q.vio;
-    assign vio_new = 1'b0;
+  lp_ld_st_t       st4r;
+  logic            rel, sec4, v_elig;
+  logic [NST-1:0]  ovl, ov12;
+  for (genvar k = 0; k < NST; k++) begin : g_ov
+    lp_ovl #(.W(12)) u_ovl (.lo(f_q.vaddr[11:0]), .lf(f_q.func3), .so(sa_voff[k]), .sf(sa_f3[k]), .ovl(ov12[k]));
+  end
+  logic [CNTW-1:0] older_e;
+  always_comb begin
+    dfr = wb_go && !f_q.second && f_q.spec && !f_q.pf && !f_q.mmio && !f_q.lrsc;
+    older_e = older_cnt(f_q.snap_flag, f_q.snap_idx, head_tag[SQW], head_tag[SQW-1:0], count_q);
+    st4r = st4;
+    if (dfr) st4r = f_q.vio ? LS_RDY : LS_SPD;
+    rel = st4r == LS_SPD && !(wb_go && !wb_go_d) && (!unk_any || older_e <= CNTW'(unk_rank));
+    if (rel) st4r = LS_WBP;
+    sec4 = f_q.second || (dfr && f_q.vio) || rel;
+    v_elig = spec_cur && !f_q.vio && !sec4 &&
+             (st4r == LS_PIPE || st4r == LS_DCW || st4r == LS_WBP || st4r == LS_WB3 || st4r == LS_SPD ||
+              st4r == LS_RPW);   // RPW: a parked load forwards from its blocker when woken, no second CAM pass
+    for (int k = 0; k < NST; k++) ovl[k] = sa_v[k] && CNTW'(sa_rank[k]) < older_e && ov12[k];
+    vio_new = v_elig && (|ovl);
+    st4v = (vio_new && st4r == LS_SPD) ? LS_RDY : st4r;
+    sec4v = sec4 || (vio_new && st4r == LS_SPD);
+    vio_n = f_q.vio || vio_new;
   end
 
 endmodule

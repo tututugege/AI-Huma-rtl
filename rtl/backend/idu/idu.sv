@@ -21,10 +21,6 @@ module idu
   output logic [DECODE_WIDTH-1:0] idu_consume_fire
 );
 
-  /* verilator lint_off UNUSEDSIGNAL */
-  logic [DECODE_WIDTH-1:0] lane_is_branch;
-  /* verilator lint_on UNUSEDSIGNAL */
-
   // 8-bank FTQ dispatch window guard (Idu.cpp): stop prefix if (ftq_idx - first_ftq) mod 64 >= DECODE_WIDTH
   logic [DECODE_WIDTH-1:0] raw_ok, lane_valid;
   always_comb begin
@@ -50,7 +46,6 @@ module idu
     assign idu_consume_fire[i] = lane_valid[i] && ren2dec_ready && !rob_bcast_flush && !dec_bcast_mispred;
 
     idu_decoder u_dec (
-      .entry_valid(lane_valid[i]),
       .entry_inst(ibuf2idu_entry[i].inst),
       .entry_page_fault_inst(ibuf2idu_entry[i].page_fault_inst),
       .entry_pf_inst_hi(ibuf2idu_entry[i].pf_inst_hi),
@@ -84,8 +79,7 @@ module idu
       .uop_src2_fp(dec2ren_uop[i].src2_fp),
       .uop_src3_en(dec2ren_uop[i].src3_en),
       .uop_src3_areg(dec2ren_uop[i].src3_areg),
-      .uop_fp_cls(dec2ren_uop[i].fp_cls),
-      .is_branch(lane_is_branch[i])
+      .uop_fp_cls(dec2ren_uop[i].fp_cls)
     );
   end
 

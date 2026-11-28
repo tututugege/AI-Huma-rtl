@@ -118,8 +118,8 @@ module tlb_mmu_core import tlb_mmu_pkg::*; import ttg_cfg_pkg::*; #(
       .valid(req_valid[l] && translate), .access_type(FETCH ? ACC_FETCH : (req_is_store[l] ? ACC_STORE : ACC_LOAD)),
       .vaddr(req_vaddr[l]), .satp, .privilege, .mxr, .sum, .mprv, .mpp,
       .table_hit, .table_xlat, .refill0_valid, .refill0(early_refill), .refill1, .walk_vpn(walk0.vpn),
-      .walk_satp(walk0.satp), .ptw_resp_fault(ptw_resp.fault), .ptw_resp_level(ptw_resp.level),
-      .ptw_resp_ppn(ptw_resp.ppn), .ptw_resp_perm(ptw_resp.perm),
+      .walk_satp(walk0.satp), .ptw_resp_fault(ptw_resp.fault),
+      .ptw_resp_perm(ptw_resp.perm),
       .miss0(miss0[l]), .miss1(miss1[l]), .walk_same(walk_same[l]), .resp_perm_ok(resp_perm_ok[l]),
       .walk_new(walk_new[l]), .use_refill1(use_refill1[l]), .retire(retire[l]), .result(resp_result[l]),
       .paddr(resp_paddr[l]), .paddr_p1(resp_paddr_p1[l]), .paddr_m1(resp_paddr_m1[l])
@@ -233,10 +233,8 @@ module tlb_mmu_core import tlb_mmu_pkg::*; import ttg_cfg_pkg::*; #(
   end else begin : g_nopeek
     assign peek_ok[0]    = 1'b0;
     assign peek_paddr[0] = '0;
-    /* verilator lint_off UNUSEDSIGNAL */
     logic unused_pk;
     assign unused_pk = ^peek_vaddr[0];
-    /* verilator lint_on UNUSEDSIGNAL */
   end
 
   always_ff @(posedge clk) begin

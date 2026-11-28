@@ -4,14 +4,14 @@
 // Wake-up of one parked load on the blocking store `blk`: the events of this cycle (STA arrival / retire / SC verdict /
 // STD write) decide whether the load moves to RDY or WBP or changes its park cause.  The STLF confirm uses the
 // broadcast view of the STQ entry (sta_info) and the STD data (sdw).  Used per LDQ entry (registered park information)
-// and, with LP_L2[8], per load port for the load that parks in this very cycle.
+// and per load port for the load that parks in this very cycle.
 module lp_wk
   import ttg_cfg_pkg::*;
   import lp_pkg::*;
 (
   input  logic [2:0]          cause,
   input  logic [SQW-1:0]      blk,
-  input  logic [lsu_pkg::OW-1:0] wt,         // RC_DATA: byte offset of the load inside the store data
+  input  logic [OW-1:0] wt,         // RC_DATA: byte offset of the load inside the store data
   input  logic [11:0]         l_voff,
   input  logic [31:0]         l_paddr,
   input  logic [2:0]          l_func3,
@@ -30,7 +30,7 @@ module lp_wk
   lp_sta_info_t  sel_sta;
   /* verilator lint_on UNUSEDSIGNAL */
   lp_conf_t      conf;
-  logic [lsu_pkg::OW-1:0] off_a;
+  logic [OW-1:0] off_a;
   logic [XLEN_BITS-1:0]   inf_data, std_d;
   always_comb begin
     b_sta = ev_sta[blk];
@@ -46,7 +46,7 @@ module lp_wk
     conf     = stlf_confirm_pre_s(l_voff, l_paddr, l_func3, alive_b, sel_sta.suppress, sel_sta.va_v,
                                   sel_sta.voff, sel_sta.pa_v, sel_sta.paddr, sel_sta.paddr_p1, sel_sta.paddr_m1,
                                   sel_sta.func3, sel_sta.data_v, sel_sta.hold_sc);
-    off_a    = l_paddr[lsu_pkg::OW-1:0] - sel_sta.paddr[lsu_pkg::OW-1:0];
+    off_a    = l_paddr[OW-1:0] - sel_sta.paddr[OW-1:0];
     inf_data = sel_sta.data;
     std_d = '0;
     for (int k = 0; k < NSD; k++) if (sdw[k].v && sdw[k].stq == blk) std_d = sdw[k].data;
@@ -72,7 +72,7 @@ module lp_wk
             CF_FWD: begin
               o.wbp = 1'b1;
               o.res_set = 1'b1;
-              o.res = lsu_pkg::extract_data(inf_data, off_a, l_func3);
+              o.res = extract_data(inf_data, off_a, l_func3);
             end
             default: ;
           endcase
@@ -83,7 +83,7 @@ module lp_wk
         if (b_data) begin
           o.wbp = 1'b1;
           o.res_set = 1'b1;
-          o.res = lsu_pkg::extract_data(std_d, wt, l_func3);
+          o.res = extract_data(std_d, wt, l_func3);
         end else if (b_ret) begin
           o.rdy = 1'b1;
         end

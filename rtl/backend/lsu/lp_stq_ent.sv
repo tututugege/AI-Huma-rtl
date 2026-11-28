@@ -3,7 +3,7 @@
 
 // One STQ entry of the staged LSU (events decoded by the glue, applied in the model's phase order):
 //   P1 commit, P2 MMIO response, P4 DCache store response + fill wake, P5 STA / SC write-back, P6 STD + STA arrival,
-//   P8 DTLB result, P10 allocation, P11 clear_mask, P13 drain, P14 STA replay register.
+//   P8 DTLB result, P10 allocation, P13 drain, P14 STA replay register.
 module lp_stq_ent
   import ttg_cfg_pkg::*;
   import lp_pkg::*;
@@ -54,9 +54,6 @@ module lp_stq_ent
   input  logic                srp_take,
   // views
   output lp_stq_t             q_o,
-  output logic                cv_va,             // CAM view: STA bypass included (after P6)
-  output logic [11:0]         cv_voff,
-  output logic [2:0]          cv_f3,
   output lp_sta_info_t        vw,                // broadcast view with an STA event (after P8)
   output logic                trp_v              // STA DTLB retry pending (after P8)
 );
@@ -163,9 +160,6 @@ module lp_stq_ent
     end
   end
 
-  assign cv_va = va6;
-  assign cv_voff = vaddr6[11:0];
-  assign cv_f3 = f3_6;
   // Pre-DTLB view: lp_core overlays tl_s[k].hit / paddr / paddr_p1 / paddr_m1 directly (cuts u_dtlb -> u_stq/vw 64:1 mux)
   always_comb begin
     vw = '0;

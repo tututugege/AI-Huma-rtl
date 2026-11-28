@@ -108,7 +108,6 @@ depth: 9 层（mem_route，单模块综合，2026-11-18，`SYNTH_ABC="strash;bal
 - 遍历器在等填充时不是立刻重发，而是 `ptw_wait_q` 置位，等下一个 `mshr_fill` 才唤醒（可能已经是几拍之后）；
 - 一个主人刚占过 P3，下一拍无论有无请求都让位，所以 ICache 取指缺失连续探测时，LSU 与它交替。
 
-代码里看起来不一致的地方（未改，仅记录）：`memcpu_pkg.sv` 里 `NST` 的注释写"4 store ports"，实际值是 `LSU_STA_COUNT = 3`。
 
 未核对（继承自旧文档）：无，旧文档内容未带入。
 
@@ -124,5 +123,6 @@ depth: 9 层（mem_route，单模块综合，2026-11-18，`SYNTH_ABC="strash;bal
 
 ## 10. 变更记录
 
+- 2026-11-28 清理：`mem_route.sv` 文件头去掉已删除的 `spec/mem_route.io` 引用；`memcpu_pkg.sv` 的 `NST` 注释已改正（周期不变）。
 - 2026-11-28（文档核对，无 RTL 变化）：文件表行数；门禁参考改为 `scripts/ref_cycles.txt`（77 个程序）。
 本分支未改动（`git log 261bd67..HEAD -- rtl/memsys/mem_route` 为空），更早：`8abb7ab` RTL 清理；`fb05807` rv64 step 2（数据字 XLEN 位）；`b1e0335` EXP-024（第二个 store 字通路）；`17ffdf7` 预取器引入（探测口、LSU 的 load replay 位）；`2d78026` 初次引入。

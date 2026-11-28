@@ -4,7 +4,7 @@
 // LR/SC reservation register.  Rule chain of a cycle: P1 (commit clears spec_q) -> F (SC consumes / LR arms)
 // -> I (page fault of a load or store clears) -> L (mispredict clears if speculative and younger than redirect ROB ptr).
 module lsu_lrsc
-  import lsu_pkg::*;
+  import lp_pkg::*;
 (
   input  logic             clk,
   input  logic             rst_n,
@@ -25,7 +25,7 @@ module lsu_lrsc
 );
   logic alive;
   assign alive = valid_i && !pf_clear &&
-                 !(mispred && spec_i && lsu_rob_younger(rob_idx_i, rob_flag_i, dec_rob_idx, dec_rob_flag));
+                 !(mispred && spec_i && lp_rob_younger(rob_idx_i, rob_flag_i, dec_rob_idx, dec_rob_flag));
 
   always_ff @(posedge clk) begin
     if (!rst_n) begin

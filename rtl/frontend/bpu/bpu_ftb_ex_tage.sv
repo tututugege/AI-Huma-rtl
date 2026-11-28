@@ -14,9 +14,7 @@ module bpu_ftb_ex_tage import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stag
   output logic [15:0][3:0]      use_alt_o,
   // Single-cycle pure commit write (Meta + WRBypass; base comes from u_ftb1 ctr)
   input  logic                  upd_en,
-  /* verilator lint_off UNUSEDSIGNAL */
   input  ex_tage_ix_t           upd_ix,
-  /* verilator lint_on UNUSEDSIGNAL */
   input  logic [FTB_SLOT_W-1:0] upd_sl,
   input  logic                  upd_real_dir,
   input  logic [1:0]            upd_base_ctr,

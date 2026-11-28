@@ -53,7 +53,7 @@ depth: TSMC 28nm HPC+ DC `tlb_mmu_bb` WNS `−0.03 ns`（`1.89 GHz`）/ `25` 级
 | 入 | `csr_status_satp [XLEN_BITS]`、`csr_status_privilege [1:0]`、`csr_status_mstatus_mxr / _sum / _mprv`、`csr_status_mstatus_mpp [1:0]` | 翻译上下文 |
 | 入 | `rob_bcast_fence`、`rob_bcast_flush`、`dec_bcast_mispred` | `fence` 清表；`cancel = rob_bcast_flush \|\| dec_bcast_mispred`。`back_top` 接的是 `rob_fence_q` 和 `rob_flush_q`，即全局 flush 和 fence 晚一拍（docs/FLUSH_REG.md），误预测不晚 |
 | 入 | `ptw_walk_req_ready`、`ptw_walk_resp_valid / _fault / _vpn [27] / _leaf_ppn [20] / _leaf_perm [8] / _leaf_level [2]` | PTW 的 walk 端口：能否接受请求、响应（出错，或叶子的 ppn / perm / level） |
-| 出 | `resp_valid / resp_result [1:0] / resp_hit / resp_paddr [31:0] / resp_entry_idx [IDX_W]  [LSU_AGU_COUNT]` | 响应：`resp_valid = req_valid && translate`；`resp_result`：0 未命中（还在走遍历，请再试）、1 命中、2 缺页；`resp_hit = resp_valid && result == 命中`（`back_top` 里接到未使用的 `nc_mmu2lsu_resp_hit`）；`resp_entry_idx` 是请求的项号原样带回 |
+| 出 | `resp_valid / resp_result [1:0] / resp_paddr [31:0] / resp_entry_idx [IDX_W]  [LSU_AGU_COUNT]` | 响应：`resp_valid = req_valid && translate`；`resp_result`：0 未命中（还在走遍历，请再试）、1 命中、2 缺页；`resp_entry_idx` 是请求的项号原样带回 |
 | 出 | `ptw_walk_req_valid / _req_vpn [27] / _req_root_ppn [21:0]` | 遍历请求：页号和 `satp[21:0]`（根页表） |
 | 出 | `ptw_walk_resp_consumed`、`ptw_walk_flush` | 本拍消费了 PTW 的响应；本拍 fence 或 cancel，让 PTW 丢弃在途遍历 |
 | 出 | `resp_paddr_p1 / resp_paddr_m1 [28:0] [LSU_AGU_COUNT]` | 物理地址 `paddr[31:3] ± 1`，随翻译结果并行给出（EXP-070），LSU 跨 8 字节访问不再自己做加法 |
@@ -76,10 +76,10 @@ depth: TSMC 28nm HPC+ DC `tlb_mmu_bb` WNS `−0.03 ns`（`1.89 GHz`）/ `25` 级
 
 | 文件 | 行数 | 职责 |
 | --- | --- | --- |
-| `tlb_mmu_pkg.sv` | 195 | 常量、类型（`tlb_mmu_tag_t / _xlat_t / _entry_t / _walk_t / _ptw_resp_t`）、权限检查 `perm_ok`、标签匹配 `tag_match`、物理地址合成 `compose_paddr`、`satp_on / satp_asid`、规范地址检查 `va_canonical`、有效特权级 `effective_priv` |
+| `tlb_mmu_pkg.sv` | 196 | 常量、类型（`tlb_mmu_tag_t / _xlat_t / _entry_t / _walk_t / _ptw_resp_t`）、权限检查 `perm_ok`、标签匹配 `tag_match`、物理地址合成 `compose_paddr`、`satp_on / satp_asid`、规范地址检查 `va_canonical`、有效特权级 `effective_priv` |
 | `tlb_mmu.sv` | 101 | 顶层：端口适配，实例化 `tlb_mmu_core`（`FETCH = 0`、`ENTRIES = DTLB_ENTRIES`），`cancel = flush \|\| mispred` |
-| `tlb_mmu_core.sv` | 260 | N 口翻译核心（DTLB 和 ITLB 共用）：模式选择、提前退休、A / B 两次选择、walk 寄存器、回填和 PTW 端口输出 |
-| `tlb_mmu_lane.sv` | 152 | 一个口自己能算的部分：直通 / 非规范 / 命中 / 缺失、权限、两种回填视图下的结果；最后按核心的选择出结果 |
+| `tlb_mmu_core.sv` | 258 | N 口翻译核心（DTLB 和 ITLB 共用）：模式选择、提前退休、A / B 两次选择、walk 寄存器、回填和 PTW 端口输出 |
+| `tlb_mmu_lane.sv` | 146 | 一个口自己能算的部分：直通 / 非规范 / 命中 / 缺失、权限、两种回填视图下的结果；最后按核心的选择出结果 |
 | `tlb_mmu_lookup.sv` | 38 | 一个口的查表：64 项并行比较，最低下标优先（`ttg_first_set`），`ttg_onehot_mux` 选翻译 |
 | `tlb_mmu_early.sv` | 33 | walk 的响应已到时的提前退休：用 walk 寄存器里保存的上下文判权限，产生本拍回填 |
 | `tlb_mmu_store.sv` | 71 | TLB 阵列：valid 向量 + 项 + 轮转替换指针；只由回填写，fence 清 valid 和指针 |
@@ -144,7 +144,6 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 
 - 文件头的 `Ref:` 注释仍引用旧模型函数名（`TlbMmu::top_comb / translate_lsu_ports / flush / cancel_pending_walk / core_comb / lookup_table_comb / consume_completed_walk_refill`、`BackTop::comb_lsu_mmu`、"reference model commit 2f31e8d"），现行 `TlbMmu.cpp` 里是 `comb / translate_one / take_completed_walk / make_refill / seq`，语义对应但名字已不存在；
 - `tlb_mmu_pkg.sv` 里 `RV64 = 0`（Sv32）的各分支现行配置不用；
-- `tlb_mmu.sv` 的 `resp_hit` 输出在 `back_top` 里接到未使用的 `nc_mmu2lsu_resp_hit`，没有消费者；
 - 没有模块级测试（`tests/tlb_par` 已删除，第 8 节）。
 
 未核对（继承自旧文档）：旧文档 `docs/modules/tlb_mmu.md` 的验证部分（73 个真实程序的 trace、34 个变异体及其被谁抓到的表）描述的是已退役的 trace 回放体系，没有采用；其中"PTW 只用 `req.vaddr[31:12]` 和 `req.satp[21:0]`"这类 PTW 侧的消费者核对没有在本次重新验证（RTL 里 `ptw_walk_req_vpn` 27 位、`ptw_walk_req_root_ppn` 22 位与此一致，但没有读 PTW 一侧）。
@@ -164,6 +163,7 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 
 ## 10. 变更记录
 
+- 2026-11-28 清理：删 `tlb_mmu_lane` 只被异或吸收的输入 `ptw_resp_level / ptw_resp_ppn` 及 `tlb_mmu_core` 对它们的驱动、`tlb_mmu_core` 一处无效 waiver；`tlb_mmu_pkg` 的 UNUSEDPARAM waiver 收窄到常量段（周期不变）。另删没有消费者的输出 `resp_hit`。
 - 2026-11-28（文档核对，无 RTL 变化）：ITLB 现在 `NPEEK = 1`；`tests/tlb_par` 已在 64d5dbb 删除；接口补 `resp_paddr_p1/m1`、`pf_page_*`、`walk_next_*`；文件表行数；门禁参考改为 `scripts/ref_cycles.txt`（77 个程序）。
 - 2026-11-28（`rtl/exu-clean`，EXP-072）：`tlb_mmu.sv` DTLB 口数随 `LSU_AGU_COUNT = 5`（真 5 物理口）统一口径并微调端口注释/参数映射，零逻辑行为变化；通过 `lint` 0、strict+SVA `fm_gate` 77/77、`soc_gate --linux` 12/12 与 Linux 26/26 窗对齐。
 - 2026-11-21（`rtl/fe-2fetch-2taken`，EXP-051 里程碑 B）：`tlb_mmu_core` 新增参数化只读 CAM peek 读口 `NPEEK`（DTLB `NPEEK=0` 零改动；ITLB `NPEEK=2` 服务双块 B 与 FDIP，先查同拍 `refill_end` 再查表，零额外 PTW walker）。Yosys 综合 `tlb_mmu` 46,624 单元 / 61 层（不变）；通过 `lint_chip` 0、`fm_gate` 68/68 与 Linux 27 窗对齐。

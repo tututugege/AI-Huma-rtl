@@ -5,7 +5,6 @@ package csr_pkg;
   import ttg_cfg_pkg::*;
 
   // ---- stored registers (sstatus / sie / sip are views of mstatus / mie / mip and are not stored) ----
-  localparam bit FP_EN = (FPRF_NUM != 0);   // F/D: fflags / frm / fcsr, mstatus.FS / SD
   localparam int NREG = 19;
   localparam int R_MTVEC    = 0;
   localparam int R_MEPC     = 1;
@@ -31,22 +30,21 @@ package csr_pkg;
   // (F/D adds F(5) and D(3); RVC=1 adds C(2))
   localparam logic [63:0] MISA_C = (RVC_ENABLE != 0) ? 64'h4 : 64'h0;
   localparam logic [XLEN_BITS-1:0] MISA_RESET =
-      XLEN_BITS'(64'h8000000000141103 | (FP_EN ? 64'h28 : 64'h0) | MISA_C);
+      XLEN_BITS'(64'h8000000000141103 | 64'h28 | MISA_C);
 
   // mstatus reset: rv64 UXL = SXL = 2
 
   localparam logic [XLEN_BITS-1:0] MSTATUS_RESET = XLEN_BITS'(64'hA00000000);
 
   // ---- CSR address table: address, backing register, write mask, read mask ----
-  localparam int NENT_MAX = 24;                   // 21 integer-core CSRs + fflags / frm / fcsr
-  localparam int NENT = FP_EN ? NENT_MAX : 21;   // active table entries
-  localparam logic [11:0] ENT_ADDR [NENT_MAX] = '{
+  localparam int NENT = 24;                       // 21 integer-core CSRs + fflags / frm / fcsr
+  localparam logic [11:0] ENT_ADDR [NENT] = '{
     12'h305, 12'h341, 12'h342, 12'h304, 12'h344, 12'h343, 12'h340, 12'h300, 12'h303, 12'h302,
     12'h141, 12'h105, 12'h142, 12'h140, 12'h143, 12'h180, 12'hf14, 12'h301,
     12'h100, 12'h104, 12'h144,
     12'h001, 12'h002, 12'h003
   };
-  localparam int ENT_REG [NENT_MAX] = '{
+  localparam int ENT_REG [NENT] = '{
     R_MTVEC, R_MEPC, R_MCAUSE, R_MIE, R_MIP, R_MTVAL, R_MSCRATCH, R_MSTATUS, R_MIDELEG, R_MEDELEG,
     R_SEPC, R_STVEC, R_SCAUSE, R_SSCRATCH, R_STVAL, R_SATP, R_MHARTID, R_MISA,
     R_MSTATUS, R_MIE, R_MIP,
@@ -67,32 +65,32 @@ package csr_pkg;
   localparam logic [XLEN_BITS-1:0] SIP_WMASK     = XLEN_BITS'(32'h00000002);  // SSIP
   localparam logic [XLEN_BITS-1:0] ALL_ONES      = '1;
   // view masks (CSR-visible bits, before the shift into the stored register)
-  localparam logic [XLEN_BITS-1:0] ENT_WMASK [NENT_MAX] = '{
+  localparam logic [XLEN_BITS-1:0] ENT_WMASK [NENT] = '{
     ALL_ONES, ALL_ONES, ALL_ONES, MIE_WMASK, MIE_WMASK, ALL_ONES, ALL_ONES, MSTATUS_WMASK, DELEG_MASK, ALL_ONES,
     ALL_ONES, ALL_ONES, ALL_ONES, ALL_ONES, ALL_ONES, ALL_ONES, ALL_ONES, ALL_ONES,
     SSTATUS_WMASK, DELEG_MASK, SIP_WMASK,
     XLEN_BITS'(32'h1F), XLEN_BITS'(32'h7), XLEN_BITS'(32'hFF)
   };
-  localparam logic [XLEN_BITS-1:0] ENT_RMASK [NENT_MAX] = '{
+  localparam logic [XLEN_BITS-1:0] ENT_RMASK [NENT] = '{
     ALL_ONES, ALL_ONES, ALL_ONES, ALL_ONES, ALL_ONES, ALL_ONES, ALL_ONES, ALL_ONES, ALL_ONES, ALL_ONES,
     ALL_ONES, ALL_ONES, ALL_ONES, ALL_ONES, ALL_ONES, ALL_ONES, ALL_ONES, ALL_ONES,
     SSTATUS_MASK, DELEG_MASK, DELEG_MASK,
     XLEN_BITS'(32'h1F), XLEN_BITS'(32'h7), XLEN_BITS'(32'hFF)
   };
   // bit position of the CSR's bit 0 inside the stored register (frm sits above fflags in fcsr)
-  localparam int ENT_SHIFT [NENT_MAX] = '{
+  localparam int ENT_SHIFT [NENT] = '{
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     0, 5, 0
   };
   // views of mstatus that show the derived SD bit (mstatus, sstatus)
-  localparam logic ENT_SD [NENT_MAX] = '{
+  localparam logic ENT_SD [NENT] = '{
     1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b1, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0,
     1'b1, 1'b0, 1'b0,
     1'b0, 1'b0, 1'b0
   };
   localparam int MSTATUS_FS = 13;   // [14:13]
   // entries that are additionally masked by mideleg (sie, sip)
-  localparam logic ENT_DELEG [NENT_MAX] = '{
+  localparam logic ENT_DELEG [NENT] = '{
     1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0,
     1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0,
     1'b0, 1'b1, 1'b1,

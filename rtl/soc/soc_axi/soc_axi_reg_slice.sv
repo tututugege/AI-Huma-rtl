@@ -6,8 +6,7 @@
 module soc_axi_reg_slice #(
   parameter int DATA_W = 64,
   parameter int ADDR_W = 32,
-  parameter int ID_W   = 6,
-  parameter bit BYPASS = 1'b0
+  parameter int ID_W   = 6
 ) (
   input  logic                clk,
   input  logic                rst_n,
@@ -99,7 +98,7 @@ module soc_axi_reg_slice #(
   localparam int W_W    = DATA_W + STRB_W + 1;
   localparam int B_W    = ID_W + 2;
 
-  soc_axi_skid #(.WIDTH(AX_W), .BYPASS(BYPASS)) u_ar (
+  soc_axi_skid #(.WIDTH(AX_W)) u_ar (
     .clk, .rst_n,
     .s_valid(s_arvalid), .s_ready(s_arready),
     .s_data({s_arid, s_araddr, s_arlen, s_arsize, s_arburst, s_arlock, s_arcache, s_arprot, s_arqos, s_arregion}),
@@ -107,7 +106,7 @@ module soc_axi_reg_slice #(
     .m_data({m_arid, m_araddr, m_arlen, m_arsize, m_arburst, m_arlock, m_arcache, m_arprot, m_arqos, m_arregion})
   );
 
-  soc_axi_skid #(.WIDTH(R_W), .BYPASS(BYPASS)) u_r (
+  soc_axi_skid #(.WIDTH(R_W)) u_r (
     .clk, .rst_n,
     .s_valid(m_rvalid), .s_ready(m_rready),
     .s_data({m_rid, m_rdata, m_rresp, m_rlast}),
@@ -115,7 +114,7 @@ module soc_axi_reg_slice #(
     .m_data({s_rid, s_rdata, s_rresp, s_rlast})
   );
 
-  soc_axi_skid #(.WIDTH(AX_W), .BYPASS(BYPASS)) u_aw (
+  soc_axi_skid #(.WIDTH(AX_W)) u_aw (
     .clk, .rst_n,
     .s_valid(s_awvalid), .s_ready(s_awready),
     .s_data({s_awid, s_awaddr, s_awlen, s_awsize, s_awburst, s_awlock, s_awcache, s_awprot, s_awqos, s_awregion}),
@@ -123,7 +122,7 @@ module soc_axi_reg_slice #(
     .m_data({m_awid, m_awaddr, m_awlen, m_awsize, m_awburst, m_awlock, m_awcache, m_awprot, m_awqos, m_awregion})
   );
 
-  soc_axi_skid #(.WIDTH(W_W), .BYPASS(BYPASS)) u_w (
+  soc_axi_skid #(.WIDTH(W_W)) u_w (
     .clk, .rst_n,
     .s_valid(s_wvalid), .s_ready(s_wready),
     .s_data({s_wdata, s_wstrb, s_wlast}),
@@ -131,7 +130,7 @@ module soc_axi_reg_slice #(
     .m_data({m_wdata, m_wstrb, m_wlast})
   );
 
-  soc_axi_skid #(.WIDTH(B_W), .BYPASS(BYPASS)) u_b (
+  soc_axi_skid #(.WIDTH(B_W)) u_b (
     .clk, .rst_n,
     .s_valid(m_bvalid), .s_ready(m_bready),
     .s_data({m_bid, m_bresp}),

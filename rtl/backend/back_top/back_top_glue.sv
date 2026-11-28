@@ -32,7 +32,9 @@ module back_top_glue
   input  logic [XLEN_BITS-1:0] ftq_commit_pc [COMMIT_WIDTH],
   input  logic [XLEN_BITS-1:0] ftq_commit_next_pc [COMMIT_WIDTH],
   input  logic        ftq_commit_is_rvc [COMMIT_WIDTH],
+  /* verilator lint_off UNUSEDSIGNAL */   // waiver: only MXR / SUM / MPRV / MPP are read here
   input  logic [XLEN_BITS-1:0] csr_status_mstatus,
+  /* verilator lint_on UNUSEDSIGNAL */
   input  logic [6:0]  rob_commit_commit_entry_uop_func7 [COMMIT_WIDTH],
   output logic        out_mispred,
   output logic        out_no_mispred,  // qualifies out_stall in the boundary spec (stall is stale on redirect cycles)
@@ -100,12 +102,6 @@ module back_top_glue
   assign csr_status_mstatus_sum  = csr_status_mstatus[18];
   assign csr_status_mstatus_mprv = csr_status_mstatus[17];
   assign csr_status_mstatus_mpp  = csr_status_mstatus[12:11];
-
-  // the other mstatus bits are not read here (they leave the chip through csr_status_mstatus)
-  /* verilator lint_off UNUSEDSIGNAL */
-  logic [XLEN_BITS-1:0] mstatus_other_bits;
-  /* verilator lint_on UNUSEDSIGNAL */
-  assign mstatus_other_bits = csr_status_mstatus & ~XLEN_BITS'(32'h000E_1800);
 
 endmodule
 

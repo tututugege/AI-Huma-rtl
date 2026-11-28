@@ -272,7 +272,7 @@ int main(int argc, char **argv) {
 #ifdef SOC_FP
       const unsigned fp_tag_base = sizeof(top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__u_prf__DOT__u_regfile__DOT__reg_file_q)
                                  / sizeof(top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__u_prf__DOT__u_regfile__DOT__reg_file_q[0]);
-      if (c.fp) fval = top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__u_prf__DOT__g_fp__DOT__u_fp__DOT__reg_file_q[c.fpreg - fp_tag_base];   // FP_TAG_BASE
+      if (c.fp) fval = top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__u_prf__DOT__u_fp__DOT__reg_file_q[c.fpreg - fp_tag_base];   // FP_TAG_BASE
 #endif
       if (!fm.commit(cyc, c.pc, c.rd, val, c.fp, c.frd, fval, c.pf, &c.st)) {
         auto &R = *top->rootp; const auto &g = R.soc_top__DOT__u_core__DOT__u_back__DOT__u_csr__DOT__regs;
@@ -392,7 +392,7 @@ auto tick = [&](int phase) {
 #if defined(SOC_TB_DEBUG) && defined(SOC_LSU_PIPE)
     if (phase == 0 && running && std::getenv("SOC_TB_LSUEVT")) {   // per-cycle LSU boundary events (same format as the model's LSU_PIPE_EVT)
       auto *R = top->rootp;
-#define LSUP(n) R->soc_top__DOT__u_core__DOT__u_back__DOT__u_lsu__DOT__u_pipe__DOT__##n
+#define LSUP(n) R->soc_top__DOT__u_core__DOT__u_back__DOT__u_lsu__DOT__##n
       std::fprintf(stderr, "E t=%llu wb:", (unsigned long long)cycles + 1);
       for (int p = 0; p < LSU_LDU_COUNT; ++p) if (LSUP(lsu2exe_wb_req_valid) >> p & 1) std::fprintf(stderr, " %d=r%d/p%d/e%d/f%d", p, (int)LSUP(lsu2exe_wb_req_uop_rob_idx)[p], (int)LSUP(lsu2exe_wb_req_uop_dest_preg)[p], (int)(LSUP(lsu2exe_wb_req_uop_dest_en) >> p & 1), (int)(LSUP(lsu2exe_wb_req_uop_rob_flag) >> p & 1)),
         std::fprintf(stderr, "/v%x/d%x/f%d%d", (unsigned)LSUP(lsu2exe_wb_req_uop_result)[p], (unsigned)LSUP(lsu2exe_wb_req_uop_diag_val)[p],
@@ -425,10 +425,10 @@ auto tick = [&](int phase) {
       std::fprintf(stderr, " ai:");
       for (int p = 0; p < 8; ++p) if (LSUP(lsu2dis_ldq_alloc_valid) >> p & 1) std::fprintf(stderr, " %d", (int)LSUP(lsu2dis_ldq_alloc_idx)[p]);
       std::fprintf(stderr, " x:");
-      for (int p = 0; p < LSU_SDU_COUNT; ++p) if (top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__u_lsu__DOT__u_pipe__DOT__exe2lsu_sdu_req_valid >> p & 1)
+      for (int p = 0; p < LSU_SDU_COUNT; ++p) if (top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__u_lsu__DOT__exe2lsu_sdu_req_valid >> p & 1)
         std::fprintf(stderr, " D%d=%d", p, (int)LSUP(exe2lsu_sdu_req_uop_stq_idx)[p]);
       if (const char *si = std::getenv("SOC_TB_STQ")) {
-        const auto &fld = R->soc_top__DOT__u_core__DOT__u_back__DOT__u_lsu__DOT__u_pipe__DOT__u_core__DOT__sq[std::atoi(si)];
+        const auto &fld = R->soc_top__DOT__u_core__DOT__u_back__DOT__u_lsu__DOT__u_core__DOT__sq[std::atoi(si)];
         auto bit = [&](int k) { return (int)((fld[k / 32] >> (k % 32)) & 1u); };
         constexpr int kBase = 3 + 2 + 64 + 1 + 7 + 7 + 3 + 32 + 32 + 32;  // = done bit (LSB first: rwait rtype br rob_flag rob_idx dest func3 data paddr vaddr)
         std::fprintf(stderr, " Q[%s]: va=%d pa=%d dv=%d pf=%d wbp=%d wbd=%d cmt=%d iss=%d done=%d", si, bit(kBase + 14), bit(kBase + 13), bit(kBase + 12), bit(kBase + 11), bit(kBase + 5), bit(kBase + 4), bit(kBase + 3), bit(kBase + 2), bit(kBase));
@@ -522,7 +522,7 @@ auto tick = [&](int phase) {
                                                          top->rob_commit_commit_entry_uop_type[i], (unsigned long long)top->ftq_commit_info_resp_pc[i]);
           if (top->rob_commit_commit_entry_uop_type[i] == kUopEbreak) {
             // SOC_TB_SEMIHOST: the ebreak of the semihosting marker sequence (slli x0,x0,0x1f; ebreak; srai x0,x0,7) is a breakpoint
-            // exception for the core (RTL built with TTG_EBREAK_TRAP), not the end of the program; same rule as the function model.
+            // exception for the core (the RTL always traps on EBREAK), not the end of the program; same rule as the function model.
             const uint32_t epc = uint32_t(top->ftq_commit_info_resp_pc[i]);
             const bool marker = semihost && pmem_read(epc - 4) == 0x01f01013u && pmem_read(epc + 4) == 0x40705013u;
             if (!marker) done = true;
@@ -531,7 +531,7 @@ auto tick = [&](int phase) {
           if (top->rob_commit_commit_entry_uop_type[i] == kInstStore && !ttg_getbit(top->rob_commit_commit_entry_uop_page_fault_store, i)) {
             // lp_pkg::lp_stq_t (packed, first field = MSB): va_v pa_v data_v pf mmio lrsc sc_pass suppress trp wbp wbd cmt iss mmw done
             // vaddr paddr data func3 dest_preg rob_idx rob_flag rtype[2] rwait[3]
-            const auto &fld = top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__u_lsu__DOT__u_pipe__DOT__u_core__DOT__sq[top->rob_commit_commit_entry_uop_stq_idx[i]];
+            const auto &fld = top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__u_lsu__DOT__u_core__DOT__sq[top->rob_commit_commit_entry_uop_stq_idx[i]];
             auto bits = [&](int lo, int w) { uint64_t v = 0; for (int b = 0; b < w; ++b) { int k = lo + b; v |= uint64_t((fld[k / 32] >> (k % 32)) & 1u) << b; } return v; };
             constexpr int kRtype = 3, kRobFlag = kRtype + 2, kRobIdx = kRobFlag + 1, kDest = kRobIdx + kCfg_ROB_IDX_WIDTH,
                           kFunc3 = kDest + kCfg_PRF_IDX_WIDTH, kData = kFunc3 + 3, kPaddr = kData + kXlen, kVaddr = kPaddr + 32, kDone = kVaddr + kXlen;

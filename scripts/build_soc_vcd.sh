@@ -2,7 +2,7 @@
 # build_soc_vcd.sh [输出目录]   带整核波形导出的 rv64 核测试平台 core_tb（tb/core/build.sh；调试用，不是回归用：Verilator --trace 构建慢、仿真慢）。
 #   运行：SOC_TB_VCD=<起始周期>:<结束周期>:<文件> <输出目录>/obj/core_tb <镜像> <周期上限>，只在这个周期窗口内导出所有信号（窗口控制在几十个周期，文件不会大）。
 #   查询：scripts/vcd_query.py <文件> --list <正则> / <正则>...  （按层次名取信号，逐周期打印变化）
-#   与 build_soc64_linux.sh 相同：逐条 function-model 检查、默认 4 线程（EBREAK_TRAP 在 rob_pkg 里默认开）；FMLIB 必填，TM_DIR、THREADS、JOBS 同。
+#   与 build_soc64_linux.sh 相同：逐条 function-model 检查、默认 4 线程（EBREAK 总是陷入）；FMLIB 必填，TM_DIR、THREADS、JOBS 同。
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd); . "$ROOT/scripts/env.sh"
 OUT=${1:-$ROOT/build/core64vcd}; THREADS=${THREADS:-4}

@@ -17,10 +17,8 @@ module dispatch
   input  logic                          rob2dis_ready,
   input  logic                          rob2dis_empty,
   input  logic                          rob2dis_stall,
-  /* verilator lint_off UNUSEDSIGNAL */
   input  logic [ROB_IDX_WIDTH-1:0]      rob2dis_enq_idx,
   input  logic [ROB_IDX_WIDTH:0]        rob2dis_free,
-  /* verilator lint_on UNUSEDSIGNAL */
   input  logic                          rob2dis_rob_flag,
   input  logic [IQ_READY_NUM_WIDTH-1:0] iss2dis_ready_num [IQ_NUM],
   input  logic [5:0]                    lsu2dis_stq_tail,
@@ -28,7 +26,6 @@ module dispatch
   input  logic [6:0]                    lsu2dis_stq_free,
   input  logic [6:0]                    lsu2dis_ldq_free,
   input  logic [5:0]                    lsu2dis_ldq_alloc_idx [DECODE_WIDTH],
-  input  logic [DECODE_WIDTH-1:0]       lsu2dis_ldq_alloc_valid,
   input  logic [MAX_WAKEUP_PORTS-1:0]   iss_awake_wake_valid,
   input  logic [PRF_IDX_WIDTH-1:0]      iss_awake_wake_preg [MAX_WAKEUP_PORTS],
   input  logic [ALU_NUM-1:0]            iss_awake_cancel_valid,
@@ -61,10 +58,8 @@ module dispatch
   dis_inst_t                rob_inst [NUM_SLOTS];
   dis_res_t                 rob_res  [NUM_SLOTS];
   logic [CPLT_MASK_W-1:0]   rob_expect_mask [NUM_SLOTS];
-  /* verilator lint_off UNUSEDSIGNAL */
   logic [2:0]               unused_st_func3 [STQ_PORTS];
   logic [STQ_PORTS-1:0]     unused_st_stq_flag;
-  /* verilator lint_on UNUSEDSIGNAL */
   logic [NUM_WAKE-1:0]      wake_valid;
   logic [PRF_IDX_WIDTH-1:0] wake_preg [NUM_WAKE];
 
@@ -135,7 +130,7 @@ module dispatch
     .rob_expect_mask(rob_expect_mask), .ready_num(iss2dis_ready_num),
     .req_valid(dis2iss_req_valid), .req_uop(dis2iss_req_uop),
     .stq_tail(lsu2dis_stq_tail), .stq_tail_flag(lsu2dis_stq_tail_flag), .stq_free(lsu2dis_stq_free),
-    .ldq_free(lsu2dis_ldq_free), .ldq_alloc_idx(lsu2dis_ldq_alloc_idx), .ldq_alloc_valid(lsu2dis_ldq_alloc_valid),
+    .ldq_free(lsu2dis_ldq_free), .ldq_alloc_idx(lsu2dis_ldq_alloc_idx),
     .st_req(dis2lsu_alloc_req), .st_func3(unused_st_func3), .st_rob_idx(dis2lsu_rob_idx),
     .st_rob_flag(dis2lsu_rob_flag), .st_stq_flag(unused_st_stq_flag),
     .ld_req(dis2lsu_ldq_alloc_req), .ld_idx(dis2lsu_ldq_idx),
@@ -153,11 +148,11 @@ module dispatch
         dest_areg:       rob_inst[i].dest_areg,
         src1_areg:       rob_inst[i].src1_areg,
         dest_fp:         rob_inst[i].dest_fp,
-        fs_need:         FP_EN && ((rob_inst[i].itype == INST_FPOP) ||
-                                   (rob_inst[i].itype == INST_LOAD && rob_inst[i].dest_fp) ||
-                                   (rob_inst[i].itype == INST_STORE && rob_inst[i].src2_fp) ||
-                                   (rob_inst[i].itype == INST_CSR && rob_inst[i].csr_idx >= CSR_IDX_WIDTH'(1) &&
-                                    rob_inst[i].csr_idx <= CSR_IDX_WIDTH'(3))),
+        fs_need:         (rob_inst[i].itype == INST_FPOP) ||
+                         (rob_inst[i].itype == INST_LOAD && rob_inst[i].dest_fp) ||
+                         (rob_inst[i].itype == INST_STORE && rob_inst[i].src2_fp) ||
+                         (rob_inst[i].itype == INST_CSR && rob_inst[i].csr_idx >= CSR_IDX_WIDTH'(1) &&
+                          rob_inst[i].csr_idx <= CSR_IDX_WIDTH'(3)),
         ftq_idx:         rob_inst[i].ftq_idx,
         ftq_offset:      rob_inst[i].ftq_offset,
         ftq_is_last:     rob_inst[i].ftq_is_last,

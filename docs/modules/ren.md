@@ -32,7 +32,7 @@ depth: 91 层（Yosys 156,986 cells）；**TSMC 28nm HPC+ DC `ssg0p81v125c` `0.5
 | 整数物理寄存器 | 256（标号 0..255；初始空闲 256 - 33 = 223 个） | `PRF_NUM = 256` |
 | 浮点架构 / 物理寄存器 | 32 / 96（标号从 256 起；初始空闲 96 - 32 = 64 个；总编号宽 9 位） | `FP_ARF_NUM = 32`、`FPRF_NUM = 96`、`FP_TAG_BASE = 256`、`PRF_IDX_WIDTH = 9` |
 | 分支标签 | 32 个（标签 0 表示"不是分支"，不使用），每个标签一份恢复点 | `MAX_BR_NUM = 32`、`BR_TAG_WIDTH = 5` |
-| 移动消除 | 开；引用次数不设上限（一个物理寄存器最多被 `RAT_NUM = 33` 项引用，计数不会溢出） | `MOVE_ELIM = 1`；计数宽度 `ren_pkg::CNT_W = $clog2(RAT_NUM + 1) = 6`。`ttg_cfg_pkg` 里仍有 `MOVE_ELIM_MAX_REFS = 7`（从模型生成），RTL 不再使用（EXP-065 删除上限） |
+| 移动消除 | 总是开（RTL 不读 `MOVE_ELIM`）；引用次数不设上限（一个物理寄存器最多被 `RAT_NUM = 33` 项引用，计数不会溢出） | 计数宽度 `ren_pkg::CNT_W = $clog2(RAT_NUM + 1) = 6`。`ttg_cfg_pkg` 里仍有 `MOVE_ELIM_MAX_REFS = 7`（从模型生成），RTL 不再使用（EXP-065 删除上限） |
 
 AMO 暂存寄存器：IDU 把"丢弃结果的读改写 AMO"的目的寄存器号改成 32（`idu_ctrl_decode.sv` 输出段，对应模型 `Idu::decode` 末尾），所以 RAT 要多一项。
 
@@ -68,22 +68,22 @@ AMO 暂存寄存器：IDU 把"丢弃结果的读改写 AMO"的目的寄存器号
 
 | 文件 | 行数 | 职责 |
 | --- | --- | --- |
-| `ren_pkg.sv` | 173 | 结构体、move 形状判断 `ren_is_move_shape`、复位值函数 |
+| `ren_pkg.sv` | 143 | 结构体、move 形状判断 `ren_is_move_shape`、复位值函数 |
 | `ren.sv` | 52 | 顶层：端口适配 |
-| `ren_core.sv` | 355 | 连接各子块；整数域的握手与输出拼装 |
+| `ren_core.sv` | 329 | 连接各子块；整数域的握手与输出拼装 |
 | `ren_inst_pipe.sv` | 135 | 输入寄存器与 S1 预译码级（RAT 读写地址一热码、move 形状、同组 RAW/WAW 命中矩阵） |
 | `ren_alloc_sel.sv` | 45 | 分配：8 个"取最先请求者"串起来，第 k 个请求者拿窗口第 k 项（整数域和浮点域共用） |
 | `ren_handshake.sv` | 47 | 按序卡住与 fire |
-| `ren_rat.sv` | 184 | 推测 / 架构 RAT（读写都用 S1 预译码的一热地址） |
+| `ren_rat.sv` | 180 | 推测 / 架构 RAT（读写都用 S1 预译码的一热地址） |
 | `ren_dep_check.sv` | 80 | 整数域的同组旁路 |
-| `ren_elim_sel.sv` | 90 | 移动消除的判定（3 级指针跳跃） |
+| `ren_elim_sel.sv` | 88 | 移动消除的判定（3 级指针跳跃） |
 | `ren_arch_cnt.sv` | 73 | 每个整数物理寄存器的"被架构 RAT 引用次数" |
 | `ren_commit_filter.sv` | 38 | 哪些退休项算"退休一个目的寄存器" |
 | `ren_rank.sv` | 27 | 选中的退休槽的序号和总数（空闲表写偏移） |
-| `ren_free_list.sv` | 159 | 整数空闲表（8 bank 1R1W 环，3 个指针） |
+| `ren_free_list.sv` | 157 | 整数空闲表（8 bank 1R1W 环，3 个指针） |
 | `ren_ckpt.sv` | 50 | 稀疏检查点存储（`REN_CKPT_NUM = 4` 项） |
-| `ren_ckpt_ctl.sv` | 283 | 检查点 FIFO 控制（分支间距 ≥ `REN_CKPT_INTERVAL = 32` 才分配）、误预测恢复与 8 宽前向 Walk 状态机 |
-| `ren_log.sv` | 142 | 本地按 ROB 号索引的重命名日志（`ROB_NUM = 256` 项，8 bank × `ROB_LINE_NUM = 32` 行，1R1W），存 `dest_preg` / `old_dest_preg` / 是否被消除，供 Walk 与退休回收 |
+| `ren_ckpt_ctl.sv` | 282 | 检查点 FIFO 控制（分支间距 ≥ `REN_CKPT_INTERVAL = 32` 才分配）、误预测恢复与 8 宽前向 Walk 状态机 |
+| `ren_log.sv` | 140 | 本地按 ROB 号索引的重命名日志（`ROB_NUM = 256` 项，8 bank × `ROB_LINE_NUM = 32` 行，1R1W），存 `dest_preg` / `old_dest_preg` / 是否被消除，供 Walk 与退休回收 |
 | `ren_last_write.sv` | 31 | "同一拍多个写者，编号大的赢"的优先选择，多处复用 |
 | `ren_fp.sv`、`ren_fp_dep.sv`、`ren_fp_free_list.sv` | 184、42、143 | 浮点域 |
 
@@ -165,10 +165,11 @@ RTL 与模型的实现差别（行为等价）：
 
 ## 9. 参数与开关速查
 
-`DECODE_WIDTH`、`COMMIT_WIDTH`、`ARF_NUM`、`PRF_NUM`、`FPRF_NUM`、`FP_ARF_NUM`、`FP_TAG_BASE`、`MAX_BR_NUM`、`MOVE_ELIM`、`REN_CKPT_NUM`、`REN_CKPT_INTERVAL`（`MOVE_ELIM_MAX_REFS` 仍在包里但 RTL 不用）。`ttg_cfg_pkg.sv` 由 `make cfg`（`harness/tools/gen_cfg_pkg.py`，从 trace-model `include/config.h`）生成，不手改。
+`DECODE_WIDTH`、`COMMIT_WIDTH`、`ARF_NUM`、`PRF_NUM`、`FPRF_NUM`、`FP_ARF_NUM`、`FP_TAG_BASE`、`MAX_BR_NUM`、`REN_CKPT_NUM`、`REN_CKPT_INTERVAL`（`MOVE_ELIM_MAX_REFS` 仍在包里但 RTL 不用）。`ttg_cfg_pkg.sv` 由 `make cfg`（`harness/tools/gen_cfg_pkg.py`，从 trace-model `include/config.h`）生成，不手改。
 
 ## 10. 变更记录
 
+- 2026-11-28 清理：移动消除写死开（`ren_core` 删 `g_no_elim` / `g_no_cnt`，不再读 `ttg_cfg_pkg::MOVE_ELIM`）；F/D 写死（删 `g_no_fp`，`ren_pkg::FPN = FPRF_NUM`）；`ren_ckpt_ctl` 删未用输出 `rd_base`（只用 `rd_base_next`）；`ren_pkg` 删未用的 `rat_identity`、`fp_rat_identity`、`free_list_init`、`fp_free_list_init`；删不抑制任何告警的 lint 豁免（`ren_elim_sel` / `ren_free_list` / `ren_log` 各 1 处、`ren_rat` 2 处；`unused_*` 汇本身 Verilator 不报，以去掉豁免后整树 lint 普通 / `-DSYNTHESIS` 均无新告警为准）（周期不变）。
 - 2026-11-28（文档核对，无 RTL 变化）：移动消除不再有 `MOVE_ELIM_MAX_REFS` 上限（`CNT_W = 6`，EXP-065）；稀疏检查点 `REN_CKPT_NUM = 4`、`ren_log`、`ren_ckpt_ctl` 写进结构与文件表；`PRF_NUM = 256` 下的位宽；接口去掉 `br_id / br_mask / clear_mask`；第 8 节加 `tests/ren_elim_sel`；`ttg_cfg_pkg` 为生成文件；门禁参考改为 `scripts/ref_cycles.txt`（77 个程序）。
 - 2026-11-28（`rtl/fe-2ahead`，0 周期变化）：`ren_elim_sel` 的指针跳跃各级改成各自的生成块信号（`g_st[s].c / v / inv / g_p.ptr`），第 `s+1` 级只读第 `s` 级，消除整核 Verilator `UNOPTFLAT`（原来 `[ST+1]` 下标的数组是一个信号，经动态下标形成假环）；最后一级不再算指针。`tests/ren_elim_sel/run.sh` 改写为按定义的 C++ 参考模型 200 万次随机对拍（原测试用的是旧端口，已编不过）：新、旧实现都 PASS，`^` 改成 `~^` 的变异第 0 组即报错。
 

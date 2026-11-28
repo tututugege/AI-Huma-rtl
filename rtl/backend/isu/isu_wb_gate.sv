@@ -23,7 +23,6 @@ module isu_wb_gate
   input  logic [ISSUE_WIDTH-1:0] reserve,          // the port's pick is granted (after every gate)
   input  logic [LSU_LDU_COUNT-1:0] reserve_spec_mask [ISSUE_WIDTH],
   /* verilator lint_on UNUSEDSIGNAL */
-  output logic [ISSUE_WIDTH-1:0] port_ok,          // the pick's completion cycle is free
   output logic [WB_NCLS-1:0]     cls_free [ISSUE_WIDTH]   // per port and class: that class's completion cycle is free (registered only)
 );
 
@@ -39,7 +38,6 @@ module isu_wb_gate
         assign cls_free[p][c] = 1'b1;
       end
     end
-    assign port_ok[p] = !(|(cls_1h[p] & ~cls_free[p]));
     assign busy[0] = 1'b0;
     assign busy[M] = 1'b0;
     if (M >= 2) begin : g_q

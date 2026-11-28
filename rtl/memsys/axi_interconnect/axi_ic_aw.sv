@@ -146,10 +146,8 @@ module axi_ic_aw
   assert property (@(posedge clk) disable iff (!rst_n) !(b_hs && (d_bid != w_q.id)))
     else $error("axi_ic_aw: B response ID mismatch (got %0d, expected %0d)", d_bid, w_q.id);
 `endif
-  /* verilator lint_off UNUSEDSIGNAL */
   logic [5:0] unused_bid;
   assign unused_bid = d_bid;
-  /* verilator lint_on UNUSEDSIGNAL */
 endmodule
 
 `default_nettype wire

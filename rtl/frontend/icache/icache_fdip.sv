@@ -274,11 +274,9 @@ module icache_fdip import ttg_cfg_pkg::*; import icache_pkg::*; (
     end
   end
 
-  /* verilator lint_off UNUSEDSIGNAL */
   logic unused_fdip;
   assign unused_fdip = ^{peek_paddr[IC_OFF_W-1:0], peek_arr_pa[11:0], pair_miss_va[IC_OFF_W-1:0],
                          s2_va[IC_OFF_W-1:0], probe_pa_q[IC_OFF_W-1:0]};
-  /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule
 `default_nettype wire

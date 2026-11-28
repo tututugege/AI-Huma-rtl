@@ -197,7 +197,6 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
   logic [4:0]                         checker_keep_n, pd_nslots;
 
   predecode_checker u_checker (
-    .clk, .rst_n,
     .multi                                (hf_multi),
     .in_range                             (hf_in_range),
     .seg_first                            (hf_seg_first),
@@ -229,7 +228,7 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
 
   always_comb begin
     logic [FETCH_WIDTH-1:0] disc_pc, set_nt, clr_nt;
-    logic [FETCH_WIDTH-1:0] g0, p0, g1, p1, g2, p2, g3, p3, g4, p4;
+    logic [FETCH_WIDTH-1:0] g0, p0, g1, p1, g2, p2, g3, p3, g4;
 
     disc_pc[0] = 1'b0;
     set_nt[0]  = 1'b1;
@@ -255,13 +254,11 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
       p3[i] = (i >= 4) ? (p2[i] & p2[i - 4])           : p2[i];
     end
     for (int i = 0; i < FETCH_WIDTH; i++) begin
-      g4[i] = (i >= 8) ? (g3[i] | (p3[i] & g3[i - 8])) : g3[i];
-      p4[i] = (i >= 8) ? (p3[i] & p3[i - 8])           : p3[i];
+      g4[i] = (i >= 8) ? (g3[i] | (p3[i] & g3[i - 8])) : g3[i];   // last level: no propagate term needed
     end
 
     pd_cut_valid = g4 & pd_raw_valid;
     for (int i = 0; i < FETCH_WIDTH; i++) pd_rev_v[i] = pd_cut_valid[FETCH_WIDTH - 1 - i];
-    if (1'b0) pd_rev_v[0] = |p4; // silence unused p4
   end
 
   ttg_first_set #(.N(FETCH_WIDTH)) u_pd_ns_fs (.req(pd_rev_v), .onehot(pd_rev_oh), .any(pd_any_cut));

@@ -18,24 +18,19 @@ module prf
   input  logic                          dec_bcast_redirect_rob_flag,
   input  logic                          rob_bcast_flush,
   input  logic [ISSUE_WIDTH-1:0]        iss2prf_valid,
-  /* verilator lint_off UNUSEDSIGNAL */   // waiver: domain/port-specific fields are read only by their matching lanes
   input  isu_uop_t                      iss2prf_uop      [ISSUE_WIDTH],
   input  logic [ALU_NUM-1:0]            iss2prf_src1_byp [ISSUE_WIDTH],
   input  logic [ALU_NUM-1:0]            iss2prf_src2_byp [ISSUE_WIDTH],
-  /* verilator lint_on UNUSEDSIGNAL */
   input  xc_prf_wb_t                    exe2prf          [WB_LANES],
   // LSU write-back requests of this cycle as a bypass source (speculative L2 load wake-up)
   input  logic [LSU_LOAD_WB_WIDTH-1:0]  lsu_byp_valid,
   input  logic [PRF_IDX_WIDTH-1:0]      lsu_byp_dest_preg [LSU_LOAD_WB_WIDTH],
   input  logic [XLEN_BITS-1:0]          lsu_byp_result    [LSU_LOAD_WB_WIDTH],
-  /* verilator lint_off UNUSEDSIGNAL */   // waiver: only the F/D load path reads it
   input  logic [LSU_LOAD_WB_WIDTH-1:0]  lsu_byp_is_w,
-  /* verilator lint_on UNUSEDSIGNAL */
   input  logic [XLEN_BITS-1:0]          ftq_prf_pc_resp_resp_pc [FTQ_PRF_PC_PORT_NUM],
   input  logic [FTQ_PRF_PC_PORT_NUM-1:0] ftq_prf_pc_resp_resp_pred_taken,
   input  logic [FTQ_PRF_PC_PORT_NUM-1:0] ftq_prf_pc_resp_resp_is_rvc,
   input  logic [XLEN_BITS-1:0]          ftq_prf_pc_resp_resp_next_pc [FTQ_PRF_PC_PORT_NUM],
-  output logic [FTQ_PRF_PC_PORT_NUM-1:0] ftq_prf_pc_req_req_valid,
   output logic [FTQ_IDX_WIDTH-1:0]      ftq_prf_pc_req_req_ftq_idx [FTQ_PRF_PC_PORT_NUM],
   output logic [FTQ_OFFSET_WIDTH-1:0]   ftq_prf_pc_req_req_ftq_offset [FTQ_PRF_PC_PORT_NUM],
   output logic [LSU_LOAD_WB_WIDTH-1:0]  prf_awake_wake_valid,
@@ -48,7 +43,6 @@ module prf
   localparam int NIP = ISSUE_WIDTH;
   localparam int WL  = WB_LANES;
   localparam logic [UOP_TYPE_WIDTH-1:0] UOP_LOAD = UOP_TYPE_WIDTH'(3);
-  localparam bit HAS_LSU_BYP = 1'b1;
 
   logic [WL-1:0]             exe_valid_vec, exe_dest_en_vec, exe_is_load_vec, exe_rob_flag_vec;
   logic [PRF_IDX_WIDTH-1:0]  exe_dest_preg [WL];
@@ -61,17 +55,15 @@ module prf
   logic [WL-1:0]             wb_rob_flag_q;
   logic [PRF_NUM-1:0]        reg_wr_en;
   logic [XLEN_BITS-1:0]      reg_wr_data  [PRF_NUM];
-  logic [BRU_NUM-1:0]        br_valid_vec;
-  logic [UOP_TYPE_WIDTH-1:0] br_op [BRU_NUM];
 
   function automatic bit lane_is_fp(int i);
-    return FP_EN && (i >= IQ_FP_PORT_BASE);
+    return i >= IQ_FP_PORT_BASE;
   endfunction
   function automatic bit lane_is_agu(int i);
     return (i >= IQ_AGU_PORT_BASE) && (i < IQ_AGU_PORT_BASE + LSU_AGU_COUNT);
   endfunction
   function automatic bit lane_is_std(int i);
-    return FP_EN && (i >= IQ_STD_PORT_BASE) && (i < IQ_STD_PORT_BASE + LSU_SDU_COUNT);
+    return (i >= IQ_STD_PORT_BASE) && (i < IQ_STD_PORT_BASE + LSU_SDU_COUNT);
   endfunction
   function automatic bit int_rd_need(int s, int i);
     if (lane_is_fp(i)) return 1'b0;
@@ -217,7 +209,7 @@ module prf
   );
 
   for (genvar r = 0; r < N_INT_RD; r++) begin : g_rd
-    prf_bypass #(.WBL(WL), .EXU_N(ALU_NUM), .HAS_LSU_BYP(HAS_LSU_BYP)) u_bypass (
+    prf_bypass #(.WBL(WL), .EXU_N(ALU_NUM)) u_bypass (
       .src_en         (int_rd_en[r]),
       .src_preg       (int_rd_preg[r]),
       .rf_data        (int_rf_data[r]),
@@ -234,8 +226,8 @@ module prf
   end
 
   // ---- F/D: FP register file ----
-  localparam int FP_LANES = FP_EN ? (ISSUE_WIDTH - IQ_FP_PORT_BASE) : 0;
-  localparam int NRD      = FP_EN ? (3 * FP_LANES + LSU_SDU_COUNT) : 1;
+  localparam int FP_LANES = ISSUE_WIDTH - IQ_FP_PORT_BASE;
+  localparam int NRD      = 3 * FP_LANES + LSU_SDU_COUNT;
   function automatic bit wl_fpu(int l);
     return (l >= WB_FP_BASE) || (l < WB_LD_BASE && isu_pkg::port_has(isu_pkg::MASK_FPD, IQ_ALU_PORT_BASE + l));
   endfunction
@@ -250,132 +242,105 @@ module prf
     return n;
   endfunction
 
-  if (FP_EN) begin : g_fp
-    logic [NRD-1:0]           fp_rd_en;
-    logic [PRF_IDX_WIDTH-1:0] fp_rd_preg [NRD];
-    logic [FW-1:0]            fp_rd_data [NRD];
-    for (genvar i = 0; i < NIP; i++) begin : g_lane
-      if (lane_is_fp(i)) begin : g_fp_lane
-        localparam int B = fp_rd_base(i);
-        assign fp_rd_en[B]     = iss2prf_uop[i].src1_en && iss2prf_uop[i].src1_fp;
-        assign fp_rd_en[B+1]   = iss2prf_uop[i].src2_en && iss2prf_uop[i].src2_fp;
-        assign fp_rd_en[B+2]   = iss2prf_uop[i].src3_en;
-        assign fp_rd_preg[B]   = iss2prf_uop[i].src1_preg;
-        assign fp_rd_preg[B+1] = iss2prf_uop[i].src2_preg;
-        assign fp_rd_preg[B+2] = iss2prf_uop[i].src3_preg;
-        assign fsrc[0][i]      = fp_rd_data[B];
-        assign fsrc[1][i]      = fp_rd_data[B+1];
-        assign fsrc[2][i]      = fp_rd_data[B+2];
-      end else if (lane_is_std(i)) begin : g_std_lane
-        localparam int B = fp_rd_base(i);
-        assign fp_rd_en[B]   = iss2prf_uop[i].src2_en && iss2prf_uop[i].src2_fp;
-        assign fp_rd_preg[B] = iss2prf_uop[i].src2_preg;
-        assign fsrc[0][i]    = '0;
-        assign fsrc[1][i]    = fp_rd_data[B];
-        assign fsrc[2][i]    = '0;
-      end else begin : g_other
-        assign fsrc[0][i] = '0;
-        assign fsrc[1][i] = '0;
-        assign fsrc[2][i] = '0;
-      end
-    end
-    localparam int FDIV_LANE = WB_FP_BASE + FP_LANES - 1;
-    localparam int FP_BYP_N  = 1 + (HAS_LSU_BYP ? LSU_LOAD_WB_WIDTH : 0);
-    logic [FP_BYP_N-1:0]      fp_byp_wen;
-    logic [PRF_IDX_WIDTH-1:0] fp_byp_preg [FP_BYP_N];
-    logic [FW-1:0]            fp_byp_fres [FP_BYP_N];
-    assign fp_byp_wen[0]  = exe2prf[FDIV_LANE].valid && exe2prf[FDIV_LANE].dest_en;
-    assign fp_byp_preg[0] = exe2prf[FDIV_LANE].dest_preg;
-    assign fp_byp_fres[0] = exe2prf[FDIV_LANE].fresult;
-    for (genvar k = 0; k < LSU_LOAD_WB_WIDTH; k++) begin : g_lsu_fres
-      assign fp_byp_wen[1 + k]  = lsu_byp_valid[k];
-      assign fp_byp_preg[1 + k] = lsu_byp_dest_preg[k];
-      assign fp_byp_fres[1 + k] = fp_load_data(lsu_byp_result[k], lsu_byp_is_w[k]);
-    end
-`ifndef SYNTHESIS
-    int fpu_writes;
-    always_comb begin
-      fpu_writes = 0;
-      for (int l = 0; l < WL; l++)
-        if (wl_fpu(l) && wb_wen_q[l] && wb_dest_preg_q[l] >= PRF_IDX_WIDTH'(FP_TAG_BASE)) fpu_writes++;
-    end
-    always_ff @(posedge clk)
-      if (rst_n && fpu_writes > isu_pkg::FP_WB_PORTS)
-        $display("[FPWB] %0d FP-unit register writes in one cycle (t=%0t)", fpu_writes, $time);
-`endif
-    localparam int NLD = LSU_LOAD_WB_WIDTH;
-    localparam int NU  = isu_pkg::port_count(isu_pkg::MASK_FPD);
-    localparam int NC  = (isu_pkg::FP_WB_PORTS == 0 || isu_pkg::FP_WB_PORTS > NU) ? NU : isu_pkg::FP_WB_PORTS;
-    localparam int FPL = NLD + NC;
-    logic [FW-1:0]            ld_fres_q [NLD];
-    logic [FW-1:0]            u_fres_q  [NU];
-    logic [NU-1:0]            u_w;
-    logic [PRF_IDX_WIDTH-1:0] u_dest [NU];
-    for (genvar k = 0; k < NLD; k++) begin : g_ldq
-      always_ff @(posedge clk) ld_fres_q[k] <= !rst_n ? '0 : exe2prf[WB_LD_BASE + k].fresult;
-    end
-    for (genvar l = 0; l < WL; l++) begin : g_u
-      if (wl_fpu(l)) begin : g_is
-        localparam int K = wl_fpu_rank(l);
-        always_ff @(posedge clk) u_fres_q[K] <= !rst_n ? '0 : exe2prf[l].fresult;
-        assign u_w[K]    = wb_wen_q[l] && (wb_dest_preg_q[l] >= PRF_IDX_WIDTH'(FP_TAG_BASE));
-        assign u_dest[K] = wb_dest_preg_q[l];
-      end
-    end
-    logic [FPL-1:0]           fw_wen;
-    logic [PRF_IDX_WIDTH-1:0] fw_dest [FPL];
-    logic [FW-1:0]            fw_fres [FPL];
-    for (genvar k = 0; k < NLD; k++) begin : g_ldw
-      assign fw_wen[k]  = wb_wen_q[WB_LD_BASE + k];
-      assign fw_dest[k] = wb_dest_preg_q[WB_LD_BASE + k];
-      assign fw_fres[k] = ld_fres_q[k];
-    end
-    logic [NU-1:0] u_left [NC+1];
-    assign u_left[0] = u_w;
-    for (genvar j = 0; j < NC; j++) begin : g_cw
-      logic [NU-1:0] sel;
-      ttg_first_set #(.N(NU)) u_pick (.req(u_left[j]), .onehot(sel), .any(fw_wen[NLD + j]));
-      assign u_left[j+1] = u_left[j] & ~sel;
-      ttg_onehot_mux #(.N(NU), .W(PRF_IDX_WIDTH)) u_md (.sel(sel), .data(u_dest), .out(fw_dest[NLD + j]));
-      ttg_onehot_mux #(.N(NU), .W(FW)) u_mf (.sel(sel), .data(u_fres_q), .out(fw_fres[NLD + j]));
-    end
-    /* verilator lint_off UNUSEDSIGNAL */
-    logic unused_u_left;
-    assign unused_u_left = |u_left[NC];
-    /* verilator lint_on UNUSEDSIGNAL */
-    prf_fp #(.LANES(FPL), .BYP_NUM(FP_BYP_N), .NRD(NRD)) u_fp (
-      .clk, .rst_n, .wb_wen(fw_wen), .wb_dest_preg(fw_dest), .wb_fres_q(fw_fres),
-      .byp_wen(fp_byp_wen), .byp_dest_preg(fp_byp_preg), .byp_fresult(fp_byp_fres),
-      .rd_en(fp_rd_en), .rd_preg(fp_rd_preg), .rd_data(fp_rd_data)
-    );
-  end else begin : g_no_fp
-    for (genvar i = 0; i < NIP; i++) begin : g_zero
+  logic [NRD-1:0]           fp_rd_en;
+  logic [PRF_IDX_WIDTH-1:0] fp_rd_preg [NRD];
+  logic [FW-1:0]            fp_rd_data [NRD];
+  for (genvar i = 0; i < NIP; i++) begin : g_fp_rd
+    if (lane_is_fp(i)) begin : g_fp_lane
+      localparam int B = fp_rd_base(i);
+      assign fp_rd_en[B]     = iss2prf_uop[i].src1_en && iss2prf_uop[i].src1_fp;
+      assign fp_rd_en[B+1]   = iss2prf_uop[i].src2_en && iss2prf_uop[i].src2_fp;
+      assign fp_rd_en[B+2]   = iss2prf_uop[i].src3_en;
+      assign fp_rd_preg[B]   = iss2prf_uop[i].src1_preg;
+      assign fp_rd_preg[B+1] = iss2prf_uop[i].src2_preg;
+      assign fp_rd_preg[B+2] = iss2prf_uop[i].src3_preg;
+      assign fsrc[0][i]      = fp_rd_data[B];
+      assign fsrc[1][i]      = fp_rd_data[B+1];
+      assign fsrc[2][i]      = fp_rd_data[B+2];
+    end else if (lane_is_std(i)) begin : g_std_lane
+      localparam int B = fp_rd_base(i);
+      assign fp_rd_en[B]   = iss2prf_uop[i].src2_en && iss2prf_uop[i].src2_fp;
+      assign fp_rd_preg[B] = iss2prf_uop[i].src2_preg;
+      assign fsrc[0][i]    = '0;
+      assign fsrc[1][i]    = fp_rd_data[B];
+      assign fsrc[2][i]    = '0;
+    end else begin : g_other
       assign fsrc[0][i] = '0;
       assign fsrc[1][i] = '0;
       assign fsrc[2][i] = '0;
     end
   end
-
-  // ---- FTQ PC read: 2 PC-ALU lanes (Port 0, Port 2) + BRU lanes -> FTQ_PRF_PC_PORT_NUM ports ----
-  localparam int NPC_ALU = FTQ_PRF_PC_PORT_NUM - BRU_NUM;
-  logic [NPC_ALU-1:0]        pc_alu_valid_vec, pc_alu_src1_is_pc_vec;
-  logic [UOP_TYPE_WIDTH-1:0] pc_alu_op [NPC_ALU];
-  assign pc_alu_valid_vec[0]      = iss2prf_valid[IQ_ALU_PORT_BASE];
-  assign pc_alu_src1_is_pc_vec[0] = iss2prf_uop[IQ_ALU_PORT_BASE].src1_is_pc;
-  assign pc_alu_op[0]             = iss2prf_uop[IQ_ALU_PORT_BASE].op;
-  assign pc_alu_valid_vec[1]      = iss2prf_valid[IQ_ALU_PORT_BASE + 2];
-  assign pc_alu_src1_is_pc_vec[1] = iss2prf_uop[IQ_ALU_PORT_BASE + 2].src1_is_pc;
-  assign pc_alu_op[1]             = iss2prf_uop[IQ_ALU_PORT_BASE + 2].op;
-  for (genvar i = 0; i < BRU_NUM; i++) begin : g_br_pc
-    assign br_valid_vec[i] = iss2prf_valid[IQ_BR_PORT_BASE + i];
-    assign br_op[i]        = iss2prf_uop[IQ_BR_PORT_BASE + i].op;
+  localparam int FDIV_LANE = WB_FP_BASE + FP_LANES - 1;
+  localparam int FP_BYP_N  = 1 + LSU_LOAD_WB_WIDTH;
+  logic [FP_BYP_N-1:0]      fp_byp_wen;
+  logic [PRF_IDX_WIDTH-1:0] fp_byp_preg [FP_BYP_N];
+  logic [FW-1:0]            fp_byp_fres [FP_BYP_N];
+  assign fp_byp_wen[0]  = exe2prf[FDIV_LANE].valid && exe2prf[FDIV_LANE].dest_en;
+  assign fp_byp_preg[0] = exe2prf[FDIV_LANE].dest_preg;
+  assign fp_byp_fres[0] = exe2prf[FDIV_LANE].fresult;
+  for (genvar k = 0; k < LSU_LOAD_WB_WIDTH; k++) begin : g_lsu_fres
+    assign fp_byp_wen[1 + k]  = lsu_byp_valid[k];
+    assign fp_byp_preg[1 + k] = lsu_byp_dest_preg[k];
+    assign fp_byp_fres[1 + k] = fp_load_data(lsu_byp_result[k], lsu_byp_is_w[k]);
   end
-
-  prf_pc_port #(.UOP_TYPE_WIDTH(UOP_TYPE_WIDTH), .NALU(NPC_ALU), .NBR(BRU_NUM)) u_pc_port (
-    .alu_valid (pc_alu_valid_vec), .alu_op(pc_alu_op), .alu_src1_is_pc (pc_alu_src1_is_pc_vec),
-    .br_valid  (br_valid_vec),     .br_op,
-    .req_valid (ftq_prf_pc_req_req_valid)
+`ifndef SYNTHESIS
+  int fpu_writes;
+  always_comb begin
+    fpu_writes = 0;
+    for (int l = 0; l < WL; l++)
+      if (wl_fpu(l) && wb_wen_q[l] && wb_dest_preg_q[l] >= PRF_IDX_WIDTH'(FP_TAG_BASE)) fpu_writes++;
+  end
+  always_ff @(posedge clk)
+    if (rst_n && fpu_writes > isu_pkg::FP_WB_PORTS)
+      $display("[FPWB] %0d FP-unit register writes in one cycle (t=%0t)", fpu_writes, $time);
+`endif
+  localparam int NLD = LSU_LOAD_WB_WIDTH;
+  localparam int NU  = isu_pkg::port_count(isu_pkg::MASK_FPD);
+  localparam int NC  = (isu_pkg::FP_WB_PORTS > NU) ? NU : isu_pkg::FP_WB_PORTS;
+  localparam int FPL = NLD + NC;
+  logic [FW-1:0]            ld_fres_q [NLD];
+  logic [FW-1:0]            u_fres_q  [NU];
+  logic [NU-1:0]            u_w;
+  logic [PRF_IDX_WIDTH-1:0] u_dest [NU];
+  for (genvar k = 0; k < NLD; k++) begin : g_ldq
+    always_ff @(posedge clk) ld_fres_q[k] <= !rst_n ? '0 : exe2prf[WB_LD_BASE + k].fresult;
+  end
+  for (genvar l = 0; l < WL; l++) begin : g_u
+    if (wl_fpu(l)) begin : g_is
+      localparam int K = wl_fpu_rank(l);
+      always_ff @(posedge clk) u_fres_q[K] <= !rst_n ? '0 : exe2prf[l].fresult;
+      assign u_w[K]    = wb_wen_q[l] && (wb_dest_preg_q[l] >= PRF_IDX_WIDTH'(FP_TAG_BASE));
+      assign u_dest[K] = wb_dest_preg_q[l];
+    end
+  end
+  logic [FPL-1:0]           fw_wen;
+  logic [PRF_IDX_WIDTH-1:0] fw_dest [FPL];
+  logic [FW-1:0]            fw_fres [FPL];
+  for (genvar k = 0; k < NLD; k++) begin : g_ldw
+    assign fw_wen[k]  = wb_wen_q[WB_LD_BASE + k];
+    assign fw_dest[k] = wb_dest_preg_q[WB_LD_BASE + k];
+    assign fw_fres[k] = ld_fres_q[k];
+  end
+  logic [NU-1:0] u_left [NC+1];
+  assign u_left[0] = u_w;
+  for (genvar j = 0; j < NC; j++) begin : g_cw
+    logic [NU-1:0] sel;
+    ttg_first_set #(.N(NU)) u_pick (.req(u_left[j]), .onehot(sel), .any(fw_wen[NLD + j]));
+    assign u_left[j+1] = u_left[j] & ~sel;
+    ttg_onehot_mux #(.N(NU), .W(PRF_IDX_WIDTH)) u_md (.sel(sel), .data(u_dest), .out(fw_dest[NLD + j]));
+    ttg_onehot_mux #(.N(NU), .W(FW)) u_mf (.sel(sel), .data(u_fres_q), .out(fw_fres[NLD + j]));
+  end
+  logic unused_u_left;
+  assign unused_u_left = |u_left[NC];
+  prf_fp #(.LANES(FPL), .BYP_NUM(FP_BYP_N), .NRD(NRD)) u_fp (
+    .clk, .rst_n, .wb_wen(fw_wen), .wb_dest_preg(fw_dest), .wb_fres_q(fw_fres),
+    .byp_wen(fp_byp_wen), .byp_dest_preg(fp_byp_preg), .byp_fresult(fp_byp_fres),
+    .rd_en(fp_rd_en), .rd_preg(fp_rd_preg), .rd_data(fp_rd_data)
   );
+
+  // ---- FTQ PC read: 2 PC-ALU lanes (Port 0, Port 2) + BRU lanes -> FTQ_PRF_PC_PORT_NUM ports; the FTQ reads every
+  // port every cycle (no request valid), a lane uses the answer only when its uop needs the PC ----
+  localparam int NPC_ALU = FTQ_PRF_PC_PORT_NUM - BRU_NUM;
 
   for (genvar p = 0; p < FTQ_PRF_PC_PORT_NUM; p++) begin : g_port
     localparam int LANE = (p == 0) ? IQ_ALU_PORT_BASE

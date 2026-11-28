@@ -32,8 +32,6 @@ module tlb_mmu_lane import tlb_mmu_pkg::*; import ttg_cfg_pkg::*; (
   input  logic [VPN_W-1:0]    walk_vpn,
   input  logic [XLEN_BITS-1:0] walk_satp,
   input  logic                ptw_resp_fault,
-  input  logic [LVL_W-1:0]    ptw_resp_level,
-  input  logic [PPN_W-1:0]    ptw_resp_ppn,
   input  logic [PERM_W-1:0]   ptw_resp_perm,
   // ---- port-local facts (to the core) ----
   output logic                miss0,         // needs the walk, seeing refill view 0
@@ -116,10 +114,6 @@ module tlb_mmu_lane import tlb_mmu_pkg::*; import ttg_cfg_pkg::*; (
   logic [31:0] paddr0, paddr1, paddr_ret;
   logic [28:0] paddr0_p1, paddr1_p1, paddr_ret_p1;
   logic [28:0] paddr0_m1, paddr1_m1, paddr_ret_m1;
-  /* verilator lint_off UNUSEDSIGNAL */
-  logic        nc_ptw_lvl_ppn;
-  assign nc_ptw_lvl_ppn = (^ptw_resp_level) ^ (^ptw_resp_ppn);
-  /* verilator lint_on UNUSEDSIGNAL */
   always_comb begin
     port_result(rm0, refill0.xlat, result0, paddr0, paddr0_p1, paddr0_m1);
     port_result(rm1, refill1.xlat, result1, paddr1, paddr1_p1, paddr1_m1);

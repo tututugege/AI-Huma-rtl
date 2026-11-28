@@ -81,6 +81,7 @@ depth: 9 层 / 227 单元（axi_cpu_port_adapter，单模块综合，2026-11-21�
 
 ## 10. 变更记录
 
+- 2026-11-28 清理：`axi_cpu_port_adapter.sv` 文件头去掉已删除的 `spec/axi_cpu_port_adapter.io` 引用（周期不变）。
 - 2026-11-28（`rtl/fe-2ahead`，文档核对）：第 9 节补 `CLEAR_ON_POP`、第 6 节补 2026-11-21 的深度、补 EXP-053 的变更记录；门禁改为 77/77 对 `scripts/ref_cycles.txt`。
 - 2026-11-21（EXP-053 P2-1）：`axi_cpu_port_chan` 新增参数 `CLEAR_ON_POP`，通道 0 置 1（见文件头的升级说明）。
 - 更早：见 git 历史。

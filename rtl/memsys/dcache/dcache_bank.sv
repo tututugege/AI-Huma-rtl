@@ -1,7 +1,7 @@
 `default_nettype none
 // Ref: MemSubSystem/DcacheConfig.cpp  Dcache_Read/Dcache_Write/write_dcache_line
 // One of the 16 DCache banks (bank = set & 15): 16 rows x 4 ways of tag/valid/dirty/data + 16 PLRU words.
-// Tag and data arrays use standalone synchronous 1R1W SRAMs (ttg_sram_1r1w with WRITE_FIRST=1), launched at the
+// Tag and data arrays use standalone synchronous 1R1W SRAMs (ttg_sram_1r1w, write-first), launched at the
 // S1->S2 clock edge via (sram_re, sram_rrow) so outputs arrive in S2 with 0-cycle latency change.
 module dcache_bank
   import dcache_pkg::*;
@@ -124,7 +124,6 @@ module dcache_bank
       .DEPTH      (ROWS),
       .WIDTH      (TAG_W),
       .MASK_W     (1),
-      .WRITE_FIRST(1'b1),
       .TAG        ("DCACHE_TAG")
     ) u_tag_sram (
       .clk  (clk), .rst_n(rst_n),
@@ -141,7 +140,6 @@ module dcache_bank
       .DEPTH      (ROWS),
       .WIDTH      (LINE_BITS),
       .MASK_W     (LINE_BYTES),
-      .WRITE_FIRST(1'b1),
       .TAG        ("DCACHE_DATA")
     ) u_data_sram (
       .clk  (clk), .rst_n(rst_n),

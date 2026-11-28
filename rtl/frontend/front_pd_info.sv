@@ -177,10 +177,8 @@ module front_pd_info import ttg_cfg_pkg::*; import front_pkg::*; import bpu_stag
   assign pd_nb_pc    = pd_nb_pc_q;
   assign pd_nb_base  = pd_nb_base_q;
 
-  /* verilator lint_off UNUSEDSIGNAL */
   logic unused_pd;
   assign unused_pd = any_s1;
-  /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule
 

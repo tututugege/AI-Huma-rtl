@@ -113,10 +113,8 @@ module soc_axi_downsizer import soc_axi_pkg::*; #(
     assign m_wstrb   = s_wstrb;   assign m_wlast   = s_wlast;
     assign s_bvalid  = m_bvalid;  assign m_bready  = s_bready;  assign s_bid = m_bid;
     assign s_bresp   = m_bresp;
-    /* verilator lint_off UNUSEDSIGNAL */
     logic [1:0] unused_cr;
     assign unused_cr = {clk, rst_n};
-    /* verilator lint_on UNUSEDSIGNAL */
   end else begin : g_down
     localparam int SUB_W  = $clog2(RATIO);
     localparam int WIDX_W = (MAX_WR_OUT > 1) ? $clog2(MAX_WR_OUT) : 1;

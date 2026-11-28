@@ -9,7 +9,7 @@ package exu_ctrl_pkg;
 
   // ---- micro-op classes (base_types.h UopType) -------------------------------------------------------------------
   localparam int XC_OP_W = 5;        // UOP_TYPE_WIDTH
-  localparam int XC_OP_NUM = FP_EN ? 21 : 17;   // MAX_UOP_TYPE
+  localparam int XC_OP_NUM = 21;     // MAX_UOP_TYPE
   localparam int XC_UOP_LOAD = 3;
   localparam int XC_UOP_STA = 4;
   localparam int XC_UOP_MUL = 14;
@@ -33,7 +33,7 @@ package exu_ctrl_pkg;
   localparam int XC_K_FMA   = 8;       // F/D units: pipelined FMA / MISC / I2F, iterative FDIV
   localparam int XC_K_FDIV  = 9;
   localparam int XC_K_FMISC = 10;
-  localparam int XC_KINDS   = 11;  // (the F/D kinds have no unit without F/D: their op masks do not fit xc_opset_t)
+  localparam int XC_KINDS   = 11;
 
   function automatic xc_opset_t xc_kind_mask(int k);
     case (k)
@@ -56,12 +56,12 @@ package exu_ctrl_pkg;
     case (p)
       0: return xc_opset_t'(OP_MASK_ALU | OP_MASK_MUL | OP_MASK_CSR);
       1: return xc_opset_t'(OP_MASK_ALU | OP_MASK_DIV);
-      2: return xc_opset_t'(OP_MASK_ALU | OP_MASK_MUL) | (FP_EN ? xc_opset_t'(OP_MASK_I2F) : xc_opset_t'(0));
-      3: return xc_opset_t'(OP_MASK_ALU) | (FP_EN ? xc_opset_t'(OP_MASK_I2F) : xc_opset_t'(0));
+      2: return xc_opset_t'(OP_MASK_ALU | OP_MASK_MUL | OP_MASK_I2F);
+      3: return xc_opset_t'(OP_MASK_ALU | OP_MASK_I2F);
       4, 5: return xc_opset_t'(OP_MASK_ALU);
       default: begin
         // F/D ports (last): two FMA + MISC pipes, then a divide / square-root unit that also takes MISC
-        if (FP_EN && p >= IQ_FP_PORT_BASE)
+        if (p >= IQ_FP_PORT_BASE)
           return (p == ISSUE_WIDTH - 1) ? xc_opset_t'(OP_MASK_FDIV | OP_MASK_FMISC)
                                         : xc_opset_t'(OP_MASK_FMA | OP_MASK_FMISC);
         else if (p >= IQ_BR_PORT_BASE) return xc_opset_t'(OP_MASK_BR);
@@ -201,7 +201,7 @@ package exu_ctrl_pkg;
 
   // F/D units: indexed in fu_idx order like the multi-cycle ones (they have their own flat port group)
   function automatic int xc_is_fp_kind(int k);
-    return ((FP_EN != 0) && (k == XC_K_FMA || k == XC_K_FDIV || k == XC_K_FMISC || k == XC_K_I2F)) ? 1 : 0;
+    return (k == XC_K_FMA || k == XC_K_FDIV || k == XC_K_FMISC || k == XC_K_I2F) ? 1 : 0;
   endfunction
 
   function automatic int xc_fp_count();
@@ -234,7 +234,7 @@ package exu_ctrl_pkg;
 
   localparam int N_FU  = TOTAL_FU_COUNT;
   localparam int N_MC  = 3;                   // MUL x2, DIV x1
-  localparam int N_FPU = FP_EN ? 8 : 1;       // F/D units: FMA x2, FMISC x3, FDIV, I2F x2 (one dummy entry without F/D)
+  localparam int N_FPU = 8;                   // F/D units: FMA x2, FMISC x3, FDIV, I2F x2
   localparam int N_AGU = LSU_AGU_COUNT;       // 5 physical AGUs (ports 6..10: 2 LD, 2 LD|STA, 1 STA)
   localparam int N_SDU = LSU_SDU_COUNT;
 
@@ -344,8 +344,8 @@ package exu_ctrl_pkg;
     logic                     dest_en;
     logic                     page_fault_load;
     logic                     page_fault_store;
-    logic                     rob_defer;       // LSU_MEMSPEC: the ROB completion of the load is deferred
-    logic                     flush_pipe;      // LSU_MEMSPEC: final write-back of a violating load
+    logic                     rob_defer;       // the ROB completion of the load is deferred
+    logic                     flush_pipe;      // final write-back of a violating load
     logic                     is_w;            // word load (flw data is NaN-boxed)
   } xc_lsu_wb_t;
 

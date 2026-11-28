@@ -57,7 +57,6 @@ module exu_ctrl
   input  logic [LSU_STA_COUNT-1:0] lsu2exe_sta_wb_req_uop_rob_flag,
   input  logic [LSU_STA_COUNT-1:0] lsu2exe_sta_wb_req_uop_page_fault_store,
   output logic exe2csr_we,
-  output logic exe2csr_re,
   output logic [CSR_IDX_WIDTH-1:0] exe2csr_idx,
   output logic [XLEN_BITS-1:0] exe2csr_wdata,
   output logic [1:0] exe2csr_wcmd,
@@ -110,9 +109,6 @@ module exu_ctrl
   output logic [N_MC-1:0] exu2fu_mc_en,
   output logic [2:0] exu2fu_mc_func3 [N_MC],
   output logic exu2fu_mc_is_word [N_MC],
-  output logic [6:0] exu2fu_mc_func7 [N_MC],
-  output logic [XC_OP_W-1:0] exu2fu_mc_op [N_MC],
-  output logic [31:0] exu2fu_mc_imm [N_MC],
   output logic [XLEN_BITS-1:0] exu2fu_mc_src1_rdata [N_MC],
   output logic [XLEN_BITS-1:0] exu2fu_mc_src2_rdata [N_MC],
   output logic [PRF_IDX_WIDTH-1:0] exu2fu_mc_dest_preg [N_MC],
@@ -136,7 +132,7 @@ module exu_ctrl
       || xc_kind_count(XC_K_ALU) != ALU_NUM
       || xc_kind_count(XC_K_BR) != BRU_NUM || xc_kind_count(XC_K_AGU) != LSU_AGU_COUNT
       || xc_kind_count(XC_K_STD) != LSU_SDU_COUNT
-      || (FP_EN && xc_fp_count() != N_FPU) || xc_kind_count(XC_K_CSR) != 1 || xc_fu_kind(CSR_FU) != XC_K_CSR
+      || xc_fp_count() != N_FPU || xc_kind_count(XC_K_CSR) != 1 || xc_fu_kind(CSR_FU) != XC_K_CSR
       || xc_fu_port(CSR_FU) != CSR_PORT
       || LSU_LDU_COUNT != LSU_LOAD_WB_WIDTH || IQ_ALU_PORT_BASE != 0) begin : g_cfg_check
     $error("exu_ctrl_pkg FU tables do not match ttg_cfg_pkg");
@@ -182,6 +178,7 @@ module exu_ctrl
   xc_inst_t                 fu_inst [N_FU];
   xc_done_t                 fu_done [N_FU];
   logic [CSR_IDX_WIDTH-1:0] csr_slot_idx;
+  logic                     csr_re;       // the CSR instruction reads (its result goes to the PRF)
   logic [ISSUE_WIDTH-1:0]   win_valid;
   logic [ALU_NUM-1:0]       win_is_csr;
   xc_done_t                 win [ISSUE_WIDTH];
@@ -205,10 +202,10 @@ module exu_ctrl
     .csr_en(fu_en[CSR_FU]), .func3(fu_inst[CSR_FU].func3), .imm(fu_inst[CSR_FU].imm),
     .dest_preg(fu_inst[CSR_FU].dest_preg), .src2_is_imm(fu_inst[CSR_FU].src2_is_imm),
     .src1_rdata(fu_inst[CSR_FU].src1_rdata), .csr_idx(csr_slot_idx),
-    .we(exe2csr_we), .re(exe2csr_re), .idx(exe2csr_idx), .wdata(exe2csr_wdata), .wcmd(exe2csr_wcmd)
+    .we(exe2csr_we), .re(csr_re), .idx(exe2csr_idx), .wdata(exe2csr_wdata), .wcmd(exe2csr_wcmd)
   );
   exu_ctrl_wb_prf u_wb_prf (
-    .win_valid, .win, .win_is_csr, .csr_re(exe2csr_re), .csr_rdata(csr2exe_rdata), .ld_wb, .wb(exe2prf)
+    .win_valid, .win, .win_is_csr, .csr_re(csr_re), .csr_rdata(csr2exe_rdata), .ld_wb, .wb(exe2prf)
   );
   exu_ctrl_wb_rob u_wb_rob (
     .flush(rob_bcast_flush), .mispred(dec_bcast_mispred),
@@ -243,7 +240,6 @@ module exu_ctrl
     .exu2fu_sdu_is_atomic, .exu2fu_sdu_func7, .exu2fu_sdu_amo_w,
     .exu2fu_sdu_src1_rdata, .exu2fu_sdu_src2_rdata,
     .exu2fu_mc_en, .exu2fu_mc_func3, .exu2fu_mc_is_word,
-    .exu2fu_mc_func7, .exu2fu_mc_op, .exu2fu_mc_imm,
     .exu2fu_mc_src1_rdata, .exu2fu_mc_src2_rdata, .exu2fu_mc_dest_preg, .exu2fu_mc_dest_en,
     .exu2fu_mc_rob_idx, .exu2fu_mc_rob_flag,
     .exu2fu_fp_en, .exu2fu_fp_func3, .exu2fu_fp_func7, .exu2fu_fp_imm, .exu2fu_fp_src1_rdata,

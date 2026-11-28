@@ -24,8 +24,8 @@ CSR 文件（控制和状态寄存器）、当前特权级、待处理中断的�
 ## 2. 配置（`csr_pkg` / `ttg_cfg_pkg`，现行默认）
 
 - 存储的寄存器 `NREG = 19`（`csr_pkg::R_*`）：`mtvec`、`mepc`、`mcause`、`mie`、`mip`、`mtval`、`mscratch`、`mstatus`、`mideleg`、`medeleg`、`sepc`、`stvec`、`scause`、`sscratch`、`stval`、`satp`、`mhartid`、`misa`、`fcsr`（`{frm[2:0], fflags[4:0]}`，只在有 F/D 时有意义）。`sstatus`、`sie`、`sip` 是视图，不存储。模型 `CSR_NUM = 22`（`ttg_cfg_pkg`）把这三个也存了；
-- CSR 号表 `NENT_MAX = 24`（`ENT_ADDR`）：18 个整数核寄存器各一项，加 `sstatus`、`sie`、`sip` 三个视图，共 21 项；再加 `fflags`（0x001）、`frm`（0x002）、`fcsr`（0x003）三项（都落在 `fcsr` 寄存器上）；`NENT = FP_EN ? 24 : 21`。每项有写掩码 `ENT_WMASK`、读掩码 `ENT_RMASK`、在寄存器里的移位 `ENT_SHIFT`（`frm` 在 `fcsr` 的第 5 位起）、是否带派生的 SD 位 `ENT_SD`、是否再按 `mideleg` 屏蔽 `ENT_DELEG`；
-- 复位值：`misa = 0x8000000000141103`（`MXL = 2`，A、B、I、M、S、U）加 F、D（`FP_EN`，`0x28`）加 C（`RVC_ENABLE`，`0x4`）；`mstatus = 0xA00000000`（`UXL = SXL = 2`）；特权级 M；其他 0；
+- CSR 号表 `NENT = 24`（`ENT_ADDR`）：18 个整数核寄存器各一项，加 `sstatus`、`sie`、`sip` 三个视图，共 21 项；再加 `fflags`（0x001）、`frm`（0x002）、`fcsr`（0x003）三项（都落在 `fcsr` 寄存器上）。每项有写掩码 `ENT_WMASK`、读掩码 `ENT_RMASK`、在寄存器里的移位 `ENT_SHIFT`（`frm` 在 `fcsr` 的第 5 位起）、是否带派生的 SD 位 `ENT_SD`、是否再按 `mideleg` 屏蔽 `ENT_DELEG`；
+- 复位值：`misa = 0x8000000000141103`（`MXL = 2`，A、B、I、M、S、U）加 F、D（`0x28`，F/D 总是有）加 C（`RVC_ENABLE`，`0x4`）；`mstatus = 0xA00000000`（`UXL = SXL = 2`）；特权级 M；其他 0；
 - `mstatus` 写掩码 `0x7FF9BB`，`sstatus` 读掩码 `0x3000DE133`、写掩码 `0xDE133`；`mie` / `mip` 写掩码 `0xAAA`，`mideleg` 和 `sie` 视图 `0x222`，`sip` 只能写 `SSIP`（`0x2`）；
 - `satp`：只实现 Bare（0）和 Sv39（8），写其他模式无效；
 - 中断：三类（软件、定时器、外部），`mip` 中 M 级位 3、7、11，S 级位 1、5、9。
@@ -36,19 +36,19 @@ CSR 文件（控制和状态寄存器）、当前特权级、待处理中断的�
 
 | 方向 | 信号组 | 含义 |
 | --- | --- | --- |
-| 入 | `exe2csr_{we, re, idx, wdata, wcmd}` | `exu_ctrl` 的 CSR 请求：`we` 要写、`re` 要读、`wcmd` 为 `func3[1:0]`（`10` 置位、`11` 清位，其余直接写） |
+| 入 | `exe2csr_{we, idx, wdata, wcmd}` | `exu_ctrl` 的 CSR 请求：`we` 要写、`wcmd` 为 `func3[1:0]`（`10` 置位、`11` 清位，其余直接写） |
 | 入 | `rob2csr_commit` | 一条 CSR 指令这拍提交 |
 | 入 | `rob2csr_interrupt_resp` | ROB 响应一次中断 |
 | 入 | `rob2csr_fflags`、`rob2csr_fs_dirty` | 浮点：这拍提交的指令累积的异常标志；有指令使 `FS` 变 Dirty |
 | 入 | `rob_bcast_{mret, sret, ecall, breakpoint, page_fault_inst, page_fault_load, page_fault_store, illegal_inst, trap_val, pc}` | ROB 的陷入广播，**不经 FLUSH_REG 推迟**，和 ROB 的决定同一拍 |
 | 入 | `interrupt_inject_{software, external, supervisor_external, timer}_irq_pending` 及各自的 `_valid` | 外部设备（CLINT/PLIC）的中断线：`_valid` 为 1 时把对应 `mip` 位（`MSIP`/`MEIP`/`SEIP`/`MTIP`）设为 `pending` 的值 |
-| 出 | `csr2exe_rdata`（`csr2exe_rdata_vld` 即 `exe2csr_re`） | CSR 读出值 |
+| 出 | `csr2exe_rdata` | CSR 读出值 |
 | 出 | `csr2rob_interrupt_req` | 有可响应的中断 |
-| 出 | `csr2front_trap_pc`、`csr2front_epc`（`_vld` 为"确有陷入"和"确做了 xRET"） | 陷入目标、xRET 目标 |
+| 出 | `csr2front_trap_pc`、`csr2front_epc` | 陷入目标、xRET 目标 |
 | 出 | `csr_status_{mstatus, sstatus, satp, privilege}` | 状态；`back_top_glue` 另从 `mstatus` 切出 `MXR`、`SUM`、`MPRV`、`MPP` 给 DTLB |
 | 出 | `csr2exe_frm`、`csr2rob_fs_off` | 浮点 |
 
-三个 `_vld` 输出在 `back_top` 里没有人读（接到 `nc_*` 线）。模型 `Csr` 没有端口：读口是 `read(idx)`，状态是 `status` 结构。
+模型 `Csr` 没有端口：读口是 `read(idx)`，状态是 `status` 结构。
 
 ## 4. 结构
 
@@ -64,15 +64,15 @@ CSR 文件（控制和状态寄存器）、当前特权级、待处理中断的�
 
 | 文件 | 行数 | 职责 |
 | --- | --- | --- |
-| `csr_pkg.sv` | 138 | 寄存器编号、CSR 号表和掩码表、特权级、`mstatus` 位置、中断位位置、`medeleg` 位 |
-| `csr.sv` | 107 | 顶层：连线，状态输出，`csr2rob_fs_off`、`csr2exe_frm` |
-| `csr_regfile.sv` | 108 | 19 个寄存器和写合并 |
+| `csr_pkg.sv` | 137 | 寄存器编号、CSR 号表和掩码表、特权级、`mstatus` 位置、中断位位置、`medeleg` 位 |
+| `csr.sv` | 106 | 顶层：连线，状态输出，`csr2rob_fs_off`、`csr2exe_frm` |
+| `csr_regfile.sv` | 111 | 19 个寄存器和写合并 |
 | `csr_read.sv` | 31 | 一个读口：CSR 号 → 经视图掩码的值，表驱动；未知 CSR 号读 0 |
 | `csr_wbuf.sv` | 64 | 写请求暂存和提交时的读改写 |
 | `csr_irq.sv` | 39 | 待处理中断 |
-| `csr_trap.sv` | 134 | 特权级寄存器、陷入 / xRET 状态机、寄存器写请求 |
+| `csr_trap.sv` | 131 | 特权级寄存器、陷入 / xRET 状态机、寄存器写请求 |
 | `csr_trap_class.sv` | 80 | 陷入属于哪一级、cause 码的优先级条件表 |
-| `csr_cause_sel.sv` | 23 | 按优先级选 cause 码（`ttg_first_set` + 独热选择） |
+| `csr_cause_sel.sv` | 21 | 按优先级选 cause 码（`ttg_first_set` + 独热选择） |
 | `csr_trap_target.sv` | 18 | 陷入目标：向量模式下中断为 `基址 + 4 × cause` |
 
 状态：`regs_q[19]`（每个 64 位）；`privilege_q`（2 位，复位为 M）；暂存的写请求 `we_q`、`idx_q`（12 位）、`wdata_q`（64 位）、`wcmd_q`（2 位）。
@@ -120,7 +120,7 @@ CSR 文件（控制和状态寄存器）、当前特权级、待处理中断的�
 - **浮点 CSR**：模型里 `fflags / frm / fcsr` "不含值"（只占一个寄存器，写读照常）；RTL 真实累积 `fflags`、保存 `frm`、维护 `FS`；
 - **未知 CSR 号**：模型遇到未知号或 `time / timeh` 直接中止；RTL 读 0、写没有命中项即无效；
 - **cause 优先级**：模型 M 级里 `ebreak` 断点在"非法指令"之前，RTL 的 `csr_trap_class` 把非法指令排在断点前面（S 级同样）；同一条指令不会同时带这两个标志，所以实际无差别，本文没有从 ROB 一侧证明不会同时出现；
-- **断点异常由 ROB 侧 `rob_pkg::EBREAK_TRAP` 控制（默认开启）**（`rob_pkg.sv`）；Linux 启动与默认 `fm_gate` 构建均开启，仅在显式定义 `-DTTG_NO_EBREAK_TRAP` 时关闭；
+- **断点异常总是开**：ROB 把 `ebreak` 报成断点异常（cause 3，`mtval = pc`，`rob_trap_ctrl`），没有开关；
 - **PMU**：`csr_pkg::ENT_ADDR` 里没有计数器 CSR；`core_top.sv` 的注释说 PMU 计数器还没有接到 CSR。
 
 RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
@@ -138,16 +138,17 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 ## 8. 验证
 
 - **门禁**：`scripts/fm_gate.sh` 77/77，每条提交对比函数模型，周期对 `scripts/ref_cycles.txt`。名字对得上本模块的有：`csr-alias-boundary`（`sstatus / sie / sip` 视图）、`trap-boundary`、`illegal-instruction-trap`、`interrupt-vectored`、`software-interrupt-vectored`、`supervisor-external-interrupt-vectored`、`supervisor-trap-delegation`、`supervisor-illegal-delegation`、`timer-interrupt-mask`、`timer-mmio`、`wfi-boundary`、`fd-*`（`FS`、`fflags`）；没有逐个核对每个程序实际覆盖了哪些分支。
-- **Linux**：`scripts/linux_gate.sh`（Linux 启动到 `login:`，逐条提交检查，且对比模型的 PMU 数字）会走 S 级陷入、`satp`、定时器中断；断点异常默认开启（`rob_pkg::EBREAK_TRAP = 1`），构建不需要额外的宏。
+- **Linux**：`scripts/linux_gate.sh`（Linux 启动到 `login:`，逐条提交检查，且对比模型的 PMU 数字）会走 S 级陷入、`satp`、定时器中断；断点异常总是开。
 - **Lint**：`scripts/lint_chip.sh` 0 告警。
 - **没有模块级的独立测试**：旧的 trace 回放和变异检查随 `spec/` 退役。**待补**：给 `csr_trap_class` / `csr_cause_sel`（cause 优先级、委托组合）、`csr_regfile` 的写合并（`satp` 非法模式、`sie / sip` 与 `mideleg`、`fcsr` 各视图）补和模型 `Csr::exception`、`Csr::csr_write` 并排的随机测试。
 
 ## 9. 参数与开关速查
 
-`XLEN_BITS`、`RVC_ENABLE`、`FPRF_NUM`（`ttg_cfg_pkg`，后者决定 `FP_EN`）；`NREG`、`NENT`、`ENT_*` 表、`MISA_RESET`、`MSTATUS_RESET`、`MSTATUS_WMASK`、`SSTATUS_MASK`、`SSTATUS_WMASK`（`csr_pkg`）；`TTG_NO_EBREAK_TRAP`（ROB 侧宏，定义时关闭断点异常、退回旧的"只冲刷不报因"行为；默认不定义，没有门禁在跑关闭的配置）。
+`XLEN_BITS`、`RVC_ENABLE`、`FPRF_NUM`（`ttg_cfg_pkg`；F/D 总是有）；`NREG`、`NENT`、`ENT_*` 表、`MISA_RESET`、`MSTATUS_RESET`、`MSTATUS_WMASK`、`SSTATUS_MASK`、`SSTATUS_WMASK`（`csr_pkg`）。没有开关。
 
 ## 10. 变更记录
 
+- 2026-11-28 清理：删 `FP_EN`（F/D 总是有，`NENT_MAX` 并入 `NENT = 24`）、输出 `csr2exe_rdata_vld` / `csr2front_epc_vld` / `csr2front_trap_pc_vld` 与输入 `exe2csr_re`（`back_top` 无人读）、`csr_trap` 的 `trap_taken` / `xret_taken` 输出口（`trap_taken` 改内部线）、ROB 侧宏 `TTG_NO_EBREAK_TRAP`；删不抑制任何告警的 lint 豁免（`csr_cause_sel.sv` 1 处，以去掉豁免后整树 lint 普通 / `-DSYNTHESIS` 均无新告警为准）（周期不变）。
 - 2026-11-28（`rtl/fe-2ahead`，文档核对）：断点异常宏统一为 `TTG_NO_EBREAK_TRAP`（默认开启断点异常）；门禁改为 77/77 对 `scripts/ref_cycles.txt`。
 - 2026-11-26（`rtl/soc-env`）：新增 `MIP_MSIP`（bit 3）与 `interrupt_inject_software_irq_pending(_valid)` 端口，接入真实片上 CLINT 软中断；`soc_top` 默认绑 0，对 `fm_gate` 零影响。
 - 本分支（exp/agu-share，`261bd67..HEAD`）：本目录没有改动。

@@ -11,11 +11,9 @@ module dispatch_decompose
 (
   input  dis_iss_uop_t               base,        // make_dis_iss_uop(): the instruction as one uop
   input  inst_type_e                 itype,
-  /* verilator lint_off UNUSEDSIGNAL */   // waiver: cls.to_fp is only read when the core has an FP queue
   input  dis_class_t                 cls,         // dis_classify(itype, amo op)
   input  logic                       is_rvc,      // 16-bit instruction: JAL/JALR link value 2, else 4
   input  logic [2:0]                 fp_cls,      // FP unit class of an FPOP instruction (FPC_*)
-  /* verilator lint_on UNUSEDSIGNAL */
   input  logic                       me_elim,     // eliminated move: no uop at all, completes in the ROB at dispatch
   output logic [K_NUM-1:0]          has_k,
   output dis_iss_uop_t               uop_k [K_NUM],
@@ -33,14 +31,7 @@ module dispatch_decompose
     has_k[K_STA] = cls.is_store;
     has_k[K_STD] = cls.is_store;
     has_k[K_BR]  = cls.to_br;
-  end
-
-  logic has_fp_uop;   // the instruction has an K_FP uop
-  if (FP_EN) begin : g_has_fp
-    assign has_k[K_FP] = cls.to_fp;
-    assign has_fp_uop    = has_k[K_FP];
-  end else begin : g_no_has_fp
-    assign has_fp_uop    = 1'b0;
+    has_k[K_FP]  = cls.to_fp;
   end
 
   // ---- K_INT: ALU-class ops, CSR/system ops, and the pc+4 half of JAL/JALR ----
@@ -117,21 +108,19 @@ module dispatch_decompose
   end
 
   // ---- K_FP: FMA / FDIV / MISC units (F/D) ----
-  if (FP_EN) begin : g_fp
-    always_comb begin
-      uop_k[K_FP] = base;
-      case (fp_cls)
-        FPC_FDIV: uop_k[K_FP].op = UOP_FDIV;
-        FPC_MISC: uop_k[K_FP].op = UOP_FMISC;
-        default:  uop_k[K_FP].op = UOP_FMA;
-      endcase
-    end
+  always_comb begin
+    uop_k[K_FP] = base;
+    case (fp_cls)
+      FPC_FDIV: uop_k[K_FP].op = UOP_FDIV;
+      FPC_MISC: uop_k[K_FP].op = UOP_FMISC;
+      default:  uop_k[K_FP].op = UOP_FMA;
+    endcase
   end
 
   // ---- ROB completion groups: INT/LD -> G0, BR/STA -> G1, STD -> G2; SC completes G0 (result) + G2 ----
   always_comb begin
     expect_mask = '0;
-    if (has_k[K_INT] || has_k[K_LD] || has_fp_uop) expect_mask = expect_mask | CPLT_G0;
+    if (has_k[K_INT] || has_k[K_LD] || has_k[K_FP]) expect_mask = expect_mask | CPLT_G0;
     if (has_k[K_BR] || has_k[K_STA]) expect_mask = expect_mask | CPLT_G1;
     if (has_k[K_STD])                  expect_mask = expect_mask | CPLT_G2;
     if (cls.is_amo_sc)                   expect_mask = CPLT_G0 | CPLT_G2;

@@ -1,10 +1,10 @@
-// Ref: back-end/Lsu/RealLsu.cpp  RealLsu  (LSU top: spec port adaptation, see spec/lsu.io)
+// Ref: back-end/Lsu/RealLsuPipe.cpp  RealLsu  (LSU top: port adaptation to the staged LSU lp_core, docs/modules/lsu.md)
 `default_nettype none
 
 module lsu
   import ttg_cfg_pkg::*;
-  import lsu_pkg::*;
-  import exu_ctrl_pkg::xc_agu_req_t;
+  import lp_pkg::*;
+  import exu_ctrl_pkg::xc_agu_req_t, exu_ctrl_pkg::XC_OP_W, exu_ctrl_pkg::XC_UOP_LOAD, exu_ctrl_pkg::XC_UOP_STA;
 (
   input  logic clk,
   input  logic rst_n,
@@ -31,15 +31,13 @@ module lsu
   input  logic [ROB_IDX_WIDTH-1:0] dis2lsu_ldq_rob_idx [DECODE_WIDTH],
   input  logic [DECODE_WIDTH-1:0] dis2lsu_ldq_rob_flag,
   input  logic [LSU_MDP_BITS-1:0] dis2lsu_ldq_mdp [DECODE_WIDTH],
-  input  logic [31:0] dis2lsu_ldq_pc [DECODE_WIDTH],   // wait-table index of the load PC (LSU_MEMSPEC)
+  input  logic [31:0] dis2lsu_ldq_pc [DECODE_WIDTH],   // load PC: memory-speculation wait-table index
   input  logic [LSU_SDU_COUNT-1:0] exe2lsu_sdu_req_valid,
   input  logic [XLEN_BITS-1:0] exe2lsu_sdu_req_uop_result [LSU_SDU_COUNT],
   input  logic [ROB_IDX_WIDTH-1:0] exe2lsu_sdu_req_uop_rob_idx [LSU_SDU_COUNT],
   input  logic [LSU_SDU_COUNT-1:0] exe2lsu_sdu_req_uop_rob_flag,
   input  logic [5:0] exe2lsu_sdu_req_uop_stq_idx [LSU_SDU_COUNT],
-  /* verilator lint_off UNUSEDSIGNAL */   // waiver: subset of fields differ between LD and STA slots
   input  xc_agu_req_t exe2lsu_agu [LSU_AGU_COUNT],
-  /* verilator lint_on UNUSEDSIGNAL */
   input  logic peripheral_resp_is_mmio,
   input  logic peripheral_resp_ready,
   input  logic [XLEN_BITS-1:0] peripheral_resp_mmio_rdata,
@@ -53,10 +51,8 @@ module lsu
   input  logic dcache2lsu_mshr_fill,
   input  logic [25:0] dcache2lsu_mshr_fill_line,
   // hidden DCache bank-retry latches (registered bits)
-  /* verilator lint_off UNUSEDSIGNAL */
   input  logic dcache2lsu_load_retry_busy [LSU_LDU_COUNT],
   input  logic dcache2lsu_store_retry_busy [LSU_STA_COUNT],
-  /* verilator lint_on UNUSEDSIGNAL */
   input  logic [LSU_AGU_COUNT-1:0] mmu2lsu_resp_valid,
   input  logic [31:0] mmu2lsu_resp_paddr [LSU_AGU_COUNT],
   input  logic [28:0] mmu2lsu_resp_paddr_p1 [LSU_AGU_COUNT],
@@ -71,8 +67,8 @@ module lsu
   output logic [5:0] lsu2dis_ldq_alloc_idx [DECODE_WIDTH],
   output logic lsu2rob_committed_store_pending,
   // wake-ups of the load consumers driven by the LSU: L1 spec + L3 + L2b/L2a + WBP
-  output logic [3*LSU_LDU_COUNT+1:0] lsu2iss_wake_valid,
-  output logic [PRF_IDX_WIDTH-1:0] lsu2iss_wake_preg [3*LSU_LDU_COUNT+2],
+  output logic [NWK-1:0] lsu2iss_wake_valid,
+  output logic [PRF_IDX_WIDTH-1:0] lsu2iss_wake_preg [NWK],
   output logic [LSU_LDU_COUNT-1:0] lsu2iss_cancel_valid,
   output logic [PRF_IDX_WIDTH-1:0] lsu2iss_cancel_preg [LSU_LDU_COUNT],
   output logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_valid,
@@ -84,8 +80,8 @@ module lsu
   output logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_dest_en,
   output logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_page_fault_load,
   output logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_page_fault_store,
-  output logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_rob_defer,    // LSU_MEMSPEC: ROB completion deferred
-  output logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_flush_pipe,   // LSU_MEMSPEC: write-back of a violator
+  output logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_rob_defer,    // memory speculation: ROB completion deferred
+  output logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_flush_pipe,   // memory speculation: write-back of a violator
   output logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_is_w,         // word load: flw data is NaN-boxed
   output logic [LSU_STA_COUNT-1:0] lsu2exe_sta_wb_req_valid,
   output logic [XLEN_BITS-1:0] lsu2exe_sta_wb_req_uop_diag_val [LSU_STA_COUNT],
@@ -127,7 +123,134 @@ module lsu
   output logic [26:0] dtlb_pf_page_vpn
 );
 
-  lsu_pipe u_pipe (.*);
+  // ---- struct packing of the flat ports ----
+  lp_dis_ld_t   dis_ld [NDIS];
+  lp_dis_st_t   dis_st [NDIS];
+  lp_std_t      std_w [NSD];
+  lp_agu_ld_t   agl [NLD];
+  lp_agu_st_t   ags [NST];
+  logic [NCM-1:0] cm_valid_w;
+  logic [NLD-1:0] dcl_valid_w, ldrb_w;
+  logic [NST-1:0] dcs_valid_w, strb_w;
+
+  always_comb begin
+    for (int i = 0; i < NDIS; i++) begin
+      dis_ld[i].v = dis2lsu_ldq_alloc_req[i];
+      dis_ld[i].ldq = dis2lsu_ldq_idx[i];
+      dis_ld[i].rob_idx = dis2lsu_ldq_rob_idx[i];
+      dis_ld[i].rob_flag = dis2lsu_ldq_rob_flag[i];
+      dis_ld[i].mdp = dis2lsu_ldq_mdp[i];
+      dis_ld[i].pc  = dis2lsu_ldq_pc[i];
+      dis_ld[i].wait_b = 1'b0;
+      dis_st[i].v = dis2lsu_alloc_req[i];
+      dis_st[i].rob_idx = dis2lsu_rob_idx[i];
+      dis_st[i].rob_flag = dis2lsu_rob_flag[i];
+      dis_st[i].func3 = '0;
+    end
+    for (int i = 0; i < NSD; i++) begin
+      std_w[i].v = exe2lsu_sdu_req_valid[i];
+      std_w[i].stq = exe2lsu_sdu_req_uop_stq_idx[i];
+      std_w[i].rob_idx = exe2lsu_sdu_req_uop_rob_idx[i];
+      std_w[i].rob_flag = exe2lsu_sdu_req_uop_rob_flag[i];
+      std_w[i].data = exe2lsu_sdu_req_uop_result[i];
+    end
+    for (int i = 0; i < NLD; i++) begin
+      logic is_ld;
+      is_ld           = (exe2lsu_agu[i].op == XC_OP_W'(XC_UOP_LOAD));
+      agl[i].v        = exe2lsu_agu[i].valid && is_ld;
+      agl[i].occ      = exe2lsu_agu[i].raw   && is_ld;
+      agl[i].ldq      = exe2lsu_agu[i].ldq_idx;
+      agl[i].rob_idx  = exe2lsu_agu[i].rob_idx;
+      agl[i].rob_flag = exe2lsu_agu[i].rob_flag;
+      agl[i].vaddr    = exe2lsu_agu[i].result;
+      agl[i].dest     = exe2lsu_agu[i].dest_preg;
+      agl[i].func3    = exe2lsu_agu[i].func3;
+      agl[i].snap_idx = exe2lsu_agu[i].stq_idx;
+      agl[i].snap_flag = exe2lsu_agu[i].stq_flag;
+      agl[i].lr       = exe2lsu_agu[i].is_atomic && (exe2lsu_agu[i].amo_op == AMO_LR);
+      dcl_valid_w[i]  = dcache2lsu_load_resps_valid[i];
+      ldrb_w[i]       = dcache2lsu_load_retry_busy[i];
+    end
+    for (int k = 0; k < NST; k++) begin
+      logic [2:0] p;
+      logic is_sta;
+      p               = (k < (NST - LSU_AGU_SHARED)) ? 3'(NLD + k) : 3'(NLD - 1 - (k - (NST - LSU_AGU_SHARED)));
+      is_sta          = (exe2lsu_agu[p].op == XC_OP_W'(XC_UOP_STA));
+      ags[k].v        = exe2lsu_agu[p].valid && is_sta;
+      ags[k].occ      = exe2lsu_agu[p].raw   && is_sta;
+      ags[k].stq      = exe2lsu_agu[p].stq_idx;
+      ags[k].rob_idx  = exe2lsu_agu[p].rob_idx;
+      ags[k].rob_flag = exe2lsu_agu[p].rob_flag;
+      ags[k].vaddr    = exe2lsu_agu[p].result;
+      ags[k].dest     = exe2lsu_agu[p].dest_preg;
+      ags[k].func3    = exe2lsu_agu[p].func3;
+      ags[k].sc       = exe2lsu_agu[p].is_atomic && (exe2lsu_agu[p].amo_op == AMO_SC);
+      dcs_valid_w[k]  = dcache2lsu_store_resps_valid[k];
+      strb_w[k]       = dcache2lsu_store_retry_busy[k];
+    end
+    cm_valid_w = rob_commit_commit_entry_valid;
+  end
+
+  logic [XLEN_BITS-1:0] sta_vaddr_w [NST];
+  logic [NLD-1:0] dcl_req_valid_w, dcl_req_replay_w;
+  logic [NST-1:0] dcs_req_valid_w;
+
+  lp_core u_core (
+    .clk(clk), .rst_n(rst_n),
+    .cm_valid(cm_valid_w), .cm_type(rob_commit_commit_entry_uop_type), .cm_amo_op(rob_commit_commit_entry_uop_amo_op),
+    .cm_stq_idx(rob_commit_commit_entry_uop_stq_idx),
+    .cm_rob_idx(rob_commit_commit_entry_uop_rob_idx), .cm_rob_flag(rob_commit_commit_entry_uop_rob_flag),
+    .rb_flush(rob_bcast_flush), .rb_flush_now(rob_flush_now), .rb_head_valid(rob_bcast_head_valid),
+    .rb_head_rob_idx(rob_bcast_head_rob_idx), .rb_hi_valid(rob_bcast_head_incomplete_valid),
+    .rb_hi_rob_idx(rob_bcast_head_incomplete_rob_idx), .dec_mispred(dec_bcast_mispred),
+    .dec_rob_idx(dec_bcast_redirect_rob_idx), .dec_rob_flag(dec_bcast_redirect_rob_flag),
+    .dis_ld(dis_ld), .dis_st(dis_st), .sdw(std_w), .agl(agl), .ags(ags),
+    .periph_is_mmio(peripheral_resp_is_mmio), .periph_rdata(peripheral_resp_mmio_rdata),
+    .periph_ready(peripheral_resp_ready),
+    .dcl_valid(dcl_valid_w), .dcl_req_id(dcache2lsu_load_resps_req_id), .dcl_data(dcache2lsu_load_resps_data),
+    .dcl_replay(dcache2lsu_load_resps_replay), .dcs_valid(dcs_valid_w), .dcs_req_id(dcache2lsu_store_resps_req_id),
+    .dcs_replay(dcache2lsu_store_resps_replay), .fill_valid(dcache2lsu_mshr_fill),
+    .fill_line(dcache2lsu_mshr_fill_line), .ld_retry_busy(ldrb_w), .st_retry_busy(strb_w),
+    .mmu_valid(mmu2lsu_resp_valid), .mmu_paddr(mmu2lsu_resp_paddr),
+    .mmu_paddr_p1(mmu2lsu_resp_paddr_p1), .mmu_paddr_m1(mmu2lsu_resp_paddr_m1),
+    .mmu_result(mmu2lsu_resp_result), .mmu_entry(mmu2lsu_resp_entry_idx),
+    .o_stq_tail(lsu2dis_stq_tail), .o_stq_tail_flag(lsu2dis_stq_tail_flag), .o_stq_free(lsu2dis_stq_free),
+    .o_ldq_free(lsu2dis_ldq_free), .o_ldq_alloc_valid(lsu2dis_ldq_alloc_valid), .o_ldq_alloc_idx(lsu2dis_ldq_alloc_idx),
+    .o_committed_store_pending(lsu2rob_committed_store_pending),
+    .o_wk_valid(lsu2iss_wake_valid), .o_wk_preg(lsu2iss_wake_preg), .o_cn_valid(lsu2iss_cancel_valid),
+    .o_cn_preg(lsu2iss_cancel_preg),
+    .wb_valid(lsu2exe_wb_req_valid), .wb_diag(lsu2exe_wb_req_uop_diag_val), .wb_result(lsu2exe_wb_req_uop_result),
+    .wb_dest(lsu2exe_wb_req_uop_dest_preg), .wb_rob(lsu2exe_wb_req_uop_rob_idx),
+    .wb_rob_flag(lsu2exe_wb_req_uop_rob_flag),
+    .wb_dest_en(lsu2exe_wb_req_uop_dest_en), .wb_pf_load(lsu2exe_wb_req_uop_page_fault_load),
+    .wb_pf_store(lsu2exe_wb_req_uop_page_fault_store),
+    .wb_defer(lsu2exe_wb_req_uop_rob_defer), .wb_flushp(lsu2exe_wb_req_uop_flush_pipe),
+    .wb_isw(lsu2exe_wb_req_uop_is_w),
+    .sta_valid(lsu2exe_sta_wb_req_valid), .sta_vaddr(sta_vaddr_w),
+    .sta_rob(lsu2exe_sta_wb_req_uop_rob_idx), .sta_rob_flag(lsu2exe_sta_wb_req_uop_rob_flag),
+    .sta_pf(lsu2exe_sta_wb_req_uop_page_fault_store),
+    .per_is_mmio(peripheral_req_is_mmio), .per_wen(peripheral_req_wen), .per_addr(peripheral_req_mmio_addr),
+    .per_wdata(peripheral_req_mmio_wdata), .per_func3(peripheral_req_mmio_fun3),
+    .dcl_req_valid(dcl_req_valid_w), .dcl_req_replay(dcl_req_replay_w), .dcl_req_addr(lsu2dcache_load_ports_addr),
+    .dcl_req_pc(lsu2dcache_load_ports_pc), .dcl_req_va(lsu2dcache_load_ports_va),
+    .dcl_req_id_o(lsu2dcache_load_ports_req_id),
+    .dcs_req_valid(dcs_req_valid_w), .dcs_req_addr(lsu2dcache_store_ports_addr),
+    .dcs_req_data(lsu2dcache_store_ports_data),
+    .dcs_req_strb(lsu2dcache_store_ports_strb), .dcs_req_l2(lsu2dcache_store_ports_l2),
+    .dcs_req_id_o(lsu2dcache_store_ports_req_id),
+    .mmu_req_valid(lsu2mmu_req_valid), .mmu_req_vaddr(lsu2mmu_req_vaddr), .mmu_req_idx(lsu2mmu_req_entry_idx),
+    .mmu_req_st(lsu2mmu_req_is_store), .pf_xq_v, .pf_xq_va, .pf_xq_llc, .dtlb_walk_next_v, .dtlb_walk_next_vpn,
+    .pf_xq_pop, .pf_xans_v, .pf_xans_line, .pf_xans_llc, .dtlb_pf_page_set, .dtlb_pf_page_vpn);
+
+  for (genvar i = 0; i < NLD; i++) begin : g_dcl
+    assign lsu2dcache_load_ports_valid[i] = dcl_req_valid_w[i];
+    assign lsu2dcache_load_ports_replay[i] = dcl_req_replay_w[i];
+  end
+  for (genvar i = 0; i < NST; i++) begin : g_dcs
+    assign lsu2dcache_store_ports_valid[i] = dcs_req_valid_w[i];
+    assign lsu2exe_sta_wb_req_uop_diag_val[i] = sta_vaddr_w[i];
+    assign lsu2exe_sta_wb_req_uop_result[i] = sta_vaddr_w[i];
+  end
 
 endmodule
 

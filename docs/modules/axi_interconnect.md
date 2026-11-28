@@ -75,7 +75,7 @@ AXI 互连：夹在"访存子系统的 4 个读主口、2 个写主口"和"LLC�
 | `axi_ic_haz.sv` | 53 | 写的同行读冲突检查 |
 | `axi_ic_stage.sv` | 258 | 捕获槽、台、轮询派发、读被写抢占、accepted 标志 |
 | `axi_ic_ar.sv` | 188 | DDR 读侧：AR latch、在途表 `r_pend`、R 拍收集、小读右移 |
-| `axi_ic_aw.sv` | 145 | DDR 写侧：AW latch、W 拍、B 响应 |
+| `axi_ic_aw.sv` | 153 | DDR 写侧：AW latch、W 拍、B 响应 |
 | `axi_ic_resp.sv` | 106 | 响应寄存器和写响应延迟线 |
 
 状态：`axi_ic_rd` / `axi_ic_wr` 各口一个 ready-first 寄存器；`axi_ic_stage` 的 `up_rd_q[4]`、`up_wr_q[2]`（含 512 位数据）、`stg_q`（台）、`rr_q`（0..5 的轮询指针）、accepted 标志的"本 tick"和"粘滞"两组寄存器；`axi_ic_ar` 的 `latch_q`、`pend_q[NM]`（每项含 512 位数据）、`seen_*`（见 5.4）；`axi_ic_aw` 的 `awl_q`、`w_q`（含 512 位数据和 64 位使能）、`rsp_v_q`；`axi_ic_resp` 每个读主口的 1 项（512 位数据）和每个写主口的 2 项延迟线。
@@ -169,6 +169,7 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 
 ## 10. 变更记录
 
+- 2026-11-28 清理：删 `axi_ic_aw.sv` 包住 `unused_bid` 的多余 waiver（周期不变）。
 - 2026-11-28（`rtl/fe-2ahead`，文档核对）：`hz_mshr_*` 位宽改为 `[NM]`；第 6 节补 2026-11-20 的 53 层；测试平台目录说明更新；门禁改为 77/77 对 `scripts/ref_cycles.txt`。
 - 2026-11-26：`axi_ic_aw.sv` 解除 `o_bready` 对 `d_bid` 的组合依赖（改为仿真断言检查 `d_bid == w_q.id`），消除接入真实 AXI4 Crossbar 时的潜在 `BVALID→BREADY` 组合环，对 `soc_top`/`core_tb` 0 周期变化（`fm_gate` 77/77 PASS）。
 - 本分支（`261bd67..HEAD`）未改动本目录；更早：见 git 历史。

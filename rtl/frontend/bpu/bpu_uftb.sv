@@ -189,11 +189,9 @@ module bpu_uftb import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
     end
   end
 
-  /* verilator lint_off UNUSEDSIGNAL */
   logic unused_ok;
   assign unused_ok = ^{wr_ent.valid, wr_ent.tag, rd_base[XLEN_BITS-1:FTB_VA_BITS+1],
                        rd_base[FTB_S0_TGT_B:0]};
-  /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule
 `default_nettype wire

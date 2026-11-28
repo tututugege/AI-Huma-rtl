@@ -8,9 +8,7 @@ module exu_ctrl_fu_out
   import exu_ctrl_pkg::*;
   import fp_pkg::*;
 (
-  /* verilator lint_off UNUSEDSIGNAL */   // waiver: only MC and FP units take en; single-cycle FUs complete whenever slot valid
   input  logic [N_FU-1:0] fu_en,
-  /* verilator lint_on UNUSEDSIGNAL */
   input  xc_inst_t        fu_inst [N_FU],
   output logic [XC_OP_W-1:0] exu2fu_alu_op [ALU_NUM],
   output logic [2:0] exu2fu_alu_func3 [ALU_NUM],
@@ -42,9 +40,6 @@ module exu_ctrl_fu_out
   output logic [N_MC-1:0] exu2fu_mc_en,
   output logic [2:0] exu2fu_mc_func3 [N_MC],
   output logic exu2fu_mc_is_word [N_MC],
-  output logic [6:0] exu2fu_mc_func7 [N_MC],
-  output logic [XC_OP_W-1:0] exu2fu_mc_op [N_MC],
-  output logic [31:0] exu2fu_mc_imm [N_MC],
   output logic [XLEN_BITS-1:0] exu2fu_mc_src1_rdata [N_MC],
   output logic [XLEN_BITS-1:0] exu2fu_mc_src2_rdata [N_MC],
   output logic [PRF_IDX_WIDTH-1:0] exu2fu_mc_dest_preg [N_MC],
@@ -114,9 +109,6 @@ module exu_ctrl_fu_out
     assign exu2fu_mc_en[i]         = fu_en[FU];
     assign exu2fu_mc_func3[i]      = fu_inst[FU].func3;
     assign exu2fu_mc_is_word[i]    = fu_inst[FU].is_word;
-    assign exu2fu_mc_func7[i]      = fu_inst[FU].func7;
-    assign exu2fu_mc_op[i]         = fu_inst[FU].op;
-    assign exu2fu_mc_imm[i]        = fu_inst[FU].imm;
     assign exu2fu_mc_src1_rdata[i] = fu_inst[FU].src1_rdata;
     assign exu2fu_mc_src2_rdata[i] = fu_inst[FU].src2_rdata;
     assign exu2fu_mc_dest_preg[i]  = fu_inst[FU].dest_preg;
@@ -125,35 +117,20 @@ module exu_ctrl_fu_out
     assign exu2fu_mc_rob_flag[i]   = fu_inst[FU].rob_flag;
   end
 
-  if (FP_EN) begin : g_fp
-    for (genvar i = 0; i < N_FPU; i++) begin : g_fp_out
-      localparam int FU = xc_fp_fu(i);
-      assign exu2fu_fp_en[i]         = fu_en[FU];
-      assign exu2fu_fp_func3[i]      = fu_inst[FU].func3;
-      assign exu2fu_fp_func7[i]      = fu_inst[FU].func7;
-      assign exu2fu_fp_imm[i]        = fu_inst[FU].imm;
-      assign exu2fu_fp_src1_rdata[i] = fu_inst[FU].src1_rdata;
-      assign exu2fu_fp_fsrc1[i]      = fu_inst[FU].fsrc1;
-      assign exu2fu_fp_fsrc2[i]      = fu_inst[FU].fsrc2;
-      assign exu2fu_fp_fsrc3[i]      = fu_inst[FU].fsrc3;
-      assign exu2fu_fp_dest_preg[i]  = fu_inst[FU].dest_preg;
-      assign exu2fu_fp_dest_en[i]    = fu_inst[FU].dest_en;
-      assign exu2fu_fp_rob_idx[i]    = fu_inst[FU].rob_idx;
-      assign exu2fu_fp_rob_flag[i]   = fu_inst[FU].rob_flag;
-    end
-  end else begin : g_no_fp
-    assign exu2fu_fp_en = '0;
-    assign exu2fu_fp_func3 = '{default: '0};
-    assign exu2fu_fp_func7 = '{default: '0};
-    assign exu2fu_fp_imm = '{default: '0};
-    assign exu2fu_fp_src1_rdata = '{default: '0};
-    assign exu2fu_fp_fsrc1 = '{default: '0};
-    assign exu2fu_fp_fsrc2 = '{default: '0};
-    assign exu2fu_fp_fsrc3 = '{default: '0};
-    assign exu2fu_fp_dest_preg = '{default: '0};
-    assign exu2fu_fp_dest_en = '0;
-    assign exu2fu_fp_rob_idx = '{default: '0};
-    assign exu2fu_fp_rob_flag = '0;
+  for (genvar i = 0; i < N_FPU; i++) begin : g_fp_out
+    localparam int FU = xc_fp_fu(i);
+    assign exu2fu_fp_en[i]         = fu_en[FU];
+    assign exu2fu_fp_func3[i]      = fu_inst[FU].func3;
+    assign exu2fu_fp_func7[i]      = fu_inst[FU].func7;
+    assign exu2fu_fp_imm[i]        = fu_inst[FU].imm;
+    assign exu2fu_fp_src1_rdata[i] = fu_inst[FU].src1_rdata;
+    assign exu2fu_fp_fsrc1[i]      = fu_inst[FU].fsrc1;
+    assign exu2fu_fp_fsrc2[i]      = fu_inst[FU].fsrc2;
+    assign exu2fu_fp_fsrc3[i]      = fu_inst[FU].fsrc3;
+    assign exu2fu_fp_dest_preg[i]  = fu_inst[FU].dest_preg;
+    assign exu2fu_fp_dest_en[i]    = fu_inst[FU].dest_en;
+    assign exu2fu_fp_rob_idx[i]    = fu_inst[FU].rob_idx;
+    assign exu2fu_fp_rob_flag[i]   = fu_inst[FU].rob_flag;
   end
 
 endmodule

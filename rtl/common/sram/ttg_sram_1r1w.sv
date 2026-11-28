@@ -3,8 +3,8 @@
 // Pseudo dual-port synchronous 1R1W SRAM primitive (no reset on memory array).
 // - INIT_SWEEP=1 (default): while rst_n is low the array is cleared to INIT_VAL through the write port, one
 //   address per cycle (docs/modules/common.md 4.1); the reset must last DEPTH + 1 cycles (ttg_rst_sweep).
-// - WRITE_FIRST=0: standard 1R1W SRAM (same-cycle R/W to same address returns pre-write data).
-// - WRITE_FIRST=1: same-cycle R/W to same address forwards newly written segments to rdata.
+// - Write-first: a same-cycle R/W to the same address forwards the newly written segments to rdata (every
+//   instance needs this; the read-first variant was removed on 2026-11-28).
 // - Default (Verilator sim / Yosys SYNTH_MEM=1): clean 1D array inferred as $mem_v2.
 // - `ifdef SYNTH_TSMC28_SRAM: real TSMC 28nm HS LVT SRAM macro mapping
 //   (small <=1024b arrays -> FFs; larger -> ttg_sram_1rw real macros).
@@ -13,7 +13,6 @@ module ttg_sram_1r1w import ttg_sram_pkg::*; #(
   parameter int    WIDTH       = 64,
   parameter int    MASK_W      = 1,
   /* verilator lint_off UNUSEDPARAM */
-  parameter bit    WRITE_FIRST = 1'b0,
   parameter logic [WIDTH-1:0] INIT_VAL = '0,
   parameter bit    INIT_SWEEP  = 1'b1,
   parameter [255:0] TAG        = "GENERIC"
@@ -33,6 +32,7 @@ module ttg_sram_1r1w import ttg_sram_pkg::*; #(
   /* verilator lint_off UNUSEDPARAM */
   localparam int SEG_W = WIDTH / MASK_W;
   /* verilator lint_on UNUSEDPARAM */
+
 
   // ---- reset sweep: INIT_VAL -> mem[sw_q] via the write port every reset cycle; sw_q wraps, no reset ----
   localparam int AW = $clog2(DEPTH);
@@ -78,7 +78,7 @@ module ttg_sram_1r1w import ttg_sram_pkg::*; #(
       end
       if (re_i) begin
         for (int m = 0; m < MASK_W; m++) begin
-          if (WRITE_FIRST && same_addr && wmask_i[m])
+          if (same_addr && wmask_i[m])
             rdata_q[m * SEG_W +: SEG_W] <= wdata_i[m * SEG_W +: SEG_W];
           else
             rdata_q[m * SEG_W +: SEG_W] <= mem_q[raddr_i][m * SEG_W +: SEG_W];
@@ -115,27 +115,23 @@ module ttg_sram_1r1w import ttg_sram_pkg::*; #(
       .wmask(wmask_i),
       .rdata(m_rdata)
     );
-    if (WRITE_FIRST) begin : g_wf
-      logic              same_q;
-      logic [MASK_W-1:0] wmask_q;
-      logic [WIDTH-1:0]  wdata_q;
-      always_ff @(posedge clk) begin
-        same_q <= re_i && we_i && (raddr_i == waddr_i);
-        if (re_i && we_i && (raddr_i == waddr_i)) begin
-          wmask_q <= wmask_i;
-          wdata_q <= wdata_i;
+    logic              same_q;
+    logic [MASK_W-1:0] wmask_q;
+    logic [WIDTH-1:0]  wdata_q;
+    always_ff @(posedge clk) begin
+      same_q <= re_i && we_i && (raddr_i == waddr_i);
+      if (re_i && we_i && (raddr_i == waddr_i)) begin
+        wmask_q <= wmask_i;
+        wdata_q <= wdata_i;
+      end
+    end
+    always_comb begin
+      rdata = m_rdata;
+      if (same_q) begin
+        for (int m = 0; m < MASK_W; m++) begin
+          if (wmask_q[m]) rdata[m * SEG_W +: SEG_W] = wdata_q[m * SEG_W +: SEG_W];
         end
       end
-      always_comb begin
-        rdata = m_rdata;
-        if (same_q) begin
-          for (int m = 0; m < MASK_W; m++) begin
-            if (wmask_q[m]) rdata[m * SEG_W +: SEG_W] = wdata_q[m * SEG_W +: SEG_W];
-          end
-        end
-      end
-    end else begin : g_rf
-      assign rdata = m_rdata;
     end
   end
 `else
@@ -148,8 +144,8 @@ module ttg_sram_1r1w import ttg_sram_pkg::*; #(
     always_ff @(posedge clk) begin
       if (we_i && wmask_i[0]) mem_q[waddr_i] <= wdata_i;
       if (re_i) begin
-        if (WRITE_FIRST && same_addr && wmask_i[0]) rdata_q <= wdata_i;
-        else                                      rdata_q <= mem_q[raddr_i];
+        if (same_addr && wmask_i[0]) rdata_q <= wdata_i;
+        else                         rdata_q <= mem_q[raddr_i];
       end
     end
   end else begin : g_masked
@@ -161,7 +157,7 @@ module ttg_sram_1r1w import ttg_sram_pkg::*; #(
       end
       if (re_i) begin
         for (int m = 0; m < MASK_W; m++) begin
-          if (WRITE_FIRST && same_addr && wmask_i[m])
+          if (same_addr && wmask_i[m])
             rdata_q[m * SEG_W +: SEG_W] <= wdata_i[m * SEG_W +: SEG_W];
           else
             rdata_q[m * SEG_W +: SEG_W] <= mem_q[raddr_i][m * SEG_W +: SEG_W];

@@ -1,7 +1,7 @@
 // Ref: rv_simu_mmu_v2.cpp  capture_/accumulate_/restore_axi_cpu_boundary_state, mask_axi_cpu_boundary_for_internal_tick
 `default_nettype none
 
-// CPU-boundary adapter of the three non-DCache AXI master channels (spec/axi_cpu_port_adapter.io):
+// CPU-boundary adapter of the three non-DCache AXI master channels:
 // channel 0 = ICache read master, 1 = peripheral read master, 2 = peripheral write master.  Runs on the fast clock;
 // phase0 / phase_last mark tick 0 / tick 15 of the 16-tick CPU cycle.  The master side of the CPU (cpu_en) drives the
 // ports only in tick 0 -- that masking lives with the masters, this block only folds the interconnect's answers.

@@ -54,18 +54,18 @@ depth: 75 层（100,853 cells，eda-05 Yosys `SYNTH_ABC="strash;balance;map"`，
 
 | 文件 | 行数 | 职责 |
 | --- | ---: | --- |
-| `rtl/soc/soc_axi/soc_axi_pkg.sv` | 66 | AXI4 常量（FIXED/INCR/WRAP、OKAY/SLVERR/DECERR、CACHE/PROT）、`axi4_next_addr` 地址生成、`axi4_merge_resp` |
-| `rtl/soc/soc_axi/soc_axi_skid.sv` | 93 | 全吞吐 2 项 skid buffer，同时打断前向 `VALID/DATA` 与后向 `READY` 组合路径 |
-| `rtl/soc/soc_axi/soc_axi_reg_slice.sv` | 144 | 完整 5 通道（AR/R/AW/W/B）AXI4 寄存器切片，用于 Core LLC 出口与芯片外部 DDR 引脚边界 |
+| `rtl/soc/soc_axi/soc_axi_pkg.sv` | 62 | AXI4 常量（FIXED/INCR/WRAP、OKAY/SLVERR/DECERR、`NORM_NC_BUF` CACHE、PROT）、`axi4_next_addr` 地址生成、`axi4_merge_resp` |
+| `rtl/soc/soc_axi/soc_axi_skid.sv` | 82 | 全吞吐 2 项 skid buffer，同时打断前向 `VALID/DATA` 与后向 `READY` 组合路径 |
+| `rtl/soc/soc_axi/soc_axi_reg_slice.sv` | 143 | 完整 5 通道（AR/R/AW/W/B）AXI4 寄存器切片，用于 Core LLC 出口与芯片外部 DDR 引脚边界 |
 | `rtl/soc/soc_axi/soc_axi_downsizer_rd.sv` | 223 | 多在途（默认 16 项）读位宽转换器，支持跨 ID 乱序/交织 R 拍拼装、同 ID 严格 FIFO、窄访问与 `RLAST` 生成 |
-| `rtl/soc/soc_axi/soc_axi_downsizer.sv` | 257 | 完整读写位宽转换器（`S_DATA_W -> M_DATA_W`：256→64 / 256→128 / 256→256 零开销直通）；写侧独立 AW-to-W FIFO 与 B skid |
-| `rtl/soc/soc_axi/soc_axi_xbar_rd.sv` | 306 | 参数化 `NM x NS` Full-AXI4 读交叉开关 + 内置多拍 `DECERR` 从口；同从口多在途 + 跨从口 §A5.3 保序栅栏 + 授权锁定保稳 |
-| `rtl/soc/soc_axi/soc_axi_xbar_wr.sv` | 398 | 参数化 `NM x NS` Full-AXI4 写交叉开关 + 内置多拍 `DECERR` 从口；独立 AW/W skid + 主/从 W 序 FIFO（支持 AW 先、W 先、同时到达，零死锁、零 W 交织） |
+| `rtl/soc/soc_axi/soc_axi_downsizer.sv` | 255 | 完整读写位宽转换器（`S_DATA_W -> M_DATA_W`：256→64 / 256→128 / 256→256 零开销直通）；写侧独立 AW-to-W FIFO 与 B skid |
+| `rtl/soc/soc_axi/soc_axi_xbar_rd.sv` | 304 | 参数化 `NM x NS` Full-AXI4 读交叉开关 + 内置多拍 `DECERR` 从口；同从口多在途 + 跨从口 §A5.3 保序栅栏 + 授权锁定保稳 |
+| `rtl/soc/soc_axi/soc_axi_xbar_wr.sv` | 396 | 参数化 `NM x NS` Full-AXI4 写交叉开关 + 内置多拍 `DECERR` 从口；独立 AW/W skid + 主/从 W 序 FIFO（支持 AW 先、W 先、同时到达，零死锁、零 W 交织） |
 | `rtl/soc/soc_axi/soc_axi_xbar.sv` | 133 | 读写通道完全独立的 Full-AXI4 Crossbar 顶层 |
-| `rtl/soc/soc_axi/soc_axi_to_lite.sv` | 315 | 64-bit Full-AXI4 → 4 从口 AXI4-Lite 协议转换桥，读写通道独立，自动拆解 FIXED/INCR/WRAP 多拍突发 |
-| `rtl/soc/soc_axi/soc_axi_checker.sv` | 271 | ARM IHI 0022E 在线 SVA 协议检查器（`ifndef SYNTHESIS`），检查复位清零、5 通道 `VALID`/payload 保持、突发合法性/4KiB 边界、`RLAST`/`WLAST` 拍数与 ID 匹配 |
-| `rtl/soc/soc_xbar/soc_xbar_sys.sv` | 345 | Tier-1 256-bit 系统互联封装 + LLC/DDR 边界检查器 |
-| `rtl/soc/soc_xbar/soc_xbar.sv` | 363 | 双层 SoC 互联顶层 + MMIO/SRAM 边界检查器 |
+| `rtl/soc/soc_axi/soc_axi_to_lite.sv` | 313 | 64-bit Full-AXI4 → 4 从口 AXI4-Lite 协议转换桥，读写通道独立，自动拆解 FIXED/INCR/WRAP 多拍突发 |
+| `rtl/soc/soc_axi/soc_axi_checker.sv` | 269 | ARM IHI 0022E 在线 SVA 协议检查器（`ifndef SYNTHESIS`），检查复位清零、5 通道 `VALID`/payload 保持、突发合法性/4KiB 边界、`RLAST`/`WLAST` 拍数与 ID 匹配 |
+| `rtl/soc/soc_xbar/soc_xbar_sys.sv` | 343 | Tier-1 256-bit 系统互联封装 + LLC/DDR 边界检查器 |
+| `rtl/soc/soc_xbar/soc_xbar.sv` | 361 | 双层 SoC 互联顶层 + MMIO/SRAM 边界检查器 |
 
 ## 5. 一拍内的数据流
 
@@ -91,6 +91,7 @@ depth: 75 层（100,853 cells，eda-05 Yosys `SYNTH_ABC="strash;balance;map"`，
 
 ## 10. 变更记录
 
+- 2026-11-28 清理：删 `soc_axi_skid` / `soc_axi_reg_slice` 只取过 0 的 `BYPASS` 参数与 `g_bypass` 分支（skid 主体不再包在 `g_skid` 里）、`soc_axi_pkg` 无引用的 `AXI4_RESP_EXOKAY` / `AXI4_CACHE_DEV_NGNRNE` 与不起作用的 `UNUSEDSIGNAL` 豁免，以及 `soc_axi_*` / `soc_xbar*` 里 `unused_*` 汇点外不起作用的豁免（周期不变）。
 - 2026-11-28（文档核对）：按 TEMPLATE 十节重排，文件表加行数，`soc_top` 门禁改为 77/77。
 - 2026-11-26（`5fa54e2`）：新增 `soc_axi` / `soc_xbar`。同一轮对核边界的两处改动：
 

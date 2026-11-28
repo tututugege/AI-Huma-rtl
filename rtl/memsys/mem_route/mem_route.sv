@@ -1,8 +1,8 @@
 // Ref: MemSubSystem/MemRouteBlock.cpp  MemRouteBlock (comb_response / comb_request / seq)
 `default_nettype none
 
-// LSU / ICache / PTW <-> DCache request and response routing (spec/mem_route.io).
-// Top level only adapts the flat spec ports.
+// LSU / ICache / PTW <-> DCache request and response routing.
+// Top level only adapts the flat ports.
 module mem_route import ttg_cfg_pkg::*; import memcpu_pkg::*; (
   input  logic clk,
   input  logic rst_n,

@@ -1,10 +1,11 @@
 // Ref: back-end/Isu.cpp  Isu::comb_awake, Isu::comb_calc_latency_next, Isu::get_latency
 `default_nettype none
 
-// The 14 wake-up channels broadcast on iss_awake, in fixed positions:
-//   LD: load write-back wake-ups from the PRF     MUL: MUL pipe end     DIV: DIV countdown slots
-//   FAST: one per ALU-capable port, single-cycle uops granted this cycle
-// MUL/DIV uops granted this cycle are put into their delayed wake-up structure (visible from the next cycle).
+// The 21 wake-up channels broadcast on iss_awake (WAKE_NUM = MAX_WAKEUP_PORTS), in fixed positions:
+//   LD (4): load write-back wake-ups from the PRF     MUL (2): MUL pipe end     DIV (1): the EXU's DIV early wake-up
+//   FAST (6): one per ALU-capable port, single-cycle uops granted this cycle
+//   FPW (FPW_CH = 8): delayed wake-ups of FMA / FMISC / FDIV / I2F (per-port countdown slots, compacted)
+// MUL / FP uops granted this cycle are put into their delayed wake-up structure (visible from the next cycle).
 module isu_wake_src
   import ttg_cfg_pkg::*;
   import isu_pkg::*;
@@ -85,7 +86,7 @@ module isu_wake_src
       logic delayed_op;
       assign delayed_op = ((MUL_DELAYED != 0) && grant_uop[p].op == op_t'(UOP_MUL)) ||
                           (DIV_MAX_LATENCY > 1 && grant_uop[p].op == op_t'(UOP_DIV)) ||
-                          (FP_EN && grant_uop[p].op == op_t'(UOP_I2F));   // integer -> FP: multi-cycle
+                          (grant_uop[p].op == op_t'(UOP_I2F));   // integer -> FP: multi-cycle
       assign wake_valid[FAST_WAKE_BASE + R] = cand_valid[p] && grant_uop[p].dest_en && !delayed_op;
       assign wake_preg[FAST_WAKE_BASE + R]  = grant_uop[p].dest_preg;
       assign fast_spec_v_d[R]     = !flush_all && grant_valid[p] && grant_uop[p].dest_en &&
@@ -118,78 +119,60 @@ module isu_wake_src
   end
 
   // ---- F/D: delayed wake-ups of the FP units (and of I2F on the integer ports), countdown slots ----
-  if (FP_EN) begin : g_fp
-    logic [FP_REQ_UNITS-1:0]  fp_req_valid;
-    logic [PRF_IDX_WIDTH-1:0] fp_req_preg [FP_REQ_UNITS];
-    logic [ROB_IDX_WIDTH-1:0] fp_req_rob_idx [FP_REQ_UNITS];
-    logic [FP_REQ_UNITS-1:0]  fp_req_rob_flag;
-    logic [FP_COUNT_W-1:0]    fp_req_count [FP_REQ_UNITS];
-    logic [LSU_LDU_COUNT-1:0] fp_req_spec_mask [FP_REQ_UNITS];
-    for (genvar p = 0; p < ISSUE_WIDTH; p++) begin : g_port
-      if (port_has(MASK_FPD, p)) begin : g_req
-        localparam int R = port_rank(MASK_FPD, p);
-        logic [FP_COUNT_W:0] lat;
-        logic is_fp_op;
-        assign lat       = fp_latency(grant_uop[p].op, grant_uop[p].func7);
-        assign is_fp_op  = (grant_uop[p].op == op_t'(UOP_FMA)) || (grant_uop[p].op == op_t'(UOP_FMISC)) ||
-                           (grant_uop[p].op == op_t'(UOP_FDIV)) || (grant_uop[p].op == op_t'(UOP_I2F));
-        assign fp_req_valid[R]     = grant_valid[p] && grant_uop[p].dest_en && is_fp_op;
-        assign fp_req_preg[R]      = grant_uop[p].dest_preg;
-        assign fp_req_rob_idx[R]   = grant_uop[p].rob_idx;
-        assign fp_req_rob_flag[R]  = grant_uop[p].rob_flag;
-        assign fp_req_count[R]     = FP_COUNT_W'(lat - (FP_COUNT_W+1)'(1));
-        assign fp_req_spec_mask[R] = grant_spec_mask[p];
-      end
+  logic [FP_REQ_UNITS-1:0]  fp_req_valid;
+  logic [PRF_IDX_WIDTH-1:0] fp_req_preg [FP_REQ_UNITS];
+  logic [ROB_IDX_WIDTH-1:0] fp_req_rob_idx [FP_REQ_UNITS];
+  logic [FP_REQ_UNITS-1:0]  fp_req_rob_flag;
+  logic [FP_COUNT_W-1:0]    fp_req_count [FP_REQ_UNITS];
+  logic [LSU_LDU_COUNT-1:0] fp_req_spec_mask [FP_REQ_UNITS];
+  for (genvar p = 0; p < ISSUE_WIDTH; p++) begin : g_fp_port_req
+    if (port_has(MASK_FPD, p)) begin : g_req
+      localparam int R = port_rank(MASK_FPD, p);
+      logic [FP_COUNT_W:0] lat;
+      logic is_fp_op;
+      assign lat       = fp_latency(grant_uop[p].op, grant_uop[p].func7);
+      assign is_fp_op  = (grant_uop[p].op == op_t'(UOP_FMA)) || (grant_uop[p].op == op_t'(UOP_FMISC)) ||
+                         (grant_uop[p].op == op_t'(UOP_FDIV)) || (grant_uop[p].op == op_t'(UOP_I2F));
+      assign fp_req_valid[R]     = grant_valid[p] && grant_uop[p].dest_en && is_fp_op;
+      assign fp_req_preg[R]      = grant_uop[p].dest_preg;
+      assign fp_req_rob_idx[R]   = grant_uop[p].rob_idx;
+      assign fp_req_rob_flag[R]  = grant_uop[p].rob_flag;
+      assign fp_req_count[R]     = FP_COUNT_W'(lat - (FP_COUNT_W+1)'(1));
+      assign fp_req_spec_mask[R] = grant_spec_mask[p];
     end
+  end
 
-    // Per-port private countdown slots (NREQ=1 each): eliminates cross-port 5-way isu_alloc_chain on the FP grant path.
-    // Max in-flight per port: I2F=3, FMA/FMISC=4, FDIV(1)+FMISC(2)=3 -> 5 private slots/port cannot overflow.
-    localparam int FP_PORT_SLOTS = 5;
-    localparam int FP_TOT_SLOTS  = FP_REQ_UNITS * FP_PORT_SLOTS;
-    logic [FP_TOT_SLOTS-1:0]      fp_slot_valid;
-    logic [PRF_IDX_WIDTH-1:0]     fp_slot_preg [FP_TOT_SLOTS];
-    for (genvar r = 0; r < FP_REQ_UNITS; r++) begin : g_fp_port
-      logic [PRF_IDX_WIDTH-1:0] p_preg [1];
-      logic [ROB_IDX_WIDTH-1:0] p_ridx [1];
-      logic [FP_COUNT_W-1:0]    p_cnt  [1];
-      logic [LSU_LDU_COUNT-1:0] p_sm   [1];
-      logic [FP_PORT_SLOTS-1:0] p_wv;
-      logic [PRF_IDX_WIDTH-1:0] p_wp [FP_PORT_SLOTS];
-      /* verilator lint_off UNUSEDSIGNAL */   // waiver: FP slots do not use the 1-bit source-port tag
-      logic [FP_PORT_SLOTS-1:0] p_wl;
-      /* verilator lint_on UNUSEDSIGNAL */
-      assign p_preg[0] = fp_req_preg[r];
-      assign p_ridx[0] = fp_req_rob_idx[r];
-      assign p_cnt[0]  = fp_req_count[r];
-      assign p_sm[0]   = fp_req_spec_mask[r];
-      isu_wake_iter #(.SLOTS(FP_PORT_SLOTS), .NREQ(1), .CW(FP_COUNT_W)) u_fp (
-        .clk(clk), .rst_n(rst_n), .req_valid(fp_req_valid[r]), .req_preg(p_preg),
-        .req_rob_idx(p_ridx), .req_rob_flag(fp_req_rob_flag[r]),
-        .req_countdown(p_cnt), .req_lane(1'b0), .req_spec_mask(p_sm), .cn_port_mask(cn_port_mask),
-        .flush_all(flush_all), .flush_br(flush_br), .flush_rob_idx(flush_rob_idx), .flush_rob_flag(flush_rob_flag),
-        .wake_valid(p_wv), .wake_preg(p_wp), .wake_lane(p_wl));
-      for (genvar s = 0; s < FP_PORT_SLOTS; s++) begin : g_s
-        assign fp_slot_valid[r * FP_PORT_SLOTS + s] = p_wv[s];
-        assign fp_slot_preg[r * FP_PORT_SLOTS + s]  = p_wp[s];
-      end
+  // Per-port private countdown slots (one request per cycle each): no cross-port 5-way allocation on the FP grant path.
+  // Max in-flight per port: I2F=3, FMA/FMISC=4, FDIV(1)+FMISC(2)=3 -> 5 private slots/port cannot overflow.
+  localparam int FP_PORT_SLOTS = 5;
+  localparam int FP_TOT_SLOTS  = FP_REQ_UNITS * FP_PORT_SLOTS;
+  logic [FP_TOT_SLOTS-1:0]      fp_slot_valid;
+  logic [PRF_IDX_WIDTH-1:0]     fp_slot_preg [FP_TOT_SLOTS];
+  for (genvar r = 0; r < FP_REQ_UNITS; r++) begin : g_fp_port
+    logic [FP_PORT_SLOTS-1:0] p_wv;
+    logic [PRF_IDX_WIDTH-1:0] p_wp [FP_PORT_SLOTS];
+    isu_wake_iter #(.SLOTS(FP_PORT_SLOTS), .CW(FP_COUNT_W)) u_fp (
+      .clk(clk), .rst_n(rst_n), .req_valid(fp_req_valid[r]), .req_preg(fp_req_preg[r]),
+      .req_rob_idx(fp_req_rob_idx[r]), .req_rob_flag(fp_req_rob_flag[r]),
+      .req_countdown(fp_req_count[r]), .req_spec_mask(fp_req_spec_mask[r]), .cn_port_mask(cn_port_mask),
+      .flush_all(flush_all), .flush_br(flush_br), .flush_rob_idx(flush_rob_idx), .flush_rob_flag(flush_rob_flag),
+      .wake_valid(p_wv), .wake_preg(p_wp));
+    for (genvar s = 0; s < FP_PORT_SLOTS; s++) begin : g_s
+      assign fp_slot_valid[r * FP_PORT_SLOTS + s] = p_wv[s];
+      assign fp_slot_preg[r * FP_PORT_SLOTS + s]  = p_wp[s];
     end
+  end
 
-    assign fp_raw_valid = fp_slot_valid;
-    assign fp_raw_preg  = fp_slot_preg;
+  assign fp_raw_valid = fp_slot_valid;
+  assign fp_raw_preg  = fp_slot_preg;
 
-    logic [FPW_CH-1:0]        fpw_valid;
-    logic [PRF_IDX_WIDTH-1:0] fpw_preg [FPW_CH];
-    isu_wake_compact #(.N(FP_TOT_SLOTS), .M(FPW_CH)) u_compact (
-      .clk(clk), .in_valid(fp_slot_valid), .in_preg(fp_slot_preg), .out_valid(fpw_valid), .out_preg(fpw_preg));
-    for (genvar c = 0; c < FPW_CH; c++) begin : g_ch
-      assign wake_valid[FP_WAKE_BASE + c] = fpw_valid[c];
-      assign wake_preg[FP_WAKE_BASE + c]  = fpw_preg[c];
-    end
-  end else begin : g_nofp
-    assign fp_raw_valid = '0;
-    for (genvar s = 0; s < FP_REQ_UNITS * 5; s++) begin : g_z
-      assign fp_raw_preg[s] = '0;
-    end
+  logic [FPW_CH-1:0]        fpw_valid;
+  logic [PRF_IDX_WIDTH-1:0] fpw_preg [FPW_CH];
+  isu_wake_compact #(.N(FP_TOT_SLOTS), .M(FPW_CH)) u_compact (
+    .clk(clk), .in_valid(fp_slot_valid), .in_preg(fp_slot_preg), .out_valid(fpw_valid), .out_preg(fpw_preg));
+  for (genvar c = 0; c < FPW_CH; c++) begin : g_ch
+    assign wake_valid[FP_WAKE_BASE + c] = fpw_valid[c];
+    assign wake_preg[FP_WAKE_BASE + c]  = fpw_preg[c];
   end
 
   // ---- delayed structures ----

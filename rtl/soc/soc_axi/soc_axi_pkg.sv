@@ -1,7 +1,6 @@
 // Ref: docs/modules/soc_axi.md  ARM IHI 0022E AXI4 constants and burst address helpers
 `default_nettype none
 /* verilator lint_off UNUSEDPARAM */
-/* verilator lint_off UNUSEDSIGNAL */
 package soc_axi_pkg;
 
   // ---- AXI4 Burst types ----
@@ -11,12 +10,10 @@ package soc_axi_pkg;
 
   // ---- AXI4 Response codes ----
   localparam logic [1:0] AXI4_RESP_OKAY   = 2'b00;
-  localparam logic [1:0] AXI4_RESP_EXOKAY = 2'b01;
   localparam logic [1:0] AXI4_RESP_SLVERR = 2'b10;
   localparam logic [1:0] AXI4_RESP_DECERR = 2'b11;
 
   // ---- AXI4 Cache encodings (ARM IHI 0022E Table A4-5) ----
-  localparam logic [3:0] AXI4_CACHE_DEV_NGNRNE  = 4'b0000;  // Device Non-bufferable (MMIO)
   localparam logic [3:0] AXI4_CACHE_NORM_NC_BUF = 4'b0011;  // Normal Non-cacheable Bufferable (post-LLC DDR)
 
   // ---- AXI4 Prot encodings ----
@@ -61,6 +58,5 @@ package soc_axi_pkg;
   endfunction
 
 endpackage
-/* verilator lint_on UNUSEDSIGNAL */
 /* verilator lint_on UNUSEDPARAM */
 `default_nettype wire

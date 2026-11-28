@@ -61,7 +61,7 @@ depth: bootrom 27 / sram 23 / clint 26 / plic 72 / uart 20 / sysctrl 11 层（ed
 | 项 | 值 | 来源 |
 | --- | --- | --- |
 | 地址映射 | 见 [chip_top.md](chip_top.md) 第 2 节 | `soc_pkg`：`ADDR_*`、`SLV_*` |
-| PLIC 中断源 | 8（ID 1 = UART，2..8 = `ext_irq[6:0]`），2 个上下文 | `soc_pkg::PLIC_NUM_SRC = 8`、`IRQ_UART = 1` |
+| PLIC 中断源 | 8（ID 1 = UART，2..8 = `ext_irq[6:0]`），2 个上下文 | `soc_pkg::PLIC_NUM_SRC = 8`（UART 接 ID 1 是 `chip_top` 的连线，没有常量） |
 | 片上 SRAM | 8192 × 64 位 = 64 KiB | `soc_sram` 参数 `WORDS = 8192` |
 | AXI id 位宽 | `ID_W = 8`（`soc_bootrom`、`soc_sram`；`chip_top` 传 `OC_ID_W`） | 模块参数 |
 
@@ -75,14 +75,14 @@ depth: bootrom 27 / sram 23 / clint 26 / plic 72 / uart 20 / sysctrl 11 层（ed
 
 | 文件 | 行数 | 职责 |
 | --- | ---: | --- |
-| `soc_bootrom/soc_bootrom.sv` | 174 | 只读 BootROM（ZSBL）与 AXI4 突发读 |
-| `soc_sram/soc_sram.sv` | 233 | 64 KiB 片上 SRAM（`ttg_sram_1rw`，`INIT_SWEEP = 0`）与 AXI4 突发读写 |
-| `soc_clint/soc_clint.sv` | 178 | `mtime` / `mtimecmp` / `msip`，双地址映射 |
-| `soc_plic/soc_plic.sv` | 229 | 优先级、挂起、使能、阈值、Claim / Complete |
-| `soc_uart/soc_uart.sv` | 219 | NS16550A 寄存器与 16 字节收发 FIFO |
+| `soc_bootrom/soc_bootrom.sv` | 172 | 只读 BootROM（ZSBL）与 AXI4 突发读 |
+| `soc_sram/soc_sram.sv` | 231 | 64 KiB 片上 SRAM（`ttg_sram_1rw`，`INIT_SWEEP = 0`）与 AXI4 突发读写 |
+| `soc_clint/soc_clint.sv` | 176 | `mtime` / `mtimecmp` / `msip`，双地址映射 |
+| `soc_plic/soc_plic.sv` | 227 | 优先级、挂起、使能、阈值、Claim / Complete |
+| `soc_uart/soc_uart.sv` | 217 | NS16550A 寄存器与 16 字节收发 FIFO |
 | `soc_uart/soc_uart_tx.sv` | 70 | 8N1 发送移位 |
 | `soc_uart/soc_uart_rx.sv` | 117 | 8N1 接收（2 级同步 + 位中点采样） |
-| `soc_sysctrl/soc_sysctrl.sv` | 175 | Chip ID、启动模式、软复位、暂存、计时 |
+| `soc_sysctrl/soc_sysctrl.sv` | 173 | Chip ID、启动模式、软复位、暂存、计时 |
 
 ## 5. 一拍内的数据流
 
@@ -114,5 +114,6 @@ depth: bootrom 27 / sram 23 / clint 26 / plic 72 / uart 20 / sysctrl 11 层（ed
 
 ## 10. 变更记录
 
+- 2026-11-28 清理：`soc_pkg` 删无引用的 `NSLV_MMIO`、`IRQ_UART` 和与 `soc_axi_pkg::AXI4_RESP_*` 重复的 `AXI_RESP_*`（`soc_uart` / `soc_clint` / `soc_sysctrl` / `soc_plic` 改用 `soc_axi_pkg::AXI4_RESP_OKAY`），`soc_decode_slave` 改用 `ADDR_*` 常量的高位比较（同一组比较，结果不变）；删各外设 `unused_*` 汇点外不起作用的 `UNUSEDSIGNAL` 豁免（周期不变）。
 - 2026-11-28（`rtl/fe-2ahead`）：`soc_sram` 的 `ttg_sram_1rw` 设 `INIT_SWEEP = 0`（软件 RAM，复位不清零，73761fa）；文档按 TEMPLATE 十节重排。
 - 2026-11-26（`5fa54e2`）：新增 v1 片上外设。

@@ -27,7 +27,7 @@ module bpu_ftb_brq import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
   output logic                    upd_ah_self0,
   output logic [XLEN_BITS-1:0]    upd_ah_key_base,
   output logic [XLEN_BITS-1:0]    upd_prev_base,
-  output ex_fh_t                  upd_ah_key_ex_fh,
+  output ex_fh0_t                 upd_ah_key_ex_fh,
   output ftb1_lookup_meta_t       upd_ftb1_meta,
   output ah_pred_meta_t           upd_ah_meta,
   output ftb_br_upd_t             upd_br,
@@ -67,7 +67,6 @@ module bpu_ftb_brq import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
     .DEPTH      (FTB_REC_N),
     .WIDTH      (REC_BITS),
     .MASK_W     (1),
-    .WRITE_FIRST(1'b1),
     .TAG        ("BPU_FTB_REC")
   ) u_rec (
     .clk  (clk), .rst_n(rst_n),

@@ -12,9 +12,7 @@ module csr_cause_sel #(
 
   logic [N-1:0] first;
   // any is not needed (no condition -> cause 0); named, not empty, because -Wall flags empty pin connections.
-  /* verilator lint_off UNUSEDSIGNAL */
   logic         none_unused;
-  /* verilator lint_on UNUSEDSIGNAL */
   ttg_first_set #(.N(N)) u_first (.req(cond), .onehot(first), .any(none_unused));
   ttg_onehot_mux #(.N(N), .W(4)) u_mux (.sel(first), .data(code), .out(cause_code));
 

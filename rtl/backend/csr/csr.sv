@@ -9,7 +9,6 @@ module csr
   input  logic        clk,
   input  logic        rst_n,
   input  logic        exe2csr_we,
-  input  logic        exe2csr_re,
   input  logic [11:0] exe2csr_idx,
   input  logic [XLEN_BITS-1:0] exe2csr_wdata,
   input  logic [1:0]  exe2csr_wcmd,
@@ -35,14 +34,11 @@ module csr
   input  logic        interrupt_inject_supervisor_external_irq_pending,
   input  logic        interrupt_inject_timer_irq_pending_valid,
   input  logic        interrupt_inject_timer_irq_pending,
-  output logic        csr2exe_rdata_vld,
   output logic [XLEN_BITS-1:0] csr2exe_rdata,
   output logic        csr2rob_interrupt_req,
   output logic        csr2rob_fs_off,       // F/D: mstatus.FS == Off (FP instructions are illegal)
   output logic [2:0]  csr2exe_frm,          // F/D: dynamic rounding mode
-  output logic        csr2front_epc_vld,
   output logic [XLEN_BITS-1:0] csr2front_epc,
-  output logic        csr2front_trap_pc_vld,
   output logic [XLEN_BITS-1:0] csr2front_trap_pc,
   output logic [XLEN_BITS-1:0] csr_status_sstatus,
   output logic [XLEN_BITS-1:0] csr_status_mstatus,
@@ -69,8 +65,8 @@ module csr
     .page_fault_load(rob_bcast_page_fault_load), .page_fault_store(rob_bcast_page_fault_store),
     .illegal_inst(rob_bcast_illegal_inst), .breakpoint(rob_bcast_breakpoint),
     .trap_val(rob_bcast_trap_val), .pc(rob_bcast_pc),
-    .privilege(privilege), .trap_taken(csr2front_trap_pc_vld), .trap_pc(csr2front_trap_pc),
-    .xret_taken(csr2front_epc_vld), .epc(csr2front_epc), .wr_en(trap_wr_en), .wr_val(trap_wr_val));
+    .privilege(privilege), .trap_pc(csr2front_trap_pc),
+    .epc(csr2front_epc), .wr_en(trap_wr_en), .wr_val(trap_wr_val));
 
   // ---- CSR instruction: read at execute, staged write, commit ----
   logic [11:0] pending_idx;
@@ -98,8 +94,7 @@ module csr
     .regs(regs));
 
   // ---- status for MMU / LSU / front end ----
-  assign csr2exe_rdata_vld    = exe2csr_re;
-  assign csr2rob_fs_off       = FP_EN && (regs[R_MSTATUS][MSTATUS_FS +: 2] == 2'b00);
+  assign csr2rob_fs_off       = (regs[R_MSTATUS][MSTATUS_FS +: 2] == 2'b00);
   assign csr2exe_frm          = regs[R_FCSR][7:5];
   assign csr_status_mstatus   = regs[R_MSTATUS];
   assign csr_status_sstatus   = regs[R_MSTATUS] & SSTATUS_MASK;

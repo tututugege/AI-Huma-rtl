@@ -63,18 +63,14 @@ module ftq_pc import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; import front_pkg::f
   output logic [XLEN_BITS-1:0]         rob_pc,
   output logic                         rob_is_rvc,
   // Commit 8-wide read ports (8-bank 8:1 window)
-  /* verilator lint_off UNUSEDSIGNAL */
   input  logic [FTQ_IDX_WIDTH-1:0]     cm_idx [COMMIT_WIDTH],
-  /* verilator lint_on UNUSEDSIGNAL */
   input  logic [FTQ_OFFSET_WIDTH-1:0]  cm_off [COMMIT_WIDTH],
   output logic [XLEN_BITS-1:0]         cm_pc [COMMIT_WIDTH],
   output logic                         cm_pred_taken [COMMIT_WIDTH],
   output logic                         cm_is_rvc [COMMIT_WIDTH],
   output logic [XLEN_BITS-1:0]         cm_next_pc [COMMIT_WIDTH],
   // Dispatch 8-wide read ports (8-bank 8:1 window, 32-bit PC for MDP/prefetchers)
-  /* verilator lint_off UNUSEDSIGNAL */
   input  logic [FTQ_IDX_WIDTH-1:0]     dis_idx [DECODE_WIDTH],
-  /* verilator lint_on UNUSEDSIGNAL */
   input  logic [FTQ_OFFSET_WIDTH-1:0]  dis_off [DECODE_WIDTH],
   output logic [31:0]                  dis_pc [DECODE_WIDTH],
   output logic                         dis_is_rvc [DECODE_WIDTH]

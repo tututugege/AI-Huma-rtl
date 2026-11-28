@@ -6,7 +6,7 @@ package memcpu_pkg;
 
   // ---- DCache load/store ports (LSU side) ----
   localparam int NLD        = LSU_LDU_COUNT;         // load ports; the LAST one (NLD-1) is shared with ICache / PTW
-  localparam int NST        = LSU_STA_COUNT;         // 4 store ports
+  localparam int NST        = LSU_STA_COUNT;         // store ports (STA count)
   localparam int P3         = NLD - 1;               // shared load port
   localparam int LD_ID_W    = 31;                    // LSU load request id (bit 31 = route flag, route block's)
   localparam int ST_ID_W    = 6;                     // LSU store request id (STQ index)

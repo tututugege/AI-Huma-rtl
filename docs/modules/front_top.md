@@ -60,11 +60,11 @@ depth: Tier 1（Yosys + PrimeTime，clk=0.65 ns，eda-07，2026-11-28）64 级 /
 
 | 文件 | 行数 | 职责 |
 | --- | --- | --- |
-| `front_top.sv` | 213 | 连线；`fe2ftq_s0`；`refetch_pd` |
-| `front_fetch_buf.sv` | 116 | 取指侧：IFU 读口、`inst_fifo_room`、`inst_fifo` 写条目 |
-| `front_pred_path.sv` | 329 | 预测侧：BPU、FDIP 打拍、头修正、检查器、截断、PD 信息、携带寄存器、FTQ 写请求 |
+| `front_top.sv` | 211 | 连线；`fe2ftq_s0`；`refetch_pd` |
+| `front_fetch_buf.sv` | 110 | 取指侧：IFU 读口、`inst_fifo_room`、`inst_fifo` 写条目 |
+| `front_pred_path.sv` | 326 | 预测侧：BPU、FDIP 打拍、头修正、检查器、截断、PD 信息、携带寄存器、FTQ 写请求 |
 
-状态：`front_top`、`front_fetch_buf` 自己没有（队列状态在 `front_fifo`）；`front_pred_path` 有携带寄存器 `lh_valid_q`（1）、`lh_pc_q`（64）、`lh_data_q`（16）和 FDIP 打拍寄存器 `fdip_s2_{en,va,clear}_q`。
+状态：`front_top`、`front_fetch_buf` 自己没有（队列状态在 `inst_fifo`）；`front_pred_path` 有携带寄存器 `lh_valid_q`（1）、`lh_pc_q`（64）、`lh_data_q`（16）和 FDIP 打拍寄存器 `fdip_s2_{en,va,clear}_q`。
 
 ## 5. 一拍内的数据流
 
@@ -92,7 +92,7 @@ depth: Tier 1（Yosys + PrimeTime，clk=0.65 ns，eda-07，2026-11-28）64 级 /
 - PMU 前端分类（`FrontControl::finish` 的 `g_pmu_front.feo_*`）：RTL 前端里没有，RTL 只有一级事件（见 [pmu.md](pmu.md)）；
 - 模型的 `ReadData` 快照、`front_state` 的 `d` 值、`*_full / *_empty` 锁存：RTL 由计数直接算；
 - `front.in.reset`（模型只在 `FrontTop::init()` 一拍有效）：RTL 用 `rst_n`；
-- `bpu_can_run`、`ftq2fe.ifu_next_fa_idx / ifu_next_b_idx / ifu_pair`、I-Cache 的 `fetch_upper_ok` 在顶层没有用（接 `unused_ok`）；
+- `ftq2fe.ifu_next_fa_idx / ifu_next_b_idx / ifu_pair`、I-Cache 的 `fetch_upper_ok` 在顶层没有用（接 `unused_ok`）；
 - 携带寄存器在后端重定向或复位时清；预译码冲刷时除非冲刷的那组自己产生了新的携带且续在其后，否则也等于被清（`lh_new_valid` 含 `!checker_flush_enable || corrected == lh_new_pc`）。
 
 ## 8. 验证
@@ -104,10 +104,11 @@ depth: Tier 1（Yosys + PrimeTime，clk=0.65 ns，eda-07，2026-11-28）64 级 /
 
 ## 9. 参数与开关速查
 
-无开关。常量：`RVC_ENABLE`、`FETCH_WIDTH`、`FETCH_BYTES`、`SLOT_BYTES`、`COMMIT_WIDTH`、`INSTRUCTION_FIFO_SIZE`、`FTQ_SIZE`（`ttg_cfg_pkg`）；`INST_FIFO_DEPTH`、`INST_FIFO_FULL_AT`、`KIND_W`（`front_pkg`）。
+无开关。常量：`RVC_ENABLE`、`FETCH_WIDTH`、`FETCH_BYTES`、`SLOT_BYTES`、`COMMIT_WIDTH`、`INSTRUCTION_FIFO_SIZE`、`FTQ_SIZE`（`ttg_cfg_pkg`）；`INST_FIFO_DEPTH`、`KIND_W`（`front_pkg`）。
 
 ## 10. 变更记录
 
+- 2026-11-28 清理：删 `front_ctrl` 无读者的 `bpu_can_run` 输出及其 `unused_ok` 汇点、`inst_fifo` 无读者的 `rd_valid`（`inst_rd_valid`）、`predecode_checker` 未用的 `clk / rst_n` 连线、`front_pred_path` 前缀扫描末级不用的 `p4` 与 `if (1'b0)` 静默写法、`front_fetch_buf` / `front_top` 不起作用的 `UNUSEDSIGNAL` 豁免，`front_fetch_buf` 的 `unused_hi` 汇点去掉其实有读者的 `ic_page_fault_inst[15:1]` / `b_fetch_group[*][31:16]`（周期不变）。
 - 2026-11-28（`rtl/fe-2ahead`）：文档按现行 RTL 重写（第 1–9 节；旧正文描述的是 EXP-070 之前 / 删除分支标签之前的结构）。
 - 2026-11-21（`rtl/fe-2fetch-2taken`，EXP-051 里程碑 B）：`fetch_addr_fifo` 与 `pend_pair_q` 携带 `FetchPair`；`front_fetch_buf` 实现双块融合与 `alt_a` 完整 A 兜底；`ptab` / `front2back_fifo` 用紧凑字段 `{is_pair, a_len, base_b}` 重建 16 槽 PC 并删除 166 位 `bpu_ck`；`front_top` 接入 ICache FDIP S2 信号。Yosys 综合 `front_top` `1,582,763` 单元 / `356` 层（最长路径 `u_pred_path.u_bpu.r1_q[1074] → u_pd.pd_ras_op2_q[1]`，已登记至 TODO）；通过 `lint_chip` 0、`fm_gate` 68/68（0 周期偏差）与 Linux 27 窗检查点对齐。
 - 2026-11-17/18（exp/agu-share）：指令起点前缀扫描 `737e7a5`；取指地址队列 push 后一拍才弹出 `4eb8f0e`（模型 `CFG_FE_OVR_REG`，16 个 SPEC 点几何平均 IPC -0.82 %）；BPU 的三处深度改写 `7551dd0`、`47f4a7d`、`2c76ba2`（见 bpu.md）。

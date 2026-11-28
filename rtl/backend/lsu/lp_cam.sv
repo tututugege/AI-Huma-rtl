@@ -17,13 +17,10 @@ module lp_cam
   input  logic [SQW-1:0]      head,
   input  logic                head_flag,
   input  logic [CNTW-1:0]     count,
-  /* verilator lint_off UNUSEDSIGNAL */  // only va_v / vaddr[11:0] / pa_v / paddr / func3 / suppress are read
   input  lp_stq_t             sq [SQ],
-  /* verilator lint_on UNUSEDSIGNAL */
   input  logic                spec_ok,   // memory speculation: the load passes unknown-address stores
   output logic                cand_v,
   output logic [SQW-1:0]      cand,
-  output logic [SQ-1:0]       cand_oh,
   output logic                unk        // an older store younger than the candidate was passed with an unknown address
 );
 
@@ -51,7 +48,7 @@ module lp_cam
     assign ov_full = (rel32_pre_l(paddr, paddr_p1, paddr_m1, func3, sq[j].paddr, sq[j].func3) != 2'd0);
     lp_ovl #(.W(12)) u_part (.lo(voff), .lf(func3), .so(sq[j].vaddr[11:0]), .sf(sq[j].func3), .ovl(ov_part));
     assign raw_hit[j] = !sq[j].suppress &&
-                        (!sq[j].va_v ? !(MS && spec_ok) : (sq[j].pa_v ? ov_full : ov_part));
+                        (!sq[j].va_v ? !spec_ok : (sq[j].pa_v ? ov_full : ov_part));
     assign raw_unk[j] = !sq[j].suppress && !sq[j].va_v;
   end
 
@@ -73,7 +70,6 @@ module lp_cam
   lp_ffs_p #(.N(SQ)) u_lo (.req(hit_lo_rev), .onehot(last_lo_rev), .any(any_lo), .pre(lo_ge));
   assign cand_v  = any_lo || any_hi;
   assign last_oh = any_lo ? last_lo_oh : last_hi_oh;
-  assign cand_oh = last_oh;
   ttg_onehot_to_idx #(.N(SQ)) u_idx (.onehot(last_oh), .idx(cand));
 
   assign unk_lo_young = |(unk_lo_rev & ~lo_ge);

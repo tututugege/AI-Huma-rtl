@@ -4,9 +4,7 @@
 module div_unit
   import ttg_cfg_pkg::*;
   import exu_fu_pkg::*;
-#(
-  parameter int LAT = DIV_MAX_LATENCY
-) (
+(
   input  logic                     clk,
   input  logic                     rst_n,
   input  logic                     en,
@@ -23,7 +21,6 @@ module div_unit
   input  logic [PRF_IDX_WIDTH-1:0] dest_preg,
   input  logic                     dest_en,
   output logic                     complete,
-  output logic                     wb_next,
   output logic                     wb_in2,
   output logic                     wake_valid,
   output logic [PRF_IDX_WIDTH-1:0] wake_preg,
@@ -37,6 +34,7 @@ module div_unit
   localparam int CW = 5;
 
   logic       accept, run;
+  logic       wb_next;     // the result is written next cycle (drives the early wake-up)
   logic [4:0] lat_m1;
 
   exu_iter_ctl #(.CW(CW)) u_ctl (
@@ -47,7 +45,7 @@ module div_unit
     .accept(accept), .run(run), .complete(complete), .wb_next(wb_next), .wb_in2(wb_in2), .done_rob_flag(done_rob_flag)
   );
 
-  div_core #(.LAT(LAT)) u_core (
+  div_core u_core (
     .clk(clk), .rst_n(rst_n), .accept(accept), .run(run), .func3(func3), .is_word(is_word),
     .src1_rdata(src1_rdata), .src2_rdata(src2_rdata), .lat_m1(lat_m1), .result(result)
   );

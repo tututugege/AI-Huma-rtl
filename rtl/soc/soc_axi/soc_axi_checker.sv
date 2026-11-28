@@ -257,13 +257,11 @@ module soc_axi_checker import soc_axi_pkg::*; #(
     end
   end
 `else
-  /* verilator lint_off UNUSEDSIGNAL */
   logic unused_syn;
   assign unused_syn = &{1'b0, clk, rst_n, arvalid, arready, arid, araddr, arlen, arsize, arburst, arlock,
                         arcache, arprot, arqos, arregion, rvalid, rready, rid, rdata, rresp, rlast,
                         awvalid, awready, awid, awaddr, awlen, awsize, awburst, awlock, awcache, awprot,
                         awqos, awregion, wvalid, wready, wdata, wstrb, wlast, bvalid, bready, bid, bresp};
-  /* verilator lint_on UNUSEDSIGNAL */
 `endif
 
 endmodule

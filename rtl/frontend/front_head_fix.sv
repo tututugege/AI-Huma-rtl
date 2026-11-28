@@ -312,10 +312,8 @@ module front_head_fix import ttg_cfg_pkg::*; import front_pkg::*; (
   assign seq_next_o = (|complete_oh) ? (comp_pc + XLEN_BITS'(4)) : s2_seq;
   ttg_onehot_mux #(.N(FETCH_WIDTH), .W(16)) u_carry_low (.sel(straddle_oh), .data(raw_low), .out(carry_low));
 
-  /* verilator lint_off UNUSEDSIGNAL */
   logic unused_hf;
   assign unused_hf = s1_inv_oh[0] ^ ptab_is_pair ^ (^ptab_base_b) ^ (^ptab_a_len);
-  /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule
 

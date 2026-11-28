@@ -50,7 +50,7 @@ depth: **61 层 / 1,033,276 cells**（Yosys `strash;balance;map`）；**TSMC 28n
 | 内存（q1，load + STA 合并） | 64（`IQ_MEM_SIZE`） | 6（`IQ_MEM_ENQ_WIDTH`） | 5（2 LD + 2 共享 + 1 STA） | load 挑最老 + 其余最低槽（至多 4 条）分配口 0..3；STA 挑最老 + 其余最低槽（至多 3 条）从高口往低（口 4、3、2）分配未被 load 占用的口 |
 | STD（q2） | 16 | 4 | 3 | |
 | BR（q3） | 64 | 5 | 2 | 方案 C（`rob_ptr` 冲刷）解除 31 在飞分支上限后扩容至 64 |
-| FP（q4） | 32 | 4 | 3 | 仅 F/D（`FPRF_NUM != 0`） |
+| FP（q4） | 32 | 4 | 3 | F/D 总是有 |
 
 其他：槽分配只看寄存的 valid 位；`MUL_MAX_LATENCY = 3`、`DIV_MAX_LATENCY = 17`；`WAKE_NUM = MAX_WAKEUP_PORTS = 21`；`TAG_NUM = 352`；`FPW_CH = 8`。
 
@@ -79,21 +79,21 @@ depth: **61 层 / 1,033,276 cells**（Yosys `strash;balance;map`）；**TSMC 28n
                     └ isu_iq_select   : 每口按能力选一个槽（最老优先或最低槽优先，MEM 直接 5 口映射）
  isu_wake_src : 唤醒通道 = prf_awake | MUL 管线末级 | DIV 晚唤醒（exe2iss_div_wake_*） | ALU 快速唤醒 | FP 倒计时槽
  isu_wb_gate  : 完成周期预留（EXP-035）：按口移位忙表，叠加 DIV busy 与 FDIV 倒计时阻塞信号生成 cls_free
- isu_fp_gate  : FP 写口限制（EXP-032，`FP_WB_PORTS = 2`）
+ isu_fp_gate  : FP 写口限制（EXP-032，`FP_WB_PORTS = 2`，闸与忙表更新按 2 个写口写死）
  isu (top)    : 端口适配，本地维护 div_busy_q（口 1）与 fdiv_cnt_q（口 18）阻塞迭代单元重复发射，汇总三道闸并拼接 19 个物理口
 ```
 
 | 文件 | 行数 | 职责 |
 | --- | --- | --- |
-| `isu_pkg.sv` | 326 | 队列、口（`IQ_AGU_PORT_BASE` 等）、能力表；uop 结构；完成类与偏移；`cls_blockable`（含 DIV/FDIV 可阻塞类）与 `cls_wb_blockable`（单 `wb_gate` 测验用） |
-| `isu.sv` | 445 | 顶层：端口适配、`div_busy_q` / `fdiv_cnt_q` 跟踪及误预测杀死、门控 `cls_free` 传入 `isu_iq` |
-| `isu_iq.sv` | 491 | 一个发射队列（含入队寄存的完成类位 `slot_cls_q`、Port 0/2 `src1_is_pc` 过滤、`port_ok`；不再有 `SH_*` 与 `fu_ready` 反压） |
-| `isu_iq_store.sv` | 632 | 按 IQ 类型参数化裁剪的槽存储与次态 |
-| `isu_iq_select.sv` | 142 | 每口的选择（MEM 5 口直接由 load/STA 候选归约与共享优先复用） |
+| `isu_pkg.sv` | 309 | 队列、口（`IQ_AGU_PORT_BASE` 等）、能力表；uop 结构；完成类与偏移；`cls_blockable`（含 DIV/FDIV 可阻塞类）与 `cls_wb_blockable`（单 `wb_gate` 测验用） |
+| `isu.sv` | 416 | 顶层：端口适配、`div_busy_q` / `fdiv_cnt_q` 跟踪及误预测杀死、门控 `cls_free` 传入 `isu_iq` |
+| `isu_iq.sv` | 481 | 一个发射队列（含入队寄存的完成类位 `slot_cls_q`、Port 0/2 `src1_is_pc` 过滤、`port_ok`；不再有 `SH_*` 与 `fu_ready` 反压） |
+| `isu_iq_store.sv` | 631 | 按 IQ 类型参数化裁剪的槽存储与次态 |
+| `isu_iq_select.sv` | 140 | 每口的选择（MEM 5 口直接由 load/STA 候选归约与共享优先复用） |
 | `isu_alloc_chain.sv` | 45 | 入队分配 |
 | `isu_age_matrix.sv` | 35 | 内存队列年龄矩阵 |
-| `isu_wake_src.sv`、`isu_wake_mul.sv`、`isu_wake_iter.sv`、`isu_wake_compact.sv`、`isu_wake_bus.sv` | 235、98、130、36、30 | 唤醒网络 |
-| `isu_wb_gate.sv`、`isu_fp_gate.sv` | 87、218 | 完成周期预留、FP 写口限制 |
+| `isu_wake_src.sv`、`isu_wake_mul.sv`、`isu_wake_iter.sv`、`isu_wake_compact.sv`、`isu_wake_bus.sv` | 218、98、91、36、30 | 唤醒网络 |
+| `isu_wb_gate.sv`、`isu_fp_gate.sv` | 85、169 | 完成周期预留、FP 写口限制 |
 
 状态：各队列 `valid_q / uop_q / wait*_q`；MUL 唤醒管线；DIV/FP 倒计时；内存队列年龄矩阵；`isu_wb_gate` 移位忙表；`isu_fp_gate` 计数环；以及 `isu.sv` 内的迭代单元占用寄存器：`div_busy_q`（+ `rob_idx/flag`，+ `spec_mask`，由口 1 授予 DIV 置 1，`exe2iss_div_wb_in2`、flush、误预测杀死或 L1 推测取消时清 0）与 `fdiv_cnt_q`（5 位，+ `rob_idx/flag`，由 `grant[18]` 载入操作延迟、每拍减 1）。
 
@@ -175,7 +175,7 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 ## 8. 验证
 
 - **最新整核门禁（2026-11-28，`rtl/exu-clean`，EXP-072）**：`lint_chip` & `lint_soc` 0 告警；`SOC_FM=1 SOC_SVA=1 SOC_ASSERT=1` `fm_gate` 77/77、`riscv-tests` 152/152、`soc_gate --linux` 12/12 全通；Linux 26/26 窗对齐；SPEC06 INT 386/386 `geomean +0.144%`（`ISS_REF_AGU` 由 `130,716.5` 降至 `0`）。
-- **EXP-046（`exp/wb-presel`）**：`tests/wb_gate`（`run.sh <工作目录>`）：`wrap.sv` 把忙表和 `isu_pkg` 的类表（偏移、每口服务的类）一起导出，`check.py` 随机 3 万拍对照模型的 `WbBusy`，同时检查 `port_ok` 和每口每类的 `cls_free`：0 不一致；植入错误（类 0 的 `cls_free` 恒 1）后 24140 拍不一致。原来的测试驱动的是已删除的 `off` 输入，在 main 上编译不过，这次一并改写。整核：`fm_gate` 67/67 逐条对函数模型无不一致，周期对模型（trace-model `exp/wb-port` `60aa7e8` 的 `CFG_WB_PRESEL=1`，合入版里这是唯一行为，RVC=1 构建，程序用 `build_tests.sh` 的 rv64ima 版）67/67 相等（合入 `exp/llc-plru` 后的集成分支，参考周期 `scripts/ref_cycles.txt` 用 `LSU_PIPE_NOWD=1` 生成；早先记录的"crc32 RTL 2196 / 模型 2199"是生成参考时没关模型的 LDQ / STQ 看门狗造成的误判，`tm_cycles.sh` 现在默认关掉它）。
+- **EXP-046（`exp/wb-presel`）**：`tests/wb_gate`（`run.sh <工作目录>`）：`wrap.sv` 把忙表和 `isu_pkg` 的类表（偏移、每口服务的类）一起导出，`check.py` 随机 3 万拍对照模型的 `WbBusy`，同时检查 `port_ok`（2026-11-28 起 `isu_wb_gate` 不再输出它，由 `wrap.sv` 从 `cls_1h` 与 `cls_free` 自己算）和每口每类的 `cls_free`：0 不一致；植入错误（类 0 的 `cls_free` 恒 1）后 24140 拍不一致。原来的测试驱动的是已删除的 `off` 输入，在 main 上编译不过，这次一并改写。整核：`fm_gate` 67/67 逐条对函数模型无不一致，周期对模型（trace-model `exp/wb-port` `60aa7e8` 的 `CFG_WB_PRESEL=1`，合入版里这是唯一行为，RVC=1 构建，程序用 `build_tests.sh` 的 rv64ima 版）67/67 相等（合入 `exp/llc-plru` 后的集成分支，参考周期 `scripts/ref_cycles.txt` 用 `LSU_PIPE_NOWD=1` 生成；早先记录的"crc32 RTL 2196 / 模型 2199"是生成参考时没关模型的 LDQ / STQ 看门狗造成的误判，`tm_cycles.sh` 现在默认关掉它）。
 
 - **门禁**：`scripts/fm_gate.sh` 77 个程序，每条提交对比函数模型，周期对 `scripts/ref_cycles.txt`（`scripts/regen_refs.sh` 由模型默认配置生成）：77/77 通过（最近一次 rtl 73761fa，2026-11-28），周期逐个相等。
 - **Lint**：`scripts/lint_chip.sh` 0 告警。
@@ -189,6 +189,7 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 
 ## 10. 变更记录
 
+- 2026-11-28 清理：删 `FP_EN`（F/D 总是有：`isu_pkg` 各 `FP_EN ?` 分支、`isu.sv` 的 `g_no_fp_wake_bus` / `g_no_gate` / `g_no_fdiv_occ`、`isu_iq` / `isu_iq_store` / `isu_wake_src` 的 `FP_EN` 条件）；删永不读的 FP free2 链（`isu_iq` 的 `fp_free2_cls` 输入、`sf2`、`slot_fpc_bits` 最高位、`grant_fp_f2`，`isu.sv` 的 `grant_fp_f2_all` / `c_f2`，`isu_fp_gate` 的 `cand_f2` 输入；`fp_free2_cls` 改为 `isu_fp_gate` 内部的 8..10 类）；`isu_fp_gate` 删参数 `P` 及 `P != 2` 的 `g_gen_p` / `g_upd_gen` 分支和 `same_slot`；`isu_wb_gate` 删输出 `port_ok`（`isu.sv` 的 `wb_port_ok` 不读）；`isu_wake_iter` 只剩单请求（删 `NREQ`、`req_lane`、`wake_lane`、每槽 `lane_q`）；`isu_pkg` 删未用的 `wb_offset`、`FP_SLOTS`；`isu_wake_src` 头注释改为 21 个唤醒通道；删不抑制任何告警的 lint 豁免（`isu.sv` 3 处、`isu_fp_gate` / `isu_iq` / `isu_iq_select` 各 1 处，以去掉豁免后整树 lint 普通 / `-DSYNTHESIS` 均无新告警为准）（周期不变）。
 - 2026-11-28（文档核对，无 RTL 变化）：`WAKE_NUM = 21`、`TAG_NUM = 352`、慢速唤醒 `SLOW_FP_N = 43`（DIV 1 路、FP 25 路）与 256 位位图、快速唤醒 8 位比较；`exe2iss_div_wb_in2` 替换 `div_wb_next`；按 ROB 号的误预测冲刷代替分支掩码；模型已删的 `CFG_ISSUE_OLDEST_*`；文件表补行数；第 8 节加 `tests/isu_iq_select`、`tests/fp_gate`；`ttg_cfg_pkg` 为生成文件；门禁参考改为 `scripts/ref_cycles.txt`（77 个程序）。
 - 2026-11-28（`rtl/fe-2ahead`，0 周期变化）：消除整核 Verilator `UNOPTFLAT`：`isu_iq_store` 每槽的 `rr_active / rr_cancelled / rr_retired` 从读 `issue_clear`（本拍授权）的 `always_comb` 里拆成独立 `assign`（`slot_ready` 经选择 → 授权 → `issue_clear` 的假环）；`isu_iq_select` 串行选择的 `taken` / `sel_onehot` 改成每端口生成块信号（`g_port[p].oh`、`taken_c`），后端口只读前端口。新增 `tests/isu_iq_select/run.sh`：与改前版本（`isu_iq_select_ref.sv`）按 6 个队列的实际参数逐拍对拍，20 万组 PASS，断开 taken 链的变异第一批即报错。
 

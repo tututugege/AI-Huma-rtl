@@ -74,7 +74,6 @@ module lp_ldq_ent
   output logic                wbp_r,               // registered state == WBP
   output logic                wbp_m,               // MMIO response of this cycle: MMR -> WBP
   output logic                dead_r,              // killed by this cycle's flush / mispredict (registered fields only)
-  output logic [EPW-1:0]      epoch_nx,
   // P13 wake-up
   input  logic [SQ-1:0]       ev_sta,
   input  logic [SQ-1:0]       ev_data,
@@ -85,7 +84,7 @@ module lp_ldq_ent
   input  lp_std_t             sdw [NSD],
   input  logic                fill_v,
   input  logic [LINEW-1:0]    fill_line,
-  input  lp_wk_t              l2w,                 // LP_L2[8]: wake-up outcome of the load parked now
+  input  lp_wk_t              l2w,                 // wake-up outcome of the load parked now
   input  logic                full_ok,
   output logic                full_cand,
   // P14 replay register pick
@@ -174,13 +173,13 @@ module lp_ldq_ent
       wt3 = l2_dec.wait_c;
     end
     if (rs_ok) rt3 = rs_rep;
-    if (rs_ok && rs_hit && rs_busy) res3 = lsu_pkg::extract_data(rs_raw, f_q.paddr[lsu_pkg::OW-1:0], f_q.func3);
+    if (rs_ok && rs_hit && rs_busy) res3 = extract_data(rs_raw, f_q.paddr[OW-1:0], f_q.func3);
     if (park_b) begin
       rc3 = 3'(RC_DC);
       blk3 = '0;
       wt3 = replay_wait(rs_rep);
     end
-    // LP_CUT[3]: lp_wb never picks a newly-WBP rs_ok entry in the same cycle; cut false path rs_busy -> res_v -> wb_result
+    // lp_wb never picks a newly-WBP rs_ok entry in the same cycle; cut false path rs_busy -> res_v -> wb_result
     res_v = (mm_go && st_q == LS_MMR) ? mm_data : f_q.result;
   end
 
@@ -195,7 +194,7 @@ module lp_ldq_ent
   logic sp_we_eff, spec_p3;
   assign sp_we_eff = l2_ok && sp_we;
   assign spec_p3   = sp_we_eff ? sp_val : f_q.spec;
-  // memory speculation (LSU_MEMSPEC): P5 SPD handling, P6 violation check
+  // memory speculation: P5 SPD handling, P6 violation check
   lp_ent_ms u_ms (.st4(st4), .wb_go(wb_go), .wb_go_d(wb_go_d), .f_q(f_q), .spec_cur(spec_p3), .head_tag(head_tag), .count_q(count_q),
                   .unk_any(unk_any), .unk_rank(unk_rank), .sa_v(sa_v), .sa_rank(sa_rank), .sa_voff(sa_voff),
                   .sa_f3(sa_f3), .st4v(st4v), .dfr(dfr), .sec4v(sec4v), .vio_n(vio_n), .vio_new(vio_new));
@@ -222,7 +221,7 @@ module lp_ldq_ent
   logic [ROBW-1:0]  ridx7;
   logic             rflg7;
   logic             kill;
-  logic [EPW-1:0]   epoch_p1;
+  logic [EPW-1:0]   epoch_p1, epoch_nx;
   assign epoch_p1 = f_q.epoch + EPW'(1);
   always_comb begin
     st7   = al ? LS_ALLOC : st6;
@@ -247,7 +246,7 @@ module lp_ldq_ent
   // Event causes of a load parked in this cycle come from the port-level unit; registered causes use registered park info
   logic          w_port;
   assign w_port = park_a;
-  lp_wk u_wk (.cause(f_q.rcause), .blk(f_q.blk), .wt(f_q.rwait[lsu_pkg::OW-1:0]),
+  lp_wk u_wk (.cause(f_q.rcause), .blk(f_q.blk), .wt(f_q.rwait[OW-1:0]),
               .l_voff(f_q.vaddr[11:0]), .l_paddr(f_q.paddr),
               .l_func3(f_q.func3), .ev_sta(ev_sta), .ev_data(ev_data), .ev_ret(ev_ret), .ev_sc(ev_sc),
               .alive_post(alive_post), .sta_info(sta_info), .sdw(sdw), .o(wk_e));

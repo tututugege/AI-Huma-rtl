@@ -386,12 +386,10 @@ module soc_axi_xbar_wr import soc_axi_pkg::*; #(
     end
   end
 
-  /* verilator lint_off UNUSEDSIGNAL */
   logic unused_err_w;
   assign unused_err_w = &{1'b0, vs_awaddr[NS], vs_awlen[NS], vs_awsize[NS], vs_awburst[NS],
                           vs_awlock[NS], vs_awcache[NS], vs_awprot[NS], vs_awqos[NS], vs_awregion[NS],
                           vs_wdata[NS], vs_wstrb[NS]};
-  /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule
 

@@ -7,7 +7,7 @@ module rob_trap_ctrl
 (
   input  logic              single_commit,
   input  logic              interrupt_fire,
-  input  rob_entry_t        single_uop,         // first valid slot of the head line
+  input  rob_entry_t        single_uop,         // the head entry (slot 0 of the commit window)
   input  logic [ROB_XLEN-1:0]   ftq_resp_pc,        // ftq_rob_pc_resp.resp[0].pc, pc of the committing instruction
   input  logic [ROB_XLEN-1:0]   oldest_trap_val,    // oldest pf_load/pf_store faulting vaddr
   input  logic [31:0]           head_inst_word,     // 32-bit instruction word of head entry (from ROB inst SRAM)
@@ -22,9 +22,8 @@ module rob_trap_ctrl
   output logic              page_fault_load,
   output logic              page_fault_store,
   output logic              illegal_inst,
-  output logic              breakpoint,         // ebreak as a breakpoint exception (default on; disable via TTG_NO_EBREAK_TRAP)
+  output logic              breakpoint,         // ebreak as a breakpoint exception (cause 3, mtval = pc)
   output logic              rob2csr_commit,
-  output logic              trap_val_valid,     // trap_val is meaningful (page fault / illegal instruction)
   output logic [ROB_XLEN-1:0]   trap_val,
   output logic [ROB_XLEN-1:0]   pc                  // meaningful only while flush
 );
@@ -36,14 +35,15 @@ module rob_trap_ctrl
 
   logic [SEL_NUM-1:0] cand, sel;
   /* verilator lint_off UNUSEDSIGNAL */
-  logic               sel_any;  // ebreak (legacy mode) flushes without a cause bit, so `any` carries no information
+  logic               sel_any;  // waiver: the flush is flush_act; whether a cause bit is set is not needed
   /* verilator lint_on UNUSEDSIGNAL */
   logic               u_flush, flush_act, sel_bp_cond;
 
-  // Ref: Rob::comb_commit (single_is_flush gate, then the cause chain; ebreak / wfi only flush or nothing)
+  // Ref: Rob::comb_commit (single_is_flush gate, then the cause chain; ebreak raises a breakpoint (OpenSBI's
+  // semihosting probe needs it), wfi only flushes or nothing)
   always_comb begin
     u_flush   = rob_is_flush_inst(single_uop);
-    sel_bp_cond = EBREAK_TRAP && single_uop.itype == ITYPE_EBREAK;
+    sel_bp_cond = single_uop.itype == ITYPE_EBREAK;
     flush_act = single_commit && (u_flush || interrupt_fire);
     cand[SEL_INT]      = interrupt_fire;
     cand[SEL_ECALL]    = single_uop.itype == ITYPE_ECALL;
@@ -75,7 +75,6 @@ module rob_trap_ctrl
     rob2csr_commit   = sel[SEL_CSR];
     fence            = sel[SEL_SFENCE];
     fence_i          = sel[SEL_FENCE_I];
-    trap_val_valid   = sel[SEL_PF_STORE] || sel[SEL_PF_LOAD] || sel[SEL_PF_INST] || sel[SEL_ILLEGAL] || sel[SEL_BP];
     trap_val         = sel[SEL_PF_INST] ? (ftq_resp_pc + (single_uop.pf_inst_hi ? ROB_XLEN'(2) : ROB_XLEN'(0)))
                      : sel[SEL_BP]      ? ftq_resp_pc
                      : sel[SEL_ILLEGAL] ? {{(ROB_XLEN-32){1'b0}}, head_inst_word}

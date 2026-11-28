@@ -185,6 +185,7 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 
 ## 10. 变更记录
 
+- 2026-11-28 清理：`axi_llc.sv` 注释里的 "spec ports" 改为 "flat ports"（周期不变）。
 - 2026-11-28（rtl 73761fa，SRAM 复位清扫）：`axi_llc_tables` 的数据 / 标签 / valid / dirty / pf / 替换状态 SRAM 与 `axi_llc_bingo_pht` 的 PHT SRAM 接上 `rst_n`；复位期间 SRAM 外壳逐地址写 `INIT_VAL`，`ttg_rst_sweep` 把复位拉长 `SRAM_SWEEP_CYCLES = 4100` 拍。原来 valid / dirty / pf / 替换表依赖上电值（硅片上是随机值，会假命中、写回垃圾）；0 周期变化，`fm_gate` 77/77（common.md 4.1）。同日文档核对：第 4 节状态改按 SRAM 描述，MSHR 16 项、受害行队列 32 项。
 - **2026-11-22（EXP-058）**：新增硬件忠实版 **LLC Bingo 4KB 空间预取器**（`axi_llc_bingo.sv`、`axi_llc_bingo_agt.sv`、`axi_llc_bingo_pht.sv`），与 `axi_llc_bop` 组成双优先级预取（BOP > Bingo，`BOP_INF` `4 → 8`）；12-bit 负载 `pc_hash` 经 `dcache_mshr → mem_axi → axi_subsys → axi_interconnect → axi_llc_lookup` 透传；PHT_L（256×4）与 PHT_S（128×4）均采用 4 个独立 1D 1RW SRAM bank（干净 `$mem_v2`）与桶形移位掩码旋转，`eda-05` Yosys 综合 `axi_llc_bingo` 仅 **`41,232` 单元 / 48 层**；`lint_chip.sh` 0 警告，`fm_gate.sh` **69/69 PASS（0 FM 差、0 周期差）**，SPEC06 INT 386/386 SimPoint 加权 **`+1.26%`（`14.69 → 14.88 /GHz`）**。
 

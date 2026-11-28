@@ -16,7 +16,7 @@ module isu_iq
   parameter bit HAS_CANCEL = 1'b0,
   parameter int SRC1_DOM  = 0,      // 0 = INT, 1 = FP
   parameter int SRC2_DOM  = 0,      // 0 = INT, 1 = FP, 2 = BOTH
-  parameter int FP_TAGS   = FP_EN ? FPRF_NUM : 1,
+  parameter int FP_TAGS   = FPRF_NUM,
   parameter int INT_W     = $clog2(PRF_NUM),
   parameter int CANCEL_N  = LSU_LDU_COUNT
 ) (
@@ -24,7 +24,6 @@ module isu_iq
   input  logic                     rst_n,
   input  logic [DW-1:0]            enq_valid,
   input  isu_enq_t                 enq [DW],
-  /* verilator lint_off UNUSEDSIGNAL */   // waiver: queues use only their domain's slow bitmap / fast wake-ups
   input  logic [PRF_NUM-1:0]       woken_slow_int,
   input  logic [FP_TAGS-1:0]       woken_slow_fp,
   input  logic [LSU_LDU_COUNT-1:0] lsu_l1_wake_valid,
@@ -38,12 +37,10 @@ module isu_iq
   input  logic [ALU_NUM-1:0]       fast_cancel_raw,       // ALU grandchild cancel (fast-only byp match)
   input  logic [ALU_NUM-1:0]       fast_cancel_valid_chk, // simulation SVA oracle only
   input  logic [PRF_IDX_WIDTH-1:0] fast_cancel_preg_chk [ALU_NUM],
-  /* verilator lint_on UNUSEDSIGNAL */
   input  logic [NP-1:0]            gate_ok,         // FP write-port gate (isu_fp_gate); 1 for ports without one
   /* verilator lint_off UNUSEDSIGNAL */   // waiver: a queue whose ports have no blockable class (memory, STD, BR) does not read it
   input  logic [WB_NCLS-1:0]       cls_free [NP],   // per port and completion class: the completion cycle is free (EXP-046)
   input  logic [6:0]               fp_free1_cls,    // registered per-class (4..10) busy_q[lat-1] < 2 from isu_fp_gate
-  input  logic [6:0]               fp_free2_cls,    // registered per-class (4..10) busy_q[lat-1] == 0 from isu_fp_gate
   /* verilator lint_on UNUSEDSIGNAL */
   input  logic                     issue_block,     // rob flush or misprediction this cycle
   input  logic                     flush_all,
@@ -60,8 +57,7 @@ module isu_iq
   output logic [NP-1:0]            grant_fpw,       // pre-decoded FP register-file write flag (parallel with u_read)
   output logic [WB_NCLS-1:0]       grant_fp_cls1h [NP], // pre-decoded one-hot FP completion class (parallel with u_read)
   output logic [WB_NCLS-1:0]       grant_wb_cls1h [NP], // pre-decoded one-hot WB gate completion class (MUL + FP)
-  output logic [NP-1:0]            grant_fp_f1,     // pre-evaluated free1 for the picked slot
-  output logic [NP-1:0]            grant_fp_f2      // pre-evaluated free2 for the picked slot
+  output logic [NP-1:0]            grant_fp_f1      // pre-evaluated free1 for the picked slot
 );
 
   localparam int UW = $bits(isu_uop_t);
@@ -138,7 +134,7 @@ module isu_iq
   end
 
   // Pre-decode per-slot FP write flag and one-hot FP completion class (c = 4..10) at enqueue for FP-capable queues
-  localparam bit HAS_FPD_Q = FP_EN && ((QCAP & MASK_FPD) != '0);
+  localparam bit HAS_FPD_Q = ((QCAP & MASK_FPD) != '0);
   logic [SIZE-1:0]     slot_fpw_q;
   logic [WB_NCLS-1:0]  slot_fp_cls_q [SIZE];
   if (HAS_FPD_Q) begin : g_fpcls
@@ -219,19 +215,18 @@ module isu_iq
     .ready(slot_ready), .older(older), .port_ok(port_ok), .sel_onehot(sel_onehot), .sel_valid(sel_valid));
 
   localparam int BYPW = 2 * ALU_NUM + LSU_LDU_COUNT;
-  localparam int FPCW = 3 + WB_NCLS;
+  localparam int FPCW = 2 + WB_NCLS;
   logic [UW-1:0]   slot_bits [SIZE];
   logic [BYPW-1:0] slot_byp_bits [SIZE];
   /* verilator lint_off UNUSEDSIGNAL */   // waiver: read only when HAS_FPD_Q == 1
   logic [FPCW-1:0] slot_fpc_bits [SIZE];
   /* verilator lint_on UNUSEDSIGNAL */
   for (genvar i = 0; i < SIZE; i++) begin : g_bits
-    logic sf1, sf2;
+    logic sf1;
     assign sf1              = |(slot_fp_cls_q[i][10:4] & fp_free1_cls);
-    assign sf2              = |(slot_fp_cls_q[i][10:4] & fp_free2_cls);
     assign slot_bits[i]     = slot_uop[i];
     assign slot_byp_bits[i] = {slot_spec_t1[i], slot_byp2[i], slot_byp1[i]};
-    assign slot_fpc_bits[i] = {sf2, sf1, slot_fpw_q[i], slot_fp_cls_q[i]};
+    assign slot_fpc_bits[i] = {sf1, slot_fpw_q[i], slot_fp_cls_q[i]};
   end
 
   logic [SIZE-1:0] granted_by_port [NP];
@@ -245,12 +240,10 @@ module isu_iq
     if (HAS_FPD_Q) begin : g_rdfp
       logic [FPCW-1:0] sel_fpc;
       ttg_onehot_mux #(.N(SIZE), .W(FPCW)) u_read_fpc (.sel(sel_onehot[p]), .data(slot_fpc_bits), .out(sel_fpc));
-      assign grant_fp_f2[p]    = sel_fpc[WB_NCLS + 2];
       assign grant_fp_f1[p]    = sel_fpc[WB_NCLS + 1];
       assign grant_fpw[p]      = sel_fpc[WB_NCLS];
       assign grant_fp_cls1h[p] = sel_fpc[WB_NCLS-1:0];
     end else begin : g_nordfp
-      assign grant_fp_f2[p]    = 1'b1;
       assign grant_fp_f1[p]    = 1'b1;
       assign grant_fpw[p]      = 1'b0;
       assign grant_fp_cls1h[p] = '0;
@@ -270,10 +263,8 @@ module isu_iq
     assign grant_wb_cls1h[p][0]   = 1'b0;
     assign grant_wb_cls1h[p][1]   = mul_cls_hit;
     assign grant_wb_cls1h[p][3:2] = 2'b00;
-    if (FP_EN) begin : g_wbfp
-      for (genvar c = 4; c < WB_NCLS; c++) begin : g_c
-        assign grant_wb_cls1h[p][c] = grant_fp_cls1h[p][c];
-      end
+    for (genvar c = 4; c < WB_NCLS; c++) begin : g_wbfp
+      assign grant_wb_cls1h[p][c] = grant_fp_cls1h[p][c];
     end
     assign sel_uop            = isu_uop_t'(sel_bits);
     assign grant_uop[p]       = sel_uop;
@@ -299,7 +290,6 @@ module isu_iq
   function automatic logic enq_fp_slow(input logic [PRF_IDX_WIDTH-1:0] preg);
     logic [PRF_IDX_WIDTH-1:0] idx;
     idx = preg - PRF_IDX_WIDTH'(FP_TAG_BASE);
-    if (!FP_EN) return 1'b0;
     return (preg >= PRF_IDX_WIDTH'(FP_TAG_BASE)) && (idx < PRF_IDX_WIDTH'(FP_TAGS)) ? woken_slow_fp[idx[FP_W-1:0]] : 1'b0;
   endfunction
 
@@ -410,7 +400,7 @@ module isu_iq
   localparam bit HAS_ATOMIC_Q = (QID == IQ_MEM) || (QID == IQ_STD);
   localparam bit HAS_FUNC7_Q  = (QID != IQ_BR);
   localparam bit HAS_ALU_FL_Q = (QID == IQ_INT0) || (QID == IQ_INT1);
-  localparam bit HAS_FP_FL_Q  = FP_EN && ((QID == IQ_INT1) || (QID == IQ_MEM) || (QID == IQ_STD) || (QID == IQ_FP));
+  localparam bit HAS_FP_FL_Q  = (QID == IQ_INT1) || (QID == IQ_MEM) || (QID == IQ_STD) || (QID == IQ_FP);
   localparam int IMM_W_Q      = ((QID == IQ_INT0) || (QID == IQ_INT1)) ? 32
                               : (QID == IQ_BR)                         ? 21
                               : (QID == IQ_FP)                         ? 17

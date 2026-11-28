@@ -17,17 +17,13 @@ module lp_wake
   input  logic                mispred,
   input  logic [ROBW-1:0]     dec_rob_idx,
   input  logic                dec_rob_flag,
-  /* verilator lint_off UNUSEDSIGNAL */
   input  lp_l1in_t            l1 [NLD],
   input  logic [NLD-1:0]      ld_retry_busy,
   input  lp_pl12_t            pl12 [NLD],
-  /* verilator lint_on UNUSEDSIGNAL */
   input  logic [LQW-1:0]      pl2b_idx [NLD],
   input  logic [LQ-1:0]       l2_ok,
   input  logic [LQ-1:0]       pipe_r,
-  /* verilator lint_off UNUSEDSIGNAL */
   input  lp_ldq_t             ldq_q [LQ],
-  /* verilator lint_on UNUSEDSIGNAL */
   input  logic [NLD-1:0]      wbd_v,                 // direct completions decided at L2 (L2a PF or L2b STLF or DC HIT)
   input  logic [LQW-1:0]      wbd_idx [NLD],
   input  logic [NLD-1:0]      wbd_l2b_ep,            // confirmed L2b STLF completion with matching epoch
@@ -68,7 +64,7 @@ module lp_wake
 
   always_comb begin
     for (int e = 0; e < LQ; e++) begin
-      wbp_meta_v[e].elig = !(MS && ldq_q[e].second) && !ldq_q[e].pf &&
+      wbp_meta_v[e].elig = !ldq_q[e].second && !ldq_q[e].pf &&
                            (ldq_q[e].dest_preg != '0) && !flush &&
                            !(mispred && lp_rob_younger(ldq_q[e].rob_idx, ldq_q[e].rob_flag,
                                                        dec_rob_idx, dec_rob_flag));
@@ -109,7 +105,7 @@ module lp_wake
       // [NLD..2*NLD-1]: L3 register direct write-back wakeup (unless already woken speculatively at L1/L2)
       l3_ldq = wbw_idx[p];
       wk_valid[NLD + p] = wbw_v[p] && !l3_sw_q[p] &&
-                          !(MS && ldq_q[l3_ldq].second) && !ldq_q[l3_ldq].pf &&
+                          !ldq_q[l3_ldq].second && !ldq_q[l3_ldq].pf &&
                           (ldq_q[l3_ldq].dest_preg != '0) && !flush &&
                           !(mispred && lp_rob_younger(ldq_q[l3_ldq].rob_idx, ldq_q[l3_ldq].rob_flag,
                                                       dec_rob_idx, dec_rob_flag));
@@ -124,14 +120,14 @@ module lp_wake
                     !(mispred && lp_rob_younger(ldq_q[l2a_ldq].rob_idx, ldq_q[l2a_ldq].rob_flag,
                                                 dec_rob_idx, dec_rob_flag));
 
-      l2b_w[p]    = wbd_l2b_ep[p] && !(MS && ldq_q[l2b_ldq].second) &&
+      l2b_w[p]    = wbd_l2b_ep[p] && !ldq_q[l2b_ldq].second &&
                     (ldq_q[l2b_ldq].dest_preg != '0) && !flush &&
                     !(mispred && lp_rob_younger(ldq_q[l2b_ldq].rob_idx, ldq_q[l2b_ldq].rob_flag,
                                                 dec_rob_idx, dec_rob_flag));
 
       l2_sw_w[p]  = !pl12[p].spec_w && !l2b_w[p] && l2a_alive_p &&
                     (pl12[p].tlb == TLB_HIT) && !pl12[p].mmio && !pl12[p].dcblk && !pl12[p].bloom &&
-                    !(MS && ldq_q[l2a_ldq].second) && (ldq_q[l2a_ldq].dest_preg != '0) && !flush &&
+                    !ldq_q[l2a_ldq].second && (ldq_q[l2a_ldq].dest_preg != '0) && !flush &&
                     !(mispred && lp_rob_younger(ldq_q[l2a_ldq].rob_idx, ldq_q[l2a_ldq].rob_flag,
                                                 dec_rob_idx, dec_rob_flag));
 
@@ -146,7 +142,7 @@ module lp_wake
       // Train L1D hit confidence predictor (+1 on direct hit, -1 on non-direct)
       train_en[p] = pl12[p].v && !pl12[p].replay && !pl12[p].dcblk &&
                     pipe_r[l2a_ldq] && (ldq_q[l2a_ldq].epoch == pl12[p].epoch) &&
-                    !(MS && ldq_q[l2a_ldq].second) && (ldq_q[l2a_ldq].dest_preg != '0) && !flush &&
+                    !ldq_q[l2a_ldq].second && (ldq_q[l2a_ldq].dest_preg != '0) && !flush &&
                     !(mispred && lp_rob_younger(ldq_q[l2a_ldq].rob_idx, ldq_q[l2a_ldq].rob_flag,
                                                 dec_rob_idx, dec_rob_flag));
     end

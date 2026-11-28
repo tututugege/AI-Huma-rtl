@@ -10,7 +10,6 @@
 // Port names are the core_top names with the direction flipped, so soc_top can connect the two with `.*`.
 module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::*;
 #(
-  parameter bit PF_EN = 1'b1,
   parameter bit EXT_MMIO_EN = 1'b0
 ) (
   input  logic clk,
@@ -326,7 +325,7 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
   logic        ax_pa_rd_acc, ax_pa_rd_rv, ax_pa_wr_acc, ax_pa_wr_rv;
   logic [31:0] ax_pa_rd_data;
 
-  dcache #(.PF_EN(PF_EN)) u_dcache (
+  dcache u_dcache (
     .clk, .rst_n, .cpu_phase0(phase0),
     .ld_req_valid(dc_ld_valid_in), .ld_req_addr(rt_dc_ld_addr), .ld_req_id(rt_dc_ld_id),
     .ld_req_replay(rt_dc_ld_replay), .ld_req_pc(rt_dc_ld_pc), .ld_req_va(rt_dc_ld_va),
@@ -349,7 +348,7 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
     .wb_req_valid(wb_req_valid), .wb_req_addr(wb_req_addr), .wb_req_data(wb_req_data)
   );
 
-  // ======================= peripheral_axi / external AXI4-Lite MMIO + hold =======================
+  // ======================= peripheral_axi / external AXI4 MMIO + hold =======================
   logic        pa_rd_valid, pa_rd_resp_ready, pa_wr_valid, pa_wr_resp_ready;
   logic [31:0] pa_rd_addr, pa_wr_addr, pa_wr_wdata;
   logic [PA_SIZE_W-1:0] pa_rd_size, pa_wr_size;

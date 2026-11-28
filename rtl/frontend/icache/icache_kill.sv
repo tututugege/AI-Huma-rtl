@@ -25,9 +25,7 @@ module icache_kill import ttg_cfg_pkg::*; import icache_pkg::*; (
 );
 
   logic drop_resp;
-  /* verilator lint_off UNUSEDSIGNAL */  // icache_txn output not needed by K
-  logic active_resp_unused;
-  /* verilator lint_on UNUSEDSIGNAL */
+  logic active_resp_unused;   // icache_txn output not needed by K
   logic [IC_TXID_N-1:0] drop_mask;
 
   icache_txn u_txn (

@@ -6,13 +6,11 @@ package front_pkg;
   import ttg_cfg_pkg::*;
 
   // Instruction FIFO depth (frontend_feature_config.h: INSTRUCTION_FIFO_SIZE)
-  localparam int INST_FIFO_DEPTH   = INSTRUCTION_FIFO_SIZE;
-  localparam int INST_FIFO_FULL_AT = INST_FIFO_DEPTH;
+  localparam int INST_FIFO_DEPTH = INSTRUCTION_FIFO_SIZE;
 
   // prediction metadata (BPU_configs.h, wire_types.h)
   localparam int PCPN_W        = 3;
   localparam int BLK_ID_W      = 10;   // FTB block ID (matches bpu_types_pkg::FTB_BLK_ID_W)
-  localparam int INST_BYTES    = 4;
   localparam int KIND_W        = 3;
 
   // predecode_type_t (predecode.h)

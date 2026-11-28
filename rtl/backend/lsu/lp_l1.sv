@@ -245,7 +245,7 @@ module lp_l1
       tl_l[k].hit = l1[k].v && l1[k].need_tlb && r_hit;
       tl_l[k].pf = l1[k].v && l1[k].need_tlb && r_pf;
       tl_l[k].paddr = mmu_l_paddr[k];
-      tl_l[k].mmio = lsu_pkg::is_mmio_addr(mmu_l_paddr[k]);
+      tl_l[k].mmio = is_mmio_addr(mmu_l_paddr[k]);
       if (l1[k].need_tlb) begin
         l_hit[k]      = r_hit;
         l_tlb[k]      = r_hit ? TLB_HIT : (r_pf ? TLB_PF : TLB_MISS);
@@ -410,7 +410,7 @@ module lp_l1
       tl_s[k].hit   = s1_v[k] && resp_ok && mmu_s_result[k] == MMU_HIT;
       tl_s[k].pf    = s1_v[k] && resp_ok && mmu_s_result[k] == MMU_PF;
       tl_s[k].paddr = mmu_s_paddr[k];
-      tl_s[k].mmio  = lsu_pkg::is_mmio_addr(mmu_s_paddr[k]);
+      tl_s[k].mmio  = is_mmio_addr(mmu_s_paddr[k]);
       tl_s_p1[k]    = mmu_s_paddr_p1[k];
       tl_s_m1[k]    = mmu_s_paddr_m1[k];
       tl_s_miss[k]  = s1_v[k] && !(tl_s[k].hit || tl_s[k].pf);

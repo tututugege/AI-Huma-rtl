@@ -1,11 +1,10 @@
 // Ref: back-end/Idu.cpp  class Idu::decode + the per-slot part of Idu::comb_decode
 `default_nettype none
 
-// One decode lane: instruction-buffer entry -> uop fields (everything except br_id / br_mask / valid).
+// One decode lane: instruction-buffer entry -> uop fields (everything except valid).
 // Uop fields are only consumed for a valid lane, so an invalid entry is simply decoded like any other word.
 // A page-fault entry becomes a NOP uop carrying the faulting inst in diag_val.
 module idu_decoder import ttg_cfg_pkg::*; (
-  input  logic                        entry_valid,        // only qualifies is_branch
   input  logic [31:0]                 entry_inst,
   input  logic                        entry_page_fault_inst,
   input  logic                        entry_pf_inst_hi,
@@ -34,13 +33,12 @@ module idu_decoder import ttg_cfg_pkg::*; (
   output logic                        uop_page_fault_inst,
   output logic                        uop_pf_inst_hi,
   output logic                        uop_illegal_inst,
-  output logic                        uop_dest_fp,           // F/D domain bits (zero without an FP register file)
+  output logic                        uop_dest_fp,           // F/D domain bits
   output logic                        uop_src1_fp,
   output logic                        uop_src2_fp,
   output logic                        uop_src3_en,           // = src3_fp: fused multiply-add third source
   output logic [AREG_IDX_WIDTH-1:0]   uop_src3_areg,
-  output logic [2:0]                  uop_fp_cls,
-  output logic                        is_branch              // valid decoded BR/JALR (needs a branch tag)
+  output logic [2:0]                  uop_fp_cls
 );
 
   // raw decode of the instruction word, as if the entry were a normal valid instruction
@@ -48,7 +46,7 @@ module idu_decoder import ttg_cfg_pkg::*; (
   logic        raw_dest_en, raw_src1_en, raw_src2_en, raw_src1_is_pc, raw_src2_is_imm, raw_is_word, raw_is_atomic;
   logic [2:0]  raw_func3;
   logic [5:0]  raw_dest_areg, raw_src1_areg, raw_src2_areg;
-  logic        raw_illegal_inst, raw_is_branch;
+  logic        raw_illegal_inst;
   logic [6:0]  raw_imm_sel;
   logic        raw_dest_fp, raw_src1_fp, raw_src2_fp, raw_src3_en;
   logic [4:0]  raw_src3_areg;
@@ -62,7 +60,7 @@ module idu_decoder import ttg_cfg_pkg::*; (
     .src1_is_pc(raw_src1_is_pc), .src2_is_imm(raw_src2_is_imm), .is_word(raw_is_word), .is_atomic(raw_is_atomic),
     .func3(raw_func3),
     .dest_areg(raw_dest_areg), .src1_areg(raw_src1_areg), .src2_areg(raw_src2_areg),
-    .illegal_inst(raw_illegal_inst), .is_branch(raw_is_branch), .imm_sel(raw_imm_sel),
+    .illegal_inst(raw_illegal_inst), .imm_sel(raw_imm_sel),
     .dest_fp(raw_dest_fp), .src1_fp(raw_src1_fp), .src2_fp(raw_src2_fp), .src3_en(raw_src3_en),
     .src3_areg(raw_src3_areg), .fp_cls(raw_fp_cls)
   );
@@ -107,7 +105,6 @@ module idu_decoder import ttg_cfg_pkg::*; (
     uop_src3_en                 = raw_src3_en & decoded_en;
     uop_src3_areg               = AREG_IDX_WIDTH'(raw_src3_areg) & {AREG_IDX_WIDTH{decoded_en & raw_src3_en}};
     uop_fp_cls                  = raw_fp_cls & {3{decoded_en}};
-    is_branch                   = raw_is_branch & decoded_en & entry_valid;   // needs a branch tag
   end
 
 endmodule

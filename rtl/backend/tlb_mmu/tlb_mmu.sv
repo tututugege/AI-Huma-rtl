@@ -33,7 +33,6 @@ module tlb_mmu import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; #(
   input  logic [VPN_W-1:0] pf_page_vpn,
   output logic [LSU_AGU_COUNT-1:0] resp_valid,
   output logic [1:0] resp_result [LSU_AGU_COUNT],
-  output logic [LSU_AGU_COUNT-1:0] resp_hit,
   output logic [31:0] resp_paddr [LSU_AGU_COUNT],
   output logic [28:0] resp_paddr_p1 [LSU_AGU_COUNT],
   output logic [28:0] resp_paddr_m1 [LSU_AGU_COUNT],
@@ -89,7 +88,6 @@ module tlb_mmu import ttg_cfg_pkg::*; import tlb_mmu_pkg::*; #(
     assign lane_req_vaddr[i] = req_vaddr[i];
     assign resp_valid[i] = lane_resp_valid[i];
     assign resp_result[i] = lane_resp_result[i];
-    assign resp_hit[i] = lane_resp_valid[i] && lane_resp_result[i] == RES_HIT;
     assign resp_paddr[i] = lane_resp_paddr[i];
     assign resp_paddr_p1[i] = lane_resp_paddr_p1[i];
     assign resp_paddr_m1[i] = lane_resp_paddr_m1[i];

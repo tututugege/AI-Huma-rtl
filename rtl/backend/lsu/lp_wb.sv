@@ -182,9 +182,9 @@ module lp_wb
       wb_flushp[p] = 1'b0;
       wb_isw[p] = 1'b0;
       if (ld_v[p]) begin
-        wb_defer[p] = MS && !ldq_q[ld_i[p]].second && ldq_q[ld_i[p]].spec && !ldq_q[ld_i[p]].pf &&
+        wb_defer[p] = !ldq_q[ld_i[p]].second && ldq_q[ld_i[p]].spec && !ldq_q[ld_i[p]].pf &&
                       !ldq_q[ld_i[p]].mmio && !ldq_q[ld_i[p]].lrsc;
-        wb_flushp[p] = MS && ldq_q[ld_i[p]].second && ldq_q[ld_i[p]].vio;
+        wb_flushp[p] = ldq_q[ld_i[p]].second && ldq_q[ld_i[p]].vio;
         wb_diag[p] = ldq_q[ld_i[p]].vaddr;
         wb_isw[p] = (ldq_q[ld_i[p]].func3[1:0] == 2'd2);
         wb_result[p] = ldq_q[ld_i[p]].pf ? ldq_q[ld_i[p]].vaddr : ld_res[p];

@@ -127,10 +127,8 @@ module soc_xbar_sys import soc_axi_pkg::*; #(
   logic [1:0]   cr_arburst, cr_awburst, cr_rresp, cr_bresp;
   logic [3:0]   cr_arcache, cr_awcache, cr_arqos, cr_awqos, cr_arregion, cr_awregion;
   logic [255:0] cr_rdata, cr_wdata;
-  /* verilator lint_off UNUSEDSIGNAL */
   logic [1:0]   c_rresp_unused;
   logic         c_rlast_unused;
-  /* verilator lint_on UNUSEDSIGNAL */
 
   soc_axi_reg_slice #(.DATA_W(256), .ADDR_W(32), .ID_W(6)) u_core_slice (
     .clk, .rst_n,

@@ -9,22 +9,14 @@ package rob_pkg;
   import ttg_cfg_pkg::*;
 
   // ---- widths that the reference model derives in C++ but ttg_cfg_pkg does not export ----
-  // ebreak: raises a breakpoint exception (cause 3, mtval = pc) by default, which OpenSBI's semihosting probe needs
-  // (Linux boot). Define TTG_NO_EBREAK_TRAP only if legacy flush-without-cause behaviour is explicitly requested.
-`ifdef TTG_NO_EBREAK_TRAP
-  localparam bit EBREAK_TRAP = 1'b0;
-`else
-  localparam bit EBREAK_TRAP = 1'b1;
-`endif
   localparam int ROB_LINE_IDX_W = $clog2(ROB_LINE_NUM);
   localparam int ROB_BANK_IDX_W = $clog2(ROB_BANK_NUM);
   localparam int INST_TYPE_COUNT = 20;  // enum InstType (types.h): NOP .. FP
   localparam int INST_TYPE_W = $clog2(INST_TYPE_COUNT);
-  localparam int UOP_TYPE_COUNT = 17;  // enum UopType (base_types.h): UOP_JUMP .. UOP_WFI (F/D is not in the RTL yet)
+  localparam int UOP_TYPE_COUNT = 21;  // enum UopType (base_types.h): UOP_JUMP .. UOP_I2F (F/D: UOP_FMA .. UOP_I2F)
   localparam int UOP_TYPE_W = $clog2(UOP_TYPE_COUNT);
   localparam int CPLT_W = 3;  // ROB_CPLT_MASK_WIDTH: one completion bit per uop group G0/G1/G2
   localparam int ROB_XLEN = XLEN_BITS;
-  localparam int FUNC7_W = 7;
 
   // ---- InstType encodings (types.h) ----
   localparam logic [INST_TYPE_W-1:0] ITYPE_JAL = INST_TYPE_W'(1);
@@ -72,7 +64,7 @@ package rob_pkg;
     logic                      illegal_inst;
     logic                      fs_need;     // F/D: needs mstatus.FS != Off (FP instruction, FP load / store, FP CSR)
     logic [4:0]                fflags;      // F/D: exception flags, accrued into fcsr at commit
-    logic                      flush_pipe;  // LSU_MEMSPEC: memory-order violator, flushes the younger ones at commit
+    logic                      flush_pipe;  // memory-order violator, flushes the younger ones at commit
     logic [INST_TYPE_W-1:0]    itype;
   } rob_entry_t;
 
@@ -87,7 +79,7 @@ package rob_pkg;
     logic                     pf_inst;
     logic                     pf_load;
     logic                     pf_store;
-    logic                     defer;       // LSU_MEMSPEC: speculative load write-back, completes later
+    logic                     defer;       // speculative load write-back, completes later
     logic                     flush_pipe;
     logic                     illegal;     // F/D: found illegal at execute (reserved encoding / rounding mode)
     logic [4:0]               fflags;
@@ -148,7 +140,7 @@ package rob_pkg;
     if (port >= ROB_WB_STA_BASE && port < ROB_WB_STA_BASE + LSU_STA_COUNT)     bit_g = CPLT_G1;
     if (port >= ROB_WB_STD_BASE && port < ROB_WB_STD_BASE + LSU_SDU_COUNT)     bit_g = CPLT_G2;
     if (port >= ROB_WB_BR_BASE  && port < ROB_WB_BR_BASE  + BRU_NUM)           bit_g = CPLT_G1;
-    if (FPRF_NUM != 0 && port >= ROB_WB_FP_BASE)                               bit_g = CPLT_G0;   // F/D ports complete in group 0 like INT / LD
+    if (port >= ROB_WB_FP_BASE)                                                 bit_g = CPLT_G0;   // F/D: like INT / LD
     return bit_g;
   endfunction
 
@@ -197,16 +189,6 @@ package rob_pkg;
     return nxt;
   endfunction
 
-  // ---- ring arithmetic on line pointers ----
-  function automatic logic [ROB_LINE_IDX_W-1:0] rob_line_inc(input logic [ROB_LINE_IDX_W-1:0] line);
-    return (line == ROB_LINE_IDX_W'(ROB_LINE_NUM - 1)) ? '0 : line + ROB_LINE_IDX_W'(1);
-  endfunction
-
-  // number of steps going forward from `from` to reach `to` (0 .. ROB_LINE_NUM-1)
-  function automatic logic [ROB_LINE_IDX_W-1:0] rob_line_dist(input logic [ROB_LINE_IDX_W-1:0] from,
-                                                              input logic [ROB_LINE_IDX_W-1:0] to);
-    return (to >= from) ? to - from : to + ROB_LINE_IDX_W'(ROB_LINE_NUM) - from;
-  endfunction
 endpackage
 
 `default_nettype wire

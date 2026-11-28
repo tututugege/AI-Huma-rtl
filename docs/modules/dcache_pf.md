@@ -37,7 +37,7 @@ L1 数据缓存的预取器，硬件化 **Berti（16 路去重历史表 + 虚拟
 | 跨页 VA 队列 / 翻译结果队列 | 8 / 8 项 | `XQN = 8`、`XAN = 8`（同上） |
 | 行号位数 | 26（物理地址 `[31:6]`） | `LINE_W`（`dcache_pkg`） |
 | MSHR 保留 | 0：只要有空项就能分配 | `dcache.sv`：`pf_free = mshr_free - ld_alloc_cnt - st_alloc_cnt`，`pf_ok = pf_cand & (pf_free != 0)` |
-| 总开关 | 参数 `PF_EN`（默认 1；`soc_top` / `mem_top` 传入） | 模型：环境变量 `PF_ENABLE`（0 关闭） |
+| 总开关 | RTL 无（固定开；原参数 `PF_EN` 2026-11-28 删除） | 模型：环境变量 `PF_ENABLE`（0 关闭） |
 
 ## 3. 接口
 
@@ -51,7 +51,7 @@ L1 数据缓存的预取器，硬件化 **Berti（16 路去重历史表 + 虚拟
 | 入 | `pf_xq_pop [2:0]` | LSU 本拍取走了几项（0..`NLD`） |
 | 入 | `pf_xans_v / pf_xans_line / pf_xans_llc [NLD]` | 翻译成功的结果（物理行号），进 `xans` 队列 |
 
-`PF_EN = 0` 时 `dcache.sv` 不实例化本模块（`g_nopf`），`pf_head_*`、`pf_xq_*` 恒为 0。
+`dcache.sv` 总是实例化本模块。
 
 ## 4. 结构
 
@@ -65,7 +65,7 @@ L1 数据缓存的预取器，硬件化 **Berti（16 路去重历史表 + 虚拟
 | --- | --- | --- |
 | `dcache_pf.sv` | 185 | 顶层：周期计数器、训练 FIFO `trnq`、请求 FIFO `reqq`（去重）、三个子模块的连接、hist→tab 之间的寄存级 `srch_r_*_q` |
 | `dcache_pf_berti_hist.sv` | 277 | 历史表（按组全组去重）、在途需求缺失表 `infl`、预取发出表 `pfi`、预取延迟表 `pfl`、搜索队列 `srchq`；每拍对搜索队列头做一次 16 路"及时增量"搜索 |
-| `dcache_pf_berti_tab.sv` | 286 | 每 PC 增量表：两级流水（T1 查 PC、16 槽并行命中计数；T2 选出两个空位插入未命中的新增量、满 16 次结算）；触发读直接读寄存的表 |
+| `dcache_pf_berti_tab.sv` | 284 | 每 PC 增量表：两级流水（T1 查 PC、16 槽并行命中计数；T2 选出两个空位插入未命中的新增量、满 16 次结算）；触发读直接读寄存的表 |
 | `dcache_pf_berti_gen.sv` | 268 | 突发生成：16 选 1 锦标赛（4 级二叉树），同页候选拼物理页号进 `reqq`，跨页候选进 `xq`（去重）；`xans` 结果优先进 `reqq` |
 
 状态（全部寄存器）：`cyc_q`（20 位）；`trnq_q[4]`（PC、虚拟行号、物理行号、VA 符号位、是否未命中）；`reqq`：`q_line_q[8]`（26 位）、`q_llc_q[8]`、`q_head_q`、`q_cnt_q`；`srch_r_*_q`；hist：`hist_q[8][16]`（PC、行号、20 位时间戳）、`infl_q[16]`、`pfi_*_q[16]`、`pfl_*_q[64]`（12 位延迟）、`srchq_q[4]`；tab：16 项 PC、每项 16 个增量槽（增量、覆盖数、上轮覆盖数、`st`）、`cnt_q[16]`（5 位搜索计数）、LRU；gen：`gen_mask_q`、`gen_left_q`、`gen_vline_q`、`gen_ppn_q`、每槽增量 / `st` / 覆盖数，`xq_*_q[8]`、`xa_*_q[8]`。
@@ -90,7 +90,7 @@ L1 数据缓存的预取器，硬件化 **Berti（16 路去重历史表 + 虚拟
 
 ## 7. 与模型的差异和取舍
 
-- 开关：模型是环境变量 `PF_ENABLE`（和 `PF_KIND`，默认 4 = 本设计），RTL 是参数 `PF_EN`，没有其他预取器可选；
+- 开关：模型是环境变量 `PF_ENABLE`（和 `PF_KIND`，默认 4 = 本设计），RTL 固定开（原参数 `PF_EN` 已删除），没有其他预取器可选；
 - 模型的 `PF_BERTI_HWALLOC`（每次搜索最多分配几个新增量）在 RTL 里固定为 2；
 - 模型的统计（`PfStats`、`PF_STATS`）是性能统计，RTL 没有；
 - 模型 `BertiHw` 的注释写明它是本 RTL 的"每拍一个操作"规格，各表大小与 RTL 局部参数一一对应；
@@ -101,16 +101,17 @@ L1 数据缓存的预取器，硬件化 **Berti（16 路去重历史表 + 虚拟
 ## 8. 验证
 
 - **门禁**：`scripts/fm_gate.sh`（77 个程序，周期逐个等于 `scripts/ref_cycles.txt`）。预取行为影响周期，所以周期相等同时验证了预取器；直接的预取程序有 `pf-stress`、`directed/memspec_pf.bin`。
-- **关闭预取的参考**：`scripts/ref_cycles_nopf.txt`（模型 `PF_ENABLE=0`，RTL `SOC_VOPT="-GPF_EN=0"`；由 `scripts/regen_refs.sh` 与 `ref_cycles.txt` 一起重生成，不在当前门禁里，本次没有运行）。
+- **关闭预取**：RTL 没有关预取的构建（2026-11-28 删了参数 `PF_EN` 和 `scripts/ref_cycles_nopf.txt`）；模型里关预取的门禁（`PF_ENABLE=0`，`baseline_nopf.csv`）照旧，用于研究。
 - **Linux**：`scripts/linux_gate.sh` 的 PMU 序列对比。
 - **Lint**：`scripts/lint_chip.sh`。
 - **没有模块级独立测试**。**待补**：给 `dcache_pf` 加一个和模型 `BertiHw` 并排的随机事件流测试（输入访问 / 填充 / `head_taken` / 翻译结果序列，比较 `reqq` 队头和 `xq` 序列），改深度时用。
 
 ## 9. 参数与开关速查
 
-`PF_EN`（`dcache`、`mem_top`、`soc_top` 参数）；`dcache_pf` 的 `QD`、`QW`、`TRNQ_N`；`dcache_pf_berti_hist` 的 `HSETS`、`HWAYS`、`INFL_N`、`PFI_N`、`PFL_N`、`SRCHQ_N`；`dcache_pf_berti_tab` 的 `DPCS`、`DDELTAS`、`ROUND`、`HI_COV`、`LO_COV`；`dcache_pf_berti_gen` 的 `DEG`、`XQN`、`XAN`（都是局部参数）；`NLD`、`LINE_W`（`dcache_pkg`）。
+`dcache_pf` 的 `QD`、`QW`、`TRNQ_N`；`dcache_pf_berti_hist` 的 `HSETS`、`HWAYS`、`INFL_N`、`PFI_N`、`PFL_N`、`SRCHQ_N`；`dcache_pf_berti_tab` 的 `DPCS`、`DDELTAS`、`ROUND`、`HI_COV`、`LO_COV`；`dcache_pf_berti_gen` 的 `DEG`、`XQN`、`XAN`（都是局部参数）；`NLD`、`LINE_W`（`dcache_pkg`）。
 
 ## 10. 变更记录
 
+- 2026-11-28 清理：删参数 `PF_EN`（`soc_top` / `chip_top` / `mem_top` / `dcache`，默认 1、没有脚本覆盖）及 `dcache` 的 `g_nopf` 分支，预取器固定实例化（周期不变）。
 - 2026-11-28（文档核对，无 RTL 变化）：第 2–7 节按现行 Berti RTL（`dcache_pf` + `dcache_pf_berti_hist / tab / gen`）重写，删掉旧 h1 步长预取器的描述（见 git 历史）；文件表补上三个 Berti 子模块；门禁参考改为 `scripts/ref_cycles.txt`。
 - 更早：EXP-062 四级流水化硬件 Berti；EXP-048 M3 硬件 Berti 替换 h1；预取器引入于 EXP-009。见 git 历史。

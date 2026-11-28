@@ -12,9 +12,7 @@ module isu
   input  logic                      rst_n,
   // dispatch -> issue queues (Isu::comb_enq)
   input  logic                      dis2iss_req_valid [IQ_NUM][IQ_DISPATCH_WIDTH],
-  /* verilator lint_off UNUSEDSIGNAL */  // higher enqueue lanes (> iq_enq_width(q)) are unused
   input  dis_iss_uop_t              dis2iss_req_uop   [IQ_NUM][IQ_DISPATCH_WIDTH],
-  /* verilator lint_on UNUSEDSIGNAL */
   // wake-ups driven by the LSU ([0..LDU-1] L1 spec, [LDU..2*LDU-1] L3, [2*LDU..3*LDU-1] L2b/L2a, [3*LDU..] WBP)
   input  logic [3*LSU_LDU_COUNT+1:0] lsu2iss_wake_valid,
   input  logic [PRF_IDX_WIDTH-1:0]   lsu2iss_wake_preg [3*LSU_LDU_COUNT+2],
@@ -56,9 +54,7 @@ module isu
   logic                       issue_block;
   logic [ISSUE_WIDTH-1:0]     grant_valid;
   isu_uop_t [ISSUE_WIDTH-1:0] grant_uop;
-  /* verilator lint_off UNUSEDSIGNAL */   // waiver: non-ALU/non-FP ports of cand_valid_all are not read
   logic [ISSUE_WIDTH-1:0]     cand_valid_all;
-  /* verilator lint_on UNUSEDSIGNAL */
   logic [ALU_NUM-1:0]         grant_src1_byp [ISSUE_WIDTH];
   logic [ALU_NUM-1:0]         grant_src2_byp [ISSUE_WIDTH];
   logic [LSU_LDU_COUNT-1:0]   grant_spec_mask_all [ISSUE_WIDTH];
@@ -71,10 +67,8 @@ module isu
   localparam int FP_RAW_N = FP_REQ_UNITS * 5;
   logic [ALU_NUM-1:0]         slow_exu_valid;
   logic [$clog2(PRF_NUM)-1:0] slow_exu_preg [ALU_NUM];
-  /* verilator lint_off UNUSEDSIGNAL */   // waiver: unused when FP_EN == 0
   logic [FP_RAW_N-1:0]        fp_raw_valid;
   logic [PRF_IDX_WIDTH-1:0]   fp_raw_preg [FP_RAW_N];
-  /* verilator lint_on UNUSEDSIGNAL */
 
   assign flush_br    = dec_bcast_mispred && !rob_bcast_flush;
   assign issue_block = rob_bcast_flush || dec_bcast_mispred;
@@ -100,10 +94,10 @@ module isu
 
   // ---- Domain-split slow (registered) wake-up bitmaps + direct 7-bit fast ALU wake-ups ----
   localparam int LSU_W_N    = 3 * LSU_LDU_COUNT + 2;
-  localparam int FP_TAGS    = FP_EN ? FPRF_NUM : 1;
+  localparam int FP_TAGS    = FPRF_NUM;
   localparam int INT_W      = $clog2(PRF_NUM);
-  localparam int SLOW_INT_N = LSU_LOAD_WB_WIDTH + MUL_UNITS + DIV_UNITS + (FP_EN ? FP_RAW_N : 0) + LSU_W_N;
-  localparam int SLOW_FP_N  = LSU_LOAD_WB_WIDTH + (FP_EN ? FP_RAW_N : 0) + LSU_W_N;
+  localparam int SLOW_INT_N = LSU_LOAD_WB_WIDTH + MUL_UNITS + DIV_UNITS + FP_RAW_N + LSU_W_N;
+  localparam int SLOW_FP_N  = LSU_LOAD_WB_WIDTH + FP_RAW_N + LSU_W_N;
 
   logic [FAST_UNITS-1:0]    fast_wake_valid;
   logic [INT_W-1:0]         fast_wake_preg [FAST_UNITS];
@@ -124,13 +118,11 @@ module isu
     assign slow_exu_v4[l] = slow_exu_valid[l];
     assign slow_exu_p4[l] = slow_exu_preg[l];
   end
-  /* verilator lint_off UNUSEDSIGNAL */   // waiver: plain ALU lanes 4..5 have no delayed MUL/DIV wake-ups
   logic unused_slow_exu_hi;
   always_comb begin
     unused_slow_exu_hi = 1'b0;
     for (int l = 4; l < ALU_NUM; l++) unused_slow_exu_hi ^= slow_exu_valid[l] ^ (^slow_exu_preg[l]);
   end
-  /* verilator lint_on UNUSEDSIGNAL */
 
   for (genvar k = 0; k < LSU_LOAD_WB_WIDTH; k++) begin : g_si_ld
     assign slow_int_valid[k] = wake_valid[LD_WAKE_BASE + k];
@@ -146,42 +138,36 @@ module isu
     assign slow_int_valid[B + k] = wake_valid[DIV_WAKE_BASE + k];
     assign slow_int_preg[B + k]  = wake_preg[DIV_WAKE_BASE + k];
   end
-  if (FP_EN) begin : g_si_fp
+  for (genvar k = 0; k < FP_RAW_N; k++) begin : g_si_fp
     localparam int B = LSU_LOAD_WB_WIDTH + MUL_UNITS + DIV_UNITS;
-    for (genvar k = 0; k < FP_RAW_N; k++) begin : g_k
-      assign slow_int_valid[B + k] = fp_raw_valid[k];
-      assign slow_int_preg[B + k]  = fp_raw_preg[k];
-    end
+    assign slow_int_valid[B + k] = fp_raw_valid[k];
+    assign slow_int_preg[B + k]  = fp_raw_preg[k];
   end
   for (genvar k = 0; k < LSU_W_N; k++) begin : g_si_lsu
-    localparam int B = LSU_LOAD_WB_WIDTH + MUL_UNITS + DIV_UNITS + (FP_EN ? FP_RAW_N : 0);
+    localparam int B = LSU_LOAD_WB_WIDTH + MUL_UNITS + DIV_UNITS + FP_RAW_N;
     assign slow_int_valid[B + k] = lsu2iss_wake_valid[k];
     assign slow_int_preg[B + k]  = lsu2iss_wake_preg[k];
   end
   isu_wake_bus #(.N(SLOW_INT_N), .BASE(0), .TAGS(PRF_NUM)) u_wake_int (
     .wake_valid(slow_int_valid), .wake_preg(slow_int_preg), .woken(woken_slow_int));
 
-  if (FP_EN) begin : g_fp_wake_bus
-    logic [SLOW_FP_N-1:0]     slow_fp_valid;
-    logic [PRF_IDX_WIDTH-1:0] slow_fp_preg [SLOW_FP_N];
-    for (genvar k = 0; k < LSU_LOAD_WB_WIDTH; k++) begin : g_sf_ld
-      assign slow_fp_valid[k] = wake_valid[LD_WAKE_BASE + k];
-      assign slow_fp_preg[k]  = wake_preg[LD_WAKE_BASE + k];
-    end
-    for (genvar k = 0; k < FP_RAW_N; k++) begin : g_sf_fp
-      assign slow_fp_valid[LSU_LOAD_WB_WIDTH + k] = fp_raw_valid[k];
-      assign slow_fp_preg[LSU_LOAD_WB_WIDTH + k]  = fp_raw_preg[k];
-    end
-    for (genvar k = 0; k < LSU_W_N; k++) begin : g_sf_lsu
-      localparam int B = LSU_LOAD_WB_WIDTH + FP_RAW_N;
-      assign slow_fp_valid[B + k] = lsu2iss_wake_valid[k];
-      assign slow_fp_preg[B + k]  = lsu2iss_wake_preg[k];
-    end
-    isu_wake_bus #(.N(SLOW_FP_N), .BASE(FP_TAG_BASE), .TAGS(FP_TAGS)) u_wake_fp (
-      .wake_valid(slow_fp_valid), .wake_preg(slow_fp_preg), .woken(woken_slow_fp));
-  end else begin : g_no_fp_wake_bus
-    assign woken_slow_fp = '0;
+  logic [SLOW_FP_N-1:0]     slow_fp_valid;
+  logic [PRF_IDX_WIDTH-1:0] slow_fp_preg [SLOW_FP_N];
+  for (genvar k = 0; k < LSU_LOAD_WB_WIDTH; k++) begin : g_sf_ld
+    assign slow_fp_valid[k] = wake_valid[LD_WAKE_BASE + k];
+    assign slow_fp_preg[k]  = wake_preg[LD_WAKE_BASE + k];
   end
+  for (genvar k = 0; k < FP_RAW_N; k++) begin : g_sf_fp
+    assign slow_fp_valid[LSU_LOAD_WB_WIDTH + k] = fp_raw_valid[k];
+    assign slow_fp_preg[LSU_LOAD_WB_WIDTH + k]  = fp_raw_preg[k];
+  end
+  for (genvar k = 0; k < LSU_W_N; k++) begin : g_sf_lsu
+    localparam int B = LSU_LOAD_WB_WIDTH + FP_RAW_N;
+    assign slow_fp_valid[B + k] = lsu2iss_wake_valid[k];
+    assign slow_fp_preg[B + k]  = lsu2iss_wake_preg[k];
+  end
+  isu_wake_bus #(.N(SLOW_FP_N), .BASE(FP_TAG_BASE), .TAGS(FP_TAGS)) u_wake_fp (
+    .wake_valid(slow_fp_valid), .wake_preg(slow_fp_preg), .woken(woken_slow_fp));
 
   assign iss_awake_wake_valid = wake_valid;
   assign iss_awake_wake_preg  = wake_preg;
@@ -190,48 +176,38 @@ module isu
   logic [ISSUE_WIDTH-1:0] gate_ok_all, fp_ok_all;
   logic [WB_NCLS-1:0]     grant_wb_cls1h_all [ISSUE_WIDTH];
   logic [WB_NCLS-1:0]     wb_cls_free [ISSUE_WIDTH];
-  /* verilator lint_off UNUSEDSIGNAL */   // waiver: select guarantees free completion cycle (EXP-046)
-  logic [ISSUE_WIDTH-1:0] wb_port_ok;
-  /* verilator lint_on UNUSEDSIGNAL */
   isu_wb_gate u_wb_gate (
     .clk(clk), .rst_n(rst_n), .flush_all(rob_bcast_flush), .cancel_valid(lsu2iss_cancel_valid),
     .cls_1h(grant_wb_cls1h_all), .reserve(grant_valid), .reserve_spec_mask(grant_spec_mask_all),
-    .port_ok(wb_port_ok), .cls_free(wb_cls_free));
+    .cls_free(wb_cls_free));
   assign gate_ok_all = fp_ok_all;
 
-  /* verilator lint_off UNUSEDSIGNAL */   // waiver: only FP-capable ports of grant_fpw / grant_fp_cls1h / f1 / f2 are read
-  logic [ISSUE_WIDTH-1:0] grant_fpw_all, grant_fp_f1_all, grant_fp_f2_all;
+  /* verilator lint_off UNUSEDSIGNAL */   // waiver: only FP-capable ports of grant_fpw / grant_fp_cls1h / f1 are read
+  logic [ISSUE_WIDTH-1:0] grant_fpw_all, grant_fp_f1_all;
   logic [WB_NCLS-1:0]     grant_fp_cls1h_all [ISSUE_WIDTH];
-  logic [6:0]             fp_free1_cls, fp_free2_cls;
   /* verilator lint_on UNUSEDSIGNAL */
-  if (FP_EN) begin : g_gate
-    logic [FP_REQ_UNITS-1:0]  c_valid, c_fpw, c_f1, c_f2, c_ok;
-    logic [LSU_LDU_COUNT-1:0] c_spec_mask [FP_REQ_UNITS];
-    logic [WB_NCLS-1:0]       c_cls_1h [FP_REQ_UNITS];
-    for (genvar p = 0; p < ISSUE_WIDTH; p++) begin : g_port
-      if (port_has(MASK_FPD, p)) begin : g_cand
-        localparam int R = port_rank(MASK_FPD, p);
-        assign c_valid[R]     = cand_valid_all[p];
-        assign c_fpw[R]       = grant_fpw_all[p];
-        assign c_spec_mask[R] = grant_spec_mask_all[p];
-        assign c_f1[R]        = grant_fp_f1_all[p];
-        assign c_f2[R]        = grant_fp_f2_all[p];
-        assign c_cls_1h[R]    = grant_fp_cls1h_all[p];
-        assign fp_ok_all[p]   = c_ok[R];
-      end else begin : g_free
-        assign fp_ok_all[p] = 1'b1;
-      end
+  logic [6:0]               fp_free1_cls;
+  logic [FP_REQ_UNITS-1:0]  c_valid, c_fpw, c_f1, c_ok;
+  logic [LSU_LDU_COUNT-1:0] c_spec_mask [FP_REQ_UNITS];
+  logic [WB_NCLS-1:0]       c_cls_1h [FP_REQ_UNITS];
+  for (genvar p = 0; p < ISSUE_WIDTH; p++) begin : g_fp_cand
+    if (port_has(MASK_FPD, p)) begin : g_cand
+      localparam int R = port_rank(MASK_FPD, p);
+      assign c_valid[R]     = cand_valid_all[p];
+      assign c_fpw[R]       = grant_fpw_all[p];
+      assign c_spec_mask[R] = grant_spec_mask_all[p];
+      assign c_f1[R]        = grant_fp_f1_all[p];
+      assign c_cls_1h[R]    = grant_fp_cls1h_all[p];
+      assign fp_ok_all[p]   = c_ok[R];
+    end else begin : g_free
+      assign fp_ok_all[p] = 1'b1;
     end
-    isu_fp_gate #(.NC(FP_REQ_UNITS)) u_gate (
-      .clk(clk), .rst_n(rst_n), .flush_all(rob_bcast_flush), .cancel_valid(lsu2iss_cancel_valid),
-      .cand_valid(c_valid), .cand_fpw(c_fpw), .cand_spec_mask(c_spec_mask),
-      .cand_cls_1h(c_cls_1h), .cand_f1(c_f1), .cand_f2(c_f2),
-      .fp_free1_cls(fp_free1_cls), .fp_free2_cls(fp_free2_cls), .gate_ok(c_ok));
-  end else begin : g_no_gate
-    assign fp_ok_all    = '1;
-    assign fp_free1_cls = '1;
-    assign fp_free2_cls = '1;
   end
+  isu_fp_gate #(.NC(FP_REQ_UNITS)) u_gate (
+    .clk(clk), .rst_n(rst_n), .flush_all(rob_bcast_flush), .cancel_valid(lsu2iss_cancel_valid),
+    .cand_valid(c_valid), .cand_fpw(c_fpw), .cand_spec_mask(c_spec_mask),
+    .cand_cls_1h(c_cls_1h), .cand_f1(c_f1),
+    .fp_free1_cls(fp_free1_cls), .gate_ok(c_ok));
 
   // ---- iterative FU occupancy (DIV on port 1, FDIV on port ISSUE_WIDTH - 1) ----
   logic                     div_busy_q, div_busy_d, div_busy_eff;
@@ -265,51 +241,47 @@ module isu
   end
 
   logic [FP_COUNT_W:0] fdiv_cnt;
-  if (FP_EN) begin : g_fdiv_occ
-    localparam int FP_LAST = ISSUE_WIDTH - 1;
-    logic                     fdiv_iss, fdiv_keep;
-    logic [FP_COUNT_W:0]      fdiv_cnt_q, fdiv_cnt_eff, fdiv_cnt_d, fdiv_lat;
-    logic [LSU_LDU_COUNT-1:0] fdiv_spec_mask_q, fdiv_spec_mask_d;
-    logic [ROB_IDX_WIDTH-1:0] fdiv_rob_idx_q, fdiv_rob_idx_d;
-    logic                     fdiv_rob_flag_q, fdiv_rob_flag_d;
-    assign fdiv_cnt = fdiv_cnt_eff;
-    always_comb begin
-      fdiv_cnt_eff     = (|(fdiv_spec_mask_q & lsu2iss_cancel_valid)) ? '0 : fdiv_cnt_q;
-      fdiv_iss         = grant_valid[FP_LAST] && (grant_uop[FP_LAST].op == op_t'(UOP_FDIV));
-      fdiv_lat         = fp_latency(op_t'(UOP_FDIV), grant_uop[FP_LAST].func7);
-      fdiv_keep        = (fdiv_cnt_eff > (FP_COUNT_W+1)'(1)) &&
-                         !(flush_br && isu_rob_younger(fdiv_rob_idx_q, fdiv_rob_flag_q,
-                                                       dec_bcast_redirect_rob_idx, dec_bcast_redirect_rob_flag));
-      fdiv_cnt_d       = rob_bcast_flush ? '0
-                       : fdiv_iss        ? fdiv_lat
-                       : fdiv_keep       ? (fdiv_cnt_eff - (FP_COUNT_W+1)'(1)) : '0;
-      fdiv_spec_mask_d = rob_bcast_flush ? '0 : (fdiv_iss ? grant_spec_mask_all[FP_LAST] : '0);
-      fdiv_rob_idx_d   = rob_bcast_flush ? '0
-                       : fdiv_iss        ? grant_uop[FP_LAST].rob_idx
-                       : fdiv_keep       ? fdiv_rob_idx_q : '0;
-      fdiv_rob_flag_d  = rob_bcast_flush ? 1'b0
-                       : fdiv_iss        ? grant_uop[FP_LAST].rob_flag
-                       : fdiv_keep       ? fdiv_rob_flag_q : 1'b0;
-    end
-    always_ff @(posedge clk) begin
-      if (!rst_n) begin
-        fdiv_cnt_q       <= '0;
-        fdiv_spec_mask_q <= '0;
-        fdiv_rob_idx_q   <= '0;
-        fdiv_rob_flag_q  <= 1'b0;
-      end else begin
-        fdiv_cnt_q       <= fdiv_cnt_d;
-        fdiv_spec_mask_q <= fdiv_spec_mask_d;
-        fdiv_rob_idx_q   <= fdiv_rob_idx_d;
-        fdiv_rob_flag_q  <= fdiv_rob_flag_d;
-      end
-    end
-`ifndef SYNTHESIS
-    always_ff @(posedge clk) if (rst_n && (fdiv_cnt_eff != '0) && fdiv_iss) $error("isu: FDIV re-issued while busy");
-`endif
-  end else begin : g_no_fdiv_occ
-    assign fdiv_cnt = '0;
+  localparam int FP_LAST = ISSUE_WIDTH - 1;
+  logic                     fdiv_iss, fdiv_keep;
+  logic [FP_COUNT_W:0]      fdiv_cnt_q, fdiv_cnt_eff, fdiv_cnt_d, fdiv_lat;
+  logic [LSU_LDU_COUNT-1:0] fdiv_spec_mask_q, fdiv_spec_mask_d;
+  logic [ROB_IDX_WIDTH-1:0] fdiv_rob_idx_q, fdiv_rob_idx_d;
+  logic                     fdiv_rob_flag_q, fdiv_rob_flag_d;
+  assign fdiv_cnt = fdiv_cnt_eff;
+  always_comb begin
+    fdiv_cnt_eff     = (|(fdiv_spec_mask_q & lsu2iss_cancel_valid)) ? '0 : fdiv_cnt_q;
+    fdiv_iss         = grant_valid[FP_LAST] && (grant_uop[FP_LAST].op == op_t'(UOP_FDIV));
+    fdiv_lat         = fp_latency(op_t'(UOP_FDIV), grant_uop[FP_LAST].func7);
+    fdiv_keep        = (fdiv_cnt_eff > (FP_COUNT_W+1)'(1)) &&
+                       !(flush_br && isu_rob_younger(fdiv_rob_idx_q, fdiv_rob_flag_q,
+                                                     dec_bcast_redirect_rob_idx, dec_bcast_redirect_rob_flag));
+    fdiv_cnt_d       = rob_bcast_flush ? '0
+                     : fdiv_iss        ? fdiv_lat
+                     : fdiv_keep       ? (fdiv_cnt_eff - (FP_COUNT_W+1)'(1)) : '0;
+    fdiv_spec_mask_d = rob_bcast_flush ? '0 : (fdiv_iss ? grant_spec_mask_all[FP_LAST] : '0);
+    fdiv_rob_idx_d   = rob_bcast_flush ? '0
+                     : fdiv_iss        ? grant_uop[FP_LAST].rob_idx
+                     : fdiv_keep       ? fdiv_rob_idx_q : '0;
+    fdiv_rob_flag_d  = rob_bcast_flush ? 1'b0
+                     : fdiv_iss        ? grant_uop[FP_LAST].rob_flag
+                     : fdiv_keep       ? fdiv_rob_flag_q : 1'b0;
   end
+  always_ff @(posedge clk) begin
+    if (!rst_n) begin
+      fdiv_cnt_q       <= '0;
+      fdiv_spec_mask_q <= '0;
+      fdiv_rob_idx_q   <= '0;
+      fdiv_rob_flag_q  <= 1'b0;
+    end else begin
+      fdiv_cnt_q       <= fdiv_cnt_d;
+      fdiv_spec_mask_q <= fdiv_spec_mask_d;
+      fdiv_rob_idx_q   <= fdiv_rob_idx_d;
+      fdiv_rob_flag_q  <= fdiv_rob_flag_d;
+    end
+  end
+`ifndef SYNTHESIS
+  always_ff @(posedge clk) if (rst_n && (fdiv_cnt_eff != '0) && fdiv_iss) $error("isu: FDIV re-issued while busy");
+`endif
 
 `ifndef SYNTHESIS
   always_ff @(posedge clk) if (rst_n && div_busy_eff && div_iss) $error("isu: DIV re-issued while busy");
@@ -322,7 +294,7 @@ module isu
         assign iss_cls_free[p][c] = wb_cls_free[p][c] && !exe2iss_div_wb_in2;
       end else if (p == 1 && (c == 2 || c == 3)) begin : g_div_busy
         assign iss_cls_free[p][c] = wb_cls_free[p][c] && !div_busy_eff;
-      end else if (FP_EN && (p == ISSUE_WIDTH - 1) && (c >= 4 && c <= 7)) begin : g_fdiv_busy
+      end else if ((p == ISSUE_WIDTH - 1) && (c >= 4 && c <= 7)) begin : g_fdiv_busy
         assign iss_cls_free[p][c] = wb_cls_free[p][c] && (fdiv_cnt == '0);
       end else begin : g_pass
         assign iss_cls_free[p][c] = wb_cls_free[p][c];
@@ -345,7 +317,7 @@ module isu
     logic [ALU_NUM-1:0]       g_byp1 [NP];
     logic [ALU_NUM-1:0]       g_byp2 [NP];
     logic [LSU_LDU_COUNT-1:0] g_spec_mask [NP];
-    logic [NP-1:0]            g_fpw, g_fp_f1, g_fp_f2;
+    logic [NP-1:0]            g_fpw, g_fp_f1;
     logic [WB_NCLS-1:0]       g_fp_cls1h [NP], g_wb_cls1h [NP];
 
     for (genvar w = 0; w < EW; w++) begin : g_enq
@@ -398,7 +370,6 @@ module isu
       assign grant_spec_mask_all[PP] = g_spec_mask[p];
       assign grant_fpw_all[PP]      = g_fpw[p];
       assign grant_fp_f1_all[PP]    = g_fp_f1[p];
-      assign grant_fp_f2_all[PP]    = g_fp_f2[p];
       assign grant_fp_cls1h_all[PP] = g_fp_cls1h[p];
       assign grant_wb_cls1h_all[PP] = g_wb_cls1h[p];
     end
@@ -408,10 +379,10 @@ module isu
     isu_iq #(.SIZE(SIZE), .DW(EW), .NP(NP), .QID(q),
              .AGE_EN(q == IQ_MEM),
              .HAS_SRC2(q != IQ_MEM),
-             .HAS_SRC3(FP_EN && (q == IQ_FP)),
+             .HAS_SRC3(q == IQ_FP),
              .HAS_CANCEL(1'b1),
              .SRC1_DOM((q == IQ_FP) ? 1 : 0),
-             .SRC2_DOM((q == IQ_FP) ? 1 : ((q == IQ_STD && FP_EN) ? 2 : 0)),
+             .SRC2_DOM((q == IQ_FP) ? 1 : ((q == IQ_STD) ? 2 : 0)),
              .FP_TAGS(FP_TAGS), .INT_W(INT_W), .CANCEL_N(CANCEL_N)) u_iq (
       .clk(clk), .rst_n(rst_n), .enq_valid(enq_valid), .enq(enq),
       .woken_slow_int(woken_slow_int), .woken_slow_fp(woken_slow_fp),
@@ -419,7 +390,7 @@ module isu
       .slow_exu_valid(slow_exu_v4), .slow_exu_preg(slow_exu_p4),
       .fast_valid(fast_wake_valid), .fast_preg(fast_wake_preg),
       .gate_ok(g_gate_ok), .cls_free(g_cls_free),
-      .fp_free1_cls(fp_free1_cls), .fp_free2_cls(fp_free2_cls),
+      .fp_free1_cls(fp_free1_cls),
       .issue_block(issue_block), .flush_all(rob_bcast_flush), .flush_br(flush_br),
       .flush_rob_idx(dec_bcast_redirect_rob_idx), .flush_rob_flag(dec_bcast_redirect_rob_flag),
       .cancel_valid(lsu2iss_cancel_valid), .cancel_preg(lsu2iss_cancel_preg),
@@ -427,7 +398,7 @@ module isu
       .fast_cancel_valid_chk(fast_cancel_valid), .fast_cancel_preg_chk(fast_cancel_preg),
       .ready_num(iq_ready_num), .cand_valid(g_cand), .grant_valid(g_valid),
       .grant_uop(g_uop), .grant_src1_byp(g_byp1), .grant_src2_byp(g_byp2), .grant_spec_mask(g_spec_mask),
-      .grant_fpw(g_fpw), .grant_fp_cls1h(g_fp_cls1h), .grant_wb_cls1h(g_wb_cls1h), .grant_fp_f1(g_fp_f1), .grant_fp_f2(g_fp_f2));
+      .grant_fpw(g_fpw), .grant_fp_cls1h(g_fp_cls1h), .grant_wb_cls1h(g_wb_cls1h), .grant_fp_f1(g_fp_f1));
   end
 
   assign iss2prf_valid          = grant_valid;

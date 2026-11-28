@@ -12,11 +12,9 @@ package ftq_ibuf_pkg;
   localparam int PCPN_W = 3;  // pcpn_t
 
   // ---- derived sizes ----
-  localparam int FTQ_COUNT_W = $clog2(FTQ_SIZE + 1);
   localparam int IB_IDX_W = $clog2(IDU_INST_BUFFER_SIZE);
   localparam int IB_COUNT_W = $clog2(IDU_INST_BUFFER_SIZE + 1);
   localparam int LANE_CNT_W = $clog2(BACKEND_FETCH_WIDTH + 1);
-  localparam int COMMIT_CNT_W = $clog2(COMMIT_WIDTH + 1);
   localparam int DECODE_CNT_W = $clog2(DECODE_WIDTH + 1);
 
   // Per-slot training metadata (written when the fetch group enters the FTQ, read back at commit).

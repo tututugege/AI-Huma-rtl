@@ -47,12 +47,12 @@ depth: 25 层 / 639,644 单元（EXP-060 开启 `HAS_LSU_BYP` 4 路整数 `lsu_b
 | --- | --- | --- |
 | 入 | `iss2prf_valid`、`iss2prf_uop`（`isu_uop_t`）、`iss2prf_src1_byp / src2_byp`（各 `ALU_NUM = 6` 位独热）`[ISSUE_WIDTH]` | 经 `iss_rr_reg` 打一拍的发射结果，读口用其中的 `src*_preg`、`src*_en`、`src1_fp / src2_fp`、`src3_*`、`ftq_idx`、`ftq_offset` 等；`src*_byp` 选 EXU 级旁路的 ALU 口 |
 | 入 | `exe2prf [WB_LANES]`（`xc_prf_wb_t`：`valid`、`dest_preg`、`result`、`fresult`、`dest_en`、`rob_idx / rob_flag`、`op` 等） | 写回总线（按通道编号），进写回级；其中 ALU 通道 0..5 同拍也作 EXU 级旁路源（由 `src*_byp` 独热选），FDIV 通道作浮点 EXU 级旁路源 |
-| 入 | `lsu_byp_valid / dest_preg / result / is_w [LSU_LOAD_WB_WIDTH]` | LSU 的 load 写回请求作旁路源（`back_top.sv` 里由 `lsu2exe_wb_req_*` 生成），总是开（`prf.sv` 的 `HAS_LSU_BYP = 1`；原来的 `LP_L2` 条件已删除） |
+| 入 | `lsu_byp_valid / dest_preg / result / is_w [LSU_LOAD_WB_WIDTH]` | LSU 的 load 写回请求作旁路源（`back_top.sv` 里由 `lsu2exe_wb_req_*` 生成），总是开（无开关） |
 | 入 | `ftq_prf_pc_resp_resp_{pc, pred_taken, is_rvc, next_pc} [FTQ_PRF_PC_PORT_NUM]` | FTQ 的回答 |
 | 入 | `dec_bcast_{mispred, redirect_rob_idx, redirect_rob_flag}`、`rob_bcast_flush` | 误预测（按 ROB 号杀掉更年轻的写回）、全局 flush（经 `rob_flush_q` 晚一拍，docs/FLUSH_REG.md） |
 | 出 | `prf2exe_valid`、`prf2exe_uop`（`xc_inst_t`）`[ISSUE_WIDTH]` | 发射结果透传，加上读出的 `src1_rdata`、`src2_rdata`、`fsrc1..3`，以及口 0、2、14、15 的 `pc`、`ftq_pred_taken`、`ftq_is_rvc`、`ftq_next_pc`（其他口为 0） |
 | 出 | `prf2exe_csr_idx` | 口 0 的 `csr_idx` |
-| 出 | `ftq_prf_pc_req_req_{valid, ftq_idx, ftq_offset} [FTQ_PRF_PC_PORT_NUM]` | 向 FTQ 要 pc |
+| 出 | `ftq_prf_pc_req_req_{ftq_idx, ftq_offset} [FTQ_PRF_PC_PORT_NUM]` | 向 FTQ 要 pc（没有 valid：FTQ 每拍都读，口只在需要 pc 时用回答） |
 | 出 | `prf_awake_wake_valid / _preg [LSU_LOAD_WB_WIDTH]` | load 晚唤醒 |
 
 ## 4. 结构
@@ -64,18 +64,17 @@ depth: 25 层 / 639,644 单元（EXP-060 开启 `HAS_LSU_BYP` 4 路整数 `lsu_b
                                               └─► prf_awake ─► prf_awake_wake_*
  iss2prf 的 src_preg ─► prf_regfile 读口（27 个）─► prf_bypass × 27 ─► src1_rdata / src2_rdata
  exe2prf ALU 通道（src*_byp 独热）、lsu_byp ──────────► （旁路源）
- iss2prf ─► prf_pc_port（请求条件）─► ftq_prf_pc_req；ftq_prf_pc_resp 按口直连回发射口
+ iss2prf ─► ftq_prf_pc_req（ftq_idx / ftq_offset）；ftq_prf_pc_resp 按口直连回发射口
 ```
 
 | 文件 | 行数 | 职责 |
 | --- | --- | --- |
-| `prf.sv` | 417 | 顶层：端口适配、按口需求生成 27 个整数读口及其旁路实例、浮点读口编号、浮点写回暂存与压缩（EXP-046）、pc 口接线 |
+| `prf.sv` | 382 | 顶层：端口适配、按口需求生成 27 个整数读口及其旁路实例、浮点读口编号、浮点写回暂存与压缩（EXP-046）、pc 口接线 |
 | `prf_wb_pipe.sv` | 66 | `WB_LANES = 13` 通道写回级寄存器 |
 | `prf_write_arb.sv` | 29 | 每个整数寄存器的写使能和写数据 |
 | `prf_regfile.sv` | 38 | 整数寄存器堆存储和异步读口 |
-| `prf_bypass.sv` | 63 | 一个读口的旁路选择：EXU 级 6 路按独热直选（无比较），写回级 13 路和 LSU 4 路按编号比较 |
+| `prf_bypass.sv` | 55 | 一个读口的旁路选择：EXU 级 6 路按独热直选（无比较），写回级 13 路和 LSU 4 路按编号比较 |
 | `prf_fp.sv` | 75 | 浮点寄存器堆：写口（调用方给的写回级通道）、读口加旁路（同一个编号空间里编号 ≥ `FP_TAG_BASE` 的才是浮点寄存器） |
-| `prf_pc_port.sv` | 32 | 哪些发射口需要向 FTQ 要 pc |
 | `prf_awake.sv` | 49 | load 唤醒 |
 
 状态：整数寄存器堆 `reg_file_q[PRF_NUM]`（256 项，复位全 0）；浮点寄存器堆 `reg_file_q[FPRF_NUM]`（96 项）；写回级每通道 `wb_wen_q`、`wb_is_load_q`、`wb_dest_preg_q`（`PRF_IDX_WIDTH = 9` 位）、`wb_result_q`（64 位）、`wb_rob_idx_q / wb_rob_flag_q` 和浮点的 `wb_fres_q`（64 位）。
@@ -92,7 +91,7 @@ depth: 25 层 / 639,644 单元（EXP-060 开启 `HAS_LSU_BYP` 4 路整数 `lsu_b
 2. `prf_bypass`：`!src_en` 或 `src_preg == 0` 读 0；否则如果写回级某条通道（`wb_wen_q && wb_dest_preg_q == src_preg`）或 LSU 写回请求的目的寄存器等于 `src_preg`，取它的值；`src*_byp` 独热位为 1 时直接取对应 ALU 通道（`exe2prf[WB_ALU_BASE + k]`）的结果，不做编号比较。优先顺序：EXU 独热 > LSU > 写回级 > 寄存器堆（`prf_bypass.sv` 末段）。一个寄存器只有一个生产者在飞，所以最多一个命中，不排优先级。
 3. 5 个物理 AGU 口（6..10）各有自己的 `src1` 读口，没有借用（EXP-072 删除了原来共用口的读口借用）。
 4. 浮点：浮点口的三个源和 store-data 口的数据源读 `prf_fp`（旁路规则同上，旁路源多了 `lsu_byp` 的 `fp_load_data`，即 `flw` 的 NaN-boxing）；store-data 口的 `src2_rdata` 在 `src2_fp` 为 1 时换成浮点读出值的低 `XLEN` 位。
-5. FTQ pc：口 0、2 在 `src1_is_pc` 且操作属于 ALU 类时、口 14、15 在操作属于分支类时发请求（`prf_pc_port`）；FTQ 的回答按口号直连回对应发射口，其他口的 pc 字段接 0。
+5. FTQ pc：口 0、2 和分支口 14、15 每拍把自己的 `ftq_idx / ftq_offset` 送 FTQ（不带 valid）；FTQ 的回答按口号直连回对应发射口，其他口的 pc 字段接 0。
 
 ### 5.3 唤醒
 
@@ -106,7 +105,7 @@ depth: 25 层 / 639,644 单元（EXP-060 开启 `HAS_LSU_BYP` 4 路整数 `lsu_b
 | --- | --- |
 | ISU 发射 → 读 → 槽 | ISU 授予 → 被选中 uop 的 `src_preg`（`iss2prf`）→ 整数寄存器堆按编号读（256 选 1）并行 `prf_bypass` 里的 17 个编号比较（写回级 `WB_LANES = 13` 路 + LSU 4 路）和 6 路 EXU 级独热直选 → 独热选择 → `prf2exe_*_rdata` → `exu_ctrl` 槽的寄存器；这条路径把 ISU 的"选择 → 授予"接在后面，是整核最长环路的一部分 |
 | 写回级 → 写回 / 唤醒 | 每个整数寄存器（256 个）对 13 个写口、每个浮点寄存器（96 个）对 6 个写口（EXP-046 前都是 21 个）比较 `wb_dest_preg_q` 生成写使能；唤醒槽的前缀计数 |
-| FTQ pc | `iss2prf` → `prf_pc_port` 的请求条件 → FTQ（模块外）→ 回答 → 发射口 pc；FTQ 的回答直接穿过 PRF |
+| FTQ pc | `iss2prf` 的 `ftq_idx / ftq_offset` → FTQ（模块外）→ 回答 → 发射口 pc；FTQ 的回答直接穿过 PRF |
 
 本分支和深度有关的改动：`41e5893` 让共用 AGU 的 STA 口借用 load 口的 `src1` 读口（读口个数减少，读口输入多一个二选一）；全局 flush 晚一拍（`803692f`）使 `rob_bcast_flush` 来自寄存器。
 
@@ -142,10 +141,11 @@ RTL 与模型保持一致的细节：
 
 ## 9. 参数与开关速查
 
-`PRF_NUM`、`FPRF_NUM`、`FP_TAG_BASE`、`TAG_NUM`、`PRF_IDX_WIDTH`、`ISSUE_WIDTH`、`TOTAL_FU_COUNT`、`LSU_LOAD_WB_WIDTH`、`LSU_SDU_COUNT`、`FTQ_PRF_PC_PORT_NUM`、`LSU_AGU_SHARED`、`IQ_*_PORT_BASE`、`ALU_NUM`、`BRU_NUM`（`ttg_cfg_pkg`）；`FP_EN`、`FW`、`FLEN`（`fp_pkg`）；`lp_pkg::LP_L2`（决定 `lsu_byp_valid` 是否有效，在 `back_top.sv`）。
+`PRF_NUM`、`FPRF_NUM`、`FP_TAG_BASE`、`TAG_NUM`、`PRF_IDX_WIDTH`、`ISSUE_WIDTH`、`TOTAL_FU_COUNT`、`LSU_LOAD_WB_WIDTH`、`LSU_SDU_COUNT`、`FTQ_PRF_PC_PORT_NUM`、`LSU_AGU_SHARED`、`IQ_*_PORT_BASE`、`ALU_NUM`、`BRU_NUM`（`ttg_cfg_pkg`）；`FW`、`FLEN`（`fp_pkg`）。没有开关（F/D 与 LSU 旁路总是开）。
 
 ## 10. 变更记录
 
+- 2026-11-28 清理：删 `FP_EN`（`prf.sv` 的 `g_fp` 生成块展开、`g_no_fp` 删除；`FW = FLEN`）、`HAS_LSU_BYP`（`prf_bypass` 参数及 `g_no_lsu_byp`，旁路写死开）、`FP_WB_PORTS == 0` 分支；删输出 `ftq_prf_pc_req_req_valid`（FTQ 不读，其响应 valid 也已删）及 `prf_pc_port` 实例，`prf_pc_port.sv` 成死文件；删不抑制任何告警的 lint 豁免（`prf.sv` 3 处，以去掉豁免后整树 lint 普通 / `-DSYNTHESIS` 均无新告警为准）（周期不变）。
 - 2026-11-28（文档核对，无 RTL 变化）：`FTQ_PRF_PC_PORT_NUM = 4`（口 0、2、14、15）；`PRF_NUM = 256` 下的寄存器堆与位宽；接口改为 `iss2prf_* / exe2prf / prf2exe_*` 结构体端口，误预测按 ROB 号；旁路改为 EXU 独热 + 写回级 / LSU 编号比较，`lsu_byp` 总是开；删掉已不存在的 AGU 读口借用；文件表行数；门禁参考改为 `scripts/ref_cycles.txt`（77 个程序）。
 - 2026-11-28（`rtl/exu-clean`，EXP-072）：随真 5 物理 AGU 与 `ISSUE_WIDTH = 21 → 19` 收敛，`prf` 删除原逻辑 AGU 共用口读借用分支，口数与旁路按 `ISSUE_WIDTH = 19` 直接映射；TSMC 28nm HPC+ DC（`0.50 ns`）新旧同条件对比：基线 vs 新版 **`WNS` 均 `0.00 ns`（MET ≥2.00 GHz）**、`CPL 0.45 ns`、`TNS −0.00`、`Seq 24,196` 持平、面积 `580,853.60 → 587,386.28 µm²`（`+1.12%`）。
 

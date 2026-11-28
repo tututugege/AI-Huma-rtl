@@ -1,7 +1,7 @@
 `default_nettype none
 // Ref: axi-interconnect-kit/axi_interconnect/AXI_LLC.cpp  class AXI_LLC (comb() final call of a tick + seq()),
 // tables from MemSubsystem.cpp
-// Top: port adaptation only (flat spec ports <-> packed vectors of axi_llc_core).
+// Top: port adaptation only (flat ports <-> packed vectors of axi_llc_core).
 // Design note: docs/modules/axi_llc.md
 module axi_llc
   import axi_llc_pkg::*;
@@ -86,7 +86,7 @@ module axi_llc
   logic [NMSHR-1:0][3:0] hz_ms_id;
   logic [NMSHR-1:0][31:0] hz_ms_line;
 
-  // ---- spec ports (unpacked arrays) <-> packed vectors ----
+  // ---- flat ports (unpacked arrays) <-> packed vectors ----
   always_comb begin
     for (int m = 0; m < NR; m++) begin
       rd_v[m] = up_rd_valid[m];

@@ -25,7 +25,6 @@ module front_ctrl import ttg_cfg_pkg::*; import front_pkg::*; (
   output logic [XLEN_BITS-1:0] refetch_address,
   output logic        fa_rd_en,
   output logic        predecode_can_run,
-  output logic        bpu_can_run,
   output logic        bpu_icache_read_ready,
   output logic        fa_wr_en,
   output logic [1:0]  fa_drop_tail_n,
@@ -45,7 +44,7 @@ module front_ctrl import ttg_cfg_pkg::*; import front_pkg::*; (
     .global_refetch, .be_fifo_read_enable, .icache_ready,
     .ftq_full, .fa_empty, .fa_cnt_sat, .bpu_hold_n, .inst_empty, .inst_fifo_room, .s2_empty,
     .bpu_icache_read_valid, .bpu_ptab_write_enable, .checker_flush_enable, .bpu_override_squash_n,
-    .fa_rd_en, .predecode_can_run, .bpu_can_run, .bpu_icache_read_ready,
+    .fa_rd_en, .predecode_can_run, .bpu_icache_read_ready,
     .fa_wr_en, .fa_drop_tail_n, .s2_wr_en, .do_predecode_flush
   );
 

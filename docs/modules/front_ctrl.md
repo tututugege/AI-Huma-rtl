@@ -17,9 +17,9 @@ RTL 拆成三个文件，装配在 `front_ctrl.sv`：
 
 | 文件 | 行数 | 职责 |
 | --- | --- | --- |
-| `front_ctrl.sv` | 54 | 只连线：`front_refetch_ctrl` + `front_ctrl_enables` |
+| `front_ctrl.sv` | 53 | 只连线：`front_refetch_ctrl` + `front_ctrl_enables` |
 | `front_refetch_ctrl.sv` | 49 | 全局 refetch 和重取指地址；前端控制里**唯一的状态**（晚一拍的预译码 refetch） |
-| `front_ctrl_enables.sv` | 47 | 纯组合：FTQ 的 S0 写 / IFU 读 / S2 写使能、`inst_fifo` 读使能（`predecode_can_run`）、BPU 门控、预译码冲刷 |
+| `front_ctrl_enables.sv` | 46 | 纯组合：FTQ 的 S0 写 / IFU 读 / S2 写使能、`inst_fifo` 读使能（`predecode_can_run`）、BPU 门控、预译码冲刷 |
 
 前端已经没有独立的取指地址队列、PTAB 和 front2back 队列（EXP-070 并入统一 FTQ）。代码里 `fa_*`（取指地址）、`s2_*` 这些名字指的是统一 FTQ 的指针：`fa_empty` = `ifu_ptr == bpu_ptr`，`s2_empty` = `pd_ptr == s2_ptr`（`ftq_ptr.sv`）。端口名 `bpu_ptab_write_enable` 是旧名，含义是"BPU 的 S2 块要写 FTQ"。
 
@@ -50,7 +50,7 @@ RTL 拆成三个文件，装配在 `front_ctrl.sv`：
 | 出 | `global_refetch`、`refetch_address` | 全局重取指及地址（后端优先） |
 | 出 | `fa_rd_en` | IFU 读 FTQ 队首（`ifu_ptr`）并向 I-Cache 发请求 |
 | 出 | `predecode_can_run` | 读指令队列队首并做预译码检查 |
-| 出 | `bpu_can_run`、`bpu_icache_read_ready` | BPU 门控（`bpu_can_run` 顶层未用，接 `unused_ok`） |
+| 出 | `bpu_icache_read_ready` | BPU 门控 |
 | 出 | `fa_wr_en`、`fa_drop_tail_n`、`s2_wr_en` | FTQ 的 S0 写、丢尾块数、S2 写 |
 | 出 | `do_predecode_flush` | 预译码冲刷（检查器要求且本拍确实检查了） |
 
@@ -76,7 +76,7 @@ RTL 拆成三个文件，装配在 `front_ctrl.sv`：
 | `fa_rd_en` | `icache_ready & !fa_empty & !global_refetch & (fa_cnt_sat > bpu_hold_n) & inst_fifo_room` |
 | `predecode_can_run` | `be_fifo_read_enable & !inst_empty & !s2_empty & !global_refetch` |
 | `bpu_stall` | `ftq_full` |
-| `bpu_can_run` | `!bpu_stall | global_refetch` |
+| `bpu_can_run`（内部信号） | `!bpu_stall | global_refetch` |
 | `bpu_icache_read_ready` | `!bpu_stall` |
 | `fa_wr_en` | `bpu_icache_read_valid & bpu_can_run` |
 | `s2_wr_en` | `bpu_ptab_write_enable & !global_refetch` |
@@ -97,7 +97,7 @@ RTL 拆成三个文件，装配在 `front_ctrl.sv`：
 
 - `FrontControl::finish` 里的 PMU 前端分类（`g_pmu_front`）：RTL 不在前端里做；
 - `global_reset`：模型的 `ctrl.out.global_reset` 只在 `FrontTop::init()` 一拍有效，RTL 用 `rst_n`，使能里没有"& !reset"；
-- `bpu_can_run` 只在 `front_ctrl` 内部用。
+- `bpu_can_run` 只是 `front_ctrl_enables` 的内部信号（不出端口）。
 
 未核对：`front_ctrl_enables` 与模型 `FrontControl::enables` / `BpuPipe::comb_front` 的逐项对照只靠整核周期相等，没有单独的穷举测试。
 
@@ -114,6 +114,7 @@ RTL 拆成三个文件，装配在 `front_ctrl.sv`：
 
 ## 10. 变更记录
 
+- 2026-11-28 清理：删 `front_ctrl` / `front_ctrl_enables` 无读者的输出 `bpu_can_run`（改为 `front_ctrl_enables` 内部信号）（周期不变）。
 - 2026-11-28（`rtl/fe-2ahead`）：文档按现行 RTL 重写（第 1–9 节；旧正文描述的是 EXP-070 之前 / 删除分支标签之前的结构）。
 - 2026-11-18（exp/agu-share）：`fa_rd_en` 加 `!fa_head_fresh`，去掉对同拍 BPU 覆盖的依赖 `4eb8f0e`。
 - 更早：见 git 历史。

@@ -353,10 +353,8 @@ module soc_xbar import soc_axi_pkg::*; import soc_pkg::*; #(
   );
 `endif
 
-  /* verilator lint_off UNUSEDSIGNAL */
   logic [5:0] unused_mmio_id_hi;
   assign unused_mmio_id_hi = {oc_m_rid[0][DDR_ID_W-1:4], oc_m_bid[0][DDR_ID_W-1:4]};
-  /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule
 

@@ -80,10 +80,8 @@ module ren_elim_sel
   assign elim = g_st[ST].v;
 
   // only v of the last stage is used
-  /* verilator lint_off UNUSEDSIGNAL */
   logic unused_last;
   assign unused_last = ^{g_st[ST].c, g_st[ST].inv};
-  /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule
 

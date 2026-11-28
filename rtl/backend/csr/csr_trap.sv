@@ -26,9 +26,7 @@ module csr_trap
   input  logic [XLEN_BITS-1:0] trap_val,
   input  logic [XLEN_BITS-1:0] pc,
   output logic [1:0]  privilege,
-  output logic        trap_taken,        // M or S trap
   output logic [XLEN_BITS-1:0] trap_pc,
-  output logic        xret_taken,        // mret or sret actually performed (no trap this cycle)
   output logic [XLEN_BITS-1:0] epc,
   output logic        wr_en  [NREG],
   output logic [XLEN_BITS-1:0] wr_val [NREG]
@@ -48,12 +46,11 @@ module csr_trap
     .m_trap(m_trap), .s_trap(s_trap_raw), .m_is_irq(m_is_irq), .s_is_irq(s_is_irq),
     .m_code(m_code), .s_code(s_code));
 
-  logic s_trap_only, mret_act, sret_act;
+  logic s_trap_only, trap_taken, mret_act, sret_act;   // trap_taken: M or S trap
   assign s_trap_only = s_trap_raw & ~m_trap;
   assign trap_taken  = m_trap | s_trap_raw;
   assign mret_act    = mret & ~trap_taken;
   assign sret_act    = sret & ~trap_taken & ~mret;
-  assign xret_taken  = mret_act | sret_act;
 
   // ---- redirect addresses ----
   logic [XLEN_BITS-1:0] m_target, s_target;

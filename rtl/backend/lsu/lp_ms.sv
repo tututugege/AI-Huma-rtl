@@ -1,4 +1,4 @@
-// Ref: back-end/Lsu/RealLsuPipe.cpp  RealLsu (LSU_MEMSPEC: SPD release scan, STA arrival view, wait-table lookup)
+// Ref: back-end/Lsu/RealLsuPipe.cpp  RealLsu (memory speculation: SPD release scan, STA view, wait table)
 `default_nettype none
 
 // Memory-dependence speculation helpers of the staged LSU:
@@ -10,18 +10,14 @@ module lp_ms
   import ttg_cfg_pkg::*;
   import lp_pkg::*;
 (
-  /* verilator lint_off UNUSEDSIGNAL */  // clk, rst_n, vio_new feed the wait table (LSU_MEMSPEC only)
   input  logic                clk,
   input  logic                rst_n,
-  /* verilator lint_on UNUSEDSIGNAL */
   input  lp_stq_t             sq [SQ],
   input  logic [SQW-1:0]      head_q,
   input  lp_agu_st_t          ags [NST],
   input  lp_dis_ld_t          dis_ld [NDIS],
-  /* verilator lint_off UNUSEDSIGNAL */
   input  logic [LQ-1:0]       vio_new,
   input  logic [LQ-1:0]       empty_w,
-  /* verilator lint_on UNUSEDSIGNAL */
   input  lp_ldq_t             ldq_q [LQ],
   input  lp_l1in_t            l1 [NLD],
   output logic [NLD-1:0]      spec_ok,
@@ -45,7 +41,7 @@ module lp_ms
       sa_f3[k] = ags[k].func3;
     end
     for (int k = 0; k < NLD; k++)   // may pass unknown-address stores unless LR, second pass or predicted to wait
-      spec_ok[k] = MS && !l1[k].second && !l1[k].lrsc && !l1[k].wait_b;
+      spec_ok[k] = !l1[k].second && !l1[k].lrsc && !l1[k].wait_b;
     for (int i = 0; i < NDIS; i++) begin
       dis_ldw[i] = dis_ld[i];
       dis_ldw[i].wait_b = mdp_wait[i];
@@ -54,12 +50,8 @@ module lp_ms
   lp_ffs #(.N(SQ)) u_unk (.req(unk_rot), .onehot(unk_oh), .any(unk_any));
   ttg_onehot_to_idx #(.N(SQ)) u_unkx (.onehot(unk_oh), .idx(unk_rank));
 
-  if (MS) begin : g_mdp
-    lp_mdp u_mdp (.clk(clk), .rst_n(rst_n), .dis(dis_ld), .vio_new(vio_new), .empty_w(empty_w), .ldq_q(ldq_q),
-                  .dis_wait(mdp_wait));
-  end else begin : g_nomdp
-    assign mdp_wait = '0;
-  end
+  lp_mdp u_mdp (.clk(clk), .rst_n(rst_n), .dis(dis_ld), .vio_new(vio_new), .empty_w(empty_w), .ldq_q(ldq_q),
+                .dis_wait(mdp_wait));
 
 endmodule
 

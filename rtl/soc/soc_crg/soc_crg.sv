@@ -35,10 +35,8 @@ module soc_crg (
     .dst_clk(clk_core), .dst_rst_n(sys_rst_n), .src_sig(clk_rtc), .pulse_out(rtc_tick)
   );
 
-  /* verilator lint_off UNUSEDSIGNAL */
   logic unused_dft;
   assign unused_dft = dft_scan_en;
-  /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule
 

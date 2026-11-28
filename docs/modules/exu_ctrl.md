@@ -63,11 +63,11 @@ FU 分组数组（按 `fu_idx` 序排）：多周期 FU（MUL、DIV）`N_MC = 3`
 | 入 | `fu_mc_*[3]`、`fu_fp_*[8]` | 多周期 FU 回 `complete`、结果、`dest_preg`、`dest_en`、`rob_idx`、`rob_flag`（浮点还有 `fresult`、`fflags`、`illegal`），无 `ready`/`consume` |
 | 入 | `lsu2exe_wb_req_*[4]`、`lsu2exe_sta_wb_req_*[3]` | LSU 的 load（含 SC）和 STA 写回请求，映射至 `exu2rob` 的 `ROB_WB_LD_BASE` 与 `ROB_WB_STA_BASE` |
 | 入 | `csr2exe_rdata` | CSR 读出的值 |
-| 出 | `exu2fu_*` | 交给 FU 的操作数与 `flush_all/br`（按 ALU / BRU / AGU / SDU / MC / FP 分组） |
+| 出 | `exu2fu_*` | 交给 FU 的操作数与 `flush_all/br`（按 ALU / BRU / AGU / SDU / MC / FP 分组；MC 组没有 `func7 / op / imm`） |
 | 出 | `exe2prf [WB_LANES]` | 寄存器写回 + 旁路总线，13 条通道（ALU 6 + load 4 + FP 3） |
 | 出 | `exu2rob [ROB_WB_WIDTH]` | 21 通道 ROB 完成报告 |
 | 出 | `exe2lsu_agu [LSU_AGU_COUNT]`（`xc_agu_req_t`）、`exe2lsu_sdu_req_*[3]` | 5 个物理 AGU 的统一 LSU 请求（含 `raw` / `valid` / `op`）及 3 个 SDU 请求 |
-| 出 | `exe2csr_we / _re / _idx / _wdata / _wcmd` | CSR 指令的请求 |
+| 出 | `exe2csr_we / _idx / _wdata / _wcmd` | CSR 指令的请求（读使能 `csr_re` 只在 `exu_ctrl` 内部选写回数据） |
 | 出 | `exu2id_mispred`、`exu2id_redirect_{pc, rob_idx, rob_flag}`、`exu2id_ftq_{idx, offset}`、`exu2id_br_{pc, is_rvc}` | 最老误预测分支重定向信息（重定向 pc、分支 ROB 号、FTQ 位置、分支自身 pc 与是否 16 位），去 `back_br_redirect`（再由它广播 `dec_bcast_*`） |
 
 模型 `Exu::Out` 另有 `prf_awake` 和 `div_wake_*`（RTL 分别在 PRF 和 ISU）；RTL 另有 `exe2csr` 和 `exu2fu`。
@@ -83,17 +83,17 @@ FU 分组数组（按 `fu_idx` 序排）：多周期 FU（MUL、DIV）`N_MC = 3`
 | 文件 | 行数 | 职责 |
 | --- | --- | --- |
 | `exu_ctrl_pkg.sv` | 397 | 口能力表、FU 编号表、`XC_K_AGU` 统一类型、`xc_agu_req_t`、`xc_inst_t`、`xc_fu_res_t`、`xc_done_t`、`xc_lsu_wb_t` |
-| `exu_ctrl.sv` | 269 | 顶层：端口与内部结构体互转，实例化各子模块并检查 `$onehot0(complete_vec)` |
+| `exu_ctrl.sv` | 265 | 顶层：端口与内部结构体互转，实例化各子模块并检查 `$onehot0(complete_vec)` |
 | `exu_ctrl_slot.sv` | 75 | 每发射口 1 槽寄存器（无停顿/无重放）、comb 译码生成 `fu_en`、`agu_occ`、`agu_is_sta`；独立寄存口 0 `csr_idx_q` |
 | `exu_ctrl_fu_in.sv` | 76 | 把分组数组按 `fu_idx` 收成每个 FU 一条 `xc_fu_res_t` |
 | `exu_ctrl_fu_view.sv` | 66 | 把槽和 FU 结果合成统一的完成记录 `fu_done` |
 | `exu_ctrl_port_arb.sv` | 47 | 口内一热仲裁：`ttg_onehot_mux` 直接选出赢家，OR 归约生成 `win_valid`（无 `consume`） |
-| `exu_ctrl_wb_prf.sv` | 53 | 寄存器写回与 EXU 级旁路总线（`WB_LANES = 13`） |
-| `exu_ctrl_wb_rob.sv` | 69 | 21 通道 ROB 完成报告（按 `ROB_WB_*_BASE` 分流） |
+| `exu_ctrl_wb_prf.sv` | 51 | 寄存器写回与 EXU 级旁路总线（`WB_LANES = 13`） |
+| `exu_ctrl_wb_rob.sv` | 67 | 21 通道 ROB 完成报告（按 `ROB_WB_*_BASE` 分流） |
 | `exu_ctrl_br_arb.sv` | 62 | 最老误预测分支选择 |
 | `exu_ctrl_csr_req.sv` | 41 | CSR 槽 → `exe2csr` |
-| `exu_ctrl_lsu_req.sv` | 51 | 5 路 AGU / 3 路 SDU → `exe2lsu_agu` / `exe2lsu_sdu_*` |
-| `exu_ctrl_fu_out.sv` | 161 | 槽里的指令 → 各 FU 组的输入端口 |
+| `exu_ctrl_lsu_req.sv` | 49 | 5 路 AGU / 3 路 SDU → `exe2lsu_agu` / `exe2lsu_sdu_*` |
+| `exu_ctrl_fu_out.sv` | 138 | 槽里的指令 → 各 FU 组的输入端口 |
 
 状态：每个发射口 1 槽（19 槽，`valid_q` + `xc_inst_t`）及 `csr_idx_q`（12 位，口 0）。无 FU 输入缓存槽。
 
@@ -153,10 +153,11 @@ RTL 与模型保持一致的细节：
 
 ## 9. 参数与开关速查
 
-`ISSUE_WIDTH`、`TOTAL_FU_COUNT`、`ALU_NUM`、`BRU_NUM`、`LSU_LDU_COUNT`、`LSU_STA_COUNT`、`LSU_SDU_COUNT`、`LSU_AGU_COUNT`、`LSU_LOAD_WB_WIDTH`、`IQ_*_PORT_BASE`、`FPRF_NUM`（决定 `FP_EN`，`ttg_cfg_pkg`）；`N_MC`、`N_FPU`、`XC_OP_NUM`、`CSR_FU`、`CSR_PORT`、`xc_port_cap()`（`exu_ctrl_pkg`，手写）。没有运行时开关。
+`ISSUE_WIDTH`、`TOTAL_FU_COUNT`、`ALU_NUM`、`BRU_NUM`、`LSU_LDU_COUNT`、`LSU_STA_COUNT`、`LSU_SDU_COUNT`、`LSU_AGU_COUNT`、`LSU_LOAD_WB_WIDTH`、`IQ_*_PORT_BASE`、`FPRF_NUM`（F/D 总是有，`ttg_cfg_pkg`）；`N_MC`、`N_FPU`、`XC_OP_NUM`、`CSR_FU`、`CSR_PORT`、`xc_port_cap()`（`exu_ctrl_pkg`，手写）。没有运行时开关。
 
 ## 10. 变更记录
 
+- 2026-11-28 清理：删 `FP_EN`（`XC_OP_NUM = 21`、`N_FPU = 8`、`exu_ctrl_fu_out` 的 `g_no_fp`、端口能力里的 I2F 条件）、输出 `exu2fu_mc_func7 / _op / _imm`（`exu.sv` 不读）与 `exe2csr_re`（`csr` 不读，改为内部线 `csr_re`）、`exu_ctrl_pkg` 两处 `LSU_MEMSPEC:` 注释前缀；删不抑制任何告警的 lint 豁免（`exu_ctrl_fu_out` / `exu_ctrl_lsu_req` / `exu_ctrl_wb_prf` / `exu_ctrl_wb_rob` 各 1 处，以去掉豁免后整树 lint 普通 / `-DSYNTHESIS` 均无新告警为准）（周期不变）。
 - 2026-11-28（文档核对，无 RTL 变化）：`exe2iss_div_wb_in2` 在 `exu.sv` 而不在 `exu_ctrl`，删去错误的 `exe2iss_div_wb_next` 输出；写回 / 旁路总线为 `exe2prf`；`exu2id_*` 列全；文件表补行数；门禁参考改为 `scripts/ref_cycles.txt`（77 个程序）。
 - 2026-11-28（`rtl/exu-clean`，EXP-072）：非阻塞 EXU 控制面重构与真 5 物理 AGU 收敛——删除 `exu_ctrl_ready.sv`、`exu_ctrl_lsu_out.sv` 及全部逐 FU `ready/consume` 协议，改为发射即占用；AGU 槽由逻辑 7 槽+映射直接收敛为真 5 物理端口（复用口 4 由 ISU 直选），仅传 `div_wb_next` 通知 ISU 错开 PORT 1 写回；TSMC 28nm HPC+ DC（`0.50 ns`）实测 **`WNS = 0.00 ns`（`CPL 0.37 ns`, `11 lvl`）**、触发器 `4,765`、面积 **`19,432.06 µm²`（较旧 `31,760.90 µm²` 降 −38.8%）**；通过 `lint_chip`/`lint_soc` 0、strict+SVA `fm_gate` 77/77、`riscv-tests` 152/152、`soc_gate --linux` 12/12 与 Linux 26/26 窗对齐。
 

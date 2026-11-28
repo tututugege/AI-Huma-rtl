@@ -151,10 +151,8 @@ module bpu_hist_vec import bpu_pkg::*; import bpu_stage_pkg::*; #(
   end
 `endif
 
-  /* verilator lint_off UNUSEDSIGNAL */
   logic unused_d;
   assign unused_d = ^d;
-  /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule
 

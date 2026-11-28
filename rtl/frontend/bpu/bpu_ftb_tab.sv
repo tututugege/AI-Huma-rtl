@@ -6,9 +6,7 @@ module bpu_ftb_tab import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
   parameter int    WAYS   = FTB_S1_WAYS,
   parameter int    NB     = BPU_FTB1_BANKS,
   parameter int    TAG_W  = FTB_S1_TAG_W,
-  /* verilator lint_off UNUSEDPARAM */
   parameter [255:0] TAG   = "BPU_FTB1"
-  /* verilator lint_on UNUSEDPARAM */
 ) (
   input  logic                    clk,
   input  logic                    rst_n,
@@ -182,7 +180,7 @@ module bpu_ftb_tab import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
   logic                 clr_pend_v_q, clr_pend_v_d, clr_t1_v_q, clr_t1_v_d;
   logic [XLEN_BITS-1:0] clr_pend_base_q, clr_pend_base_d, clr_pend_pc_q, clr_pend_pc_d;
   logic [XLEN_BITS-1:0] clr_t1_base_q, clr_t1_pc_q;
-  logic                 clr_hold_valid_q, clr_rd_fire_q;
+  logic                 clr_rd_fire_q;
   set_t                 clr_hold_set_q;
 
   always_comb begin
@@ -289,7 +287,7 @@ module bpu_ftb_tab import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
       wb_v_q <= 1'b0; wb_s_q <= '0; wb_w_q <= '0; wb_e_q <= '0;
       clr_pend_v_q <= 1'b0; clr_pend_base_q <= '0; clr_pend_pc_q <= '0;
       clr_t1_v_q <= 1'b0; clr_t1_base_q <= '0; clr_t1_pc_q <= '0;
-      clr_rd_fire_q <= 1'b0; clr_hold_valid_q <= 1'b0; clr_hold_set_q <= '0;
+      clr_rd_fire_q <= 1'b0; clr_hold_set_q <= '0;
     end else begin
       wb_v_q <= wb_v_d; wb_s_q <= wb_s_d; wb_w_q <= wb_w_d; wb_e_q <= wb_e_d;
       clr_pend_v_q <= clr_pend_v_d; clr_pend_base_q <= clr_pend_base_d; clr_pend_pc_q <= clr_pend_pc_d;
@@ -298,17 +296,12 @@ module bpu_ftb_tab import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
         clr_t1_base_q <= clr_pend_v_q ? clr_pend_base_q : clr_base;
         clr_t1_pc_q   <= clr_pend_v_q ? clr_pend_pc_q   : clr_pc;
       end
-      if (clr_rd_fire_q) begin
-        clr_hold_set_q   <= unpack_set(raw_clr_rd);
-        clr_hold_valid_q <= 1'b1;
-      end
+      if (clr_rd_fire_q) clr_hold_set_q <= unpack_set(raw_clr_rd);
     end
   end
 
-  /* verilator lint_off UNUSEDSIGNAL */
   logic unused_sram;
-  assign unused_sram = ^{clr_hold_valid_q, upd_br.pred_dir, upd_br.alt_pred, upd_br.pcpn};
-  /* verilator lint_on UNUSEDSIGNAL */
+  assign unused_sram = ^{upd_br.pred_dir, upd_br.alt_pred, upd_br.pcpn};
 
 endmodule
 `default_nettype wire

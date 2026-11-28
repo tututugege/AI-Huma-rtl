@@ -48,9 +48,6 @@ module lp_stq
   input  logic [SQ-1:0]       srp_take,
   // views
   output lp_stq_t             sq [SQ],
-  output logic [SQ-1:0]       cv_va,
-  output logic [11:0]         cv_voff [SQ],
-  output logic [2:0]          cv_f3 [SQ],
   output lp_sta_info_t        vw [SQ],
   output logic [SQ-1:0]       trp_v,
   output logic [SQ-1:0]       d_elig,
@@ -123,7 +120,7 @@ module lp_stq
       .win13(win13[j]), .dr_pick(dr_pick[j]), .dr_mmio(dr_mmio[j]),
       .d_elig(d_elig[j]), .d_rdy(d_rdy[j]),
       .srp_take(srp_take[j]),
-      .q_o(sq[j]), .cv_va(cv_va[j]), .cv_voff(cv_voff[j]), .cv_f3(cv_f3[j]), .vw(vw[j]),
+      .q_o(sq[j]), .vw(vw[j]),
       .trp_v(trp_v[j]));
   end
 

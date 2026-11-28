@@ -109,8 +109,8 @@ module bpu_eval import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
     ftb_itt_sel_t      self0_itt;
 
     s2_ah_self0  = !r1_q.ah_v && self0_v_q;
-    s0_rf_ex_ix  = make_ah_ex_tage_index(r1_q.base, r1_q.base, r1_q.ck.h.ex_fh, r1_q.ck.h.ex_fh, '0, 1'b1);
-    s0_rf_itt_ix = make_ah_itt_index(r1_q.base, r1_q.base, r1_q.ck.h.ex_fh, r1_q.ck.h.ex_fh, '0, 1'b1);
+    s0_rf_ex_ix  = make_ah_ex_tage_index(r1_q.base, r1_q.base, r1_q.ck.h.ex_fh[0], r1_q.ck.h.ex_fh, '0, 1'b1);
+    s0_rf_itt_ix = make_ah_itt_index(r1_q.base, r1_q.base, r1_q.ck.h.ex_fh[0], r1_q.ck.h.ex_fh, '0, 1'b1);
 
     sl_sel     = '0;
     self0_itt  = '0;
@@ -250,10 +250,8 @@ module bpu_eval import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
     end
   end
 
-  /* verilator lint_off UNUSEDSIGNAL */
   logic unused_ok;
   assign unused_ok = ^{u0_eval.slot_tk, eff_di.valid, s0_r3, s2_r3};
-  /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule
 `default_nettype wire

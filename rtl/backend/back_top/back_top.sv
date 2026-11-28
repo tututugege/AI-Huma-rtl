@@ -189,7 +189,7 @@ module back_top
   // ---- ren -> dispatch / rob ----
   logic                          ren2dec_ready;
   logic                          ren2rob_walking;
-  /* verilator lint_off UNUSEDSIGNAL */
+  /* verilator lint_off UNUSEDSIGNAL */   // waiver: tb only (core_tb.cpp reads it through core_public.vlt)
   logic [PRF_IDX_WIDTH-1:0]      ren_commit_dest_preg [COMMIT_WIDTH];
   /* verilator lint_on UNUSEDSIGNAL */
   logic [DECODE_WIDTH-1:0]       ren2dis_valid;
@@ -235,7 +235,6 @@ module back_top
   // ---- prf -> exu / ftq / isu ----
   logic [5:0]                    ftq_prf_pc_req_req_ftq_idx    [FTQ_PRF_PC_PORT_NUM];
   logic [FTQ_OFFSET_WIDTH-1:0]   ftq_prf_pc_req_req_ftq_offset [FTQ_PRF_PC_PORT_NUM];
-  logic [FTQ_PRF_PC_PORT_NUM-1:0] ftq_prf_pc_req_req_valid;
   logic [ISSUE_WIDTH-1:0]        prf2exe_valid;
   xc_inst_t                      prf2exe_uop [ISSUE_WIDTH];
   logic [CSR_IDX_WIDTH-1:0]      prf2exe_csr_idx;
@@ -244,7 +243,6 @@ module back_top
 
   // ---- exu -> prf / rob / csr / lsu / br_redirect ----
   logic [11:0]                   exe2csr_idx;
-  logic                          exe2csr_re;
   logic [1:0]                    exe2csr_wcmd;
   logic [XLEN_BITS-1:0]          exe2csr_wdata;
   logic                          exe2csr_we;
@@ -275,7 +273,6 @@ module back_top
 
   logic [5:0]                    ftq_rob_pc_req_req_ftq_idx [1];
   logic [FTQ_OFFSET_WIDTH-1:0]   ftq_rob_pc_req_req_ftq_offset [1];
-  logic [0:0]                    ftq_rob_pc_req_req_valid;
   logic                          rob2csr_commit, rob2csr_fs_dirty, rob2csr_interrupt_resp;
   logic [4:0]                    rob2csr_fflags;
   logic                          rob2dis_empty, rob2dis_ready, rob2dis_rob_flag, rob2dis_stall;
@@ -291,7 +288,7 @@ module back_top
   logic [FTQ_OFFSET_WIDTH-1:0]   rob_commit_commit_entry_uop_ftq_offset [COMMIT_WIDTH];
   logic [6:0]                    rob_commit_commit_entry_uop_func7 [COMMIT_WIDTH];
   logic [COMMIT_WIDTH-1:0]       rob_commit_commit_entry_uop_illegal_inst;
-  /* verilator lint_off UNUSEDSIGNAL */
+  /* verilator lint_off UNUSEDSIGNAL */   // waiver: tb only (core_tb.cpp reads it through core_public.vlt)
   logic [COMMIT_WIDTH-1:0]       rob_commit_commit_entry_uop_dest_fp;
   /* verilator lint_on UNUSEDSIGNAL */
 
@@ -305,7 +302,6 @@ module back_top
   logic [26:0]                   dtlb_walk_next_vpn, dtlb_pf_page_vpn;
 
   logic [5:0]                    lsu2dis_ldq_alloc_idx [DECODE_WIDTH];
-  logic [DECODE_WIDTH-1:0]       lsu2dis_ldq_alloc_valid;
   logic [6:0]                    lsu2dis_ldq_free, lsu2dis_stq_free;
   logic [5:0]                    lsu2dis_stq_tail;
   logic                          lsu2dis_stq_tail_flag;
@@ -345,12 +341,8 @@ module back_top
   logic                          csr_status_mstatus_mprv, csr_status_mstatus_mxr, csr_status_mstatus_sum;
   logic [4:0]                    rob_commit_commit_entry_uop_amo_op [COMMIT_WIDTH];
 
-  /* verilator lint_off UNUSEDSIGNAL */
-  logic                          nc_csr2exe_rdata_vld, nc_csr2front_epc_vld, nc_csr2front_trap_pc_vld;
-  logic [FTQ_PRF_PC_PORT_NUM-1:0] nc_ftq_prf_pc_resp_resp_valid;
-  logic [0:0]                    nc_ftq_rob_pc_resp_resp_valid;
-  logic [LSU_AGU_COUNT-1:0]      nc_mmu2lsu_resp_hit;
-  logic                          nc_rob_bcast_trap_val_valid;
+  /* verilator lint_off UNUSEDSIGNAL */   // tb only: core_tb prints it in its LSU trace; dispatch takes LDQ entries by ldq_free
+  logic [DECODE_WIDTH-1:0]       nc_lsu2dis_ldq_alloc_valid;
   /* verilator lint_on UNUSEDSIGNAL */
 
   // ================= ftq_ibuf: FTQ + InstructionBuffer
@@ -361,12 +353,10 @@ module back_top
     .idu_consume_fire(idu_consume_fire),
     .ftq_prf_pc_req_req_ftq_idx(ftq_prf_pc_req_req_ftq_idx),
     .ftq_prf_pc_req_req_ftq_offset(ftq_prf_pc_req_req_ftq_offset),
-    .ftq_prf_pc_req_req_valid(ftq_prf_pc_req_req_valid),
     .ftq_dis_req_ftq_idx(ren2dis_ftq_idx), .ftq_dis_req_ftq_offset(ren2dis_ftq_off),
     .ftq_dis_resp_mdp(ren2dis_uop_mdp), .ftq_dis_resp_pc(ren2dis_uop_pc), .ftq_dis_resp_is_rvc(ren2dis_uop_is_rvc),
     .ftq_rob_pc_req_req_ftq_idx(ftq_rob_pc_req_req_ftq_idx),
     .ftq_rob_pc_req_req_ftq_offset(ftq_rob_pc_req_req_ftq_offset),
-    .ftq_rob_pc_req_req_valid(ftq_rob_pc_req_req_valid),
     .rob_bcast_flush(rob_flush_q),
     .rob_commit_commit_entry_uop_ftq_idx(rob_commit_commit_entry_uop_ftq_idx),
     .rob_commit_commit_entry_uop_ftq_is_last(rob_commit_commit_entry_uop_ftq_is_last),
@@ -380,12 +370,10 @@ module back_top
     .ftq2front_ready(ftq2front_ready), .out_rf_blk(out_rf_blk), .out_rf_type(out_rf_type),
     .ftq2front_fire(ftq2front_fire),
     .ibuf2idu_valid(ibuf2idu_valid), .ibuf2idu_entry(ibuf2idu_entry),
-    .ftq_prf_pc_resp_resp_valid(nc_ftq_prf_pc_resp_resp_valid),
     .ftq_prf_pc_resp_resp_pc(ftq_prf_pc_resp_resp_pc),
     .ftq_prf_pc_resp_resp_pred_taken(ftq_prf_pc_resp_resp_pred_taken),
     .ftq_prf_pc_resp_resp_is_rvc(ftq_prf_pc_resp_resp_is_rvc),
     .ftq_prf_pc_resp_resp_next_pc(ftq_prf_pc_resp_resp_next_pc),
-    .ftq_rob_pc_resp_resp_valid(nc_ftq_rob_pc_resp_resp_valid),
     .ftq_rob_pc_resp_resp_pc(ftq_rob_pc_resp_resp_pc),
     .ftq_rob_pc_resp_resp_is_rvc(ftq_rob_pc_resp_resp_is_rvc),
     .ftq_commit_info_resp_valid(ftq_commit_info_resp_valid),
@@ -445,7 +433,7 @@ module back_top
     .iss_awake_cancel_valid(iss_awake_cancel_valid), .iss_awake_cancel_preg(iss_awake_cancel_preg),
     .lsu2iss_wake_valid(lsu2iss_wake_valid), .lsu2iss_wake_preg(lsu2iss_wake_preg),
     .lsu2iss_cancel_valid(lsu2iss_cancel_valid), .lsu2iss_cancel_preg(lsu2iss_cancel_preg),
-    .lsu2dis_ldq_alloc_idx(lsu2dis_ldq_alloc_idx), .lsu2dis_ldq_alloc_valid(lsu2dis_ldq_alloc_valid),
+    .lsu2dis_ldq_alloc_idx(lsu2dis_ldq_alloc_idx),
     .lsu2dis_ldq_free(lsu2dis_ldq_free), .lsu2dis_stq_free(lsu2dis_stq_free),
     .lsu2dis_stq_tail(lsu2dis_stq_tail), .lsu2dis_stq_tail_flag(lsu2dis_stq_tail_flag),
     .ren2dis_valid(ren2dis_valid), .ren2dis_uop(ren2dis_uop),
@@ -512,7 +500,6 @@ module back_top
     .ftq_prf_pc_resp_resp_pred_taken(ftq_prf_pc_resp_resp_pred_taken),
     .ftq_prf_pc_resp_resp_is_rvc(ftq_prf_pc_resp_resp_is_rvc),
     .rob_bcast_flush(rob_flush_q),
-    .ftq_prf_pc_req_req_valid(ftq_prf_pc_req_req_valid),
     .ftq_prf_pc_req_req_ftq_idx(ftq_prf_pc_req_req_ftq_idx),
     .ftq_prf_pc_req_req_ftq_offset(ftq_prf_pc_req_req_ftq_offset),
     .prf_awake_wake_valid(prf_awake_wake_valid), .prf_awake_wake_preg(prf_awake_wake_preg),
@@ -546,7 +533,7 @@ module back_top
     .lsu2exe_wb_req_valid(lsu2exe_wb_req_valid),
     .prf2exe_valid(prf2exe_valid), .prf2exe_uop(prf2exe_uop), .prf2exe_csr_idx(prf2exe_csr_idx),
     .rob_bcast_flush(rob_flush_q),
-    .exe2csr_we(exe2csr_we), .exe2csr_re(exe2csr_re), .exe2csr_idx(exe2csr_idx),
+    .exe2csr_we(exe2csr_we), .exe2csr_idx(exe2csr_idx),
     .exe2csr_wdata(exe2csr_wdata), .exe2csr_wcmd(exe2csr_wcmd),
     .exe2iss_div_wb_in2(exe2iss_div_wb_in2),
     .exe2iss_div_wake_valid(exe2iss_div_wake_valid), .exe2iss_div_wake_preg(exe2iss_div_wake_preg),
@@ -566,7 +553,7 @@ module back_top
   // ================= csr
   csr u_csr (
     .clk(clk), .rst_n(rst_n),
-    .exe2csr_idx(exe2csr_idx), .exe2csr_re(exe2csr_re), .exe2csr_wcmd(exe2csr_wcmd),
+    .exe2csr_idx(exe2csr_idx), .exe2csr_wcmd(exe2csr_wcmd),
     .exe2csr_wdata(exe2csr_wdata), .exe2csr_we(exe2csr_we),
     .rob2csr_commit(rob2csr_commit), .rob2csr_fflags(rob2csr_fflags),
     .rob2csr_fs_dirty(rob2csr_fs_dirty), .rob2csr_interrupt_resp(rob2csr_interrupt_resp),
@@ -584,10 +571,9 @@ module back_top
     .interrupt_inject_supervisor_external_irq_pending_valid(interrupt_inject_supervisor_external_irq_pending_valid),
     .interrupt_inject_timer_irq_pending(interrupt_inject_timer_irq_pending),
     .interrupt_inject_timer_irq_pending_valid(interrupt_inject_timer_irq_pending_valid),
-    .csr2exe_rdata_vld(nc_csr2exe_rdata_vld), .csr2exe_rdata(csr2exe_rdata), .csr2exe_frm(csr2exe_frm),
+    .csr2exe_rdata(csr2exe_rdata), .csr2exe_frm(csr2exe_frm),
     .csr2rob_interrupt_req(csr2rob_interrupt_req), .csr2rob_fs_off(csr2rob_fs_off),
-    .csr2front_epc_vld(nc_csr2front_epc_vld), .csr2front_epc(csr2front_epc),
-    .csr2front_trap_pc_vld(nc_csr2front_trap_pc_vld), .csr2front_trap_pc(csr2front_trap_pc),
+    .csr2front_epc(csr2front_epc), .csr2front_trap_pc(csr2front_trap_pc),
     .csr_status_sstatus(csr_status_sstatus), .csr_status_mstatus(csr_status_mstatus),
     .csr_status_satp(csr_status_satp), .csr_status_privilege(csr_status_privilege)
   );
@@ -651,12 +637,11 @@ module back_top
     .rob_bcast_page_fault_load(rob_bcast_page_fault_load),
     .rob_bcast_page_fault_store(rob_bcast_page_fault_store),
     .rob_bcast_illegal_inst(rob_bcast_illegal_inst), .rob_bcast_interrupt(rob_bcast_interrupt),
-    .rob_bcast_trap_val_valid(nc_rob_bcast_trap_val_valid), .rob_bcast_trap_val(rob_bcast_trap_val),
+    .rob_bcast_trap_val(rob_bcast_trap_val),
     .rob_bcast_pc(rob_bcast_pc),
     .rob_bcast_head_rob_idx(rob_bcast_head_rob_idx), .rob_bcast_head_valid(rob_bcast_head_valid),
     .rob_bcast_head_incomplete_rob_idx(rob_bcast_head_incomplete_rob_idx),
     .rob_bcast_head_incomplete_valid(rob_bcast_head_incomplete_valid),
-    .ftq_rob_pc_req_req_valid(ftq_rob_pc_req_req_valid),
     .ftq_rob_pc_req_req_ftq_idx(ftq_rob_pc_req_req_ftq_idx),
     .ftq_rob_pc_req_req_ftq_offset(ftq_rob_pc_req_req_ftq_offset)
   );
@@ -675,7 +660,7 @@ module back_top
     .ptw_walk_resp_leaf_level(ptw_walk_resp_leaf_level), .ptw_walk_resp_leaf_perm(ptw_walk_resp_leaf_perm),
     .ptw_walk_resp_leaf_ppn(ptw_walk_resp_leaf_ppn), .ptw_walk_resp_valid(ptw_walk_resp_valid),
     .ptw_walk_resp_vpn(ptw_walk_resp_vpn),
-    .resp_valid(mmu2lsu_resp_valid), .resp_result(mmu2lsu_resp_result), .resp_hit(nc_mmu2lsu_resp_hit),
+    .resp_valid(mmu2lsu_resp_valid), .resp_result(mmu2lsu_resp_result),
     .resp_paddr(mmu2lsu_resp_paddr), .resp_paddr_p1(mmu2lsu_resp_paddr_p1), .resp_paddr_m1(mmu2lsu_resp_paddr_m1),
     .resp_entry_idx(mmu2lsu_resp_entry_idx),
     .ptw_walk_req_valid(ptw_walk_req_valid), .ptw_walk_req_vpn(ptw_walk_req_vpn),
@@ -729,7 +714,7 @@ module back_top
     .peripheral_resp_ready(peripheral_resp_ready),
     .lsu2dis_stq_tail(lsu2dis_stq_tail), .lsu2dis_stq_tail_flag(lsu2dis_stq_tail_flag),
     .lsu2dis_stq_free(lsu2dis_stq_free), .lsu2dis_ldq_free(lsu2dis_ldq_free),
-    .lsu2dis_ldq_alloc_valid(lsu2dis_ldq_alloc_valid), .lsu2dis_ldq_alloc_idx(lsu2dis_ldq_alloc_idx),
+    .lsu2dis_ldq_alloc_valid(nc_lsu2dis_ldq_alloc_valid), .lsu2dis_ldq_alloc_idx(lsu2dis_ldq_alloc_idx),
     .lsu2rob_committed_store_pending(lsu2rob_committed_store_pending),
     .lsu2iss_wake_valid(lsu2iss_wake_valid), .lsu2iss_wake_preg(lsu2iss_wake_preg),
     .lsu2iss_cancel_valid(lsu2iss_cancel_valid), .lsu2iss_cancel_preg(lsu2iss_cancel_preg),

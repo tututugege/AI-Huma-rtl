@@ -30,10 +30,8 @@ module ren_rat
   input  logic [N-1:0]      alloc_cand,
   input  logic [N-1:0]      fire,
   input  areg_t             alloc_areg [N],
-  /* verilator lint_off UNUSEDSIGNAL */
   input  logic [ENTRIES-1:0] wr_oh_in [N],
   input  logic              use_wr_oh,
-  /* verilator lint_on UNUSEDSIGNAL */
   input  preg_t             alloc_preg [N],
   // single checkpoint lane (one-hot) selected by ren_ckpt_ctl; snapshot is pipelined by 1 cycle
   input  logic              ckpt_wr_en,
@@ -169,15 +167,13 @@ module ren_rat
     end
   end
 
-  // waiver: upper bits of global preg inputs are domain constants
-  /* verilator lint_off UNUSEDSIGNAL */
+  // lint sink (Verilator ignores unused_* names): upper bits of global preg inputs are domain constants
   logic unused_hi;
   always_comb begin
     unused_hi = 1'b0;
     for (int j = 0; j < N; j++) unused_hi ^= ^alloc_preg[j];
     for (int k = 0; k < C; k++) unused_hi ^= ^commit_preg[k];
   end
-  /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule
 

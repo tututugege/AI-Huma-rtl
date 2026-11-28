@@ -34,16 +34,12 @@ module ftq_ibuf import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; import front_pkg:
   input  logic [FTQ_IDX_WIDTH-1:0] rob_commit_commit_entry_uop_ftq_idx [COMMIT_WIDTH],
   input  logic [FTQ_OFFSET_WIDTH-1:0] rob_commit_commit_entry_uop_ftq_offset [COMMIT_WIDTH],
   input  logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_ftq_is_last,
-  input  logic [FTQ_PRF_PC_PORT_NUM-1:0] ftq_prf_pc_req_req_valid,
   input  logic [FTQ_IDX_WIDTH-1:0] ftq_prf_pc_req_req_ftq_idx [FTQ_PRF_PC_PORT_NUM],
   input  logic [FTQ_OFFSET_WIDTH-1:0] ftq_prf_pc_req_req_ftq_offset [FTQ_PRF_PC_PORT_NUM],
-  input  logic [FTQ_ROB_PC_PORT_NUM-1:0] ftq_rob_pc_req_req_valid,
   input  logic [FTQ_IDX_WIDTH-1:0] ftq_rob_pc_req_req_ftq_idx [FTQ_ROB_PC_PORT_NUM],
   input  logic [FTQ_OFFSET_WIDTH-1:0] ftq_rob_pc_req_req_ftq_offset [FTQ_ROB_PC_PORT_NUM],
-  /* verilator lint_off UNUSEDSIGNAL */
   input  logic [FTQ_IDX_WIDTH-1:0] ftq_dis_req_ftq_idx [DECODE_WIDTH],
   input  logic [FTQ_OFFSET_WIDTH-1:0] ftq_dis_req_ftq_offset [DECODE_WIDTH],
-  /* verilator lint_on UNUSEDSIGNAL */
   output logic [LSU_MDP_BITS-1:0] ftq_dis_resp_mdp [DECODE_WIDTH],
   output logic [31:0] ftq_dis_resp_pc [DECODE_WIDTH],
   output logic [DECODE_WIDTH-1:0] ftq_dis_resp_is_rvc,
@@ -54,12 +50,10 @@ module ftq_ibuf import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; import front_pkg:
   output logic [BACKEND_FETCH_WIDTH-1:0] ftq2front_fire,
   output logic [DECODE_WIDTH-1:0] ibuf2idu_valid,
   output ib_entry_t ibuf2idu_entry [DECODE_WIDTH],
-  output logic [FTQ_PRF_PC_PORT_NUM-1:0] ftq_prf_pc_resp_resp_valid,
   output logic [XLEN_BITS-1:0] ftq_prf_pc_resp_resp_pc [FTQ_PRF_PC_PORT_NUM],
   output logic [FTQ_PRF_PC_PORT_NUM-1:0] ftq_prf_pc_resp_resp_pred_taken,
   output logic [FTQ_PRF_PC_PORT_NUM-1:0] ftq_prf_pc_resp_resp_is_rvc,
   output logic [XLEN_BITS-1:0] ftq_prf_pc_resp_resp_next_pc [FTQ_PRF_PC_PORT_NUM],
-  output logic [FTQ_ROB_PC_PORT_NUM-1:0] ftq_rob_pc_resp_resp_valid,
   output logic [XLEN_BITS-1:0] ftq_rob_pc_resp_resp_pc [FTQ_ROB_PC_PORT_NUM],
   output logic [FTQ_ROB_PC_PORT_NUM-1:0] ftq_rob_pc_resp_resp_is_rvc,
   output logic [COMMIT_WIDTH-1:0] ftq_commit_info_resp_valid,
@@ -119,10 +113,8 @@ module ftq_ibuf import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; import front_pkg:
   assign s2_wr_eff   = fe2ftq_s2.wr_en && !rob_bcast_flush && !br_redirect_mispred;
   assign pd_fire_eff = fe2ftq_pd.fire  && !rob_bcast_flush && !br_redirect_mispred;
 
-  /* verilator lint_off UNUSEDSIGNAL */
   logic unused_s2_base_bpu;
   assign unused_s2_base_bpu = ^{fe2ftq_s2.base_pc, fe2ftq_s2.base_b, bpu_ptr_unused};
-  /* verilator lint_on UNUSEDSIGNAL */
 
   always_comb begin
     for (int i = 0; i < BACKEND_FETCH_WIDTH; i++) begin
@@ -150,17 +142,10 @@ module ftq_ibuf import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; import front_pkg:
       ftq_dis_resp_pc[p]     = dis_pc[p];
     end
   end
+  // wait-table index of a load (memory-dependence prediction): two folded PC fields above the slot offset
   for (genvar p = 0; p < DECODE_WIDTH; p++) begin : g_dis_pc
-    if (LSU_MEMSPEC != 0) begin : g_on
-      assign ftq_dis_resp_mdp[p] = dis_pc[p][SLOT_SHIFT +: LSU_MDP_BITS] ^
-                                   dis_pc[p][SLOT_SHIFT + LSU_MDP_BITS +: LSU_MDP_BITS];
-    end else begin : g_off
-      /* verilator lint_off UNUSEDSIGNAL */
-      logic unused;
-      assign unused = ^dis_pc[p];
-      /* verilator lint_on UNUSEDSIGNAL */
-      assign ftq_dis_resp_mdp[p] = '0;
-    end
+    assign ftq_dis_resp_mdp[p] = dis_pc[p][SLOT_SHIFT +: LSU_MDP_BITS] ^
+                                 dis_pc[p][SLOT_SHIFT + LSU_MDP_BITS +: LSU_MDP_BITS];
   end
 
   ftq_ibuf_ctrl u_ctrl (
@@ -292,14 +277,12 @@ module ftq_ibuf import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; import front_pkg:
       ibuf2idu_entry[i] = issue_entry[i];
     end
     for (int p = 0; p < FTQ_PRF_PC_PORT_NUM; p++) begin
-      ftq_prf_pc_resp_resp_valid[p]      = ftq_prf_pc_req_req_valid[p];
       ftq_prf_pc_resp_resp_pc[p]         = prf_rd_pc[p];
       ftq_prf_pc_resp_resp_pred_taken[p] = prf_rd_pred_taken[p];
       ftq_prf_pc_resp_resp_is_rvc[p]     = prf_rd_is_rvc[p];
       ftq_prf_pc_resp_resp_next_pc[p]    = prf_rd_next_pc[p];
     end
     for (int p = 0; p < FTQ_ROB_PC_PORT_NUM; p++) begin
-      ftq_rob_pc_resp_resp_valid[p]  = ftq_rob_pc_req_req_valid[p];
       ftq_rob_pc_resp_resp_pc[p]     = rob_rd_pc;
       ftq_rob_pc_resp_resp_is_rvc[p] = rob_rd_is_rvc;
     end

@@ -19,9 +19,8 @@ module idu_ctrl_decode import ttg_cfg_pkg::*; (
   output logic [5:0]  src1_areg,
   output logic [5:0]  src2_areg,
   output logic        illegal_inst,
-  output logic        is_branch,
   output logic [6:0]  imm_sel,           // one-hot (or none): U, J, I, B, S, CSR-rs1-field, F/D instruction bits
-  // F/D (all zero when the core has no FP register file, FPRF_NUM == 0)
+  // F/D
   output logic        dest_fp,           // FP register destination (f0 is a real register)
   output logic        src1_fp,
   output logic        src2_fp,
@@ -54,8 +53,7 @@ module idu_ctrl_decode import ttg_cfg_pkg::*; (
   localparam logic [4:0] AMO_LR = 5'b00010, AMO_SC = 5'b00011;   // funct7[6:2]
 
   // CSR addresses implemented by the reference CSR file (Ref: Exu/include/Csr.h enum_number_csr_code, 21 entries)
-  localparam bit HAS_FP = (FPRF_NUM != 0);
-  localparam int NUM_KNOWN_CSR = HAS_FP ? 24 : 21;   // F/D adds fflags / frm / fcsr (real CSR instructions)
+  localparam int NUM_KNOWN_CSR = 24;   // 21 integer-core CSRs + fflags / frm / fcsr (F/D, real CSR instructions)
   localparam logic [11:0] KNOWN_CSR [24] = '{
     12'h305, 12'h341, 12'h342, 12'h304, 12'h344, 12'h343, 12'h340, 12'h300, 12'h303, 12'h302, 12'h141,
     12'h105, 12'h142, 12'h140, 12'h143, 12'h100, 12'h104, 12'h144, 12'h180, 12'hf14, 12'h301,
@@ -72,60 +70,60 @@ module idu_ctrl_decode import ttg_cfg_pkg::*; (
                  CLS_ILLEGAL = 39, NCLS = 40;
 
   // ---- ROM word: {type[4:0], dest_en, src1_en, src2_en, src1_is_pc, src2_is_imm, is_atomic, func3_zero,
-  //                  src1_areg_zero, illegal, is_branch, imm_sel[5:0]} ----
-  localparam int ROMW = 22;
+  //                  src1_areg_zero, illegal, imm_sel[6:0]} ----
+  localparam int ROMW = 21;
   localparam logic [6:0] IMM_NONE = 7'b0000000, IMM_U = 7'b0000001, IMM_J = 7'b0000010, IMM_I = 7'b0000100,
                          IMM_B = 7'b0001000, IMM_S = 7'b0010000, IMM_CSR = 7'b0100000,
                          IMM_FP = 7'b1000000;   // OP-FP / fused multiply-add: imm = {inst[6:2], inst[31:20]}
 
-  //                                   type  dst s1 s2 s1pc s2imm atom f3z s1z ill br   imm
+  //                                   type  dst s1 s2 s1pc s2imm atom f3z s1z ill imm
   function automatic logic [ROMW-1:0] row(input logic [4:0] ty, input logic dst, input logic s1,
       input logic s2, input logic s1pc, input logic s2imm, input logic atom, input logic f3z,
-      input logic s1z, input logic ill, input logic br, input logic [6:0] imm);
-    return {ty, dst, s1, s2, s1pc, s2imm, atom, f3z, s1z, ill, br, imm};
+      input logic s1z, input logic ill, input logic [6:0] imm);
+    return {ty, dst, s1, s2, s1pc, s2imm, atom, f3z, s1z, ill, imm};
   endfunction
 
   localparam logic [ROMW-1:0] ROM [NCLS] = '{
-    CLS_LUI:      row(T_ADD,        1, 1, 0, 0, 1, 0, 1, 1, 0, 0, IMM_U),
-    CLS_AUIPC:    row(T_ADD,        1, 0, 0, 1, 1, 0, 1, 0, 0, 0, IMM_U),
-    CLS_JAL:      row(T_JAL,        1, 0, 0, 1, 1, 0, 1, 0, 0, 0, IMM_J),
-    CLS_JALR:     row(T_JALR,       1, 1, 0, 1, 1, 0, 1, 0, 0, 1, IMM_I),
-    CLS_BR:       row(T_BR,         0, 1, 1, 0, 1, 0, 0, 0, 0, 1, IMM_B),
-    CLS_LOAD:     row(T_LOAD,       1, 1, 0, 0, 1, 0, 0, 0, 0, 0, IMM_I),
-    CLS_STORE:    row(T_STORE,      0, 1, 1, 0, 1, 0, 0, 0, 0, 0, IMM_S),
-    CLS_OPIMM:    row(T_ADD,        1, 1, 0, 0, 1, 0, 0, 0, 0, 0, IMM_I),
-    CLS_OP_ALU:   row(T_ADD,        1, 1, 1, 0, 0, 0, 0, 0, 0, 0, IMM_NONE),
-    CLS_OP_MUL:   row(T_MUL,        1, 1, 1, 0, 0, 0, 0, 0, 0, 0, IMM_NONE),
-    CLS_OP_DIV:   row(T_DIV,        1, 1, 1, 0, 0, 0, 0, 0, 0, 0, IMM_NONE),
-    CLS_FENCE:    row(T_FENCE,      0, 0, 0, 0, 1, 0, 0, 0, 0, 0, IMM_NONE),
-    CLS_FENCE_I:  row(T_FENCE_I,    0, 0, 0, 0, 1, 0, 0, 0, 0, 0, IMM_NONE),
-    CLS_CSR:      row(T_CSR,        1, 1, 1, 0, 1, 0, 0, 0, 0, 0, IMM_CSR),
-    CLS_CSR_NOP:  row(T_NOP,        0, 0, 0, 0, 1, 0, 0, 0, 0, 0, IMM_NONE),
-    CLS_ECALL:    row(T_ECALL,      0, 0, 0, 0, 1, 0, 0, 0, 0, 0, IMM_NONE),
-    CLS_EBREAK:   row(T_EBREAK,     0, 0, 0, 0, 1, 0, 0, 0, 0, 0, IMM_NONE),
-    CLS_MRET:     row(T_MRET,       0, 0, 0, 0, 1, 0, 0, 0, 0, 0, IMM_NONE),
-    CLS_WFI:      row(T_WFI,        0, 0, 0, 0, 1, 0, 0, 0, 0, 0, IMM_NONE),
-    CLS_SRET:     row(T_SRET,       0, 0, 0, 0, 1, 0, 0, 0, 0, 0, IMM_NONE),
-    CLS_SFENCE:   row(T_SFENCE_VMA, 0, 1, 1, 0, 1, 0, 0, 0, 0, 0, IMM_NONE),
-    CLS_SYS_NOP:  row(T_NOP,        0, 0, 0, 0, 1, 0, 0, 0, 0, 0, IMM_NONE),
-    CLS_AMO:      row(T_AMO,        1, 1, 1, 0, 1, 1, 0, 0, 0, 0, IMM_NONE),
-    CLS_AMO_LR:   row(T_AMO,        1, 1, 0, 0, 1, 1, 0, 0, 0, 0, IMM_NONE),
-    CLS_OPIMM32:  row(T_ADD,        1, 1, 0, 0, 1, 0, 0, 0, 0, 0, IMM_I),
-    CLS_OP32_ALU: row(T_ADD,        1, 1, 1, 0, 0, 0, 0, 0, 0, 0, IMM_NONE),
-    CLS_OP32_MUL: row(T_MUL,        1, 1, 1, 0, 0, 0, 0, 0, 0, 0, IMM_NONE),
-    CLS_OP32_DIV: row(T_DIV,        1, 1, 1, 0, 0, 0, 0, 0, 0, 0, IMM_NONE),
-    CLS_FLOAD:    row(T_LOAD,       1, 1, 0, 0, 1, 0, 0, 0, 0, 0, IMM_I),
-    CLS_FSTORE:   row(T_STORE,      0, 1, 1, 0, 1, 0, 0, 0, 0, 0, IMM_S),
-    CLS_FMA3:     row(T_FPOP,       1, 1, 1, 0, 0, 0, 0, 0, 0, 0, IMM_FP),
-    CLS_FP_FMA:   row(T_FPOP,       1, 1, 1, 0, 0, 0, 0, 0, 0, 0, IMM_FP),
-    CLS_FP_FDIV:  row(T_FPOP,       1, 1, 1, 0, 0, 0, 0, 0, 0, 0, IMM_FP),
-    CLS_FP_FSQRT: row(T_FPOP,       1, 1, 0, 0, 0, 0, 0, 0, 0, 0, IMM_FP),
-    CLS_FP_MISC2: row(T_FPOP,       1, 1, 1, 0, 0, 0, 0, 0, 0, 0, IMM_FP),
-    CLS_FP_MISC1: row(T_FPOP,       1, 1, 0, 0, 0, 0, 0, 0, 0, 0, IMM_FP),
-    CLS_FP_CMP:   row(T_FPOP,       1, 1, 1, 0, 0, 0, 0, 0, 0, 0, IMM_FP),
-    CLS_FP_TOINT: row(T_FPOP,       1, 1, 0, 0, 0, 0, 0, 0, 0, 0, IMM_FP),
-    CLS_FP_I2F:   row(T_FPOP,       1, 1, 0, 0, 0, 0, 0, 0, 0, 0, IMM_FP),
-    CLS_ILLEGAL:  row(T_NOP,        0, 0, 0, 0, 1, 0, 0, 0, 1, 0, IMM_NONE)};
+    CLS_LUI:      row(T_ADD,        1, 1, 0, 0, 1, 0, 1, 1, 0, IMM_U),
+    CLS_AUIPC:    row(T_ADD,        1, 0, 0, 1, 1, 0, 1, 0, 0, IMM_U),
+    CLS_JAL:      row(T_JAL,        1, 0, 0, 1, 1, 0, 1, 0, 0, IMM_J),
+    CLS_JALR:     row(T_JALR,       1, 1, 0, 1, 1, 0, 1, 0, 0, IMM_I),
+    CLS_BR:       row(T_BR,         0, 1, 1, 0, 1, 0, 0, 0, 0, IMM_B),
+    CLS_LOAD:     row(T_LOAD,       1, 1, 0, 0, 1, 0, 0, 0, 0, IMM_I),
+    CLS_STORE:    row(T_STORE,      0, 1, 1, 0, 1, 0, 0, 0, 0, IMM_S),
+    CLS_OPIMM:    row(T_ADD,        1, 1, 0, 0, 1, 0, 0, 0, 0, IMM_I),
+    CLS_OP_ALU:   row(T_ADD,        1, 1, 1, 0, 0, 0, 0, 0, 0, IMM_NONE),
+    CLS_OP_MUL:   row(T_MUL,        1, 1, 1, 0, 0, 0, 0, 0, 0, IMM_NONE),
+    CLS_OP_DIV:   row(T_DIV,        1, 1, 1, 0, 0, 0, 0, 0, 0, IMM_NONE),
+    CLS_FENCE:    row(T_FENCE,      0, 0, 0, 0, 1, 0, 0, 0, 0, IMM_NONE),
+    CLS_FENCE_I:  row(T_FENCE_I,    0, 0, 0, 0, 1, 0, 0, 0, 0, IMM_NONE),
+    CLS_CSR:      row(T_CSR,        1, 1, 1, 0, 1, 0, 0, 0, 0, IMM_CSR),
+    CLS_CSR_NOP:  row(T_NOP,        0, 0, 0, 0, 1, 0, 0, 0, 0, IMM_NONE),
+    CLS_ECALL:    row(T_ECALL,      0, 0, 0, 0, 1, 0, 0, 0, 0, IMM_NONE),
+    CLS_EBREAK:   row(T_EBREAK,     0, 0, 0, 0, 1, 0, 0, 0, 0, IMM_NONE),
+    CLS_MRET:     row(T_MRET,       0, 0, 0, 0, 1, 0, 0, 0, 0, IMM_NONE),
+    CLS_WFI:      row(T_WFI,        0, 0, 0, 0, 1, 0, 0, 0, 0, IMM_NONE),
+    CLS_SRET:     row(T_SRET,       0, 0, 0, 0, 1, 0, 0, 0, 0, IMM_NONE),
+    CLS_SFENCE:   row(T_SFENCE_VMA, 0, 1, 1, 0, 1, 0, 0, 0, 0, IMM_NONE),
+    CLS_SYS_NOP:  row(T_NOP,        0, 0, 0, 0, 1, 0, 0, 0, 0, IMM_NONE),
+    CLS_AMO:      row(T_AMO,        1, 1, 1, 0, 1, 1, 0, 0, 0, IMM_NONE),
+    CLS_AMO_LR:   row(T_AMO,        1, 1, 0, 0, 1, 1, 0, 0, 0, IMM_NONE),
+    CLS_OPIMM32:  row(T_ADD,        1, 1, 0, 0, 1, 0, 0, 0, 0, IMM_I),
+    CLS_OP32_ALU: row(T_ADD,        1, 1, 1, 0, 0, 0, 0, 0, 0, IMM_NONE),
+    CLS_OP32_MUL: row(T_MUL,        1, 1, 1, 0, 0, 0, 0, 0, 0, IMM_NONE),
+    CLS_OP32_DIV: row(T_DIV,        1, 1, 1, 0, 0, 0, 0, 0, 0, IMM_NONE),
+    CLS_FLOAD:    row(T_LOAD,       1, 1, 0, 0, 1, 0, 0, 0, 0, IMM_I),
+    CLS_FSTORE:   row(T_STORE,      0, 1, 1, 0, 1, 0, 0, 0, 0, IMM_S),
+    CLS_FMA3:     row(T_FPOP,       1, 1, 1, 0, 0, 0, 0, 0, 0, IMM_FP),
+    CLS_FP_FMA:   row(T_FPOP,       1, 1, 1, 0, 0, 0, 0, 0, 0, IMM_FP),
+    CLS_FP_FDIV:  row(T_FPOP,       1, 1, 1, 0, 0, 0, 0, 0, 0, IMM_FP),
+    CLS_FP_FSQRT: row(T_FPOP,       1, 1, 0, 0, 0, 0, 0, 0, 0, IMM_FP),
+    CLS_FP_MISC2: row(T_FPOP,       1, 1, 1, 0, 0, 0, 0, 0, 0, IMM_FP),
+    CLS_FP_MISC1: row(T_FPOP,       1, 1, 0, 0, 0, 0, 0, 0, 0, IMM_FP),
+    CLS_FP_CMP:   row(T_FPOP,       1, 1, 1, 0, 0, 0, 0, 0, 0, IMM_FP),
+    CLS_FP_TOINT: row(T_FPOP,       1, 1, 0, 0, 0, 0, 0, 0, 0, IMM_FP),
+    CLS_FP_I2F:   row(T_FPOP,       1, 1, 0, 0, 0, 0, 0, 0, 0, IMM_FP),
+    CLS_ILLEGAL:  row(T_NOP,        0, 0, 0, 0, 1, 0, 0, 0, 1, IMM_NONE)};
 
   // ---- F/D side table: {dest_fp, src1_fp, src2_fp, src3_en, fp_cls[2:0]} per class (Ref: Idu::decode) ----
   localparam int FROMW = 7;
@@ -235,11 +233,11 @@ module idu_ctrl_decode import ttg_cfg_pkg::*; (
   assign f5          = funct7[6:2];
   assign fmt_ok      = ~funct7[1];
   assign fp_width_ok = (funct3 == 3'd2) | (funct3 == 3'd3);   // flw / fld / fsw / fsd
-  assign op_fp       = HAS_FP & (opcode == OPC_OP_FP) & fmt_ok;
-  assign cls[CLS_FLOAD]    = HAS_FP & (opcode == OPC_LOAD_FP) & fp_width_ok;
-  assign cls[CLS_FSTORE]   = HAS_FP & (opcode == OPC_STORE_FP) & fp_width_ok;
-  assign cls[CLS_FMA3]     = HAS_FP & ((opcode == OPC_FMADD) | (opcode == OPC_FMSUB) | (opcode == OPC_FNMSUB) |
-                                       (opcode == OPC_FNMADD)) & fmt_ok;
+  assign op_fp       = (opcode == OPC_OP_FP) & fmt_ok;
+  assign cls[CLS_FLOAD]    = (opcode == OPC_LOAD_FP) & fp_width_ok;
+  assign cls[CLS_FSTORE]   = (opcode == OPC_STORE_FP) & fp_width_ok;
+  assign cls[CLS_FMA3]     = ((opcode == OPC_FMADD) | (opcode == OPC_FMSUB) | (opcode == OPC_FNMSUB) |
+                              (opcode == OPC_FNMADD)) & fmt_ok;
   assign cls[CLS_FP_FMA]   = op_fp & (f5 <= 5'd2);                              // fadd fsub fmul
   assign cls[CLS_FP_FDIV]  = op_fp & (f5 == 5'd3);
   assign cls[CLS_FP_FSQRT] = op_fp & (f5 == 5'h0b);
@@ -263,7 +261,7 @@ module idu_ctrl_decode import ttg_cfg_pkg::*; (
 
   always_comb begin
     {uop_type, rom_dest_en, src1_en, rom_src2_en, src1_is_pc, rom_src2_is_imm, is_atomic, rom_func3_zero,
-     rom_src1_zero, rom_illegal, is_branch, imm_sel} = rom_word;
+     rom_src1_zero, rom_illegal, imm_sel} = rom_word;
     // SYSTEM opcode overrides src2_is_imm with "CSR immediate form" and masks src2_en of csrrwi/si/ci
     src2_is_imm = op_system ? csr_imm_form : rom_src2_is_imm;
     is_word     = cls[CLS_OPIMM32] | cls[CLS_OP32_ALU] | cls[CLS_OP32_MUL] | cls[CLS_OP32_DIV];

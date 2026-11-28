@@ -38,7 +38,7 @@ module lp_l2
     logic [XLEN_BITS-1:0] s_data;
     logic [2:0]  s_f3;
     lp_conf_t    conf;
-    logic [lsu_pkg::OW-1:0] off;
+    logic [OW-1:0] off;
 
     assign s_supp  = sq[pl2b_q[p].cand].suppress;
     assign s_va    = sq[pl2b_q[p].cand].va_v;
@@ -53,8 +53,8 @@ module lp_l2
     assign conf = stlf_confirm_pre_l(pl2b_q[p].voff, pl2b_q[p].paddr, pl2b_q[p].paddr_p1, pl2b_q[p].paddr_m1,
                                      pl2b_q[p].func3, alive_w[pl2b_q[p].cand], s_supp, s_va, s_voff, s_pa,
                                      s_paddr, s_f3, s_dv, s_hold);
-    assign off         = pl2b_q[p].paddr[lsu_pkg::OW-1:0] - s_paddr[lsu_pkg::OW-1:0];
-    assign fwd_data[p] = lsu_pkg::extract_data(s_data, off, pl2b_q[p].func3);
+    assign off         = pl2b_q[p].paddr[OW-1:0] - s_paddr[OW-1:0];
+    assign fwd_data[p] = extract_data(s_data, off, pl2b_q[p].func3);
 
     always_comb begin
       dec_b[p]     = '0;
@@ -87,9 +87,6 @@ module lp_l2
     // ---- L2a: STQ CAM + fast-path decision (non-STLF = 0 extra cycles; STLF latches into pl2b_q) ----
     logic           en, cv, cu, cand_v;
     logic [SQW-1:0] ci;
-    /* verilator lint_off UNUSEDSIGNAL */
-    logic [SQ-1:0]  coh;
-    /* verilator lint_on UNUSEDSIGNAL */
 
     assign en = pl12[p].v && (pl12[p].tlb == TLB_HIT) && !pl12[p].mmio;
     lp_cam u_cam (
@@ -97,7 +94,7 @@ module lp_l2
       .paddr_p1(pl12[p].paddr_p1), .paddr_m1(pl12[p].paddr_m1),
       .snap_idx(pl12[p].snap_idx), .snap_flag(pl12[p].snap_flag),
       .head(head_q), .head_flag(head_flag_q), .count(count_q), .sq(sq),
-      .spec_ok(pl12[p].spec_ok), .cand_v(cv), .cand(ci), .cand_oh(coh), .unk(cu)
+      .spec_ok(pl12[p].spec_ok), .cand_v(cv), .cand(ci), .unk(cu)
     );
     assign cam_en[p]  = en;
     assign cam_unk[p] = cu;

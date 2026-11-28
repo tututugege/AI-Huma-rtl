@@ -11,7 +11,7 @@ depth: 仅顶层连线（见 core_top / mem_top）
 
 ## 1. 职责
 
-整核闭环的最外层：一个 `core_top`（核，见 core_top.md）加一个 `mem_top`（访存子系统：`mem_route`、`ptw_walk`、`dcache`、`peripheral_axi`、`axi_subsys`、`axi_cpu_port_adapter`），两者按端口名连接。`mem_top` 的端口名与 `core_top` 的存储侧端口同名、方向相反，所以 `soc_top` 的两个子树实例主要靠 `.*` 连接：`core_top u_core (.clk(clk_cpu), .rst_n(core_rst_n), 软件中断接 0, .*)`、`mem_top #(.PF_EN(PF_EN), .EXT_MMIO_EN(1'b0)) u_mem (.clk, .rst_n(core_rst_n), MMIO 主口接常量 / 悬空, .*)`；复位先经 `ttg_rst_sweep` 展宽（SRAM 在复位里清零，[common.md](common.md) 4.1 节）。其余是为 `.*` 声明的同名连线。
+整核闭环的最外层：一个 `core_top`（核，见 core_top.md）加一个 `mem_top`（访存子系统：`mem_route`、`ptw_walk`、`dcache`、`peripheral_axi`、`axi_subsys`、`axi_cpu_port_adapter`），两者按端口名连接。`mem_top` 的端口名与 `core_top` 的存储侧端口同名、方向相反，所以 `soc_top` 的两个子树实例主要靠 `.*` 连接：`core_top u_core (.clk(clk_cpu), .rst_n(core_rst_n), 软件中断接 0, .*)`、`mem_top #(.EXT_MMIO_EN(1'b0)) u_mem (.clk, .rst_n(core_rst_n), MMIO 主口接常量 / 悬空, .*)`；复位先经 `ttg_rst_sweep` 展宽（SRAM 在复位里清零，[common.md](common.md) 4.1 节）。其余是为 `.*` 声明的同名连线。
 
 边界之外（留在测试平台 `tb/core` → `core_tb`）：DDR 从设备（`d_*` 端口，AXI AR / R / AW / W / B）、外设模型（`env_*` 端口：`env_modeled`、`env_rdata` 入，`env_rd_en / addr / func3` 出）、物理内存、中断源（`interrupt_inject_*` 输入）、时钟与复位。逐条退休流（`rob_commit_*`、`rob_bcast_*`、`out_mispred`、`out_redirect_pc`、`ftq_commit_info_resp_pc`、`out_commit_entry_uop_diag_val`）从 `core_top` 直接导出，给测试平台的函数模型逐条对比。真实流片向 SoC 顶层与全套片上 AXI4/外设由 `chip_top` + `tb/soc`（`soc_tb`）独立承载（见 [chip_top.md](chip_top.md)），两者职责正交：`core_tb` 守护核+存储微架构与三仓逐拍对齐，`soc_tb` 守护全片 AXI4 互联与真实外设集成。
 
@@ -21,7 +21,6 @@ depth: 仅顶层连线（见 core_top / mem_top）
 
 | 量 | 值 | 来源 |
 | --- | --- | --- |
-| 参数 `PF_EN` | 1（L1D 数据预取器 h1，EXP-009） | `soc_top.sv` 参数，传给 `mem_top` → `dcache` |
 | 时钟 | `clk`（访存域的 tick 时钟）、`clk_cpu`（核时钟） | 端口；测试平台在每个 CPU 周期的 tick 0 给 `clk_cpu` 一个脉冲（`tb/core/core_tb.cpp`），现行 `AXI_SUBSYSTEM_FREQ_DIV = 1`，即每个 `clk` 沿都同时给 `clk_cpu` 脉冲 |
 | 数据宽度 | `XLEN_BITS = 64` | `ttg_cfg_pkg` |
 | 提交宽度 | `COMMIT_WIDTH = 8` | `ttg_cfg_pkg` |
@@ -55,7 +54,7 @@ PMU 事件总线（`core_top` 里的 `pmu_ev_inc`）**没有**出现在 `soc_top
 
 | 文件 | 行数 | 职责 |
 | --- | --- | --- |
-| `soc_top.sv` | 193 | 端口、为 `.*` 声明的同名连线、三个实例：`ttg_rst_sweep u_rst_sweep`（复位展宽，输出 `core_rst_n` 和 `init_done`）、`core_top u_core`、`mem_top u_mem`（`EXT_MMIO_EN = 0`，真实 MMIO 主口接常量 / 悬空） |
+| `soc_top.sv` | 191 | 端口、为 `.*` 声明的同名连线、三个实例：`ttg_rst_sweep u_rst_sweep`（复位展宽，输出 `core_rst_n` 和 `init_done`）、`core_top u_core`、`mem_top u_mem`（`EXT_MMIO_EN = 0`，真实 MMIO 主口接常量 / 悬空） |
 
 `soc_top.sv` 是手工维护的（2026-11 以前由一个生成器生成，生成器和规格已删除）。自己没有寄存器和逻辑；复位展宽在 `ttg_rst_sweep` 里。
 
@@ -89,10 +88,11 @@ depth 待测（由协调者补）。本模块只有连线，没有逻辑；整�
 
 ## 9. 参数与开关速查
 
-`PF_EN`（`soc_top` 参数，默认 1）；测试平台环境变量 `SOC_TB_RAND_INIT`（随机上电值的种子，需 `SOC_XINIT_UNIQUE=1` 构建）、`SOC_TB_FM`、`SOC_TB_SEMIHOST`、`SOC_TB_PMU`、`SOC_TB_LOG` 等（见 `tb/core/core_tb.cpp`）；构建开关 `SOC_FM`、`SOC_XLEN`、`CORE_VOPT`/`SOC_VOPT`（`tb/core/build.sh`）。
+`soc_top` 没有参数（原 `PF_EN` 已删除，L1D Berti 预取器固定开）；测试平台环境变量 `SOC_TB_RAND_INIT`（随机上电值的种子，需 `SOC_XINIT_UNIQUE=1` 构建）、`SOC_TB_FM`、`SOC_TB_SEMIHOST`、`SOC_TB_PMU`、`SOC_TB_LOG` 等（见 `tb/core/core_tb.cpp`）；构建开关 `SOC_FM`、`SOC_XLEN`、`CORE_VOPT`/`SOC_VOPT`（`tb/core/build.sh`）。
 
 ## 10. 变更记录
 
+- 2026-11-28 清理：删参数 `PF_EN`（默认 1、没人覆盖；注释写的 h1 实为 Berti），`mem_top` 实例不再传它（周期不变）。
 - 2026-11-28（文档核对）：结构一节补 `u_rst_sweep`、行数 193；测试平台路径改为 `tb/core/core_tb.cpp`、`tb/core/pmu_public.vlt`。
 - 2026-11-28（`rtl/fe-2ahead`）：新增 `ttg_rst_sweep`，`core_top` / `mem_top` 的复位改用展宽后的 `core_rst_n`（SRAM 在复位里清零，`common.md` 4.1 节），新增输出 `init_done`；`core_tb` 跑到 `init_done` 才开始计周期，周期与模型不变（`fm_gate.sh` 77/77、0 周期差）。
 

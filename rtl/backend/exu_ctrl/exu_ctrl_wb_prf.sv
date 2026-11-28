@@ -7,10 +7,8 @@ module exu_ctrl_wb_prf
   import exu_ctrl_pkg::*;
   import fp_pkg::*;
 (
-  /* verilator lint_off UNUSEDSIGNAL */   // waiver: only the ALU ports and the F/D ports have a write-back lane
   input  logic [ISSUE_WIDTH-1:0] win_valid,
   input  xc_done_t               win [ISSUE_WIDTH],
-  /* verilator lint_on UNUSEDSIGNAL */
   input  logic [ALU_NUM-1:0]     win_is_csr,
   input  logic                   csr_re,
   input  logic [XLEN_BITS-1:0]   csr_rdata,

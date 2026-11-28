@@ -82,7 +82,7 @@ module front_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; 
   // ---- control ----
   logic        global_refetch;
   logic [XLEN_BITS-1:0] refetch_address;
-  logic        fa_rd_en, predecode_can_run, bpu_can_run, bpu_icache_read_ready;
+  logic        fa_rd_en, predecode_can_run, bpu_icache_read_ready;
   logic        fa_wr_en, s2_wr_en, do_predecode_flush;
   logic        inst_empty, inst_fifo_room;
   logic [1:0]  fa_drop_tail_n, bpu_override_squash_n, bpu_hold_n;
@@ -107,7 +107,7 @@ module front_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; 
     .bpu_ptab_write_enable,
     .checker_flush_enable, .checker_flush_address,
     .bpu_override_squash_n,
-    .global_refetch, .refetch_address, .fa_rd_en, .predecode_can_run, .bpu_can_run, .bpu_icache_read_ready,
+    .global_refetch, .refetch_address, .fa_rd_en, .predecode_can_run, .bpu_icache_read_ready,
     .fa_wr_en, .fa_drop_tail_n, .s2_wr_en, .do_predecode_flush
   );
 
@@ -202,11 +202,9 @@ module front_top import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pkg::*; 
     fe2ftq_s0.ifu_pop     = fa_rd_valid;
   end
 
-  /* verilator lint_off UNUSEDSIGNAL */
   logic unused_ok;
-  assign unused_ok = ^{bpu_can_run, ic_upper_ok_unused, ftq2fe.ifu_next_fa_idx, ftq2fe.ifu_next_b_idx,
+  assign unused_ok = ^{ic_upper_ok_unused, ftq2fe.ifu_next_fa_idx, ftq2fe.ifu_next_b_idx,
                        ftq2fe.ifu_pair};
-  /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule
 

@@ -33,18 +33,17 @@ module lp_unc
   input  logic [XLEN_BITS-1:0]         st_wdata,
   input  logic [2:0]          st_func3,
   input  logic [SQW-1:0]      st_idx,
-  output logic                valid_pre_st,      // value seen by the MMIO store issue
-  output logic                valid_o,
-  output logic                is_load_o,
-  output logic [31:0]         addr_o,
-  output logic [XLEN_BITS-1:0]         wdata_o,
-  output logic [2:0]          func3_o
+  output logic                valid_pre_st       // value seen by the MMIO store issue
 );
 
   logic        v2, is_load2, v_flush, v_kill;
   logic [31:0] addr2;
   logic [2:0]  func32;
   logic [SQW-1:0] idx2;
+  logic        valid_d, is_load_d;               // next register values
+  logic [31:0] addr_d;
+  logic [XLEN_BITS-1:0] wdata_d;
+  logic [2:0]  func3_d;
 
   assign valid_post_resp = valid_q && !resp_fire;
   assign v2       = valid_post_resp || ld_set;
@@ -58,20 +57,20 @@ module lp_unc
   assign v_kill  = mispred && v_flush && (is_load2 ? ld_empty[idx2] : !alive_final[idx2]);
   assign valid_pre_st = v_flush && !v_kill;
 
-  assign valid_o   = valid_pre_st || st_set;
-  assign is_load_o = st_set ? 1'b0 : is_load2;
-  assign addr_o    = st_set ? st_addr : addr2;
-  assign wdata_o   = st_set ? st_wdata : wdata_q;
-  assign func3_o   = st_set ? st_func3 : func32;
+  assign valid_d   = valid_pre_st || st_set;
+  assign is_load_d = st_set ? 1'b0 : is_load2;
+  assign addr_d    = st_set ? st_addr : addr2;
+  assign wdata_d   = st_set ? st_wdata : wdata_q;
+  assign func3_d   = st_set ? st_func3 : func32;
 
   always_ff @(posedge clk) begin
     if (!rst_n) valid_q <= 1'b0;
-    else        valid_q <= valid_o;
+    else        valid_q <= valid_d;
     if (ld_set || st_set) begin
-      is_load_q <= is_load_o;
-      addr_q    <= addr_o;
-      wdata_q   <= wdata_o;
-      func3_q   <= func3_o;
+      is_load_q <= is_load_d;
+      addr_q    <= addr_d;
+      wdata_q   <= wdata_d;
+      func3_q   <= func3_d;
       idx_q     <= st_set ? st_idx : idx2;
     end
   end

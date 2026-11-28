@@ -26,8 +26,12 @@ module wb_gate_tw
   isu_wb_gate u_gate (
     .clk(clk), .rst_n(rst_n), .flush_all(flush_all), .cancel_valid('0),
     .cls_1h(cls_1h), .reserve(reserve), .reserve_spec_mask(zero_spec),
-    .port_ok(port_ok), .cls_free(cls_free)
+    .cls_free(cls_free)
   );
+  // the pick's completion cycle is free (computed in isu_iq from cls_free since 2026-11-28)
+  for (genvar p = 0; p < ISSUE_WIDTH; p++) begin : g_ok
+    assign port_ok[p] = !(|(cls_1h[p] & ~cls_free[p]));
+  end
   for (genvar c = 0; c < WB_NCLS; c++) begin : g_off
     assign off_tab[c] = 8'(wb_cls_off(c));
   end

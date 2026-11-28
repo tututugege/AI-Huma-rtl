@@ -90,13 +90,8 @@ module front_fetch_buf import ttg_cfg_pkg::*; import front_pkg::*; (
     end
   end
 
-  /* verilator lint_off UNUSEDSIGNAL */
-  logic inst_rd_valid, unused_hi;
-  always_comb begin
-    unused_hi = a_inv_oh[0] ^ (^ic_page_fault_inst[FETCH_WIDTH-1:1]);
-    for (int i = 0; i < FETCH_WIDTH; i++) unused_hi ^= ^b_fetch_group[i][31:16];
-  end
-  /* verilator lint_on UNUSEDSIGNAL */
+  logic unused_hi;
+  assign unused_hi = a_inv_oh[0];   // a_last_oh uses a_inv_oh[FETCH_WIDTH-1:1] only
 
   inst_fifo u_inst_fifo (
     .clk, .rst_n,
@@ -104,7 +99,6 @@ module front_fetch_buf import ttg_cfg_pkg::*; import front_pkg::*; (
     .rd_en    (inst_rd_en),
     .wr_en    (inst_wr_en),
     .wr_entry (inst_wr_entry),
-    .rd_valid (inst_rd_valid),
     .rd_entry (inst_rd),
     .full     (inst_full),
     .empty    (inst_empty),

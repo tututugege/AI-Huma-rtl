@@ -44,7 +44,7 @@ depth: 待测（第 6 节只有从代码读出的估计）
 ## 3. 接口
 
 - `ttg_cfg_pkg`：只有 `localparam`（`int`，少数 `longint unsigned`：`RAM_SIZE`、`MAX_SIM_TIME`、`UART_ADDR_MASK`、`SIM_CACHE_ADDR_2_MIN`）。常量的分组（按文件里的出现顺序）：核宽度（`XLEN_BITS`、取指 / 译码 / 提交宽度）、ICache / DCache 几何、寄存器堆（`PRF_NUM`、`FPRF_NUM`、`TAG_NUM`）、ROB / 队列大小、功能单元掩码（`OP_MASK_*`）和延迟、发射口与发射队列（`ISSUE_WIDTH`、`IQ_*`……）、LSU、TLB、各种位宽（`*_IDX_WIDTH`）、MMIO 地址（`UART_*`、`TIMER_*`、`XPS_INTC_*`……）、前端 FIFO 深度、FP 延迟。数值见文件；其他模块文档引用具体常量时写常量名。
-- `fp_pkg`：`FP_EN`（`FPRF_NUM != 0`）、`FLEN`（64）、`FW`（FP 数据总线位宽：有 F/D 时 `FLEN`，否则 1）、`FFLAGS_W`（5）、函数 `fp_load_data(d, is_w)`（`is_w` 时返回 `{32'hFFFF_FFFF, d[31:0]}`，即 NaN 装箱，否则整个字）、`FP_LAT_MAX`、`FP_LAT_W`、函数 `fp_div_latency(func7)`（`func7[0]` 是 D 格式、`func7[6:2] == 5'h0b` 是 `fsqrt`，返回 `FP_FDIV_S_LAT / FP_FSQRT_S_LAT / FP_FDIV_D_LAT / FP_FSQRT_D_LAT`）。
+- `fp_pkg`：`FLEN`（64）、`FW`（FP 数据总线位宽 = `FLEN`；F/D 总是有，2026-11-28 删了开关 `FP_EN`）、`FFLAGS_W`（5）、函数 `fp_load_data(d, is_w)`（`is_w` 时返回 `{32'hFFFF_FFFF, d[31:0]}`，即 NaN 装箱，否则整个字）、`FP_LAT_MAX`、`FP_LAT_W`、函数 `fp_div_latency(func7)`（`func7[0]` 是 D 格式、`func7[6:2] == 5'h0b` 是 `fsqrt`，返回 `FP_FDIV_S_LAT / FP_FSQRT_S_LAT / FP_FDIV_D_LAT / FP_FSQRT_D_LAT`）。
 - 原语端口：
 
 | 模块 | 参数 | 端口 | 行为 |
@@ -66,14 +66,14 @@ depth: 待测（第 6 节只有从代码读出的估计）
 | `ttg_onehot_to_idx.sv` | 20 | 独热转下标 |
 | `ttg_popcount.sv` | 42 | 数 1 的个数（综合走逐层收窄的加法树，仿真走循环累加） |
 | `ttg_pick_k.sv` | 78 | 并行找最低的 K 个 1（温度计码前缀和，综合 / 仿真两种写法） |
-| `sram/ttg_sram_pkg.sv` | 12 | `SRAM_SWEEP_CYCLES = 4100` |
+| `sram/ttg_sram_pkg.sv` | 15 | `SRAM_SWEEP_CYCLES = 4100` |
 | `sram/ttg_sram_1rw.sv` | 358 | 单口同步 SRAM 包装（复位清零、`SYNTH_TSMC28_SRAM` 宏映射） |
-| `sram/ttg_sram_1r1w.sv` | 177 | 伪双口同步 SRAM 包装（`WRITE_FIRST` 可选、复位清零） |
+| `sram/ttg_sram_1r1w.sv` | 177 | 伪双口同步 SRAM 包装（固定写优先、复位清零） |
 | `sram/ttg_rst_sweep.sv` | 29 | 复位展宽：外部复位释放后再保持 `SRAM_SWEEP_CYCLES` 拍，输出 `init_done` |
 
 ### 4.1 SRAM 原语与复位清零（`rtl/common/sram`，2026-11-28）
 
-`ttg_sram_1rw`（单口）/ `ttg_sram_1r1w`（伪双口，`WRITE_FIRST` 可选）是全芯片 SRAM 的唯一封装；阵列本身没有复位。以前阵列的初值来自 `` `ifndef SYNTHESIS `` 里的 `initial`：普通仿真是 `INIT_VAL`，`-DSYNTHESIS` 仿真由 Verilator 置 0（或 `--x-initial unique` 随机），真实芯片是随机上电值，三者不一致。设计依赖初值的地方（LLC 的 `valid / dirty / pf / repl`、BPU / ITT 表、DCache tag 等）在芯片上会出错，例如 LLC 随机上电产生假命中和把脏行乱写回 DDR。
+`ttg_sram_1rw`（单口）/ `ttg_sram_1r1w`（伪双口，固定写优先：同拍同地址读出新写入的段）是全芯片 SRAM 的唯一封装；阵列本身没有复位。以前阵列的初值来自 `` `ifndef SYNTHESIS `` 里的 `initial`：普通仿真是 `INIT_VAL`，`-DSYNTHESIS` 仿真由 Verilator 置 0（或 `--x-initial unique` 随机），真实芯片是随机上电值，三者不一致。设计依赖初值的地方（LLC 的 `valid / dirty / pf / repl`、BPU / ITT 表、DCache tag 等）在芯片上会出错，例如 LLC 随机上电产生假命中和把脏行乱写回 DDR。
 
 做法（端口加 `rst_n`，参数加 `INIT_SWEEP`，默认 1）：
 
@@ -123,6 +123,7 @@ depth 待测。从代码读出的、未综合验证的情形：
 
 ## 10. 变更记录
 
+- 2026-11-28 清理：`ttg_sram_1r1w` 删 `WRITE_FIRST = 0`（读优先）分支，全仓 12 个例化都传 1，参数随后删除（周期不变）；`ttg_sram_pkg::SRAM_SWEEP_CYCLES` 加窄豁免（只被 SRAM 包装和 `soc_top` 读，按目录 lint 时报 UNUSEDPARAM，此前 `lint.sh rtl/common` 和多个 `rtl/soc/*` 目录因此失败）。
 - 2026-11-28（`rtl/fe-2ahead`，文档核对）：补 `ttg_pick_k` 和 `sram/` 的文件行、各原语的综合 / 仿真两种写法与 `tests/common_prims`；配置包一节去掉已删除的前端 FIFO 深度和 `FE_RFAST`；门禁改为 77/77 对 `scripts/ref_cycles.txt`。
 - 2026-11-28（`rtl/fe-2ahead`）：SRAM 复位清零（4.1 节）：包装加 `rst_n` / `INIT_SWEEP`，删除 `initial`；新增 `ttg_sram_pkg`、`ttg_rst_sweep`；`soc_top` / `soc_crg` 复位展宽 `SRAM_SWEEP_CYCLES` 拍。
 - `261bd67..HEAD` 里 `rtl/common` 的改动（均为配置包）：`b9ae0d5`（共享 AGU：`LSU_AGU_SHARED`、`LSU_AGU_PHYS`）、`237738c` / `120701a`（合并的内存发射队列、6 条入队 lane、`MEM_AGE`）、`0e82d3f`（`IQ_SAME_CYCLE_REUSE`）、`6d7ed85`（两个 INT 队列：`INT_CLUSTERS`、`IQ_INT_SIZE`、`IQ_INT_ENQ_WIDTH`）、`2e6acb6`（去掉 `MEM_MERGE`、`IQ_LD_*`、`IQ_STA_*`）；另有 `1db84c7` 及其回退 `ad24170`。

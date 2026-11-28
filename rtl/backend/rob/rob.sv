@@ -66,14 +66,12 @@ module rob
   output logic                      rob_bcast_page_fault_store,
   output logic                      rob_bcast_illegal_inst,
   output logic                      rob_bcast_interrupt,
-  output logic                      rob_bcast_trap_val_valid,
   output logic [XLEN_BITS-1:0]      rob_bcast_trap_val,
   output logic [XLEN_BITS-1:0]      rob_bcast_pc,
   output logic [ROB_IDX_WIDTH-1:0]  rob_bcast_head_rob_idx,
   output logic                      rob_bcast_head_valid,
   output logic [ROB_IDX_WIDTH-1:0]  rob_bcast_head_incomplete_rob_idx,
   output logic                      rob_bcast_head_incomplete_valid,
-  output logic [0:0]                ftq_rob_pc_req_req_valid,
   output logic [5:0]                ftq_rob_pc_req_req_ftq_idx [1],
   output logic [FTQ_OFFSET_WIDTH-1:0] ftq_rob_pc_req_req_ftq_offset [1]
 );
@@ -146,7 +144,7 @@ module rob
     .ftq_head(ftq_head),
     .ftq_resp_pc(ftq_rob_pc_resp_resp_pc[0]),
     .dis_fire(dis2rob_dis_fire), .dis_rob_idx(dis_rob_idx), .dis_trap_val(dis_trap_val),
-    .csr_fs_off(csr2rob_fs_off), .dis_uop(dis_uop), .wb(wb),
+    .dis_uop(dis_uop), .wb(wb),
     .rob2dis_stall(rob2dis_stall), .rob2dis_empty(rob2dis_empty), .rob2dis_ready(rob2dis_ready),
     .rob2dis_enq_idx(rob2dis_enq_idx), .rob2dis_rob_flag(rob2dis_rob_flag), .rob2dis_free(rob2dis_free),
     .rob2csr_commit(rob2csr_commit), .rob2csr_interrupt_resp(rob2csr_interrupt_resp),
@@ -157,11 +155,11 @@ module rob
     .bcast_fence_i(rob_bcast_fence_i), .bcast_page_fault_inst(rob_bcast_page_fault_inst),
     .bcast_page_fault_load(rob_bcast_page_fault_load), .bcast_page_fault_store(rob_bcast_page_fault_store),
     .bcast_illegal_inst(rob_bcast_illegal_inst), .bcast_interrupt(rob_bcast_interrupt),
-    .bcast_trap_val_valid(rob_bcast_trap_val_valid), .bcast_trap_val(rob_bcast_trap_val), .bcast_pc(rob_bcast_pc),
+    .bcast_trap_val(rob_bcast_trap_val), .bcast_pc(rob_bcast_pc),
     .bcast_head_rob_idx(rob_bcast_head_rob_idx), .bcast_head_valid(rob_bcast_head_valid),
     .bcast_head_incomplete_rob_idx(rob_bcast_head_incomplete_rob_idx),
     .bcast_head_incomplete_valid(rob_bcast_head_incomplete_valid),
-    .ftq_req_valid(ftq_rob_pc_req_req_valid[0]), .ftq_req_ftq_idx(ftq_rob_pc_req_req_ftq_idx[0]),
+    .ftq_req_ftq_idx(ftq_rob_pc_req_req_ftq_idx[0]),
     .ftq_req_ftq_offset(ftq_rob_pc_req_req_ftq_offset[0])
   );
 

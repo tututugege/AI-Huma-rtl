@@ -2,10 +2,6 @@
 `default_nettype none
 
 module predecode_checker import ttg_cfg_pkg::*; import front_pkg::*; (
-  /* verilator lint_off UNUSEDSIGNAL */
-  input  logic                   clk,
-  input  logic                   rst_n,
-  /* verilator lint_on UNUSEDSIGNAL */
   input  logic                   multi,
   input  logic [FETCH_WIDTH-1:0] in_range,
   input  logic [FETCH_WIDTH-1:0] seg_first,
@@ -144,10 +140,8 @@ module predecode_checker import ttg_cfg_pkg::*; import front_pkg::*; (
     end
   end
 
-  /* verilator lint_off UNUSEDSIGNAL */
   logic unused_chk;
   assign unused_chk = any_s1;
-  /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule
 

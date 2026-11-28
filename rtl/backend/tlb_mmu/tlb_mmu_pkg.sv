@@ -1,8 +1,8 @@
 // Ref: back-end/Lsu/TlbMmu.cpp  class TlbMmu (types, check_perm, compose_paddr, entry_matches)
 `default_nettype none
-/* verilator lint_off UNUSEDPARAM */  // constants package: not every constant is used by every module
 package tlb_mmu_pkg;
   import ttg_cfg_pkg::*;
+  /* verilator lint_off UNUSEDPARAM */  // constants: not every constant is used by every module
 
   // Sv39: 3 levels of 9-bit VPNs, 16-bit ASID satp[59:44].
   // Physical address is 32 bits in both: only ppn[19:0] of a PTE reaches it.
@@ -31,6 +31,7 @@ package tlb_mmu_pkg;
   localparam logic [1:0] ACC_FETCH = 2'd0;
   localparam logic [1:0] ACC_LOAD = 2'd1;
   localparam logic [1:0] ACC_STORE = 2'd2;
+  /* verilator lint_on UNUSEDPARAM */
 
   // what identifies a page (match key)
   typedef struct packed {

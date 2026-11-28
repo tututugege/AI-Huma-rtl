@@ -124,9 +124,9 @@ package ren_pkg;
            (src1_areg != areg_t'(0)) && dest_en && (dest_areg != areg_t'(0));
   endfunction
 
-  // ---- F/D rename state (FPRF_NUM > 0): 32 architectural FP registers (no x0), tags FP_TAG_BASE .. +FPRF_NUM-1,
+  // ---- F/D rename state: 32 architectural FP registers (no x0), tags FP_TAG_BASE .. +FPRF_NUM-1,
   // a free list of FPRF_NUM - FP_ARF_NUM registers kept as a ring of FPRF_NUM slots (not a power of two) ----
-  localparam int FPN = (FPRF_NUM > FP_ARF_NUM) ? FPRF_NUM : (FP_ARF_NUM + 1);   // (keeps the types legal without FP)
+  localparam int FPN = FPRF_NUM;
   localparam int FP_PTR_W = $clog2(FPN);
   typedef logic [FP_PTR_W-1:0] fp_ptr_t;
   typedef preg_t [FP_ARF_NUM-1:0] fp_rat_t;
@@ -136,36 +136,6 @@ package ren_pkg;
     logic [FP_PTR_W:0] sum;
     sum = {1'b0, p} + {1'b0, n};
     return (sum >= (FP_PTR_W+1)'(FPN)) ? fp_ptr_t'(sum - (FP_PTR_W+1)'(FPN)) : fp_ptr_t'(sum);
-  endfunction
-
-  // reset value of the FP RAT: fp reg i -> tag FP_TAG_BASE + i
-  function automatic fp_rat_t fp_rat_identity();
-    fp_rat_t r;
-    for (int i = 0; i < FP_ARF_NUM; i++) r[i] = preg_t'(FP_TAG_BASE + i);
-    return r;
-  endfunction
-
-  // reset value of the FP free list: tags FP_TAG_BASE + FP_ARF_NUM .. FP_TAG_BASE + FPRF_NUM - 1 in order
-  function automatic logic [FPN-1:0][PRF_IDX_WIDTH-1:0] fp_free_list_init();
-    logic [FPN-1:0][PRF_IDX_WIDTH-1:0] l;
-    l = '0;
-    for (int i = 0; i < FPN - FP_ARF_NUM; i++) l[i] = preg_t'(FP_TAG_BASE + FP_ARF_NUM + i);
-    return l;
-  endfunction
-
-  // reset value of a RAT: arch/spec reg i -> preg i (Ren::init)
-  function automatic rat_t rat_identity();
-    rat_t r;
-    for (int i = 0; i < RAT_NUM; i++) r[i] = preg_t'(i);
-    return r;
-  endfunction
-
-  // reset value of the free list: pregs RAT_NUM..PRF_NUM-1 in order, rest 0 (Ren::init)
-  function automatic logic [PRF_NUM-1:0][PRF_IDX_WIDTH-1:0] free_list_init();
-    logic [PRF_NUM-1:0][PRF_IDX_WIDTH-1:0] l;
-    l = '0;
-    for (int i = 0; i < PRF_NUM - RAT_NUM; i++) l[i] = preg_t'(RAT_NUM + i);
-    return l;
   endfunction
 
 endpackage

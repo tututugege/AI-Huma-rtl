@@ -1,7 +1,7 @@
 // Ref: MemSubSystem/PeripheralAxi.cpp  PeripheralAxi
 `default_nettype none
 
-// LSU MMIO / uncached access unit (spec/peripheral_axi.io).  Top level only adapts the flat spec ports.
+// LSU MMIO / uncached access unit.  Top level only adapts the flat ports.
 module peripheral_axi import memcpu_pkg::*; import ttg_cfg_pkg::*; (
   input  logic clk,
   input  logic rst_n,

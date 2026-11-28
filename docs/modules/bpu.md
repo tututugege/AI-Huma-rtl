@@ -13,7 +13,7 @@ depth: Tier 1 TSMC28 LVT + PrimeTime STA：`bpu` `WNS -1.75 ns`（`55` 级，`0.
 > 在保留 `Clean BPU v11` 深宏单口 1RW SRAM、零 `T0` 读 `Meta/WRBypass/PLRU` 提交、`2A`（无同拍 refetch S0 发射）、单一 `ex_fh[3][6]`（`HR_BITS=256`、`ARCH_SR_W=200`）与同页跨 64B 行 2-Fetch 的基础上，采用**彻底单套预测器架构**（无 `u_aftb`、无 `u_s2_tage`、无 `u_s2_itt`、无 `u_atage`、无 `SC`）：
 > - **2-Ahead（`A0 → A1 → S0`）**：`A0` 拍以 `(base_t, H_t)` 提前 2 拍启动唯一一套 **2-Way 6 表 2-Ahead ExBlockTage**（`2048 sets × 2 ways = 4096` 项/表，4-Bank `512×128b` 1RW）与 **4 表 2-Ahead ITT**（`512` 项/表，2-Bank `256×52b` 1RW）同步读；`A1` 拍锁存进纯 FF 寄存器 `ah_a1_raw_q`；`S0` 拍用最新历史 `H_{t+2}` 与前一拍块地址 `prev_base_q`（MORSL secondary tag）在 FF 上完成并行选路，与扩展为 `64×4=256` 项（紧凑 `141b/entry`）的 `u_ftb0`（支持 S2 `FastFill` + 提交镜像）组合成 S0 零气泡预测 `g0`。
 > - **`self0` 零额外 SRAM 冷块自愈**：当冷启动块或紧接 `ovr`/`refetch` 的块在 S0 未拿到 2-Ahead 读数（`!ah_v`）时，直接在 S1 截取该块自己于 S0 启动并已完成同步读出的 `old_ah_a0` 到 `self0_raw_q`，于 S2 与 `u_ftb1`（`1024×4` 2-Bank 1RW）读出并行完成 0-Ahead 6 表 TAGE + 4 表 ITT 选路，在同套 SRAM 阵列完成训练（tag 加区分 XOR 常量 `0x555`/`0x2aa`），**零额外 SRAM 宏、零额外读口**。
-> - **`BPU_FAST_OVR` 与 `T0 → T1` 提交流水**：默认 `BPU_FAST_OVR = 1'b1`（S2 `ovr` 仅 2 气泡并立即用 `r1_q.base / r1_q.ck.h.ex_fh` 重启 A0）；`u_brq` 增加 1 拍 `T0 → T1` 寄存流水，切断 `u_rec`（单 Bank `512` 项 `1R1W`）到 `u_ah_ex_tage`/`u_aitt`/`u_ftb1` 的长提交路径。
+> - **快速覆盖与 `T0 → T1` 提交流水**：S2 `ovr` 仅 2 气泡并立即用 `r1_q.base / r1_q.ck.h.ex_fh` 重启 A0（原开关 `BPU_FAST_OVR` 只取过 `1'b1`，2026-11-28 固化并删除）；`u_brq` 增加 1 拍 `T0 → T1` 寄存流水，切断 `u_rec`（单 Bank `512` 项 `1R1W`）到 `u_ah_ex_tage`/`u_aitt`/`u_ftb1` 的长提交路径。
 
 ## 1. 职责（含 3 级流水概览）
 
@@ -21,10 +21,10 @@ depth: Tier 1 TSMC28 LVT + PrimeTime STA：`bpu` `WNS -1.75 ns`（`55` 级，`0.
 
 1. **A0 / A1（2-Ahead 提前 SRAM 读取）**：
    - `s0_go` 时以 `(s0_base, spec_ex_fh)` 发起 `u_ah_ex_tage` 与 `u_aitt` 同步 1RW 读（`ah_key_q` 锁存关键帧，上一拍 `ah_key_q + ah_sram_raw` 推入 `ah_a1_raw_q`）；
-   - `d.ovr`（`BPU_FAST_OVR=1`）时 squash `r0_q`/`ah_a1_raw_q`，直接以 `(r1_q.base, r1_q.ck.h.ex_fh)` 重启 `A0`；当 `BPU_FAST_OVR=0` 时退回 1 拍 `ovr_pend_q` 解耦恢复与 A0 重读；
-   - `refetch` 时清 `r0_q`/`r1_q`/`ovr_pend_q`/`ah_key_q.valid`/`ah_a1_raw_q.valid`/`prev_base_q`。
+   - `d.ovr` 时 squash `r0_q`/`ah_a1_raw_q`，直接以 `(r1_q.base, r1_q.ck.h.ex_fh)` 重启 `A0`；
+   - `refetch` 时清 `r0_q`/`r1_q`/`ah_key_q.valid`/`ah_a1_raw_q.valid`/`prev_base_q`。
 2. **S0（0 气泡主力预测，`pc_q` / `spec_q` / `ah_a1_raw_q` / `u_ftb0` 纯寄存驱动）**：
-   - 无同拍 `refetch` 发射（`2A`：`issue = !refetch && !ovr_pend_q && !ovr && icache_read_ready`）；
+   - 无同拍 `refetch` 发射（`2A`：`issue = !refetch && !ovr && icache_read_ready`）；
    - 并行查找紧凑 FF `u_ftb0`（`64 × 4 = 256` 项，槽位存储 `20b` 压缩目标；仅对 `tgt_fits` 槽或 `BR_RET` 镜像）并与 `ah_a1_raw_q`（若 `valid`，使用当前 `spec_ex_fh` 与 `prev_base_q` 算 tag）经 2 路 `ah_ex_tage_select_slot` + 4 表 ITT 选路融合得出 `g0`，捕获只读 `ah_pred_meta_t`；
    - 将 `s0_base` 送入 Unified FTQ-64（`pair_valid = 0`），推进 `spec_q` 与投机 RAS，并更新 `prev_base_q <= s0_base`。
 3. **S1（`r0_q`，Main FTB 1RW 同步读 & `self0` 捕获）**：
@@ -77,28 +77,28 @@ SRAM 复位：`bpu_sram_1rw_banked` 有 `rst_n` 端口，复位期间把阵列�
 
 | 文件 | 行数 | 职责 |
 | --- | ---: | --- |
-| `bpu_pkg.sv` | 37 | 共享基础常量（分支类型、RAS 深度、块宽） |
-| `bpu_stage_pkg.sv` | 249 | `BPU_FAST_OVR`、`NITT=4`、`ITT_EX_MAP`、256b 历史环、单一 `ex_fh[3][6]`、`ah_dir_itt_t`、`blk_t` |
+| `bpu_pkg.sv` | 36 | 共享基础常量（分支类型、RAS 深度、块宽） |
+| `bpu_stage_pkg.sv` | 199 | `NITT=4`、`ITT_EX_MAP`、256b 历史环、单一 `ex_fh[3][6]`（2-Ahead 键只存索引折叠 `ex_fh0_t = ex_fh[0]`）、`ah_dir_itt_t`、`blk_t` |
 | `bpu_types_pkg.sv` | 359 | FTB / 2-Way 6 表 2-Ahead ExTAGE / 4 表 ITT 类型、`make_ah_ex_tage_index` / `make_ah_itt_index`、`ah_ex_tage_select_slot`、`ftb_eval_ent`、`ftb_upsert_branch` |
-| `bpu_sram_1rw_banked.sv` | 179 | 通用单口 Multi-Bank 1RW 同步 SRAM 封装（1 预测读 + 1 提交写 + `HOLD_RD0` + 可选 `clr_rd` / `rst_wr`） |
+| `bpu_sram_1rw_banked.sv` | 175 | 通用单口 Multi-Bank 1RW 同步 SRAM 封装（1 预测读 + 1 提交写 + `HOLD_RD0` + 可选 `clr_rd` / `rst_wr`） |
 | `bpu_plru.sv` / `bpu_wrbypass.sv` | 84 + 76 | 提交期 per-set tree-PLRU 与 8 项 FF WRBypass CAM+Mem |
-| `bpu_uftb.sv` | 199 | 64×4=256 项紧凑 FF uFTB（0 拍查，单写口：`upd_en` 镜像优先 > `ff_en` FastFill，后级预译码清槽） |
-| `bpu_ftb_tab.sv` | 314 | 纯 1RW SRAM Main FTB（`u_ftb1`，2-Bank 1RW + 1 项 `FtbWrBuf` + 2 拍 `clr` 状态机 + 导出 `upd_new_ent_o`） |
-| `bpu_ftb_ex_tage.sv` | 346 | 单套 2-Way 6 表 4-Bank 1RW 2-Ahead ExBlockTage（无 Base SRAM，`(tbl,sl,idx,way)` WRBypass，per-PC `use_alt`，双路并行 `uhi` 复位） |
-| `bpu_ftb_itt.sv` | 152 | 单套 4 表 512 项 2-Bank 1RW Block-ITT（零 T0 读，无 WrBypass，3-bit `start_k` 防越界） |
-| `bpu_ftb_arrays.sv` | 167 | 4 阵列容器（`u_ftb0` / `u_ftb1` / `u_ah_ex_tage` / `u_aitt`）与单口 1RW Bank 仲裁 |
-| `bpu_ftb_brq.sv` | 197 | 16 项提交分支队列 + 单 Bank 512 项 1R1W `u_rec` + `T0 → T1` 流水寄存器 |
-| `bpu_hist_vec.sv` / `bpu_spec.sv` | 161 + 398 | 256b 投机历史环 / 200b 架构移位器与投机/架构 RAS（支持 `BPU_FAST_OVR`）；`bpu_hist_vec` 的综合 / 仿真两种写法只在 `sym_n ≤ MAX_SYM` 时等价（[06 第 4 节](../06-equivalence-policy.md)），`bpu_spec` 用 SVA 断言 `hr_push_n ≤ 2` |
-| `bpu_eval.sv` | 259 | S0（2-Ahead `ah_a1_raw_q` + `u_ftb0`）与 S2（`u_ftb1` + `self0` 并行评估、Cut A2、`fin_diff` 与元数据生成） |
-| `bpu_ctl.sv` / `bpu_cmd.sv` | 50 + 113 | 3 级单块控制与历史/RAS/PC 下一拍命令（支持 `BPU_FAST_OVR=1/0`） |
+| `bpu_uftb.sv` | 197 | 64×4=256 项紧凑 FF uFTB（0 拍查，单写口：`upd_en` 镜像优先 > `ff_en` FastFill，后级预译码清槽） |
+| `bpu_ftb_tab.sv` | 307 | 纯 1RW SRAM Main FTB（`u_ftb1`，2-Bank 1RW + 1 项 `FtbWrBuf` + 2 拍 `clr` 状态机 + 导出 `upd_new_ent_o`） |
+| `bpu_ftb_ex_tage.sv` | 344 | 单套 2-Way 6 表 4-Bank 1RW 2-Ahead ExBlockTage（无 Base SRAM，`(tbl,sl,idx,way)` WRBypass，per-PC `use_alt`，双路并行 `uhi` 复位） |
+| `bpu_ftb_itt.sv` | 148 | 单套 4 表 512 项 2-Bank 1RW Block-ITT（零 T0 读，无 WrBypass，3-bit `start_k` 防越界） |
+| `bpu_ftb_arrays.sv` | 165 | 4 阵列容器（`u_ftb0` / `u_ftb1` / `u_ah_ex_tage` / `u_aitt`）与单口 1RW Bank 仲裁 |
+| `bpu_ftb_brq.sv` | 196 | 16 项提交分支队列 + 单 Bank 512 项 1R1W `u_rec` + `T0 → T1` 流水寄存器 |
+| `bpu_hist_vec.sv` / `bpu_spec.sv` | 159 + 394 | 256b 投机历史环 / 200b 架构移位器与投机/架构 RAS；`bpu_hist_vec` 的综合 / 仿真两种写法只在 `sym_n ≤ MAX_SYM` 时等价（[06 第 4 节](../06-equivalence-policy.md)），`bpu_spec` 用 SVA 断言 `hr_push_n ≤ 2` |
+| `bpu_eval.sv` | 257 | S0（2-Ahead `ah_a1_raw_q` + `u_ftb0`）与 S2（`u_ftb1` + `self0` 并行评估、Cut A2、`fin_diff` 与元数据生成） |
+| `bpu_ctl.sv` / `bpu_cmd.sv` | 49 + 99 | 3 级单块控制与历史/RAS/PC 下一拍命令（S2 覆盖当拍恢复） |
 | `bpu_pdq.sv` | 65 | 32 项预译码检查点 FIFO |
-| `bpu.sv` | 364 | 顶层：`A0 → A1 → S0 → S1 → S2` 流水、`self0` 捕获、`u_rf_rec[256]` 与外部兼容接口 |
+| `bpu.sv` | 337 | 顶层：`A0 → A1 → S0 → S1 → S2` 流水、`self0` 捕获、`u_rf_rec[256]` 与外部兼容接口 |
 
 
 ## 5. 一拍内的数据流
 
 - **A0 → S0**：`ah_a1_raw_q` 保持已在 `A0` 读出并稳定寄存的数据；`S0` 拍用当前 `spec_ex_fh` 与 `prev_base_q` 做 2-Way tag 比较（2 路并行 `hit0/hit1` 选路，无串行循环），`u_ftb0` 64 组 × 4 路并行读出后按 `resolve_ah_dir` 选中 4 槽方向并与 `g0` 求值合并。
-- **S2**：`self0_raw_q` 仅使用寄存 FF 数据，与 `u_ftb1` 同步 1RW 宏读（`CLK→Q`）及 tag 比对**并行**完成 0-Ahead 2-Way 6 表 TAGE + 4 表 ITT 选路；若 `BPU_FAST_OVR=1` 触发 `ovr`，当拍同步驱动 `u_spec` 检查点恢复、`ah_rd_en_eff` 重启 A0 并清 `r0_q`/`r1_q`/`ah_a1_raw_q`；若 Tier 1/DC 发现 `ovr → u_spec` 或 `ovr → A0` 成为瓶颈，可将 `bpu_stage_pkg::BPU_FAST_OVR` 一键切回 `1'b0` 验证 `ovr_pend_q` 解耦收益。
+- **S2**：`self0_raw_q` 仅使用寄存 FF 数据，与 `u_ftb1` 同步 1RW 宏读（`CLK→Q`）及 tag 比对**并行**完成 0-Ahead 2-Way 6 表 TAGE + 4 表 ITT 选路；若触发 `ovr`，当拍同步驱动 `u_spec` 检查点恢复、`ah_rd_en_eff` 重启 A0 并清 `r0_q`/`r1_q`/`ah_a1_raw_q`（原 `BPU_FAST_OVR=0` 的 1 拍 `ovr_pend_q` 解耦已于 2026-11-28 删除；若 `ovr → u_spec` / `ovr → A0` 成为瓶颈需重新实现）。
 - **Train**：`T0 → T1` 提交流水将 `u_rec` 宏读与 `compute_commit_plan` 彻底切分到 `T0`/`T1` 两拍，避免 `u_rec → WRBypass → u_ftb1/u_ah_ex_tage` 跨宏长路径。
 
 ## 6. 关键路径与深度（面积与综合实测）
@@ -132,7 +132,7 @@ SRAM 复位：`bpu_sram_1rw_banked` 有 `rst_n` 端口，复位期间把阵列�
 ## 7. 与模型的差异
 
 - `u_ftb0` 内部按 20-bit 槽压缩目标存储（`141b/项`），仅镜像 `ftb_s0_tgt_fits`（`±1 MB`）或 `BR_RET`；C++ 模型 `FtbTab` 保留全宽 `target` 字段。经 77 程序 `fm_gate.sh` 实测，功能与周期全部 0 差异。
-- `BPU_FAST_OVR` 编译期由 `bpu_stage_pkg::BPU_FAST_OVR` 控制（默认 `1'b1`）。模型只实现这一种配置：2026-11-28 删掉了 fe-2ahead 的 20 个 `FE_*` 运行时开关（`FE_PRED_ARCH`、`FE_AH_MODE`、`FE_TRAIN_LAT`、`FE_ICACHE_PIPE` 等）和它们的死分支（第二套预测器 aftb / atage / S2 ExBlockTage / S2 ITT、1-Ahead、`ovr_pend`、S3 级），77 程序周期与删除前逐个相同；和 RTL 比周期不需要设环境变量，`fm_gate.sh` 77/77 逐拍等价。交接时记录的 "44/77 周期差" 是模型没带当时那组环境变量跑出来的参考表造成的，不是 RTL 回退。
+- S2 覆盖固定为快速覆盖（原 `BPU_FAST_OVR = 1`；2026-11-28 删开关）。模型只实现这一种配置：2026-11-28 删掉了 fe-2ahead 的 20 个 `FE_*` 运行时开关（`FE_PRED_ARCH`、`FE_AH_MODE`、`FE_TRAIN_LAT`、`FE_ICACHE_PIPE` 等）和它们的死分支（第二套预测器 aftb / atage / S2 ExBlockTage / S2 ITT、1-Ahead、`ovr_pend`、S3 级），77 程序周期与删除前逐个相同；和 RTL 比周期不需要设环境变量，`fm_gate.sh` 77/77 逐拍等价。交接时记录的 "44/77 周期差" 是模型没带当时那组环境变量跑出来的参考表造成的，不是 RTL 回退。
 
 ## 8. 验证
 
@@ -150,10 +150,11 @@ SRAM 复位：`bpu_sram_1rw_banked` 有 `rst_n` 端口，复位期间把阵列�
 
 ## 9. 参数与开关速查
 
-- `bpu_stage_pkg::BPU_FAST_OVR`（默认 `1'b1`）：S2 覆盖当拍重启 A0；`1'b0` 退回 1 拍 `ovr_pend_q`。模型只实现默认值；`0` 只用于第 6 节的综合 A/B 对照，没有周期回归。
+- 无开关（`BPU_FAST_OVR` 2026-11-28 删除，固定为 S2 覆盖当拍重启 A0；第 6 节的 `FAST_OVR=0` 综合对照是删除前的历史数据）。
 - 尺寸常量见第 2 节。
 
 ## 10. 变更记录
 
+- 2026-11-28 清理：删 `BPU_FAST_OVR`（只取过 1）及慢覆盖状态 `ovr_pend_q` / `ovr_ck_q` / `ovr_out_q` / `ovr_base_q` / `issue_no_ovr`、`bpu_ctl.ovr_pend`、`bpu_cmd` 的 `ovr_pend / ovr_ck / ovr_out` 口与 `act_*` 选择、`bpu_spec.ovr` 口与恒假三目；2-Ahead 键的折叠历史只存 `k = 0` 片（新类型 `ex_fh0_t`，`ah_key_q` / `ah_a1_raw_q` / `r0_q` / `r1_q` / `ftb_rec_t`（`u_rec` SRAM 宽度 −144 位）/ `train_t1_rc_q` 各少 144 位，原 `[2:1]` 片只写不读）；删 `bpu_ftb_tab.clr_hold_valid_q`（只写不读）、包内死项 `bpu_pkg::PC_W / BANK_W`、`bpu_stage_pkg::LANE_W / hist_push / hist_push_sym / ras_push / ras_pop`，`u_rf_rec` / `u_rec` 不再显式传 `WRITE_FIRST`（`ttg_sram_1r1w` 固定写优先）；删不起作用的 `UNUSED*` 豁免，`bpu.sv` 的 `unused_ok` 汇点去掉其实有读者的项（只留 `upd_pc`、`next_rf_blk` 高位）（周期不变；第 4 节 `u_rec` 宏数未重测）。
 - 2026-11-28（`rtl/fe-2ahead`）：基于 `main`（`6c42731` Clean BPU v11 + EXP-071 快速 PPA 工具链）重构为 **Pure Single-Set Unified 2-Ahead BPU**，修复 `bpu.sv` `u_spec.issue` 在 `BPU_FAST_OVR=1` 下的 override 门控后通过 `lint`/`lint_chip`/77 程序 `fm_gate`（0 周期差），并在 `eda` 集群完成 `Tier 0-elab` 与 `Tier 1` 实测（含 `BPU_FAST_OVR=0` A/B 对照与 `front_top` 整前端综合）。
 - 2026-11-28（`rtl/fe-2ahead`）：文档按 TEMPLATE 十节重排（新增第 2 节常量表、第 3 节端口表、文件行数），补 SRAM 复位清零说明，门禁改为对 `scripts/ref_cycles.txt`；`front_top` 的 32 KiB ICache 数字标为已被取代。

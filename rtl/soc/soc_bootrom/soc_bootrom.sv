@@ -162,12 +162,10 @@ module soc_bootrom import soc_axi_pkg::*; #(
     end
   end
 
-  /* verilator lint_off UNUSEDSIGNAL */
   logic unused_sig;
   assign unused_sig = &{1'b0, s_arlock, s_arcache, s_arprot, s_arqos, s_arregion,
                         s_awaddr, s_awlen, s_awsize, s_awburst, s_awlock, s_awcache, s_awprot,
                         s_awqos, s_awregion, s_wdata, s_wstrb};
-  /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule
 

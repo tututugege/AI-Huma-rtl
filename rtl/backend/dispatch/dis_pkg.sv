@@ -6,15 +6,13 @@ package dis_pkg;
 
   // ---- geometry (all derived from ttg_cfg_pkg / reference config.h) -----------------------------
   localparam int NUM_SLOTS = DECODE_WIDTH;                  // dispatch lanes == decode lanes
-  localparam int SLOT_IDX_W = $clog2(NUM_SLOTS);
-  localparam bit FP_EN = (FPRF_NUM != 0);                   // F/D: the core has an FP register file and an FP queue
   // issue queues (the numbering of dis2iss / iss2dis): the memory queue holds the loads and the store addresses
   localparam int IQ_NUM  = 6;
   localparam int IQ_INT  = 0;
   localparam int IQ_MEM  = 1;
   localparam int IQ_STD  = 2;
   localparam int IQ_BR   = 3;
-  localparam int IQ_FP   = 4;                               // only exists when FP_EN
+  localparam int IQ_FP   = 4;
   localparam int IQ_INT1 = 5;                               // the second integer queue
   // kinds of uop an instruction is split into (dispatch_decompose): at most one uop of each kind per instruction; the
   // kinds LD and STA both go to the memory queue (an AMO sends both), INT goes to IQ_INT or IQ_INT1
@@ -24,9 +22,8 @@ package dis_pkg;
   localparam int K_STA = 2;
   localparam int K_STD = 3;
   localparam int K_BR  = 4;
-  localparam int K_FP  = 5;                                 // only exists when FP_EN
+  localparam int K_FP  = 5;
   localparam int IQ_PORTS = MAX_IQ_DISPATCH_WIDTH;          // request ports per IQ
-  localparam int IQ_PORT_W = $clog2(IQ_PORTS);
   localparam int IQ_POS_W = $clog2(2 * NUM_SLOTS + 1);      // full pre-fire IQ queue position (no mod-8 alias for AMOs)
   localparam int STQ_PORTS = MAX_STQ_DISPATCH_WIDTH;
   localparam int LDQ_PORTS = MAX_LDQ_DISPATCH_WIDTH;
@@ -64,7 +61,7 @@ package dis_pkg;
   } uop_op_e;
 
   // FpCls (Ref: base_types.h): which unit class an OP-FP / fused instruction needs
-  localparam logic [2:0] FPC_FMA = 3'd1, FPC_FDIV = 3'd2, FPC_MISC = 3'd3, FPC_I2F = 3'd4;
+  localparam logic [2:0] FPC_FDIV = 3'd2, FPC_MISC = 3'd3, FPC_I2F = 3'd4;
 
   // One renamed instruction as held in the dispatch register stage (RenDisIO::RenDisInst minus
   // perf/debug sidebands and the dead expect/cplt masks and src2_areg).
@@ -101,7 +98,7 @@ package dis_pkg;
     logic                      pf_inst_hi;
     logic                      illegal_inst;
     logic [LSU_MDP_BITS-1:0]   mdp;
-    logic [31:0]               pc;           // wait-table index of the PC (LSU_MEMSPEC; loads only use it)
+    logic [31:0]               pc;           // wait-table index of the PC (loads only use it)
     logic                      is_rvc;        // 16-bit instruction (RVC=1): the link value of JAL/JALR is 2
   } dis_inst_t;
 

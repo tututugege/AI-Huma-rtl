@@ -37,7 +37,6 @@ module dispatch_core
   input  logic [STQ_FREE_W-1:0]         stq_free,
   input  logic [LDQ_FREE_W-1:0]         ldq_free,
   input  logic [LDQ_IDX_WIDTH-1:0]      ldq_alloc_idx   [LDQ_PORTS],
-  input  logic [LDQ_PORTS-1:0] ldq_alloc_valid,
   output logic [STQ_PORTS-1:0] st_req,
   output logic [2:0]                    st_func3    [STQ_PORTS],
   output logic [ROB_IDX_WIDTH-1:0]      st_rob_idx  [STQ_PORTS],
@@ -92,7 +91,7 @@ module dispatch_core
   dispatch_lsu_alloc u_lsu_alloc (
     .inst_valid(inst_valid), .is_load(is_load), .is_store(is_store), .stq_tail(stq_tail),
     .stq_tail_flag(stq_tail_flag), .stq_free(stq_free), .ldq_free(ldq_free),
-    .ldq_alloc_idx(ldq_alloc_idx), .ldq_alloc_valid(ldq_alloc_valid), .lsu_ok(lsu_ok),
+    .ldq_alloc_idx(ldq_alloc_idx), .lsu_ok(lsu_ok),
     .stq_idx(stq_idx), .stq_flag(stq_flag), .ldq_idx(ldq_idx),
     .st_port_sel(st_port_sel), .ld_port_sel(ld_port_sel));
 
@@ -171,7 +170,7 @@ module dispatch_core
       has_iq[i][IQ_MEM]  = lane_has[K_LD] || lane_has[K_STA];
       has_iq[i][IQ_STD]  = lane_has[K_STD];
       has_iq[i][IQ_BR]   = lane_has[K_BR];
-      if (FP_EN) has_iq[i][IQ_FP] = lane_has[K_FP];
+      has_iq[i][IQ_FP]   = lane_has[K_FP];
       uop_iq[i][IQ_INT]  = lane_uop[K_INT];
       uop_iq[i][IQ_INT1] = lane_uop[K_INT];
       uop_iq[i][IQ_MEM]  = lane_has[K_LD] ? lane_uop[K_LD] : lane_uop[K_STA];   // a load, else a store address

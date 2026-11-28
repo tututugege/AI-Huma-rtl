@@ -28,10 +28,10 @@ depth: **19 层 / 6,595 cells**（Yosys `strash;balance;map`，2026-11-25，较 
 | lane 数 | 8 | `DECODE_WIDTH` |
 | 指令字宽度 | 32（压缩指令在前端 `front_head_fix` 里已展开） | `ib_entry_t.inst` |
 | FTQ 窗口 | 一组内 `ftq_idx` 差 < 8 | `idu.sv`（8 = `ftq_pc` 的 bank 数，代码里是位切片 `[FTQ_IDX_WIDTH-1:3]`） |
-| 译码类别 | 40 类（含"非法"）；无 FP 时 FP 类全零 | `idu_ctrl_decode` 的 `NCLS = 40` |
-| 常量表 ROM 行宽 | 22 位 | `ROMW` |
-| F/D | 开 | `FPRF_NUM != 0` |
-| 已知 CSR | 24 个（无 FP 时 21 个） | `NUM_KNOWN_CSR`；不在表里的 CSR 访问译成 NOP 并标为非法指令（`CLS_CSR_NOP`，`csr_illegal` 恒为 1） |
+| 译码类别 | 40 类（含"非法"） | `idu_ctrl_decode` 的 `NCLS = 40` |
+| 常量表 ROM 行宽 | 21 位 | `ROMW` |
+| F/D | 总是开 | 无开关 |
+| 已知 CSR | 24 个 | `NUM_KNOWN_CSR`；不在表里的 CSR 访问译成 NOP 并标为非法指令（`CLS_CSR_NOP`，`csr_illegal` 恒为 1） |
 
 ## 3. 接口
 
@@ -55,9 +55,9 @@ depth: **19 层 / 6,595 cells**（Yosys `strash;balance;map`，2026-11-25，较 
 
 | 文件 | 行数 | 职责 |
 | --- | --- | --- |
-| `idu.sv` | 94 | 顶层：FTQ 窗口截断、8 路译码器、`consume_fire` |
-| `idu_decoder.sv` | 115 | 一个 lane：包装控制字和立即数，取指缺页时变 NOP，`c.mv` 规范化 |
-| `idu_ctrl_decode.sv` | 285 | 控制字：40 个互斥类别（一热）+ 常量表 ROM（`ROMW = 22` 位一行） |
+| `idu.sv` | 88 | 顶层：FTQ 窗口截断、8 路译码器、`consume_fire` |
+| `idu_decoder.sv` | 112 | 一个 lane：包装控制字和立即数，取指缺页时变 NOP，`c.mv` 规范化 |
+| `idu_ctrl_decode.sv` | 283 | 控制字：40 个互斥类别（一热）+ 常量表 ROM（`ROMW = 22` 位一行） |
 | `idu_imm_gen.sv` | 35 | 各种格式的立即数一热选择 |
 
 状态：无。
@@ -96,7 +96,7 @@ depth: **19 层 / 6,595 cells**（Yosys `strash;balance;map`，2026-11-25，较 
 - 译码本身：模型用共享的软件译码器 `decode_inst`（`bridge/include/InstDecode.h`），RTL 是手写的类别一热 + ROM；两者一致靠 `fm_gate` 的逐条比较（含 Linux 启动）和 `tests/fp_decode`（只覆盖 F/D 类别）；
 - 译码结果对无效 lane 没有意义（RTL 对无效 lane 也照常译码，下游只在 `valid` 时读）。
 
-已发现、未改动：`idu.sv`、`idu_*` 文件头注释里的"reference model commit 2f31e8d"已过时；`idu_decoder.sv` 头注释还写"everything except br_id / br_mask"，分支标签已删除。
+已发现、未改动：`idu.sv`、`idu_*` 文件头注释里的"reference model commit 2f31e8d"已过时。
 
 ## 8. 验证
 
@@ -110,6 +110,7 @@ depth: **19 层 / 6,595 cells**（Yosys `strash;balance;map`，2026-11-25，较 
 
 ## 10. 变更记录
 
+- 2026-11-28 清理：删 ROM 的 `is_branch` 列（`ROMW` 22 → 21）、`idu_ctrl_decode` / `idu_decoder` 的 `is_branch` 输出和 `idu_decoder` 的 `entry_valid` 输入、`idu.sv` 的 `lane_is_branch`；F/D 写死（删 `HAS_FP`，`NUM_KNOWN_CSR = 24`）；`idu_decoder` 头注释去掉 `br_id / br_mask`（周期不变）。
 - 2026-11-28（`rtl/fe-2ahead`）：文档按现行 RTL 重写（第 1–9 节；旧正文描述的是 EXP-070 之前 / 删除分支标签之前的结构）。
 - 2026-11-25（`idu_br_latch` 迁出至 `back_top`）：将 `idu_br_latch.sv` 移至 `rtl/backend/back_top/` 并删除透传模块 `idu_bcast.sv`，`idu.sv` 去掉 `clk`/`rst_n` 与全部 `exu2id_*`/`dec_bcast_*`/`br_latch_*` 端口（仅保留 1-bit 输入 `dec_bcast_mispred`），成为纯组合 8 路译码器（零周期变化）。
 - 2026-11-25（`rtl/rob-ptr-bpu`，方案 C 9-bit `rob_ptr` 冲刷）：彻底删除 `br_id` / `br_mask` / `clear_mask` 及 5 个分支标签子模块（`idu_br_alloc` / `idu_br_group` / `idu_br_state` / `idu_br_cp` / `idu_fire_ctl`），`idu_br_latch` / `idu_bcast` 透传 `{redirect_rob_flag, redirect_rob_idx}`；Yosys **19 层 / 6,595 cells**（原 66 层 / 31,607 cells），TSMC 28nm DC **14 级 / 0.37 ns（2.70 GHz）/ WNS 0.00 ns / 1,994.2 µm²**（较 `main` 18,195.6 µm² **−89.0%**）；`lint_chip` 0、`fm_gate` 69/69（0 周期差）、Linux 26/26 窗 PT/UP 100% 全等。

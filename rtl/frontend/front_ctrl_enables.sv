@@ -20,7 +20,6 @@ module front_ctrl_enables import ttg_cfg_pkg::*; import front_pkg::*; (
   input  logic [1:0] bpu_override_squash_n,
   output logic       fa_rd_en,
   output logic       predecode_can_run,
-  output logic       bpu_can_run,
   output logic       bpu_icache_read_ready,
   output logic       fa_wr_en,
   output logic [1:0] fa_drop_tail_n,
@@ -28,7 +27,7 @@ module front_ctrl_enables import ttg_cfg_pkg::*; import front_pkg::*; (
   output logic       do_predecode_flush
 );
 
-  logic bpu_stall;
+  logic bpu_stall, bpu_can_run;
 
   always_comb begin
     fa_rd_en              = icache_ready && !fa_empty && !global_refetch && (fa_cnt_sat > bpu_hold_n) && inst_fifo_room;

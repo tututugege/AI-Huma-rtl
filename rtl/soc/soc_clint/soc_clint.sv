@@ -4,7 +4,7 @@
 // Real hardware CLINT supporting both AI-Huma ttg64gc.dts (0x1FD0_E000) and standard SiFive CLINT (0x0200_0000):
 //   0x1FD0_E000: +0x00 mtime (64b), +0x08 mtimecmp (64b), +0x10 msip (1b), +0x18 rtc_cfg (bit0=core_clk_tick)
 //   0x0200_0000: +0x0000 msip, +0x4000 mtimecmp, +0xBFF8 mtime
-module soc_clint import soc_pkg::*; (
+module soc_clint import soc_axi_pkg::*; (
   input  logic        clk,
   input  logic        rst_n,
   input  logic        rtc_tick,
@@ -74,11 +74,11 @@ module soc_clint import soc_pkg::*; (
   assign s_arready = !rvalid_q;
   assign s_rvalid  = rvalid_q;
   assign s_rdata   = rdata_q;
-  assign s_rresp   = AXI_RESP_OKAY;
+  assign s_rresp   = AXI4_RESP_OKAY;
   assign s_awready = !aw_v_q && !bvalid_q;
   assign s_wready  = !w_v_q  && !bvalid_q;
   assign s_bvalid  = bvalid_q;
-  assign s_bresp   = AXI_RESP_OKAY;
+  assign s_bresp   = AXI4_RESP_OKAY;
   assign mtip      = (mtime_q >= mtimecmp_q);
   assign msip      = msip_q;
 
@@ -168,10 +168,8 @@ module soc_clint import soc_pkg::*; (
     end
   end
 
-  /* verilator lint_off UNUSEDSIGNAL */
   logic [5:0] unused_addr;
   assign unused_addr = {s_araddr[2:0], s_awaddr[2:0]};
-  /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule
 

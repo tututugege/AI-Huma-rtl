@@ -6,7 +6,7 @@
 //   +1 IER (RW) / DLM (DLAB=1)               +5 LSR (bit0 DR, bit5 THRE, bit6 TEMT)
 //   +2 IIR (RO) / FCR (WO, FIFO reset)       +6 MSR (0xB0: CTS/DSR/DCD)
 //   +3 LCR (bit7 DLAB, reset 0x03 = 8N1)     +7 SCR (RW scratch)
-module soc_uart import soc_pkg::*; (
+module soc_uart import soc_axi_pkg::*; (
   input  logic        clk,
   input  logic        rst_n,
   input  logic        uart_rxd,
@@ -92,11 +92,11 @@ module soc_uart import soc_pkg::*; (
   assign s_arready = !rvalid_q;
   assign s_rvalid  = rvalid_q;
   assign s_rdata   = rdata_q;
-  assign s_rresp   = AXI_RESP_OKAY;
+  assign s_rresp   = AXI4_RESP_OKAY;
   assign s_awready = !aw_v_q && !bvalid_q;
   assign s_wready  = !w_v_q  && !bvalid_q;
   assign s_bvalid  = bvalid_q;
-  assign s_bresp   = AXI_RESP_OKAY;
+  assign s_bresp   = AXI4_RESP_OKAY;
 
   // Read channel (exact offset 0 with DLAB=0 pops RX FIFO)
   always_comb begin
@@ -209,10 +209,8 @@ module soc_uart import soc_pkg::*; (
     end
   end
 
-  /* verilator lint_off UNUSEDSIGNAL */
   logic [60:0] unused_addr;
   assign unused_addr = {s_araddr[31:3], s_awaddr};
-  /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule
 

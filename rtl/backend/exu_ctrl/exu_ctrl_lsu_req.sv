@@ -6,9 +6,7 @@ module exu_ctrl_lsu_req
   import ttg_cfg_pkg::*;
   import exu_ctrl_pkg::*;
 (
-  /* verilator lint_off UNUSEDSIGNAL */   // waiver: only the N_AGU slots drive AGU occupancy
   input  logic [N_FU-1:0]          fu_occ,
-  /* verilator lint_on UNUSEDSIGNAL */
   input  xc_done_t                 fu_done [N_FU],
   output xc_agu_req_t              exe2lsu_agu [N_AGU],
   output logic [N_SDU-1:0]         sdu_valid,

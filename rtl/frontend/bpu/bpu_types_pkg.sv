@@ -107,7 +107,7 @@ package bpu_types_pkg;
 
   typedef struct packed {
     logic valid; logic [FTB_BLK_ID_W-1:0] id; logic [XLEN_BITS-1:0] base; ex_fh_t ex_fh;
-    logic ah_v, ah_self0; logic [XLEN_BITS-1:0] ah_key_base, prev_base; ex_fh_t ah_key_ex_fh;
+    logic ah_v, ah_self0; logic [XLEN_BITS-1:0] ah_key_base, prev_base; ex_fh0_t ah_key_ex_fh;
     ftb1_lookup_meta_t ftb1_meta; ah_pred_meta_t ah_meta;
   } ftb_rec_t;
 
@@ -118,7 +118,7 @@ package bpu_types_pkg;
 
   typedef struct packed { ex_tage_raw_t ex_tage_raw; ftb_itt_raw_t itt_raw; } ftb_ah_raw_t;
   typedef struct packed {
-    logic valid; logic [XLEN_BITS-1:0] key_base; ex_fh_t key_ex_fh; ftb_ah_raw_t raw;
+    logic valid; logic [XLEN_BITS-1:0] key_base; ex_fh0_t key_ex_fh; ftb_ah_raw_t raw;
   } ftb_ah_pipe_t;
   typedef struct packed {
     ftb_ent_t ent; logic slot_found; logic [FTB_SLOT_W-1:0] slot_idx; logic [1:0] slot_ctr;
@@ -148,7 +148,7 @@ package bpu_types_pkg;
   /* verilator lint_off UNUSEDSIGNAL */
   function automatic ex_tage_ix_t make_ah_ex_tage_index(input logic [XLEN_BITS-1:0] key_base,
                                                         input logic [XLEN_BITS-1:0] cur_base,
-                                                        input ex_fh_t key_ex_fh, input ex_fh_t tag_ex_fh,
+                                                        input ex_fh0_t key_ex_fh, input ex_fh_t tag_ex_fh,
                                                         input logic [XLEN_BITS-1:0] prev_base, input logic is_self0);
     ex_tage_ix_t ix;
     logic [31:0] wk, wc, sec, self_xor;
@@ -158,7 +158,7 @@ package bpu_types_pkg;
     self_xor = is_self0 ? 32'h555 : 32'd0;
     ix.w     = (wc != 32'd0) ? wc : wk;
     for (int t = 0; t < EX_TN; t++) begin
-      ix.idx[t] = EX_TAGE_IDX_W'(wk ^ (wk >> 11) ^ 32'(key_ex_fh[0][t]));
+      ix.idx[t] = EX_TAGE_IDX_W'(wk ^ (wk >> 11) ^ 32'(key_ex_fh[t]));
       ix.tag[t] = EX_TAGE_TAG_W'(wc ^ (wc >> 11) ^ wk ^ 32'(tag_ex_fh[1][t]) ^
                                  (32'(tag_ex_fh[2][t]) << 1) ^ sec ^ self_xor);
     end
@@ -167,7 +167,7 @@ package bpu_types_pkg;
 
   function automatic itt_ix_t make_ah_itt_index(input logic [XLEN_BITS-1:0] key_base,
                                                 input logic [XLEN_BITS-1:0] cur_base,
-                                                input ex_fh_t key_ex_fh, input ex_fh_t tag_ex_fh,
+                                                input ex_fh0_t key_ex_fh, input ex_fh_t tag_ex_fh,
                                                 input logic [XLEN_BITS-1:0] prev_base, input logic is_self0);
     itt_ix_t     ix;
     logic [31:0] wk, wc, sec, self_xor;
@@ -178,7 +178,7 @@ package bpu_types_pkg;
     for (int k = 0; k < NITT; k++) begin
       int e;
       e         = ITT_EX_MAP[k];
-      ix.idx[k] = FTB_ITT_IDX_W'(wk ^ (wk >> 10) ^ 32'(key_ex_fh[0][e]));
+      ix.idx[k] = FTB_ITT_IDX_W'(wk ^ (wk >> 10) ^ 32'(key_ex_fh[e]));
       ix.tag[k] = FTB_TAG_W'(wc ^ (wc >> 10) ^ wk ^ 32'(tag_ex_fh[1][e]) ^
                              (32'(tag_ex_fh[2][e]) << 1) ^ sec ^ self_xor);
     end

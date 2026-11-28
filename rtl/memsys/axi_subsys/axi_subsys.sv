@@ -3,7 +3,7 @@
 // (+ the LLC tables of MemSubsystem.cpp AxiLlcTableRuntime)
 // The whole AXI interconnect / LLC subsystem: axi_interconnect (core) + axi_llc (control + SRAM tables),
 // wired port to port.
-// Boundary = master ports and the DDR slave (spec/axi_subsys.io); DDR/MMIO models stay in the testbench.
+// Boundary = master ports and the DDR slave; DDR/MMIO models stay in the testbench.
 module axi_subsys (
   input  logic clk,
   input  logic rst_n,

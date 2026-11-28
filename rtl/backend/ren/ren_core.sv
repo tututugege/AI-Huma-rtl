@@ -44,10 +44,7 @@ module ren_core
   logic [N-1:0] fp_alloc_req, fp_alloc_valid;   // F/D: slots that need / got an FP register (own free list)
   logic [N-1:0] req_all, valid_all;             // both domains, for the in-order stall chain
   logic [N-1:0] elim;                           // move elimination: renamed away, takes no free register
-  // waiver (reviewed): only consumed by ren_elim_sel, which exists when MOVE_ELIM != 0
-  /* verilator lint_off UNUSEDSIGNAL */
   logic [N-1:0] move_shape;
-  /* verilator lint_on UNUSEDSIGNAL */
   ren_inst_t    inst [N];
   preg_t        window [N], alloc_reg [N], free_count, head;
   // rename
@@ -62,9 +59,6 @@ module ren_core
   logic                     walk_active;
   logic [N-1:0]             log_ok, walk_slot_en;
   logic [ROB_IDX_WIDTH-1:0] lane_rob_idx [N];
-  /* verilator lint_off UNUSEDSIGNAL */
-  logic [ROB_IDX_WIDTH-1:0] log_rd_base;
-  /* verilator lint_on UNUSEDSIGNAL */
   logic [ROB_IDX_WIDTH-1:0] log_rd_base_next;
   logic                     ckpt_wr_en, ckpt_rd_hit;
   logic [KW-1:0]            ckpt_wr_slot, ckpt_rd_slot;
@@ -167,7 +161,7 @@ module ren_core
     .commit_valid(c_valid), .flush(rob_flush), .mispred(dec_mispred),
     .dec_redirect_rob_idx(dec_redirect_rob_idx),
     .walk_active(walk_active), .log_ok(log_ok), .lane_rob_idx(lane_rob_idx),
-    .rd_base(log_rd_base), .rd_base_next(log_rd_base_next), .walk_slot_en(walk_slot_en),
+    .rd_base_next(log_rd_base_next), .walk_slot_en(walk_slot_en),
     .ckpt_wr_en(ckpt_wr_en), .ckpt_wr_slot(ckpt_wr_slot), .ckpt_wr_lane_oh(ckpt_wr_lane_oh),
     .ckpt_rd_hit(ckpt_rd_hit), .ckpt_rd_slot(ckpt_rd_slot)
   );
@@ -180,13 +174,9 @@ module ren_core
   ttg_popcount #(.N(N)) u_walk_int_pc (.bits(walk_int_alloc), .count(walk_int_cnt));
 
   // ---- move elimination: which moves are renamed away (Ren::elim_refs_ok) ----
-  if (MOVE_ELIM != 0) begin : g_elim
-    ren_elim_sel u_elim (
-      .inst_valid(inst_valid), .move_shape(move_shape), .raw_hit_src1(pipe_hit_src1_q), .elim(elim)
-    );
-  end else begin : g_no_elim
-    assign elim = '0;
-  end
+  ren_elim_sel u_elim (
+    .inst_valid(inst_valid), .move_shape(move_shape), .raw_hit_src1(pipe_hit_src1_q), .elim(elim)
+  );
 
   // ---- allocation (comb_alloc) ----
   ren_alloc_sel u_alloc (
@@ -212,31 +202,19 @@ module ren_core
   );
 
   // ---- F/D domain ----
-  if (FPRF_NUM != 0) begin : g_fp
-    logic [C-1:0] reclaim_fp;   // retiring FP destinations: ren_fp's arch RAT / free list
-    assign reclaim_fp = reclaim_all & c_fp;
-    ren_fp u_fp (
-      .clk(clk), .rst_n(rst_n), .inst_valid(inst_valid), .inst(inst), .fire(fire),
-      .dec_mispred(dec_mispred), .rob_flush(rob_flush),
-      .ckpt_wr_en(ckpt_wr_en), .ckpt_wr_slot(ckpt_wr_slot), .ckpt_wr_lane_oh(ckpt_wr_lane_oh),
-      .ckpt_rd_hit(ckpt_rd_hit), .ckpt_rd_slot(ckpt_rd_slot),
-      .walk_active(walk_active), .walk_slot_en(walk_slot_en), .walk_entry(log_rd_slot),
-      .reclaim(reclaim_fp), .c_dest_areg(c_dest_areg),
-      .c_dest_preg(c_dest_preg), .c_old_dest_preg(c_old_dest_preg), .alloc_req(fp_alloc_req),
-      .alloc_valid(fp_alloc_valid), .dest_preg(fp_dest), .src1_preg(fp_src1), .src2_preg(fp_src2),
-      .src3_preg(fp_src3), .old_dest_preg(fp_old)
-    );
-  end else begin : g_no_fp
-    assign fp_alloc_req   = '0;
-    assign fp_alloc_valid = '0;
-    for (genvar i = 0; i < N; i++) begin : g_zero
-      assign fp_dest[i] = '0;
-      assign fp_src1[i] = '0;
-      assign fp_src2[i] = '0;
-      assign fp_src3[i] = '0;
-      assign fp_old[i]  = '0;
-    end
-  end
+  logic [C-1:0] reclaim_fp;   // retiring FP destinations: ren_fp's arch RAT / free list
+  assign reclaim_fp = reclaim_all & c_fp;
+  ren_fp u_fp (
+    .clk(clk), .rst_n(rst_n), .inst_valid(inst_valid), .inst(inst), .fire(fire),
+    .dec_mispred(dec_mispred), .rob_flush(rob_flush),
+    .ckpt_wr_en(ckpt_wr_en), .ckpt_wr_slot(ckpt_wr_slot), .ckpt_wr_lane_oh(ckpt_wr_lane_oh),
+    .ckpt_rd_hit(ckpt_rd_hit), .ckpt_rd_slot(ckpt_rd_slot),
+    .walk_active(walk_active), .walk_slot_en(walk_slot_en), .walk_entry(log_rd_slot),
+    .reclaim(reclaim_fp), .c_dest_areg(c_dest_areg),
+    .c_dest_preg(c_dest_preg), .c_old_dest_preg(c_old_dest_preg), .alloc_req(fp_alloc_req),
+    .alloc_valid(fp_alloc_valid), .dest_preg(fp_dest), .src1_preg(fp_src1), .src2_preg(fp_src2),
+    .src3_preg(fp_src3), .old_dest_preg(fp_old)
+  );
 
   for (genvar i = 0; i < N; i++) begin : g_out
     assign ren2dis_uop[i] = '{diag_val: inst[i].diag_val, dest_areg: inst[i].dest_areg,
@@ -268,16 +246,12 @@ module ren_core
   // the FP domain has its own free list / arch RAT (ren_fp); alloc_total above counts INT registers only
   assign reclaim = reclaim_all & ~c_fp;
 
-  // free-list returns: without move elimination every retiring destination frees its old register; with it, only
-  // when no architectural RAT entry names the register any more
-  if (MOVE_ELIM != 0) begin : g_cnt
-    ren_arch_cnt u_cnt (
-      .clk(clk), .rst_n(rst_n), .reclaim(reclaim), .dest_preg(c_dest_preg), .old_preg(c_old_dest_preg),
-      .free(free)
-    );
-  end else begin : g_no_cnt
-    assign free = reclaim;
-  end
+  // free-list returns (move elimination): a retiring destination frees its old register only when no architectural
+  // RAT entry names the register any more
+  ren_arch_cnt u_cnt (
+    .clk(clk), .rst_n(rst_n), .reclaim(reclaim), .dest_preg(c_dest_preg), .old_preg(c_old_dest_preg),
+    .free(free)
+  );
   // 1-cycle pipelined INT free-list reclaim (decouples ren_arch_cnt from ren_free_list write)
   logic [C-1:0] free_q;
   preg_t        reclaim_preg_q [C];

@@ -4,9 +4,8 @@
 package fp_pkg;
   import ttg_cfg_pkg::*;
 
-  localparam bit FP_EN = (FPRF_NUM != 0);        // the core has an FP register file and FP units
   localparam int FLEN = 64;                      // F/D register width
-  localparam int FW = FP_EN ? FLEN : 1;          // width of the FP data buses (a 1-bit stub, tied to 0, without F/D)
+  localparam int FW = FLEN;                      // width of the FP data buses
   localparam int FFLAGS_W = 5;                   // NV DZ OF UF NX
 
   // rv32: only flw exists (32-bit data). rv64: flw (word load) is boxed, fld returns the whole 64-bit data word.

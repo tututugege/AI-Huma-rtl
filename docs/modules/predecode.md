@@ -58,17 +58,17 @@ I-Cache 回来的取指组（16 个 2 字节的槽，原始半字，存在 `inst
 | `front_pd_info` | `checked`、`flush`、`multi`、`keep_n`、`seg_first`、`slot_pc`、`ptab_pc`、`is_rvc`、指令字、`inst_valid`、类型、目标、修正后方向、预测方向、`ptab_next` | `pd_valid / flush / hn / hbits / ras_op / ras_val / ras_op2 / ras_val2 / nb_valid / nb_pc / nb_base`（寄存一拍） |
 | `front_slot_kind` | 一个指令字 | 3 位类别 |
 
-`predecode_checker` 的 `clk / rst_n` 端口没有用（纯组合，只为满足端口约定）。
+`predecode_checker` 是纯组合，没有 `clk / rst_n` 端口（2026-11-28 删掉了原来未用的这两个口）。
 
 ## 4. 结构
 
 | 文件 | 行数 | 职责 |
 | --- | --- | --- |
-| `front_head_fix.sv` | 322 | 头修正：A / B 选择、单份展开与预译码、起点扫描、FTQ pc 截断、携带、末槽、`seq_next_o` |
+| `front_head_fix.sv` | 320 | 头修正：A / B 选择、单份展开与预译码、起点扫描、FTQ pc 截断、携带、末槽、`seq_next_o` |
 | `rvc_expand.sv` | 171 | 16 位指令展开（RV64 含 c.addiw / c.subw / c.addw / c.ld / c.sd / c.ldsp / c.sdsp，开 FP 时含 c.fld / c.fsd 一族） |
 | `predecode_lane.sv` | 45 | 一个槽：按操作码分类，JAL 的 21 位、条件分支的 13 位立即数符号扩展后加 pc |
-| `predecode_checker.sv` | 154 | 检查器：单段 / 双段（`multi`）规则、`ttg_first_set` + 独热选择、`keep_n` |
-| `front_pd_info.sv` | 187 | PDCKPT 信息：第一个 taken 槽的历史符号（双段至多 6 位）、两组 RAS 操作、`nb_pc / nb_base` |
+| `predecode_checker.sv` | 148 | 检查器：单段 / 双段（`multi`）规则、`ttg_first_set` + 独热选择、`keep_n` |
+| `front_pd_info.sv` | 185 | PDCKPT 信息：第一个 taken 槽的历史符号（双段至多 6 位）、两组 RAS 操作、`nb_pc / nb_base` |
 | `front_slot_kind.sv` | 30 | 译 BPU 分支类别 |
 
 状态：只有 `front_pd_info` 里的一拍寄存器（`pd_valid_q` 等）；`front_head_fix`、检查器等是纯组合。携带寄存器 `lh_valid_q / lh_pc_q / lh_data_q` 在 `front_pred_path.sv`（见 [front_top.md](front_top.md)）。
@@ -146,6 +146,7 @@ RTL 与模型保持一致的细节（容易误判为 bug）：
 
 ## 10. 变更记录
 
+- 2026-11-28 清理：删 `predecode_checker` 未用的 `clk / rst_n` 端口，删 `predecode_checker` / `front_head_fix` / `front_pd_info` 里不起作用的 `UNUSEDSIGNAL` 豁免（`unused_*` 汇点本就不报）（周期不变）。
 - 2026-11-28（`rtl/fe-2ahead`，文档核对）：第 1、3、5 节按现行 RTL 重写（展开 / 预译码 / 起点扫描都在 `front_head_fix`；PTAB 改为统一 FTQ；双段检查 `multi` / `keep_n` 是现行功能）；文件表更新行数并去掉没有被例化的 `predecode.sv`、`sequential_next_pc.sv`（RTL 清理中删除）；第 6 节补 2026-11-21 的深度；门禁改为 77/77 对 `scripts/ref_cycles.txt`。
 - 2026-11-21（`rtl/fe-2fetch-2taken`，EXP-051 里程碑 B）：`predecode` 支持每槽独立 `slot_pc[FETCH_WIDTH]`；`front_head_fix`、`predecode_checker`、`front_pd_info` 升级支持双块多段（`multi`/`in_range`/`seg_first`/`keep_n`、双历史符号/双 RAS 操作、`pd_nb_base` 修复 RVC 携带假分支清槽）。Yosys 综合 `predecode` 10,144 单元 / 27 层（原 11,780 / 29）；通过 `lint_chip` 0、`fm_gate` 68/68（0 周期偏差，含 `directed/fe_2taken_fdip.bin`）与 Linux 27 窗检查点对齐。
 - 2026-11-18（exp/agu-share）：本组文件没有改动；指令起点前缀扫描（`front_fetch_buf`）见 front_top.md。

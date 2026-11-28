@@ -127,9 +127,6 @@ module lp_core
   lp_stq_t         sq [SQ];
   logic [LQ-1:0]   empty_w, l2_ok, rs_ok, wbp_m, pipe_r, wb3_r, wbp_r, dead_r, rdy9;
   logic [XLEN_BITS-1:0]     res_v [LQ];
-  /* verilator lint_off UNUSEDSIGNAL */
-  logic [EPW-1:0]  epoch_nx [LQ];
-  /* verilator lint_on UNUSEDSIGNAL */
   logic [NLD-1:0]  ag_acc;
   logic            mi_v;
   logic [LQW-1:0]  mi_idx;
@@ -140,23 +137,16 @@ module lp_core
   logic [CNTW-1:0] count_q, ccount_q, count_flushed;
   logic [SQ-1:0]   alive_w, win4, win13, alive_post, alive_fl, cm_go, al_v, ev_ret, done_q_v;
   logic [SQ-1:0][NDIS-1:0] al_slot;
-  /* verilator lint_off UNUSEDSIGNAL */  // cv_* kept in lp_stq; L2 CAM reads registered sq directly
-  logic [SQ-1:0]   cv_va;
-  logic [11:0]     cv_voff [SQ];
-  logic [2:0]      cv_f3 [SQ];
-  /* verilator lint_on UNUSEDSIGNAL */
   logic [SQ-1:0]   trp_v, d_elig, d_rdy, sd_acc;
   lp_sta_info_t    vw [SQ];
   logic [NST-1:0]  sa_acc;
 
   // ------------------------------------------------------------------ uncached unit, reservation
-  /* verilator lint_off UNUSEDSIGNAL */  // combinational *_o kept for lp_unc debug; per_* uses registered *_q
-  logic            unc_valid_q, unc_is_load_q, unc_valid_post_resp, unc_valid_pre_st, unc_valid_o, unc_is_load_o;
+  logic            unc_valid_q, unc_is_load_q, unc_valid_post_resp, unc_valid_pre_st;
   logic [SQW-1:0]  unc_idx_q;
-  logic [31:0]     unc_addr_q, unc_addr_o;
-  logic [XLEN_BITS-1:0] unc_wdata_q, unc_wdata_o;
-  logic [2:0]      unc_func3_q, unc_func3_o;
-  /* verilator lint_on UNUSEDSIGNAL */
+  logic [31:0]     unc_addr_q;
+  logic [XLEN_BITS-1:0] unc_wdata_q;
+  logic [2:0]      unc_func3_q;
   logic            rsv_valid_q;
   logic [31:0]     rsv_addr_q;
   logic            resp_fire;
@@ -192,12 +182,12 @@ module lp_core
       wbd_hasdata[p] = wbd_l2b_ep[p]
                        ? 1'b1 : (wbd_l2a[p] ? 1'b0 : 1'b1);
       wbd_data[p] = wbd_l2b_ep[p] ? fwd_data[p]
-                               : lsu_pkg::extract_data(dcl_data[p], ldq_q[rs_idx[p]].paddr[lsu_pkg::OW-1:0],
+                               : extract_data(dcl_data[p], ldq_q[rs_idx[p]].paddr[OW-1:0],
                                                      ldq_q[rs_idx[p]].func3);
     end
   end
 
-  // ------------------------------------------------------------------ L3 register (LP_L2[0])
+  // ------------------------------------------------------------------ L3 register
   logic [NLD-1:0]  wbw_v, wbw_hd;
   logic [LQW-1:0]  wbw_idx [NLD];
   logic [XLEN_BITS-1:0]     wbw_data [NLD];
@@ -287,7 +277,7 @@ module lp_core
     .srp_cons(srp_cons), .pf_any(pf_any), .pf_xq_v, .pf_xq_va, .pf_xq_llc, .dtlb_walk_next_v, .dtlb_walk_next_vpn,
     .pf_xq_pop, .pf_xans_v, .pf_xans_line, .pf_xans_llc, .dtlb_pf_page_set, .dtlb_pf_page_vpn);
 
-  // memory speculation (LSU_MEMSPEC): store-queue views, wait table, per-slot permission to pass unknown stores
+  // memory speculation: store-queue views, wait table, per-slot permission to pass unknown stores
   logic [NLD-1:0]  l1_launch, spec_ok;
   logic            unk_any;
   logic [SQW-1:0]  unk_rank, sa_rank [NST];
@@ -433,7 +423,7 @@ module lp_core
     .al_v(al_v), .al_slot(al_slot), .dis_st(dis_st),
     .dr_pick(dr_pick), .dr_fol(dr_fol), .dr_ml(dr_ml), .dr_mmio(dr_mmio), .srp_take(srp_take),
     .wb_mark(wb_mark), .wbi_v(wbi_v),
-    .sq(sq), .cv_va(cv_va), .cv_voff(cv_voff), .cv_f3(cv_f3), .vw(vw), .trp_v(trp_v),
+    .sq(sq), .vw(vw), .trp_v(trp_v),
     .d_elig(d_elig), .d_rdy(d_rdy), .sd_acc(sd_acc), .sa_acc(sa_acc));
 
   lp_ldq u_ldq (
@@ -456,7 +446,7 @@ module lp_core
     .rp_pick(rp_pick),
     .q_o(ldq_q), .empty_w(empty_w), .l2_ok(l2_ok), .rs_ok(rs_ok), .res_v(res_v),
     .pipe_r(pipe_r), .wb3_r(wb3_r), .wbp_r(wbp_r), .wbp_m(wbp_m),
-    .ag_acc(ag_acc), .dead_r(dead_r), .epoch_nx(epoch_nx), .rdy9(rdy9),
+    .ag_acc(ag_acc), .dead_r(dead_r), .rdy9(rdy9),
     .mi_v(mi_v), .mi_idx(mi_idx), .mi_addr(mi_addr), .mi_func3(mi_func3));
 
   // ------------------------------------------------------------------ store drain (P13), uncached unit, reservation
@@ -487,8 +477,7 @@ module lp_core
     .flush(rb_flush), .mispred(dec_mispred), .ld_empty(dead_r),
     .st_mmw(st_mmw), .alive_flushed(alive_flushed),
     .alive_final(alive_fl), .st_set(st_set), .st_addr(st_addr), .st_wdata(st_wdata), .st_func3(st_func3),
-    .st_idx(st_idx), .valid_pre_st(unc_valid_pre_st), .valid_o(unc_valid_o), .is_load_o(unc_is_load_o),
-    .addr_o(unc_addr_o), .wdata_o(unc_wdata_o), .func3_o(unc_func3_o));
+    .st_idx(st_idx), .valid_pre_st(unc_valid_pre_st));
 
   // alive_flushed: window after the rob-flush step only (keep = min(ccount, count))
   logic [SQ-1:0] flushed_mask;

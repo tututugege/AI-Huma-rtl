@@ -103,6 +103,7 @@ depth: 10 层（peripheral_axi，单模块综合，2026-11-18，`SYNTH_ABC="stra
 
 ## 10. 变更记录
 
+- 2026-11-28 清理：`peripheral_axi.sv` 文件头去掉已删除的 `spec/peripheral_axi.io` 引用（周期不变）。
 - 2026-11-28（`rtl/fe-2ahead`，文档核对）：门禁改为 77/77 对 `scripts/ref_cycles.txt`；端口、`PA_SIZE_W`、文件行数与 RTL 一致，正文无需改动。
 
 本分支未改动（`git log 261bd67..HEAD -- rtl/memsys/peripheral_axi` 为空），更早：`f0bd79d` rv64 step 6：8 字节 MMIO（ld / sd）；`4e954d7` ROB 紧凑（EXP-028）清理批次；`2d78026` 初次引入。

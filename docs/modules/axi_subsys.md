@@ -73,5 +73,6 @@ depth: 353 层（axi_subsys（含互连和 LLC），单模块综合，2026-11-20
 
 ## 10. 变更记录
 
+- 2026-11-28 清理：`axi_subsys.sv` 文件头去掉已删除的 `spec/axi_subsys.io` 引用（周期不变）。
 - 2026-11-28（`rtl/fe-2ahead`，文档核对）：`AXI_LLC_MSHR` 默认值改为 16；第 6 节补 2026-11-20 的 353 层；门禁改为 77/77 对 `scripts/ref_cycles.txt`；`lint.sh` 完整检查本目录。
 - 本分支（`261bd67..HEAD`）未改动本目录；更早：见 git 历史。

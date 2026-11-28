@@ -20,7 +20,7 @@ module csr_read
     // sie / sip: only the delegated bits; frm: the field above fflags; mstatus / sstatus: SD = (FS == Dirty), derived
     assign entry_value[e] = ((regs[ENT_REG[e]] >> ENT_SHIFT[e]) & ENT_RMASK[e]
                              & (ENT_DELEG[e] ? regs[R_MIDELEG] : ALL_ONES))
-                          | ((FP_EN && ENT_SD[e] && (regs[R_MSTATUS][MSTATUS_FS +: 2] == 2'b11))
+                          | ((ENT_SD[e] && (regs[R_MSTATUS][MSTATUS_FS +: 2] == 2'b11))
                              ? (XLEN_BITS'(1) << (XLEN_BITS - 1)) : XLEN_BITS'(0));
   end
 

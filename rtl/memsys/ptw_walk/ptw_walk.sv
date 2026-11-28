@@ -1,8 +1,8 @@
 // Ref: MemSubSystem/include/MemPtwBlock.h  MemPtwBlock (walk clients; comb_begin / comb_finish / seq)
 `default_nettype none
 
-// Page-table walker shared by the DTLB and the ITLB walk ports (spec/ptw_walk.io).
-// Top level only adapts the flat spec ports.
+// Page-table walker shared by the DTLB and the ITLB walk ports.
+// Top level only adapts the flat ports.
 module ptw_walk import memcpu_pkg::*; import ttg_cfg_pkg::*; (
   input  logic clk,
   input  logic rst_n,

@@ -28,7 +28,7 @@ module isu_iq_store
   // 0 = integer domain only, 1 = FP domain only, 2 = both domains (STD src2)
   parameter int SRC1_DOM   = 0,
   parameter int SRC2_DOM   = 0,
-  parameter int FP_TAGS    = FP_EN ? FPRF_NUM : 1,
+  parameter int FP_TAGS    = FPRF_NUM,
   parameter int INT_W      = $clog2(PRF_NUM),
   parameter int CANCEL_N   = LSU_LDU_COUNT
 ) (
@@ -108,7 +108,6 @@ module isu_iq_store
   function automatic logic lookup_fp_map(input logic [FP_TAGS-1:0] m, input logic [PRF_IDX_WIDTH-1:0] preg);
     logic [PRF_IDX_WIDTH-1:0] idx;
     idx = preg - PRF_IDX_WIDTH'(FP_TAG_BASE);
-    if (!FP_EN) return 1'b0;
     return (preg >= PRF_IDX_WIDTH'(FP_TAG_BASE)) && (idx < PRF_IDX_WIDTH'(FP_TAGS)) ? m[idx[FP_W-1:0]] : 1'b0;
   endfunction
 

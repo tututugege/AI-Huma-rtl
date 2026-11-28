@@ -124,11 +124,9 @@ module mem_periph_wrap import ttg_cfg_pkg::*; import memcpu_pkg::*; #(
     assign mmio_wstrb    = 8'd0;
     assign mmio_wlast    = 1'b0;
     assign mmio_bready   = 1'b0;
-    /* verilator lint_off UNUSEDSIGNAL */
     logic unused_ext;
     assign unused_ext = &{1'b0, mmio_arready, mmio_rvalid, mmio_rid, mmio_rdata, mmio_rresp, mmio_rlast,
                           mmio_awready, mmio_wready, mmio_bvalid, mmio_bid, mmio_bresp};
-    /* verilator lint_on UNUSEDSIGNAL */
   end else begin : g_ext_mmio
     mem_mmio_axi u_mmio_axi (
       .clk, .rst_n, .cpu_en(phase0),
@@ -159,11 +157,9 @@ module mem_periph_wrap import ttg_cfg_pkg::*; import memcpu_pkg::*; #(
     assign env_rd_en        = 1'b0;
     assign env_rd_addr      = 32'd0;
     assign env_rd_func3     = 3'd0;
-    /* verilator lint_off UNUSEDSIGNAL */
     logic unused_sim;
     assign unused_sim = &{1'b0, env_modeled, env_rdata, ax_pa_rd_acc, ax_pa_rd_rv,
                           ax_pa_rd_data, ax_pa_wr_acc, ax_pa_wr_rv};
-    /* verilator lint_on UNUSEDSIGNAL */
   end
 
   logic                 hold_ready_q, hold_is_mmio_q;

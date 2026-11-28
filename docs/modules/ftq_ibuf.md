@@ -40,7 +40,7 @@ depth: TSMC 28nm DC（EXP-069 `ftq_ibuf_bb` 243,191 µm² / reg2reg 1.72 GHz）�
 | 块号 / `pcpn` | 10 / 3 位 | `ftq_ibuf_pkg::BLK_ID_W`、`PCPN_W` |
 | 训练元数据 | 每项 79 位：块号 10 + `is_pair` 1 + `a_len` 4 + 16 槽 ×（`alt_pred` 1 + `pcpn` 3） | `ftq_meta_entry_t` |
 | pc 存储项 `ftq_pc_ent_t` | 按字段 240 位：`pc0` 64、`base_b` 64、`fa_pair_v` 1、`b_len` 4、`carry` 1、`is_pair` 1、`a_len` 4、`pred_taken` 16、`is_rvc` 16、`next_pc` 64、`nslots` 5 | `ftq_pc.sv` |
-| 等待表下标 `mdp` | `pc[SLOT_SHIFT +: 6] ^ pc[SLOT_SHIFT + 6 +: 6]`，`LSU_MEMSPEC = 0` 时恒 0 | `LSU_MDP_BITS = 6`、`SLOT_SHIFT = 1`、`LSU_MEMSPEC` |
+| 等待表下标 `mdp` | `pc[SLOT_SHIFT +: 6] ^ pc[SLOT_SHIFT + 6 +: 6]` | `LSU_MDP_BITS = 6`、`SLOT_SHIFT = 1` |
 
 ## 3. 接口
 
@@ -53,7 +53,7 @@ depth: TSMC 28nm DC（EXP-069 `ftq_ibuf_bb` 243,191 µm² / reg2reg 1.72 GHz）�
 | 入 | `br_redirect_{mispred, ftq_idx, ftq_offset, pc}` | 寄存后的误预测（`back_top` 的 `back_br_redirect`） |
 | 入 | `rob_bcast_flush` | 全局冲刷 |
 | 入 | `rob_commit_commit_entry_{valid, uop_ftq_idx, uop_ftq_offset, uop_ftq_is_last}[8]` | 退休 |
-| 入 | `ftq_prf_pc_req_*[4]`、`ftq_rob_pc_req_*[1]`、`ftq_dis_req_{ftq_idx, ftq_offset}[8]` | 读请求 |
+| 入 | `ftq_prf_pc_req_{ftq_idx, ftq_offset}[4]`、`ftq_rob_pc_req_{ftq_idx, ftq_offset}[1]`（没有 valid：每拍都读）、`ftq_dis_req_{ftq_idx, ftq_offset}[8]` | 读请求 |
 | 出 | `ftq2fe`（`ftq_fe_view_t`） | 给前端的寄存视图（`ftq_full`、`fa_empty`、`fa_cnt_sat`、`s2_empty`、`ifu_addr`、`pd_*` 等） |
 | 出 | `ftq2front_ready`、`ftq2front_fire[16]` | 前端握手 |
 | 出 | `ibuf2idu_valid[8]`、`ibuf2idu_entry[8]`（`ib_entry_t`） | 发给 IDU |
@@ -75,13 +75,13 @@ depth: TSMC 28nm DC（EXP-069 `ftq_ibuf_bb` 243,191 µm² / reg2reg 1.72 GHz）�
 
 | 文件 | 行数 | 职责 |
 | --- | --- | --- |
-| `ftq_ibuf.sv` | 320 | 顶层：端口适配、写请求门控（冲刷 / 误预测那拍不写）、`mdp` 哈希、`ftq2fe` 组装 |
+| `ftq_ibuf.sv` | 303 | 顶层：端口适配、写请求门控（冲刷 / 误预测那拍不写）、`mdp` 哈希、`ftq2fe` 组装 |
 | `ftq_ibuf_ctrl.sv` | 65 | 握手、块内序号（`lane_rank`）、块尾、IDU 消耗前缀、`flush_prev_q` |
-| `ftq_ibuf_pkg.sv` | 48 | 位宽常量、`ftq_meta_t`、`ftq_meta_entry_t`、`ib_entry_t` |
+| `ftq_ibuf_pkg.sv` | 46 | 位宽常量、`ftq_meta_t`、`ftq_meta_entry_t`、`ib_entry_t` |
 | `ibuf.sv` | 116 | 指令环形缓冲、旁路 |
 | `ftq_ptr.sv` | 188 | 五个指针、空块标记 `empty_blk_q`、满 / 空标志、断言 |
-| `ftq_pc.sv` | 282 | pc / 预测存储（8 bank × 8 行）、四个写者、各读口 |
-| `ftq_meta.sv` | 85 | 训练元数据 SRAM（8 个 `ttg_sram_1r1w`，`WRITE_FIRST`） |
+| `ftq_pc.sv` | 278 | pc / 预测存储（8 bank × 8 行）、四个写者、各读口 |
+| `ftq_meta.sv` | 83 | 训练元数据 SRAM（8 个 `ttg_sram_1r1w`，`WRITE_FIRST`） |
 | `ftq_bpu.sv` | 49 | 块号与槽类别 |
 
 状态：五个指针和 64 位空块标记；`bank_q[8][8]`（`ftq_pc_ent_t`）；`ftq_meta` 的 SRAM；`ftq_bpu` 的 `id_q[64]`、`kind_q[64]`；`ibuf` 的 `head_q`、`tail_q`、`count_q`、`entry_q[64]`（`ib_entry_t`：指令 32、缺页 1、`pf_inst_hi` 1、`ftq_idx` 6、`ftq_offset` 4、`ftq_is_last` 1）；`flush_prev_q`。
@@ -140,10 +140,11 @@ EXP-070 统一 FTQ 之后没有单模块重测。从代码读出、未综合验�
 
 ## 9. 参数与开关速查
 
-无开关。常量：`BACKEND_FETCH_WIDTH`、`DECODE_WIDTH`、`COMMIT_WIDTH`、`IDU_INST_BUFFER_SIZE`、`FTQ_SIZE`、`FTQ_IDX_WIDTH`、`FTQ_OFFSET_WIDTH`、`FTQ_PRF_PC_PORT_NUM`、`FTQ_ROB_PC_PORT_NUM`、`LSU_MEMSPEC`、`LSU_MDP_BITS`、`SLOT_SHIFT`（`ttg_cfg_pkg`）；`BLK_ID_W`、`PCPN_W`（`ftq_ibuf_pkg`）。
+无开关。常量：`BACKEND_FETCH_WIDTH`、`DECODE_WIDTH`、`COMMIT_WIDTH`、`IDU_INST_BUFFER_SIZE`、`FTQ_SIZE`、`FTQ_IDX_WIDTH`、`FTQ_OFFSET_WIDTH`、`FTQ_PRF_PC_PORT_NUM`、`FTQ_ROB_PC_PORT_NUM`、`LSU_MDP_BITS`、`SLOT_SHIFT`（`ttg_cfg_pkg`）；`BLK_ID_W`、`PCPN_W`（`ftq_ibuf_pkg`）。
 
 ## 10. 变更记录
 
+- 2026-11-28 清理：删 `ftq_prf_pc_req_req_valid` / `ftq_rob_pc_req_req_valid` 输入与 `ftq_prf_pc_resp_resp_valid` / `ftq_rob_pc_resp_resp_valid` 输出（响应 valid 只是请求 valid 的回传，`back_top` 无人读）；`mdp` 不再读 `LSU_MEMSPEC`（写死开，删 `g_off`）；`ftq_ibuf_pkg` 删未用的 `FTQ_COUNT_W`、`COMMIT_CNT_W`；删不抑制任何告警的 lint 豁免（`ftq_ibuf.sv` 2 处、`ftq_meta.sv` 1 处、`ftq_pc.sv` 2 处，以去掉豁免后整树 lint 普通 / `-DSYNTHESIS` 均无新告警为准）（周期不变）。
 - 2026-11-28（`rtl/fe-2ahead`）：文档按现行 RTL 重写（第 1–9 节；旧正文描述的是 EXP-070 之前 / 删除分支标签之前的结构）。
 - 2026-11-26（`rtl/area-opt`）：`pre_idu_queue` 改名 `ftq_ibuf`；`ftq_pc` 将 `slot_pc_q[64][16]`（65,536 FFs）压缩为 `{pc0, base_b, carry, is_pair, a_len}`（8,576 FFs，**−86.9%**）并在误预测时回填 `next_pc`/`nslots`；`ftq_pc`/`ftq_meta` 按 `idx[2:0]` 组织为 8-bank 连续读窗（Commit+ROB 共用 1 组 `8×8:1`、Dispatch 共用 1 组 `8×8:1` 32b PC），配合 `isu`/`prf`/`trace-model` 将 PC-ALU 限制在 Port 0 & Port 2，全随机 `64:1` FTQ 读口由 25 个降至 **4 个**（2 PC-ALU + 2 BRU）。
 - 2026-11-21（`rtl/fe-2fetch-2taken`，EXP-051 里程碑 B）：`pre_idu_ftq_pc` 新增 `nslots_q` 与双块不连续 `rd_next_pc` / `dis_pc`；`pre_idu_ftq_bpu` 删除 168 位 `bpu_ck`，改为按精确 `idu_br_latch_ftq_offset` 直接索引 `{blk_id[16], kind[16]}` 输出 `out_rf_blk`/`out_rf_type`。Yosys 综合 `pre_idu_queue` 137,578 单元 / 38 层（原 123,508 / 39）；通过 `lint_chip` 0、`fm_gate` 68/68（0 周期偏差）与 Linux 27 窗检查点对齐。

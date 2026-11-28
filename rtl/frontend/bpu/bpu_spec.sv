@@ -11,7 +11,7 @@ module bpu_spec import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
   input  logic [NCOMMIT-1:0]  actual_dir,
   input  logic [NCOMMIT-1:0]  upd_is_rvc,
   input  logic [XLEN_BITS-1:0] target   [NCOMMIT],
-  // !refetch && !issue restore command (ONLY registered ovr_pend_q: 0..1 symbol, 0..1 RAS op)
+  // !refetch && !issue restore command (direct S2 override: 0..1 symbol, 0..1 RAS op)
   input  logic [1:0]          h_mode,
   input  hist_ck_t            h_ck,
   input  logic                h_push_en,
@@ -27,7 +27,6 @@ module bpu_spec import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
   output ex_fh_t              spec_ex_fh,
   // Control + S0 single-block issue push + refetch-only restore command
   input  logic                refetch,
-  input  logic                ovr,
   input  logic                issue,
   input  logic                g0_h_en,
   input  logic [HSYM_W-1:0]   g0_h_bits,
@@ -280,7 +279,7 @@ module bpu_spec import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
   end
 
   assign spec_d = refetch ? ((hr_mode == M_CK) ? spec_r1_ck : spec_r1_ar)
-                          : ((!BPU_FAST_OVR && ovr) ? spec_q : (issue ? spec_q1 : spec_n1));
+                          : (issue ? spec_q1 : spec_n1);
 
   // ---- Speculative RAS: 64-entry queue + 3-slot write overlay ----
   function automatic logic [XLEN_BITS-1:0] arch_st(input logic [RAS_PTR_W-1:0] j);
@@ -348,8 +347,7 @@ module bpu_spec import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
   end
   always_comb s_d1 = do_op(do_op(start(rr_mode, rr_ck), rr_op, rr_val, 2'd0), rr_op2, rr_val2, 2'd1);
   always_comb s_q1 = do_op(start(2'd0, '0), g0_r_op, g0_r_val, 2'd2);
-  always_comb s_d = refetch ? s_d1
-                            : ((!BPU_FAST_OVR && ovr) ? '{p: rp_q, o: '0} : (issue ? s_q1 : s_old));
+  always_comb s_d = refetch ? s_d1 : (issue ? s_q1 : s_old);
 
   always_comb begin
     spec_ck.h.head    = spec_q.head;
@@ -381,10 +379,8 @@ module bpu_spec import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
     end
   end
 
-  /* verilator lint_off UNUSEDSIGNAL */
   logic unused_ok;
-  assign unused_ok = ^{r_ck.top, rr_ck.top, ovr};
-  /* verilator lint_on UNUSEDSIGNAL */
+  assign unused_ok = ^{r_ck.top, rr_ck.top};
 
 `ifndef SYNTHESIS
   // bpu_hist_vec precondition (docs/06-equivalence-policy.md 4): its SYNTHESIS and simulation paths are equal only for

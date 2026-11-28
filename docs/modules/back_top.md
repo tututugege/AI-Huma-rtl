@@ -74,11 +74,11 @@ depth: 142 层（back_top，单模块综合，2026-11-20，`SYNTH_ABC="strash;ba
 
 | 文件 | 行数 | 职责 |
 | --- | --- | --- |
-| `back_top.sv` | 801 | 装配 14 个实例；FLUSH_REG 寄存器块；`lsu_byp_valid`；7 条无人读的输出接到具名悬空线（`nc_*`） |
-| `back_top_glue.sv` | 112 | 见 5.3、5.4、5.5 |
+| `back_top.sv` | 787 | 装配 14 个实例；FLUSH_REG 寄存器块；`lsu_byp_valid`；7 条无人读的输出接到具名悬空线（`nc_*`） |
+| `back_top_glue.sv` | 108 | 见 5.3、5.4、5.5 |
 | `back_br_redirect.sv` | 69 | 分支重定向锁存：`dec_bcast_*` 与 `br_redirect_*`（重定向 pc、分支 pc、`is_rvc`），给 `ftq_ibuf` 与胶水 |
 | `iss_rr_reg.sv` | 74 | ISS→RR 一拍流水寄存器：`valid_q`、旁路选择 `src1/2_byp_q`、L1 推测掩码 `spec_mask_q`，按 `lsu2iss_cancel_valid` 取消 |
-| `exu.sv` | 490 | `exu_ctrl` + FU 的装配（见 5.6） |
+| `exu.sv` | 462 | `exu_ctrl` + FU 的装配（见 5.6） |
 
 重要的接线（"从谁到谁"，以 `back_top.sv` 为准）：
 
@@ -141,11 +141,10 @@ depth: 142 层（back_top，单模块综合，2026-11-20，`SYNTH_ABC="strash;ba
 - `csr_status_mstatus_{mxr, sum, mprv, mpp}`：取自 `mstatus` 的第 19、18、17、12:11 位，送 DTLB；
 - `rob_commit_commit_entry_uop_amo_op[i] = func7[6:2]`，给 LSU 提交 store 时用；
 - `lsu_byp_valid[k] = lsu2exe_wb_req_valid[k] && lsu2exe_wb_req_uop_dest_en[k]`：LSU 的 load 写回请求作为 PRF 读口的旁路源（`LSU_LOAD_WB_WIDTH = 4` 路），总是开（原来的 `LP_L2` 位 0、位 3 条件已随 `LP_L2` 在 EXP-069 删除，行为固定为开）；
-- `unused_fp_issue`：把 `iss2prf_iss_entry_uop_dest_fp` 归约成一根无人读的线，消除未使用告警（目的寄存器是浮点还是整数由编号判断）。
 
 ### 5.6 `exu.sv` 与 FU 的合同
 
-- `exu_ctrl` 之外实例化：`alu_bank`（6）、`bru_bank`（2）、`agu_bank`（`LSU_AGU_COUNT = 5`）、`sdu_bank`（3）、`mul_bank`（2）、`div_bank`（1）、浮点 FU（`FP_EN` 时 `N_FPU = 8` 个：FDIV 用 `fp_div_unit`，其余用 `fp_pipe_unit`，延迟取 `FP_FMA_LAT`、`FP_MISC_LAT`、`FP_I2F_LAT`），共 27 个（加 CSR 槽共 `TOTAL_FU_COUNT = 28`）；CSR FU 不实例化（`exu_ctrl` 自己处理 CSR 槽）；
+- `exu_ctrl` 之外实例化：`alu_bank`（6）、`bru_bank`（2）、`agu_bank`（`LSU_AGU_COUNT = 5`）、`sdu_bank`（3）、`mul_bank`（2）、`div_bank`（1）、浮点 FU（`N_FPU = 8` 个：FDIV 用 `fp_div_unit`，其余用 `fp_pipe_unit`，延迟取 `FP_FMA_LAT`、`FP_MISC_LAT`、`FP_I2F_LAT`），共 27 个（加 CSR 槽共 `TOTAL_FU_COUNT = 28`）；CSR FU 不实例化（`exu_ctrl` 自己处理 CSR 槽）；
 - 所有 FU 不再使用 `ready` / `consume` 握手；单周期 FU（`alu`、`bru`、`agu`、`sdu`）只保留输入操作数与组合结果，无 `en`/`complete`/`ready`/`consume`；
 - 多周期 FU 按 `exu_ctrl` 的 MC 下标映射：`MC_MUL`（口 0、2）、`MC_DIV`（口 1）；`func3` 截成 2 位；`flush_all`、`flush_br`、`flush_rob_idx / flush_rob_flag` 复制给每个实例（误预测按 ROB 号杀更年轻的在飞指令）；口 1 DIV 的 `div_wb_in2`（提前 2 拍的写回预告）经 `exe2iss_div_wb_in2` 导出至 ISU，flush 时屏蔽；
 - 浮点 FU 的舍入模式取 `csr2exe_frm`；
@@ -184,7 +183,7 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 
 - flush 决定那一拍分支误预测被丢弃，`out_rf_valid` 为 0；推迟的下一拍 `out_mispred` 为 1、`out_rf_valid` 为 0（模型 `pend_` 分支同）；
 
-死线网和过时注释（没有改）：`back_top.sv` 有 7 条输出接到 `nc_*` 线（`csr2exe_rdata_vld`、`csr2front_epc_vld`、`csr2front_trap_pc_vld`、`ftq_prf_pc_resp_resp_valid`、`ftq_rob_pc_resp_resp_valid`、`mmu2lsu_resp_hit`、`rob_bcast_trap_val_valid`）；`exu.sv` 文件头写"27 个功能单元"、"boundary = spec/exu.io"（spec 已删除）；`isu_wake_src.sv`（不属于本模块）的头注释写"14 个唤醒通道"，现在是 `WAKE_NUM = MAX_WAKEUP_PORTS = 21`。
+只给测试台用的线：`lsu` 的 `lsu2dis_ldq_alloc_valid` 接到 `nc_lsu2dis_ldq_alloc_valid`（dispatch 只看 `ldq_free`，`core_tb` 的 LSU 跟踪打印它）。`ren_commit_dest_preg`、`rob_commit_commit_entry_uop_dest_fp` 在 RTL 里无人读，只给 `tb/core/core_tb.cpp`（经 `core_public.vlt`）用。
 
 未核对（继承自旧文档）：
 
@@ -201,10 +200,11 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 
 ## 9. 参数与开关速查
 
-`ISSUE_WIDTH`、`TOTAL_FU_COUNT`、`DECODE_WIDTH`、`COMMIT_WIDTH`、`BACKEND_FETCH_WIDTH`、`LSU_*_COUNT`、`LSU_AGU_SHARED`、`LSU_AGU_COUNT`、`FPRF_NUM`（决定 `FP_EN`）、`MAX_WAKEUP_PORTS`（`ttg_cfg_pkg`）；`SYNTHESIS`（`exu.sv` 里的断言只在仿真）。FLUSH_REG 在 RTL 里没有开关（总是推迟一拍），模型对应 `CFG_FLUSH_REG`。
+`ISSUE_WIDTH`、`TOTAL_FU_COUNT`、`DECODE_WIDTH`、`COMMIT_WIDTH`、`BACKEND_FETCH_WIDTH`、`LSU_*_COUNT`、`LSU_AGU_SHARED`、`LSU_AGU_COUNT`、`FPRF_NUM`（F/D 总是有）、`MAX_WAKEUP_PORTS`（`ttg_cfg_pkg`）；`SYNTHESIS`（`exu.sv` 里的断言只在仿真）。FLUSH_REG 在 RTL 里没有开关（总是推迟一拍），模型对应 `CFG_FLUSH_REG`。
 
 ## 10. 变更记录
 
+- 2026-11-28 清理：删本区域生产者的 `nc_*` 死线（`csr2exe_rdata_vld`、`csr2front_epc_vld`、`csr2front_trap_pc_vld`、`ftq_prf_pc_resp_resp_valid`、`ftq_rob_pc_resp_resp_valid`、`rob_bcast_trap_val_valid`）及随之无用的 `ftq_prf_pc_req_req_valid`、`ftq_rob_pc_req_req_valid`、`exe2csr_re` 线；dispatch 不再接 `lsu2dis_ldq_alloc_valid`（LSU 输出暂接 `nc_lsu2dis_ldq_alloc_valid`）；`back_top_glue` 删纯 lint 汇 `mstatus_other_bits`（改为端口豁免）；`exu.sv` 删 415 行的整段 `UNUSEDSIGNAL` 豁免（不抑制任何告警）、`FP_EN` 的 `g_no_fpu`、`exu2fu_mc_func7 / _op / _imm`、`div_wb_next` 线及 `alu/bru/agu/sdu_bank` 的 `clk / rst_n` 连接，文件头去掉已删的生成器 / `spec`；删不抑制任何告警的 lint 豁免（`exu.sv` 的 `csr2exe_frm` 豁免，以去掉豁免后整树 lint 普通 / `-DSYNTHESIS` 均无新告警为准）（周期不变）。
 - 2026-11-28（文档核对，无 RTL 变化）：接口按 fe-2ahead 端口重写（`front2ftq_*`、`fe2ftq_s0/s2/pd`、`ftq2fe`、`ftq2front_*`、`out_rf_blk`、Berti 跨页翻译 `pf_xq_* / pf_xans_*`）；实例改为 14 个（`ftq_ibuf`、`back_br_redirect`、`iss_rr_reg`）；`dec_bcast_*` 来自 `back_br_redirect`、无分支掩码；`exe2iss_div_wb_in2`；`lsu_byp_valid` 去掉已删除的 `LP_L2` 条件；拍序加入 ISS→RR 级；文件表补 `back_br_redirect.sv`、`iss_rr_reg.sv`；门禁参考改为 `scripts/ref_cycles.txt`（77 个程序）。
 - 2026-11-28（`rtl/exu-clean`，EXP-072）：`back_top.sv` 与 `exu.sv` 删除 `exe2iss_fu_ready_mask` 线网、取消 `ready/consume` 协议，并由逻辑 7 AGU 收敛为真 5 物理 AGU（`ISSUE_WIDTH = 19`），改接 `exe2iss_div_wb_next` 给 `isu`；TSMC 28nm DC `exu_ctrl` 面积 −38.8%（`19,432 µm²`, `WNS 0.00 ns`）、`exu` 面积 −4.84% / FF −22.4%；通过 strict+SVA `fm_gate` 77/77、`riscv-tests` 152/152、`soc_gate --linux` 12/12 与 Linux 26/26 窗对齐。
 

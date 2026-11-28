@@ -222,11 +222,9 @@ module soc_sram import soc_axi_pkg::*; #(
     end
   end
 
-  /* verilator lint_off UNUSEDSIGNAL */
   logic unused_attr;
   assign unused_attr = &{1'b0, s_arlock, s_arcache, s_arprot, s_arqos, s_arregion,
                          s_awlock, s_awcache, s_awprot, s_awqos, s_awregion};
-  /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule
 

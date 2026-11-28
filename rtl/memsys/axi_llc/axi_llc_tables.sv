@@ -1,6 +1,6 @@
 `default_nettype none
 // Ref: MemSubSystem/MemSubsystem.cpp  AxiLlcTableRuntime (data/meta/valid/repl tables, lookup_latency = 3); repl = SRRIP state
-// Hardware memories: synchronous 1R1W SRAMs (ttg_sram_1r1w with WRITE_FIRST=1). Read index advances through
+// Hardware memories: synchronous 1R1W SRAMs (ttg_sram_1r1w, write-first). Read index advances through
 // p1_q -> p2_q, launching the synchronous SRAM read at tick t+2 so outputs arrive at tick t+3 (lookup_latency = 3),
 // matching the original semantics where writes of tick t+2 are visible to a read requested in tick t.
 module axi_llc_tables
@@ -40,7 +40,6 @@ module axi_llc_tables
       .DEPTH      (SETS),
       .WIDTH      (512),
       .MASK_W     (1),
-      .WRITE_FIRST(1'b1),
       .TAG        ("LLC_DATA")
     ) u_data_sram (
       .clk  (clk), .rst_n(rst_n),
@@ -57,7 +56,6 @@ module axi_llc_tables
       .DEPTH      (SETS),
       .WIDTH      (TAGW),
       .MASK_W     (1),
-      .WRITE_FIRST(1'b1),
       .TAG        ("LLC_TAG")
     ) u_tag_sram (
       .clk  (clk), .rst_n(rst_n),
@@ -76,7 +74,6 @@ module axi_llc_tables
     .DEPTH      (SETS),
     .WIDTH      (WAYS),
     .MASK_W     (WAYS),
-    .WRITE_FIRST(1'b1),
     .TAG        ("LLC_VALID")
   ) u_valid_sram (
     .clk  (clk), .rst_n(rst_n),
@@ -93,7 +90,6 @@ module axi_llc_tables
     .DEPTH      (SETS),
     .WIDTH      (WAYS),
     .MASK_W     (WAYS),
-    .WRITE_FIRST(1'b1),
     .TAG        ("LLC_DIRTY")
   ) u_dirty_sram (
     .clk  (clk), .rst_n(rst_n),
@@ -110,7 +106,6 @@ module axi_llc_tables
     .DEPTH      (SETS),
     .WIDTH      (WAYS),
     .MASK_W     (WAYS),
-    .WRITE_FIRST(1'b1),
     .TAG        ("LLC_PF")
   ) u_pf_sram (
     .clk  (clk), .rst_n(rst_n),
@@ -127,7 +122,6 @@ module axi_llc_tables
     .DEPTH      (SETS),
     .WIDTH      (RB),
     .MASK_W     (1),
-    .WRITE_FIRST(1'b1),
     .TAG        ("LLC_REPL")
   ) u_repl_sram (
     .clk  (clk), .rst_n(rst_n),

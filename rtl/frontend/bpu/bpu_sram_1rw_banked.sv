@@ -11,9 +11,7 @@ module bpu_sram_1rw_banked #(
   parameter bit    HAS_CLR_RD  = 1'b0,
   parameter bit    HOLD_RD0    = 1'b0,
   parameter logic [W-1:0] INIT = '0,
-  /* verilator lint_off UNUSEDPARAM */
   parameter [255:0] TAG        = "BPU_1RW"
-  /* verilator lint_on UNUSEDPARAM */
 ) (
   input  logic                     clk,
   input  logic                     rst_n,   // array sweep to INIT while low (ttg_sram_1rw INIT_SWEEP)
@@ -169,10 +167,8 @@ module bpu_sram_1rw_banked #(
   end
 `endif
 
-  /* verilator lint_off UNUSEDSIGNAL */
   logic unused_ok;
   assign unused_ok = ^{clr_rd_en, clr_rd_addr, clr_bk_q, rst_wr_en, rst_wr_addr, rst_wr_data, rst_wr_wmask};
-  /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule
 

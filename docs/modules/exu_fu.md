@@ -58,7 +58,7 @@ CSR 单元（模型 `FuKind::CSR`）没有运算也没有 FU 侧状态：CSR 指
 | BRU | `op`、`func3`、`src1_en`、`src1_rdata`、`src2_rdata`、`pc`、`imm`、`ftq_pred_taken`、`ftq_is_rvc`、`ftq_next_pc` | `br_taken`、`mispred`、`diag_val`（跳转目标或下一条顺序 pc） |
 | AGU | `src1_rdata`、`imm` | `result` = `src1 + 符号扩展的 imm`，`XLEN` 位 |
 | SDU | `is_atomic`、`amo_op`（`func7[6:2]`）、`amo_w`、`src1_rdata`、`src2_rdata` | `result`：普通 store 取 `src2`，AMO 按 `amo_op` 把 `src1`（旧值）和 `src2` 合并 |
-| MUL、DIV | `en`、`flush_all`、`flush_br`、`flush_rob_idx/flag`、`func3[1:0]`、`is_word`、`src1_rdata`、`src2_rdata`、`rob_idx`、`dest_preg`、`dest_en` | `complete`、`result`、`done_rob_idx`、`done_dest_preg`、`done_dest_en`、`done_rob_flag`（DIV 另输出 `div_wb_next`） |
+| MUL、DIV | `en`、`flush_all`、`flush_br`、`flush_rob_idx/flag`、`func3[1:0]`、`is_word`、`src1_rdata`、`src2_rdata`、`rob_idx`、`dest_preg`、`dest_en` | `complete`、`result`、`done_rob_idx`、`done_dest_preg`、`done_dest_en`、`done_rob_flag`（DIV 另输出 `wb_in2`、`wake_valid`、`wake_preg`） |
 | 浮点 | 同上再加 `func7`（FDIV）、`imm`、`src1_rdata`（整数源）、`fsrc1..3`、`frm` | 同上，`result` 换成 64 位 `fresult`，再加 `fflags`、`illegal` |
 
 握手约定（`exu_ctrl` 与 FU 的合同）：ISU 已在发射前预约好功能单元互斥与写回周期，因此 FU 绝不会被反压；单周期 FU 的 `complete` 即 `exu_ctrl_slot` 的 `fu_en`；多周期 FU 只需按时输出 `complete` 并由 `mul_unit`/`exu_iter_ctl` 仿真断言无重入/无冲突即可。
@@ -94,7 +94,7 @@ CSR 单元（模型 `FuKind::CSR`）没有运算也没有 FU 侧状态：CSR 指
 - **`alu`**：同前，移除了 `en`/`consume`/`complete`/`ready`。
 - **`mul_core`**：同前，共 3 拍；`mul_pipe`（`STAGES = DEPTH - 1`）精确在完成拍报 `complete`。
 - **`mul_pipe`**：`STAGES = DEPTH - 1` 级无停顿移位链，`s = 0` 在 `en` 有效时压入，每拍向 `STAGES - 1` 移动并在沿上应用 Flush/误预测杀死，`complete` 取末级输出（当 `DEPTH=2` 时仅 1 级；`DEPTH >= 2`）。
-- **`exu_iter_ctl` + `div_core`**：收到 `en` 即装载 `busy_q=1`、`cnt_q = lat_m1`，每拍递减，`cnt_q == 0` 报 `complete` 且下拍自然释放（无需 `consume`），`wb_next = live && (cnt_q == 1)`（`exu.sv` 只接线、不使用）；`wb_in2 = (accept && lat_m1 == 1) || (live && cnt_q == 2)`，即提前 2 拍的写回预告，口 1 的经 `exe2iss_div_wb_in2` 送 ISU（适配 ISS → RR → EX 两拍）。仿真下 `$error` 检查 `!(en && live)` 保证不重入。
+- **`exu_iter_ctl` + `div_core`**：收到 `en` 即装载 `busy_q=1`、`cnt_q = lat_m1`，每拍递减，`cnt_q == 0` 报 `complete` 且下拍自然释放（无需 `consume`），`wb_next = live && (cnt_q == 1)`（`div_unit` 内部用它产生 `wake_valid`，不再出端口）；`wb_in2 = (accept && lat_m1 == 1) || (live && cnt_q == 2)`，即提前 2 拍的写回预告，口 1 的经 `exe2iss_div_wb_in2` 送 ISU（适配 ISS → RR → EX 两拍）。仿真下 `$error` 检查 `!(en && live)` 保证不重入。
 
 ## 5. 一拍内的数据流
 
@@ -172,6 +172,7 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 
 ## 10. 变更记录
 
+- 2026-11-28 清理：删 `alu_bank` / `bru_bank` / `agu_bank` / `sdu_bank` 未用的 `clk` / `rst_n` 端口与其豁免；`div_bank` / `div_unit` 的 `wb_next` 输出口（`div_unit` 内部保留）；`div_unit` / `div_core` 未用的参数 `LAT`；bank 头注释里已删的 `spec/*.io`（周期不变）。
 - 2026-11-28（文档核对，无 RTL 变化）：flush 按 ROB 号（`exu2fu_flush_br` + `flush_rob_idx/flag`），无分支掩码；DIV 的 `wb_in2` 提前 2 拍预告；门禁参考改为 `scripts/ref_cycles.txt`（77 个程序）。
 - 2026-11-28（`rtl/exu-clean`，EXP-072）：非阻塞 EXU 与真 5 物理 AGU 重构——删除 `exu_fu_sc_ctl.sv` 及全部单周期/流水线 FU 单元与 bank 上的 `ready_o`/`consume_i`/`busy_o` 握手端口；`mul_pipe` 精简为无条件固定 3 拍推进；`exu_iter_ctl` 删除 `busy_o` 保留 `div_wb_next`；`agu_bank` 按真 5 物理口（`LSU_AGU_COUNT=5`）直连。TSMC 28nm HPC+ `exu` 实测：`WNS = −0.41 ns`（与基线相同，仍为 `u_fma` 路径），**`TNS −1,230.70 → −1,008.16`（−18.1%）**、**`Seq 8,704 → 6,755`（−1,949 FF / −22.4%）**、**总面积 `217,730.69 → 207,202.80 µm²`（−4.84%）**。
 

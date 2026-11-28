@@ -18,9 +18,6 @@ module dispatch_lsu_alloc
   input  logic [STQ_FREE_W-1:0]     stq_free,
   input  logic [LDQ_FREE_W-1:0]     ldq_free,
   input  logic [LDQ_IDX_WIDTH-1:0]  ldq_alloc_idx   [LDQ_PORTS],
-  /* verilator lint_off UNUSEDSIGNAL */   // waiver: kept for the interface; the grant is decided by ldq_free
-  input  logic [LDQ_PORTS-1:0] ldq_alloc_valid,
-  /* verilator lint_on UNUSEDSIGNAL */
   output logic [NUM_SLOTS-1:0] lsu_ok,
   output logic [STQ_IDX_WIDTH-1:0]  stq_idx    [NUM_SLOTS],
   output logic [NUM_SLOTS-1:0] stq_flag,

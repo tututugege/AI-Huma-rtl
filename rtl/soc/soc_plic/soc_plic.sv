@@ -10,7 +10,7 @@
 //   0x002080           : context 1 enable bitmap (bits 1..8)
 //   0x200000 / 0x200004: context 0 threshold / claim-complete
 //   0x201000 / 0x201004: context 1 threshold / claim-complete
-module soc_plic import soc_pkg::*; (
+module soc_plic import soc_axi_pkg::*; import soc_pkg::*; (
   input  logic                    clk,
   input  logic                    rst_n,
   input  logic [PLIC_NUM_SRC-1:0] irq_src,
@@ -83,11 +83,11 @@ module soc_plic import soc_pkg::*; (
   assign s_arready = !rvalid_q;
   assign s_rvalid  = rvalid_q;
   assign s_rdata   = rdata_q;
-  assign s_rresp   = AXI_RESP_OKAY;
+  assign s_rresp   = AXI4_RESP_OKAY;
   assign s_awready = !aw_v_q && !bvalid_q;
   assign s_wready  = !w_v_q  && !bvalid_q;
   assign s_bvalid  = bvalid_q;
-  assign s_bresp   = AXI_RESP_OKAY;
+  assign s_bresp   = AXI4_RESP_OKAY;
 
   // 32-bit word reader helper (returns 32-bit word at byte offset off)
   function automatic logic [31:0] read_word32(input logic [23:0] off);
@@ -219,10 +219,8 @@ module soc_plic import soc_pkg::*; (
     end
   end
 
-  /* verilator lint_off UNUSEDSIGNAL */
   logic [18:0] unused_addr;
   assign unused_addr = {s_araddr[31:24], s_awaddr[31:24], s_awaddr[2:0]};
-  /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule
 

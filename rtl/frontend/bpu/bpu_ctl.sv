@@ -4,7 +4,6 @@
 module bpu_ctl import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; (
   input  logic       refetch,
   input  logic       refetch_pd,
-  input  logic       ovr_pend,           // 1-cycle registered S2 override history/RAS + ahead recovery
   input  logic       rep_ok_in,          // internal rec_q[256] matched rf_blk / epoch / pc
   input  logic       pd_valid,
   input  logic       pd_flush,
@@ -33,9 +32,9 @@ module bpu_ctl import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*
     hold_n   = {1'b0, r0.valid && r0.sq};
   end
 
-  // 2A+2B: no same-cycle refetch S0 issue; 1-cycle registered ovr recovery
+  // 2A+2B: no same-cycle refetch S0 issue; an S2 override recovers in the same cycle (no S0 issue)
   always_comb begin
-    issue = !refetch && !ovr_pend && !ovr && icache_read_ready;
+    issue = !refetch && !ovr && icache_read_ready;
     s0_go = issue;
   end
 
