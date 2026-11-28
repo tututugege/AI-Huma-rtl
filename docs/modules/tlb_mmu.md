@@ -12,7 +12,7 @@ depth: TSMC 28nm HPC+ DC `tlb_mmu_bb` WNS `−0.03 ns`（`1.89 GHz`）/ `25` 级
 > **EXP-070 后端子系统时序优化（0 周期变化）**：
 > - 在 `tlb_mmu_pkg` / `tlb_mmu_lane` / `tlb_mmu_core` / `tlb_mmu` 中随翻译结果并行输出 29-bit `resp_paddr_p1` / `resp_paddr_m1`（兼容 Sv39 4K/2M/1G 大页与直通模式），将原 LSU L1 侧 `paddr[31:3] ± 1` 29-bit 加法器移出 EXU/LSU ↔ DTLB 跨模块关键路径。
 >
-> **EXP-051 里程碑 B 升级**：`tlb_mmu_core` 新增参数 `NPEEK`（DTLB 保持 `NPEEK = 0` 零改动；ITLB 设 `NPEEK = 2`），提供纯只读组合翻译口（复用 `entry_valid/entry` 与同拍 `refill_end`，先查 `refill_end` 再查表，含直通 / 规范地址 / 权限检查，精确对齐 `TlbMmu::peek_translate`，零额外 PTW walker、不改替换状态）。
+> **EXP-051 里程碑 B 升级**：`tlb_mmu_core` 新增参数 `NPEEK`（DTLB 保持 `NPEEK = 0` 零改动；ITLB 当时设 `NPEEK = 2`，fe-2ahead 单组 2-Ahead 前端起 `icache_itlb.sv` 设 `NPEEK = 1`），提供纯只读组合翻译口（复用 `entry_valid/entry` 与同拍 `refill_end`，先查 `refill_end` 再查表，含直通 / 规范地址 / 权限检查，精确对齐 `TlbMmu::peek_translate`，零额外 PTW walker、不改替换状态）。
 
 ## 1. 职责
 
@@ -56,6 +56,8 @@ depth: TSMC 28nm HPC+ DC `tlb_mmu_bb` WNS `−0.03 ns`（`1.89 GHz`）/ `25` 级
 | 出 | `resp_valid / resp_result [1:0] / resp_hit / resp_paddr [31:0] / resp_entry_idx [IDX_W]  [LSU_AGU_COUNT]` | 响应：`resp_valid = req_valid && translate`；`resp_result`：0 未命中（还在走遍历，请再试）、1 命中、2 缺页；`resp_hit = resp_valid && result == 命中`（`back_top` 里接到未使用的 `nc_mmu2lsu_resp_hit`）；`resp_entry_idx` 是请求的项号原样带回 |
 | 出 | `ptw_walk_req_valid / _req_vpn [27] / _req_root_ppn [21:0]` | 遍历请求：页号和 `satp[21:0]`（根页表） |
 | 出 | `ptw_walk_resp_consumed`、`ptw_walk_flush` | 本拍消费了 PTW 的响应；本拍 fence 或 cancel，让 PTW 丢弃在途遍历 |
+| 出 | `resp_paddr_p1 / resp_paddr_m1 [28:0] [LSU_AGU_COUNT]` | 物理地址 `paddr[31:3] ± 1`，随翻译结果并行给出（EXP-070），LSU 跨 8 字节访问不再自己做加法 |
+| 入 / 出 | `pf_page_set`、`pf_page_vpn`（入）；`walk_next_v`、`walk_next_vpn`（出） | L1D 预取器跨页翻译：LSU 为预取候选发起遍历时记下页号 `pf_page_q`，该遍历以页故障结束时提前丢掉（`early_pf_drop`）；`walk_next_*` 是下一拍的在途遍历页号，给 LSU 判断（见文末"EXP-048 M3 补充"） |
 
 ## 4. 结构
 
@@ -74,10 +76,10 @@ depth: TSMC 28nm HPC+ DC `tlb_mmu_bb` WNS `−0.03 ns`（`1.89 GHz`）/ `25` 级
 
 | 文件 | 行数 | 职责 |
 | --- | --- | --- |
-| `tlb_mmu_pkg.sv` | 145 | 常量、类型（`tlb_mmu_tag_t / _xlat_t / _entry_t / _walk_t / _ptw_resp_t`）、权限检查 `perm_ok`、标签匹配 `tag_match`、物理地址合成 `compose_paddr`、`satp_on / satp_asid`、规范地址检查 `va_canonical`、有效特权级 `effective_priv` |
-| `tlb_mmu.sv` | 82 | 顶层：端口适配，实例化 `tlb_mmu_core`（`FETCH = 0`、`ENTRIES = DTLB_ENTRIES`），`cancel = flush \|\| mispred` |
-| `tlb_mmu_core.sv` | 184 | N 口翻译核心（DTLB 和 ITLB 共用）：模式选择、提前退休、A / B 两次选择、walk 寄存器、回填和 PTW 端口输出 |
-| `tlb_mmu_lane.sv` | 121 | 一个口自己能算的部分：直通 / 非规范 / 命中 / 缺失、权限、两种回填视图下的结果；最后按核心的选择出结果 |
+| `tlb_mmu_pkg.sv` | 195 | 常量、类型（`tlb_mmu_tag_t / _xlat_t / _entry_t / _walk_t / _ptw_resp_t`）、权限检查 `perm_ok`、标签匹配 `tag_match`、物理地址合成 `compose_paddr`、`satp_on / satp_asid`、规范地址检查 `va_canonical`、有效特权级 `effective_priv` |
+| `tlb_mmu.sv` | 101 | 顶层：端口适配，实例化 `tlb_mmu_core`（`FETCH = 0`、`ENTRIES = DTLB_ENTRIES`），`cancel = flush \|\| mispred` |
+| `tlb_mmu_core.sv` | 260 | N 口翻译核心（DTLB 和 ITLB 共用）：模式选择、提前退休、A / B 两次选择、walk 寄存器、回填和 PTW 端口输出 |
+| `tlb_mmu_lane.sv` | 152 | 一个口自己能算的部分：直通 / 非规范 / 命中 / 缺失、权限、两种回填视图下的结果；最后按核心的选择出结果 |
 | `tlb_mmu_lookup.sv` | 38 | 一个口的查表：64 项并行比较，最低下标优先（`ttg_first_set`），`ttg_onehot_mux` 选翻译 |
 | `tlb_mmu_early.sv` | 33 | walk 的响应已到时的提前退休：用 walk 寄存器里保存的上下文判权限，产生本拍回填 |
 | `tlb_mmu_store.sv` | 71 | TLB 阵列：valid 向量 + 项 + 轮转替换指针；只由回填写，fence 清 valid 和指针 |
@@ -124,7 +126,7 @@ walk 在途（`active && req_sent`）且 PTW 的响应对着 walk 的页（`resp
 
 模型里有、RTL 里有意没有复刻的：
 
-- 模型 `TlbMmu` 按口序依次服务请求，用 `walk_next_ / refill_ / port_` 传递一个口留给下一个口的状态；RTL 并行计算，口间依赖用 A、B 两次 first-set 表达（第 5.4 节）。两者的行为在 EXP-042 时用 `tests/tlb_par` 逐拍比较过（该测试现在已过时，见第 8 节）；
+- 模型 `TlbMmu` 按口序依次服务请求，用 `walk_next_ / refill_ / port_` 传递一个口留给下一个口的状态；RTL 并行计算，口间依赖用 A、B 两次 first-set 表达（第 5.4 节）。两者的行为在 EXP-042 时用 `tests/tlb_par` 逐拍比较过（该测试已在 64d5dbb 删除，见第 8 节）；
 - `peek_translate`（前端 FE_IPF 的无副作用翻译）和 `warm_install`（快速预热回放装载 TLB 状态）：模型的仿真辅助，RTL 没有；
 - 表项内容：模型 `TlbEntry` 在 fence 后整项清零，RTL 只清 valid，无效项的内容不可观察；
 - 模型 `ppn` 是 44 位，`compose_paddr` 取 32 位；RTL 的表项和 PTW 响应只存 `ppn[19:0]`（`PPN_W = 20`），物理地址相同；
@@ -143,18 +145,18 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 - 文件头的 `Ref:` 注释仍引用旧模型函数名（`TlbMmu::top_comb / translate_lsu_ports / flush / cancel_pending_walk / core_comb / lookup_table_comb / consume_completed_walk_refill`、`BackTop::comb_lsu_mmu`、"reference model commit 2f31e8d"），现行 `TlbMmu.cpp` 里是 `comb / translate_one / take_completed_walk / make_refill / seq`，语义对应但名字已不存在；
 - `tlb_mmu_pkg.sv` 里 `RV64 = 0`（Sv32）的各分支现行配置不用；
 - `tlb_mmu.sv` 的 `resp_hit` 输出在 `back_top` 里接到未使用的 `nc_mmu2lsu_resp_hit`，没有消费者；
-- `tests/tlb_par` 已与现行核心不匹配（第 8 节）。
+- 没有模块级测试（`tests/tlb_par` 已删除，第 8 节）。
 
 未核对（继承自旧文档）：旧文档 `docs/modules/tlb_mmu.md` 的验证部分（73 个真实程序的 trace、34 个变异体及其被谁抓到的表）描述的是已退役的 trace 回放体系，没有采用；其中"PTW 只用 `req.vaddr[31:12]` 和 `req.satp[21:0]`"这类 PTW 侧的消费者核对没有在本次重新验证（RTL 里 `ptw_walk_req_vpn` 27 位、`ptw_walk_req_root_ppn` 22 位与此一致，但没有读 PTW 一侧）。
 
 ## 8. 验证
 
 - **最新整核门禁（2026-11-28，`rtl/exu-clean`，EXP-072）**：`lint_chip` & `lint_soc` 0 告警；`SOC_FM=1 SOC_SVA=1 SOC_ASSERT=1` `fm_gate` 77/77、`riscv-tests` 152/152、`soc_gate --linux` 12/12 全通；Linux 26/26 窗（含 Sv39 遍历）PT/UP 全等。
-- **整核门禁**：`scripts/fm_gate.sh`，67 个程序，逐条提交对功能模型、周期对参考表 `scripts/ref_cycles_memiq6_nr_int2_ev5.txt`。涉及翻译的：`pf-stress`（缺页压力）、`trap-precise-store`、`directed/memspec_pf`（错误路径上缺页的 load），以及所有在 M 态直通下的访存。M 态以外的 Sv39 翻译主要靠 Linux 启动覆盖。最近一次改 DTLB 的提交（16de223）说明写 fm_gate 67/67、周期等于当时的参考表、lint_chip 0；本次没有重跑。
+- **整核门禁**：`scripts/fm_gate.sh`，77 个程序，逐条提交对功能模型、周期对参考表 `scripts/ref_cycles.txt`。涉及翻译的：`pf-stress`（缺页压力）、`trap-precise-store`、`directed/memspec_pf`（错误路径上缺页的 load），以及所有在 M 态直通下的访存。M 态以外的 Sv39 翻译主要靠 Linux 启动覆盖。最近一次改 DTLB 的提交（16de223）说明写 fm_gate 67/67、周期等于当时的参考表、lint_chip 0；本次没有重跑。
 - **Linux**：`scripts/linux_gate.sh`（从复位启动，RTL 对模型）和 `scripts/linux_segments_cmp.sh`（检查点窗口）：Sv39、ASID、fence、页表遍历在这里被真正用到。
 - **Lint**：`scripts/lint_chip.sh`；`scripts/lint.sh` 对 `rtl/frontend rtl/backend/tlb_mmu` 和 `rtl/frontend/icache rtl/backend/tlb_mmu` 另有按目录的编译组合（`icache` 用到了这里的核心）。
-- **模块级测试 `tests/tlb_par/`（已过时）**：`run.sh` 把并行核心与旧的串行核心（`tests/tlb_par/tlb_mmu_core_ref.sv`、`tlb_mmu_lane_ref.sv`）并排，随机输入，比较所有输出（并检查 `ttg_first_set`）。但 16de223 把 `tlb_mmu_core` 的口类型从参数（`LD_LANES`）改成了每个请求带的输入 `req_is_store`，而 `tests/tlb_par/tlb_par_tb.sv` 仍给 `tlb_mmu_core` 传 `.LD_LANES(...)`、没有接 `req_is_store`——按代码读，现在不能构建（没有运行验证）。**待补**：把 `tlb_par_tb` 和参考核心改成 5 个口、每请求一个类型（共用口上 load 与 store 混合），再跑。
-- **没有其他模块级测试**。旧体系的 trace 回放 + 随机 trace + 变异检查已随 `spec/` 一起退役。
+- **没有模块级测试**：EXP-042 时用过的 `tests/tlb_par/`（并行核心对旧的串行参考核心逐拍比较）在 16de223 改成每请求带 `req_is_store` 之后已不能构建，已在 64d5dbb 删除。**待补**：按现行 5 口、每请求一个访问类型（共用口上 load 与 store 混合）重写一个并排随机测试。
+- 旧体系的 trace 回放 + 随机 trace + 变异检查已随 `spec/` 一起退役。
 
 ## 9. 参数与开关速查
 
@@ -162,6 +164,7 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 
 ## 10. 变更记录
 
+- 2026-11-28（文档核对，无 RTL 变化）：ITLB 现在 `NPEEK = 1`；`tests/tlb_par` 已在 64d5dbb 删除；接口补 `resp_paddr_p1/m1`、`pf_page_*`、`walk_next_*`；文件表行数；门禁参考改为 `scripts/ref_cycles.txt`（77 个程序）。
 - 2026-11-28（`rtl/exu-clean`，EXP-072）：`tlb_mmu.sv` DTLB 口数随 `LSU_AGU_COUNT = 5`（真 5 物理口）统一口径并微调端口注释/参数映射，零逻辑行为变化；通过 `lint` 0、strict+SVA `fm_gate` 77/77、`soc_gate --linux` 12/12 与 Linux 26/26 窗对齐。
 - 2026-11-21（`rtl/fe-2fetch-2taken`，EXP-051 里程碑 B）：`tlb_mmu_core` 新增参数化只读 CAM peek 读口 `NPEEK`（DTLB `NPEEK=0` 零改动；ITLB `NPEEK=2` 服务双块 B 与 FDIP，先查同拍 `refill_end` 再查表，零额外 PTW walker）。Yosys 综合 `tlb_mmu` 46,624 单元 / 61 层（不变）；通过 `lint_chip` 0、`fm_gate` 68/68 与 Linux 27 窗对齐。
 - 2026-11-17（exp/agu-share）：`16de223` EXP-TLBPORTS 第 3 步：DTLB 每个物理 AGU 一个口（`LSU_AGU_PHYS = 5`），请求自带访问类型（`tlb_mmu / tlb_mmu_core / tlb_mmu_lane`：口类型由参数改为输入 `req_is_store`），响应按口回给 LSU；这是 261bd67 之后对本目录的唯一提交。

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Generate tb/core/core_probe.inc: reads every core_top boundary field (the spec/core_top.io layout) from the Verilated soc_top
-into a trace-record-shaped byte buffer, so the closed-loop run can be compared field by field with a core_top trace recorded
-from the reference simulator.  Needs tb/core/core_top_fields.h (a committed snapshot of the iogen field table of the core_top boundary) and rtl/core/soc_top/soc_top.sv."""
+"""Generate tb/core/core_probe.inc: reads every core_top boundary field from the Verilated soc_top into a trace-record-shaped
+byte buffer (the layout of tb/core/core_top_fields.h, a committed snapshot of the field table that iogen once made from the
+now-deleted spec/core_top.io), so a closed-loop run can be compared field by field with a recorded core_top trace (SOC_TB_TRACE).
+Run by tb/core/build.sh on every build; needs tb/core/core_top_fields.h and rtl/core/soc_top/soc_top.sv."""
 import re, os
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 hdr = open(os.path.join(ROOT, 'tb/core/core_top_fields.h')).read()

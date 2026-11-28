@@ -65,9 +65,9 @@ C++ 里同一变量被后面的语句覆盖（"后写者赢"）。RTL 里在 `al
 
 ## 4. 时钟域
 
-参考模型的 AXI 子系统以 16 倍频运行（`CONFIG_AXI_SUBSYSTEM_FREQ_DIV=16`，每个 CPU 周期里额外跑若干 tick，静默后提前退出）。**多时钟/倍频的处理方案尚未决定**，在 uncore 开工前必须在 `00-scope-and-decisions.md` 里定案，核内模块（范围 A）不受影响。
+已定（见 [00-scope-and-decisions.md](00-scope-and-decisions.md)）：AXI 子系统 / LLC / interconnect 与核同频，`AXI_SUBSYSTEM_FREQ_DIV = 1`；旧参考模型的 16 倍频配置不再支持。
 
 ## 5. 不确定时怎么办
 
 - 无法判断某个 C++ 写法的硬件含义 → 停下，写进模块笔记并向评审提问，不要猜。
-- 发现参考模型的明显 bug → 不修；按参考模型行为实现，登记 `deviations.md` 的"参考模型疑点"栏，由评审决定。
+- 发现模型的明显 bug → 不在 RTL 里悄悄改；写进模块文档第 7 节并记到总仓库 `docs/TODO.md`，由评审决定（`deviations.md` 已停止新增）。

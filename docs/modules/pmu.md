@@ -30,7 +30,7 @@ depth: 90 层（pmu，单模块综合，2026-11-18，`SYNTH_ABC="strash;balance;
 | 可编程计数器数 `NUM_HPM` | 8（参数，至多 29） | `pmu.sv` |
 | 提交宽度 `COMMIT_W` | 8（`pmu_ev_core` 参数，`core_top` 传 `COMMIT_WIDTH`） | `core_top.sv` |
 
-模型事件表共 85 项，其中 19 项标了 `// model-only`（`SLOT_FE_OTHER_NOPREG`、`SLOT_FE_OTHER_NOBRTAG` 和 17 个 `FEO_*` 前端交付拆分事件），生成器跳过它们（`gen_pmu_pkg.py`）；要求"带 RTL 通道的事件在表里排在前面，model-only 的只能排在表尾"（生成器有断言），所以 RTL 的 66 个 id 与模型的前 66 个 id 一致。
+模型事件表（`include/pmu_events.def`，2026-11-28 核对）共 93 项，其中 27 项标了 `// model-only`（`SLOT_REN_NOPREG`、`SLOT_IDU_NOBRTAG`、17 个 `FEO_*` 前端交付拆分事件、8 个 `ISS_REF_*` / `ISS_LOST_*` 发射选择事件），排在第 67..93 项，生成器跳过它们（`gen_pmu_pkg.py`）；要求"带 RTL 通道的事件在表里排在前面，model-only 的只能排在表尾"（生成器有断言），所以 RTL 的 66 个 id 与模型的前 66 个 id 一致。
 
 ## 3. 接口
 
@@ -118,6 +118,7 @@ depth: 90 层（pmu，单模块综合，2026-11-18，`SYNTH_ABC="strash;balance;
 
 ## 10. 变更记录
 
+- 2026-11-28（`rtl/fe-2ahead`，文档核对）：模型事件表现为 93 项、27 项 model-only（新增 8 个 `ISS_*`，两项 slot 事件改名 `SLOT_REN_NOPREG` / `SLOT_IDU_NOBRTAG`），RTL 仍是前 66 项（`PMU_NUM_EV = 66`）。
 - 本分支（`261bd67..HEAD`）：
   - `60ed422`：`pmu_ev_pkg.sv` 按模型的 `pmu_events.def` 重新生成。发射队列事件的 LD / STA 改成 MEM（`SLOT_BE_IQ_SPACE_LD / _STA` → `_MEM`，`SLOT_BE_IQ_WIDTH_LD / _STA` → `_MEM`，`OCC_IQ_LD / _STA` → `OCC_IQ_MEM`），新增 FP 队列事件（`SLOT_BE_IQ_SPACE_FP`、`SLOT_BE_IQ_WIDTH_FP`、`OCC_IQ_FP`）。事件总数仍为 66。**id 52..65 重新排布**：原来 52 = `SPACE_LD`、53 = `SPACE_STA`……现在 52 = `SPACE_MEM`、53 = `SPACE_STD`、54 = `SPACE_BR`、55 = `SPACE_FP`、56 = `WIDTH_INT`（不变）、57 = `WIDTH_MEM`、58 = `WIDTH_STD`、59 = `WIDTH_BR`、60 = `WIDTH_FP`、61 = `OCC_IQ_INT`（不变）、62 = `OCC_IQ_MEM`、63 = `OCC_IQ_STD`、64 = `OCC_IQ_BR`、65 = `OCC_IQ_FP`。id 0..51 不变，tier 1 不受影响。
   - `121324c`：`tests/pmu/pmu_ev_widths.inc` 跟着重新生成。

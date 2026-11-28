@@ -16,100 +16,101 @@ L1 数据缓存的预取器，硬件化 **Berti（16 路去重历史表 + 虚拟
 - **每 PC 增量表**（`dcache_pf_berti_tab`）：16 项全相联 PC 表（4 位精确 LRU），每项 16 个有符号 7 位增量槽（`-63..+63`）；每拍至多执行 1 次搜索（16 槽并行命中累加 + 至多 2 个新增量分配），满 16 次搜索结算状态（`cov >= 11` → L1，`cov >= 6` → LLC，其余清零）。
 - **候选生成与跨页翻译队列**（`dcache_pf_berti_gen`）：16→1 锦标赛选择器每拍发射 1 个候选（L1 优先、覆盖率高优先，突发度 `DEG=12`）；同页候选直接拼物理页帧进 8 项请求 FIFO `reqq`，跨页候选进 8 项去重 VA 队列 `xq` 送 LSU 空闲 load DTLB 口翻译，命中结果经 8 项 `xans_q` 回填 `reqq`。
 
-旧版 "h1" 设计说明（留作对比参考）：
-
-1. **训练**：看 load 口第二级的访问事件，每拍最多取 2 个，事件是"L1D 未命中"或"第一次用到被预取进来的行"。用一个全局的（不分 PC、只有一条）步长表项检测步长；
-2. **生成候选**：步长置信度够了就发一串步长预取（"步长突发"，8 个候选，从触发行之后 2 个步长处开始，不跨 4 KiB 页）；另有一个"下一行"引擎，每次 load 未命中后给下一行发一个候选，这一行只进 LLC，不填进 L1D；
-3. **请求队列**：候选进一个 8 项 FIFO（同一行去重，满了丢弃），队头交给 `dcache_s1` 借一个空闲的 load 口做 tag 探测；探测不命中、MSHR 有空项时，由 `dcache` 顶层在 MSHR 里分配一个预取项（见 dcache.md）。
-
-它在模型里不是调度单元：`DataPrefetcher` 的输入由 `RealDcache::stage2` 写入（`acc[]`），输出（队头）被 `RealDcache::stage1` 读，状态在 `RealDcache::seq` → `pf.seq()` 里更新。
+它在模型里不是调度单元：`DataPrefetcher`（`PF_KIND` 默认 4，即 `BertiHw`）的输入由 `RealDcache::stage2` 写入，输出（队头）被 `RealDcache::stage1` 读，状态在 `RealDcache::seq` → `pf.seq()` 里更新。
 
 ## 2. 配置（现行默认）
 
-| 项 | 值 | 来源（模型常量 / RTL 常量） |
-| --- | --- | --- |
-| 请求 FIFO 深度 | 8 | `PF_QUEUE` / `QD`，指针 `QW = 3` |
-| 每拍训练事件数 | 2 | `PF_TRAIN_PORTS` / `NTR` |
-| 突发候选数 | 8 | `PF_DEGREE` / `DEGREE`，剩余计数 4 位 |
-| 起始距离 | 2 个步长 | `PF_DIST`；RTL 里写死成左移一位（`{sx(stride)[LINE_W-2:0], 1'b0}`） |
-| 置信度阈值 | 2 | `PF_CONF_THR`；RTL 里写死成 `st_conf_d >= 2'd2`，置信度 2 位，上限 3 |
-| 步长位数 | 8 位有符号（单位：行） | `PF_STRIDE_BITS` / `SB` |
-| 下一行引擎行数 | 1 | `PF_LLC_LINES`；RTL 里 `g2` 没有计数器，隐含为 1 |
-| 行号位数 | 26（`addr[31:6]`） | `PF_LINE_BITS` / `LINE_W`（`dcache_pkg`） |
-| MSHR 保留 | 0：只要有空项探测就能分配 | `PF_MSHR_RESERVE`；RTL 里 `pf_free = mshr_free - ld_alloc_cnt - st_alloc_cnt`，`pf_ok = pf_cand & (pf_free != 0)`（`dcache.sv`） |
-| 总开关 | 参数 `PF_EN`（默认 1；`soc_top` 传入） | 模型：环境变量 `PF_ENABLE`（0 关闭，`DataPrefetcher::enabled_`） |
+常量都是各文件里的局部参数（`localparam`），不在 `ttg_cfg_pkg` 里；改动要改代码。
 
-没有准确率节流、没有来自 LSU 的 PC（模型头文件注释说明这是有意的）。
+| 项 | 值 | 常量（文件） |
+| --- | --- | --- |
+| 请求 FIFO（`reqq`） | 8 项，去重 | `QD = 8`、`QW = 3`（`dcache_pf.sv`） |
+| 训练事件 FIFO（`trnq`） | 4 项；每拍最多压入 2 个 load 事件、弹出 1 个 | `TRNQ_N = 4`（`dcache_pf.sv`） |
+| 周期计数器 | 20 位，循环 | `cyc_q`（`dcache_pf.sv`） |
+| 历史表 | 8 组 × 16 路，FIFO 替换，组号 = `pc[9:1]` 三段异或 | `HSETS = 8`、`HWAYS = 16`（`dcache_pf_berti_hist.sv`） |
+| 在途需求缺失表 / 预取发出表 / 预取延迟表 | 16 / 16 / 64 项 | `INFL_N`、`PFI_N`、`PFL_N`（同上） |
+| 搜索队列 | 4 项 | `SRCHQ_N = 4`（同上） |
+| 增量范围 | 有符号 7 位，`-63..+63` 行，不为 0 | `srch_d`（同上） |
+| PC 增量表 | 16 项全相联 PC × 每项 16 个增量槽，4 位精确 LRU | `DPCS = 16`、`DDELTAS = 16`（`dcache_pf_berti_tab.sv`） |
+| 结算 | 每项每 16 次搜索结算一次：覆盖数 `≥ 11` → 进 L1（`st = 1`），`≥ 6` → 只进 LLC（`st = 2`），其余不发（`st = 0`） | `ROUND = 16`、`HI_COV = 11`、`LO_COV = 6`（同上） |
+| 突发 | 每次触发最多 12 个候选，每拍 1 个 | `DEG = 12`（`dcache_pf_berti_gen.sv`） |
+| 跨页 VA 队列 / 翻译结果队列 | 8 / 8 项 | `XQN = 8`、`XAN = 8`（同上） |
+| 行号位数 | 26（物理地址 `[31:6]`） | `LINE_W`（`dcache_pkg`） |
+| MSHR 保留 | 0：只要有空项就能分配 | `dcache.sv`：`pf_free = mshr_free - ld_alloc_cnt - st_alloc_cnt`，`pf_ok = pf_cand & (pf_free != 0)` |
+| 总开关 | 参数 `PF_EN`（默认 1；`soc_top` / `mem_top` 传入） | 模型：环境变量 `PF_ENABLE`（0 关闭） |
 
 ## 3. 接口
 
 | 方向 | 信号 | 含义 |
 | --- | --- | --- |
-| 出 | `head_valid`、`head_line`、`head_llc` | FIFO 队头：非空、行号、是否只进 LLC |
-| 入 | `head_taken` | `dcache_s1` 这拍把队头送去探测了，下一拍弹出 |
-| 入 | `acc_valid/acc_line/acc_miss/acc_pf_hit [NLD]` | 本拍第二级各 load 口的访问事件：未命中（含合并进在途 MSHR 项的）、或第一次使用预取行。重发的请求和隐藏重试不产生事件（`dcache_s2_ld` 里 `dem` 要求 `!slot_perf_replay`、来自 LSU、不是探测） |
+| 出 | `head_valid`、`head_line`、`head_llc` | `reqq` 队头：非空、行号、是否只进 LLC |
+| 入 | `head_taken` | `dcache_s1` 这拍把队头送去探测了，下一拍弹出；不是只进 LLC 的那一个同时记入预取发出表（测延迟用） |
+| 入 | `fill_valid`、`fill_line`、`fill_is_pf` | `dcache_s2_fill` 本拍的填充：需求填充用来量需求缺失延迟，预取填充用来量预取延迟 |
+| 入 | `acc_valid / acc_line / acc_pc / acc_va / acc_miss / acc_pf_hit [NLD]` | 本拍第二级各 load 口的访问事件：物理行号、load 的 PC（32 位）、虚拟地址（39 位）、是否未命中、是否第一次用到预取行 |
+| 出 | `pf_xq_v / pf_xq_va [38:0] / pf_xq_llc [NLD]` | 跨页候选：`xq` 队头最多 `NLD` 项的虚拟地址，送 LSU（`lp_l1`）借空闲 load 口的 DTLB 翻译 |
+| 入 | `pf_xq_pop [2:0]` | LSU 本拍取走了几项（0..`NLD`） |
+| 入 | `pf_xans_v / pf_xans_line / pf_xans_llc [NLD]` | 翻译成功的结果（物理行号），进 `xans` 队列 |
 
-`PF_EN = 0` 时 `dcache.sv` 不实例化本模块，`pf_head_valid` 等恒为 0（`g_nopf`）。
+`PF_EN = 0` 时 `dcache.sv` 不实例化本模块（`g_nopf`），`pf_head_*`、`pf_xq_*` 恒为 0。
 
 ## 4. 结构
 
+```
+ acc_* (≤2/拍) ─► trnq[4] ─(每拍 1 个)─┬─► dcache_pf_berti_hist ─(搜索结果)─► srch_r_q（寄存）─► dcache_pf_berti_tab（更新）
+                                        └─► dcache_pf_berti_tab（触发读）─► dcache_pf_berti_gen ─┬─(同页)──────────► reqq[8] ─► head_*
+ fill_* / head_taken ─► hist 的延迟测量                                              └─(跨页) xq[8] ─► LSU DTLB ─► xans[8] ─┘
+```
+
 | 文件 | 行数 | 职责 |
 | --- | --- | --- |
-| `dcache_pf.sv` | 214 | 全部：FIFO、步长表项、两个生成器、训练输入寄存器 |
+| `dcache_pf.sv` | 185 | 顶层：周期计数器、训练 FIFO `trnq`、请求 FIFO `reqq`（去重）、三个子模块的连接、hist→tab 之间的寄存级 `srch_r_*_q` |
+| `dcache_pf_berti_hist.sv` | 277 | 历史表（按组全组去重）、在途需求缺失表 `infl`、预取发出表 `pfi`、预取延迟表 `pfl`、搜索队列 `srchq`；每拍对搜索队列头做一次 16 路"及时增量"搜索 |
+| `dcache_pf_berti_tab.sv` | 286 | 每 PC 增量表：两级流水（T1 查 PC、16 槽并行命中计数；T2 选出两个空位插入未命中的新增量、满 16 次结算）；触发读直接读寄存的表 |
+| `dcache_pf_berti_gen.sv` | 268 | 突发生成：16 选 1 锦标赛（4 级二叉树），同页候选拼物理页号进 `reqq`，跨页候选进 `xq`（去重）；`xans` 结果优先进 `reqq` |
 
-状态（全部寄存器）：
-
-- FIFO：`q_line_q[8]`（26 位）、`q_llc_q[8]`、`q_head_q`、`q_cnt_q`；
-- 步长表项：`st_valid_q`、`st_last_q`（上次的行号）、`st_stride_q`（8 位）、`st_conf_q`（2 位）；
-- 步长突发生成器 `g_*`：有效、下一行 `g_next_q`、基准行 `g_base_q`（页检查用）、步长、剩余次数；
-- 下一行生成器 `g2_*`：有效、下一行、基准行（页检查用）；
-- 训练输入寄存器：`in_valid_q/in_miss_q/in_line_q [2]`（上一拍选出的事件，这一拍才用来训练，使训练不在第二级的路径上）。
+状态（全部寄存器）：`cyc_q`（20 位）；`trnq_q[4]`（PC、虚拟行号、物理行号、VA 符号位、是否未命中）；`reqq`：`q_line_q[8]`（26 位）、`q_llc_q[8]`、`q_head_q`、`q_cnt_q`；`srch_r_*_q`；hist：`hist_q[8][16]`（PC、行号、20 位时间戳）、`infl_q[16]`、`pfi_*_q[16]`、`pfl_*_q[64]`（12 位延迟）、`srchq_q[4]`；tab：16 项 PC、每项 16 个增量槽（增量、覆盖数、上轮覆盖数、`st`）、`cnt_q[16]`（5 位搜索计数）、LRU；gen：`gen_mask_q`、`gen_left_q`、`gen_vline_q`、`gen_ppn_q`、每槽增量 / `st` / 覆盖数，`xq_*_q[8]`、`xa_*_q[8]`。
 
 ## 5. 一拍内的数据流
 
-顺序与模型 `DataPrefetcher::seq` 一致（RTL 里是同一个组合块的几段，随后统一打入寄存器）：
-
-1. **弹出**：`head_taken` 为真则队头出队（`cnt_a`、`head_a`）；
-2. **步长生成器**：有效则占用 FIFO 的写口；下一行与基准行不在同一页（行号 `[25:6]` 不同）则作废，否则推入候选 `g_next_q`（`llc = 0`），`g_next` 加一个步长，剩余次数减一，到 0 作废；
-3. **下一行生成器**：写口没被步长生成器占用时才工作；同页则推入候选 `g2_next_q`（`llc = 1`），然后作废；
-4. **去重与写入**：候选与弹出后的 FIFO 项逐项比较行号，相同则丢弃；FIFO 满则丢弃；否则写到 `head_a + cnt_a`。生成器的 `g_next`、`g_left` 不管候选是否被丢弃都照常推进（与模型 `push_candidate` 一致）；
-5. **训练**（对上一拍寄存的 2 个事件按顺序依次处理）：
-   - 未命中事件：启动下一行生成器（基准行 = 本行，下一行 = 本行 + 1）；
-   - 步长表项无效则以本行建立（步长 0、置信度 0）；否则 `d = 本行 - st_last`：`d == 0` 不更新；`d` 在 8 位有符号范围内且等于已存步长则置信度加一（上限 3）；否则置信度大于 0 就减一，减到 0 且 `d` 在范围内则采用 `d` 作为新步长；置信度已是 0 则直接以 `d`（不在范围内则为 0）为步长；更新 `st_last`；置信度 ≥ 2 且步长非 0 则启动步长突发（基准行 = 本行，起点 = 本行 + 2 个步长，剩余 8 次）；
-6. **选择新事件**：按 load 口顺序取前 2 个"未命中或首次使用预取行"的访问，寄存起来供下一拍训练，多余的丢弃。
+1. **事件入队**：按 load 口顺序取前 2 个"未命中或首次使用预取行"的访问（`ttg_first_set` 两次），压入 `trnq`（满了丢弃）；`trnq` 非空时每拍弹出队头 1 个，作为本拍的训练 / 触发事件。
+2. **历史与延迟**（`dcache_pf_berti_hist`）：需求未命中记入 `infl`（带时间戳）；需求填充命中 `infl` 时得到需求延迟，产生一次搜索；预取填充按 `pfi` 里的发出时间算出预取延迟存进 `pfl`；第一次用到预取行时用 `pfl` 里的延迟产生一次搜索。每个训练事件都按 `(pc, 虚拟行号)` 记进历史表（组内 FIFO 替换），同组已有同一条则不再记（保留最早的时间戳）。
+3. **搜索**：搜索队列头与它所在组的 16 路历史逐路比较：同 PC、时间差不小于测得的延迟（"及时"）、行号差非 0 且在 `-63..+63` 内的路有效；16 个增量去重（同值只留最低路）。`srch_stall`（寄存级占用）时本拍不搜索。结果打一拍（`srch_r_*_q`）后送增量表。
+4. **增量表更新**（`dcache_pf_berti_tab`）：T1 按 PC 查表（未命中按 LRU 选牺牲项），已有的增量槽并行加覆盖数；T2 插入最多 2 个没命中的新增量，位置先取无效槽，再取 `st == 0` 里覆盖数最低的槽（4 级二叉树选最小两个）；该 PC 满 `ROUND = 16` 次搜索时按覆盖数结算每槽的 `st` 并清计数。
+5. **触发**：本拍弹出的训练事件按 PC 读增量表（读寄存的表，不经本拍更新），`st != 0` 的槽组成 `trig_mask`，非空则 `trig_go`。
+6. **生成**（`dcache_pf_berti_gen`）：`trig_go` 时装载新突发（`gen_left = DEG = 12`，覆盖旧突发）；否则每拍用锦标赛选出键最大的槽（键 = `{st == 1, 覆盖数}`，即进 L1 的优先、覆盖数高的优先，同键低号赢），目标行 = 触发行 + 增量。同页：直接拼触发时的物理页号，进 `reqq`（`st == 2` 的标为只进 LLC）；跨页：虚拟地址进 `xq`（与队内页号比较去重），之后由 LSU 翻译，结果回 `xans`。`xans` 有结果时优先进 `reqq`，本拍同页候选让路。用掉的槽从 `gen_mask` 清掉。
+7. **`reqq` 去重与写入**：`head_taken` 先弹出；候选与弹出后的各项逐项比行号，相同或已满则丢弃，否则写到 `head + cnt`。
 
 ## 6. 关键路径与深度
 
-单模块综合深度 **74 层**（dcache_pf；2026-11-18；`scripts/synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`，生成门代理，不是时序）。综合报告给出的最长路径：从 `\st_last_q [1]` 到 `\g_next_q [24]`。从代码读出的，未综合验证：
+旧的 h1 步长预取器：单模块综合深度 **74 层**（2026-11-18；`scripts/synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`，生成门代理，不是时序）。现行 Berti 的数字见文件头 `depth:`（EXP-062：Yosys 75 层，`berti_tab` 最深）；本节没有重新测量。从代码读出的长路径（未综合验证）：
 
-- **FIFO 去重**：写入候选 `push_line`（由生成器状态直接给出）与 8 项逐项比较后，才决定 `do_push`；
-- **训练**：两个事件在同一个组合块里依次串行更新步长表项（第二个事件看第一个的结果），行号减法、范围判断、置信度更新、突发启动串起来，是组合链最长的部分；
-- 预取器的输入全部走寄存器（`in_*_q`），第二级的 load 路径不经过它；它只把 `head_*` 给 `dcache_s1`，`head_line` 是 8 选 1 的读出。
+- **增量表**：T2 的"选两个插入位置 + 写表"和触发读之后的 `trig_mask`；EXP-062 已把 PC CAM 与 16×16 匹配切到 T1，与 T2 之间加寄存；
+- **生成器**：16 选 1 锦标赛树 → 目标行加法（7 位低位和判断是否跨页，上一页 / 下一页页号与锦标赛并行预先算好）→ `xq` 去重（页号比较也与锦标赛并行）；
+- **`reqq` 去重**：`push_line` 与 8 项逐项比较后才决定 `do_push`。
 
 ## 7. 与模型的差异和取舍
 
-- 开关：模型是环境变量 `PF_ENABLE`，RTL 是参数 `PF_EN`；
-- 配置常量里 `PF_DIST`、`PF_CONF_THR`、`PF_LLC_LINES` 在 RTL 中是写死的结构（见第 2 节），改这些常量要改代码；
-- 模型的 `PfStats`（issued、useful、late 等）是性能统计，RTL 没有；PMU 的预取事件在 RTL 里另有来源（本次没有核对）；
-- 模型的 `pf::Table` / `pf::Fifo` 有"每拍固定端口数、违反则中止"的建模规则检查，RTL 由结构本身保证；
-- 事件选择："第一个 `PF_TRAIN_PORTS` 个事件"在两边都按 load 口顺序。
+- 开关：模型是环境变量 `PF_ENABLE`（和 `PF_KIND`，默认 4 = 本设计），RTL 是参数 `PF_EN`，没有其他预取器可选；
+- 模型的 `PF_BERTI_HWALLOC`（每次搜索最多分配几个新增量）在 RTL 里固定为 2；
+- 模型的统计（`PfStats`、`PF_STATS`）是性能统计，RTL 没有；
+- 模型 `BertiHw` 的注释写明它是本 RTL 的"每拍一个操作"规格，各表大小与 RTL 局部参数一一对应；
+- 事件选择："前 2 个事件"在两边都按 load 口顺序。
 
-模型里看起来不一致的地方：无。
-
-未核对（继承自旧文档）：旧文档中的预取收益数字（IPC 提升）未带入；PMU 预取事件的来源未核对。
+模型里看起来不一致的地方：本次没有逐项核对。
 
 ## 8. 验证
 
-- **门禁**：`scripts/fm_gate.sh`（67 个程序，周期逐个等于 `scripts/ref_cycles_memiq6_nr_int2_ev5.txt`）。预取行为影响周期，所以周期相等同时验证了预取器；直接的预取程序有 `pf-stress`、`directed/memspec_pf.bin`。
-- **关闭预取的参考**：`scripts/ref_cycles_nopf.txt`（模型 `PF_ENABLE=0`，RTL `SOC_VOPT="-GPF_EN=0"`；文件头日期 2026-11-16，不在当前门禁里，本次没有运行）。
+- **门禁**：`scripts/fm_gate.sh`（77 个程序，周期逐个等于 `scripts/ref_cycles.txt`）。预取行为影响周期，所以周期相等同时验证了预取器；直接的预取程序有 `pf-stress`、`directed/memspec_pf.bin`。
+- **关闭预取的参考**：`scripts/ref_cycles_nopf.txt`（模型 `PF_ENABLE=0`，RTL `SOC_VOPT="-GPF_EN=0"`；由 `scripts/regen_refs.sh` 与 `ref_cycles.txt` 一起重生成，不在当前门禁里，本次没有运行）。
 - **Linux**：`scripts/linux_gate.sh` 的 PMU 序列对比。
 - **Lint**：`scripts/lint_chip.sh`。
-- **没有模块级独立测试**。**待补**：给 `dcache_pf` 加一个和模型 `DataPrefetcher` 并排的随机事件流测试（只需事件序列和 `head_taken` 序列，输出队头序列对比），改训练逻辑深度时用。
+- **没有模块级独立测试**。**待补**：给 `dcache_pf` 加一个和模型 `BertiHw` 并排的随机事件流测试（输入访问 / 填充 / `head_taken` / 翻译结果序列，比较 `reqq` 队头和 `xq` 序列），改深度时用。
 
 ## 9. 参数与开关速查
 
-`PF_EN`（`dcache`、`mem_top`、`soc_top` 参数）；`dcache_pf` 内部局部参数 `QD`、`QW`、`SB`、`DEGREE`、`NTR`；`NLD`、`LINE_W`（`dcache_pkg`）。
+`PF_EN`（`dcache`、`mem_top`、`soc_top` 参数）；`dcache_pf` 的 `QD`、`QW`、`TRNQ_N`；`dcache_pf_berti_hist` 的 `HSETS`、`HWAYS`、`INFL_N`、`PFI_N`、`PFL_N`、`SRCHQ_N`；`dcache_pf_berti_tab` 的 `DPCS`、`DDELTAS`、`ROUND`、`HI_COV`、`LO_COV`；`dcache_pf_berti_gen` 的 `DEG`、`XQN`、`XAN`（都是局部参数）；`NLD`、`LINE_W`（`dcache_pkg`）。
 
 ## 10. 变更记录
 
-本分支未改动，更早：见 git 历史（预取器引入于 EXP-009）。
+- 2026-11-28（文档核对，无 RTL 变化）：第 2–7 节按现行 Berti RTL（`dcache_pf` + `dcache_pf_berti_hist / tab / gen`）重写，删掉旧 h1 步长预取器的描述（见 git 历史）；文件表补上三个 Berti 子模块；门禁参考改为 `scripts/ref_cycles.txt`。
+- 更早：EXP-062 四级流水化硬件 Berti；EXP-048 M3 硬件 Berti 替换 h1；预取器引入于 EXP-009。见 git 历史。

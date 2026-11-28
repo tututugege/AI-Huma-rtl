@@ -27,11 +27,11 @@
 
 | # | 内容 | 等级 |
 |---|---|---|
-| D-1 | `axi_subsys` 因 `axi_llc.in_w` `UNOPTFLAT` 在 `lint.sh` 中跳过 Verilator lint（仅做风格检查） | 中 |
-| D-2 | 生成器/配置同步：`make cfg` 与手改的 `ttg_cfg_pkg.sv` 尚未完全逐字节同步；`tests/pmu/pmu_tb.cpp` 落后于 66 事件 | 低 |
+| D-2 | `tests/pmu/pmu_tb.cpp` 落后于 PMU 事件表（`NUM_EV = 52`，`rtl/pmu/pmu_ev_pkg.sv` 的 `PMU_NUM_EV = 66`） | 低 |
 | D-3 | 缺少自动化 CI 流水线（门禁全靠手工触发） | 低 |
 
 ## 4. 最近审计记录
 
 - **2026-11-25**：清理历史 rv32/旧锁步过期条目；闭环原 V-6（`SOC_XINIT_UNIQUE=1` + `SOC_SVA=1` 69/69 PASS）、大幅收敛原 V-12（`SOC_TB_FM_STRICT=1` 覆盖 MMIO store 与 18 架构 CSR）、查明原 R-7 根因（LR/SC 推测 `sc_clr` + 异步中断）、接入 152 官方 `riscv-tests`（检出并修复 `isu_fp_gate` 跨类写回 Bug）+ 8 定向短测试（行覆盖 `96.44%`，DDR 写回 AW/W/B 0→92）+ RV64GC Fuzzer（RTL 100/100 + Spike 500/500 PASS）。
 - **2026-11-26**：完成全量 **386/386 SPEC06 INT（10M+10M + 逐条 FM 比对，~77.2 亿条指令）** 8 线程 RTL 验证（**0 fail、0 FM diff、12 项基准 geomean `+0.00%`、266/386 点 0-cycle 精确一致**）；全量验证期间实测检出并修复 4 项真实缺陷：① LSU `lp_core.sv`/`lp_ldq.sv` 补齐 per-port `epoch` 过滤防陈旧 DCache 响应搭便车；② ISU `Isu.cpp`/`isu_pkg.sv`/`isu_fp_gate.sv` 修复 `FDIV`/`FSQRT` FPWB 预留提前 1 拍溢出；③ `fp_dpi.cpp` 加 `std::mutex` 消除 `--threads 8` SoftFloat 舍入竞态；④ `trace-model` `PerfCount::perf_reset()` 补齐 `cycle_base = 0`（修复 `--restore-stub` 重复扣减 ~25k 周期导致的 +0.78% 虚高）。原 V-1 降级为低风险（仅剩高分支负载 120 点对称 `±` 周期微差）。
+- **2026-11-28**（`rtl/fe-2ahead`）：① 查出并修复 SRAM 上电值依赖（73761fa）：原来 SRAM 包装在仿真里靠 `initial` 给 `INIT_VAL`，综合后上电是随机值（如 LLC 的 valid / dirty / 替换表会假命中、写回垃圾）；现在 `ttg_sram_1rw` / `ttg_sram_1r1w` 复位期间逐地址写 `INIT_VAL`，`ttg_rst_sweep` 把整核复位延长 `SRAM_SWEEP_CYCLES`（4100）拍，`SOC_TB_RAND_INIT` 随机上电下 `fm_gate.sh` 77/77、0 周期差。② 整核 Verilator `UNOPTFLAT` 清零，`scripts/` 里的 `-Wno-UNOPTFLAT` 全部删除（5e5d40f），原 D-1（`axi_subsys` 跳过 Verilator lint）关闭，`lint.sh` 现在照常 lint `axi_subsys`。③ `make cfg` 重新生成的 `ttg_cfg_pkg.sv` 与入库文件逐字节相同，原 D-2 的配置同步部分关闭。

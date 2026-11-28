@@ -68,7 +68,7 @@ depth: 44 层（ptw_walk，单模块综合 5446 cells / 21 $mem_v2，2026-11-22�
 | `ptw_walk.sv` | 82 | 顶层：连线（含 `sfence_flush`） |
 | `ptw_walk_client.sv` | 108 | 客户侧 |
 | `ptw_walk_engine.sv` | 208 | 状态机（含 `PW_STLB_LK` 查表拍与回填） |
-| `ptw_walk_l2tlb.sv` | 320 | 统一 L2 TLB（4 路 256×76b 1RW SRAM + 3-bit PLRU + 8 项大页 CAM）+ 16 项 PWC |
+| `ptw_walk_l2tlb.sv` | 329 | 统一 L2 TLB（4 路 256×76b 1RW SRAM + 3-bit PLRU + 8 项大页 CAM）+ 16 项 PWC |
 | `ptw_walk_pte.sv` | 59 | PTE 判断（纯组合） |
 
 状态：每个客户的 `pending_q`、`inflight_q`、`resp_valid_q`、`vpn_q`（27 位）、`root_q`（20 位）、响应的 `fault_q`/`leaf_ppn_q`/`perm_q`/`level_q`；引擎的 `state_q`（6 个状态）、`owner_q`、`rr_q`（下次优先的客户）、`l1_ppn_q`（上一级指针项的页号 = 下一级页表的基址，20 位）、`req_id_q`（已授权读请求的 id）、`level_q`（后续读的级别）；`ptw_walk_l2tlb` 内的 4 路 256×76b 1RW STLB SRAM（`mem_q`）、`stlb_rd_q`、`stlb_valid_q`、`stlb_plru_q`、8 项大页 CAM + `sp_rr_q`、16 项 PWC + `pwc_rr_q`。
@@ -99,7 +99,7 @@ depth: 44 层（ptw_walk，单模块综合 5446 cells / 21 $mem_v2，2026-11-22�
 
 单模块综合深度 **44 层**，面积 **5,446 cells**（含 `21 $mem_v2`、206 FFs；`ptw_walk`；2026-11-22；`scripts/synth_depth.sh l2tlb2 ptw_walk`，`SYNTH_ABC="strash;balance;map" SYNTH_NO_MEMPRIO=1`）。综合报告最长路径：`\g_client[0].u_client.inflight_q` → `vpn_a` → `u_l2tlb.pwc_l1_hit` → `stlb_pwc_go` → `u_engine.state_q`（44 层，较加入 L2 TLB 前的 47 层更浅，因 `PW_L1_REQ/PW_L2_REQ` 的 grant 与 PTE 判别已从 `select_any -> state_b` 路径解耦）。
 
-- 4 路 256×76b STLB 以 `genvar` 内的独立 1D 1RW 数组实现（无复位），Yosys 自动映射为 `$mem_v2`，写操作与读操作按 FSM 状态严格互斥（`PW_IDLE` 读、`*_WAIT` 写），无读写转发冲突；
+- 4 路 256×76b STLB 是 4 个 `ttg_sram_1rw`（`TAG = "L2TLB_STLB"`，`DEPTH = PT_STLB_SETS = 256`，`WIDTH = STLB_ENTRY_W`）；内容由 `rst_n` 期间的 SRAM 清扫写 `INIT_VAL`（common.md 4.1），有效位 `stlb_valid_q` 和 PLRU 仍在触发器里、同步复位；写操作与读操作按 FSM 状态严格互斥（`PW_IDLE` 读、`*_WAIT` 写），无读写转发冲突；
 - L1 ITLB / DTLB 关键路径完全不受 L2 TLB 影响。
 
 ## 7. 与模型的差异和取舍
@@ -129,5 +129,6 @@ depth: 44 层（ptw_walk，单模块综合 5446 cells / 21 $mem_v2，2026-11-22�
 
 ## 10. 变更记录
 
+- 2026-11-28（rtl 73761fa，SRAM 复位清扫）：`ptw_walk_l2tlb` 的 4 个 STLB `ttg_sram_1rw` 实例接上 `rst_n`；复位期间 SRAM 外壳逐地址写 `INIT_VAL`，`ttg_rst_sweep` 把复位拉长 `SRAM_SWEEP_CYCLES = 4100` 拍，不再依赖上电值（common.md 4.1）；0 周期变化，`fm_gate` 77/77。
 - **2026-11-22 (`rtl/l2tlb`)**：新增 `ptw_walk_l2tlb.sv`（1024 项 4 路 1RW SRAM STLB + 3-bit PLRU、8 项大页 CAM、16 项 Sv39 PWC）与 `PW_STLB_LK` 查表拍，经 `mem_top.rob_bcast_fence` 接入 `sfence_flush`；解耦 `PW_L1_REQ/PW_L2_REQ` 与 `select_any` 路径（综合 `5446 cells / depth=44`）。
 - 更早：`72f2cd9` rv64 step 3：Sv39 TLB 和页表遍历器；`8abb7ab` RTL 清理；`2d78026` 初次引入。

@@ -114,7 +114,7 @@ def run_seed(args_tuple):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--tb", default="", help="Path to soc_tb binary (RTL vs function-model)")
+    ap.add_argument("--tb", default="", help="Path to core_tb binary (tb/core/build.sh with SOC_FM=1; RTL vs function-model)")
     ap.add_argument("--spike-fm", default="", help="Path to Spike-checked function-model a.out (function-model vs Spike)")
     ap.add_argument("--out", required=True, help="Output directory")
     ap.add_argument("--seeds", type=int, default=100, help="Number of seeds to run")

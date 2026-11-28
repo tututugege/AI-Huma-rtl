@@ -1,6 +1,6 @@
 ---
 module: <模块名，和文件名一致>
-area: backend | frontend | memsys | core | uncore
+area: backend | frontend | memsys | core | soc | uncore
 rtl: <rtl 目录或文件，空格分隔；括号里的说明会被忽略>
 model: <对应的 trace-model 文件和调度单元（`back.xxx`，类名，阶段）；RTL 独有的模块写"无对应模型单元"并说明>
 status: <整核门禁结果：fm_gate 几/几，对哪个参考周期文件；没重跑就写明引用的是哪次提交的说明>

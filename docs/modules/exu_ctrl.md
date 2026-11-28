@@ -16,9 +16,9 @@ depth: 17 层（rtl/be-wake-byp-opt，20,037 单元，已删除 31 路 `exe2prf_
 1. 把 PRF 读出的发射结果（`prf2exe_iss_entry_*`）装进每发射口一套的 19 个无停顿流水线寄存器（`valid_q / slot_q`）；被 flush 或被误预测杀死时清掉；
 2. 由组合逻辑将口寄存器分发至匹配的 FU（`exu2fu_*`），收回 FU 的结果（`fu_*`），整理成每个 FU 一条统一的"完成记录"；
 3. 每个发射口内由写回预约保证每拍至多一个 FU 完成（仿真 `$onehot0` 断言检查），直接用一热选择器选出赢家（无 `consume` 反压）；
-4. 把结果送出去：写回 PRF（`exe2prf_entry`）、旁路广播（`exe2prf_bypass`，每个完成的 FU 一路）、完成报告给 ROB（`exu2rob`，21 通道 `ROB_WB_WIDTH`）、AGU 结果变成 5 路统一 LSU 请求（`exe2lsu_agu`）、CSR 指令的读写请求（`exe2csr`）；
+4. 把结果送出去：写回 PRF 并兼作 EXU 级旁路（`exe2prf [WB_LANES]`，`WB_LANES = 13`；其中 ALU 通道 0..5 由 PRF 按独热直选旁路）、完成报告给 ROB（`exu2rob`，21 通道 `ROB_WB_WIDTH`）、AGU 结果变成 5 路统一 LSU 请求（`exe2lsu_agu`）、CSR 指令的读写请求（`exe2csr`）；
 5. 汇总 BRU 的结果：最老的一条误预测分支触发重定向（`exu2id_*`）；
-6. 仅从 `exu.sv` 顶层口 1 迭代除法器输出 1-bit `exe2iss_div_wb_in2`（提前 2 拍即 DIV accept 且 `lat_m1 == 1` 或 `live && cnt_q == 2` 时屏蔽 Port 1 ALU 发射，适配 **ISS → RR → EX** 两拍；`div_wb_next` 保留用于延迟唤醒；EXP-072 已删除 `exu_ctrl_ready` 与 `exe2iss_fu_ready_mask`）。
+6. 仅从 `exu.sv` 顶层口 1 迭代除法器输出 1-bit `exe2iss_div_wb_in2`（提前 2 拍即 DIV accept 且 `lat_m1 == 1` 或 `live && cnt_q == 2` 时屏蔽 Port 1 ALU 发射，适配 **ISS → RR → EX** 两拍；DIV 的晚唤醒走 `exe2iss_div_wake_*`；`exu_iter_ctl` 仍输出 `div_wb_next`，但 `exu.sv` 只接线、没有使用；这些都在 `exu.sv`，不经过 `exu_ctrl`；EXP-072 已删除 `exu_ctrl_ready` 与 `exe2iss_fu_ready_mask`）。
 
 模型里对应一个调度单元 `back.exu`（类 `Exu`）。RTL 把它拆成三块：控制和仲裁在本模块；FU 的时序状态和运算在 `exu_fu`（模型的 FU 没有运算，结果直接取自 trace 的事实，只有"何时完成"的时序）；模型 `Exu::load_wake`（load 写回寄存器后的晚唤醒，输出 `prf_awake`）在 RTL 里落在 `prf` 的 `prf_awake`，不在本模块。
 
@@ -60,16 +60,15 @@ FU 分组数组（按 `fu_idx` 序排）：多周期 FU（MUL、DIV）`N_MC = 3`
 | 入 | `prf2exe_valid / _uop [ISSUE_WIDTH]` | 发射结果加上 PRF 读出的操作数（`src1_rdata`、`src2_rdata`、浮点 `fsrc1..3`）和 FTQ 读出的 PC 元数据（口 0..5 和 14、15） |
 | 入 | `prf2exe_csr_idx` | 口 0 的 `csr_idx`（CSR 固定在口 0） |
 | 入 | `fu_alu_result[6]`、`fu_agu_result[5]`、`fu_sdu_result[3]`、`fu_bru_{diag_val,mispred,br_taken}[2]` | 单周期 FU 只回计算结果；`complete` 由 `fu_en` 直接推 |
-| 入 | `fu_mc_*[3]`、`fu_fp_*[8]` | 多周期 FU 回 `complete`、结果、`dest_preg`、`dest_en`、`rob_idx`、`rob_flag`（浮点还有 `fresult`、`fflags`、`illegal`），无 `ready`/`consume`；DIV 另回 `div_wb_next` |
+| 入 | `fu_mc_*[3]`、`fu_fp_*[8]` | 多周期 FU 回 `complete`、结果、`dest_preg`、`dest_en`、`rob_idx`、`rob_flag`（浮点还有 `fresult`、`fflags`、`illegal`），无 `ready`/`consume` |
 | 入 | `lsu2exe_wb_req_*[4]`、`lsu2exe_sta_wb_req_*[3]` | LSU 的 load（含 SC）和 STA 写回请求，映射至 `exu2rob` 的 `ROB_WB_LD_BASE` 与 `ROB_WB_STA_BASE` |
 | 入 | `csr2exe_rdata` | CSR 读出的值 |
 | 出 | `exu2fu_*` | 交给 FU 的操作数与 `flush_all/br`（按 ALU / BRU / AGU / SDU / MC / FP 分组） |
-| 出 | `exe2iss_div_wb_next` | 1-bit，口 1 DIV 下一拍将写回，供 ISU 在该拍暂停口 1 ALU 发射 |
 | 出 | `exe2prf [WB_LANES]` | 寄存器写回 + 旁路总线，13 条通道（ALU 6 + load 4 + FP 3） |
 | 出 | `exu2rob [ROB_WB_WIDTH]` | 21 通道 ROB 完成报告 |
 | 出 | `exe2lsu_agu [LSU_AGU_COUNT]`（`xc_agu_req_t`）、`exe2lsu_sdu_req_*[3]` | 5 个物理 AGU 的统一 LSU 请求（含 `raw` / `valid` / `op`）及 3 个 SDU 请求 |
 | 出 | `exe2csr_we / _re / _idx / _wdata / _wcmd` | CSR 指令的请求 |
-| 出 | `exu2id_mispred / _redirect_* / _ftq_* / _br_*` | 最老误预测分支重定向信息，去 IDU |
+| 出 | `exu2id_mispred`、`exu2id_redirect_{pc, rob_idx, rob_flag}`、`exu2id_ftq_{idx, offset}`、`exu2id_br_{pc, is_rvc}` | 最老误预测分支重定向信息（重定向 pc、分支 ROB 号、FTQ 位置、分支自身 pc 与是否 16 位），去 `back_br_redirect`（再由它广播 `dec_bcast_*`） |
 
 模型 `Exu::Out` 另有 `prf_awake` 和 `div_wake_*`（RTL 分别在 PRF 和 ISU）；RTL 另有 `exe2csr` 和 `exu2fu`。
 
@@ -83,18 +82,18 @@ FU 分组数组（按 `fu_idx` 序排）：多周期 FU（MUL、DIV）`N_MC = 3`
 
 | 文件 | 行数 | 职责 |
 | --- | --- | --- |
-| `exu_ctrl_pkg.sv` | — | 口能力表、FU 编号表、`XC_K_AGU` 统一类型、`xc_agu_req_t`、`xc_inst_t`、`xc_fu_res_t`、`xc_done_t`、`xc_lsu_wb_t` |
-| `exu_ctrl.sv` | — | 顶层：端口与内部结构体互转，实例化各子模块并检查 `$onehot0(complete_vec)` |
-| `exu_ctrl_slot.sv` | — | 每发射口 1 槽寄存器（无停顿/无重放）、comb 译码生成 `fu_en`、`agu_occ`、`agu_is_sta`；独立寄存口 0 `csr_idx_q` |
-| `exu_ctrl_fu_in.sv` | — | 把分组数组按 `fu_idx` 收成每个 FU 一条 `xc_fu_res_t` |
-| `exu_ctrl_fu_view.sv` | — | 把槽和 FU 结果合成统一的完成记录 `fu_done` |
-| `exu_ctrl_port_arb.sv` | — | 口内一热仲裁：`ttg_onehot_mux` 直接选出赢家，OR 归约生成 `win_valid`（无 `consume`） |
-| `exu_ctrl_wb_prf.sv` | — | 寄存器写回与 EXU 级旁路总线（`WB_LANES = 13`） |
-| `exu_ctrl_wb_rob.sv` | — | 21 通道 ROB 完成报告（按 `ROB_WB_*_BASE` 分流） |
-| `exu_ctrl_br_arb.sv` | — | 最老误预测分支选择 |
-| `exu_ctrl_csr_req.sv` | — | CSR 槽 → `exe2csr` |
-| `exu_ctrl_lsu_req.sv` | — | 5 路 AGU / 3 路 SDU → `exe2lsu_agu` / `exe2lsu_sdu_*` |
-| `exu_ctrl_fu_out.sv` | — | 槽里的指令 → 各 FU 组的输入端口 |
+| `exu_ctrl_pkg.sv` | 397 | 口能力表、FU 编号表、`XC_K_AGU` 统一类型、`xc_agu_req_t`、`xc_inst_t`、`xc_fu_res_t`、`xc_done_t`、`xc_lsu_wb_t` |
+| `exu_ctrl.sv` | 269 | 顶层：端口与内部结构体互转，实例化各子模块并检查 `$onehot0(complete_vec)` |
+| `exu_ctrl_slot.sv` | 75 | 每发射口 1 槽寄存器（无停顿/无重放）、comb 译码生成 `fu_en`、`agu_occ`、`agu_is_sta`；独立寄存口 0 `csr_idx_q` |
+| `exu_ctrl_fu_in.sv` | 76 | 把分组数组按 `fu_idx` 收成每个 FU 一条 `xc_fu_res_t` |
+| `exu_ctrl_fu_view.sv` | 66 | 把槽和 FU 结果合成统一的完成记录 `fu_done` |
+| `exu_ctrl_port_arb.sv` | 47 | 口内一热仲裁：`ttg_onehot_mux` 直接选出赢家，OR 归约生成 `win_valid`（无 `consume`） |
+| `exu_ctrl_wb_prf.sv` | 53 | 寄存器写回与 EXU 级旁路总线（`WB_LANES = 13`） |
+| `exu_ctrl_wb_rob.sv` | 69 | 21 通道 ROB 完成报告（按 `ROB_WB_*_BASE` 分流） |
+| `exu_ctrl_br_arb.sv` | 62 | 最老误预测分支选择 |
+| `exu_ctrl_csr_req.sv` | 41 | CSR 槽 → `exe2csr` |
+| `exu_ctrl_lsu_req.sv` | 51 | 5 路 AGU / 3 路 SDU → `exe2lsu_agu` / `exe2lsu_sdu_*` |
+| `exu_ctrl_fu_out.sv` | 161 | 槽里的指令 → 各 FU 组的输入端口 |
 
 状态：每个发射口 1 槽（19 槽，`valid_q` + `xc_inst_t`）及 `csr_idx_q`（12 位，口 0）。无 FU 输入缓存槽。
 
@@ -110,7 +109,7 @@ FU 分组数组（按 `fu_idx` 序排）：多周期 FU（MUL、DIV）`N_MC = 3`
 
 ### 5.2 口内一热选择
 
-由于 ISU 写回周期预约与口 1 `div_wb_next` 互斥，`complete_vec`（本口各 FU 的 `complete`）在每拍至多 1 位为 1。`exu_ctrl_port_arb` 直接用 `|` 归约得出 `win_valid[p]` 并通过 `ttg_onehot_mux` 取出赢家，`exu_ctrl.sv` 在仿真态用 SVA `$onehot0` 断言保护。
+由于 ISU 写回周期预约与口 1 的 DIV 写回预告（`exe2iss_div_wb_in2`，在 `exu.sv`）互斥，`complete_vec`（本口各 FU 的 `complete`）在每拍至多 1 位为 1。`exu_ctrl_port_arb` 直接用 `|` 归约得出 `win_valid[p]` 并通过 `ttg_onehot_mux` 取出赢家，`exu_ctrl.sv` 在仿真态用 SVA `$onehot0` 断言保护。
 
 ### 5.3 写回、完成报告、LSU 请求
 
@@ -124,7 +123,7 @@ BRU（口 14..15）误预测由 `exu_ctrl_br_arb` 比较最老者重定向；CSR
 
 ## 6. 关键路径与深度
 
-删除了 `exu_ctrl_ready`、`exu_ctrl_port_arb` 优先编码链与 `exu_ctrl_slot` 重放保持路径；`exu2iss` 路径仅保留口 1 寄存器化的 `div_wb_next`。
+删除了 `exu_ctrl_ready`、`exu_ctrl_port_arb` 优先编码链与 `exu_ctrl_slot` 重放保持路径；`exu_ctrl` 不再有去 ISU 的输出；口 1 DIV 的写回预告 `exe2iss_div_wb_in2` 由 `exu.sv` 直接从 `div_bank` 引出。
 
 ## 7. 与模型的差异和取舍
 
@@ -147,7 +146,7 @@ RTL 与模型保持一致的细节：
 ## 8. 验证
 
 - **最新整核门禁（2026-11-28，`rtl/exu-clean`，EXP-072）**：`scripts/lint_chip.sh` & `scripts/lint_soc.sh` 0 告警；`SOC_FM=1 SOC_SVA=1 SOC_ASSERT=1` 严格模式 `scripts/fm_gate.sh` 77/77 通过（0 FM 偏差）；`scripts/riscv_tests_gate.sh` 152/152 通过（1 SKIP `rv64ui-ma_data`）；`scripts/soc_gate.sh --linux` 12/12 通过；集群 Linux 26 窗（5.1M insts/窗）26/26 PT/UP 全等；SPEC06 INT 386/386 `geomean +0.144%`（`13.30 /GHz`）。
-- **门禁**：`scripts/fm_gate.sh` 67 个程序，每条提交对比函数模型，周期对 `scripts/ref_cycles_memiq6_nr_int2_ev5.txt`（模型同配置生成）。其中名字对得上本模块特殊路径的有：`csr-alias-boundary`（CSR 槽）、`atomic-boundary`（STD 的 AMO）、`mul-longlong`、`div`（口 0..3 的 MUL / DIV）、`fd-*`（浮点口）；其余程序都经过口内仲裁、旁路和分支解析。没有逐个核对每个程序实际覆盖了哪些路径。
+- **门禁**：`scripts/fm_gate.sh` 77 个程序，每条提交对比函数模型，周期对 `scripts/ref_cycles.txt`（`scripts/regen_refs.sh` 由模型默认配置生成）。其中名字对得上本模块特殊路径的有：`csr-alias-boundary`（CSR 槽）、`atomic-boundary`（STD 的 AMO）、`mul-longlong`、`div`（口 0..3 的 MUL / DIV）、`fd-*`（浮点口）；其余程序都经过口内仲裁、旁路和分支解析。没有逐个核对每个程序实际覆盖了哪些路径。
 - **Lint**：`scripts/lint_chip.sh` 0 告警。
 - **浮点**：`tests/fp_chain`（`rv64imafd` 小程序在 RTL 上逐提交检查，要 F/D 配置的构建）。
 - **没有模块级的独立测试**：旧体系（trace 回放、随机 trace、变异）已随 `spec/`、`tests/exu_ctrl` 退役。目前靠整核周期逐拍相等和 Linux 启动。**待补**：口内仲裁和 `exu_ctrl_br_arb` 各补一个和模型行为并排的随机测试（口 0 上 CSR 与 MUL 同拍完成、同拍多个 BRU 误预测、被杀的 AGU 槽的 `*_req_occ`）。
@@ -158,6 +157,7 @@ RTL 与模型保持一致的细节：
 
 ## 10. 变更记录
 
+- 2026-11-28（文档核对，无 RTL 变化）：`exe2iss_div_wb_in2` 在 `exu.sv` 而不在 `exu_ctrl`，删去错误的 `exe2iss_div_wb_next` 输出；写回 / 旁路总线为 `exe2prf`；`exu2id_*` 列全；文件表补行数；门禁参考改为 `scripts/ref_cycles.txt`（77 个程序）。
 - 2026-11-28（`rtl/exu-clean`，EXP-072）：非阻塞 EXU 控制面重构与真 5 物理 AGU 收敛——删除 `exu_ctrl_ready.sv`、`exu_ctrl_lsu_out.sv` 及全部逐 FU `ready/consume` 协议，改为发射即占用；AGU 槽由逻辑 7 槽+映射直接收敛为真 5 物理端口（复用口 4 由 ISU 直选），仅传 `div_wb_next` 通知 ISU 错开 PORT 1 写回；TSMC 28nm HPC+ DC（`0.50 ns`）实测 **`WNS = 0.00 ns`（`CPL 0.37 ns`, `11 lvl`）**、触发器 `4,765`、面积 **`19,432.06 µm²`（较旧 `31,760.90 µm²` 降 −38.8%）**；通过 `lint_chip`/`lint_soc` 0、strict+SVA `fm_gate` 77/77、`riscv-tests` 152/152、`soc_gate --linux` 12/12 与 Linux 26/26 窗对齐。
 
 - 2026-11-24（`rtl/timing-opt2`，EXP-063，0 周期变化）：将 `exu_ctrl_pkg.sv` 中 `xc_is_fp_kind` 返回类型由 `bit` 改为 `int`（返回 `1 : 0`），并同步调整 `exu_ctrl_fu_view` / `exu_ctrl_ready` / `exu_ctrl_fu_in` 3 处调用与 `localparam` 计数循环，消除 Synopsys DC Presto 内部断言 `(VER-37)`；TSMC 28nm HPC+ DC 实测 **WNS = 0.00 ns（MET ≥2.00 GHz）**、13 级、`31,761 um²`；通过 `lint_chip` 0、`fm_gate` 69/69。

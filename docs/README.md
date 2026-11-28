@@ -12,8 +12,8 @@ rtl 是 AI-Huma 的 `rv64gc` + `Sv39` SystemVerilog 实现（含全套自研可�
 | [04-cpp-to-rtl-mapping.md](04-cpp-to-rtl-mapping.md) | C++ 构造到 SV 的写法对照 | 照着 trace-model 写新逻辑时 |
 | [05-module-tracker.md](05-module-tracker.md) | 模块进度表（**自动生成**，`make tracker`，来源是各模块笔记头部） | 查某个模块的状态 |
 | [06-equivalence-policy.md](06-equivalence-policy.md) | 正确性原则：现行门禁是什么、不比较什么 | 所有人 |
-| [08-risk-register.md](08-risk-register.md) | 风险登记簿：验证缺口、变异存活、未验证项（只记风险，待办在总仓库 `docs/TODO.md`） | 改动前后、评估可信度 |
-| [09-synthesis-report.md](09-synthesis-report.md) | 综合（面积代理）方法和逐模块数字 | 评估面积与逻辑深度 |
+| [08-risk-register.md](08-risk-register.md) | 风险登记簿：验证缺口、架构限制、基础设施债（只记风险，待办在总仓库 `docs/TODO.md`） | 改动前后、评估可信度 |
+| [09-synthesis-report.md](09-synthesis-report.md) | 综合（Yosys 代理、快速 PPA 各层、TSMC 28nm DC）方法和逐模块数字 | 评估面积与逻辑深度 |
 | [modules/](modules/) | 每个模块的设计笔记（[模板](modules/TEMPLATE.md)，改动 RTL 前必须先更新，见总仓库 `WORKFLOW.md` 第 7 节） | 写/改该模块 |
 | [deviations.md](deviations.md) | 旧体系下与旧参考模型的差异登记（不再新增；S 编号仍被引用） | 查某个 S 编号 |
 | [../scripts/README.md](../scripts/README.md) | 脚本索引（lint、门禁、单元检查、综合、Linux 对齐） | 跑东西之前 |
@@ -38,11 +38,11 @@ make tracker                                           # 由 docs/modules/*.md �
 ```
 docs/        本目录（模块设计笔记在 modules/）
 rtl/         所有 RTL（common/ backend/ frontend/ memsys/ core/ pmu/ soc/），说明见 rtl/README.md
-harness/     tools/（gen_cfg_pkg 配置包生成器、iogen、svlint）、include/trace_format.h（测试平台用）
+harness/     tools/（gen_cfg_pkg 配置包生成器、svlint；iogen 读的 spec/ 已删除，iogen 不再使用）、include/trace_format.h（测试平台用）
 tb/          核+存储测试平台（core/ → core_tb）、真实全片 SoC 测试平台（soc/ → soc_tb）、AXI4 单测（axi_unit/）及独立单元对拍（mul/、div/、fp_synth/、fp_dpi/、fe_clean_eq/）
-tools/       gen_soc_probe、gen_skipmask（测试平台构建用）、ckpt2image、lint_back_top.sh、toplint.sh、fuzz/（RV64GC 随机 Fuzzer）
+tools/       gen_soc_probe、gen_skipmask（测试平台构建用）、ckpt2image、lint_back_top.sh、toplint.sh、fuzz/（RV64GC 随机 Fuzzer），说明见 tools/README.md
 sva/         非侵入式 SVA bind 断言与覆盖框架（`SOC_SVA=1` 挂载，零综合污染）
-tests/       专项测试：common/、common_prims/、dcache/、fp_*/、pmu/、ren_elim_sel/、rv64/、wb_gate/
+tests/       专项测试：common/、common_prims/、dcache/、fp_chain/、fp_decode/、fp_dpi/、fp_gate/、isu_iq_select/、pmu/、ren_elim_sel/、rv64/、wb_gate/
 scripts/     索引见 scripts/README.md
 programs/    缩短版 dhrystone/coremark（programs/big）、定向短测试（programs/directed）与 SoC 裸机测试（programs/soc）
 build/       构建产物（不入库）

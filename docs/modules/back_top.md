@@ -3,7 +3,7 @@ module: back_top
 area: backend
 rtl: rtl/backend/back_top
 model: trace-model back-end/BackTop.cpp（`BackTop::init` 的接线、`BackTop::seq` 的顺序）；胶水的行为在模型里分散在 back-end/Rob.cpp（`Rob::redirect`、`Rob::report_commit`、`Rob::comb_commit` 里的 `rob_bcast_d`）。模型的 `BackTop` 本身没有 comb 阶段，不是调度单元
-status: 整核周期与模型逐个相等（fm_gate 67/67，参考 scripts/ref_cycles_memiq6_nr_int2_ev5.txt；沿用 isu.md 记录的验收结果，本文作者没有重跑）
+status: 整核周期与模型逐个相等（fm_gate 77/77，参考 scripts/ref_cycles.txt；沿用 isu.md 记录的验收结果，本文作者没有重跑）
 depth: 142 层（back_top，单模块综合，2026-11-20，`SYNTH_ABC="strash;balance;map"`，生成门代理，见 09-synthesis-report 第 12 节）
 ---
 
@@ -23,7 +23,7 @@ depth: 142 层（back_top，单模块综合，2026-11-20，`SYNTH_ABC="strash;ba
 
 后端的顶层，只做连线和三段很小的逻辑，不做运算：
 
-1. **装配 12 个实例**：`pre_idu_queue`（`u_pre`）、`idu`（`u_idu`）、`ren`（`u_ren`）、`dispatch`（`u_dis`）、`isu`（`u_isu`）、`prf`（`u_prf`）、`exu`（`u_exu`）、`csr`（`u_csr`）、`rob`（`u_rob`）、`tlb_mmu`（DTLB，`u_dtlb`）、`lsu`（`u_lsu`）、`back_top_glue`（`u_glue`）；后端和前端、DCache、MMIO、PTW 的边界就是这个模块的端口；
+1. **装配 14 个实例**：`ftq_ibuf`（`u_ftq_ibuf`，统一 FTQ + 指令缓冲）、`back_br_redirect`（`u_br_redirect`，分支重定向锁存）、`idu`（`u_idu`）、`ren`（`u_ren`）、`dispatch`（`u_dis`）、`isu`（`u_isu`）、`iss_rr_reg`（`u_iss_rr`，ISS→RR 流水寄存器）、`prf`（`u_prf`）、`exu`（`u_exu`）、`csr`（`u_csr`）、`rob`（`u_rob`）、`tlb_mmu`（DTLB，`u_dtlb`）、`lsu`（`u_lsu`）、`back_top_glue`（`u_glue`）；后端和前端、DCache、MMIO、PTW 的边界就是这个模块的端口；
 2. **全局 flush 晚一拍到达**（FLUSH_REG）：ROB 在第 t 拍决定一次全局 flush 并同拍清自己，三个寄存器 `rob_flush_q`、`rob_fence_q`、`rob_fence_i_q` 把它推迟一拍，再送给其余模块、前端重定向和 fence 广播（docs/FLUSH_REG.md）；
 3. **胶水**（`back_top_glue`）：前端看到的 `out_mispred / out_stall / out_redirect_pc / out_rf_*`、DTLB 要的四个 `mstatus` 位、LSU 要的 AMO 子操作码；
 4. **执行单元装配**（`exu.sv`）：`exu_ctrl` 与 FU 的连线和合同；
@@ -45,49 +45,53 @@ depth: 142 层（back_top，单模块综合，2026-11-20，`SYNTH_ABC="strash;ba
 
 ## 3. 接口
 
-`back_top` 约 115 个端口声明（数组和打包向量各算一个），按方向和对端分组：
+`back_top` 118 个端口声明（数组和打包向量各算一个），按方向和对端分组：
 
 | 方向 | 信号组 | 含义 |
 | --- | --- | --- |
-| 入 | `front2pre_*`、`front_stall`、`bpu_upd_free`、`bpu_tq_free` | 前端送来的取指包（含预测元数据）、停顿、BPU 提交信用（紧凑 ROB） |
+| 入 | `front2ftq_{inst, page_fault_inst, pf_inst_hi, valid, ftq_idx}`、`fe2ftq_s0 / s2 / pd`（结构体 `fe_ftq_s0_t / s2_t / pd_t`）、`front_stall`、`bpu_upd_free`、`bpu_tq_free` | 前端送来的取指包（`[BACKEND_FETCH_WIDTH]`）、写统一 FTQ 的三级请求（预测 S0 / S2 与预译码 PD）、停顿、BPU 提交信用 |
+| 出 | `ftq2fe`（`ftq_fe_view_t`）、`ftq2front_fire [BACKEND_FETCH_WIDTH]`、`ftq2front_ready` | FTQ 给前端的视图、本拍接收的取指槽、能否接收 |
 | 入 | `dcache2lsu_*`、`peripheral_resp_*`、`ptw_walk_resp_*`、`ptw_walk_req_ready` | 访存子系统、MMIO、页表遍历的响应 |
 | 入 | `interrupt_inject_*` | 外部中断线，直接进 `csr` |
-| 出 | `out_mispred`、`out_no_mispred`、`out_stall`、`out_redirect_pc`、`out_rf_valid / _pc / _is_rvc / _type / _ck / _epoch`、`pre2front_*`、`ftq_commit_info_*`、`commit_extra_*`、`out_commit_entry_uop_diag_val` | 给前端的重定向、停顿、BPU 训练和修复数据 |
+| 出 | `out_mispred`、`out_no_mispred`、`out_stall`、`out_redirect_pc`、`out_rf_valid / _pc / _is_rvc / _type / _blk`、`ftq_commit_info_*`、`commit_extra_*`、`out_commit_entry_uop_diag_val` | 给前端的重定向、停顿、BPU 训练和修复数据 |
 | 出 | `rob_commit_commit_entry_*`、`rob_bcast_*`（flush、fence、fence_i、exception、interrupt、mret、sret、pc） | 提交信息和 ROB 广播，给前端、difftest 和测试台；其中 `rob_bcast_flush` 是 ROB 这一拍的决定（**未推迟**），`rob_bcast_fence`、`rob_bcast_fence_i` 是推迟一拍之后的值 |
 | 出 | `csr_status_{mstatus, sstatus, satp, privilege}` | CSR 状态 |
 | 出 | `lsu2dcache_*`、`peripheral_req_*`、`ptw_walk_req_*`、`ptw_walk_flush`、`ptw_walk_resp_consumed` | 发往访存子系统和 PTW |
 | 出 | `dis2rob_dis_fire`、`pmu_slot_valid` | PMU 第一层事件 |
+| 入 / 出 | `pf_xq_v / va / llc`（入）、`pf_xq_pop`、`pf_xans_v / line / llc`（出） | L1D Berti 预取器跨页翻译：预取器的待翻译虚拟地址进 LSU，借空闲 DTLB 口翻译，结果回预取器（见 dcache_pf.md） |
 
 ## 4. 结构
 
 ```
- front2pre ─► pre ─► idu ─► ren ─► dis ─► isu ─(iss2prf)─► prf ─(prf2exe)─► exu(exu_ctrl + FU) ─┬─(exe2prf)─► prf
-   ▲                 ▲ exu2id（分支解析）     │ dis2rob/dis2lsu        ▲ exe2iss_div_wb_next     ├─(exu2rob [21])─► rob
+ front2ftq ─► ftq_ibuf ─► idu ─► ren ─► dis ─► isu ─(iss2prf)─► prf ─(prf2exe)─► exu(exu_ctrl + FU) ─┬─(exe2prf)─► prf
+   ▲                 ▲ exu2id（分支解析）     │ dis2rob/dis2lsu        ▲ exe2iss_div_wb_in2      ├─(exu2rob [21])─► rob
    │                 └ dec_bcast_* ─► ren dis isu prf exu rob dtlb lsu glue            │ prf_awake                    ├─(exe2lsu_agu [5])─► lsu ─(lsu2exe 写回)─► exu
    │                                                                                    └─► isu、dis    exe2csr ─► csr ─(csr2exe)─► exu
- rob ─(rob_bcast_flush)─► rob_flush_q ─► pre idu ren dis isu prf exu dtlb lsu；rob ─(mret / exception / pc …)─► csr、glue
+ rob ─(rob_bcast_flush)─► rob_flush_q ─► ftq_ibuf idu ren dis isu prf exu dtlb lsu；rob ─(mret / exception / pc …)─► csr、glue
  lsu ◄─► dtlb（按物理 AGU 的请求 / 响应）；lsu ─(lsu2iss_wake / cancel)─► isu、dis
  glue：out_mispred / out_redirect_pc / out_rf_*、mstatus 位、amo_op
 ```
 
 | 文件 | 行数 | 职责 |
 | --- | --- | --- |
-| `back_top.sv` | 1660 | 装配 12 个实例；FLUSH_REG 寄存器块（第 1305..1321 行）；`lsu_byp_valid`；12 条无人读的输出接到具名悬空线（`nc_*`） |
-| `back_top_glue.sv` | 103 | 见 5.3、5.4、5.5 |
-| `exu.sv` | 657 | `exu_ctrl` + FU 的装配（见 5.6） |
+| `back_top.sv` | 801 | 装配 14 个实例；FLUSH_REG 寄存器块；`lsu_byp_valid`；7 条无人读的输出接到具名悬空线（`nc_*`） |
+| `back_top_glue.sv` | 112 | 见 5.3、5.4、5.5 |
+| `back_br_redirect.sv` | 69 | 分支重定向锁存：`dec_bcast_*` 与 `br_redirect_*`（重定向 pc、分支 pc、`is_rvc`），给 `ftq_ibuf` 与胶水 |
+| `iss_rr_reg.sv` | 74 | ISS→RR 一拍流水寄存器：`valid_q`、旁路选择 `src1/2_byp_q`、L1 推测掩码 `spec_mask_q`，按 `lsu2iss_cancel_valid` 取消 |
+| `exu.sv` | 490 | `exu_ctrl` + FU 的装配（见 5.6） |
 
 重要的接线（"从谁到谁"，以 `back_top.sv` 为准）：
 
 | 信号 | 从 | 到 |
 | --- | --- | --- |
-| `dec_bcast_{mispred, br_mask, clear_mask}`（及 `br_id`、`redirect_rob_idx`） | `idu` | `ren`、`dispatch`、`isu`、`prf`、`exu`、`rob`、`dtlb`、`lsu`、`glue`（`mispred`） |
-| `exu2id_*`（分支解析、`clear_mask`、重定向） | `exu` | `idu` |
-| `rob_flush_q`（推迟的 flush） | 本模块寄存器 | `pre`、`idu`、`ren`、`dispatch`、`isu`、`prf`、`exu`、`dtlb`、`lsu`；`rob` 收 `flush_pend`；`glue` 收 `flush_q` |
+| `dec_bcast_{mispred, redirect_rob_idx, redirect_rob_flag}` | `back_br_redirect`（`exu2id_*` 锁存一拍） | `ren`、`dispatch`、`isu`、`prf`、`exu`、`rob`、`dtlb`、`lsu`、`glue`（`mispred`） |
+| `exu2id_*`（最老误预测分支的重定向信息） | `exu` | `back_br_redirect`（锁存后广播 `dec_bcast_*`，并给 `ftq_ibuf` / 胶水 `br_redirect_*`） |
+| `rob_flush_q`（推迟的 flush） | 本模块寄存器 | `ftq_ibuf`、`idu`、`ren`、`dispatch`、`isu`、`prf`、`exu`、`dtlb`、`lsu`；`rob` 收 `flush_pend`；`glue` 收 `flush_q` |
 | `rob_bcast_flush`（ROB 这拍的决定） | `rob` | 寄存器输入；`glue`；`lsu`（`rob_flush_now`）；芯片端口 |
 | `rob_bcast_{mret, sret, ecall, breakpoint, exception, page_fault_*, illegal_inst, trap_val, pc}` | `rob` | `csr`、`glue`（部分）和芯片端口；不推迟 |
 | `rob_bcast_interrupt` | `rob` | `ren`、芯片端口；不推迟 |
 | `iss2prf_*` → `u_iss_rr` → `rr_*` / `prf2exe_*` | `isu` / `iss_rr_reg` / `prf` | `prf` / `exu`（1 拍 ISS→RR 流水级，按 `lsu2iss_cancel_valid` 与 `spec_mask_q` 取消未命中 L1 推测消费者；口 0 的 `csr_idx` 随 `prf2exe` 送 `exu`） |
-| `exe2prf_entry_*`（`[WB_LANES]`，寄存器写回总线，EXP-046）、`exe2prf_bypass_*` | `exu` | `prf` |
+| `exe2prf [WB_LANES]`（`xc_prf_wb_t`，寄存器写回总线兼 EXU 级旁路，EXP-046） | `exu` | `prf` |
 | `exe2iss_div_wb_in2`、`exe2iss_div_wake_*` | `exu` | `isu`（DIV 提前 2 拍写回通告与晚唤醒） |
 | `prf_awake_*`（load 晚唤醒） | `prf` | `isu`、`dispatch` |
 | `iss_awake_*`（唤醒广播） | `isu` | `dispatch` |
@@ -97,14 +101,14 @@ depth: 142 层（back_top，单模块综合，2026-11-20，`SYNTH_ABC="strash;ba
 | `exu2rob [ROB_WB_WIDTH]` | `exu` | `rob` |
 | `exe2csr_*`、`csr2exe_rdata / frm` | `exu` / `csr` | `csr` / `exu` |
 | `rob2csr_*`、`csr2rob_*`、`csr2front_epc / trap_pc` | `rob` / `csr` | `csr` / `rob` / `glue` |
-| `ftq_prf_pc_*`、`ftq_rob_pc_*` | `prf`、`rob` | `pre`（请求），`pre`（回答）回 `prf`、`rob` |
+| `ftq_prf_pc_*`、`ftq_rob_pc_*` | `prf`、`rob` | `ftq_ibuf`（请求），`ftq_ibuf`（回答）回 `prf`、`rob` |
 | `lsu2mmu_req_*`、`mmu2lsu_resp_*` | `lsu` / `dtlb` | `dtlb` / `lsu` |
 
 ## 5. 一拍内的数据流
 
 ### 5.1 发射 → 执行 → 写回的拍序
 
-第 t 拍：ISU 授予，发射结果 `iss2prf` 同拍进 PRF，PRF 异步读出操作数（带旁路），经 `prf2exe` 在时钟沿写进 `exu_ctrl` 的槽。t+1：槽里的指令进 FU，FU 出结果；口内仲裁后赢家同拍变成 `exe2prf_entry`、`exe2prf_bypass`、`exu2rob`、`exe2lsu`、分支解析 `exu2id`；`exe2prf_bypass` 同拍旁路给 t+1 拍发射的指令的读口（单周期 FU 的"背靠背"）。t+2：写回级（t+1 拍进的结果）的值写进寄存器堆，同拍 load 的晚唤醒 `prf_awake` 广播（load 的写回级那一拍）。load 和 STA 的结果走 LSU：AGU 在 t+1 拍给 `exe2lsu` 请求，LSU 之后在口 6..9、10..12 上给写回请求（`lsu2exe`），再进写回级。
+第 t 拍（ISS）：ISU 授予，发射结果在时钟沿进 `iss_rr_reg`。t+1（RR）：寄存后的 `iss2prf` 进 PRF，PRF 异步读出操作数（带旁路），经 `prf2exe` 在时钟沿写进 `exu_ctrl` 的槽；L1 推测失败时 `iss_rr_reg` 按 `spec_mask_q` 取消对应消费者。t+2（EX）：槽里的指令进 FU，FU 出结果；口内一热选择后赢家同拍变成 `exe2prf`（`WB_LANES = 13` 条写回通道，ALU 通道 0..5 同拍由 PRF 按独热 `src*_byp` 旁路给读口，单周期 FU 背靠背）、`exu2rob`、`exe2lsu`、分支解析 `exu2id`。t+3：写回级的值写进寄存器堆，同拍 load 的晚唤醒 `prf_awake` 广播。load 和 STA 的结果走 LSU：AGU 在 EX 拍给 `exe2lsu` 请求，LSU 之后在 load 写回通道（`ROB_WB_LD_BASE` 起 4 路）和 STA 写回通道（`ROB_WB_STA_BASE` 起 3 路）给写回请求（`lsu2exe`）。
 
 ### 5.2 FLUSH_REG 块
 
@@ -113,7 +117,7 @@ depth: 142 层（back_top，单模块综合，2026-11-20，`SYNTH_ABC="strash;ba
 | 模块 | 看到的 flush |
 | --- | --- |
 | ROB | 自己 t 拍的决定 `rob_bcast_flush`（同拍清自己）；`flush_pend = rob_flush_q` 在 t+1 拍屏蔽陈旧的误预测恢复 |
-| `pre`、`idu`、`ren`、`dispatch`、`isu`、`prf`、`exu`、`dtlb`、`lsu` | `rob_flush_q`（t+1 拍） |
+| `ftq_ibuf`、`idu`、`ren`、`dispatch`、`isu`、`prf`、`exu`、`dtlb`、`lsu` | `rob_flush_q`（t+1 拍） |
 | `lsu` | 另有 `rob_flush_now = rob_bcast_flush`（t 拍），限定"flush 这拍提交的 store 不能写出去" |
 | `dtlb` | `rob_flush_q` 作 flush，`rob_fence_q` 作 fence |
 | `csr` | 没有 flush 输入；陷入和 xRET 用 ROB 同拍的 `rob_bcast_*` |
@@ -124,9 +128,9 @@ depth: 142 层（back_top，单模块综合，2026-11-20，`SYNTH_ABC="strash;ba
 
 - `flush_redirect_pc`（组合）：`mret / sret` 取 `csr2front_epc`；`exception` 取 `csr2front_trap_pc`；否则取 `rob_bcast_pc + (rob_bcast_is_rvc ? 2 : 4)`（`is_rvc` 来自 FTQ 的 ROB 口响应）。它每拍都存进 `redirect_pc_q`（无条件）。
 - `out_mispred = flush_q | (dec_bcast_mispred & ~rob_bcast_flush)`：flush 决定的那一拍压住分支误预测（flush 优先），下一拍才重定向。
-- `out_redirect_pc = flush_q ? redirect_pc_q : br_latch_redirect_pc`。
-- `out_rf_valid = dec_bcast_mispred & ~rob_bcast_flush & ~flush_q`：只有分支误预测的重定向才做 BPU 历史修复，`out_rf_pc`、`out_rf_is_rvc` 取 IDU 的分支锁存。
-- `out_stall = ~pre2front_ready`；`out_no_mispred = ~out_mispred`（边界规范里用它限定 `out_stall`）。
+- `out_redirect_pc = flush_q ? redirect_pc_q : br_redirect_pc`。
+- `out_rf_valid = dec_bcast_mispred & ~rob_bcast_flush & ~flush_q`：只有分支误预测的重定向才做 BPU 历史修复，`out_rf_pc`、`out_rf_is_rvc` 取 `back_br_redirect` 的分支锁存（`br_redirect_br_pc`、`br_redirect_is_rvc`）。
+- `out_stall = ~ftq2front_ready`；`out_no_mispred = ~out_mispred`（边界规范里用它限定 `out_stall`）。
 
 ### 5.4 提交项的 `diag_val`（不覆盖）
 
@@ -136,14 +140,14 @@ depth: 142 层（back_top，单模块综合，2026-11-20，`SYNTH_ABC="strash;ba
 
 - `csr_status_mstatus_{mxr, sum, mprv, mpp}`：取自 `mstatus` 的第 19、18、17、12:11 位，送 DTLB；
 - `rob_commit_commit_entry_uop_amo_op[i] = func7[6:2]`，给 LSU 提交 store 时用；
-- `lsu_byp_valid[k] = ((lp_pkg::LP_L2 & 9) == 9) && lsu2exe_wb_req_valid[k] && lsu2exe_wb_req_uop_dest_en[k]`：LSU 的写回请求作为 PRF 读口的旁路源（只在 `LP_L2` 的位 0 和位 3 都开时有效）。现行 `LP_L2 = 1907`（`lp_pkg.sv`）位 3 为 0，所以现行配置下这四路恒为 0；
+- `lsu_byp_valid[k] = lsu2exe_wb_req_valid[k] && lsu2exe_wb_req_uop_dest_en[k]`：LSU 的 load 写回请求作为 PRF 读口的旁路源（`LSU_LOAD_WB_WIDTH = 4` 路），总是开（原来的 `LP_L2` 位 0、位 3 条件已随 `LP_L2` 在 EXP-069 删除，行为固定为开）；
 - `unused_fp_issue`：把 `iss2prf_iss_entry_uop_dest_fp` 归约成一根无人读的线，消除未使用告警（目的寄存器是浮点还是整数由编号判断）。
 
 ### 5.6 `exu.sv` 与 FU 的合同
 
 - `exu_ctrl` 之外实例化：`alu_bank`（6）、`bru_bank`（2）、`agu_bank`（`LSU_AGU_COUNT = 5`）、`sdu_bank`（3）、`mul_bank`（2）、`div_bank`（1）、浮点 FU（`FP_EN` 时 `N_FPU = 8` 个：FDIV 用 `fp_div_unit`，其余用 `fp_pipe_unit`，延迟取 `FP_FMA_LAT`、`FP_MISC_LAT`、`FP_I2F_LAT`），共 27 个（加 CSR 槽共 `TOTAL_FU_COUNT = 28`）；CSR FU 不实例化（`exu_ctrl` 自己处理 CSR 槽）；
 - 所有 FU 不再使用 `ready` / `consume` 握手；单周期 FU（`alu`、`bru`、`agu`、`sdu`）只保留输入操作数与组合结果，无 `en`/`complete`/`ready`/`consume`；
-- 多周期 FU 按 `exu_ctrl` 的 MC 下标映射：`MC_MUL`（口 0、2）、`MC_DIV`（口 1）；`func3` 截成 2 位；`flush`、`flush_mask`、`clear_mask` 复制给每个实例；`div_wb_next` 由口 1 DIV 导出至 ISU；
+- 多周期 FU 按 `exu_ctrl` 的 MC 下标映射：`MC_MUL`（口 0、2）、`MC_DIV`（口 1）；`func3` 截成 2 位；`flush_all`、`flush_br`、`flush_rob_idx / flush_rob_flag` 复制给每个实例（误预测按 ROB 号杀更年轻的在飞指令）；口 1 DIV 的 `div_wb_in2`（提前 2 拍的写回预告）经 `exe2iss_div_wb_in2` 导出至 ISU，flush 时屏蔽；
 - 浮点 FU 的舍入模式取 `csr2exe_frm`；
 - 没有 F/D 时浮点组的所有 FU 侧信号接 0。
 
@@ -163,15 +167,15 @@ depth: 142 层（back_top，单模块综合，2026-11-20，`SYNTH_ABC="strash;ba
 | --- | --- | --- |
 | 全局 flush、fence 广播晚一拍 | `803692f` | ROB 提交 → trap → flush 不再进其他模块的组合路径；ROB 同拍清自己，晚一拍屏蔽陈旧误预测；周期对 `ref_cycles_memiq6_nr_int2_ev3.txt`（`CFG_FLUSH_REG = 1`） |
 | AGU 槽占用 | `e49618c` | LSU 重放口分配看 AGU 槽的 `valid_q`（`exe2lsu_*_req_occ`），不经杀死逻辑；周期对 `ev2` |
-| DTLB 每个物理 AGU 一个口 | `16de223`（`back_top.sv` 的数组宽度改为 `LSU_AGU_PHYS`） | 5 个物理 AGU、5 个 DTLB 口；周期对"212 参考"（提交说明） |
+| DTLB 每个物理 AGU 一个口 | `16de223`（`back_top.sv` 的数组宽度改为 `LSU_AGU_PHYS`，现名 `LSU_AGU_COUNT = 5`） | 5 个物理 AGU、5 个 DTLB 口；周期对"212 参考"（提交说明） |
 
 ## 7. 与模型的差异和取舍
 
 模型里有、RTL 里有意没有复刻的，或两边不同的：
 
 - **推迟的字段**：模型 `rob_bcast_d`（`CFG_FLUSH_REG = 1`）把 flush 和陷入的全部字段推迟一拍（head 信息、`interrupt`、`flush_now` 不推迟）；RTL 只推迟 `flush`、`fence`、`fence_i`，因为 `rob_bcast_*` 的其他字段只有 `csr` 和 `glue` 读（`back_top.sv` 里接线可见），它们在模型里也读未推迟的 `rob_bcast`（`SimCpu.cpp`：`csr.in.rob_bcast = &back.rob->out.rob_bcast`）；
-- **`out_stall`**：模型在 flush 推迟的"决定那一拍"设 `o.stall = !pre2front->ready`，推迟的下一拍不赋值；RTL 的 `out_stall = ~pre2front_ready` 每拍都是。边界上谁读 `out_stall`（前端只在非重定向拍读它，所以边界规范有 `out_no_mispred` 限定）本文没有逐点核对；
-- **`br_type`、`rf_pc`**：模型在 `Rob::redirect` 里从 FTQ 取 `rf_pc`、`rf_is_rvc`、`rf_type`；RTL 的 `out_rf_pc`、`out_rf_is_rvc` 取 IDU 的分支锁存（`br_latch_*`），`out_rf_type` 在 `pre_idu_queue` 里读出；
+- **`out_stall`**：模型在 flush 推迟的"决定那一拍"设 `o.stall` 为前端队列不可接收，推迟的下一拍不赋值；RTL 的 `out_stall = ~ftq2front_ready` 每拍都是。边界上谁读 `out_stall`（前端只在非重定向拍读它，所以边界规范有 `out_no_mispred` 限定）本文没有逐点核对；
+- **`br_type`、`rf_pc`**：模型在 `Rob::redirect` 里从 FTQ 取 `rf_pc`、`rf_is_rvc`、`rf_type`；RTL 的 `out_rf_pc`、`out_rf_is_rvc` 取 `back_br_redirect` 的分支锁存（`br_redirect_*`），`out_rf_type`、`out_rf_blk` 在 `ftq_ibuf` 里读出；
 - **`tbhook::on_flush`、`run_interrupt_hook`、统计**：RTL 不带；
 - **没有 trace bridge**：模型 `Rob::redirect` 在 flush 决定那一拍通知 trace bridge 倒回，RTL 没有对应物。
 - **`diag_val` 不覆盖**：模型 `Rob::report_commit` 的覆盖 `if (o.flush) ... = o.redirect_pc` 在 `CFG_FLUSH_REG = 1` 时落在推迟拍，那一拍没有有效提交，所以对前端训练无效；RTL 也不覆盖（5.4）。
@@ -180,7 +184,7 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 
 - flush 决定那一拍分支误预测被丢弃，`out_rf_valid` 为 0；推迟的下一拍 `out_mispred` 为 1、`out_rf_valid` 为 0（模型 `pend_` 分支同）；
 
-死线网和过时注释（没有改）：`back_top.sv` 有 12 条输出接到 `nc_*` 线（`csr2exe_rdata_vld`、`csr2front_epc_vld`、`csr2front_trap_pc_vld`、`dis2lsu_func3`、`dis2lsu_stq_flag`、`dis2rob_uop_func3`、`dis2rob_uop_is_atomic`、`ftq_prf_pc_resp_resp_valid`、`ftq_rob_pc_resp_resp_valid`、`mmu2lsu_resp_hit`、`rob_bcast_trap_val_valid`、`rob_commit_commit_entry_uop_mispred`）；`exu.sv` 文件头写"27 个功能单元"（实际实例化 30 个）、"boundary = spec/exu.io"（spec 已删除）、"MC 序是 `{MUL(0), DIV(3), MUL(5), DIV(7)}`"（现在是 FU 号 `{0, 3, 5, 8}`，下标 `{MUL 0, DIV 1, MUL 2, DIV 3}`）；`back_top.sv` 里注释"intentionally unread: listed in docs/modules/back_top.md"现在由本文第 7 节代替；`isu_wake_src.sv`（不属于本模块）的头注释写"14 个唤醒通道"，现在是 `WAKE_NUM = 22`。
+死线网和过时注释（没有改）：`back_top.sv` 有 7 条输出接到 `nc_*` 线（`csr2exe_rdata_vld`、`csr2front_epc_vld`、`csr2front_trap_pc_vld`、`ftq_prf_pc_resp_resp_valid`、`ftq_rob_pc_resp_resp_valid`、`mmu2lsu_resp_hit`、`rob_bcast_trap_val_valid`）；`exu.sv` 文件头写"27 个功能单元"、"boundary = spec/exu.io"（spec 已删除）；`isu_wake_src.sv`（不属于本模块）的头注释写"14 个唤醒通道"，现在是 `WAKE_NUM = MAX_WAKEUP_PORTS = 21`。
 
 未核对（继承自旧文档）：
 
@@ -190,17 +194,18 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 ## 8. 验证
 
 - **最新整核门禁（2026-11-28，`rtl/exu-clean`，EXP-072）**：`lint_chip` & `lint_soc` 0 告警；`SOC_FM=1 SOC_SVA=1 SOC_ASSERT=1` `fm_gate` 77/77（与 `trace-model` `0` 周期差）、`riscv-tests` 152/152（1 SKIP `rv64ui-ma_data`）、`soc_gate --linux` 12/12 全通；集群 Linux 26/26 窗（5.1M insts/窗）PT/UP 100% 全等；SPEC06 INT 386/386 `geomean +0.144%`（`13.30 /GHz`）。
-- **整核门禁**：`scripts/fm_gate.sh` 67 个程序，每条提交对比函数模型，周期对 `scripts/ref_cycles_memiq6_nr_int2_ev5.txt`（模型同配置生成）。装配层的接线错误会在这里表现为提交值或周期不对。
+- **整核门禁**：`scripts/fm_gate.sh` 77 个程序，每条提交对比函数模型，周期对 `scripts/ref_cycles.txt`（`scripts/regen_refs.sh` 由模型默认配置生成）。装配层的接线错误会在这里表现为提交值或周期不对。
 - **Linux**：`scripts/linux_gate.sh`（RTL 和模型启动同一镜像同样周期数，逐条提交检查，PMU 数字逐区间对比，控制台出现 `login:`）；`scripts/linux_segments_cmp.sh`（从检查点分段并行跑，头注释称为快速 Linux 门禁，从复位的完整运行是最终门禁）；构建脚本 `scripts/build_soc64_linux.sh`（`-DTTG_EBREAK_TRAP`）。
 - **Lint**：`scripts/lint_chip.sh`（`soc_top` 为顶层的整芯片 `verilator -Wall` lint）0 告警。
 - **没有装配层的独立测试**：旧的 `back_top` lockstep（整程序逐拍对 trace）和 `tools/lint_back_top.sh` 已随生成器退役。**待补**：胶水（`back_top_glue`）的 `out_mispred / out_redirect_pc / out_rf_valid` 在 flush 决定拍、推迟拍、同拍误预测各一个定向测试；FLUSH_REG 的 `rob_flush_q` 与 `flush_pend` 配合（陈旧误预测）一个定向程序。
 
 ## 9. 参数与开关速查
 
-`ISSUE_WIDTH`、`TOTAL_FU_COUNT`、`DECODE_WIDTH`、`COMMIT_WIDTH`、`BACKEND_FETCH_WIDTH`、`LSU_*_COUNT`、`LSU_AGU_SHARED`、`LSU_AGU_PHYS`、`FPRF_NUM`（决定 `FP_EN`）、`MAX_WAKEUP_PORTS`（`ttg_cfg_pkg`）；`lp_pkg::LP_L2`（决定 `lsu_byp_valid`）；`SYNTHESIS`（`exu.sv` 里的断言只在仿真）。FLUSH_REG 在 RTL 里没有开关（总是推迟一拍），模型对应 `CFG_FLUSH_REG`。
+`ISSUE_WIDTH`、`TOTAL_FU_COUNT`、`DECODE_WIDTH`、`COMMIT_WIDTH`、`BACKEND_FETCH_WIDTH`、`LSU_*_COUNT`、`LSU_AGU_SHARED`、`LSU_AGU_COUNT`、`FPRF_NUM`（决定 `FP_EN`）、`MAX_WAKEUP_PORTS`（`ttg_cfg_pkg`）；`SYNTHESIS`（`exu.sv` 里的断言只在仿真）。FLUSH_REG 在 RTL 里没有开关（总是推迟一拍），模型对应 `CFG_FLUSH_REG`。
 
 ## 10. 变更记录
 
+- 2026-11-28（文档核对，无 RTL 变化）：接口按 fe-2ahead 端口重写（`front2ftq_*`、`fe2ftq_s0/s2/pd`、`ftq2fe`、`ftq2front_*`、`out_rf_blk`、Berti 跨页翻译 `pf_xq_* / pf_xans_*`）；实例改为 14 个（`ftq_ibuf`、`back_br_redirect`、`iss_rr_reg`）；`dec_bcast_*` 来自 `back_br_redirect`、无分支掩码；`exe2iss_div_wb_in2`；`lsu_byp_valid` 去掉已删除的 `LP_L2` 条件；拍序加入 ISS→RR 级；文件表补 `back_br_redirect.sv`、`iss_rr_reg.sv`；门禁参考改为 `scripts/ref_cycles.txt`（77 个程序）。
 - 2026-11-28（`rtl/exu-clean`，EXP-072）：`back_top.sv` 与 `exu.sv` 删除 `exe2iss_fu_ready_mask` 线网、取消 `ready/consume` 协议，并由逻辑 7 AGU 收敛为真 5 物理 AGU（`ISSUE_WIDTH = 19`），改接 `exe2iss_div_wb_next` 给 `isu`；TSMC 28nm DC `exu_ctrl` 面积 −38.8%（`19,432 µm²`, `WNS 0.00 ns`）、`exu` 面积 −4.84% / FF −22.4%；通过 strict+SVA `fm_gate` 77/77、`riscv-tests` 152/152、`soc_gate --linux` 12/12 与 Linux 26/26 窗对齐。
 
 - 2026-11-26（`rtl/soc-env`）：将 `idu_br_latch.sv` 重命名为 `back_br_redirect.sv`（实例 `u_br_redirect`，同步更新 `ftq_ibuf` / `back_top_glue` 端口前缀 `br_redirect_*`），消除迁出 `idu` 后的遗留命名（纯重命名，零行为变化）。

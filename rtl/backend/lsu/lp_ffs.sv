@@ -1,4 +1,4 @@
-// Ref: rtl/common/ttg_first_set.sv (same function, log-depth form when LP_L2[9])
+// Ref: rtl/common/ttg_first_set.sv (same function, log-depth form; it was bit 9 of the removed LP_L2 switch)
 `default_nettype none
 
 // Find-first-set, lowest index has priority: Kogge-Stone prefix-OR (log2 N levels).

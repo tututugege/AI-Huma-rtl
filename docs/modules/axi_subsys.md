@@ -3,7 +3,7 @@ module: axi_subsys
 area: memsys
 rtl: rtl/memsys/axi_subsys
 model: trace-model AxiSubsystem.cpp、include/AxiSubsystem.h（调度单元 `axi`，类 `AxiSubsystem`；阶段 `comb_begin`、`comb_outputs`、`comb_inputs`、`seq`）
-status: 整核周期与模型逐个相等（最近一次提交 60ed422 的提交信息记 fm_gate 67/67、周期等于 scripts/ref_cycles_memiq6_nr_int2_ev5.txt；本次写文档没有重跑）
+status: 整核周期与模型逐个相等（fm_gate.sh 77/77，周期对 scripts/ref_cycles.txt）
 depth: 353 层（axi_subsys（含互连和 LLC），单模块综合，2026-11-20，`SYNTH_ABC="strash;balance;map"`，生成门代理，见 09-synthesis-report 第 12 节）
 ---
 
@@ -17,7 +17,7 @@ depth: 353 层（axi_subsys（含互连和 LLC），单模块综合，2026-11-20
 
 ## 2. 配置
 
-无自己的参数。几何与深度见 axi_interconnect.md、axi_llc.md；宏 `AXI_LLC_MSHR`（默认 8）在两个子模块的包里各有一份默认，必须一致；`AXI_SUBSYSTEM_FREQ_DIV` 不在这里使用，`phase0` 由 `mem_top` 给。
+无自己的参数。几何与深度见 axi_interconnect.md、axi_llc.md；宏 `AXI_LLC_MSHR`（默认 16）在两个子模块的包里各有一份默认，必须一致；`AXI_SUBSYSTEM_FREQ_DIV` 不在这里使用，`phase0` 由 `mem_top` 给。
 
 ## 3. 接口
 
@@ -53,7 +53,7 @@ depth: 353 层（axi_subsys（含互连和 LLC），单模块综合，2026-11-20
 
 ## 6. 关键路径与深度
 
-单模块综合深度 **238 层**（axi_subsys（含互连和 LLC）；2026-11-18；`scripts/synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`，生成门代理，不是时序）。综合报告给出的最长路径：从 `\u_llc.u_core.u_mshr.g_ent[6].u_ent.bypass_q` 到 `\u_llc.u_core.u_resolve.u_line.data [8191]`。本模块自己没有逻辑；跨两个子模块的最长链是"互连台 → LLC 读接收 → `up_rd_req_ready` → 互连台的弹出 / 抢占 / 派发 / 捕获"（见 axi_interconnect.md、axi_llc.md 第 6 节），综合时需要把两个模块放在一起才能量到。未综合验证。
+单模块综合深度 **353 层**（2026-11-20，MSHR / RQD 改为 16 之后，见 09-synthesis-report 第 12 节）。更早一次：**238 层**（axi_subsys（含互连和 LLC）；2026-11-18；`scripts/synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`，生成门代理，不是时序）。综合报告给出的最长路径：从 `\u_llc.u_core.u_mshr.g_ent[6].u_ent.bypass_q` 到 `\u_llc.u_core.u_resolve.u_line.data [8191]`。本模块自己没有逻辑；跨两个子模块的最长链是"互连台 → LLC 读接收 → `up_rd_req_ready` → 互连台的弹出 / 抢占 / 派发 / 捕获"（见 axi_interconnect.md、axi_llc.md 第 6 节），综合时需要把两个模块放在一起才能量到。未综合验证。
 
 ## 7. 与模型的差异和取舍
 
@@ -64,7 +64,7 @@ depth: 353 层（axi_subsys（含互连和 LLC），单模块综合，2026-11-20
 
 ## 8. 验证
 
-- **门禁**：`scripts/fm_gate.sh` 67 个程序（周期对 `scripts/ref_cycles_memiq6_nr_int2_ev5.txt`），`scripts/lint_chip.sh`，Linux 启动门禁（`scripts/build_soc64_linux.sh`、`scripts/linux_gate.sh`、`scripts/linux_segments_cmp.sh`）。
+- **门禁**：`scripts/fm_gate.sh` 77/77（周期对 `scripts/ref_cycles.txt`），`scripts/lint_chip.sh`，`scripts/lint.sh rtl/memsys/axi_subsys`（5e5d40f 起完整 Verilator `-Wall`，不再只做风格检查；原因是 `axi_llc` 里的 UNOPTFLAT 已消除），Linux 启动门禁（`scripts/build_soc64_linux.sh`、`scripts/linux_gate.sh`、`scripts/linux_segments_cmp.sh`）。
 - **没有模块级的测试**：旧体系有一个整体锁步 spec（`axi_subsys.io`，主口 + DDR 从口），已随 `spec/` 退役。**待补**：见 axi_interconnect.md、axi_llc.md 的"待补"（随机驱动主口，与模型的 `AxiSubsystem` 逐 tick 对拍；对拍时 DDR 一侧用同一个 `SimDDR`）。
 
 ## 9. 参数与开关速查
@@ -73,4 +73,5 @@ depth: 353 层（axi_subsys（含互连和 LLC），单模块综合，2026-11-20
 
 ## 10. 变更记录
 
+- 2026-11-28（`rtl/fe-2ahead`，文档核对）：`AXI_LLC_MSHR` 默认值改为 16；第 6 节补 2026-11-20 的 353 层；门禁改为 77/77 对 `scripts/ref_cycles.txt`；`lint.sh` 完整检查本目录。
 - 本分支（`261bd67..HEAD`）未改动本目录；更早：见 git 历史。

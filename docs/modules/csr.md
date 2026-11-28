@@ -3,7 +3,7 @@ module: csr
 area: backend
 rtl: rtl/backend/csr
 model: trace-model Csr.cpp、include/Csr.h（类 `Csr`，全局 `csr_state()`）。它不是调度单元：没有 comb 阶段，只有时钟沿的 `seq`；状态视图、读口和"本拍提交的陷入 / xRET 目标"（`trap_out`）都是寄存器的函数
-status: 整核周期与模型逐个相等（fm_gate 67/67，参考 scripts/ref_cycles_memiq6_nr_int2_ev5.txt；沿用 isu.md 记录的验收结果，本文作者没有重跑）
+status: 整核周期与模型逐个相等（fm_gate.sh 77/77，周期对 scripts/ref_cycles.txt）
 depth: 29 层（csr，单模块综合，2026-11-18，`SYNTH_ABC="strash;balance;map"`，生成门代理，见第 6 节）
 ---
 
@@ -137,17 +137,18 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 
 ## 8. 验证
 
-- **门禁**：`scripts/fm_gate.sh` 67 个程序，每条提交对比函数模型，周期对 `scripts/ref_cycles_memiq6_nr_int2_ev5.txt`。名字对得上本模块的有：`csr-alias-boundary`（`sstatus / sie / sip` 视图）、`trap-boundary`、`illegal-instruction-trap`、`interrupt-vectored`、`software-interrupt-vectored`、`supervisor-external-interrupt-vectored`、`supervisor-trap-delegation`、`supervisor-illegal-delegation`、`timer-interrupt-mask`、`timer-mmio`、`wfi-boundary`、`fd-*`（`FS`、`fflags`）；没有逐个核对每个程序实际覆盖了哪些分支。
-- **Linux**：`scripts/linux_gate.sh`（Linux 启动到 `login:`，逐条提交检查，且对比模型的 PMU 数字）会走 S 级陷入、`satp`、定时器中断；构建需要 `-DTTG_EBREAK_TRAP`。
+- **门禁**：`scripts/fm_gate.sh` 77/77，每条提交对比函数模型，周期对 `scripts/ref_cycles.txt`。名字对得上本模块的有：`csr-alias-boundary`（`sstatus / sie / sip` 视图）、`trap-boundary`、`illegal-instruction-trap`、`interrupt-vectored`、`software-interrupt-vectored`、`supervisor-external-interrupt-vectored`、`supervisor-trap-delegation`、`supervisor-illegal-delegation`、`timer-interrupt-mask`、`timer-mmio`、`wfi-boundary`、`fd-*`（`FS`、`fflags`）；没有逐个核对每个程序实际覆盖了哪些分支。
+- **Linux**：`scripts/linux_gate.sh`（Linux 启动到 `login:`，逐条提交检查，且对比模型的 PMU 数字）会走 S 级陷入、`satp`、定时器中断；断点异常默认开启（`rob_pkg::EBREAK_TRAP = 1`），构建不需要额外的宏。
 - **Lint**：`scripts/lint_chip.sh` 0 告警。
 - **没有模块级的独立测试**：旧的 trace 回放和变异检查随 `spec/` 退役。**待补**：给 `csr_trap_class` / `csr_cause_sel`（cause 优先级、委托组合）、`csr_regfile` 的写合并（`satp` 非法模式、`sie / sip` 与 `mideleg`、`fcsr` 各视图）补和模型 `Csr::exception`、`Csr::csr_write` 并排的随机测试。
 
 ## 9. 参数与开关速查
 
-`CSR_NUM`、`CSR_IDX_WIDTH`、`XLEN_BITS`、`RVC_ENABLE`、`FPRF_NUM`（`ttg_cfg_pkg`，后者决定 `FP_EN`）；`NREG`、`NENT`、`ENT_*` 表、`MISA_RESET`、`MSTATUS_RESET`、`MSTATUS_WMASK`、`SSTATUS_MASK`、`SSTATUS_WMASK`（`csr_pkg`）；`TTG_EBREAK_TRAP`（ROB 侧，决定是否产生断点异常）。
+`XLEN_BITS`、`RVC_ENABLE`、`FPRF_NUM`（`ttg_cfg_pkg`，后者决定 `FP_EN`）；`NREG`、`NENT`、`ENT_*` 表、`MISA_RESET`、`MSTATUS_RESET`、`MSTATUS_WMASK`、`SSTATUS_MASK`、`SSTATUS_WMASK`（`csr_pkg`）；`TTG_NO_EBREAK_TRAP`（ROB 侧宏，定义时关闭断点异常、退回旧的"只冲刷不报因"行为；默认不定义，没有门禁在跑关闭的配置）。
 
 ## 10. 变更记录
 
+- 2026-11-28（`rtl/fe-2ahead`，文档核对）：断点异常宏统一为 `TTG_NO_EBREAK_TRAP`（默认开启断点异常）；门禁改为 77/77 对 `scripts/ref_cycles.txt`。
 - 2026-11-26（`rtl/soc-env`）：新增 `MIP_MSIP`（bit 3）与 `interrupt_inject_software_irq_pending(_valid)` 端口，接入真实片上 CLINT 软中断；`soc_top` 默认绑 0，对 `fm_gate` 零影响。
 - 本分支（exp/agu-share，`261bd67..HEAD`）：本目录没有改动。
 - 2026-11-12：rv64（寄存器 `XLEN_BITS` 位、`misa` / `mstatus` 复位值和掩码）；F/D（`fcsr`、`FS`、`csr2exe_frm`、`csr2rob_fs_off`）。

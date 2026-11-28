@@ -3,7 +3,7 @@ module: axi_interconnect
 area: memsys
 rtl: rtl/memsys/axi_interconnect
 model: trace-model axi-interconnect-kit/axi_interconnect/AXI_Interconnect.cpp、include/AXI_Interconnect.h、include/AXI_Interconnect_IO.h（调度单元 `axi`，类 `AxiSubsystem` 的成员 `interconnect`；见 axi_subsys.md）
-status: 整核周期与模型逐个相等（最近一次提交 60ed422 的提交信息记 fm_gate 67/67、周期等于 scripts/ref_cycles_memiq6_nr_int2_ev5.txt；本次写文档没有重跑）
+status: 整核周期与模型逐个相等（fm_gate.sh 77/77，周期对 scripts/ref_cycles.txt）
 depth: 53 层（axi_interconnect，MSHR/RQD 16 后单模块综合，2026-11-20，`SYNTH_ABC="strash;balance;map"`，生成门代理，见 09-synthesis-report 第 12 节）
 ---
 
@@ -48,7 +48,7 @@ AXI 互连：夹在"访存子系统的 4 个读主口、2 个写主口"和"LLC�
 | 入 | `d_arready / d_rvalid / d_rid / d_rdata`、`d_awready / d_wready / d_bvalid / d_bid / d_bresp` | DDR 从口输出 |
 | 入 | `lo_rd_req_ready / lo_rd_resp_* [4]`、`lo_wr_req_ready / lo_wr_resp_* [2]` | LLC 对主口的 ready 和响应 |
 | 入 | `lo_mem_rd_req_*`、`lo_mem_wr_req_*` | LLC 的内存侧读 / 写请求（写带 512 位数据和 64 位字节使能） |
-| 入 | `hz_lookup_*`、`hz_rresp_fresh / valid / id [4]`、`hz_mshr_* [8]` | LLC 里"在途"的状态寄存器，只给冲突检查读 |
+| 入 | `hz_lookup_*`、`hz_rresp_fresh / valid / id [4]`、`hz_mshr_* [NM]`（`NM = AXI_LLC_MSHR = 16`） | LLC 里"在途"的状态寄存器，只给冲突检查读 |
 | 出 | `m_rd_resp_valid / id / data [4]`、`m_wr_resp_valid / id / resp [2]` | 响应寄存器给主口 |
 | 出 | `m_rd_accepted / _id [4]`、`m_wr_accepted [2]` | "已接收"标志（口径见 5.7）；另有 `m_rd_acc_new / _id`、`m_wr_acc_new`：本 tick 刚接收的 |
 | 出 | `m_rd0_req_ready`、`m_rd3_req_ready`、`m_wr1_req_ready` | 只导出被 CPU 侧读的三个口的 `req.ready`（ICache 读、外设读、外设写） |
@@ -121,7 +121,7 @@ LLC 的内存读请求 `lo_*` 在以下条件下发出 AR（`fresh`）：没有 
 
 ## 6. 关键路径与深度
 
-单模块综合深度 **37 层**（axi_interconnect；2026-11-18；`scripts/synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`，生成门代理，不是时序）。综合报告给出的最长路径：从 `\u_rd.rp_v [0]` 到 `\u_ar.pend_d [2557]`。下面是从代码读出的、未综合验证的长组合链：
+单模块综合深度 **53 层**（2026-11-20，MSHR / RQD 改为 16 之后，见 09-synthesis-report 第 12 节）。更早一次：**37 层**（axi_interconnect；2026-11-18；`scripts/synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`，生成门代理，不是时序）。综合报告给出的最长路径：从 `\u_rd.rp_v [0]` 到 `\u_ar.pend_d [2557]`。下面是从代码读出的、未综合验证的长组合链：
 
 - **台的弹出 / 抢占 / 派发 / 捕获环**：`lo_rd_ready` 来自 LLC 的 `axi_llc_rdacc`（它对四个读口各做 3 组行 CAM 比较，再轮询选择，见 axi_llc.md），之后在 `axi_ic_stage` 里依次经过弹出、抢占判断、两次 `ttg_first_set`（派发）、捕获槽选择，最后写 512 位数据槽的次态。这是跨 LLC 和互连的一条链。
 - **写捕获**：`axi_ic_haz` 对每个写主口约 28 个 26 位相等比较再 OR → `axi_ic_wr` 的 `ttg_first_set` → 接收 → 捕获槽。
@@ -150,10 +150,10 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 
 ## 8. 验证
 
-- **门禁**：`scripts/fm_gate.sh` 67 个程序，每条提交对比函数模型，周期对 `scripts/ref_cycles_memiq6_nr_int2_ev5.txt`（模型同配置生成）。
+- **门禁**：`scripts/fm_gate.sh` 77/77，每条提交对比函数模型，周期对 `scripts/ref_cycles.txt`（模型默认配置 = RTL 配置）。
 - **Lint**：`scripts/lint_chip.sh`。
 - **Linux 启动门禁**：`scripts/build_soc64_linux.sh`、`scripts/linux_gate.sh`、`scripts/linux_segments_cmp.sh`（Linux 启动会长时间用到 LLC 和 DDR 通路）。
-- **没有模块级的独立测试**：`tests/` 和 `tb/` 下没有针对互连的测试（`tb/soc` 只是整核测试平台，带参考的 DDR 模型）。旧体系的锁步 spec（`axi_interconnect.io` 等）已随 `spec/` 退役。**待补**：互连的随机并排测试（把 `axi_subsys` 的主口随机驱动，与模型的 `AXI_Interconnect` 逐 tick 比较）；外设口（读 3 / 写 1）、bypass 写、写响应延迟线满、`r_pend` 满等路径在整核程序里很少或没有被走到，应有定向用例。
+- **没有模块级的独立测试**：`tests/` 和 `tb/` 下没有针对互连的测试（`tb/core` 是整核测试平台，带参考的 DDR 模型；`tb/soc` 是 `chip_top` 的测试平台，`tb/axi_unit` 测的是 `soc_axi`，都不测本模块）。旧体系的锁步 spec（`axi_interconnect.io` 等）已随 `spec/` 退役。**待补**：互连的随机并排测试（把 `axi_subsys` 的主口随机驱动，与模型的 `AXI_Interconnect` 逐 tick 比较）；外设口（读 3 / 写 1）、bypass 写、写响应延迟线满、`r_pend` 满等路径在整核程序里很少或没有被走到，应有定向用例。
 - **未核对（继承自旧文档）**：
   - 两次组合求值（`comb_outputs` 里的第一次与 `comb_inputs` 的最终一次）的输出逐字段相同（旧文档的实测，4 种 LLC 几何）；
   - 模型里 hazard 判断（读被挂起写阻塞、写被未完成读阻塞、写捕获被同行读阻塞）在 68 个程序里一次都没生效，因此这些逻辑没有程序验证过；
@@ -169,5 +169,6 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 
 ## 10. 变更记录
 
+- 2026-11-28（`rtl/fe-2ahead`，文档核对）：`hz_mshr_*` 位宽改为 `[NM]`；第 6 节补 2026-11-20 的 53 层；测试平台目录说明更新；门禁改为 77/77 对 `scripts/ref_cycles.txt`。
 - 2026-11-26：`axi_ic_aw.sv` 解除 `o_bready` 对 `d_bid` 的组合依赖（改为仿真断言检查 `d_bid == w_q.id`），消除接入真实 AXI4 Crossbar 时的潜在 `BVALID→BREADY` 组合环，对 `soc_top`/`core_tb` 0 周期变化（`fm_gate` 77/77 PASS）。
 - 本分支（`261bd67..HEAD`）未改动本目录；更早：见 git 历史。

@@ -32,7 +32,7 @@ depth: 91 层（Yosys 156,986 cells）；**TSMC 28nm HPC+ DC `ssg0p81v125c` `0.5
 | 整数物理寄存器 | 256（标号 0..255；初始空闲 256 - 33 = 223 个） | `PRF_NUM = 256` |
 | 浮点架构 / 物理寄存器 | 32 / 96（标号从 256 起；初始空闲 96 - 32 = 64 个；总编号宽 9 位） | `FP_ARF_NUM = 32`、`FPRF_NUM = 96`、`FP_TAG_BASE = 256`、`PRF_IDX_WIDTH = 9` |
 | 分支标签 | 32 个（标签 0 表示"不是分支"，不使用），每个标签一份恢复点 | `MAX_BR_NUM = 32`、`BR_TAG_WIDTH = 5` |
-| 移动消除 | 开；每个物理寄存器被架构 RAT 引用的次数上限 7 | `MOVE_ELIM = 1`、`MOVE_ELIM_MAX_REFS = 7`，计数宽度 `ren_pkg::CNT_W = 3` |
+| 移动消除 | 开；引用次数不设上限（一个物理寄存器最多被 `RAT_NUM = 33` 项引用，计数不会溢出） | `MOVE_ELIM = 1`；计数宽度 `ren_pkg::CNT_W = $clog2(RAT_NUM + 1) = 6`。`ttg_cfg_pkg` 里仍有 `MOVE_ELIM_MAX_REFS = 7`（从模型生成），RTL 不再使用（EXP-065 删除上限） |
 
 AMO 暂存寄存器：IDU 把"丢弃结果的读改写 AMO"的目的寄存器号改成 32（`idu_ctrl_decode.sv` 输出段，对应模型 `Idu::decode` 末尾），所以 RAT 要多一项。
 
@@ -42,15 +42,15 @@ AMO 暂存寄存器：IDU 把"丢弃结果的读改写 AMO"的目的寄存器号
 
 | 方向 | 信号组 | 含义 |
 | --- | --- | --- |
-| 入 | `dec2ren_valid[8]`、`dec2ren_uop_*[8]` | 译码后的指令（`ren_pkg::ren_inst_t`：架构寄存器号、`br_id`、`br_mask`、FP 域标志…） |
-| 入 | `dec_bcast_{mispred, br_id, clear_mask}` | 分支误预测、被预测错的分支标签、已解决分支的掩码 |
+| 入 | `dec2ren_valid[8]`、`dec2ren_uop[8]`（`ren_pkg::ren_inst_t`） | 译码后的指令（架构寄存器号、指令类型、FP 域标志…；没有分支标签和分支掩码） |
+| 入 | `dec_bcast_mispred`、`dec_bcast_redirect_rob_idx` | 分支误预测和被预测错的分支的 ROB 号（恢复时查检查点 / 前向 Walk 的终点） |
 | 入 | `dis2ren_ready` | 分派接受这一组 |
 | 入 | `rob_bcast_flush`、`rob_bcast_interrupt` | 全局冲刷（`FLUSH_REG` 后晚一拍，docs/FLUSH_REG.md）；带中断退休的指令不提交映射 |
 | 入 | `rob_commit_commit_entry_*[8]` | 退休的指令：`dest_en`、`dest_areg`、`dest_preg`、`old_dest_preg`、`me_elim`、`dest_fp`、异常标志、类型 |
 | 出 | `ren2dec_ready` | 这一组被接收（空）或还有 lane 没发出 |
 | 出 | `ren2dis_valid[8]`、`ren2dis_uop_*[8]` | 重命名后的指令（`dest_preg`、`src1/2/3_preg`、`old_dest_preg`、`me_elim`…）；`src1_areg` 要继续带，ROB 经退休端口交给前端 BPU |
 
-`is_rvc` 和 `mdp` 不经过 IDU 和 ren，见 dispatch.md / pre_idu_queue.md。
+`is_rvc` 和 `mdp` 不经过 IDU 和 ren，见 dispatch.md / ftq_ibuf.md。
 
 ## 4. 结构
 
@@ -63,38 +63,40 @@ AMO 暂存寄存器：IDU 把"丢弃结果的读改写 AMO"的目的寄存器号
    ├ ren_fp         : 浮点域（RAT + 空闲表 + 恢复点 + 组内旁路），ren_core 只留握手
    ├ ren_handshake  : 第一个要寄存器却拿不到的 lane 起，之后全部卡住；fire、ren2dec.ready
    ├ ren_commit_filter / ren_rank / ren_arch_cnt / ren_free_list : 退休侧
-   └ ren_ckpt       : 每个分支标签一份（RAT 快照 + 空闲表头）
+   └ ren_ckpt       : 稀疏检查点，`REN_CKPT_NUM = 4` 项（RAT 快照 + 空闲表头），由 ren_ckpt_ctl 管理
 ```
 
 | 文件 | 行数 | 职责 |
 | --- | --- | --- |
-| `ren_pkg.sv` | 174 | 结构体、move 形状判断 `ren_is_move_shape`、复位值函数 |
-| `ren.sv` | 194 | 顶层：端口适配 |
-| `ren_core.sv` | 248 | 连接各子块；整数域的握手与输出拼装 |
-| `ren_inst_pipe.sv` | 53 | 输入寄存器 |
+| `ren_pkg.sv` | 173 | 结构体、move 形状判断 `ren_is_move_shape`、复位值函数 |
+| `ren.sv` | 52 | 顶层：端口适配 |
+| `ren_core.sv` | 355 | 连接各子块；整数域的握手与输出拼装 |
+| `ren_inst_pipe.sv` | 135 | 输入寄存器与 S1 预译码级（RAT 读写地址一热码、move 形状、同组 RAW/WAW 命中矩阵） |
 | `ren_alloc_sel.sv` | 45 | 分配：8 个"取最先请求者"串起来，第 k 个请求者拿窗口第 k 项（整数域和浮点域共用） |
-| `ren_handshake.sv` | 42 | 按序卡住与 fire |
-| `ren_rat.sv` | 113 | 推测 / 架构 RAT；每个 lane 之后的快照 |
-| `ren_dep_check.sv` | 74 | 整数域的同组旁路 |
-| `ren_elim_sel.sv` | 58 | 移动消除的判定 |
+| `ren_handshake.sv` | 47 | 按序卡住与 fire |
+| `ren_rat.sv` | 184 | 推测 / 架构 RAT（读写都用 S1 预译码的一热地址） |
+| `ren_dep_check.sv` | 80 | 整数域的同组旁路 |
+| `ren_elim_sel.sv` | 90 | 移动消除的判定（3 级指针跳跃） |
 | `ren_arch_cnt.sv` | 73 | 每个整数物理寄存器的"被架构 RAT 引用次数" |
 | `ren_commit_filter.sv` | 38 | 哪些退休项算"退休一个目的寄存器" |
 | `ren_rank.sv` | 27 | 选中的退休槽的序号和总数（空闲表写偏移） |
-| `ren_free_list.sv` | 105 | 整数空闲表（环，3 个指针） |
-| `ren_ckpt.sv` | 59 | 分支恢复点表 |
+| `ren_free_list.sv` | 159 | 整数空闲表（8 bank 1R1W 环，3 个指针） |
+| `ren_ckpt.sv` | 50 | 稀疏检查点存储（`REN_CKPT_NUM = 4` 项） |
+| `ren_ckpt_ctl.sv` | 283 | 检查点 FIFO 控制（分支间距 ≥ `REN_CKPT_INTERVAL = 32` 才分配）、误预测恢复与 8 宽前向 Walk 状态机 |
+| `ren_log.sv` | 142 | 本地按 ROB 号索引的重命名日志（`ROB_NUM = 256` 项，8 bank × `ROB_LINE_NUM = 32` 行，1R1W），存 `dest_preg` / `old_dest_preg` / 是否被消除，供 Walk 与退休回收 |
 | `ren_last_write.sv` | 31 | "同一拍多个写者，编号大的赢"的优先选择，多处复用 |
-| `ren_fp.sv`、`ren_fp_dep.sv`、`ren_fp_free_list.sv` | 135、42、89 | 浮点域 |
+| `ren_fp.sv`、`ren_fp_dep.sv`、`ren_fp_free_list.sv` | 184、42、143 | 浮点域 |
 
-状态（整数域）：输入寄存器（8 lane）；推测 RAT 和架构 RAT（各 `RAT_NUM` 项 × 8 位）；空闲表 `list_q[PRF_NUM]` 和三个指针 `head`（推测分配）、`head_commit`（最老未提交的分配）、`tail`（还回来的旧寄存器追加处）；`arch_cnt` 128 个计数器（复位时前 33 个为 1）；恢复点表 `entry_q[MAX_BR_NUM]`，每项一份 RAT 快照加一个空闲表头。浮点域同样一套（RAT 32 项，环 `FPRF_NUM` 个，不是 2 的幂，指针按 `fp_ptr_add` 显式回绕；没有移动消除，没有计数器）。
+状态（整数域）：输入寄存器（8 lane）；推测 RAT 和架构 RAT（各 `RAT_NUM` 项 × `$clog2(PRF_NUM) = 8` 位，只存整数域号）；空闲表 `bank_q[8][PRF_NUM/8]` 和三个指针 `head`（推测分配）、`head_commit`（最老未提交的分配）、`tail`（还回来的旧寄存器追加处）；`arch_cnt` `PRF_NUM = 256` 个 6 位计数器（复位时前 33 个为 1）；检查点表 `entry_q[REN_CKPT_NUM]`（4 项），每项一份 RAT 快照加一个空闲表头；重命名日志 `ren_log`（256 项）。浮点域同样一套（RAT 32 项，环 `FPRF_NUM` 个，不是 2 的幂，指针按 `fp_ptr_add` 显式回绕；没有移动消除，没有计数器）。
 
 ## 5. 一拍内的数据流
 
 ### 5.1 重命名（只读寄存器）
 
 1. **移动消除**（`ren_elim_sel`，对应模型 `elim_refs_ok`）：move 形状（`addi rd, rs, 0`，含 IDU 规范化后的 `c.mv` / `add rd, x0, rs2`，rd、rs 都不是 x0）分两种情形：
-   - **组内 1-hop 生产链消除**：本组里比自己老的有效整数指令写了 `src1_areg` 时，取最近老写者 `j`；若 `j` 未被消除（分配全新物理寄存器，RAT 原引用数为 0）且 `(i - j) < MOVE_ELIM_MAX_REFS`（保证同组最多 `i - j + 1 <= MOVE_ELIM_MAX_REFS` 个引用，3-bit `arch_cnt` 永不溢出），则允许消除，目的物理寄存器直接取旁路后的 `src1_preg`；
-   - **推测 RAT 消除**：无更老整数写者时，要求 `推测 RAT 中等于它源物理寄存器的项数 + 本组里比自己老且有目的寄存器的指令数 < MOVE_ELIM_MAX_REFS`。
-   RTL 复用公共原语库（`ttg_first_set`、`ttg_onehot_to_idx`、`ttg_onehot_mux`、`ttg_popcount`）将 7 级组内旁路链改写为 3 级 Kogge-Stone 并行指针跳跃网络（`st_const / st_cval / st_inv / st_ptr`），与 33 路 `spec_rat` `ttg_popcount` 完全并行。
+   - **组内 1-hop 生产链消除**：本组里比自己老的有效整数指令写了 `src1_areg` 时，取最近老写者 `j`；若 `j` 未被消除，则允许消除，目的物理寄存器直接取旁路后的 `src1_preg`；若 `j` 本身被消除则不消除（只允许 1 跳）；
+   - **无更老写者**：本组里没有更老的整数写者时总是消除（引用数没有上限，`arch_cnt` 是 6 位，最多 33 个引用，不会溢出）。判定只用 S1 预译码的 `raw_hit_src1`，不读推测 RAT。
+   RTL 复用公共原语库（`ttg_first_set`、`ttg_onehot_to_idx`、`ttg_onehot_mux`、`ttg_popcount`）将 7 级组内旁路链改写为 3 级 Kogge-Stone 并行指针跳跃网络（`st_const / st_cval / st_inv / st_ptr`），（EXP-065 起不再有 33 路 `spec_rat` 计数）。
 2. **分配**（`ren_alloc_sel`）：要整数寄存器的 lane（有效、有目的寄存器、不是浮点、没被消除）按序排队；第 k 个请求者拿窗口第 k 项，且要 `k < free_count` 才算拿到（复用 `ttg_pick_k` 与 `ttg_onehot_mux`）。浮点域同样（`ren_fp` 里再用一份 `ren_alloc_sel`）。
 3. **按序卡住**（`ren_handshake`）：整数域和浮点域的请求合在一起，第一个请求却没拿到的 lane 起（含它）全部 `ren2dis_valid = 0`；没有目的寄存器的指令只受这个卡住的影响。
 4. **查表和旁路**：每个 lane 查 3 个读口（目的、src1、src2）；`ren_dep_check` 采用两级无递推并行旁路（复用 `ttg_first_set`、`ttg_onehot_mux` 与 `ren_last_write`）：第一级利用 1-hop 消除不变式（被消除 move 的最近老写者必未被消除）直接从 `alloc_reg[0..i-1]` 与 `src1_normal[i]` 并行算出全部 `dest_of[0..7]`（打破 7 级假串行链），第二级再从 `dest_of` 并行旁路 `old_dest / src1 / src2`（`src1` 复用第一级 `ttg_first_set` 独热码）。浮点域有 4 个读口（src1、src2、src3、旧目的），旁路在 `ren_fp_dep`，f0 是真寄存器。
@@ -104,7 +106,7 @@ AMO 暂存寄存器：IDU 把"丢弃结果的读改写 AMO"的目的寄存器号
 
 - `fire[i] = ren2dis_valid[i] & dis2ren_ready`；`ren2dec_ready = 所有有效 lane 都 fire & !冲刷 & !误预测`。
 - `ren_rat` 的 `snapshot[0..7]` 按 `alloc_cand`（`inst_valid & dest_en & ~dest_fp`，不依赖 `fire`）预计算，分支检查点在 `fire[i]` 成立时直接锁存 `snapshot[i]`（前缀性保证 `0..i` 全部 fire），将 `ren_handshake` 移出 `ren_ckpt` 关键路径；正常次态 `spec_d` 与空闲表头 `head_next` 均通过 `ren_last_write` 按 `fire` 末位直接选通对应快照/表头。
-- 输入寄存器：冲刷或误预测清空；`ren2dec_ready` 时换成译码的新组；否则保留没 fire 的 lane。每拍从所有 lane 的 `br_mask` 去掉 `clear_mask`。
+- 输入寄存器：冲刷或误预测清空；`ren2dec_ready` 时换成译码的新组；否则保留没 fire 的 lane。
 
 ### 5.3 退休（commit）
 
@@ -143,8 +145,8 @@ AMO 暂存寄存器：IDU 把"丢弃结果的读改写 AMO"的目的寄存器号
 RTL 与模型的实现差别（行为等价）：
 
 - 模型对每个 lane 顺序执行；RTL 把"同一拍多个写者，编号大的赢"写成 `ren_last_write` 的优先选择，把"空闲表前 k 项给第 k 个请求者"写成 `ren_alloc_sel` 的串联取最先；
-- 空闲表指针：整数域环大小 `PRF_NUM` 是 2 的幂，指针按位宽自然回绕；浮点域 `FPRF_NUM = 96` 不是，要显式回绕。标签是 8 位（FP 从 128 起），环位置是 7 位（`ren_free_list` 的 `PW`）；
-- `ren_ckpt` 的恢复点表对 `MAX_BR_NUM = 32` 个标签都有存储，标签 0 从不被写（IDU 不给分支分配标签 0）。
+- 空闲表指针：整数域环大小 `PRF_NUM` 是 2 的幂，指针按位宽自然回绕；浮点域 `FPRF_NUM = 96` 不是，要显式回绕。物理寄存器号是 `PRF_IDX_WIDTH = 9` 位（FP 从 `FP_TAG_BASE = 256` 起），整数环位置是 `$clog2(PRF_NUM) = 8` 位（`ren_free_list` 的 `PW`）；`ren_log` 里只存 8 位低位加 1 位 `dest_fp`；
+- 检查点是稀疏的：只有 `REN_CKPT_NUM = 4` 项，不是每个分支标签（`MAX_BR_NUM = 32`）一份；误预测命中检查点时 0 拍恢复，否则从最近检查点或架构 RAT 用 `ren_log` 前向 Walk（Walk 期间 `ren2rob_walking` 暂停 ROB 提交）。
 
 已发现、未改动的点：
 
@@ -155,17 +157,19 @@ RTL 与模型的实现差别（行为等价）：
 
 ## 8. 验证
 
-- **门禁**：`scripts/fm_gate.sh` 67 个程序，每条提交对比函数模型，周期对 `scripts/ref_cycles_memiq6_nr_int2_ev5.txt`（模型同配置生成）：67/67 通过，周期逐个相等。
+- **门禁**：`scripts/fm_gate.sh` 77 个程序，每条提交对比函数模型，周期对 `scripts/ref_cycles.txt`（`scripts/regen_refs.sh` 由模型默认配置生成）：77/77 通过（最近一次 rtl 73761fa，2026-11-28），周期逐个相等。
 - **SVA 断言与覆盖（`SOC_SVA=1`）**：`sva/sva_ren.sv` 通过 `bind` 挂载至 `ren_core`（零综合污染），检查 `free_count <= PRF_NUM`、`walk_active` 期间禁止普通 rename `fire`、`alloc_valid -> alloc_req`，并带 5 个功能 cover（满 8 宽 fire、forward walk、移动消除、flush、mispred）。
 - **Lint**：`scripts/lint_chip.sh` 0 告警。
-- **没有模块级的独立测试**。旧体系（`spec/` 的 trace 回放、随机 trace、变异检查）已退役；`tests/` 里没有针对 ren 的测试。目前正确性靠整核周期逐拍相等和 Linux 启动。**待补**：给移动消除的判定、空闲表和 `arch_cnt` 的释放逻辑补新旧并排的随机测试，改深度时用；最好有一个覆盖"同拍退休、冲刷、误预测"的专门用例（模型里这是断言，RTL 里没有）。
+- **模块级测试 `tests/ren_elim_sel/`**：`run.sh [向量数]` 用 Verilator 编 `ren_elim_sel`，`tb_ren_elim_sel.cpp` 按定义写的 C++ 参考（`elim[i] = cand[i] && (没有更老写者 || !elim[最近老写者])`）逐向量对比，默认 200 万个向量，偏向长的组内 move 链；输出 PASS 或第一个不一致。fe-2ahead 去掉 UNOPTFLAT 的改写（每级指针跳跃各用一组信号）用它验证。
+- 其余子块没有模块级测试，靠整核周期逐拍相等和 Linux 启动。旧体系（`spec/` 的 trace 回放、随机 trace、变异检查）已退役。**待补**：给空闲表和 `arch_cnt` 的释放逻辑补新旧并排的随机测试，改深度时用；最好有一个覆盖"同拍退休、冲刷、误预测"的专门用例（模型里这是断言，RTL 里没有）。
 
 ## 9. 参数与开关速查
 
-`DECODE_WIDTH`、`COMMIT_WIDTH`、`ARF_NUM`、`PRF_NUM`、`FPRF_NUM`、`FP_ARF_NUM`、`FP_TAG_BASE`、`MAX_BR_NUM`、`MOVE_ELIM`、`MOVE_ELIM_MAX_REFS`。`ttg_cfg_pkg.sv` 目前是手工编辑的，与 `make cfg` 生成的不同步（待统一，见 docs/TODO.md）。
+`DECODE_WIDTH`、`COMMIT_WIDTH`、`ARF_NUM`、`PRF_NUM`、`FPRF_NUM`、`FP_ARF_NUM`、`FP_TAG_BASE`、`MAX_BR_NUM`、`MOVE_ELIM`、`REN_CKPT_NUM`、`REN_CKPT_INTERVAL`（`MOVE_ELIM_MAX_REFS` 仍在包里但 RTL 不用）。`ttg_cfg_pkg.sv` 由 `make cfg`（`harness/tools/gen_cfg_pkg.py`，从 trace-model `include/config.h`）生成，不手改。
 
 ## 10. 变更记录
 
+- 2026-11-28（文档核对，无 RTL 变化）：移动消除不再有 `MOVE_ELIM_MAX_REFS` 上限（`CNT_W = 6`，EXP-065）；稀疏检查点 `REN_CKPT_NUM = 4`、`ren_log`、`ren_ckpt_ctl` 写进结构与文件表；`PRF_NUM = 256` 下的位宽；接口去掉 `br_id / br_mask / clear_mask`；第 8 节加 `tests/ren_elim_sel`；`ttg_cfg_pkg` 为生成文件；门禁参考改为 `scripts/ref_cycles.txt`（77 个程序）。
 - 2026-11-28（`rtl/fe-2ahead`，0 周期变化）：`ren_elim_sel` 的指针跳跃各级改成各自的生成块信号（`g_st[s].c / v / inv / g_p.ptr`），第 `s+1` 级只读第 `s` 级，消除整核 Verilator `UNOPTFLAT`（原来 `[ST+1]` 下标的数组是一个信号，经动态下标形成假环）；最后一级不再算指针。`tests/ren_elim_sel/run.sh` 改写为按定义的 C++ 参考模型 200 万次随机对拍（原测试用的是旧端口，已编不过）：新、旧实现都 PASS，`^` 改成 `~^` 的变异第 0 组即报错。
 
 - 2026-11-24（`rtl/timing-opt3`，EXP-064 第三轮 28nm DC 时序优化）：落地 2 级流水化重命名（`IDU → S1 → S2 → DISPATCH`，同步 `trace-model/back-end/Ren.{h,cpp}`）：① `ren_inst_pipe` 增加 S1 预译码级，将 RAT 24+8 路 5→33 one-hot 地址译码（`rd_oh_q` / `wr_oh_q`）、`move_shape_q`、`is_branch_q` 及同组 RAW/WAW 比较矩阵（`raw_hit_dest_q/src1_q/src2_q`）前移至 S1 并打拍入 S2；`ren_rat` 增 `PRE_OH=1` 直用预译码 one-hot，`ren_dep_check` 直用预译码命中矩阵，`ren_handshake` 拆分 `s2_take_new` 与 `ren2dec_ready = (s1_empty | s2_take_new) & ~flush & ~mispred`；② `ren_ckpt_ctl` 在静态槽位 `0..NK-1` 并行预计算 `slot_age/slot_ptr/slot_eq_br`，`ren_log` 将 8:1 旋转多路器移至 `bank_rd_q` 触发器之后，彻底清除原 Path #2（`ckpt_head_q → u_log/rd_slot_q`）；③ `ren_alloc_sel` 改用每路直接前缀 `ttg_popcount(0..7)` 替代 `ttg_pick_k(8,8)`。TSMC 28nm DC：`ren` **1.16 → 1.22 GHz**（WNS `−0.36 → −0.32 ns`，46→40 级，TNS `−5,375`，面积 `157.6k um²`；新顶路径为 S2 内 `ckpt_count_q → ckpt_wr_lane_oh → u_ckpt` 与 `rd_oh_q → ren_elim_sel → u_rat/spec_q`）；SPEC06 INT 386/386 `−1.07%`；`lint_chip` 0、`fm_gate` 69/69（0 周期差）。

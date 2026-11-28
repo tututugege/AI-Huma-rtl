@@ -386,6 +386,13 @@ module bpu_spec import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
   assign unused_ok = ^{r_ck.top, rr_ck.top, ovr};
   /* verilator lint_on UNUSEDSIGNAL */
 
+`ifndef SYNTHESIS
+  // bpu_hist_vec precondition (docs/06-equivalence-policy.md 4): its SYNTHESIS and simulation paths are equal only for
+  // sym_n <= MAX_SYM. u_n1_ck / u_q1 (MAX_SYM = 1) take a 1-bit count; u_r1_ck (MAX_SYM = 2) takes the 2-bit hr_push_n.
+  assert property (@(posedge clk) disable iff (!rst_n) hr_push_n <= 2'd2)
+    else $error("bpu_spec: hr_push_n = %0d > 2 (bpu_hist_vec u_r1_ck MAX_SYM = 2)", hr_push_n);
+`endif
+
 endmodule
 
 `default_nettype wire

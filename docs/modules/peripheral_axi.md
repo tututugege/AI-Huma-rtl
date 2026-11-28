@@ -3,7 +3,7 @@ module: peripheral_axi
 area: memsys
 rtl: rtl/memsys/peripheral_axi
 model: trace-model MemSubSystem/PeripheralAxi.cpp、include/PeripheralAxi.h（调度单元 `mem_subsystem.peripheral_axi_`，类 `PeripheralAxi`，阶段 `comb_commit_store`、`comb`）；设备本体是同目录的 `PeripheralModel`（它是 `PeripheralAxi` 的子模块，不单独调度）
-status: 整核周期与模型逐个相等（fm_gate 67/67，参考 scripts/ref_cycles_memiq6_nr_int2_ev5.txt）
+status: 整核周期与模型逐个相等（fm_gate.sh 77/77，周期对 scripts/ref_cycles.txt）
 depth: 10 层（peripheral_axi，单模块综合，2026-11-18，`SYNTH_ABC="strash;balance;map"`，生成门代理，见第 6 节）
 ---
 
@@ -91,7 +91,7 @@ depth: 10 层（peripheral_axi，单模块综合，2026-11-18，`SYNTH_ABC="stra
 
 ## 8. 验证
 
-- **门禁**：`scripts/fm_gate.sh` 67 个程序（周期对 `scripts/ref_cycles_memiq6_nr_int2_ev5.txt`），与外设直接相关的有 `timer-mmio`（读写定时器，走环境建模设备路径）；`timer-interrupt-mask`、`interrupt-vectored` 等中断程序依赖设备产生的中断，但它们是否发出 MMIO 访问没有核对。走 AXI 的非建模地址路径（AXI 读 / 写 EXTRA 口）在这些程序里是否出现也没有核对。
+- **门禁**：`scripts/fm_gate.sh` 77/77（周期对 `scripts/ref_cycles.txt`），与外设直接相关的有 `timer-mmio`（读写定时器，走环境建模设备路径）；`timer-interrupt-mask`、`interrupt-vectored` 等中断程序依赖设备产生的中断，但它们是否发出 MMIO 访问没有核对。走 AXI 的非建模地址路径（AXI 读 / 写 EXTRA 口）在这些程序里是否出现也没有核对。
 - **定向程序**：`tests/rv64/mmio64.c`（8 字节 ld / sd 访问定时器，`mtimecmp` 往返，64 位 `mtime`，`lw / lwu / lh` 视图）；构建与运行方式没有脚本入口（`scripts/` 里没有引用它），本次没有运行。
 - **Linux 整核门禁**：`scripts/linux_gate.sh`（串口、定时器、中断都走这条路径；逐提交对拍功能模型的设备读检查）。
 - **Lint**：`scripts/lint_chip.sh`。
@@ -102,5 +102,7 @@ depth: 10 层（peripheral_axi，单模块综合，2026-11-18，`SYNTH_ABC="stra
 `XLEN_BITS`（`ttg_cfg_pkg`）；`PA_SIZE_W`（`memcpu_pkg`）。无其他开关。
 
 ## 10. 变更记录
+
+- 2026-11-28（`rtl/fe-2ahead`，文档核对）：门禁改为 77/77 对 `scripts/ref_cycles.txt`；端口、`PA_SIZE_W`、文件行数与 RTL 一致，正文无需改动。
 
 本分支未改动（`git log 261bd67..HEAD -- rtl/memsys/peripheral_axi` 为空），更早：`f0bd79d` rv64 step 6：8 字节 MMIO（ld / sd）；`4e954d7` ROB 紧凑（EXP-028）清理批次；`2d78026` 初次引入。

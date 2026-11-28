@@ -3,7 +3,7 @@ module: mem_route
 area: memsys
 rtl: rtl/memsys/mem_route
 model: trace-model MemSubSystem/MemRouteBlock.cpp、include/MemRouteBlock.h（调度单元 `mem_subsystem.mem_route_block`，类 `MemRouteBlock`，阶段 `comb_response`、`comb_request`）
-status: 整核周期与模型逐个相等（fm_gate 67/67，参考 scripts/ref_cycles_memiq6_nr_int2_ev5.txt）
+status: 整核周期与模型逐个相等（fm_gate 77/77，参考 scripts/ref_cycles.txt）
 depth: 9 层（mem_route，单模块综合，2026-11-18，`SYNTH_ABC="strash;balance;map"`，生成门代理，见第 6 节）
 ---
 
@@ -57,8 +57,8 @@ depth: 9 层（mem_route，单模块综合，2026-11-18，`SYNTH_ABC="strash;bal
 
 | 文件 | 行数 | 职责 |
 | --- | --- | --- |
-| `mem_route.sv` | 139 | 顶层与直通路径 |
-| `mem_route_req.sv` | 68 | 请求侧 |
+| `mem_route.sv` | 147 | 顶层与直通路径 |
+| `mem_route_req.sv` | 76 | 请求侧 |
 | `mem_route_resp.sv` | 97 | 响应侧 |
 | `mem_route_state.sv` | 62 | 状态寄存器 |
 
@@ -114,7 +114,7 @@ depth: 9 层（mem_route，单模块综合，2026-11-18，`SYNTH_ABC="strash;bal
 
 ## 8. 验证
 
-- **门禁**：`scripts/fm_gate.sh` 67 个程序，周期对 `scripts/ref_cycles_memiq6_nr_int2_ev5.txt`；ICache 缺失时由 `rtl/frontend/icache/icache_probe.sv` 发出探测请求（`dc_req_valid`），所以有 ICache 缺失的程序都会走 ICache 探测这条路径（哪些缺失发探测由 ICache 决定，见 icache.md）。页表遍历路径由开分页的程序（Linux）覆盖：`scripts/linux_gate.sh`。
+- **门禁**：`scripts/fm_gate.sh` 77 个程序，周期对 `scripts/ref_cycles.txt`；ICache 缺失时由 `rtl/frontend/icache/icache_probe.sv` 发出探测请求（`dc_req_valid`），所以有 ICache 缺失的程序都会走 ICache 探测这条路径（哪些缺失发探测由 ICache 决定，见 icache.md）。页表遍历路径由开分页的程序（Linux）覆盖：`scripts/linux_gate.sh`。
 - **Lint**：`scripts/lint_chip.sh`。
 - **没有 mem_route 的模块级测试**。**待补**：路由块与模型 `MemRouteBlock` 并排的随机测试（随机的 ICache / 遍历器 / LSU 请求，随机的数据缓存响应），重点是 P3 仲裁、被挤掉请求的重发、`ptw_wait`。
 
@@ -124,4 +124,5 @@ depth: 9 层（mem_route，单模块综合，2026-11-18，`SYNTH_ABC="strash;bal
 
 ## 10. 变更记录
 
+- 2026-11-28（文档核对，无 RTL 变化）：文件表行数；门禁参考改为 `scripts/ref_cycles.txt`（77 个程序）。
 本分支未改动（`git log 261bd67..HEAD -- rtl/memsys/mem_route` 为空），更早：`8abb7ab` RTL 清理；`fb05807` rv64 step 2（数据字 XLEN 位）；`b1e0335` EXP-024（第二个 store 字通路）；`17ffdf7` 预取器引入（探测口、LSU 的 load replay 位）；`2d78026` 初次引入。

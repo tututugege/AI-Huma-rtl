@@ -11,7 +11,7 @@ depth: 仅顶层连线（见 core_top / mem_top）
 
 ## 1. 职责
 
-整核闭环的最外层：一个 `core_top`（核，见 core_top.md）加一个 `mem_top`（访存子系统：`mem_route`、`ptw_walk`、`dcache`、`peripheral_axi`、`axi_subsys`、`axi_cpu_port_adapter`），两者按端口名连接。`mem_top` 的端口名与 `core_top` 的存储侧端口同名、方向相反，所以 `soc_top` 只写了 `core_top u_core (.clk(clk_cpu), .*)` 和 `mem_top #(.PF_EN(PF_EN)) u_mem (.clk, .*)` 两个实例，其余全是为 `.*` 声明的同名连线。
+整核闭环的最外层：一个 `core_top`（核，见 core_top.md）加一个 `mem_top`（访存子系统：`mem_route`、`ptw_walk`、`dcache`、`peripheral_axi`、`axi_subsys`、`axi_cpu_port_adapter`），两者按端口名连接。`mem_top` 的端口名与 `core_top` 的存储侧端口同名、方向相反，所以 `soc_top` 的两个子树实例主要靠 `.*` 连接：`core_top u_core (.clk(clk_cpu), .rst_n(core_rst_n), 软件中断接 0, .*)`、`mem_top #(.PF_EN(PF_EN), .EXT_MMIO_EN(1'b0)) u_mem (.clk, .rst_n(core_rst_n), MMIO 主口接常量 / 悬空, .*)`；复位先经 `ttg_rst_sweep` 展宽（SRAM 在复位里清零，[common.md](common.md) 4.1 节）。其余是为 `.*` 声明的同名连线。
 
 边界之外（留在测试平台 `tb/core` → `core_tb`）：DDR 从设备（`d_*` 端口，AXI AR / R / AW / W / B）、外设模型（`env_*` 端口：`env_modeled`、`env_rdata` 入，`env_rd_en / addr / func3` 出）、物理内存、中断源（`interrupt_inject_*` 输入）、时钟与复位。逐条退休流（`rob_commit_*`、`rob_bcast_*`、`out_mispred`、`out_redirect_pc`、`ftq_commit_info_resp_pc`、`out_commit_entry_uop_diag_val`）从 `core_top` 直接导出，给测试平台的函数模型逐条对比。真实流片向 SoC 顶层与全套片上 AXI4/外设由 `chip_top` + `tb/soc`（`soc_tb`）独立承载（见 [chip_top.md](chip_top.md)），两者职责正交：`core_tb` 守护核+存储微架构与三仓逐拍对齐，`soc_tb` 守护全片 AXI4 互联与真实外设集成。
 
@@ -22,7 +22,7 @@ depth: 仅顶层连线（见 core_top / mem_top）
 | 量 | 值 | 来源 |
 | --- | --- | --- |
 | 参数 `PF_EN` | 1（L1D 数据预取器 h1，EXP-009） | `soc_top.sv` 参数，传给 `mem_top` → `dcache` |
-| 时钟 | `clk`（访存域的 tick 时钟）、`clk_cpu`（核时钟） | 端口；测试平台在每个 CPU 周期的 tick 0 给 `clk_cpu` 一个脉冲（`tb/soc/soc_tb.cpp`），现行 `AXI_SUBSYSTEM_FREQ_DIV = 1`，即每个 `clk` 沿都同时给 `clk_cpu` 脉冲 |
+| 时钟 | `clk`（访存域的 tick 时钟）、`clk_cpu`（核时钟） | 端口；测试平台在每个 CPU 周期的 tick 0 给 `clk_cpu` 一个脉冲（`tb/core/core_tb.cpp`），现行 `AXI_SUBSYSTEM_FREQ_DIV = 1`，即每个 `clk` 沿都同时给 `clk_cpu` 脉冲 |
 | 数据宽度 | `XLEN_BITS = 64` | `ttg_cfg_pkg` |
 | 提交宽度 | `COMMIT_WIDTH = 8` | `ttg_cfg_pkg` |
 | DDR 数据拍 | 256 位，AXI id 6 位 | `d_rdata`、`d_rid` 位宽 |
@@ -41,11 +41,12 @@ depth: 仅顶层连线（见 core_top / mem_top）
 | 出 | `init_done` | 复位展宽结束（`ttg_rst_sweep`）：外部 `rst_n` 释放后再过 `SRAM_SWEEP_CYCLES`（4100）拍为 1；测试台从这之后开始计周期（`common.md` 4.1 节） |
 | 出 | 退休流和重定向 | 见上；给测试平台逐条对比 |
 
-PMU 事件总线（`core_top` 里的 `pmu_ev_inc`）**没有**出现在 `soc_top` 的端口上，测试平台通过 `tb/soc/pmu_public.vlt` 声明的 public 变量按层次名读（`soc_top__DOT__u_core__DOT__pmu_ev_inc`，`tb/soc/soc_tb.cpp`）。
+PMU 事件总线（`core_top` 里的 `pmu_ev_inc`）**没有**出现在 `soc_top` 的端口上，测试平台通过 `tb/core/pmu_public.vlt` 声明的 public 变量按层次名读（`soc_top__DOT__u_core__DOT__pmu_ev_inc`，`tb/core/core_tb.cpp`）。
 
 ## 4. 结构
 
 ```
+ rst_n ─► ttg_rst_sweep (u_rst_sweep) ─► core_rst_n、init_done
  clk_cpu ─► core_top (u_core) ◄──── 同名端口（.*）────► mem_top (u_mem) ◄── clk
                 │ 退休流 / 重定向                           │ env_* ↔ 外设模型      │ d_* ↔ DDR 从口
                 ▼                                           ▼                       ▼
@@ -54,13 +55,13 @@ PMU 事件总线（`core_top` 里的 `pmu_ev_inc`）**没有**出现在 `soc_top
 
 | 文件 | 行数 | 职责 |
 | --- | --- | --- |
-| `soc_top.sv` | 147 | 端口、为 `.*` 声明的 71 根同名连线、两个实例 |
+| `soc_top.sv` | 193 | 端口、为 `.*` 声明的同名连线、三个实例：`ttg_rst_sweep u_rst_sweep`（复位展宽，输出 `core_rst_n` 和 `init_done`）、`core_top u_core`、`mem_top u_mem`（`EXT_MMIO_EN = 0`，真实 MMIO 主口接常量 / 悬空） |
 
-`soc_top.sv` 是手工维护的（文件头：2026-11 以前由 `tools/gen_soc_top.py` 生成，生成器和规格已删除）。没有寄存器和逻辑。
+`soc_top.sv` 是手工维护的（2026-11 以前由一个生成器生成，生成器和规格已删除）。自己没有寄存器和逻辑；复位展宽在 `ttg_rst_sweep` 里。
 
 ## 5. 一拍内的数据流
 
-没有自己的逻辑。测试平台每个 CPU 周期做的事（`tb/soc/soc_tb.cpp`）：DDR 从口输出 → RTL → RTL 主口输出 → DDR 输入 → DDR `seq` → 时钟沿（`clk = 1`，tick 0 时 `clk_cpu = 1`）→ tick 0 之后外设模型 `tick()` 并更新下一周期的中断输入。外设读（`env_*`）的 `env_modeled` 变化后会再求值一次，让 `env_rd_en` 稳定（`soc_tb.cpp` 的注释）。与模型的顺序对应：`SimCpu::cycle` 先 `icache_port_regs_seq`，随后组合各阶段，最后各部件 `seq`。
+没有自己的逻辑。测试平台每个 CPU 周期做的事（`tb/core/core_tb.cpp`）：DDR 从口输出 → RTL → RTL 主口输出 → DDR 输入 → DDR `seq` → 时钟沿（`clk = 1`，tick 0 时 `clk_cpu = 1`）→ tick 0 之后外设模型 `tick()` 并更新下一周期的中断输入。外设读（`env_*`）的 `env_modeled` 变化后会再求值一次，让 `env_rd_en` 稳定（`soc_tb.cpp` 的注释）。与模型的顺序对应：`SimCpu::cycle` 先 `icache_port_regs_seq`，随后组合各阶段，最后各部件 `seq`。
 
 ## 6. 关键路径与深度
 
@@ -92,6 +93,7 @@ depth 待测（由协调者补）。本模块只有连线，没有逻辑；整�
 
 ## 10. 变更记录
 
+- 2026-11-28（文档核对）：结构一节补 `u_rst_sweep`、行数 193；测试平台路径改为 `tb/core/core_tb.cpp`、`tb/core/pmu_public.vlt`。
 - 2026-11-28（`rtl/fe-2ahead`）：新增 `ttg_rst_sweep`，`core_top` / `mem_top` 的复位改用展宽后的 `core_rst_n`（SRAM 在复位里清零，`common.md` 4.1 节），新增输出 `init_done`；`core_tb` 跑到 `init_done` 才开始计周期，周期与模型不变（`fm_gate.sh` 77/77、0 周期差）。
 
 - 2026-11-26：测试台目录由 `tb/soc/`（`soc_tb`）更名为 `tb/core/`（`core_tb`），将 `tb/soc/`（`soc_tb`）让给真实全片 SoC `chip_top`；`soc_top` 端口与行为 100% 不变（`EXT_MMIO_EN=0`、`software_irq=0`），`fm_gate.sh` 77/77 PASS（0 周期差）。

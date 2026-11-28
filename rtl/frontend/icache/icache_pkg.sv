@@ -4,9 +4,9 @@
 package icache_pkg;
   import ttg_cfg_pkg::*;
 
-  localparam int IC_WAYS     = ICACHE_WAY_NUM;      // 8
-  localparam int IC_SETS     = ICACHE_SET_NUM;      // 64
-  localparam int IC_IDX_W    = ICACHE_INDEX_BITS;   // 6
+  localparam int IC_WAYS     = ICACHE_WAY_NUM;      // 4
+  localparam int IC_SETS     = ICACHE_SET_NUM;      // 256
+  localparam int IC_IDX_W    = ICACHE_INDEX_BITS;   // 8 (VA[13:6])
   localparam int IC_OFF_W    = ICACHE_OFFSET_BITS;  // 6
   localparam int IC_WORDS    = ICACHE_WORD_NUM;     // 16 words of 32 bits per line
   localparam int IC_WORD_W   = 32;

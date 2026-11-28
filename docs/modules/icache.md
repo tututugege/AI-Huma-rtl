@@ -45,6 +45,8 @@ depth: Tier 1 TSMC 28nm (Yosys+PrimeTime STA, clk=0.65ns, eda-07): icache 77 层
 4. 响应重取指（`refetch`）、FENCE.I（作废全部有效位）、SFENCE.VMA（`itlb_flush`）、预译码冲刷（`invalidate`，同拍的第二步）：取消在途请求和在途缺失；
 5. 请求在途时记账 AXI 事务号：被取消的缺失的迟到响应要丢掉。
 
+现行结构（2026-11-28，`rtl/fe-2ahead`）是两级流水：**F0** 用寄存的取指地址查 ITLB 和按 `idx[0]` 分奇偶两组的触发器标签 / 有效位，选出命中路后启动数据 SRAM 读；**F1** 拿到 Lo / Hi 两半的数据，由 `icache_resp`（A 块）和第二个 `icache_resp`（`u_resp_b`，B 块）切出取指组。B 块是同页下一行（取指块跨 64 字节行但不跨 4 KiB 页时，`b_is_pair` / `b_is_tail`）。另有 `icache_fdip`：接 BPU S2 确认的下一取指地址（`fdip_s2_*`，前端已打一拍），8 项去重队列（`FDIP_Q = 8`）、2 个 AXI 预取事务（`FDIP_N = 2`，事务号从 `FDIP_TX_BASE = 8` 起）和 1 项回填缓冲 `fb_v_q`（只在需求侧不写阵列时写入，保证阵列单口）。
+
 模型里是一个调度单元 `front.core.icache`（`ICacheTop`）：`comb_fetch` 做取指步 N，`comb_invalidate` 做预译码冲刷的第二步 K；时序更新在 `seq`。RTL 的模块边界是为综合划的，模型里没有对应的类（`icache_module.cpp` 的 `ICache` 是它的状态机）。
 
 ## 2. 配置（`ttg_cfg_pkg` / `icache_pkg`，现行默认）
@@ -60,20 +62,27 @@ depth: Tier 1 TSMC 28nm (Yosys+PrimeTime STA, clk=0.65ns, eda-07): icache 77 层
 | 缓存行请求 | 总长 63（= 行字节数 - 1） | `mem_req_total_size`（`icache_ctl`） |
 | 不缓存的取指 | 物理页号高两位为 0，即物理地址 < 0x40000000，总长 3，旁路 | `ic_is_uncache`（`icache_pkg`） |
 | 替换 | SRRIP（4 路每组 `IC_WAYS×2 = 8` 位 RRPV；先用无效路，否则 RRPV 最大路，无效时退回全局指针 +1） | `icache_arr`：`repl_q`；`icache_swap`：`replace_next` |
-| 存储容量 | 数据 `Lo/Hi` 各 `1024×256b` 1RW（`16 × 1024×32` 宏）；标签 `2×4×128×20b`、有效位 `1024b`、SRRIP `256×8b`（Even/Odd FF） | `icache_arr` |
+| 存储容量 | 数据 `Lo/Hi` 各 `1024×256b` 1RW（`16 × 1024×32` 宏）；标签 `2×4×128×20b`、有效位 `1024b`、SRRIP `256×8b`（Even/Odd FF） | `icache_arr`：`DATA_DEPTH = IC_WAYS × IC_SETS`、`HALF_W = IC_LINE_W / 2`、`BSETS = IC_SETS / 2` |
+| FDIP | 8 项地址队列、2 个预取事务、1 项回填缓冲 | `icache_fdip`：`FDIP_Q`、`FDIP_N`、`FDIP_TX_BASE` |
+
+数据 SRAM（`ttg_sram_1rw`）在复位里清零，见 [common.md](common.md) 4.1 节。
 
 ## 3. 接口
 
 | 方向 | 信号组 | 含义 |
 | --- | --- | --- |
-| 入 | `req_valid`、`fetch_address` | 取指地址队列队首（`fa_rd_valid / fa_rd_address`） |
+| 入 | `clk`、`rst_n` | |
+| 入 | `req_valid`、`fetch_address` | 统一 FTQ 的 IFU 队首（`fa_rd_valid / fa_rd_address`，见 [front_top.md](front_top.md)） |
+| 入 | `fdip_s2_en`、`fdip_s2_va`、`fdip_s2_clear` | BPU S2 确认的下一取指地址送 FDIP（`front_pred_path` 已打一拍）；`clear` = 全局 refetch 或 S2 覆盖 |
 | 入 | `refetch`、`itlb_flush`、`fence_i`、`invalidate` | 全局重取指、SFENCE.VMA、FENCE.I、预译码冲刷（`do_predecode_flush`） |
 | 入 | `csr_status_satp / privilege / mxr / sum / mprv / mpp` | ITLB 的翻译条件 |
 | 入 | `mem_req_ready / accepted / accepted_id`、`mem_resp_valid / id / data[16]` | AXI 读口：请求被接收的脉冲和事务号、响应 |
 | 入 | `dc_resp_valid / retry / miss / data` | DCache 探针的响应 |
 | 入 | `ptw_walk_req_ready`、`ptw_walk_resp_*` | 页表遍历器对 ITLB 的响应 |
 | 出 | `icache_ready` | 能接新请求：`!(itlb_flush | fence_i) & ifu_ready_q & !req_valid_q & !miss_txv & 状态为 IDLE` |
-| 出 | `read_complete`、`fetch_pc`、`inst_valid[16]`、`page_fault_inst[16]`、`fetch_group[16]`、`fetch_upper_ok[16]` | 取指组；`fetch_upper_ok[i]` = 第 i 个窗口有真实的高半字（它的下一个半字也在这行内） |
+| 出 | `ic_inflight` | 在途取指数（0..2：F1 有效 + 登记槽有效），给 `inst_fifo_room` |
+| 出 | `read_complete`、`fetch_pc`、`inst_valid[16]`、`page_fault_inst[16]`、`fetch_group[16]`、`fetch_upper_ok[16]`、`fetch_single_word` | A 块取指组；`fetch_upper_ok[i]` = 第 i 个窗口有真实的高半字；`fetch_single_word` = 不缓存的单字取指 |
+| 出 | `b_hit`、`b_is_pair`、`b_is_tail`、`b_a_len`、`b_addr`、`b_actual_n`、`b_fetch_group[16]` | B 块（同页下一行）：是否命中、是跨行续接还是只取尾半字、A 块槽数、地址、有效槽数、取指组 |
 | 出 | `mem_req_valid / addr / total_size / bypass / id`、`mem_resp_ready` | AXI 读请求（地址 32 位） |
 | 出 | `dc_req_valid`、`dc_req_addr` | DCache 探针请求（一拍脉冲，没有 ready） |
 | 出 | `ptw_walk_req_valid / vpn / root_ppn`、`ptw_walk_resp_consumed`、`ptw_walk_flush` | ITLB 向页表遍历器的请求 |
@@ -81,32 +90,34 @@ depth: Tier 1 TSMC 28nm (Yosys+PrimeTime STA, clk=0.65ns, eda-07): icache 77 层
 ## 4. 结构
 
 ```
- req_valid/pc ─► icache_slot ─► mmu_req ─► icache_itlb (tlb_mmu_core, FETCH=1) ─► ppn_valid / page_fault / ppn ─┐
+ req_valid/pc ─► icache_slot ─► mmu_req ─► icache_itlb (tlb_mmu_core, FETCH=1, NPEEK=1) ─► ppn_valid / page_fault / ppn ─┐
  refetch, fence_i, invalidate ─►  icache_ctl ◄───────── hit, hit_line, first_invalid ◄── icache_arr ◄─ rd_index, cmp_tag ┘
                                    ├ icache_idle  : 空闲态一步（快速通路、登记通路、缺失分配）
                                    ├ icache_swap  : 缺失服务一步（发请求、等响应、等探针、回填）和 CANCEL_WAIT
                                    ├ icache_kill  : 取消一步 K（作用于 R0 或 R1）
                                    ├ icache_txn   : AXI 响应分类（有效 / 被取消 / 孤儿）
                                    ├ icache_probe : DCache 探针一步
-                                   └ 响应 ─► icache_resp : 从行里切出 16 个槽的取指组
+                                   └ 响应 ─► icache_resp ×2 : 从 A 行 / B 行切出取指组（u_resp / u_resp_b）
+ fdip_s2_* ─► icache_fdip : 8 项去重队列、2 个预取事务、1 项回填缓冲 ─► icache_arr 的回填写口（需求侧空闲时）
 ```
 
 | 文件 | 行数 | 职责 |
 | --- | --- | --- |
-| `icache.sv` | 130 | 顶层：把 16 个字响应拼成一行、连线、`ptw_walk_flush` 在复位后第一拍也置位 |
-| `icache_pkg.sv` | 79 | 参数、`ic_regs_t`（控制寄存器）、复位值、状态编码、地址函数 |
-| `icache_ctl.sv` | 244 | 例化下面各块，选择、寄存器、冲刷合并、存储侧输出 |
-| `icache_arr.sv` | 129 | 阵列（标签 / 有效 / 数据 / 替换状态），命中比较，第一个无效路，命中行的选择，SRRIP 选路与更新 |
-| `icache_itlb.sv` | 80 | `tlb_mmu_core(LANES=1, FETCH=1)` 加结果映射 |
+| `icache.sv` | 264 | 顶层：F0 → F1 两级（`f1_q`）、A / B 两路响应、连线、`ptw_walk_flush` 在复位后第一拍也置位 |
+| `icache_pkg.sv` | 95 | 参数、`ic_regs_t`（控制寄存器）、复位值、状态编码、地址函数 |
+| `icache_ctl.sv` | 238 | 例化下面各块，选择、寄存器、冲刷合并、存储侧输出 |
+| `icache_arr.sv` | 211 | 阵列：Lo / Hi 数据 SRAM（`ttg_sram_1rw` ×2）、奇偶两组触发器标签 / 有效位、A / B 两路命中比较、第一个无效路、SRRIP 选路与更新、FDIP 回填写口 |
+| `icache_itlb.sv` | 100 | `tlb_mmu_core(LANES=1, FETCH=1, NPEEK=1)` 加结果映射；peek 口给 FDIP 翻译 |
 | `icache_slot.sv` | 50 | 单项请求槽 `req_valid / req_pc / ifu_ready`、ITLB 请求 |
-| `icache_idle.sv` | 63 | 空闲态一步 |
+| `icache_idle.sv` | 58 | 空闲态一步 |
 | `icache_swap.sv` | 125 | 缺失服务一步 |
 | `icache_kill.sv` | 92 | 取消一步 |
-| `icache_probe.sv` | 71 | 探针一步 |
+| `icache_probe.sv` | 72 | 探针一步 |
 | `icache_txn.sv` | 40 | 响应分类 |
-| `icache_resp.sv` | 75 | 取指组切片 |
+| `icache_resp.sv` | 75 | 取指组切片（例化两次：A 行、B 行） |
+| `icache_fdip.sv` | 284 | FDIP 预取：S2 地址去重队列、预取事务、1 项回填缓冲 |
 
-状态：`ic_regs_t` 共 137 位（请求有效 1、请求 pc 64、`ifu_ready` 1、状态 3、缺失事务号有效 1 + 号 4、`ready_seen` 1、在途 16、被取消 16、探针 3 位控制 + 字号 4、`ppn` 20、替换指针 3）；两个 512 位的数据寄存器 `resp_line_q`（响应行）、`probe_line_q`（探针行，按字写使能）；阵列；替换状态 `repl_q`（64 组 × 16 位，复位清 0，`fence.i` 不清）；ITLB 的 64 项。
+状态：`ic_regs_t` 共 136 位（请求有效 1、请求 pc 64、`ifu_ready` 1、状态 3、缺失事务号有效 1 + 号 4（`IC_TXID_W`）、`ready_seen` 1、在途 16 + 被取消 16（`IC_TXID_N`）、探针 3 位控制 + 字号 4、`ppn` 20、替换指针 2（`IC_WAY_W`））；两个 512 位的数据寄存器 `resp_line_q`（响应行）、`probe_line_q`（探针行，按字写使能）；阵列；替换状态 `repl_q`（`IC_SETS` = 256 组 × `IC_RB` = 8 位，复位清 0，`fence.i` 不清）；F0 → F1 寄存器 `f1_q`；FDIP 的队列、事务槽和回填缓冲；ITLB 的 64 项。
 
 状态机 5 个状态（`ic_state_e`）：`IC_IDLE`；`IC_SWAP_REQ`（缺失，AXI 请求还没被接收）；`IC_SWAP_WAIT`（已被接收，等响应）；`IC_WAIT_DC`（响应已到，等探针完成）；`IC_CANCEL_WAIT`（缺失被取消，但请求刚好在被接收的路上，等一拍让接收脉冲过去）。模型是（状态，AXI 状态）两个量，AXI 忙只出现在 SWAP_IN，合成一个 5 态编码；模型的 `DRAIN` 没有任何入口，不编码。
 
@@ -124,11 +135,11 @@ depth: Tier 1 TSMC 28nm (Yosys+PrimeTime STA, clk=0.65ns, eda-07): icache 77 层
 
 1. `icache_slot`：`mmu_req_valid = !kill & (登记槽有效 | (req_valid & 槽空闲))`，`mmu_req_vtag` 取登记槽的 pc 或本拍的 pc（不依赖 ITLB 的回答，没有组合环）；
 2. ITLB 回答 `ppn_valid / page_fault / ppn`（未命中则 `ppn_valid = 0`，下一拍再问）；
-3. 阵列读：`rd_en = !refetch & (req_valid | 登记槽有效)`，组索引取登记槽或本拍 pc 的 `[11:6]`；比较条件 `cmp_valid = IDLE & !kill1 & ppn_valid & !page_fault & (...)`，比较标签 = ppn；最低的匹配路命中；
+3. 阵列读：`rd_en = !refetch & (req_valid | 登记槽有效)`，组索引取登记槽或本拍 pc 的 `[13:6]`（`ICACHE_INDEX_BITS = 8`，VIPT：比 4 KiB 页多 2 位）；比较条件 `cmp_valid = IDLE & !kill1 & ppn_valid & !page_fault & (...)`，比较标签 = ppn；最低的匹配路命中；
 4. 空闲态一步：**快速通路**——本拍新来的请求且 ITLB 已有回答（`fast = !req_valid_q & req_valid & ppn_valid`），命中或页故障就当拍回答；**登记通路**——否则请求登记到槽里，之后每拍用登记的 pc 重试，直到答出。登记的请求缺失（`ppn_valid & !page_fault & !hit`）则分配一个空闲事务号，进 `IC_SWAP_REQ`；
 5. 缺失服务：发 AXI 读（`mem_req_valid = SWAP_REQ & !accepted`）；被接收后若响应还没到，进 `SWAP_WAIT`；响应到（`gnt`）后若探针已完成就回填，否则进 `WAIT_DC`；回填：写一路（`tw_we = finish & !不缓存`），同拍把行作为取指响应；探针 16 个字全命中时，回填并响应的是探针行（DCache 里的更新数据），否则是内存行；
 6. 取消：`refetch | fence_i` 时 K：丢掉登记请求、`ifu_ready` 置 0；在途缺失：请求已经出去（或本拍被接收）就把事务号标为"被取消"，迟到的响应由 `icache_txn` 判为丢弃并用 `mem_resp_ready` 吞掉；若请求已经 `ready` 但接收脉冲还没来则进 `CANCEL_WAIT` 等一拍；否则直接释放；
-7. `icache_ready` 来自寄存器。`FE_RFAST` 位 2：取消后 `ifu_ready` 当拍恢复（除非 AXI 接收脉冲还要等，由 `accepted_now` 压住）。
+7. `icache_ready` 来自寄存器；取消后 `ifu_ready` 当拍恢复（除非 AXI 接收脉冲还要等，由 `accepted_now` 压住），这是固定行为，没有开关。
 
 **替换状态（SRRIP）**：RRPV（re-reference prediction value，再访问预测值，0 = 预计很快再用，3 = 预计很久不用）。
 
@@ -173,10 +184,10 @@ EXP-045 的 SRRIP 选路（4 个 RRPV 级各一个 `ttg_first_set`，再按级�
 
 模型里有、RTL 里有意没有复刻的：
 
-- 模型的 I-Cache **没有数据阵列**：命中后的指令字从功能内存读（`icache_top.h` 文件头：`the instruction words from the functional memory`），只维护标签和有效位；RTL 有真正的数据阵列（8×64×512 位）。二者在自修改代码上靠 FENCE.I（作废有效位）和缺失时的 DCache 探针取得一致，由整核门禁（`fence-i-self-modify`）和 Linux 检验；
-- 替换策略开关：模型的 `ICACHE_REPL`（`rr` 旧全局轮转、`plru`）只用于 EXP-045 的比较，RTL 只实现默认的 `srrip`；
-- `FE_PAIR` 的第二块读（`fetch_second`）和 `FE_IPF` 的预取（`prefetch_install`、`peek_hit`、`peek_translate`、`FrontIpf`）：RTL 没有，模型默认关；
-- 模型的 PMU 分类（`drive_perf`）、`lookup_pending` 之类的 SRAM 查表模型、`std::exit` 自检、`ICacheCompactKernel.h` 等位级网表：RTL 以可读逻辑翻译，不复刻；
+- 模型的 I-Cache **没有数据阵列**：命中后的指令字从功能内存读（`icache_top.h` 文件头：`the instruction words from the functional memory`），只维护标签和有效位；RTL 有真正的数据阵列（`IC_WAYS × IC_SETS` = 4 × 256 行 × 512 位，拆成 Lo / Hi 两个 `1024 × 256` 位 SRAM）。二者在自修改代码上靠 FENCE.I（作废有效位）和缺失时的 DCache 探针取得一致，由整核门禁（`fence-i-self-modify`）和 Linux 检验；
+- 替换策略：模型的 `icache_module.cpp` 还读环境变量 `ICACHE_REPL`（`rr` / `plru` / `srrip`，只用于 EXP-045 的比较，默认 `srrip`）；RTL 只实现 `srrip`；
+- 同页下一行的第二块读：模型在 `front_top.cpp` 里用 `ICacheTop::fetch_second`（功能内存读 + 标签 peek）；RTL 由同一次 F0 查 B 行标签、F1 读 Lo / Hi 实现（`b_*` 输出），周期一致靠 `fm_gate`；
+- 模型的 PMU 分类（`drive_perf`）、`lookup_pending` 之类的 SRAM 查表模型、`std::exit` 自检：RTL 以可读逻辑翻译，不复刻；
 - 模型的 `read_ready` 在 `reset` 时返回 true；RTL 的 `ifu_ready` 复位值为 0，因此复位释放后第一拍 `icache_ready = 0`（`icache_pkg.sv` 里 `IC_REGS_RESET` 的注释）。模型的 `ifu_req_ready_r` 复位值是 true，但参考的第一拍还会与上一次 comb 的 `ifu_req_ready` 输出相与，那个值复位后是 false。第二拍起两边一致（`ifu_ready_d` 每拍重算）。
 
 RTL 与模型保持一致的细节（容易误判为 bug）：
@@ -198,23 +209,24 @@ RTL 与模型保持一致的细节（容易误判为 bug）：
 ## 8. 验证
 
 - **64 KiB 2 级 VIPT + 2-Ahead 前端（`rtl/fe-2ahead`，本轮最新实测）**：
-  - **77/77 全功能与逐拍周期门禁**：`REF_CYCLES=/tmp/ref_fe2ah_ic64.txt JOBS=12 bash scripts/fm_gate.sh $PWD/build/core_fm/obj/core_tb $PWD/build/gate_ic64` → `PASS 77 FAIL 0 SKIP 0`，`cycles different from ref_cycles.txt: 0`，`SVA clean (0 assertion failures)`（与 `trace-model-fe-2ahead` 77 条定向/基准参考表逐程序逐拍严格相等）。
+  - **77/77 全功能与逐拍周期门禁**：`JOBS=12 bash scripts/fm_gate.sh $PWD/build/core_fm/obj/core_tb $PWD/build/gate_ic64` → `PASS 77 FAIL 0 SKIP 0`，周期对 `scripts/ref_cycles.txt` 0 处不同，`SVA clean (0 assertion failures)`（与 `trace-model-fe-2ahead` 77 条定向/基准参考表逐程序逐拍严格相等）。
   - **Lint 检查**：
     - `python3 harness/tools/svlint.py rtl/frontend/icache/*.sv rtl/frontend/front_top/*.sv rtl/frontend/bpu/*.sv` → 0 errors；
     - `bash scripts/lint.sh rtl/frontend/bpu` → `lint ok (19 files, 1 dirs)`；
     - `bash scripts/lint.sh rtl/frontend/front_top` → `lint ok (3 files, 1 dirs)`；
     - `bash scripts/lint_chip.sh` → `lint_chip: 0 warnings/errors (build/lint_chip.txt)`。
   - **Tier 0-elab & Tier 1 Yosys+PrimeTime PPA 实测（`eda-07`，`clk=0.65ns`）**：详见 §6.1。
-- **历史基线门禁（`main` / `exp/llc-plru` / EXP-045）**：`scripts/fm_gate.sh` 67 个程序通过，周期对 `scripts/ref_cycles.txt` / `ref_cycles_memiq6_nr_int2_ev5.txt` 逐个相等；Linux 检查点窗口 s00–s12（各 400 万周期）13/13 PASS。
+- **历史基线门禁（`main` / `exp/llc-plru` / EXP-045）**：当时 `scripts/fm_gate.sh` 67 个程序对当时的参考表（已删除）逐个相等；Linux 检查点窗口 s00–s12（各 400 万周期）13/13 PASS。
 - **Linux 大规模窗口**：64 KiB VIPT 分支的 `linux_gate.sh` / `linux_segments_cmp.sh` 与 SPEC06 待在后续合入前补跑。
 - **没有模块级的独立随机测试**：旧体系有随机 trace 生成器 + 33 个变异的回放测试（`tests/icache`，真实程序抓到约 25 个、其余 5 个只有随机能抓到：替换指针、写入路、探针重试、同拍接受的响应、`icache_ready` 与 `itlb_flush`），已随 `spec/` 退役，不在仓库里（旧表在本文件的 git 历史里：`git log -- docs/modules/icache.md`）。**待补**：给 `icache_ctl`（含冲刷合并）补一个"RTL 对状态机直译模型"的随机测试，尤其是那五类只有随机才能抓到的行为。
 
 ## 9. 参数与开关速查
 
-`ICACHE_WAY_NUM`、`ICACHE_SET_NUM`、`ICACHE_LINE_SIZE`、`ICACHE_WORD_NUM`、`ICACHE_TAG_BITS`、`ITLB_ENTRIES`、`RVC_ENABLE`、`FE_RFAST`（位 2）、`XLEN_BITS`（`ttg_cfg_pkg`）；`IC_TXID_N`、`IC_TXID_W`、状态编码、`IC_REGS_RESET`（`icache_pkg`）。
+`ICACHE_WAY_NUM`、`ICACHE_SET_NUM`、`ICACHE_LINE_SIZE`、`ICACHE_WORD_NUM`、`ICACHE_TAG_BITS`、`ITLB_ENTRIES`、`RVC_ENABLE`、`XLEN_BITS`（`ttg_cfg_pkg`）；`IC_TXID_N`、`IC_TXID_W`、状态编码、`IC_REGS_RESET`（`icache_pkg`）；`FDIP_Q`、`FDIP_N`、`FDIP_TX_BASE`（`icache_fdip`）。无开关。
 
 ## 10. 变更记录
 
+- 2026-11-28（`rtl/fe-2ahead`，文档核对）：补 `icache_fdip.sv` 与 B 块 / FDIP 端口、文件行数、`ic_regs_t` 136 位、`repl_q` 256 × 8、组索引 `[13:6]`、SRAM 复位清零；删掉已不存在的 `FE_RFAST` 位 2、`FE_PAIR` / `ICacheCompactKernel.h` 的说法；门禁改为对 `scripts/ref_cycles.txt`。
 - 本轮（`rtl/fe-2ahead`）：升级为 **64 KiB（`256 sets × 4 ways × 64B`）Lo-32B / Hi-32B 2 级串联 Tag-then-Data (`F0→F1`) VIPT ICache**：
   - 配置与生成：`trace-model-fe-2ahead/include/config.h` 改为 `ICACHE_WAY_NUM=4`、`ICACHE_INDEX_BITS=8`、`ICACHE_SET_NUM=256`、`ICACHE_TAG_BITS=20`，F0 → F1 两级流水是模型唯一实现（原 `FE_ICACHE_PIPE` 开关 2026-11-28 删除）；`gen_cfg.sh` 重生成 `ttg_cfg_pkg.sv`；`ttg_sram_1rw.sv` 新增 `DEPTH == 1024`（`TEM5N28HPCPLVTA1024X32M4SWSO`）硬宏映射。
   - RTL 实现：`icache_pkg.sv`、`icache_probe.sv`、`icache_idle.sv`、`icache_ctl.sv`、`icache_fdip.sv`、`icache_arr.sv`、`icache.sv` 及 `front_fetch_buf.sv` / `front_top.sv` 改为 strict 1RW Lo/Hi 两级取指流水与 1 项 FDIP fill buffer（`fb_v`），消除组合环（`OPT-150`）与 `4×` 拼宏面积开销。

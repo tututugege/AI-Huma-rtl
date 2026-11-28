@@ -1,14 +1,15 @@
-// Ref: front-end/fifo/{fetch_address_FIFO,instruction_FIFO,PTAB,front2bank_FIFO}.cpp  (same queue in all four)
+// Ref: front-end/front_fifo_ports.h  FrontFifo (the queue behind InstPort)
 `default_nettype none
 
-// Parameterised 1-read / 1-write queue used by the four front-end FIFOs.
-// One cycle, in this order (the C++ "read call then write call, accumulated" protocol collapses to exactly this):
-//   clear (refetch)  ->  drop the youngest entry if drop_tail  ->  push wdata if wr_en  ->  pop the head if rd_valid.
-// The read port shows the head as it was at the START of the cycle (a push this cycle is not visible; there is no
-// write-through into an empty queue: that C++ path is never exercised, see docs/analysis/frontend-boundary.md 3.1),
-// unless BYPASS: then an empty queue shows the entry pushed this cycle (PTAB write-to-read bypass, FE_RFAST bit1).
+// Parameterised 1-read / 1-write queue. Its only user is inst_fifo (the fetch-address FIFO, PTAB and front2back
+// FIFO were folded into the Unified FTQ-64 in ftq_ibuf, EXP-070); drop_tail, BYPASS, next_rdata and head_fresh have
+// no user at the moment (inst_fifo ties drop_tail to 0, BYPASS = 0 and leaves the two outputs open).
+// One cycle, in this order: clear (refetch) -> drop the youngest entry if drop_tail -> push wdata if wr_en ->
+// pop the head if rd_valid.
+// The read port shows the head as it was at the START of the cycle (a push this cycle is not visible),
+// unless BYPASS: then an empty queue shows the entry pushed this cycle.
 // rd_valid = rd_en & ~clear & (queue non-empty | BYPASS & wr_en); rdata is only meaningful when rd_valid.
-// full / empty are functions of the START-of-cycle size (they replace the 8 redundant C++ latches):
+// full / empty are functions of the START-of-cycle size (they replace the C++ full / empty latches):
 // full = size >= FULL_AT.
 // Writing into a completely full queue (without clear) is illegal (the C++ model exit(1)s on overflow).
 module front_fifo #(

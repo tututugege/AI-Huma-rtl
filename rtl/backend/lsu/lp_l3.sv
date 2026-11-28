@@ -1,10 +1,10 @@
-// Ref: back-end/Lsu/RealLsuPipe.cpp  RealLsu (PL3 register, comb_lsu2exe_p step 1 with LSU_PIPE_L2 bit 1)
+// Ref: back-end/Lsu/RealLsuPipe.cpp  RealLsu (PL3 register, comb_lsu2exe_p step 1)
 `default_nettype none
 
-// L3 register of the staged LSU (LP_L2[0]).  The direct completion decided at L2 (forward / page fault / DCache hit)
+// L3 register of the staged LSU (always present; it was bit 0 of the removed LP_L2 switch).
+// The direct completion decided at L2 (forward / page fault / DCache hit)
 // is registered; the write-back port allocation, the LDQ free and the reservation update run one cycle later from
 // registers only.  A load killed in between is dropped by the state check (its LDQ entry is no longer WB3).
-// With LP_L2[0] = 0 the module is a wire (the L2 result goes to the write-back in the same cycle).
 module lp_l3
   import ttg_cfg_pkg::*;
   import lp_pkg::*;

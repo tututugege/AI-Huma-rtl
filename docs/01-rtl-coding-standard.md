@@ -1,6 +1,6 @@
 # 01 RTL 编码规范
 
-本规范是**强制**的。机器能查的由 `harness/tools/svlint.py`（规则 S1–S9）和 `verilator -Wall`（全部警告为错误）检查，`make lint` 必须干净才能提交；机器查不了的由评审人按本文逐条核对。
+本规范是**强制**的。机器能查的由 `harness/tools/svlint.py`（规则 S1–S12）和 `verilator -Wall`（全部警告为错误）检查，`make lint` 必须干净才能提交；机器查不了的由评审人按本文逐条核对。
 
 ## 0 设计原则（强制，评审第一项）
 
@@ -10,7 +10,7 @@
 
 1. **先写设计笔记再写 RTL**：`docs/modules/<mod>.md`（模板见 `docs/modules/TEMPLATE.md`）。写清：框图、每个状态数组的含义和大小、读写端口数、关键组合路径、C++ 数据结构到硬件结构的对应、一拍内的数据流。没有设计笔记不评审。
 2. **三层结构**：
-   - 顶层 `<mod>.sv`：只做端口适配——把 spec 规定的平铺端口打包/拆包成内部 struct，实例化核心子模块。不放逻辑。
+   - 顶层 `<mod>.sv`：只做端口适配——把平铺端口（见模块文档第 3 节）打包/拆包成内部 struct，实例化核心子模块。不放逻辑。
    - 核心子模块：按硬件功能拆分（例：重命名拆成 RAT、空闲表、组内依赖检查、checkpoint 各一个模块），内部可用 packed struct / enum。
    - 通用原语：`rtl/common/ttg_*.sv`（find-first-set、独热 mux、popcount 等）。新原语先放在本模块目录并以模块名为前缀（`ren_xxx.sv`），由协调者统一提升到 common。
 3. **用硬件构造表达并行**：优先级选择用 `ttg_first_set`；多路选择用独热 mux；"数前面有几个"用前缀和/popcount；队列用读写指针+满空标志。**禁止**把 C++ 的"for 循环 + break + 运行计数器"搬进 `always_comb`（S11 检查）。
@@ -30,12 +30,12 @@
 
 ## 2. 文件与命名（S1 S2 S3 S9）
 
-- 每个文件一个模块（或一个 package），文件名 = 模块名 + `.sv`，全小写下划线（`rob.sv`、`issue_queue.sv`）。
+- 每个文件一个模块（或一个 package），文件名 = 模块名 + `.sv`，全小写下划线（`rob.sv`、`isu_iq_select.sv`）。
 - 文件第一行有效代码是 `` `default_nettype none ``，最后一行是 `` `default_nettype wire ``。
 - 无 tab、无行尾空白、行宽 ≤ 120。
 - 参数/常量：`UPPER_SNAKE_CASE`；信号/变量：`lower_snake_case`；类型：`lower_snake_case_t`；枚举值：`UPPER_SNAKE_CASE`。
-- 模块名与 C++ 中对应的类/模块名一致（`Rob` → `rob`，`IssueQueue` → `issue_queue`）。
-- 目录：`rtl/common`（package、通用单元）、`rtl/backend`、`rtl/frontend`、`rtl/memsys`（访存子系统与 AXI/LLC）、`rtl/core`（`core_top`、`soc_top`）、`rtl/pmu`。
+- 模块名与 C++ 中对应的类/模块名一致（`Rob` → `rob`，`Isu` → `isu`）。
+- 目录：`rtl/common`（package、通用单元；`rtl/common/sram` 是 SRAM 包装）、`rtl/backend`、`rtl/frontend`、`rtl/memsys`（访存子系统与 AXI/LLC）、`rtl/core`（`core_top`、`soc_top`）、`rtl/pmu`、`rtl/soc`（全片 SoC：`chip_top`、AXI4 互联、片上外设）。
 
 ## 3. 时钟、复位、寄存器
 
@@ -67,25 +67,23 @@ end
 - **不为阵列建 `_d`**，不写 `for (i) mem_d[i] = mem_q[i]` 这类"默认整体保持"，也不写 `for (i) mem_q[i] <= mem_d[i]`。
 - 在 `always_ff` 里**按写口更新**：`if (we) mem_q[waddr] <= wdata;`。多个写口各自一条 `if`（写冲突的优先级由语句顺序表达，或在写口前先仲裁）。每个条目有独立使能时（如多车道写同一个寄存器堆），用 generate 为每个条目写一个带使能的 `always_ff`：`if (wr_en[p]) q[p] <= wr_data[p];`。
 - **读口异步读**：`assign rdata = mem_q[raddr];`。
-- **复位**：存储内容通常不复位（只复位指针、valid 位、计数）。只有当参考模型要求"复位后某条目的值可被观察"时才复位，并写明理由。
+- **复位**：寄存器写的存储内容通常不复位（只复位指针、valid 位、计数）。只有当参考模型要求"复位后某条目的值可被观察"时才复位，并写明理由。SRAM 包装（下一条）的内容不靠上电值：复位期间包装自己把 `INIT_VAL` 逐地址写满。
 - 条目内含多个字段时，用 packed struct 做条目类型，一次整条写入，不要把字段拆成并行的多个数组各自一套 `_d`。
 - 理由：这是硬件上的 SRAM / 寄存器堆写法；整体算次态会生成 N 倍的无效逻辑，综合出大量多余的数据通路，而且让仿真慢一到两个数量级（前端 FIFO 的存储、BPU 的预测表是典型）。
-- 大阵列（> 数千位）优先使用同步写、异步读的存储原语（参考 BPU 的 `bpu_mem`，位于 `rtl/frontend/bpu/`），在设计笔记里写明端口数与读写时序。
+- 大阵列（> 数千位）用同步读写的 SRAM 包装 `rtl/common/sram/ttg_sram_1rw.sv` / `ttg_sram_1r1w.sv`（`-DSYNTH_TSMC28_SRAM` 时直接实例化 TSMC 28nm 宏），在设计笔记里写明端口数与读写时序。包装有 `rst_n` 口，每个实例都要接；`INIT_SWEEP=1`（默认）时复位期间把 `INIT_VAL` 写满每个地址，要求 `DEPTH + 1 ≤ ttg_sram_pkg::SRAM_SWEEP_CYCLES`（4100，展开时检查），整核复位由 `ttg_rst_sweep` 延长这么多拍（见 `docs/modules/common.md` 4.1 节）。
 
 **一拍内多个阶段顺序改写同一个阵列**（C++ 的 `nxt` 习惯）也不是硬件结构：不要为每个阶段生成一份整体拷贝（`st_v1..st_v5`）。把"对同一阵列的所有写"合并成按条目的写使能和写数据（优先级链），由一次 `always_ff` 写入。
 
 ## 4. 端口
 
 - 端口全部平铺（不用 interface），顺序：`clk, rst_n`，然后输入，然后输出。
-- **端口名与 `spec/<module>.io` 完全一致**，类型按 spec：宽度 1 用 `logic`，否则 `logic [W-1:0]`，数组用非压缩维度 `logic [W-1:0] name [D0][D1]`。
-- 端口名取自参考模型对应 IO 结构体的字段名，结构体嵌套用 `_` 连接（`rob_commit.commit_entry[i].valid` → `rob_commit_entry_valid[i]`）。这样 trace 里的字段名和 C++ 源码一一对得上。
+- 端口名和类型写在模块文档第 3 节（旧体系的 `spec/<module>.io` 已删除）：宽度 1 用 `logic`，否则 `logic [W-1:0]`，数组用非压缩维度 `logic [W-1:0] name [D0][D1]`。
+- 端口名沿用模型对应 IO 结构体的字段名，结构体嵌套用 `_` 连接（`rob_commit.commit_entry[i].valid` → `rob_commit_entry_valid[i]`），和 C++ 源码一一对得上。
 - 模块内部可以用 packed struct 组织，但**边界端口不用 struct**。
-- **1 位元素的通道数组写成打包向量**：`logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_valid`，不写 `logic x [8]`（`spec` 里仍是 `1 [8]`，
-  验证外壳 `iogen` 会按 RTL 里的声明方式生成连接）。多位元素的通道数组仍用非压缩维度。判据与工具：`tools/pack_bits.py`（按信号名一次性转换，
-  名单 `tools/pack_bits_names.txt`；参数化尺寸无法求值的、以及 `*_bank` 这类以模块参数 `N` 定尺寸的端口保持非压缩，`tools/pack_bits_skip.txt`）。
-  新代码直接按此写；扫描式链（`alive[p+1] = alive[p] && ...`，同一 always_comb 内逐位依赖）保持非压缩数组，否则 Verilator 报 ALWCOMBORDER。
-- **数组尺寸用配置参数，不写字面量**：`[COMMIT_WIDTH]`、`[ISSUE_WIDTH]`、`[LSU_LDU_COUNT]`…；边界信号名到参数的对应表在 `tools/dimmap.py`
-  （生成器 `gen_backtop.py` 同样套用）。
+- **1 位元素的通道数组写成打包向量**：`logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_valid`，不写 `logic x [8]`。多位元素的通道数组仍用非压缩维度；
+  参数化尺寸无法求值的、以及 `*_bank` 这类以模块参数 `N` 定尺寸的端口保持非压缩。
+  扫描式链（`alive[p+1] = alive[p] && ...`，同一 always_comb 内逐位依赖）保持非压缩数组，否则 Verilator 报 ALWCOMBORDER。
+- **数组尺寸用配置参数，不写字面量**：`[COMMIT_WIDTH]`、`[ISSUE_WIDTH]`、`[LSU_LDU_COUNT]`…。
 
 ## 5. 位宽与算术
 
@@ -108,7 +106,7 @@ end
 
 ## 8. 每个模块必须附带
 
-1. `rtl/docs/modules/<module>.md`：模块设计文档（模板见 `docs/modules/isu.md`；旧体系 `spec/<module>.io` 已退役）。
+1. `rtl/docs/modules/<module>.md`：模块设计文档（模板 `docs/modules/TEMPLATE.md`，范例 `docs/modules/isu.md`；旧体系 `spec/<module>.io` 已退役）。
 2. （旧体系）参考模型里的录制点——已退役。
 3. `make lint`、`scripts/lint_chip.sh` 干净（0 警告），`scripts/fm_gate.sh` 通过（旧体系的 `replay.sh` 已退役）。
 4. （旧体系）至少 3 个变异体检查——已不再要求。
@@ -128,4 +126,4 @@ end
 - [ ] 无手写位宽魔数；常量来自 `ttg_cfg_pkg`
 - [ ] 所有寄存器有复位，复位值与 C++ `init()` 一致
 - [ ] 无锁存器、无组合环、无 lint 豁免（如需豁免，注释写明理由并经评审）
-- [ ] 与 C++ 的每个差异都登记在 `deviations.md`
+- [ ] 与模型的差异和取舍写在模块文档第 7 节，行为改动记在总仓库的 EXP 记录里（`deviations.md` 已停止新增）

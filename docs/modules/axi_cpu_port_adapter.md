@@ -3,7 +3,7 @@ module: axi_cpu_port_adapter
 area: memsys
 rtl: rtl/memsys/axi_cpu_port_adapter
 model: 无对应的类。作用最接近 SimCpu.cpp 的 `icache_port_regs_seq`（把 `axi.interconnect.read_ports[MASTER_ICACHE]` 在周期开头拷成寄存的 `icache_axi_q`）；原 16 tick 方案里的 `capture / accumulate / restore_axi_cpu_boundary_state` 在 trace-model-tlbports 里已不存在
-status: 整核周期与模型逐个相等（EXP-053 前端清理：fm_gate 68/68 零偏差 + Linux 27 窗 PT/UP 全等，零环境变量）
+status: 整核周期与模型逐个相等（fm_gate.sh 77/77，周期对 scripts/ref_cycles.txt）
 depth: 9 层 / 227 单元（axi_cpu_port_adapter，单模块综合，2026-11-21，`SYNTH_ABC="strash;balance;map"`，EXP-053 P2-1 通道 0 增加 `CLEAR_ON_POP=1`，较旧版 222 单元 / 9 层仅 +5 单元）
 ---
 
@@ -53,13 +53,13 @@ depth: 9 层 / 227 单元（axi_cpu_port_adapter，单模块综合，2026-11-21�
 
 1. 累加：`phase0` 时累加器装当拍的原始值，否则与前面的 tick 合并（`ready` 取 OR，`accepted` 取 OR，`acc_id` 在有接收的 tick 更新）；
 2. 视图的两个判断：`hide_resp = acc_n & raw_resp_valid & (raw_resp_id == acc_id_n)`（响应属于本周期刚接收的请求）；`resp_is_new = raw_resp_valid & 非(tick 0 时已是同 id 的有效响应)`；
-3. `phase_last` 时寄存视图：`view_resp_valid = raw_resp_valid & !hide_resp`，`view_resp_ready = tick 0 的 resp_ready & !(resp_is_new | hide_resp)`，其他取累加值。
+3. `phase_last` 时寄存视图：`view_resp_valid = raw_resp_valid & !hide_resp & !(CLEAR_ON_POP & raw_resp_ready)`，`view_resp_ready = tick 0 的 resp_ready & !(resp_is_new | hide_resp)`，其他取累加值。
 
 在 tick 数为 1 时：累加器每拍被装成当拍原始值，`resp_is_new` 恒为假，视图 = 原始值寄存一拍，只在"当拍接收的请求的 id 与当拍响应的 id 相同"时隐藏响应。互连的 id 冲突检查（`axi_ic_rd`）阻止了同 id 的请求在响应还没取走时被接收，所以该隐藏条件在 1 tick 下不会触发（从代码推断，未验证）。
 
 ## 6. 关键路径与深度
 
-单模块综合深度 **9 层**（axi_cpu_port_adapter；2026-11-18；`scripts/synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`，生成门代理，不是时序）。综合报告给出的最长路径：从 `\g_chan[0].u_chan.resp0_id_q [2]` 到 `\g_chan[0].u_chan.view_resp_ready_q`。从代码读出的：全是 1 位或 4 位的比较和选择，没有长链；`hide_resp` 的 4 位 id 比较是最长的一段。未综合验证。
+单模块综合深度 **9 层 / 227 单元**（2026-11-21，通道 0 加 `CLEAR_ON_POP` 之后，+5 单元）。更早一次：**9 层**（axi_cpu_port_adapter；2026-11-18；`scripts/synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`，生成门代理，不是时序）。综合报告给出的最长路径：从 `\g_chan[0].u_chan.resp0_id_q [2]` 到 `\g_chan[0].u_chan.view_resp_ready_q`。从代码读出的：全是 1 位或 4 位的比较和选择，没有长链；`hide_resp` 的 4 位 id 比较是最长的一段。未综合验证。
 
 ## 7. 与模型的差异和取舍
 
@@ -71,14 +71,16 @@ depth: 9 层 / 227 单元（axi_cpu_port_adapter，单模块综合，2026-11-21�
 
 ## 8. 验证
 
-- **门禁**：`scripts/fm_gate.sh` 67 个程序（周期对 `scripts/ref_cycles_memiq6_nr_int2_ev5.txt`）。ICache 的每一次取行都经过这个模块，周期逐个相等说明 1 tick 下的行为与模型一致。
+- **门禁**：`scripts/fm_gate.sh` 77/77（周期对 `scripts/ref_cycles.txt`）。ICache 的每一次取行都经过这个模块，周期逐个相等说明 1 tick 下的行为与模型一致。
 - **Lint**：`scripts/lint_chip.sh`。
 - **没有模块级的测试**。16 tick 配置（`AXI_SUBSYSTEM_FREQ_DIV = 16`）现在没有任何门禁在跑；**待补**：要么删掉 16 tick 的逻辑，要么补一个 tick 数 > 1 的回归（模型 `CONFIG_AXI_SUBSYSTEM_FREQ_DIV` 能改，但 RTL 的 `mem_top` 相位计数器是 4 位，`soc_tb.cpp` 有 `kTicks <= 16` 的静态断言）。
 
 ## 9. 参数与开关速查
 
-`AXI_SUBSYSTEM_FREQ_DIV`（`ttg_cfg_pkg`，模型 `CONFIG_AXI_SUBSYSTEM_FREQ_DIV`）；`AX_NCH`、`AX_ID_W`（`memcpu_pkg`）；通道参数 `EXPORT_ID`。
+`AXI_SUBSYSTEM_FREQ_DIV`（`ttg_cfg_pkg`，模型 `CONFIG_AXI_SUBSYSTEM_FREQ_DIV`）；`AX_NCH`、`AX_ID_W`（`memcpu_pkg`）；通道参数 `EXPORT_ID`（写通道为 0）、`CLEAR_ON_POP`（只有通道 0 = ICache 读口为 1：CPU 端当拍握手取走响应时清掉寄存视图的 `view_resp_valid_q`，避免下一拍看到已消费响应的回波）。
 
 ## 10. 变更记录
 
-- 本分支（`261bd67..HEAD`）未改动本目录；更早：见 git 历史。
+- 2026-11-28（`rtl/fe-2ahead`，文档核对）：第 9 节补 `CLEAR_ON_POP`、第 6 节补 2026-11-21 的深度、补 EXP-053 的变更记录；门禁改为 77/77 对 `scripts/ref_cycles.txt`。
+- 2026-11-21（EXP-053 P2-1）：`axi_cpu_port_chan` 新增参数 `CLEAR_ON_POP`，通道 0 置 1（见文件头的升级说明）。
+- 更早：见 git 历史。

@@ -19,7 +19,9 @@ package bpu_pkg;
   localparam logic [2:0] BR_ICALL   = 3'd6;   // jalr rd=ra: indirect target and RAS push of its own pc+4
 
   // ---- TAGE / block-ID widths ----
-  localparam int TN      = 4;                 // 1-Ahead TAGE tagged tables
+  // pcpn encoding of the training packet: TN = "no provider", 0..TN-1 = provider table
+  // (ExBlockTage tables >= TN are clamped to TN-1 in bpu_eval); there is no 1-Ahead TAGE any more.
+  localparam int TN      = 4;
   localparam int T_IDX_W = 10;                // FTB blk_id width (1024 sequence numbers)
   localparam int PCPN_W  = 3;
 

@@ -21,8 +21,8 @@ depth: **61 层 / 1,033,276 cells**（Yosys `strash;balance;map`）；**TSMC 28n
 发射单元：6 个发射队列（INT0、INT1、内存（load 和 STA 合并）、STD、BR、FP）加一张唤醒网络。每拍做四件事：
 
 1. 把分派来的 uop 放进队列（`dis2iss`），入队时叠加本拍已经发生的唤醒；
-2. 每个发射口按能力从就绪、且在这个口上完成周期还空着的槽里选一个（最老优先或最低槽优先，见 5.1；完成周期的检查在选择之前，EXP-046），经过 FU 就绪、FP 写口两道闸后发出（`iss2prf`），并预留它的完成周期；
-3. 汇总唤醒通道（`iss_awake`，`WAKE_NUM = 22` 路）：PRF 写回的 load 唤醒、MUL / DIV / FP 的延迟唤醒、ALU 的快速唤醒；LSU 的 load 唤醒和取消另外直接进各队列；
+2. 每个发射口按能力从就绪、且在这个口上完成周期还空着的槽里选一个（最老优先或最低槽优先，见 5.1；完成周期的检查在选择之前，EXP-046），经过 FP 写口闸（`isu_fp_gate`）后发出（`iss2prf`），并预留它的完成周期；
+3. 汇总唤醒通道（`iss_awake`，`WAKE_NUM = MAX_WAKEUP_PORTS = 21` 路）：PRF 写回的 load 唤醒、MUL / DIV / FP 的延迟唤醒、ALU 的快速唤醒；LSU 的 load 唤醒和取消另外直接进各队列；
 4. 处理 flush、误预测杀死、分支掩码清除。
 
 模型对应一个调度单元 `back.isu`（`Isu::comb_issue`，内部阶段 `ready → issue → awake → calc_latency_next → enq → flush`）。RTL 的子模块边界是为综合和复用划的，模型里没有对应的类。
@@ -52,7 +52,7 @@ depth: **61 层 / 1,033,276 cells**（Yosys `strash;balance;map`）；**TSMC 28n
 | BR（q3） | 64 | 5 | 2 | 方案 C（`rob_ptr` 冲刷）解除 31 在飞分支上限后扩容至 64 |
 | FP（q4） | 32 | 4 | 3 | 仅 F/D（`FPRF_NUM != 0`） |
 
-其他：槽分配只看寄存的 valid 位；`MUL_MAX_LATENCY = 3`、`DIV_MAX_LATENCY = 17`；`WAKE_NUM = MAX_WAKEUP_PORTS = 21`；`TAG_NUM = 224`；`FPW_CH = 8`。
+其他：槽分配只看寄存的 valid 位；`MUL_MAX_LATENCY = 3`、`DIV_MAX_LATENCY = 17`；`WAKE_NUM = MAX_WAKEUP_PORTS = 21`；`TAG_NUM = 352`；`FPW_CH = 8`。
 
 ## 3. 接口
 
@@ -77,7 +77,7 @@ depth: **61 层 / 1,033,276 cells**（Yosys `strash;balance;map`）；**TSMC 28n
                     ├ isu_iq_store    : 每槽 valid / uop / wait1..3 寄存器；入队、唤醒、取消、发射清除、flush
                     ├ isu_age_matrix  : 年龄矩阵（只在 AGE_EN 的内存队列）
                     └ isu_iq_select   : 每口按能力选一个槽（最老优先或最低槽优先，MEM 直接 5 口映射）
- isu_wake_src : 唤醒通道 = prf_awake | MUL 管线末级 | DIV 倒计时（由 exe2iss_div_wb_next 等价触发） | ALU 快速唤醒 | FP 倒计时槽
+ isu_wake_src : 唤醒通道 = prf_awake | MUL 管线末级 | DIV 晚唤醒（exe2iss_div_wake_*） | ALU 快速唤醒 | FP 倒计时槽
  isu_wb_gate  : 完成周期预留（EXP-035）：按口移位忙表，叠加 DIV busy 与 FDIV 倒计时阻塞信号生成 cls_free
  isu_fp_gate  : FP 写口限制（EXP-032，`FP_WB_PORTS = 2`）
  isu (top)    : 端口适配，本地维护 div_busy_q（口 1）与 fdiv_cnt_q（口 18）阻塞迭代单元重复发射，汇总三道闸并拼接 19 个物理口
@@ -85,24 +85,24 @@ depth: **61 层 / 1,033,276 cells**（Yosys `strash;balance;map`）；**TSMC 28n
 
 | 文件 | 行数 | 职责 |
 | --- | --- | --- |
-| `isu_pkg.sv` | — | 队列、口（`IQ_AGU_PORT_BASE` 等）、能力表；uop 结构；完成类与偏移；`cls_blockable`（含 DIV/FDIV 可阻塞类）与 `cls_wb_blockable`（单 `wb_gate` 测验用） |
-| `isu.sv` | — | 顶层：端口适配、`div_busy_q` / `fdiv_cnt_q` 跟踪及误预测杀死、门控 `cls_free` 传入 `isu_iq` |
-| `isu_iq.sv` | — | 一个发射队列（含入队寄存的完成类位 `slot_cls_q`、Port 0/2 `src1_is_pc` 过滤、`port_ok`；不再有 `SH_*` 与 `fu_ready` 反压） |
-| `isu_iq_store.sv` | — | 按 IQ 类型参数化裁剪的槽存储与次态 |
-| `isu_iq_select.sv` | — | 每口的选择（MEM 5 口直接由 load/STA 候选归约与共享优先复用） |
-| `isu_alloc_chain.sv` | — | 入队分配 |
-| `isu_age_matrix.sv` | — | 内存队列年龄矩阵 |
-| `isu_wake_src/mul/iter/compact/bus.sv` | — | 唤醒网络 |
-| `isu_wb_gate.sv`、`isu_fp_gate.sv` | — | 完成周期预留、FP 写口限制 |
+| `isu_pkg.sv` | 326 | 队列、口（`IQ_AGU_PORT_BASE` 等）、能力表；uop 结构；完成类与偏移；`cls_blockable`（含 DIV/FDIV 可阻塞类）与 `cls_wb_blockable`（单 `wb_gate` 测验用） |
+| `isu.sv` | 445 | 顶层：端口适配、`div_busy_q` / `fdiv_cnt_q` 跟踪及误预测杀死、门控 `cls_free` 传入 `isu_iq` |
+| `isu_iq.sv` | 491 | 一个发射队列（含入队寄存的完成类位 `slot_cls_q`、Port 0/2 `src1_is_pc` 过滤、`port_ok`；不再有 `SH_*` 与 `fu_ready` 反压） |
+| `isu_iq_store.sv` | 632 | 按 IQ 类型参数化裁剪的槽存储与次态 |
+| `isu_iq_select.sv` | 142 | 每口的选择（MEM 5 口直接由 load/STA 候选归约与共享优先复用） |
+| `isu_alloc_chain.sv` | 45 | 入队分配 |
+| `isu_age_matrix.sv` | 35 | 内存队列年龄矩阵 |
+| `isu_wake_src.sv`、`isu_wake_mul.sv`、`isu_wake_iter.sv`、`isu_wake_compact.sv`、`isu_wake_bus.sv` | 235、98、130、36、30 | 唤醒网络 |
+| `isu_wb_gate.sv`、`isu_fp_gate.sv` | 87、218 | 完成周期预留、FP 写口限制 |
 
-状态：各队列 `valid_q / uop_q / wait*_q`；MUL 唤醒管线；DIV/FP 倒计时；内存队列年龄矩阵；`isu_wb_gate` 移位忙表；`isu_fp_gate` 计数环；以及 `isu.sv` 内的迭代单元占用寄存器：`div_busy_q`（+ `rob_idx/flag`，由 `grant[1]` 置 1、`exe2iss_div_wb_next` 清 0）与 `fdiv_cnt_q`（5 位，+ `rob_idx/flag`，由 `grant[18]` 载入操作延迟、每拍减 1）。
+状态：各队列 `valid_q / uop_q / wait*_q`；MUL 唤醒管线；DIV/FP 倒计时；内存队列年龄矩阵；`isu_wb_gate` 移位忙表；`isu_fp_gate` 计数环；以及 `isu.sv` 内的迭代单元占用寄存器：`div_busy_q`（+ `rob_idx/flag`，+ `spec_mask`，由口 1 授予 DIV 置 1，`exe2iss_div_wb_in2`、flush、误预测杀死或 L1 推测取消时清 0）与 `fdiv_cnt_q`（5 位，+ `rob_idx/flag`，由 `grant[18]` 载入操作延迟、每拍减 1）。
 
 ## 5. 一拍内的数据流
 
 ### 5.1 选择与发射（只读寄存器）
 
 1. `slot_ready = valid & !wait1 & !wait2 & !wait3`。
-2. `isu.sv` 把 `isu_wb_gate` 的 `cls_free` 同本地 `div_busy_q`（口 1 阻塞 `CLS_DIV`）、`exe2iss_div_wb_next`（口 1 阻塞 `CLS_ALU`）与 `fdiv_cnt_q != 0`（口 18 阻塞 `CLS_FDIV*`）组合成 `iss_cls_free`；`isu_iq` 内由 `port_ok[p][i]` 直接屏蔽会碰撞写回或忙碌的槽。
+2. `isu.sv` 把 `isu_wb_gate` 的 `cls_free` 同本地 `div_busy_q`（口 1 阻塞 DIV 类，即 `wb_class` 2、3）、`exe2iss_div_wb_in2`（DIV 提前 2 拍的写回预告，这拍口 1 的所有类都不放行，`isu.sv` 的 `iss_cls_free = wb_cls_free && !exe2iss_div_wb_in2`）与 `fdiv_cnt_q != 0`（口 18 阻塞 FDIV / FSQRT 类 4..7）组合成 `iss_cls_free`；`isu_iq` 内由 `port_ok[p][i]` 直接屏蔽会碰撞写回或忙碌的槽。
 3. 取法：普通口取候选最低槽；内存队列中 load 挑最老 + 其余最低槽占用口 0..3（物理 AGU 0..3），STA 挑最老 + 其余最低槽按 `4, 3, 2` 顺序填入未被 load 占用的口。
 4. `cand_valid[p] = 有选中 & !issue_block`、`grant_valid[p] = cand_valid & fp_ok[p]`（不再有 `fu_ready` 过滤，被闸拒绝时本拍不发射）。
 5. 授予后按完成类预留写回周期与 FP 写口，并于时钟沿更新 `div_busy_q` 与 `fdiv_cnt_q`。
@@ -111,8 +111,8 @@ depth: **61 层 / 1,033,276 cells**（Yosys `strash;balance;map`）；**TSMC 28n
 
 授予生成延迟唤醒请求（MUL 进管线、DIV / FP 进倒计时槽，下拍起可见）和快速唤醒（6 路单周期 ALU 授予直接在本拍广播，仅整数域）。为压缩 `select → grant → wakeup` 关键环路深度，唤醒网络按**数据域**与**快慢路径**拆分：
 
-1. **慢速唤醒**（全部来自寄存输出：PRF 写回 load 4 路、MUL 2 路、DIV 2 路、FP 倒计时 8 路、LSU 14 路（L1 推测 4 + L3 4 + L2b/L2a 4 + WBP `64→2` 2），`SLOW_INT_N = 46` / `SLOW_FP_N = 42`）：在拍初即稳定，由 `isu_wake_bus` 分别生成整数域 `woken_slow_int[PRF_NUM]`（128 位）和浮点域 `woken_slow_fp[FPRF_NUM]`（96 位），与 `select → grant` 并行；
-2. **快速唤醒**（6 路 ALU 授予，`fast_valid[FAST_UNITS]` / `fast_preg[FAST_UNITS]` 低 7 位）：不经 224 位位图展开，直接广播至监听整数域的队列槽位，在槽内用 6 路 7 位并行比较（CAM）生成 `fast_hit`，与慢速唤醒结果单级相与更新 `wait_d`；
+1. **慢速唤醒**（全部来自寄存输出：PRF 写回 load 4 路（`LSU_LOAD_WB_WIDTH`）、MUL 2 路（`MUL_UNITS`）、DIV 1 路（`DIV_UNITS`）、FP 延迟唤醒 25 路（`FP_RAW_N = FP_REQ_UNITS × 5`，`FP_REQ_UNITS = 5` 个有 FP 能力的口：2、3、16、17、18）、LSU 14 路（L1 推测 4 + L3 4 + L2b/L2a 4 + WBP `64→2` 2），`SLOW_INT_N = 46` / `SLOW_FP_N = 43`，`isu.sv`）：在拍初即稳定，由 `isu_wake_bus` 分别生成整数域 `woken_slow_int[PRF_NUM]`（256 位）和浮点域 `woken_slow_fp[FPRF_NUM]`（96 位），与 `select → grant` 并行；
+2. **快速唤醒**（6 路 ALU 授予，`fast_valid[FAST_UNITS]` / `fast_preg[FAST_UNITS]` 低 `INT_W = 8` 位）：不经 `TAG_NUM` 位位图展开，直接广播至监听整数域的队列槽位，在槽内用 6 路 8 位并行比较（CAM）生成 `fast_hit`，与慢速唤醒结果单级相与更新 `wait_d`；
 3. **按队列裁剪源与域**：INT0/INT1/BR 仅整数域且无 `src3`；MEM 仅整数域且仅 `src1`（无 `src2`/`src3`）；STD 无 `src3`（`src1` 整数域、`src2` 双域）；FP 仅浮点域（3 源，完全不接 6 路快速唤醒）。本拍授予的槽的寄存器状态不受本拍唤醒影响（模型先 issue 后 awake）。
 
 ### 5.3 入队
@@ -121,7 +121,7 @@ depth: **61 层 / 1,033,276 cells**（Yosys `strash;balance;map`）；**TSMC 28n
 
 ### 5.4 flush
 
-`flush_all` 清所有 valid 和延迟唤醒；`flush_br = mispred & !flush`：`uop.br_mask & flush_br_mask != 0`（用清除前的掩码）的项被杀；之后所有存活项 `br_mask &= ~clear_mask`。`issue_block = rob_flush | mispred` 阻止本拍发射。
+`flush_all` 清所有 valid 和延迟唤醒；`flush_br = mispred & !flush`：比 `flush_rob_idx/flag`（被预测错的分支）更年轻的项被杀（`isu_rob_younger`，9 位 `{rob_flag, rob_idx}` 循环年龄比较；本拍入队的也同样检查）。`issue_block = rob_flush | mispred` 阻止本拍发射。
 
 ### 5.5 ready_num
 
@@ -159,7 +159,7 @@ depth: **61 层 / 1,033,276 cells**（Yosys `strash;balance;map`）；**TSMC 28n
 - `dbg` 调试元数据、`getenv` 调试输出；`Assert` 类检查（队列溢出、延迟唤醒槽不足、端口冲突）：RTL 里只保留了分配溢出的仿真断言（`isu_alloc_chain`，`ifndef SYNTHESIS`）；
 - `wake_matrix_src1/2/3`（preg→槽位图，`IssueQueue.h`）是模型的软件加速结构，RTL 用 `TAG_NUM` 位的唤醒位图 + 每槽按 `src_preg` 查表，行为等价；
 - `busy` 与 `en` 合并成 `wait`；
-- 调度策略：模型有三种（`CFG_ISSUE_OLDEST_FIRST`：0 最低槽优先、1 所有队列最老优先（`ROB_OLDEST_FIRST`）、2 每种能力的第一个口取最老，其余最低槽；`CFG_ISSUE_OLDEST_QUEUES` 选适用的队列）。RTL 只实现 0 和 2，且 2 只用于内存队列（`MEM_AGE`，对应模型 `CFG_ISSUE_OLDEST_FIRST=2`、`CFG_ISSUE_OLDEST_QUEUES=2`）；策略 1 不实现；
+- 调度策略：内存队列每种能力的第一个口取最老、其余取最低槽（`isu_iq` 参数 `AGE_EN = (q == IQ_MEM)`，带年龄矩阵）；其他队列取最低槽。模型里原来的选择开关 `CFG_ISSUE_OLDEST_FIRST` / `CFG_ISSUE_OLDEST_QUEUES` 已删除，固定为同一策略；
 - 快速唤醒里的 `op != UOP_LOAD && op != UOP_STA`（模型 `Isu.cpp:242`）：RTL 不判。每个口只选自己能力范围内的槽，而有快速通道的口 0..5 的能力掩码里没有 `UOP_LOAD`（第 3 位）和 `UOP_STA`（第 4 位），这两种 uop 不可能在这些口被授予。
 
 - EXP-046：模型的 `ISS_REF_*` / `ISS_LOST_*` PMU 事件只在模型里。模型的忙表仍是 64 项环（`WbBusy`），RTL 是按口长度的移位寄存器，行为相同（`tests/wb_gate` 对照）。
@@ -170,23 +170,26 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 - 延迟唤醒广播用当前拍状态，不受本拍误预测影响（被错误路径杀掉的 MUL / DIV 也会广播一次）；
 - 溢出时 RTL 丢掉多出的请求，不报错（分派受 `ready_num` 流控，不会发生）。
 
-配置相关的有意差异：RTL 只有现行这一种配置（load 与 STA 合并成一个内存队列，没有独立的 STA 队列）；两个 INT 队列、内存队列的最老优先、不等本拍发射的槽分配、共用 AGU 在模型里是编译期开关（`CFG_INT_CLUSTERS`、`CFG_ISSUE_OLDEST_FIRST/QUEUES`、`CFG_IQ_SAME_CYCLE_REUSE`、`CFG_AGU_SHARED`；`CFG_MEM_MERGE` 已删），RTL 的参考周期用这些开关同配置的模型生成。
+配置相关的有意差异：RTL 只有现行这一种配置（load 与 STA 合并成一个内存队列，没有独立的 STA 队列）；两个 INT 队列、内存队列的最老优先、不等本拍发射的槽分配、共用 AGU 在模型里是编译期开关（`CFG_INT_CLUSTERS`、`CFG_IQ_SAME_CYCLE_REUSE`、`CFG_LSU_AGU_SHARED`；`CFG_MEM_MERGE`、`CFG_ISSUE_OLDEST_FIRST/QUEUES` 已删），这些开关在模型里的默认值就是 RTL 配置，参考周期用默认配置的模型生成。
 
 ## 8. 验证
 
 - **最新整核门禁（2026-11-28，`rtl/exu-clean`，EXP-072）**：`lint_chip` & `lint_soc` 0 告警；`SOC_FM=1 SOC_SVA=1 SOC_ASSERT=1` `fm_gate` 77/77、`riscv-tests` 152/152、`soc_gate --linux` 12/12 全通；Linux 26/26 窗对齐；SPEC06 INT 386/386 `geomean +0.144%`（`ISS_REF_AGU` 由 `130,716.5` 降至 `0`）。
 - **EXP-046（`exp/wb-presel`）**：`tests/wb_gate`（`run.sh <工作目录>`）：`wrap.sv` 把忙表和 `isu_pkg` 的类表（偏移、每口服务的类）一起导出，`check.py` 随机 3 万拍对照模型的 `WbBusy`，同时检查 `port_ok` 和每口每类的 `cls_free`：0 不一致；植入错误（类 0 的 `cls_free` 恒 1）后 24140 拍不一致。原来的测试驱动的是已删除的 `off` 输入，在 main 上编译不过，这次一并改写。整核：`fm_gate` 67/67 逐条对函数模型无不一致，周期对模型（trace-model `exp/wb-port` `60aa7e8` 的 `CFG_WB_PRESEL=1`，合入版里这是唯一行为，RVC=1 构建，程序用 `build_tests.sh` 的 rv64ima 版）67/67 相等（合入 `exp/llc-plru` 后的集成分支，参考周期 `scripts/ref_cycles.txt` 用 `LSU_PIPE_NOWD=1` 生成；早先记录的"crc32 RTL 2196 / 模型 2199"是生成参考时没关模型的 LDQ / STQ 看门狗造成的误判，`tm_cycles.sh` 现在默认关掉它）。
 
-- **门禁**：`scripts/fm_gate.sh` 67 个程序，每条提交对比函数模型，周期对 `scripts/ref_cycles_memiq6_nr_int2_ev5.txt`（模型同配置生成）：67/67 通过，周期逐个相等。
+- **门禁**：`scripts/fm_gate.sh` 77 个程序，每条提交对比函数模型，周期对 `scripts/ref_cycles.txt`（`scripts/regen_refs.sh` 由模型默认配置生成）：77/77 通过（最近一次 rtl 73761fa，2026-11-28），周期逐个相等。
 - **Lint**：`scripts/lint_chip.sh` 0 告警。
-- **没有模块级的独立测试**：旧体系的 trace 回放 + 随机 trace + 变异检查（spec/、`tests/isu`）已随 `spec/` 一起退役，旧的变异表在本文件的 git 历史里（`git log -- docs/modules/isu.md`）。目前 isu 的正确性靠整核周期逐拍相等和 Linux 启动来保证。**待补**：给分配链、选择、年龄矩阵各补一个"新旧并排"的随机测试（像 `lp_ovl` 那样），在后续改深度时用。
+- **`tests/isu_iq_select`**（fe-2ahead 新增）：`run.sh [向量数，默认 200000]` 用 Verilator 编 `eq_top.sv`，对 `IQ_NUM = 6` 个队列各按 `isu.sv` 实际用的参数（`SIZE`、口数、`AGE_EN`）实例化现行 `isu_iq_select` 和改写前的副本 `isu_iq_select_ref.sv`，随机 `slot_ready` / `port_ok` / 年龄矩阵逐拍比较选择结果，输出 PASS 或第一个不一致。用于验证去掉 UNOPTFLAT 的每口生成块改写（见第 10 节 2026-11-28）。
+- **`tests/fp_gate`**：`run.sh <工作目录>` 用 Verilator 编 `isu_fp_gate`（`-DFP=1` 生成的 `ttg_cfg_pkg`），`check.py` 对照参考的 FP 写口预留。
+- 分配链、年龄矩阵没有单独测试，靠整核周期逐拍相等和 Linux 启动。旧体系的 trace 回放 + 随机 trace + 变异检查（spec/、`tests/isu`）已随 `spec/` 一起退役，旧的变异表在本文件的 git 历史里（`git log -- docs/modules/isu.md`）。
 
 ## 9. 参数与开关速查
 
-`IQ_INT_SIZE`、`IQ_INT_ENQ_WIDTH`、`IQ_MEM_SIZE`、`IQ_MEM_ENQ_WIDTH`、`LSU_AGU_SHARED`、`IQ_STD_*`、`IQ_BR_*`、`FP_IQ_*`、`FP_WB_PORTS`（`isu_pkg`，EXP-032）；`LP_L2[3]`（LSU 推测唤醒）。`ttg_cfg_pkg.sv` 目前是手工编辑的，与 `make cfg` 生成的不同步（待统一，见 docs/TODO.md）。
+`IQ_INT_SIZE`、`IQ_INT_ENQ_WIDTH`、`IQ_MEM_SIZE`、`IQ_MEM_ENQ_WIDTH`、`LSU_AGU_SHARED`、`IQ_STD_*`、`IQ_BR_*`、`FP_IQ_*`、`FP_WB_PORTS`（`isu_pkg`，EXP-032）。LSU 推测唤醒与取消总是开（原 `LP_L2[3]`，已删除）。`ttg_cfg_pkg.sv` 由 `make cfg`（`harness/tools/gen_cfg_pkg.py`，从 trace-model `include/config.h`）生成，不手改。
 
 ## 10. 变更记录
 
+- 2026-11-28（文档核对，无 RTL 变化）：`WAKE_NUM = 21`、`TAG_NUM = 352`、慢速唤醒 `SLOW_FP_N = 43`（DIV 1 路、FP 25 路）与 256 位位图、快速唤醒 8 位比较；`exe2iss_div_wb_in2` 替换 `div_wb_next`；按 ROB 号的误预测冲刷代替分支掩码；模型已删的 `CFG_ISSUE_OLDEST_*`；文件表补行数；第 8 节加 `tests/isu_iq_select`、`tests/fp_gate`；`ttg_cfg_pkg` 为生成文件；门禁参考改为 `scripts/ref_cycles.txt`（77 个程序）。
 - 2026-11-28（`rtl/fe-2ahead`，0 周期变化）：消除整核 Verilator `UNOPTFLAT`：`isu_iq_store` 每槽的 `rr_active / rr_cancelled / rr_retired` 从读 `issue_clear`（本拍授权）的 `always_comb` 里拆成独立 `assign`（`slot_ready` 经选择 → 授权 → `issue_clear` 的假环）；`isu_iq_select` 串行选择的 `taken` / `sel_onehot` 改成每端口生成块信号（`g_port[p].oh`、`taken_c`），后端口只读前端口。新增 `tests/isu_iq_select/run.sh`：与改前版本（`isu_iq_select_ref.sv`）按 6 个队列的实际参数逐拍对拍，20 万组 PASS，断开 taken 链的变异第一批即报错。
 
 - 2026-11-28（`rtl/exu-clean`，EXP-072）：去除 `exe2iss_fu_ready_mask` 输入，在 `isu.sv` 内增加确定性 `div_busy_q`（port 1，`exe2iss_div_wb_next` 前 1 拍让路 ALU 写回）与 `fdiv_cnt_q` 占槽；`isu_iq_select.sv` 将逻辑 7 槽合并负载在选口侧直接复用至 `NP = LSU_AGU_COUNT = 5` 物理 AGU 口（`ISSUE_WIDTH = 19`）。Tier 1（`Yosys+PT`，`0.50 ns`）实测：**总面积 `526,654.30 → 512,886.19 µm²`（−2.61%）**、**`Seq 29,106 → 28,331`（−775 FF）**、`WNS_r2r −0.38 → −0.39 ns`（`TNS_r2r −5,794.05 → −5,647.62` 改善）、总 `WNS −0.48 ns`（`in->out` `lsu2iss_cancel_preg[18] -> iss2prf_uop[1312]`）。

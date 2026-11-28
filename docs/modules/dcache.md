@@ -83,16 +83,16 @@ L1 数据缓存，加上它旁边的两个小结构：缺失状态寄存器 MSHR
 
 | 文件 | 行数 | 职责 |
 | --- | --- | --- |
-| `dcache.sv` | 339 | 顶层：只做端口适配和连线 |
+| `dcache.sv` | 379 | 顶层：只做端口适配和连线 |
 | `dcache_pkg.sv` | 120 | 常量（端口数、地址域、replay 编码）、字节使能合并函数 `line_merge_n`、PLRU 函数 |
-| `dcache_s1.sv` | 304 | 第一级：请求选择、bank 授权、预取探测放行、第一级到第二级寄存器、填充快照、隐藏重试寄存器 |
-| `dcache_arr.sv` | 156 | 把请求者映射到 16 个 bank，汇总读结果，仿真时检查"每拍每 bank 只有一个请求者"的断言 |
-| `dcache_bank.sv` | 100 | 一个 bank：16 行 × 4 路的 valid/dirty/pf/tag/数据，16 个 PLRU 字 |
-| `dcache_s2_ld.sv` | 124 | load 口第二级决策（纯组合） |
+| `dcache_s1.sv` | 344 | 第一级：请求选择、bank 授权、预取探测放行、第一级到第二级寄存器、填充快照、隐藏重试寄存器 |
+| `dcache_arr.sv` | 174 | 把请求者映射到 16 个 bank，汇总读结果，仿真时检查"每拍每 bank 只有一个请求者"的断言 |
+| `dcache_bank.sv` | 159 | 一个 bank：16 行 × 4 路的 valid/dirty/pf（触发器）、tag/数据（`ttg_sram_1r1w`），16 个 PLRU 字 |
+| `dcache_s2_ld.sv` | 125 | load 口第二级决策（纯组合） |
 | `dcache_s2_st.sv` | 94 | store 口第二级决策（纯组合） |
 | `dcache_s2_fill.sv` | 85 | 填充侧：选牺牲路、判断 WB 是否有空间、出驱逐行 |
-| `dcache_mshr.sv` | 238 | MSHR |
-| `dcache_mshr_alloc.sv` | 51 | MSHR 分配 / 合并：第 k 个要分配的请求拿第 k 个空闲项 |
+| `dcache_mshr.sv` | 262 | MSHR |
+| `dcache_mshr_alloc.sv` | 66 | MSHR 分配 / 合并：第 k 个要分配的请求拿第 k 个空闲项 |
 | `dcache_wb.sv` | 146 | 写回缓冲 |
 | `dcache_wb_find.sv` | 33 | 在 WB 环里找某一行的最年轻项 |
 | `dcache_resp.sv` | 231 | 响应暂存、用到达的填充行转发、发布 |
@@ -103,7 +103,7 @@ L1 数据缓存，加上它旁边的两个小结构：缺失状态寄存器 MSHR
 几个非平凡文件的说明：
 
 - **dcache_s1**：每个口先选"这拍谁来占用"：真实请求优先；没有真实请求时，用隐藏重试寄存器里的请求，再没有就重发第二级刚判成 bank 冲突的那个请求。然后按 bank 授权：优先级是 填充快照 > load 0..3 > store 0..3（正在重试的口在自己的类内先授权）；同一个 bank 的后来者不被授权，记为"replayed"。被授权的请求下一拍在第二级读阵列。未被授权且是 LSU 来的请求，自己重发（隐藏重试，同时保存 `rty_pc_q`/`rty_va_q` 供硬件 Berti 训练），LSU 看不到冲突；路由块的请求（id 第 31 位为 1）或重试寄存器已占用时则返回 CONFLICT + retry。预取探测取第一个空闲的 load 口，条件是它的 bank 这拍没人用。
-- **dcache_arr / dcache_bank**：阵列以 bank 为单位，bank 授权保证每拍每个 bank 只有一个读请求者，所以每个 bank 只有一个读口，读地址是各请求者行号按位或。代码里是普通寄存器阵列（`logic data_q[WAYS][ROWS]`），没有 SRAM 宏。写口：填充 1 个、store 字写 `NST` 个、PLRU 写 `NSLOT + 1` 个。
+- **dcache_arr / dcache_bank**：阵列以 bank 为单位，bank 授权保证每拍每个 bank 只有一个读请求者，所以每个 bank 只有一个读口，读地址是各请求者行号按位或。tag 和数据是同步 1R1W SRAM（`ttg_sram_1r1w`，`TAG = "DCACHE_TAG"` / `"DCACHE_DATA"`，`WRITE_FIRST = 1`），在 S1→S2 的时钟沿发起读（`sram_re`、`sram_rrow`），S2 拿到结果，周期不变；valid / dirty / pf / PLRU 仍是触发器（`valid_q`、`dirty_q`、`plru_q`），同步复位。SRAM 内容在 `rst_n` 期间由外壳逐地址写 `INIT_VAL` 清零（common.md 4.1）。写口：填充 1 个、store 字写 `NST` 个、PLRU 写 `NSLOT + 1` 个。
 - **dcache_mshr**：每项存 `valid`、`issued`（读请求已被 AXI 接受）、行地址、已合并的 store 数据 / 字节使能 / dirty、`pf`（预取项）、`nofill`（只进 LLC 的预取项）；另有一个 AXI 响应暂存槽（`hold_*`，只有一个）。每拍先处理 AXI 侧（接受标记、响应入暂存槽），再处理填充确认（释放项）、分配 / 合并，最后从最终状态选下一个要发的读请求（demand 优先于预取，`send_pass`）。
 - **dcache_wb**：8 项环（`head`、`count`），`send` 表示有写请求在途；B 响应弹出队头；load 转发取同行的最年轻项（`dcache_wb_find`），store 合并到同行最年轻项（若它是队头且有写在途则报 busy）；被驱逐的脏行追加到队尾；AXI 写请求就是队头（含这拍的合并和追加）。
 - **dcache_resp**：每个口保存一个待发布响应（及它所答复的请求，store 还有数据）。TICKS = 1 时这层是纯组合直通（见 7）。当一个等填充的响应（MSHR_HIT / MSHR_FULL）遇到同一行的填充到达，响应当拍变 HIT：load 取填充行里的字，store 合并进填充行并使其变脏（`frf_data`/`frf_dirty` 再交给 s1 做快照）。
@@ -171,8 +171,8 @@ depth: 123 层（子模块拆测最深 `dcache_mshr` 123 层，其余 `s1`/`s2_*
 
 ## 8. 验证
 
-- **门禁**：`scripts/fm_gate.sh` 67 个程序，每条提交对比函数模型，周期对 `scripts/ref_cycles_memiq6_nr_int2_ev5.txt`（模型同配置生成）。其中与 dcache 直接相关的有 `dcache-conflict-writeback`、`dcache-mshr-pressure`、`pf-stress`、`memory-stress-small`、`memory-boundary`、`directed/memspec_*`。
-- **定向程序（需要用 Homebrew LLVM 构建，不在 67 个里）**：`tests/dcache/wb-burst.c`、`wb-flood.c`、`wb-merge.c`，用 `scripts/build_dcache_tests.sh` 构建，覆盖写回缓冲突发、洪泛、store 合并进 WB 项和 load 从 WB 转发。
+- **门禁**：`scripts/fm_gate.sh` 77 个程序，每条提交对比函数模型，周期对 `scripts/ref_cycles.txt`（`scripts/regen_refs.sh` 由模型默认配置生成）。其中与 dcache 直接相关的有 `dcache-conflict-writeback`、`dcache-mshr-pressure`、`pf-stress`、`memory-stress-small`、`memory-boundary`、`directed/memspec_*`。
+- **定向程序（需要用 Homebrew LLVM 构建，不在 77 个里）**：`tests/dcache/wb-burst.c`、`wb-flood.c`、`wb-merge.c`，用 `scripts/build_dcache_tests.sh` 构建，覆盖写回缓冲突发、洪泛、store 合并进 WB 项和 load 从 WB 转发。
 - **覆盖点**：`dcache_cover.sv` 的 29 条 `cover property`（仅仿真）。
 - **断言**（仅仿真）：`dcache_arr` 的"每拍每 bank 只有一个请求者"、`dcache_resp` 的"响应暂存不会被同口新响应覆盖"。
 - **Linux 整核门禁**：`scripts/linux_gate.sh`（逐提交对拍 + PMU 序列对比 + 登录提示）。
@@ -181,10 +181,11 @@ depth: 123 层（子模块拆测最深 `dcache_mshr` 123 层，其余 `s1`/`s2_*
 
 ## 9. 参数与开关速查
 
-`DCACHE_SETS_NUM`、`DCACHE_WAYS_NUM`、`DCACHE_LINE_SIZE`、`DCACHE_WORD_NUM`、`DCACHE_*_BITS`、`DCACHE_BANK_NUM`、`DCACHE_MSHR_ENTRIES`、`DCACHE_WB_ENTRIES`、`LSU_LDU_COUNT`、`LSU_STA_COUNT`、`XLEN_BITS`（`ttg_cfg_pkg`）；`PF_EN`（`dcache` 参数）；`AXI_SUBSYSTEM_FREQ_DIV`（决定 `cpu_phase0`）。`ttg_cfg_pkg.sv` 目前是手工编辑的，与 `make cfg` 生成的不同步（待统一，见 docs/TODO.md）。
+`DCACHE_SETS_NUM`、`DCACHE_WAYS_NUM`、`DCACHE_LINE_SIZE`、`DCACHE_WORD_NUM`、`DCACHE_*_BITS`、`DCACHE_BANK_NUM`、`DCACHE_MSHR_ENTRIES`、`DCACHE_WB_ENTRIES`、`LSU_LDU_COUNT`、`LSU_STA_COUNT`、`XLEN_BITS`（`ttg_cfg_pkg`）；`PF_EN`（`dcache` 参数）；`AXI_SUBSYSTEM_FREQ_DIV`（决定 `cpu_phase0`）。`ttg_cfg_pkg.sv` 由 `make cfg`（`harness/tools/gen_cfg_pkg.py`，从 trace-model `include/config.h`）生成，不手改。
 
 ## 10. 变更记录
 
+- 2026-11-28（rtl 73761fa，SRAM 复位清扫）：`dcache_bank` 的 `DCACHE_TAG` / `DCACHE_DATA` `ttg_sram_1r1w` 实例接上 `rst_n`；复位期间 SRAM 外壳逐地址写 `INIT_VAL`，`ttg_rst_sweep` 把复位拉长 `SRAM_SWEEP_CYCLES = 4100` 拍，不再依赖上电值（common.md 4.1）；0 周期变化，`fm_gate` 77/77。同日文档核对：第 5 节阵列描述改为 SRAM、文件行数、门禁参考改为 `scripts/ref_cycles.txt`。
 - 2026-11-24（`rtl/timing-opt3`，EXP-064 第三轮 28nm DC 时序优化，0 周期变化）：① `dcache_pf_berti_gen.sv` 在 16→1 锦标赛树 `gen_cand_t` 内随路携带 `d` (7b) 与 `st` (2b)，与锦标赛树并行预计算 `gen_vline_q[31:6] ± 1` 及 `xq_va_q` 27b 页标签比较，以 7b 有符号低位加法 + 6b 去重比较替代 32b 加法器；TSMC 28nm DC `dcache_pf` **1.18 → 1.35 GHz (+14.4%)**（WNS `−0.35 → −0.24 ns`，纯组合 `0.70 ns / 1.43 GHz`，53→43 级，面积 `151.7k um²`）；② `dcache_mshr.sv` 与 `dcache_mshr_alloc` 并行一次性预展开 3 路 store 512b 行数据与 64b 字节选通（替代 16× `line_merge_n`），并将 `ax_req_*` 选择拆分为并行 demand/all `ttg_first_set` + `ttg_onehot_mux`；TSMC 28nm DC `dcache_mshr` **1.15 → 1.28 GHz (+11.3%)**（WNS `−0.37 → −0.28 ns`，reg2reg `−0.27 ns / 1.30 GHz`，纯组合 `0.65 ns / 1.54 GHz`，54→41 级，面积 `99.5k → 85.7k um²` **−13.9%**）。通过 `lint_chip` 0 与 `fm_gate` 69/69（0 周期差）。
 - 2026-11-21（`rtl/fe-2fetch-2taken`，EXP-051 里程碑 B）：`dcache` / `dcache_arr` / `dcache_bank` / `dcache_wb` 新增 1 路只读周期初脏行窥探口（`fdip_snoop_line` → `fdip_snoop_dirty`），供 ICache FDIP 回填前检查 L1D 阵列脏行与 WB 缓冲，避免自修改代码（SMC）场景将旧指令行填回 L1I；通过 `lint_chip` 0、`fm_gate` 68/68（含 `fence-i-self-modify`）与 Linux 27 窗对齐。
 - 本分支（exp/agu-share）未改动 `rtl/memsys/dcache`（`git log 261bd67..HEAD -- rtl/memsys/dcache` 为空）。

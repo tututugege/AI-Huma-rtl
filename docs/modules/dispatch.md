@@ -35,7 +35,7 @@ depth: 57 层（`rtl/ld-wake`，212,064 单元，开启 `LP_L2[3]` 取消向量�
 | uop 种类 | 6 | `dis_pkg::K_NUM`：`K_INT/K_LD/K_STA/K_STD/K_BR/K_FP` |
 | STQ / LDQ 分配口 | 各 8 | `MAX_STQ_DISPATCH_WIDTH`、`MAX_LDQ_DISPATCH_WIDTH` |
 | STQ / LDQ 项数 | 各 64 | `STQ_SIZE`、`LDQ_SIZE` |
-| 忙表 | 224 位（每个物理寄存器标号一位；整数 0..127，FP 从 128 起） | `TAG_NUM`、`FP_TAG_BASE = 128` |
+| 忙表 | 352 位（每个物理寄存器标号一位；整数 0..255，FP 从 256 起） | `TAG_NUM = 352`（`PRF_NUM + FPRF_NUM`）、`FP_TAG_BASE = 256` |
 | 唤醒通道数 | `3*LSU_LDU_COUNT + 2 = 14` 路 LSU 唤醒（L1 推测 4 + L3 直发 4 + L2b STLF/L2a fallback 4 + WBP `64→2` one-hot 2）；加上 `iss_awake`（`MAX_WAKEUP_PORTS`）与 6 路 `iss_awake_cancel` 共同组成唤醒/取消输入 | `dis_pkg::NUM_LSU_WAKE = 3 * LSU_LDU_COUNT + 2`，`NUM_WAKE = MAX_WAKEUP_PORTS + NUM_LSU_WAKE` |
 | 完成组 | G0 = INT / LD / FP，G1 = BR / STA，G2 = STD | `dis_pkg::CPLT_G0/1/2` |
 
@@ -57,19 +57,19 @@ uop 种类到队列的映射（`dispatch_core.sv` 里的 `has_iq`；模型 `rout
 
 | 方向 | 信号组 | 含义 |
 | --- | --- | --- |
-| 入 | `ren2dis_valid[8]`、`ren2dis_uop_*[8]` | 重命名后的指令（含 `dest_preg`、`src*_preg`、`old_dest_preg`、`me_elim`、`br_id`、`br_mask`、FP 标志…）；`is_rvc`、`mdp`（等待表下标）**不是**重命名送来的，见下 |
+| 入 | `ren2dis_valid[8]`、`ren2dis_uop_*[8]` | 重命名后的指令（含 `dest_preg`、`src*_preg`、`old_dest_preg`、`me_elim`、FP 标志…）；`is_rvc`、`mdp`（等待表下标）**不是**重命名送来的，见下 |
 | 入 | `rob2dis_{ready, empty, stall, enq_idx, free, rob_flag}` | ROB 的状态：不满、空、队头 8 槽里有冲刷类、尾部位置、空闲项数、环绕标志 |
 | 入 | `iss2dis_ready_num[IQ_NUM]` | 每个队列还能收几个（`min(空闲槽, 入队 lane 数)`，寄存值，见 isu.md） |
 | 入 | `lsu2dis_{stq_tail, stq_tail_flag, stq_free, ldq_free, ldq_alloc_idx[8], ldq_alloc_valid[8]}` | LSU 的 STQ 尾、空闲数、LDQ 空闲项的编号 |
 | 入 | `prf_awake_*`、`iss_awake_*`、`iss_awake_cancel_*`、`lsu2iss_wake_*`、`lsu2iss_cancel_*` | 唤醒（`MAX_WAKEUP_PORTS` + `NUM_LSU_WAKE=14` 路：L1 推测 4 + L3 直发 4 + L2b STLF/L2a fallback 4 + WBP `64→2` 2）；取消输入含 `lsu2iss_cancel`（4 路 L1 取消）与 `iss_awake_cancel`（6 路 ALU 孙代取消） |
-| 入 | `rob_bcast_flush`、`dec_bcast_{mispred, clear_mask}` | 全局冲刷（`FLUSH_REG` 后晚一拍，docs/FLUSH_REG.md）、误预测、分支掩码清除 |
+| 入 | `rob_bcast_flush`、`dec_bcast_mispred` | 全局冲刷（`FLUSH_REG` 后晚一拍，docs/FLUSH_REG.md）、误预测 |
 | 出 | `dis2ren_ready` | 重命名可以送下一组 |
 | 出 | `dis2rob_dis_fire[8]`、`dis2rob_uop_*[8]` | 本拍分派的 lane 和写进 ROB 的字段（含 `rob_idx`、`expect_mask`、`fs_need`） |
 | 出 | `dis2iss_req_valid / _uop_* [IQ_NUM][8]` | 每个队列的 8 个请求口 |
-| 出 | `dis2lsu_*`、`dis2lsu_ldq_*` | LSU 的 STQ / LDQ 分配请求（`rob_idx`、`br_mask`、`func3`、`mdp`…） |
+| 出 | `dis2lsu_*`、`dis2lsu_ldq_*` | LSU 的 STQ / LDQ 分配请求（`alloc_req`、`rob_idx / rob_flag`，load 另带 `ldq_idx`、`mdp`、`pc`） |
 | 出 | `pmu_slot_valid[8]` | PMU：这一级每个 lane 是否有指令 |
 
-`is_rvc` 和 `mdp`：RTL 的 `back_top` 把重命名送出的 `ftq_idx / ftq_offset` 接到 `pre_idu_queue` 的 `ftq_dis_req_*` 读口，读回 `is_rvc` 和 `mdp`（load 的 pc 哈希，`LSU_MEMSPEC` 用，`LSU_MDP_BITS = 6`），再接进 `ren2dis_uop_is_rvc / _mdp`。模型里这两项随指令一路带过来。
+`is_rvc` 和 `mdp`：RTL 的 `back_top` 把重命名送出的 `ftq_idx / ftq_offset` 接到 `ftq_ibuf` 的 `ftq_dis_req_*` 读口，读回 `is_rvc`、`mdp` 和 `pc`（load 的 pc 哈希，`LSU_MEMSPEC` 用，`LSU_MDP_BITS = 6`），再接进 `ren2dis_uop_is_rvc / _mdp / _pc`。模型里这两项随指令一路带过来。
 
 ## 4. 结构
 
@@ -89,21 +89,22 @@ uop 种类到队列的映射（`dispatch_core.sv` 里的 `has_iq`；模型 `rout
 
 | 文件 | 行数 | 职责 |
 | --- | --- | --- |
-| `dis_pkg.sv` | 189 | 队列号、uop 种类、指令 / uop 结构体、指令分类函数 `dis_classify` |
-| `dispatch.sv` | 377 | 顶层：端口适配；合并 34 路唤醒；`LP_L2[3]` 时生成取消向量；`fs_need`（F/D） |
-| `dispatch_core.sv` | 286 | 把下面的子块连起来；`rob_idx` 编号；uop 到队列的映射（`has_iq`） |
-| `dispatch_inst_stage.sv` | 72 | 输入寄存器，见下 |
+| `dis_pkg.sv` | 209 | 队列号、uop 种类、指令 / uop 结构体、指令分类函数 `dis_classify` |
+| `dispatch.sv` | 182 | 顶层：端口适配；合并 `NUM_WAKE = 35` 路唤醒；由 4 路 L1 推测取消与 6 路 ALU 孙代取消生成取消向量 `cancel_v`；`fs_need`（F/D） |
+| `dispatch_core.sv` | 254 | 把下面的子块连起来；`rob_idx` 编号；uop 到队列的映射（`has_iq`） |
+| `dispatch_inst_stage.sv` | 60 | 输入寄存器，见下 |
 | `dispatch_decompose.sv` | 142 | 一条指令拆成 uop；`expect_mask` |
 | `dispatch_lsu_alloc.sv` | 79 | LDQ / STQ 分配 |
-| `dispatch_src_busy.sv` | 44 | busy 位计算（`busy_table | cancel_v` + 组内 RAW；`dispatch_wake_match.sv` 保留未实例化） |
+| `dispatch_src_busy.sv` | 53 | busy 位计算（`busy_table | cancel_v` + 组内 RAW） |
+| `dispatch_wake_match.sv` | 29 | 唤醒号与源寄存器号的比较；现在没有任何模块实例化它（死代码，留待删除） |
 | `dispatch_busy_table.sv` | 47 | 忙表 |
-| `dispatch_iq_alloc.sv`、`dispatch_iq_req.sv` | 49、51 | 队列请求口号与 fit；请求口的数据选择 |
+| `dispatch_iq_alloc.sv`、`dispatch_iq_req.sv` | 49、52 | 队列请求口号与 fit；请求口的数据选择 |
 | `dispatch_fire_ctl.sv` | 71 | 哪些 lane 分派，`dis2ren.ready` |
-| `dispatch_lsu_req.sv` | 76 | 发给 LSU 的分配请求 |
+| `dispatch_lsu_req.sv` | 65 | 发给 LSU 的分配请求 |
 
-状态：`dispatch_inst_stage` 的 `valid_q[8]`、`inst_q[8]`（`dis_inst_t`）；忙表 `busy_q[224]`。其余都是组合逻辑。
+状态：`dispatch_inst_stage` 的 `valid_q[8]`、`inst_q[8]`（`dis_inst_t`）；忙表 `busy_q[TAG_NUM]`（352 位）。其余都是组合逻辑。
 
-输入寄存器 `dispatch_inst_stage`：分派 ready 时（`dis2ren_ready`）整组换成重命名送来的新组；没 ready 时保留没 fire 的 lane（下一拍直接重新查 `busy_table`）；冲刷或误预测（`kill = rob_flush | dec_mispred`）清所有 valid；每拍从所有 lane 的 `br_mask` 里去掉 `clear_mask`。
+输入寄存器 `dispatch_inst_stage`：分派 ready 时（`dis2ren_ready`）整组换成重命名送来的新组；没 ready 时保留没 fire 的 lane（下一拍直接重新查 `busy_table`）；冲刷或误预测（`kill = rob_flush | dec_mispred`）清所有 valid。
 
 ## 5. 一拍内的数据流
 
@@ -141,7 +142,7 @@ lane i 可以分派的条件（`dispatch_fire_ctl`）：寄存器里有指令、
 
 | 链 | 经过 |
 | --- | --- |
-| 分派判决 | 唤醒比较（24 个源 × 34 路）→ busy 位 →（busy 只进队列数据，不进 fire）；fire 本身：`lsu_ok`（秩 < 空闲数，`ttg_popcount` 秩）、`fit`（每 lane 对 6 个队列各自前缀数 + 比较）、`rob_fit`（前缀数 + 比较）→ `fire_ideal` → 与"前面有 lane 不能 fire"的或 → `dis_fire` |
+| 分派判决 | 唤醒比较（24 个源 × `NUM_WAKE = 35` 路）→ busy 位 →（busy 只进队列数据，不进 fire）；fire 本身：`lsu_ok`（秩 < 空闲数，`ttg_popcount` 秩）、`fit`（每 lane 对 6 个队列各自前缀数 + 比较）、`rob_fit`（前缀数 + 比较）→ `fire_ideal` → 与"前面有 lane 不能 fire"的或 → `dis_fire` |
 | fire 之后 | `dis_fire` → ① `dispatch_iq_req`（每个请求口 8 选 1 的 uop 选择，两套：第一个 uop 和 AMO 的第二个）→ `dis2iss`；② `dispatch_lsu_req` → `dis2lsu`；③ 忙表置位 → 次态；④ `dis2ren_ready`（再进重命名的 fire 和 IDU 的 fire 链）→ 各级输入寄存器的 `ready ? new : held` |
 | 分配 | `rob2dis_enq_idx` 加有效 lane 秩 → `rob_idx`；经 busy / `dis2iss` 的 uop 字段送到队列入队（isu 入队再叠加本拍唤醒） |
 
@@ -154,7 +155,7 @@ lane i 可以分派的条件（`dispatch_fire_ctl`）：寄存器里有指令、
 - `dbg`、`ROBTR` / `DISTR` 调试输出、`Assert`、PMU 的 `iq_blk` / `fit_` / `pmu_slots`（RTL 只输出 `pmu_slot_valid`）；
 - 模型里 uop 在 `uop_pool` 里单独占一项（`make_dis_iss_uop` 分配 `id`），RTL 里 uop 是直接带字段的结构体；
 - 模型 `comb_alloc` 对"load 超过内存队列入队宽度"单独检查，RTL 由 `fit` 的 `used + cnt <= ready_num`（已含入队宽度上限）一并处理；
-- 模型的忙表由 30 路唤醒（`WAKE_CH_ALL` = 22 + 8）清除；RTL 的 `NUM_WAKE = 34`，在 22 路发射单元唤醒之外**又**接了 4 路 PRF 的 load 唤醒，而 `isu_wake_src` 已经把这 4 路并进了那 22 路（`LD_WAKE_BASE`）。两处是同一批寄存器号，结果等价，多 4 路比较器（24 个源 × 4 路）。
+- 忙表的唤醒通道数两边相同：模型 `WAKE_CH_ALL = MAX_WAKEUP_PORTS + LSU_EARLY_WAKE_PORTS = 21 + 14`（`back-end/include/IO.h`），RTL `dis_pkg::NUM_WAKE = MAX_WAKEUP_PORTS + NUM_LSU_WAKE = 35`（`iss_awake` 21 路 + `lsu2iss_wake` 14 路；PRF 的 load 唤醒已经包含在 `iss_awake` 里，不再另接）。
 
 已发现、未改动的点：
 
@@ -174,17 +175,18 @@ RTL 与模型保持一致的细节（读模型时容易误判）：
 
 ## 8. 验证
 
-- **门禁**：`scripts/fm_gate.sh` 67 个程序，每条提交对比函数模型，周期对 `scripts/ref_cycles_memiq6_nr_int2_ev5.txt`（模型同配置生成）：67/67 通过，周期逐个相等。
+- **门禁**：`scripts/fm_gate.sh` 77 个程序，每条提交对比函数模型，周期对 `scripts/ref_cycles.txt`（`scripts/regen_refs.sh` 由模型默认配置生成）：77/77 通过（最近一次 rtl 73761fa，2026-11-28），周期逐个相等。
 - **PMU**：`scripts/pmu_parity.sh`（一级事件含 `SLOT_FIRE`、`SLOT_KILL`）；本模块只输出 `pmu_slot_valid`。
 - **Lint**：`scripts/lint_chip.sh` 0 告警。
 - **没有模块级的独立测试**：旧体系（`spec/` 的 trace 回放和变异检查）已退役。**待补**：给 `dispatch_decompose`（对照模型 `decompose_inst`）和 `dispatch_iq_alloc` / `dispatch_fire_ctl`（对照模型的串行 `comb_dispatch`）各补一个新旧并排的随机测试；目前正确性靠整核周期逐拍相等和 Linux 启动。
 
 ## 9. 参数与开关速查
 
-`DECODE_WIDTH`、`MAX_IQ_DISPATCH_WIDTH`、`MAX_STQ_DISPATCH_WIDTH`、`MAX_LDQ_DISPATCH_WIDTH`、`STQ_SIZE`、`LDQ_SIZE`、`TAG_NUM`、`FPRF_NUM`（FP 队列和 FP uop 是否存在）、`LSU_MEMSPEC` / `LSU_MDP_BITS`（`mdp`）、`LP_L2[3]`（取消向量）。`ttg_cfg_pkg.sv` 目前是手工编辑的，与 `make cfg` 生成的不同步（待统一，见 docs/TODO.md）。
+`DECODE_WIDTH`、`MAX_IQ_DISPATCH_WIDTH`、`MAX_STQ_DISPATCH_WIDTH`、`MAX_LDQ_DISPATCH_WIDTH`、`STQ_SIZE`、`LDQ_SIZE`、`TAG_NUM`、`FPRF_NUM`（FP 队列和 FP uop 是否存在）、`LSU_MEMSPEC` / `LSU_MDP_BITS`（`mdp`）。取消向量 `cancel_v` 总是生成（原 `LP_L2[3]` 条件已随 `LP_L2` 删除）。`ttg_cfg_pkg.sv` 由 `make cfg`（`harness/tools/gen_cfg_pkg.py`，从 trace-model `include/config.h`）生成，不手改。
 
 ## 10. 变更记录
 
+- 2026-11-28（文档核对，无 RTL 变化）：忙表 `TAG_NUM = 352` / `FP_TAG_BASE = 256`；`NUM_WAKE = 35`，与模型 `WAKE_CH_ALL` 一致；去掉分支掩码相关描述；`is_rvc / mdp / pc` 来自 `ftq_ibuf`；文件表行数并补 `dispatch_wake_match.sv`（未实例化）；`ttg_cfg_pkg` 为生成文件；门禁参考改为 `scripts/ref_cycles.txt`（77 个程序）。
 `git log --oneline 261bd67..HEAD -- rtl/backend/dispatch`：
 
 - `2e6acb6`：去掉空的 STA 队列和 `MEM_MERGE = 0` 的路径，现为 6 个队列（INT、MEM、STD、BR、FP、INT1）；`dispatch_decompose` 按种类拆分，`dispatch_core` 把种类映射到队列。

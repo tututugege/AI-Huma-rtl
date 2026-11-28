@@ -3,7 +3,7 @@ module: exu_fu
 area: backend
 rtl: rtl/backend/exu_fu
 model: trace-model back-end/Exu/include/Fu.h（`FuUnit`、`FuMode`、`fu_pipe_latency`、`fu::iter_latency`、`fu::compute`）和 back-end/Exu/Exu.cpp（`Exu::exec` 里按模式处理 FU 的部分）；没有独立的调度单元，属于 `back.exu`
-status: 整核周期与模型逐个相等（fm_gate 67/67，参考 scripts/ref_cycles_memiq6_nr_int2_ev5.txt；沿用 isu.md 记录的验收结果，本文作者没有重跑）
+status: 整核周期与模型逐个相等（fm_gate 77/77，参考 scripts/ref_cycles.txt；沿用 isu.md 记录的验收结果，本文作者没有重跑）
 depth: 98 层（exu（含 exu_ctrl、优化后乘除法与全部自研可综合 RV64FD FPU），单模块综合，2026-11-23，`SYNTH_ABC="strash;balance;map"`，生成门代理，见第 6 节）
 ---
 
@@ -23,7 +23,7 @@ depth: 98 层（exu（含 exu_ctrl、优化后乘除法与全部自研可综合 
 - **流水线**（PIPE）：定延迟、每拍可收一条：MUL（延迟 `MUL_MAX_LATENCY = 3`），浮点的 FMA（`FP_FMA_LAT = 4`）、FMISC（`FP_MISC_LAT = 2`）、I2F（`FP_I2F_LAT = 2`）；
 - **迭代**（ITER）：一次只做一条、延迟按操作而变：DIV（**1 个 Radix-16 双 Radix-4 + Early-out 变延迟除法器**，`DIV_MAX_LATENCY = 17`，实际延迟 `2..17` 拍，完成前 2 拍经 `wb_in2` 通知 ISU 预留写回口，完成前 1 拍在 EXU 侧唤醒消费者）、浮点的 FDIV（除法 / 开方，单精度 `FP_FDIV_S_LAT = 11`、`FP_FSQRT_S_LAT = 13`，双精度 `FP_FDIV_D_LAT = 19`、`FP_FSQRT_D_LAT = 23`）。
 
-槽、口内仲裁、写回、flush / 分支号清除的分发都在 `exu_ctrl`；本模块只在两个地方自己处理 flush 和分支掩码：MUL / DIV / 浮点这些会把指令留在单元里若干拍的 FU，要自己杀掉被 flush 或被误预测杀死的指令，并清掉在飞指令 `br_mask` 里已解析的位。
+槽、口内仲裁、写回、flush / 分支号清除的分发都在 `exu_ctrl`；本模块只在一处自己处理 flush：MUL / DIV / 浮点这些会把指令留在单元里若干拍的 FU，要自己杀掉被全局 flush 或误预测杀死（比被预测错的分支更年轻）的在飞指令。
 
 CSR 单元（模型 `FuKind::CSR`）没有运算也没有 FU 侧状态：CSR 指令在槽里被 `exu_ctrl` 当作单周期 FU 处理，读数据由 CSR 文件给（原来有一个只有握手的 `csr_fu.sv`，没有被任何地方实例化，2026-11-18 已删除）。
 
@@ -94,7 +94,7 @@ CSR 单元（模型 `FuKind::CSR`）没有运算也没有 FU 侧状态：CSR 指
 - **`alu`**：同前，移除了 `en`/`consume`/`complete`/`ready`。
 - **`mul_core`**：同前，共 3 拍；`mul_pipe`（`STAGES = DEPTH - 1`）精确在完成拍报 `complete`。
 - **`mul_pipe`**：`STAGES = DEPTH - 1` 级无停顿移位链，`s = 0` 在 `en` 有效时压入，每拍向 `STAGES - 1` 移动并在沿上应用 Flush/误预测杀死，`complete` 取末级输出（当 `DEPTH=2` 时仅 1 级；`DEPTH >= 2`）。
-- **`exu_iter_ctl` + `div_core`**：收到 `en` 即装载 `busy_q=1`、`cnt_q = lat_m1`，每拍递减，`cnt_q == 0` 报 `complete` 且下拍自然释放（无需 `consume`），`wb_next = busy_q && (cnt_q == 1)`（即 `div_wb_next`）。仿真下 `$error` 检查 `!(en && live)` 保证不重入。
+- **`exu_iter_ctl` + `div_core`**：收到 `en` 即装载 `busy_q=1`、`cnt_q = lat_m1`，每拍递减，`cnt_q == 0` 报 `complete` 且下拍自然释放（无需 `consume`），`wb_next = live && (cnt_q == 1)`（`exu.sv` 只接线、不使用）；`wb_in2 = (accept && lat_m1 == 1) || (live && cnt_q == 2)`，即提前 2 拍的写回预告，口 1 的经 `exe2iss_div_wb_in2` 送 ISU（适配 ISS → RR → EX 两拍）。仿真下 `$error` 检查 `!(en && live)` 保证不重入。
 
 ## 5. 一拍内的数据流
 
@@ -108,11 +108,11 @@ t：操作数进 `mul_core`、载荷进 `mul_pipe[0]`；t+2（或 `t + DEPTH - 1
 
 ### 5.3 DIV 和 FDIV
 
-接收（`en` 且不忙）那拍载荷与操作数入寄存器，之后每拍 `cnt_q` 减 1；`cnt_q == 1` 时口 1 DIV 输出 `div_wb_next = 1`；`cnt_q == 0` 时报 `complete = 1` 并自动清空 `busy_q`，下拍起接收后续请求（ISU 由本地 `div_busy_q` / `fdiv_cnt_q` 与 `div_wb_next` 保证无重入）。
+接收（`en` 且不忙）那拍载荷与操作数入寄存器，之后每拍 `cnt_q` 减 1；提前 2 拍口 1 DIV 输出 `div_wb_in2 = 1`（ISU 那一拍不在口 1 发射）；`cnt_q == 0` 时报 `complete = 1` 并自动清空 `busy_q`，下拍起接收后续请求（ISU 由本地 `div_busy_q` / `fdiv_cnt_q` 与 `exe2iss_div_wb_in2` 保证无重入和写回不冲突）。
 
 ### 5.4 杀死和清分支位
 
-flush 是 `exu_ctrl` 送来的 `exu2fu_flush = rob_bcast_flush || dec_bcast_mispred`，掩码在全局 flush 时为全 1，否则是被误预测分支的独热码。在飞指令的 `br_mask` 与掩码相交即杀；存活的每拍先和 `~clear_mask` 相与，完成时给出的 `done_br_mask` 已含本拍的清除。
+flush 由 `exu_ctrl` 送来：`exu2fu_flush_all = rob_bcast_flush`；`exu2fu_flush_br` 加 `exu2fu_flush_rob_idx / _rob_flag` 表示误预测，在飞指令比这个 ROB 号更年轻（`fu_rob_younger`，9 位 `{rob_flag, rob_idx}` 循环年龄比较）即杀。没有分支掩码。
 
 ## 6. 关键路径与深度
 
@@ -160,7 +160,7 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 ## 8. 验证
 
 - **最新整核门禁（2026-11-28，`rtl/exu-clean`，EXP-072）**：`lint_chip` & `lint_soc` 0 告警；`SOC_FM=1 SOC_SVA=1 SOC_ASSERT=1` `fm_gate` 77/77、`riscv-tests` 152/152、`soc_gate --linux` 12/12 全通；Linux 26/26 窗对齐。
-- **门禁**：`scripts/fm_gate.sh` 67 个程序，每条提交对比函数模型，周期对 `scripts/ref_cycles_memiq6_nr_int2_ev5.txt`。名字对得上 FU 的程序：`bitmanip-boundary`、`bit`、`shift`（ALU 位操作）、`mul-longlong`、`div`、`atomic-boundary`（SDU 的 AMO）、`csr-alias-boundary`、`fd-basic`、`fd-fcvt`、`fd-fdiv`、`fd-fsqrt`、`fd-matmul`（浮点 FU）；没有逐个核对每个程序实际覆盖了哪些操作。
+- **门禁**：`scripts/fm_gate.sh` 77 个程序，每条提交对比函数模型，周期对 `scripts/ref_cycles.txt`。名字对得上 FU 的程序：`bitmanip-boundary`、`bit`、`shift`（ALU 位操作）、`mul-longlong`、`div`、`atomic-boundary`（SDU 的 AMO）、`csr-alias-boundary`、`fd-basic`、`fd-fcvt`、`fd-fdiv`、`fd-fsqrt`、`fd-matmul`（浮点 FU）；没有逐个核对每个程序实际覆盖了哪些操作。
 - **乘法器**：`scripts/mul_check.sh`（`tb/mul/mul_check_top.sv`、`tb/mul/mul_check.cpp`）：随机和角点操作数，对比 `STRUCT = 1`（Wallace 树）、`STRUCT = 0`（`a * b`）和 C++ 参考，逐拍比较（t 拍操作数对应 t+2 拍结果）；提交 `48d547e` 记录 400 万个乘积相等。
 - **浮点**：`tests/fp_dpi`（DPI 运算对函数模型的差分测试）、`tests/fp_chain`（`rv64imafd` 小程序在 RTL 上逐提交检查）。
 - **Lint**：`scripts/lint_chip.sh` 0 告警。
@@ -172,6 +172,7 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 
 ## 10. 变更记录
 
+- 2026-11-28（文档核对，无 RTL 变化）：flush 按 ROB 号（`exu2fu_flush_br` + `flush_rob_idx/flag`），无分支掩码；DIV 的 `wb_in2` 提前 2 拍预告；门禁参考改为 `scripts/ref_cycles.txt`（77 个程序）。
 - 2026-11-28（`rtl/exu-clean`，EXP-072）：非阻塞 EXU 与真 5 物理 AGU 重构——删除 `exu_fu_sc_ctl.sv` 及全部单周期/流水线 FU 单元与 bank 上的 `ready_o`/`consume_i`/`busy_o` 握手端口；`mul_pipe` 精简为无条件固定 3 拍推进；`exu_iter_ctl` 删除 `busy_o` 保留 `div_wb_next`；`agu_bank` 按真 5 物理口（`LSU_AGU_COUNT=5`）直连。TSMC 28nm HPC+ `exu` 实测：`WNS = −0.41 ns`（与基线相同，仍为 `u_fma` 路径），**`TNS −1,230.70 → −1,008.16`（−18.1%）**、**`Seq 8,704 → 6,755`（−1,949 FF / −22.4%）**、**总面积 `217,730.69 → 207,202.80 µm²`（−4.84%）**。
 
 - 2026-11-18（exp/agu-share，`261bd67..HEAD`）：`48d547e` 乘法器摊在 3 拍延迟上（见第 6 节表），新增 `scripts/mul_check.sh`、`tb/mul`。

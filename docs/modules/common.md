@@ -1,28 +1,29 @@
 ---
 module: common
 area: core
-rtl: rtl/common（ttg_cfg_pkg.sv、fp_pkg.sv、ttg_first_set.sv、ttg_onehot_mux.sv、ttg_onehot_to_idx.sv、ttg_popcount.sv；sram/ttg_sram_pkg.sv、ttg_sram_1rw.sv、ttg_sram_1r1w.sv、ttg_rst_sweep.sv）
-model: 配置包对应 trace-model include/config.h（经 harness/tools/gen_cfg_pkg.py 取值）；fp_pkg 的 FP 延迟取自同一份 config.h；四个小原语是 RTL 独有，模型里没有对应
-status: 原语有穷举测试（make prims）；配置包与 config.h 不是机器同步的（见第 2 节），整核周期与模型逐个相等（最近一次提交 60ed422 的提交信息记 fm_gate 67/67、周期等于 scripts/ref_cycles_memiq6_nr_int2_ev5.txt；本次写文档没有重跑）
-depth: 待测（由协调者补）
+rtl: rtl/common（ttg_cfg_pkg.sv、fp_pkg.sv、ttg_first_set.sv、ttg_onehot_mux.sv、ttg_onehot_to_idx.sv、ttg_popcount.sv、ttg_pick_k.sv；sram/ttg_sram_pkg.sv、ttg_sram_1rw.sv、ttg_sram_1r1w.sv、ttg_rst_sweep.sv）
+model: 配置包对应 trace-model include/config.h（经 harness/tools/gen_cfg_pkg.py 取值）；fp_pkg 的 FP 延迟取自同一份 config.h；五个组合原语和 SRAM 包装是 RTL 独有，模型里没有对应
+status: 原语有穷举测试（make prims）和综合 / 仿真两种写法的等价测试（tests/common_prims/run.sh）；配置包与 config.h 不是机器同步的（见第 2 节）；整核 fm_gate.sh 77/77，周期对 scripts/ref_cycles.txt
+depth: 待测（第 6 节只有从代码读出的估计）
 ---
 
 # common 设计文档
 
 ## 1. 职责
 
-整个 RTL 共用的东西，没有时钟、没有状态：
+整个 RTL 共用的东西（除 4.1 节的 SRAM 包装外都没有时钟、没有状态）：
 
-1. `ttg_cfg_pkg`：核的全部尺寸 / 宽度 / 开关常量（`localparam`），整个 RTL 里 227 个文件引用它；
+1. `ttg_cfg_pkg`：核的全部尺寸 / 宽度常量（`localparam`），`rtl/` 下 221 个文件引用它（2026-11-28 `grep` 统计）；
 2. `fp_pkg`：F / D 扩展共用的小常量和函数（FP 数据宽度、`flw` 的 NaN 装箱、`fdiv / fsqrt` 的延迟查表），11 个文件引用；
-3. 四个组合逻辑原语：`ttg_first_set`（找最低位的 1）、`ttg_onehot_mux`（独热选择的 AND-OR 多路选择）、`ttg_onehot_to_idx`（独热转下标）、`ttg_popcount`（数 1 的个数），分别被 37 / 40 / 18 / 25 个其他文件使用（`grep` 统计，不含 `rtl/common` 自己）。
+3. 五个组合逻辑原语：`ttg_first_set`（找最低位的 1）、`ttg_onehot_mux`（独热选择的 AND-OR 多路选择）、`ttg_onehot_to_idx`（独热转下标）、`ttg_popcount`（数 1 的个数）、`ttg_pick_k`（并行找最低的 K 个 1），分别被 39 / 46 / 26 / 21 / 9 个其他文件使用（2026-11-28 `grep -w` 统计，不含自身）；
+4. SRAM 包装 `ttg_sram_1rw` / `ttg_sram_1r1w` 和复位展宽 `ttg_rst_sweep`（4.1 节）。
 
 ## 2. 配置：`ttg_cfg_pkg` 与模型 `config.h` 的关系
 
 设计意图（文件头和 `Makefile`）：C++ 的 `config.h` 是所有尺寸的唯一来源，`make cfg`（= `scripts/gen_cfg.sh`）调用 `harness/tools/gen_cfg_pkg.py`，它生成一个临时 C++ 程序，包含 `config.h` 后把每个整型 `constexpr` 常量算出来打印，再写成 `ttg_cfg_pkg.sv`；这样 `clog2()`、表达式和宏都由编译器解决。`gen_cfg.sh` 默认用 `-DXLEN=64 -DRVC=1 -DFP=1`，模型目录取 `$SIM_SRC`（默认 `$AI_HUMA_ROOT/trace-model`），额外的 `-D` 会追加并覆盖。生成器还会加三类东西：
 
-- 固定在 RTL 里的设计常量 `FIXED`：`LSU_MDP_BITS = 6`、`LSU_MDP_CLR = 2000`、`FE_RFAST = 15`（模型 `config.h` 里即使有同名常量也不导出）；
-- 前端 FIFO 深度（`frontend_feature_config.h` 里的 `#define`）：`PTAB_SIZE`、`INSTRUCTION_FIFO_SIZE`、`FETCH_ADDR_FIFO_SIZE`、`FRONT2BACK_FIFO_SIZE`；
+- 固定在 RTL 里的设计常量 `FIXED`：`LSU_MDP_BITS = 6`、`LSU_MDP_CLR = 2000`（模型 `config.h` 里即使有同名常量也不导出）；
+- 前端 FIFO 深度（`frontend_feature_config.h` 里的 `#define`）：现在只有 `INSTRUCTION_FIFO_SIZE`（原来的取指地址队列、PTAB、front2back 队列已并入统一 FTQ，模型不再定义它们的深度；生成器的匹配式里还留着这几个名字，匹配不到就不输出）；
 - 扫描看不到的几个：`FP_MISC_LAT`、`FP_I2F_LAT`、`FP_FDIV_D_LAT`、`FP_FSQRT_D_LAT`，以及 `FP_IQ_SIZE`、`FP_IQ_ENQ_WIDTH`（取自 `CFG_FP_IQ_*`）。
 
 文件末尾还有两个由 `XLEN_BITS` 推出的常量：`DST_STRB_W`、`DST_L2_W`（store 请求的字节使能和第二数据字的位宽）。
@@ -36,7 +37,7 @@ depth: 待测（由协调者补）
 
 所以：数值上，检入文件 = "模型 + 上面那组 `-D`" 再加上几个手工常量；但没有机器同步，`make cfg` 会改掉手工加的内容并回到模型默认值，不能直接用。待办（`isu.md` 第 9 节也提到）：把现行配置固化成生成器的输入（一个固定的 `-D` 列表），删掉 7 个无用常量。
 
-参考周期也依赖同一组开关：`scripts/ref_cycles_memiq6_nr_int2_ev5.txt` 由模型在"与 RTL 同配置"下生成（上面的 `CFG_*`，加上 `CFG_ISSUE_OLDEST_FIRST/QUEUES`、`CFG_IQ_SAME_CYCLE_REUSE`、`CFG_FE_OVR_REG` 等不进配置包的开关）。完整的开关列表本次没有逐个核对。
+参考周期：`scripts/ref_cycles.txt` 由模型的默认配置生成（`scripts/regen_refs.sh`，a8ceec2），模型默认配置就是 RTL 配置，不需要额外的环境变量。
 
 `lint_chip.sh` 支持用环境变量 `CFG=<pkg.sv>` 换一个配置包做整芯片 lint。
 
@@ -52,17 +53,23 @@ depth: 待测（由协调者补）
 | `ttg_onehot_mux` | `N`、`W` | `sel[N]`、`data[N][W]` → `out[W]` | AND-OR；`sel` 全 0 时输出 0；`sel` 多位有效时输出 OR |
 | `ttg_onehot_to_idx` | `N`、`IDXW` | `onehot[N]` → `idx[IDXW]` | 各置位项的下标按位 OR；全 0 时输出 0 |
 | `ttg_popcount` | `N`、`CW` | `bits[N]` → `count[CW]` | 置位个数，`CW` 默认 `$clog2(N+1)` |
+| `ttg_pick_k` | `N`、`K` | `req[N]` → `pick_oh[K][N]`、`valid[K]` | 第 1..K 个最低置位的独热；不足 k+1 个置位时 `pick_oh[k] = 0`、`valid[k] = 0` |
 
 ## 4. 结构
 
 | 文件 | 行数 | 职责 |
 | --- | --- | --- |
-| `ttg_cfg_pkg.sv` | 192 | 配置常量包 |
+| `ttg_cfg_pkg.sv` | 194 | 配置常量包 |
 | `fp_pkg.sv` | 31 | F / D 共用常量与函数 |
-| `ttg_first_set.sv` | 27 | 找最低位的 1（Kogge-Stone 前缀 OR） |
-| `ttg_onehot_mux.sv` | 20 | 独热 AND-OR 多路选择 |
+| `ttg_first_set.sv` | 35 | 找最低位的 1（综合走 Kogge-Stone 前缀 OR，仿真走快速写法） |
+| `ttg_onehot_mux.sv` | 43 | 独热 AND-OR 多路选择（综合 / 仿真两种写法） |
 | `ttg_onehot_to_idx.sv` | 20 | 独热转下标 |
-| `ttg_popcount.sv` | 19 | 数 1 的个数 |
+| `ttg_popcount.sv` | 42 | 数 1 的个数（综合走逐层收窄的加法树，仿真走循环累加） |
+| `ttg_pick_k.sv` | 78 | 并行找最低的 K 个 1（温度计码前缀和，综合 / 仿真两种写法） |
+| `sram/ttg_sram_pkg.sv` | 12 | `SRAM_SWEEP_CYCLES = 4100` |
+| `sram/ttg_sram_1rw.sv` | 358 | 单口同步 SRAM 包装（复位清零、`SYNTH_TSMC28_SRAM` 宏映射） |
+| `sram/ttg_sram_1r1w.sv` | 177 | 伪双口同步 SRAM 包装（`WRITE_FIRST` 可选、复位清零） |
+| `sram/ttg_rst_sweep.sv` | 29 | 复位展宽：外部复位释放后再保持 `SRAM_SWEEP_CYCLES` 拍，输出 `init_done` |
 
 ### 4.1 SRAM 原语与复位清零（`rtl/common/sram`，2026-11-28）
 
@@ -77,7 +84,7 @@ depth: 待测（由协调者补）
 - `soc_sram`（软件可见的 64 KiB 片上 RAM，测试台会预装内容）设 `INIT_SWEEP = 0`。
 - 测试台 `tb/core/core_tb.cpp`：外部复位 3 拍后一直跑到 `init_done`，这些拍不计入周期，DDR / 外设模型和各种监视从 `init_done` 之后的第一拍开始，所以和模型比的周期不变。`SOC_TB_RAND_INIT=<seed>`（需要 `SOC_XINIT_UNIQUE=1` 编的测试台）给所有没有复位的寄存器和存储随机上电值。
 
-`ttg_first_set` 的写法：`pre[0] = req`，`pre[s+1] = pre[s] | (pre[s] << 2^s)`，共 `⌈log2 N⌉` 级，`onehot = req & ~(pre[最后一级] << 1)`。头注释说明理由：`req & -req` 功能相同，但是一条 N 位的进位链，N 层门深。其他三个都是单个 `always_comb` 的循环。
+`ttg_first_set` 的写法：`pre[0] = req`，`pre[s+1] = pre[s] | (pre[s] << 2^s)`，共 `⌈log2 N⌉` 级，`onehot = req & ~(pre[最后一级] << 1)`。头注释说明理由：`req & -req` 功能相同，但是一条 N 位的进位链，N 层门深。`ttg_onehot_to_idx` 是单个 `always_comb` 的循环；`ttg_first_set`、`ttg_onehot_mux`、`ttg_popcount`、`ttg_pick_k` 各有 `` `ifdef SYNTHESIS `` 的树形写法和仿真用的快速写法，二者由 `tests/common_prims/run.sh` 做随机等价检查。
 
 ## 5. 一拍内的数据流
 
@@ -85,16 +92,17 @@ depth: 待测（由协调者补）
 
 ## 6. 关键路径与深度
 
-depth 待测（由协调者补）。从代码读出的、未综合验证的情形：
+depth 待测。从代码读出的、未综合验证的情形：
 
 - `ttg_first_set`：`⌈log2 N⌉` 级 OR 加最后的一个 AND，深度随 N 对数增长；
 - `ttg_onehot_to_idx`：每个下标位是 N 项里一部分的 OR（OR 树），对数深度；
 - `ttg_onehot_mux`：每个输出位是 N 个 AND 的 OR，对数深度；
-- `ttg_popcount`：写成 `for` 循环里的顺序累加（`count = count + bits[i]`）。写法上是 N-1 个加法器串起来，实际深度取决于综合器是否重排成平衡的树；用在宽度 8 的提交槽上影响不大，但 N 大时需要留意。
+- `ttg_popcount`：综合时是递归的二叉加法树，每个内部节点只用 `min($clog2(子树大小+1), CW)` 位（对数深度）；仿真时是 `for` 循环顺序累加（只为仿真快，不进综合）；
+- `ttg_pick_k`：温度计码饱和前缀和，`⌈log2 N⌉` 级，没有进位链。
 
 ## 7. 与模型的差异和取舍
 
-- 四个原语在模型里没有对应物；模型里的同类操作（"取最低的就绪槽"、"数有多少个"）是 C++ 循环。RTL 把 `ttg_first_set` 写成前缀 OR 是为了降逻辑深度（见 `isu.md` 第 6 节的深度改动表）。
+- 五个原语在模型里没有对应物；模型里的同类操作（"取最低的就绪槽"、"数有多少个"）是 C++ 循环。RTL 把 `ttg_first_set` 写成前缀 OR 是为了降逻辑深度（见 `isu.md` 第 6 节的深度改动表）。
 - 配置包：RTL 现行配置与模型默认配置不同（第 2 节），参考周期由"同配置的模型"生成。
 - `fp_pkg.sv` 头注释里"rv32: only flw exists"一类说法已过时：rv32 已不在主线，`fp_load_data` 在 `XLEN_BITS = 64` 下的行为是上面写的。只记录，没有改。
 
@@ -103,7 +111,8 @@ depth 待测（由协调者补）。从代码读出的、未综合验证的情�
 ## 8. 验证
 
 - **原语的穷举测试**：`make prims`（`Makefile`：Verilator 编 `rtl/common/ttg_*.sv` + `tests/common/prims_tb.sv`，运行 `build/prims/Vprims_tb`，期望输出 `PRIMS PASS`）。它对 `N = 6` 的全部 2^6 种输入检查 `ttg_first_set`、`ttg_onehot_to_idx`、`ttg_popcount`（`CW = 4`）、`ttg_onehot_mux`（`W = 8`）与参考算法一致；`N` 只测了 6，其他 N（特别是大的 N，如 16、32、64）没有覆盖。本次没有运行它。
-- **整核门禁**：`scripts/fm_gate.sh` 67 个程序，周期对 `scripts/ref_cycles_memiq6_nr_int2_ev5.txt`；`scripts/lint_chip.sh`（原语和配置包都在整芯片 lint 范围内；`PR=$(find rtl/common -name 'ttg_*.sv' ...)` 单独列入）。
+- **综合 / 仿真两种写法的等价测试**：`tests/common_prims/run.sh [工作目录]`：`ttg_first_set`、`ttg_onehot_mux`、`ttg_popcount`、`ttg_pick_k` 的 `SYNTHESIS` 树形写法与仿真写法在 10 万组随机向量上逐位相同（`N = 64`、`K = 6`、`W = 32`）。
+- **整核门禁**：`scripts/fm_gate.sh` 77/77，周期对 `scripts/ref_cycles.txt`；`scripts/lint_chip.sh`（原语和配置包都在整芯片 lint 范围内；`PR=$(find rtl/common -name 'ttg_*.sv' ...)` 单独列入）。
 - **SRAM 复位清零（4.1 节）**：`SOC_XINIT_UNIQUE=1 CORE_VOPT=-DSYNTHESIS` 编的 `core_tb`，`SOC_TB_RAND_INIT=7 / 11 / 12345` 下 `fm_gate.sh` 都是 77/77、周期与 `ref_cycles.txt` 0 处不同（2026-11-28，fe-2ahead）。改之前同样配置下 coremark 随种子变成 289,640 / 296,512 拍（全 0 初值 285,752）。
 - **配置包**：没有自动检查它与 `config.h` 的一致性。**待补**：一个脚本，用固定的 `-D` 列表跑生成器并与检入文件比较（见第 2 节的待办）。
 - `fp_pkg`：没有独立测试；`tests/fp_gate`、`tests/fp_decode`、`tests/fp_chain` 等 FP 测试经过 FP 单元间接使用它，本次没有核对它们各自测什么。
@@ -114,6 +123,7 @@ depth 待测（由协调者补）。从代码读出的、未综合验证的情�
 
 ## 10. 变更记录
 
+- 2026-11-28（`rtl/fe-2ahead`，文档核对）：补 `ttg_pick_k` 和 `sram/` 的文件行、各原语的综合 / 仿真两种写法与 `tests/common_prims`；配置包一节去掉已删除的前端 FIFO 深度和 `FE_RFAST`；门禁改为 77/77 对 `scripts/ref_cycles.txt`。
 - 2026-11-28（`rtl/fe-2ahead`）：SRAM 复位清零（4.1 节）：包装加 `rst_n` / `INIT_SWEEP`，删除 `initial`；新增 `ttg_sram_pkg`、`ttg_rst_sweep`；`soc_top` / `soc_crg` 复位展宽 `SRAM_SWEEP_CYCLES` 拍。
 - `261bd67..HEAD` 里 `rtl/common` 的改动（均为配置包）：`b9ae0d5`（共享 AGU：`LSU_AGU_SHARED`、`LSU_AGU_PHYS`）、`237738c` / `120701a`（合并的内存发射队列、6 条入队 lane、`MEM_AGE`）、`0e82d3f`（`IQ_SAME_CYCLE_REUSE`）、`6d7ed85`（两个 INT 队列：`INT_CLUSTERS`、`IQ_INT_SIZE`、`IQ_INT_ENQ_WIDTH`）、`2e6acb6`（去掉 `MEM_MERGE`、`IQ_LD_*`、`IQ_STA_*`）；另有 `1db84c7` 及其回退 `ad24170`。
 - 更早：见 git 历史。

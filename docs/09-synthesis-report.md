@@ -3,6 +3,7 @@
 > 早期 Yosys 通用门历史记录（§1–14，2026-11-05 ~ 11-21）已归档至 [archive/09-synthesis-report-yosys-history.md](archive/09-synthesis-report-yosys-history.md)。
 > - **权威工艺签核**：Synopsys DC `W-2024.09-SP2` + TSMC 28nm HPC+（`ssg0p81v125c`, 12T SVT+LVT, `CLK=0.50ns / 2.0GHz`, `compile_ultra`）。
 > - **分钟级快速代理**：`eda-04`~`10` 上 Yosys + `yosys-slang`（`SYNTH_ABC="strash;balance;map"`，大存储加 `SYNTH_NO_MEMPRIO=1`，脚本见 [../scripts/synth_depth.sh](../scripts/synth_depth.sh)）。
+> - **注意（2026-11-28）**：本文所有数字都早于 SRAM 复位清扫（`rtl/common/sram`：每个 SRAM 包装多一个地址计数器和写口选择，整核复位经 `ttg_rst_sweep` 延长，见 `docs/modules/common.md` 4.1 节），之后还没有重新综合。§20 起提到的 `-DSRAM_BLACKBOX` 在现在的 RTL 里已没有对应的 `ifdef`（真宏用 `-DSYNTH_TSMC28_SRAM`），只剩 `scripts/run_tier1_yosys_pt.sh`、`run_tier2_dc_fast.sh` 还在传。
 
 ## 15. TSMC 28nm HPC+ Synopsys DC 时序基线与第一轮优化（EXP-062，2026-11-24）
 

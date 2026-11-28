@@ -3,7 +3,7 @@ module: mem_top
 area: memsys
 rtl: rtl/memsys/mem_top（mem_top.sv、mem_axi.sv）、rtl/memsys/memcpu_pkg/memcpu_pkg.sv
 model: trace-model MemSubSystem/MemSubsystem.cpp、include/MemSubsystem.h（容器类 `MemSubsystem`，不是调度单元：它的成员 `dcache_`、`mshr_`、`wb_`、`mem_route_block`、`ptw_block`、`peripheral_axi_` 各自是调度单元，由 `SimCpu::cycle` 的生成序列调度）；AXI 一侧对应 `AxiSubsystem.cpp`（调度单元 `axi`）和 `SimCpu.cpp` 里的 I-cache 端口寄存器 `icache_port_regs_seq`
-status: 整核周期与模型逐个相等（fm_gate 67/67，参考 scripts/ref_cycles_memiq6_nr_int2_ev5.txt）
+status: 整核周期与模型逐个相等（fm_gate 77/77，参考 scripts/ref_cycles.txt）
 depth: 待测（由协调者补）
 ---
 
@@ -35,7 +35,7 @@ depth: 待测（由协调者补）
 | DDR 从口 | 数据 256 位、地址 32 位、id 6 位 | `mem_top` 端口 |
 | AXI id | CPU 侧主口 4 位（`AX_ID_W`），3 个适配通道（`AX_NCH`：ICache 读、外设读、外设写） | `memcpu_pkg` |
 | 预取开关 | 参数 `PF_EN`（默认 1，传给 `dcache`） | |
-| 外部 MMIO 开关 | 参数 `EXT_MMIO_EN`（默认 0 走仿真 `peripheral_axi`；1 走独立 64-bit AXI4-Lite `mmio_*` 绕开 LLC，`chip_top` 开启） | `mem_top.sv` / `mem_periph_wrap.sv` / `mem_mmio_axi.sv` |
+| 外部 MMIO 开关 | 参数 `EXT_MMIO_EN`（默认 0 走仿真 `peripheral_axi`；1 走独立 64-bit 完整 AXI4（单拍传输、真实 `ARSIZE/AWSIZE`）`mmio_*` 绕开 LLC，`chip_top` 开启） | `mem_top.sv` / `mem_periph_wrap.sv` / `mem_mmio_axi.sv` |
 
 ## 3. 接口
 
@@ -50,7 +50,7 @@ depth: 待测（由协调者补）
 | 入 / 出 | `peripheral_req_*`、`peripheral_resp_*` | 外设访问请求与响应（响应寄存了一拍） |
 | 入 / 出 | `env_modeled`、`env_rdata`、`env_rd_en/addr/func3` | 测试台里的设备模型（见 peripheral_axi.md） |
 | 入 / 出 | `d_*` | DDR 的 AXI 从口（测试台里的 `SimDDR`） |
-| 入 / 出 | `mmio_ar*`/`r*`/`aw*`/`w*`/`b*` | 可选 64-bit AXI4-Lite 外部 MMIO 主口（`EXT_MMIO_EN=1` 启用，保留精确字节地址） |
+| 入 / 出 | `mmio_ar*`/`r*`/`aw*`/`w*`/`b*` | 可选 64-bit 完整 AXI4 外部 MMIO 主口（单拍）（`EXT_MMIO_EN=1` 启用，保留精确字节地址） |
 | 出 | `phase0` | 给测试台：CPU 域寄存器（核没有使能）只在这一拍更新 |
 
 ## 4. 结构
@@ -70,9 +70,11 @@ depth: 待测（由协调者补）
 
 | 文件 | 行数 | 职责 |
 | --- | --- | --- |
-| `mem_top.sv` | 393 | 顶层：端口、节拍、各模块连线、两个核侧寄存器 |
-| `mem_axi.sv` | 233 | AXI 一侧：四个主口的输入整形、实例化 `axi_subsys` 和 `axi_cpu_port_adapter`、把响应拆回各主口 |
-| `memcpu_pkg.sv` | 60 | 共用常量：端口数（`NLD`、`NST`、`P3`）、id 宽度（`LD_ID_W`、`ST_ID_W`、`RT_ID_W`、`FILL_LINE_W`）、路由主人枚举、ReplayType、Sv39 页表常量、遍历器状态枚举、外设和 AXI 适配器常量 |
+| `mem_top.sv` | 397 | 顶层：端口、节拍、各模块连线、两个核侧寄存器 |
+| `mem_axi.sv` | 237 | AXI 一侧：四个主口的输入整形、实例化 `axi_subsys` 和 `axi_cpu_port_adapter`、把响应拆回各主口 |
+| `mem_periph_wrap.sv` | 184 | 外设路径二选一：`EXT_MMIO_EN = 0` 走仿真 `peripheral_axi`，1 走 `mem_mmio_axi`，保持寄存的响应边界 |
+| `mem_mmio_axi.sv` | 237 | 64-bit 完整 AXI4 MMIO 主口：LSU 的非缓存请求直接变成单拍 AXI4 读写（Device-nGnRnE，精确 `ARSIZE/AWSIZE` 与字节地址），绕开 LLC |
+| `../memcpu_pkg/memcpu_pkg.sv`（`rtl/memsys/memcpu_pkg/`） | 71 | 共用常量：端口数（`NLD`、`NST`、`P3`）、id 宽度（`LD_ID_W`、`ST_ID_W`、`RT_ID_W`、`FILL_LINE_W`）、路由主人枚举、ReplayType、Sv39 页表常量、遍历器状态枚举、外设和 AXI 适配器常量 |
 
 状态：`phase_q`（4 位）；ICache 探测响应寄存器（valid / retry / miss / 32 位数据）；外设响应保持寄存器（ready / is_mmio / 64 位数据）。其余状态都在各子模块里。
 
@@ -99,7 +101,7 @@ LSU 请求 → `mem_route`（P3 上可能被 ICache 探测或遍历器请求替�
 depth: 待测（由协调者补）。`mem_top` 自己没有逻辑，深度完全取决于它连接的模块。从代码读出的，未综合验证：整个存储域现在与 CPU 同拍，所以下面这些原本被 16 倍频切开的路径都落在一拍里：
 
 - LSU 请求 → `mem_route` → `dcache` 第一级（bank 授权）——寄存后，第二级读阵列 → 命中数据 → `mem_route` 响应分流 → LSU（见 dcache.md、mem_route.md）；
-- MSHR 分配 → 新项当拍发 AXI 读请求 → `axi_subsys` 的接受信号 → 回 `dcache`；`scripts/lint.sh` 里对 `mem_top` 单独关掉了 UNOPTFLAT（注释写的理由是互连与 LLC 的握手在结构体粒度上看起来成环，实际不是真的环，仿真正常）；
+- MSHR 分配 → 新项当拍发 AXI 读请求 → `axi_subsys` 的接受信号 → 回 `dcache`；整核没有 Verilator UNOPTFLAT 告警，`scripts/lint.sh` 也不再有 `-Wno-UNOPTFLAT`（rtl 5e5d40f 起）；
 - AXI 读响应 → MSHR 暂存槽 → 填充转发 → 响应发布（见 dcache.md 第 6 节）。
 
 ## 7. 与模型的差异和取舍
@@ -120,9 +122,9 @@ depth: 待测（由协调者补）。`mem_top` 自己没有逻辑，深度完全
 
 ## 8. 验证
 
-- **整核门禁**：`scripts/fm_gate.sh` 67 个程序，每条提交对比功能模型，周期对 `scripts/ref_cycles_memiq6_nr_int2_ev5.txt`（模型同配置生成）。`mem_top` 作为整体就是被这个门禁覆盖的（测试台 `tb/soc` 里是 Verilated 的 `core_top` + `mem_top`，`scripts/soc_smoke.sh`）；
+- **整核门禁**：`scripts/fm_gate.sh` 77 个程序，每条提交对比功能模型，周期对 `scripts/ref_cycles.txt`（`scripts/regen_refs.sh` 由模型默认配置生成）。`mem_top` 作为整体就是被这个门禁覆盖的（测试台 `tb/soc` 里是 Verilated 的 `core_top` + `mem_top`，`scripts/soc_smoke.sh`）；
 - **Linux 整核门禁**：`scripts/linux_gate.sh`；
-- **Lint**：`scripts/lint_chip.sh`（`scripts/lint.sh` 对 `mem_top` 单独加 `-Wno-UNOPTFLAT`）；
+- **Lint**：`scripts/lint_chip.sh`（0 告警；rtl 5e5d40f 起任何地方都不加 `-Wno-UNOPTFLAT`）；
 - **没有 mem_top 的模块级测试**（它没有自己的逻辑，各子模块的验证见各自文档）。
 
 ## 9. 参数与开关速查
@@ -131,6 +133,7 @@ depth: 待测（由协调者补）。`mem_top` 自己没有逻辑，深度完全
 
 ## 10. 变更记录
 
+- 2026-11-28（文档核对，无 RTL 变化）：文件表补 `mem_periph_wrap.sv`、`mem_mmio_axi.sv`，`memcpu_pkg.sv` 路径；外部 MMIO 口是完整 AXI4（单拍）不是 AXI4-Lite；rtl 5e5d40f 起没有 `-Wno-UNOPTFLAT`；门禁参考改为 `scripts/ref_cycles.txt`（77 个程序）。
 - 2026-11-26（`rtl/soc-env`）：新增 `EXT_MMIO_EN` 参数及 `mem_periph_wrap.sv`、`mem_mmio_axi.sv`，为 `chip_top` 提供绕开 LLC 的独立 **64-bit Full-AXI4** MMIO 主口（带真实 `ARSIZE/AWSIZE`、`Device-nGnRnE` 属性、1/2/4/8 字节读写及精确字节偏移副作用识别）；`axi_ic_aw.sv` 解耦 `o_bready` 对 `d_bid` 的组合依赖；默认 `EXT_MMIO_EN=0` 保持 `soc_top` 与 `fm_gate` 行为零变化。
 - 2026-11-21（`rtl/fe-2fetch-2taken`，EXP-051 里程碑 B）：`mem_top.sv` 透传 `fdip_snoop_line` / `fdip_snoop_dirty` 连接 `core_top`（ICache FDIP）与 `dcache`；修复 `mem_axi.sv` 在 `AXI_SUBSYSTEM_FREQ_DIV == 1` 下 `raw_accepted[0]` / `raw_accepted_id[0]` 误接组合 `ax_rd_acc_new[0]` 导致 ICache 通道接受脉冲早到 1 拍的问题（改为使用已寄存 `ax_rd_accepted[0]`，严格对齐 `SimCpu` 的 `icache_axi_q` 语义），单拍消除 2-slot FDIP 在 7 个程序上的 1 拍偏差；通过 `lint_chip` 0、`fm_gate` 68/68（0 周期偏差）与 Linux 27 窗对齐。
 - 本分支未改动（`git log 261bd67..HEAD -- rtl/memsys/mem_top rtl/memsys/memcpu_pkg` 为空）。更早：`8dbb7cd` 合入 rv64imab；`f0bd79d` rv64 step 6（8 字节 MMIO）；`72f2cd9` rv64 step 3（Sv39）；`fb05807` rv64 step 2（数据字 XLEN 位）；`4e954d7` ROB 紧凑的清理批次；`b1e0335` EXP-024。`memcpu_pkg` 另有 `8abb7ab`（RTL 清理）、`f21cebf`（前端 XLEN 位 PC）。

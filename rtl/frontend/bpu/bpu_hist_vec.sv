@@ -1,6 +1,9 @@
 // Ref: front-end/BPU/BPU_pipe.h  HistRing::push (Clean BPU v11: HR_BITS=256, unified ex_fh[3][6] only)
 `default_nettype none
 
+// Precondition: sym_n <= MAX_SYM. The SYNTHESIS path and the simulation path are formally equivalent
+// under it (yosys-slang + ABC, docs/06-equivalence-policy.md 4) and differ above it; this module has no
+// clock, so the SVA is at the instances (bpu_spec.sv).
 module bpu_hist_vec import bpu_pkg::*; import bpu_stage_pkg::*; #(
   parameter int MAX_SYM = 2,
   parameter int DW      = 24

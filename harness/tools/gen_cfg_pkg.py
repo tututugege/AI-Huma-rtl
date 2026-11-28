@@ -28,8 +28,7 @@ INC_DIRS = ['include', 'libs/include', 'back-end/include', 'back-end/Exu/include
 # Design constants fixed in the RTL (never exported from the model's config.h even if the model has a constexpr of that name):
 #   LSU_MDP_BITS  wait table of the memory-dependence speculation: 2^LSU_MDP_BITS x 1 bit, indexed by a PC hash
 #   LSU_MDP_CLR   the table is cleared lazily every LSU_MDP_CLR cycles (training: one flagged entry per cycle, lp_mdp)
-#   FE_RFAST      front-end redirect fast paths of the refetch (bits 0..3): all on
-FIXED = {'LSU_MDP_BITS': 6, 'LSU_MDP_CLR': 2000, 'FE_RFAST': 15}
+FIXED = {'LSU_MDP_BITS': 6, 'LSU_MDP_CLR': 2000}
 
 
 def main():

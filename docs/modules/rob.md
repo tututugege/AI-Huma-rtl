@@ -81,12 +81,12 @@ depth: 65 层 / 881,101 单元（rob，单模块综合，2026-11-23，`SYNTH_ABC
 
 | 文件 | 行数 | 职责 |
 | --- | --- | --- |
-| `rob.sv` | 254 | 顶层：平铺端口 <-> 结构体，实例化 `rob_core_cpt`；F/D 的 fflags / fs_dirty 累加 |
-| `rob_core_cpt.sv` | 351 | 紧凑 ROB 的核心（默认）：窗口读出、退休判决、入队、误预测恢复、指针次态 |
-| `rob_entry.sv` | 62 | 一个槽（valid + `rob_entry_t`）的次态：写回、标记最后一条、入队、清除；两种核共用 |
+| `rob.sv` | 203 | 顶层：平铺端口 <-> 结构体，实例化 `rob_core_cpt`；F/D 的 fflags / fs_dirty 累加 |
+| `rob_core_cpt.sv` | 473 | 紧凑 ROB 的核心：窗口读出、退休判决、入队、误预测恢复、指针次态；8 个 bank 的指令字 SRAM（`ROB_INST_WORD`，给非法指令的 `mtval`） |
+| `rob_entry.sv` | 62 | 一个槽（valid + `rob_entry_t`）的次态：写回、标记最后一条、入队、清除 |
 | `rob_wb_decode.sv` | 20 | 每个写回口翻成事件 `rob_event_t`（写哪个字段、置哪个完成位） |
-| `rob_trap_ctrl.sv` | 84 | 队头单独退休时的冲刷、异常原因（12 个候选里取最先的）、`trap_val`、`pc` |
-| `pkg/rob_pkg.sv` | 227 | 槽结构 `rob_entry_t`、写回结构、指令分类函数、完成组、事件应用函数 |
+| `rob_trap_ctrl.sv` | 89 | 队头单独退休时的冲刷、异常原因（12 个候选里取最先的）、`trap_val`、`pc` |
+| `pkg/rob_pkg.sv` | 212 | 槽结构 `rob_entry_t`、写回结构、指令分类函数、完成组、事件应用函数 |
 
 紧凑核的几点：
 
@@ -95,7 +95,7 @@ depth: 65 层 / 881,101 单元（rob，单模块综合，2026-11-23，`SYNTH_ABC
 - **入队**：分派已经把 `rob_idx` 编成 `尾 + 有效项的序号`；第 b 个 bank 接收 `rob_idx[2:0] == b` 的那条（8 个连续位置里每个 bank 至多一条）。
 - **误预测恢复**：`keep = 被预测错的分支相对队头的偏移 + 1`；偏移大于这个的槽 `valid` 清零，分支那一条的 `ftq_is_last` 置 1（同一取指块里它后面的指令都已作废）；`count` 变成 `keep`。
 
-状态：`head_q`（7 位）、`hflag_q`（队头环绕标志）、`count_q`（8 位，0..128）、`prev_ctl_q` / `prev_blk_q`（上一拍退休的控制流指令数 / 取指块尾数，各 4 位）、三个寄存的一热视图；槽存储 128 个，每槽 `1 + ROB_ENTRY_W` 位（`rob_entry_t` 的各字段见 `rob_pkg.sv`）。槽的 `valid` 有复位，其余内容复位为 0。
+状态：`head_q`（`ROB_IDX_WIDTH = 8` 位）、`hflag_q`（队头环绕标志）、`count_q`（9 位，0..`ROB_NUM` = 256）、`prev_ctl_q` / `prev_blk_q`（上一拍退休的控制流指令数 / 取指块尾数，各 4 位）、三个寄存的一热视图；槽存储 `ROB_NUM = 256` 个，每槽 `1 + ROB_ENTRY_W` 位（`rob_entry_t` 的各字段见 `rob_pkg.sv`）。槽的 `valid` 有复位，其余内容复位为 0。指令字 SRAM（`ttg_sram_1r1w`，8 个 bank × `ROB_LINE_NUM = 32` 行 × 32 位）在复位期间由 SRAM 外壳逐地址写 `INIT_VAL` 清零（见 common.md 4.1）。
 
 ## 5. 一拍内的数据流
 
@@ -122,7 +122,7 @@ depth: 65 层 / 881,101 单元（rob，单模块综合，2026-11-23，`SYNTH_ABC
 
 优先级：冲刷 > 误预测恢复 > 退休 + 入队。`commit_valid` 是热码（前缀），所以退休条数用"一热的 n"从 `head + j`、`count - j`（j = 0..8，由寄存值预先算好）里选，不做加法；`count_d = (恢复 ? keep : count - n) + m_fire`，`m_fire` 是本拍入队条数（`dis_fire & rob2dis_ready`）。冲刷时 `head`、`count`、环绕标志清零。
 
-`rob2dis_enq_idx = (head + count) 的低 7 位`，`rob2dis_free = ROB_NUM - count`，用的都是寄存值：这一拍退休腾出的槽下一拍才能分配。
+`rob2dis_enq_idx = (head + count) 的低 ROB_IDX_WIDTH = 8 位`，`rob2dis_free = ROB_NUM - count`，用的都是寄存值：这一拍退休腾出的槽下一拍才能分配。
 
 ## 6. 关键路径与深度
 
@@ -170,7 +170,7 @@ RTL 里有、模型里没有的（模型从 trace / 函数模型取得这些，R
 ## 8. 验证
 
 - **最新整核门禁（2026-11-28，`rtl/exu-clean`，EXP-072）**：`lint_chip` & `lint_soc` 0 告警；`SOC_FM=1 SOC_SVA=1 SOC_ASSERT=1` `fm_gate` 77/77、`riscv-tests` 152/152、`soc_gate --linux` 12/12 全通；Linux 26/26 窗对齐。
-- **门禁**：`scripts/fm_gate.sh` 67 个程序，每条提交对比函数模型，周期对 `scripts/ref_cycles_memiq6_nr_int2_ev5.txt`（模型同配置生成）：67/67 通过，周期逐个相等。测试台从 `u_rob` 的提交端口取提交（`tb/soc/soc_tb.cpp` 里读 `u_rob` 的 `rob_commit_*`）。
+- **门禁**：`scripts/fm_gate.sh` 77 个程序，每条提交对比函数模型，周期对 `scripts/ref_cycles.txt`（`scripts/regen_refs.sh` 由模型默认配置生成）：77/77 通过（最近一次 rtl 73761fa，2026-11-28），周期逐个相等。测试台从 `u_rob` 的提交端口取提交（`tb/soc/soc_tb.cpp` 里读 `u_rob` 的 `rob_commit_*`）。
 - **PMU**：`scripts/pmu_parity.sh` 比较 RTL 与模型的一级事件总数（含 `COMMIT_*`、`CYC_COMMIT_*`、`BR_MISPRED`、`FLUSH_*`），与 ROB 的提交行为直接相关。
 - **SVA 断言与覆盖（`SOC_SVA=1`）**：`sva/sva_rob.sv` 通过 `bind` 挂载至 `rob_core_cpt`（零综合污染），检查 `count_q <= ROB_NUM`、`rob2dis_empty`/`rob2dis_free` 一致性、`head_oh_q`/`hb_oh_q` one-hot、`commit_valid` 连续前缀、flush/异常/中断单发射约束，并带 5 个功能 cover（ROB 满、8 宽提交、flush、mispred、异步中断）。
 - **Lint**：`scripts/lint_chip.sh` 0 告警。
@@ -182,6 +182,7 @@ RTL 里有、模型里没有的（模型从 trace / 函数模型取得这些，R
 
 ## 10. 变更记录
 
+- 2026-11-28（rtl 73761fa，SRAM 复位清扫）：`rob_core_cpt` 的 8 个 `ROB_INST_WORD` 指令字 SRAM 实例接上 `rst_n`；复位期间 `ttg_sram_1r1w` 逐地址写 `INIT_VAL`，`ttg_rst_sweep` 把复位拉长 `SRAM_SWEEP_CYCLES = 4100` 拍，不再依赖上电值（common.md 4.1）；0 周期变化，`fm_gate` 77/77。同日文档核对：`ROB_NUM = 256` 下的指针 / 计数位宽、文件行数、门禁参考改为 `scripts/ref_cycles.txt`。
 - 2026-11-28（`rtl/exu-clean`，EXP-072）：同步真 5 物理 AGU / 5 写回通道映射（`rob_pkg`、`rob.sv`、`rob_core_cpt.sv`、`rob_entry.sv`、`rob_wb_decode.sv`）；TSMC 28nm HPC+ DC `rob_bb`（`0.50 ns`）：`WNS −0.16 ns`（vs 旧 `−0.15`）、逻辑级数 **`42 → 34`（−19.0%）**、**`TNS −452 → −239.47`（−47.0%）**、面积 `121,413.43 → 123,159.29 µm²`（`+1.44%`）；通过 `lint` 0、strict+SVA `fm_gate` 77/77、`riscv-tests` 152/152、`soc_gate --linux` 12/12 与 Linux 26/26 窗对齐。
 
 - 2026-11-17/18（exp/agu-share）：`803692f` FLUSH_REG：ROB 在决定冲刷的那一拍清空自己，不等其他模块；新增输入 `flush_pend` 屏蔽陈旧的误预测恢复；限定本拍提交的信号（中断）不晚一拍。

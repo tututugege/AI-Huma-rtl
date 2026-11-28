@@ -9,7 +9,7 @@
 #   TTG_BIG          shortened dhrystone(64) / coremark(2)             (default: $RTL_ROOT/programs/big)
 #   TM               trace-model simulator binary                      (default: trace-model/build/simulator)
 # Program lists (scripts/progs*.txt, ...): one program per line; a relative entry is resolved by `ttg_resolve_list`:
-#   tests/<t>/<t>.bin  -> $TTG_PROGS/...      big/<n>.bin -> $TTG_BIG/<n>.bin      extra/<n>.bin -> programs/extra/<n>.bin      tm/<path> -> $AI_HUMA_ROOT/trace-model/<path>
+#   tests/<t>/<t>.bin  -> $TTG_PROGS/...      big/<n>.bin -> $TTG_BIG/<n>.bin      tm/<path> -> $AI_HUMA_ROOT/trace-model/<path>
 #   absolute entries are kept as they are; a `|cap` suffix (scripts/progs.txt) is kept.
 
 _env_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -30,7 +30,6 @@ ttg_resolve_list() {
       ''|'#'*) continue ;;
       /*) echo "$l" ;;
       big/*) echo "$TTG_BIG/${l#big/}" ;;
-      extra/*) echo "$RTL_ROOT/programs/${l}" ;;
       tm/*) echo "$AI_HUMA_ROOT/trace-model/${l#tm/}" ;;
       *) echo "$TTG_PROGS/$l" ;;
     esac

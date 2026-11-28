@@ -15,8 +15,9 @@
 cd rtl
 
 # 1. 本机 16 核快速扫 100 个 seed（带 SVA + X-init unique + 严格 CSR/MMIO 对拍）
+#    --tb 是核测试平台 core_tb（构建见 sva/README.md：SOC_FM=1 SOC_SVA=1 SOC_XINIT_UNIQUE=1 CORE_OUT=... bash tb/core/build.sh）
 python3 tools/fuzz/fuzz_run.py \
-  --tb "$PWD/build/soc_verif/obj/soc_tb" \
+  --tb "$PWD/build/core_verif/obj/core_tb" \
   --out "$PWD/build/fuzz_run" \
   --seeds 100 --profile all --strict --jobs 16
 
@@ -29,7 +30,7 @@ python3 tools/fuzz/fuzz_run.py \
 
 # 3. 若发现失败 seed，自动二分缩减为最小复现 .S
 python3 tools/fuzz/minimize.py \
-  --tb "$PWD/build/soc_verif/obj/soc_tb" \
+  --tb "$PWD/build/core_verif/obj/core_tb" \
   --src "$PWD/build/fuzz_run/failures/s42_mixed/prog.S" \
   -o "$PWD/build/fuzz_run/failures/s42_mixed/min.S" \
   --strict

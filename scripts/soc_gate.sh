@@ -31,7 +31,7 @@ for a in "$@"; do
 done
 OUT=${OUT:-$ROOT/build/soc_gate}
 
-# Rule (GEMINI.md §3): delete stale outputs before running; decide pass/fail strictly by exit code.
+# Delete stale outputs before running; decide pass/fail strictly by exit code.
 rm -rf "$OUT/logs" "$OUT/summary.txt"
 mkdir -p "$OUT/logs"
 

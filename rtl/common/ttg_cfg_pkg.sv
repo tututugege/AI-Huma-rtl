@@ -161,10 +161,8 @@ package ttg_cfg_pkg;
   localparam int SIM_CACHE_ADDR_1_MAX = 1342177280;
   localparam longint unsigned SIM_CACHE_ADDR_2_MIN = 64'd2147483648;
   localparam int XLEN_BITS = 64;
-  localparam int ROB_COMPACT = 1;
   localparam int MOVE_ELIM = 1;
   localparam int LSU_MEMSPEC = 1;
-  localparam int FE_BFAST = 0;
   localparam int BPU_SCL_META_NTABLE = 8;
   localparam int BPU_SCL_META_IDX_BITS = 16;
   localparam int BPU_LOOP_META_IDX_BITS = 16;
@@ -185,7 +183,6 @@ package ttg_cfg_pkg;
   // fixed design constants (harness/tools/gen_cfg_pkg.py FIXED), not exported from the model
   localparam int LSU_MDP_BITS = 6;
   localparam int LSU_MDP_CLR = 2000;
-  localparam int FE_RFAST = 15;
   // core <-> dcache data word: XLEN bits; a store request carries a strobe of XLEN/8 + 1 bits (the extra one: the
   // next data word, conflict checks only) and a second data word {strb, word index, data}
   localparam int DST_STRB_W = XLEN_BITS / 8 + 1;
