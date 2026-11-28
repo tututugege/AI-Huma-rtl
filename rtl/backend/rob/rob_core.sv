@@ -12,7 +12,7 @@
 // not exceed the free uBTB train-queue entries, both from the registered BPU occupancy minus what was committed
 // last cycle (those commits reach the BPU queues this cycle).  The oldest entry is never held back by the credits.
 // A mispredict keeps the entries up to the branch (the tail moves to the entry after it).
-module rob_core_cpt
+module rob_core
   import ttg_cfg_pkg::*;
   import rob_pkg::*;
   import dis_pkg::INST_BR, dis_pkg::INST_JAL, dis_pkg::INST_JALR;

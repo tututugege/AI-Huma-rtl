@@ -5,7 +5,7 @@ AI-Huma 乱序 RISC-V 核的 SystemVerilog 实现。起点是把 tututugege 模�
 **当前状态（2026-11-28，EXP-073 + `rtl/fe-2ahead`）**：
 - `main` 仅维护 **`rv64gc` + `Sv39`**（`XLEN_BITS = 64`、`FP = 1`、`RVC_ENABLE = 1`）；`rv32` 已归档至分支 `rv32-legacy`。
 - **核心微架构**（与 `trace-model/include/config.h` 默认配置完全对齐）：
-  - **前端**：单套 2-Ahead BPU（uFTB 256 + 主 FTB + 2 路 6 表 2-Ahead ExBlockTage + 4 表 2-Ahead ITT + RAS，见 `docs/modules/bpu.md`）、64 KiB（`256×4`）Lo-32B/Hi-32B 两级 VIPT ICache（单口 `1024×32` 宏，64 项 ITLB，见 `docs/modules/icache.md`）、FDIP 预取（1 项回填缓冲）；
+  - **前端**：单套 3-block ahead BPU（uFTB 256 + 主 FTB + 2 路 6 表 3-block ahead ExBlockTage + 4 表 3-block ahead ITT + RAS，见 `docs/modules/bpu.md`）、64 KiB（`256×4`）Lo-32B/Hi-32B 两级 VIPT ICache（单口 `1024×32` 宏，64 项 ITLB，见 `docs/modules/icache.md`）、FDIP 预取（1 项回填缓冲）；
   - **后端**：2 级流水重命名（`IDU → S1 → S2 → DISPATCH`、无上限 `CNT_W=6` 组内 1-hop `MOVE_ELIM`、1 拍流水化检查点写与 INT 空闲表回收、稀疏 `K=4` 单写口检查点 + 本地 256×25b `ren_log` 8 宽前向 Walk）、`PRF=256 / ROB=256 / MAX_BR=32`、双 INT 发射队列 + 合并 MEM 队列 + 5 个物理 AGU、Radix-4 Booth 乘法 + 1× Radix-16 Early-out 变延迟除法（EXU 动态唤醒）+ 全套自研可综合 RV64FD FPU（默认仿真走 DPI、`SYNTHESIS` / `-DFPU_REAL` 走真 RTL）、Load L2a 并行 STQ CAM + 256-bit STQ Bloom Filter + L2b STLF 拆拍 + Load L2 推测唤醒与取消、访存相关推测（`LSU_MEMSPEC`）与拍平 STQ Write Buffer；
   - **访存与缓存**：16-MSHR L1D + 4 级流水硬件 Berti 预取器、统一 L2 TLB（1024×4 1RW SRAM）+ 8 项大页 CAM + 16 项 Sv39 PWC、4 MiB LLC（SRRIP）+ BOP & Bingo 4KB 空间预取器。
 - **验证状态**：`lint_chip.sh` 0 警告/0 错误；`fm_gate.sh` **77/77 PASS（0 FM 不一致、77/77 与 `trace-model` / `ref_cycles.txt` 0 周期差；随机上电初值 `SOC_TB_RAND_INIT` 下同样 77/77）**；`rv64gc` + `Sv39` Linux 5.15 **26 窗检查点对齐（`s01..s26`，~1.326 亿指令）26/26 PASS、0 FM 不一致、26/26 PT/UP 指纹 100% 逐拍全等**。

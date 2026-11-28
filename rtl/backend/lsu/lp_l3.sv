@@ -15,7 +15,7 @@ module lp_l3
   input  logic [LQW-1:0]      wbd_idx [NLD],
   input  logic [NLD-1:0]      wbd_hasdata,
   input  logic [XLEN_BITS-1:0]         wbd_data [NLD],
-  input  logic [LQ-1:0]       wb3_r,
+  input  logic [LQ-1:0]       wb3_st,
   output logic [NLD-1:0]      wbw_v,
   output logic [LQW-1:0]      wbw_idx [NLD],
   output logic [NLD-1:0]      wbw_hd,
@@ -39,7 +39,7 @@ module lp_l3
 
   always_comb begin
     for (int p = 0; p < NLD; p++) begin
-      wbw_v[p]    = l3_v_q[p] && wb3_r[l3_idx_q[p]];
+      wbw_v[p]    = l3_v_q[p] && wb3_st[l3_idx_q[p]];
       wbw_idx[p]  = l3_idx_q[p];
       wbw_hd[p]   = l3_hd_q[p];
       wbw_data[p] = l3_data_q[p];

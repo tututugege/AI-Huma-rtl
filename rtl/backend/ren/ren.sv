@@ -15,12 +15,12 @@ module ren
   input  logic                        dis2ren_ready,
   input  logic                        rob_bcast_flush,
   input  logic                        rob_bcast_interrupt,
-  input  logic [COMMIT_WIDTH-1:0]     rob_commit_commit_entry_valid,
-  input  logic [dis_pkg::INST_TYPE_W-1:0]  rob_commit_commit_entry_uop_type [COMMIT_WIDTH],
-  input  logic [COMMIT_WIDTH-1:0]     rob_commit_commit_entry_uop_page_fault_inst,
-  input  logic [COMMIT_WIDTH-1:0]     rob_commit_commit_entry_uop_page_fault_load,
-  input  logic [COMMIT_WIDTH-1:0]     rob_commit_commit_entry_uop_page_fault_store,
-  input  logic [COMMIT_WIDTH-1:0]     rob_commit_commit_entry_uop_illegal_inst,
+  input  logic [COMMIT_WIDTH-1:0]     rob_commit_valid,
+  input  logic [dis_pkg::INST_TYPE_W-1:0]  rob_commit_uop_type [COMMIT_WIDTH],
+  input  logic [COMMIT_WIDTH-1:0]     rob_commit_uop_page_fault_inst,
+  input  logic [COMMIT_WIDTH-1:0]     rob_commit_uop_page_fault_load,
+  input  logic [COMMIT_WIDTH-1:0]     rob_commit_uop_page_fault_store,
+  input  logic [COMMIT_WIDTH-1:0]     rob_commit_uop_illegal_inst,
   output logic                        ren2dec_ready,
   output logic                        ren2rob_walking,
   output logic [PRF_IDX_WIDTH-1:0]    ren_commit_dest_preg [COMMIT_WIDTH],
@@ -31,12 +31,12 @@ module ren
   ren_commit_t commit [COMMIT_WIDTH];
 
   for (genvar k = 0; k < COMMIT_WIDTH; k++) begin : g_commit
-    assign commit[k] = '{valid:            rob_commit_commit_entry_valid[k],
-                         inst_type:        rob_commit_commit_entry_uop_type[k],
-                         page_fault_inst:  rob_commit_commit_entry_uop_page_fault_inst[k],
-                         page_fault_load:  rob_commit_commit_entry_uop_page_fault_load[k],
-                         page_fault_store: rob_commit_commit_entry_uop_page_fault_store[k],
-                         illegal_inst:     rob_commit_commit_entry_uop_illegal_inst[k]};
+    assign commit[k] = '{valid:            rob_commit_valid[k],
+                         inst_type:        rob_commit_uop_type[k],
+                         page_fault_inst:  rob_commit_uop_page_fault_inst[k],
+                         page_fault_load:  rob_commit_uop_page_fault_load[k],
+                         page_fault_store: rob_commit_uop_page_fault_store[k],
+                         illegal_inst:     rob_commit_uop_illegal_inst[k]};
   end
 
   ren_core u_core (

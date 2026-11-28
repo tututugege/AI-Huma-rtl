@@ -20,7 +20,7 @@ package ftq_ibuf_pkg;
   localparam int FTQ_PC_BANKS = 8;
 
   // FTQ entry idx lies in the window of FTQ_PC_BANKS consecutive entries starting at base (ring distance; used by
-  // the decode lanes (idu) and the commit group (rob_core_cpt) so that one window read serves the whole group)
+  // the decode lanes (idu) and the commit group (rob_core) so that one window read serves the whole group)
   function automatic logic ftq_in_window(input logic [FTQ_IDX_WIDTH-1:0] idx, input logic [FTQ_IDX_WIDTH-1:0] base);
     /* verilator lint_off UNUSEDSIGNAL */   // waiver: only the bits above the window offset are tested
     logic [FTQ_IDX_WIDTH-1:0] d;

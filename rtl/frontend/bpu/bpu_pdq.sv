@@ -1,4 +1,4 @@
-// Ref: front-end/BPU/BPU_pipe.h  State::pq (BPO_PDCKPT: checkpoint + block base of every block in PTAB)
+// Ref: front-end/BPU/BPU_pipe.h  State::pq (BPO_PDCKPT: checkpoint + block base of every block in the FTQ)
 `default_nettype none
 
 module bpu_pdq import ttg_cfg_pkg::*; import bpu_stage_pkg::*; (

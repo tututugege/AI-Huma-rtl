@@ -157,6 +157,7 @@ RTL 与模型保持一致的细节：
 
 ## 10. 变更记录
 
+- 2026-11-29 清理 E：改名 `lsu2exe_{,sta_}wb_req_valid` / `_wb_req_uop_*` → `lsu2exe_{,sta_}wb_valid` / `_wb_uop_*`（只改名字，周期不变）。
 - 2026-11-29 清理 D：去重——删 `xc_port_cap`（与 `isu_pkg::port_cap` 同一张表，现只留 `dis_pkg::issue_port_cap`，`xc_port_has` 直接读它）；删 uop 编码副本 `XC_OP_NUM`、`XC_UOP_MUL/DIV/FMA/FMISC/FDIV/I2F`，`xc_mc_op` / `xc_fp_op` 改用 `dis_pkg::UOP_*`，`xc_opset_t` / `xc_op_t` 由 `dis_pkg::uop_set_t` / `UOP_TYPE_W` 定义；`exu_ctrl` / `exu_ctrl_fu_out` / `exu_ctrl_wb_prf` / `exu_ctrl_wb_rob` 改用 `dis_pkg::UOP_TYPE_W` / `UOP_LOAD` / `UOP_STA`；`XC_OP_W` / `XC_UOP_LOAD` / `XC_UOP_STA` 仅为 `lsu.sv` 留作别名（数值不变）（周期不变）。
 - 2026-11-28 清理：删 `FP_EN`（`XC_OP_NUM = 21`、`N_FPU = 8`、`exu_ctrl_fu_out` 的 `g_no_fp`、端口能力里的 I2F 条件）、输出 `exu2fu_mc_func7 / _op / _imm`（`exu.sv` 不读）与 `exe2csr_re`（`csr` 不读，改为内部线 `csr_re`）、`exu_ctrl_pkg` 两处 `LSU_MEMSPEC:` 注释前缀；删不抑制任何告警的 lint 豁免（`exu_ctrl_fu_out` / `exu_ctrl_lsu_req` / `exu_ctrl_wb_prf` / `exu_ctrl_wb_rob` 各 1 处，以去掉豁免后整树 lint 普通 / `-DSYNTHESIS` 均无新告警为准）（周期不变）。
 - 2026-11-28（文档核对，无 RTL 变化）：`exe2iss_div_wb_in2` 在 `exu.sv` 而不在 `exu_ctrl`，删去错误的 `exe2iss_div_wb_next` 输出；写回 / 旁路总线为 `exe2prf`；`exu2id_*` 列全；文件表补行数；门禁参考改为 `scripts/ref_cycles.txt`（77 个程序）。

@@ -91,6 +91,7 @@ depth: soc_xbar 75 层（100,853 cells）；全部片上外设 ≤72 层（eda-0
 
 ## 10. 变更记录
 
+- 2026-11-29 清理 E：改名 `rob_commit_commit_entry_*` → `rob_commit_*`（如 `rob_commit_valid`、`rob_commit_uop_type`）；`peripheral_req_mmio_fun3` → `peripheral_req_mmio_func3`（只改名字，周期不变）。
 - 2026-11-28 清理：删参数 `PF_EN`（默认 1、没人覆盖，L1D 预取器固定开），`mem_top` 实例不再传它（周期不变）。
 - 2026-11-28（`rtl/fe-2ahead`）：`soc_crg` 在同步释放后经 `ttg_rst_sweep` 展宽 `SRAM_SWEEP_CYCLES` 拍（SRAM 复位清零，DFT 测试模式旁路）；文档按 TEMPLATE 十节重排（新增结构、数据流、深度、与模型的差异、变更记录）。
 - 2026-11-26：新增 `chip_top`（双层 Full-AXI4 互联、可综合外设、`tb/soc/soc_tb`、`scripts/soc_gate.sh`，`5fa54e2`）。

@@ -14,7 +14,7 @@ module front_pd_info import ttg_cfg_pkg::*; import front_pkg::*; import bpu_stag
   input  logic [XLEN_BITS-1:0]    pre_target [FETCH_WIDTH],
   input  logic [FETCH_WIDTH-1:0]  dir_corrected,
   input  logic [FETCH_WIDTH-1:0]  predict_dir,
-  input  logic [XLEN_BITS-1:0]    ptab_next,
+  input  logic [XLEN_BITS-1:0]    pd_next_pc,
   output logic                    pd_valid,
   output logic                    pd_flush,
   output logic                    pd_hn,
@@ -50,7 +50,7 @@ module front_pd_info import ttg_cfg_pkg::*; import front_pkg::*; import bpu_stag
     for (int i = 0; i < FETCH_WIDTH; i++) begin
       logic [XLEN_BITS-1:0] tgt;
       ctrl_tk[i] = flush && inst_valid[i] && (ptype[i] != PREDECODE_NON_BRANCH) && dir_corrected[i];
-      tgt          = (ptype[i] == PREDECODE_JALR) ? ptab_next : pre_target[i];
+      tgt          = (ptype[i] == PREDECODE_JALR) ? pd_next_pc : pre_target[i];
       lane_sym[i]  = hsym_of(slot_pc[i], tgt);
       lane_rop[i]  = 2'd0;
       lane_rval[i] = '0;

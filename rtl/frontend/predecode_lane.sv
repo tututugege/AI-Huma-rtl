@@ -34,7 +34,7 @@ module predecode_lane import ttg_cfg_pkg::*; import front_pkg::*; (
     imm_sel        = ({32{is_jal}} & imm_jal) | ({32{is_branch}} & imm_branch);
     predecode_type = PREDECODE_NON_BRANCH;
     if (is_jal)    predecode_type = PREDECODE_JAL;
-    if (is_branch) predecode_type = PREDECODE_DIRECT_JUMP_NO_JAL;
+    if (is_branch) predecode_type = PREDECODE_BRANCH;
     if (is_jalr)   predecode_type = PREDECODE_JALR;
     // jalr has no direct target (0); non-branch lanes have 0
     predecode_target_address = (is_jal || is_branch) ? (pc + XLEN_BITS'($signed(imm_sel))) : '0;

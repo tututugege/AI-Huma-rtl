@@ -1,4 +1,4 @@
-// SVA checker bound to rob_core_cpt (simulation/formal only; never included in synthesis)
+// SVA checker bound to rob_core (simulation/formal only; never included in synthesis)
 `default_nettype none
 
 module sva_rob

@@ -124,7 +124,7 @@ package ttg_cfg_pkg;
   localparam int IQ_BR_ENQ_WIDTH = 5;
   localparam int MAX_IQ_SIZE = 64;
   localparam int IQ_READY_NUM_WIDTH = 7;
-  localparam int LSU_PEPLAY_WAIT_CYCLES = 4;
+  localparam int LSU_REPLAY_WAIT_CYCLES = 4;
   localparam int LSU_WAIT_MSHR_FILL = 1;
   localparam int AREG_IDX_WIDTH = 6;
   localparam int PRF_IDX_WIDTH = 9;

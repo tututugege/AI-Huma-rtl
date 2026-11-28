@@ -80,7 +80,7 @@ end
 - 端口名和类型写在模块文档第 3 节（旧体系的 `spec/<module>.io` 已删除）：宽度 1 用 `logic`，否则 `logic [W-1:0]`，数组用非压缩维度 `logic [W-1:0] name [D0][D1]`。
 - 端口名沿用模型对应 IO 结构体的字段名，结构体嵌套用 `_` 连接（`rob_commit.commit_entry[i].valid` → `rob_commit_entry_valid[i]`），和 C++ 源码一一对得上。
 - 模块内部可以用 packed struct 组织，但**边界端口不用 struct**。
-- **1 位元素的通道数组写成打包向量**：`logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_valid`，不写 `logic x [8]`。多位元素的通道数组仍用非压缩维度；
+- **1 位元素的通道数组写成打包向量**：`logic [COMMIT_WIDTH-1:0] rob_commit_valid`，不写 `logic x [8]`。多位元素的通道数组仍用非压缩维度；
   参数化尺寸无法求值的、以及 `*_bank` 这类以模块参数 `N` 定尺寸的端口保持非压缩。
   扫描式链（`alive[p+1] = alive[p] && ...`，同一 always_comb 内逐位依赖）保持非压缩数组，否则 Verilator 报 ALWCOMBORDER。
 - **数组尺寸用配置参数，不写字面量**：`[COMMIT_WIDTH]`、`[ISSUE_WIDTH]`、`[LSU_LDU_COUNT]`…。

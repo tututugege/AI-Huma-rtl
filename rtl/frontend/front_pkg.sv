@@ -15,7 +15,7 @@ package front_pkg;
 
   // predecode_type_t (predecode.h)
   localparam logic [1:0] PREDECODE_NON_BRANCH           = 2'd0;
-  localparam logic [1:0] PREDECODE_DIRECT_JUMP_NO_JAL   = 2'd1;
+  localparam logic [1:0] PREDECODE_BRANCH               = 2'd1;
   localparam logic [1:0] PREDECODE_JALR                 = 2'd2;
   localparam logic [1:0] PREDECODE_JAL                  = 2'd3;
 
@@ -27,7 +27,7 @@ package front_pkg;
   // instruction_FIFO entry: compact raw halfwords (Block A + optional same-page next line B for the line straddle);
   // expand/predecode runs once after the A/B merge in front_head_fix.
   typedef struct packed {
-    logic                         is_pair;
+    logic                         is_straddle;
     logic [3:0]                   a_len;
     logic [XLEN_BITS-1:0]         base_a;
     logic [FETCH_WIDTH-1:0]       valid_a;
@@ -45,11 +45,11 @@ package front_pkg;
   // Pure registered feedback from ftq_ibuf (back_top) to front_top
   typedef struct packed {
     logic                     ftq_full;        // (bpu-comm)>=63 || (bpu-ifu)>=15
-    logic                     fa_empty;        // ifu_ptr == bpu_ptr
-    logic [1:0]               fa_cnt_sat;      // min(bpu_ptr - ifu_ptr, 3) for S3 hold_n check
+    logic                     ifu_empty;       // ifu_ptr == bpu_ptr
+    logic [1:0]               ifu_cnt_sat;     // min(bpu_ptr - ifu_ptr, 3) for S3 hold_n check
     logic                     s2_empty;        // pd_ptr == s2_ptr
     logic [XLEN_BITS-1:0]     ifu_addr;        // entry[ifu_ptr].pc0
-    logic [5:0]               ifu_next_fa_idx; // entry[ifu_ptr+1].pc0[11:6] (L1I SRAM pre-launch)
+    logic [5:0]               ifu_next_set_idx; // entry[ifu_ptr+1].pc0[11:6] (L1I SRAM pre-launch)
     logic [FTQ_IDX_WIDTH-1:0] pd_idx;          // pd_ptr
     logic [XLEN_BITS-1:0]     pd_base_pc;      // entry[pd_ptr].pc0
     logic [FETCH_WIDTH-1:0]   pd_pred_dir;     // entry[pd_ptr].pred_taken

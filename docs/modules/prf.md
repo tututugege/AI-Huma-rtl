@@ -48,11 +48,11 @@ depth: 25 层 / 639,644 单元（EXP-060 开启 `HAS_LSU_BYP` 4 路整数 `lsu_b
 | 入 | `iss2prf_valid`、`iss2prf_uop`（`isu_uop_t`）、`iss2prf_src1_byp / src2_byp`（各 `ALU_NUM = 6` 位独热）`[ISSUE_WIDTH]` | 经 `iss_rr_reg` 打一拍的发射结果，读口用其中的 `src*_preg`、`src*_en`、`src1_fp / src2_fp`、`src3_*`、`ftq_idx`、`ftq_offset` 等；`src*_byp` 选 EXU 级旁路的 ALU 口 |
 | 入 | `exe2prf [WB_LANES]`（`xc_prf_wb_t`：`valid`、`dest_preg`、`result`、`fresult`、`dest_en`、`rob_idx / rob_flag`、`op` 等） | 写回总线（按通道编号），进写回级；其中 ALU 通道 0..5 同拍也作 EXU 级旁路源（由 `src*_byp` 独热选），FDIV 通道作浮点 EXU 级旁路源 |
 | 入 | `lsu_byp_valid / dest_preg / result / is_w [LSU_LOAD_WB_WIDTH]` | LSU 的 load 写回请求作旁路源（`back_top.sv` 里由 `lsu2exe_wb_req_*` 生成），总是开（无开关） |
-| 入 | `ftq_prf_pc_resp_resp_{pc, pred_taken, is_rvc, next_pc} [FTQ_PRF_PC_PORT_NUM]` | FTQ 的回答 |
+| 入 | `ftq_prf_pc_resp_{pc, pred_taken, is_rvc, next_pc} [FTQ_PRF_PC_PORT_NUM]` | FTQ 的回答 |
 | 入 | `dec_bcast_{mispred, redirect_rob_idx, redirect_rob_flag}`、`rob_bcast_flush` | 误预测（按 ROB 号杀掉更年轻的写回）、全局 flush（经 `rob_flush_q` 晚一拍，docs/FLUSH_REG.md） |
 | 出 | `prf2exe_valid`、`prf2exe_uop`（`xc_inst_t`）`[ISSUE_WIDTH]` | 发射结果透传，加上读出的 `src1_rdata`、`src2_rdata`、`fsrc1..3`，以及口 0、2、14、15 的 `pc`、`ftq_pred_taken`、`ftq_is_rvc`、`ftq_next_pc`（其他口为 0） |
 | 出 | `prf2exe_csr_idx` | 口 0 的 `csr_idx` |
-| 出 | `ftq_prf_pc_req_req_{ftq_idx, ftq_offset} [FTQ_PRF_PC_PORT_NUM]` | 向 FTQ 要 pc（没有 valid：FTQ 每拍都读，口只在需要 pc 时用回答） |
+| 出 | `ftq_prf_pc_req_{ftq_idx, ftq_offset} [FTQ_PRF_PC_PORT_NUM]` | 向 FTQ 要 pc（没有 valid：FTQ 每拍都读，口只在需要 pc 时用回答） |
 | 出 | `prf_awake_wake_valid / _preg [LSU_LOAD_WB_WIDTH]` | load 晚唤醒 |
 
 ## 4. 结构
@@ -145,6 +145,7 @@ RTL 与模型保持一致的细节：
 
 ## 10. 变更记录
 
+- 2026-11-29 清理 E：改名 `ftq_prf_pc_req_req_*` / `_resp_resp_*` → `ftq_prf_pc_req_*` / `_resp_*`（只改名字，周期不变）。
 - 2026-11-29 清理 D：去重——`prf.sv` 删参数 `UOP_TYPE_WIDTH` 与本地 `UOP_LOAD`，改用 `dis_pkg::UOP_LOAD`（数值 3 不变；`back_top` 从未覆盖该参数）；`prf_awake` / `prf_wb_pipe` 删本地 `rob_younger`，改用同体的 `ttg_util_pkg::ttg_rob_younger`（周期不变）。
 - 2026-11-28 清理：删 `FP_EN`（`prf.sv` 的 `g_fp` 生成块展开、`g_no_fp` 删除；`FW = FLEN`）、`HAS_LSU_BYP`（`prf_bypass` 参数及 `g_no_lsu_byp`，旁路写死开）、`FP_WB_PORTS == 0` 分支；删输出 `ftq_prf_pc_req_req_valid`（FTQ 不读，其响应 valid 也已删）及 `prf_pc_port` 实例，`prf_pc_port.sv` 成死文件；删不抑制任何告警的 lint 豁免（`prf.sv` 3 处，以去掉豁免后整树 lint 普通 / `-DSYNTHESIS` 均无新告警为准）（周期不变）。
 - 2026-11-28（文档核对，无 RTL 变化）：`FTQ_PRF_PC_PORT_NUM = 4`（口 0、2、14、15）；`PRF_NUM = 256` 下的寄存器堆与位宽；接口改为 `iss2prf_* / exe2prf / prf2exe_*` 结构体端口，误预测按 ROB 号；旁路改为 EXU 独热 + 写回级 / LSU 编号比较，`lsu_byp` 总是开；删掉已不存在的 AGU 读口借用；文件表行数；门禁参考改为 `scripts/ref_cycles.txt`（77 个程序）。

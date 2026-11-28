@@ -132,6 +132,7 @@ depth: 待测（由协调者补）。`mem_top` 自己没有逻辑，深度完全
 
 ## 10. 变更记录
 
+- 2026-11-29 清理 E：改名 `peripheral_req_mmio_fun3` → `peripheral_req_mmio_func3`（只改名字，周期不变）。
 - 2026-11-29 清理 D：去重（周期不变）。`memcpu_pkg` 成为 ReplayType 编码的唯一定义：`dcache_pkg::RP_*` 与 `lp_pkg::RT_*`（同值）删除，使用者按名导入 `memcpu_pkg::REPLAY_*`；`lp_pkg::replay_wait`（含 `RWAIT`）移入 `memcpu_pkg`，位宽改用 `LSU_REPLAY_WAIT_CYCLES_WIDTH`。
 - 2026-11-28 清理：删参数 `PF_EN`（默认 1、没人覆盖，L1D 预取器固定开）；`mem_top.sv` 外设注释 AXI4-Lite 改为 AXI4；`memcpu_pkg.sv` `NST` 注释改正（STA 数，3）；删 `mem_mmio_axi.sv`、`mem_periph_wrap.sv` 包住 `unused_*` 的多余 waiver（周期不变）。
 - 2026-11-28（文档核对，无 RTL 变化）：文件表补 `mem_periph_wrap.sv`、`mem_mmio_axi.sv`，`memcpu_pkg.sv` 路径；外部 MMIO 口是完整 AXI4（单拍）不是 AXI4-Lite；rtl 5e5d40f 起没有 `-Wno-UNOPTFLAT`；门禁参考改为 `scripts/ref_cycles.txt`（77 个程序）。

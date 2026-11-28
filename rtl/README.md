@@ -3,7 +3,7 @@
 ```
 common/                 配置包 ttg_cfg_pkg（make cfg 生成，rv64gc）、fp_pkg 与 5 个原语（ttg_first_set / onehot_mux / onehot_to_idx / pick_k / popcount），所有模块共用
 common/sram/            SRAM 包装 ttg_sram_1rw / ttg_sram_1r1w（复位期间把 INIT_VAL 写满每个地址）、复位延长 ttg_rst_sweep、ttg_sram_pkg（SRAM_SWEEP_CYCLES = 4100）
-backend/<模块>/         后端：prf idu ren dispatch rob（rob_core_cpt，紧凑 ROB）csr ftq_ibuf isu tlb_mmu exu_fu（含 FPU：fp_*）exu_ctrl lsu（顶层 lsu / lsu_pipe + lp_* 分级 LSU）
+backend/<模块>/         后端：prf idu ren dispatch rob（rob_core，紧凑 ROB）csr ftq_ibuf isu tlb_mmu exu_fu（含 FPU：fp_*）exu_ctrl lsu（顶层 lsu / lsu_pipe + lp_* 分级 LSU）
 backend/back_top/       后端顶层：back_top.sv、exu.sv（原为生成文件，生成器已删除，现在手改）、back_top_glue.sv、back_br_redirect.sv、iss_rr_reg.sv
 frontend/               前端基础块（FIFO、预译码、front_ctrl 等，平铺文件）
 frontend/bpu/           分支预测（类型预测/BTB/TAGE/历史+RAS/更新队列）

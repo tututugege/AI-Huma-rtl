@@ -196,7 +196,7 @@ module bpu_eval import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
     end
   end
 
-  // ---- S2 Stage 3: ctr dir resolve, winner select, metadata & PTAB output ----
+  // ---- S2 Stage 3: ctr dir resolve, winner select, metadata & FTQ S2 output ----
   logic [FTB_SLOTS-1:0]      s2_slot_tk;
   logic [FTB_SLOTS-1:0][2:0] s2_r3;
 

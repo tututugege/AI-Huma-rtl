@@ -74,7 +74,7 @@ package icache_pkg;
     logic [XLEN_BITS-1:0] pc;
     logic                 use_hi_only;
     logic                 b_hit;
-    logic                 b_is_pair;
+    logic                 b_is_straddle;
     logic                 b_is_tail;
     logic [3:0]           a_len;
     logic [3:0]           b_nwords;

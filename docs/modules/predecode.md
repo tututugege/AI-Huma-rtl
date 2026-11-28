@@ -25,9 +25,9 @@ depth: 27 层 / 10,144 单元（predecode，单模块综合，2026-11-21，`SYNT
 I-Cache 回来的取指组（16 个 2 字节的槽，原始半字，存在 `inst_fifo` 里）在送后端之前要经过预译码检查，全部在检查侧（`inst_fifo` 队首和统一 FTQ 的 `pd_ptr` 项一起读出，在 `front_pred_path`，见 [front_top.md](front_top.md)）：
 
 1. `front_head_fix`：
-   - 选块：取指组跨 64 字节行（同页下一行由 I-Cache B 口读出，`inst_e.is_pair`）时把 A 的前 `a_len` 槽和 B 的槽拼起来，B 恒为 A 的下一行，拼出的槽 pc 连续；
+   - 选块：取指组跨 64 字节行（同页下一行由 I-Cache B 口读出，`inst_e.is_straddle`）时把 A 的前 `a_len` 槽和 B 的槽拼起来，B 恒为 A 的下一行，拼出的槽 pc 连续；
    - 单份 `rvc_expand`（窗口低两位不是 `11` 的是 16 位压缩指令，展开成等价的 32 位指令，非法编码展开成 0）和 `predecode_lane`（判断 JAL / 条件分支 / JALR / 其他，算直接目标）；
-   - 指令起点扫描（`start_a / start_b`，4 轮前缀扫描）；按 FTQ 项的 pc（`ptab_base_pc` 等端口，名字是旧的，接的是 `ftq2fe.pd_*`）截断；
+   - 指令起点扫描（`start_a / start_b`，4 轮前缀扫描）；按 FTQ 项的 pc（`pd_base_pc`，接 `ftq2fe.pd_base_pc`）截断；
    - 16 位 / 32 位混排带来的组间"携带"（见下）、跨页 RVC 第二半字缺页（`pf_hi_o`）、末槽 32 位指令的处理、顺序续接地址 `seq_next_o`；
 2. `predecode_checker`：用预译码结果检查 FTQ 里的 BPU 预测：取第一个"确实跳"的槽，它的目标（JAL / 条件分支用预译码目标，JALR 沿用 BPU 的目标）应当等于预测的下一取指地址；不等就是一次预译码冲刷，下一拍用修正后的地址重取；
 3. `front_pd_info`：把检查结果登记一拍后告诉 BPU（丢不丢 PDCKPT 记录；冲刷时修正后的块往历史和 RAS 里推什么）；
@@ -43,7 +43,7 @@ I-Cache 回来的取指组（16 个 2 字节的槽，原始半字，存在 `inst
 | 槽宽 | 2 字节 | `SLOT_BYTES = 2` |
 | 压缩指令 | 开；`rvc_expand` 的 `IS_RV64 = (XLEN_BITS == 64)`、`HAS_FP = (FPRF_NUM != 0)`（现行均为 1） | `RVC_ENABLE = 1` |
 | 缓存行 | 64 字节 | `ICACHE_LINE_SIZE` |
-| 预译码类型编码 | 非分支 0、条件分支 1（`DIRECT_JUMP_NO_JAL`）、JALR 2、JAL 3 | `front_pkg` |
+| 预译码类型编码 | 非分支 0、条件分支 1（`PREDECODE_BRANCH`）、JALR 2、JAL 3 | `front_pkg` |
 | `slot_kind` 宽度 | 3 位 | `KIND_W`；取值 `BR_DIRECT / CALL / RET / IDIRECT / NONCTL / JAL / ICALL`（`bpu_pkg`） |
 | 历史符号 | 每个跳转推 3 位 | `HSYM_W = 3`（`bpu_stage_pkg`） |
 
@@ -51,11 +51,11 @@ I-Cache 回来的取指组（16 个 2 字节的槽，原始半字，存在 `inst
 
 | 模块 | 输入 | 输出 |
 | --- | --- | --- |
-| `front_head_fix` | `inst_fifo` 队首 `inst_e`、FTQ 项的 `ptab_base_pc`、预测方向、携带寄存器 `lh_valid / lh_pc / lh_data` | 修正后的指令字 `insts_o`、`valid_o`、`pf_o`、`pf_hi_o`、`ptype_o`、`ptarget_o`、`is_rvc_o`、`slot_pc_o`、`ptab_pc_o`、`carry`、`straddle`、`carry_low`、`group_end_pc`、`seq_next_o` |
+| `front_head_fix` | `inst_fifo` 队首 `inst_e`、FTQ 项的 `pd_base_pc`、预测方向、携带寄存器 `lh_valid / lh_pc / lh_data` | 修正后的指令字 `insts_o`、`valid_o`、`pf_o`、`pf_hi_o`、`ptype_o`、`ptarget_o`、`is_rvc_o`、`slot_pc_o`、`pd_pc_o`、`carry`、`straddle`、`carry_low`、`group_end_pc`、`seq_next_o` |
 | `rvc_expand` | 16 位半字 | 32 位指令 |
 | `predecode_lane` | 一个槽的 `pc`、指令字、`inst_valid` | 类型、目标（无效槽给 非分支 / 0） |
 | `predecode_checker` | 预测方向和下一地址、修正后的类型和目标、`seq_next_pc` | `predict_dir_corrected`、`predict_next_fetch_address_corrected`、`predecode_flush_enable` |
-| `front_pd_info` | `checked`、`flush`、`slot_pc`、`is_rvc`、指令字、`inst_valid`、类型、目标、修正后方向、预测方向、`ptab_next` | `pd_valid / flush / hn（1 位）/ hbits（3 位）/ ras_op / ras_val / nb_valid / nb_pc`（寄存一拍） |
+| `front_pd_info` | `checked`、`flush`、`slot_pc`、`is_rvc`、指令字、`inst_valid`、类型、目标、修正后方向、预测方向、`pd_next_pc` | `pd_valid / flush / hn（1 位）/ hbits（3 位）/ ras_op / ras_val / nb_valid / nb_pc`（寄存一拍） |
 | `front_slot_kind` | 一个指令字 | 3 位类别 |
 
 `predecode_checker` 是纯组合，没有 `clk / rst_n` 端口（2026-11-28 删掉了原来未用的这两个口）。
@@ -145,6 +145,7 @@ RTL 与模型保持一致的细节（容易误判为 bug）：
 
 ## 10. 变更记录
 
+- 2026-11-29 清理 E：改名 `PREDECODE_DIRECT_JUMP_NO_JAL` → `PREDECODE_BRANCH`（值仍为 1，trace-model `front-end/predecode.h` 同步改）；`front_head_fix` 的 `ptab_base_pc` → `pd_base_pc`、`ptab_pc` / `ptab_pc_o` → `pd_pc` / `pd_pc_o`、`use_pair` → `use_straddle`，`inst_fifo_entry_t.is_pair` → `is_straddle`；`front_pd_info` 的 `ptab_next` → `pd_next_pc`（只改名字，周期不变）。
 - 2026-11-29 清理 C：删 EXP-051 2-taken 双块残留（EXP-070 起不再产生）：`front_head_fix` 删 `ptab_is_pair / ptab_base_b / ptab_a_len` 输入（原恒 0）、`pair_disc` / `bnd_vec`（跨行拼接时 B 恒为 A 的下一行，`base_a + a_len × 2 == base_b`，恒 0）及由它导出的 `seg_first_o / multi_o / in_range_o`，保留跨行 A / B 拼接与 `gb_gen` 在 i = 1 的项；`predecode_checker` 删整个 `multi` 分支（13 个 `ttg_*` 实例）及 `multi / in_range / seg_first / slot_pc / inst_valid / is_rvc` 入口和 `keep_n` 出口（原恒 `FETCH_WIDTH`）；`front_pd_info` 删段 1 逻辑、第二个 taken 槽（`ttg_pick_k K=2` 换成 `ttg_first_set`）、第二组 RAS 操作 `pd_ras_op2 / pd_ras_val2`、`pd_nb_base`、`multi / keep_n / seg_first / ptab_pc` 入口，`pd_hn` 收为 1 位、`pd_hbits` 收为 3 位；删临时 `batch C probe` 断言（周期不变）。
 - 2026-11-28 清理：删 `predecode_checker` 未用的 `clk / rst_n` 端口，删 `predecode_checker` / `front_head_fix` / `front_pd_info` 里不起作用的 `UNUSEDSIGNAL` 豁免（`unused_*` 汇点本就不报）（周期不变）。
 - 2026-11-28（`rtl/fe-2ahead`，文档核对）：第 1、3、5 节按现行 RTL 重写（展开 / 预译码 / 起点扫描都在 `front_head_fix`；PTAB 改为统一 FTQ；双段检查 `multi` / `keep_n` 是现行功能）；文件表更新行数并去掉没有被例化的 `predecode.sv`、`sequential_next_pc.sv`（RTL 清理中删除）；第 6 节补 2026-11-21 的深度；门禁改为 77/77 对 `scripts/ref_cycles.txt`。

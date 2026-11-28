@@ -12,11 +12,11 @@ module core_front2back import ttg_cfg_pkg::*; import front_pkg::*; (
   input  logic [FETCH_WIDTH-1:0]       pf_inst_hi,
   input  logic [FTQ_IDX_WIDTH-1:0]     ftq_idx,
   // back.in (ibuf instruction payload only; FTQ S0/S2/PD requests bypass directly)
-  output logic [BACKEND_FETCH_WIDTH-1:0] back_valid,
-  output logic [31:0]                  back_inst        [BACKEND_FETCH_WIDTH],
-  output logic [BACKEND_FETCH_WIDTH-1:0] back_page_fault,
-  output logic [BACKEND_FETCH_WIDTH-1:0] back_pf_inst_hi,
-  output logic [FTQ_IDX_WIDTH-1:0]     back_ftq_idx
+  output logic [BACKEND_FETCH_WIDTH-1:0] front2ftq_valid,
+  output logic [31:0]                  front2ftq_inst   [BACKEND_FETCH_WIDTH],
+  output logic [BACKEND_FETCH_WIDTH-1:0] front2ftq_page_fault_inst,
+  output logic [BACKEND_FETCH_WIDTH-1:0] front2ftq_pf_inst_hi,
+  output logic [FTQ_IDX_WIDTH-1:0]     front2ftq_ftq_idx
 );
 
   localparam logic [31:0] INST_NOP_WORD = 32'h00000013;
@@ -50,12 +50,12 @@ module core_front2back import ttg_cfg_pkg::*; import front_pkg::*; (
 
   always_comb begin
     for (int j = 0; j < BACKEND_FETCH_WIDTH; j++) begin
-      back_valid[j]      = can_read ? fe_valid[j]      : hold_valid_q[j];
-      back_inst[j]       = can_read ? fe_inst[j]       : hold_inst_q[j];
-      back_page_fault[j] = can_read ? fe_page_fault[j] : hold_page_fault_q[j];
-      back_pf_inst_hi[j] = can_read ? fe_pf_inst_hi[j] : hold_pf_inst_hi_q[j];
+      front2ftq_valid[j]           = can_read ? fe_valid[j]      : hold_valid_q[j];
+      front2ftq_inst[j]            = can_read ? fe_inst[j]       : hold_inst_q[j];
+      front2ftq_page_fault_inst[j] = can_read ? fe_page_fault[j] : hold_page_fault_q[j];
+      front2ftq_pf_inst_hi[j]      = can_read ? fe_pf_inst_hi[j] : hold_pf_inst_hi_q[j];
     end
-    back_ftq_idx = can_read ? ftq_idx : hold_ftq_idx_q;
+    front2ftq_ftq_idx = can_read ? ftq_idx : hold_ftq_idx_q;
   end
 
   always_ff @(posedge clk) begin
@@ -69,12 +69,12 @@ module core_front2back import ttg_cfg_pkg::*; import front_pkg::*; (
       hold_ftq_idx_q <= '0;
     end else begin
       for (int j = 0; j < BACKEND_FETCH_WIDTH; j++) begin
-        hold_valid_q[j]      <= back_valid[j];
-        hold_inst_q[j]       <= back_inst[j];
-        hold_page_fault_q[j] <= back_page_fault[j];
-        hold_pf_inst_hi_q[j] <= back_pf_inst_hi[j];
+        hold_valid_q[j]      <= front2ftq_valid[j];
+        hold_inst_q[j]       <= front2ftq_inst[j];
+        hold_page_fault_q[j] <= front2ftq_page_fault_inst[j];
+        hold_pf_inst_hi_q[j] <= front2ftq_pf_inst_hi[j];
       end
-      hold_ftq_idx_q <= back_ftq_idx;
+      hold_ftq_idx_q <= front2ftq_ftq_idx;
     end
   end
 

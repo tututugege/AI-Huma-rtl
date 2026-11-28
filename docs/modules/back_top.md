@@ -54,7 +54,7 @@ depth: 142 层（back_top，单模块综合，2026-11-20，`SYNTH_ABC="strash;ba
 | 入 | `dcache2lsu_*`、`peripheral_resp_*`、`ptw_walk_resp_*`、`ptw_walk_req_ready` | 访存子系统、MMIO、页表遍历的响应 |
 | 入 | `interrupt_inject_*` | 外部中断线，直接进 `csr` |
 | 出 | `out_mispred`、`out_no_mispred`、`out_stall`、`out_redirect_pc`、`out_rf_valid / _pc / _is_rvc / _type / _blk`、`ftq_commit_info_*`、`commit_extra_*`、`out_commit_entry_uop_diag_val` | 给前端的重定向、停顿、BPU 训练和修复数据 |
-| 出 | `rob_commit_commit_entry_*`、`rob_bcast_*`（flush、fence、fence_i、exception、interrupt、mret、sret、pc） | 提交信息和 ROB 广播，给前端、difftest 和测试台；其中 `rob_bcast_flush` 是 ROB 这一拍的决定（**未推迟**），`rob_bcast_fence`、`rob_bcast_fence_i` 是推迟一拍之后的值 |
+| 出 | `rob_commit_*`、`rob_bcast_*`（flush、fence、fence_i、exception、interrupt、mret、sret、pc） | 提交信息和 ROB 广播，给前端、difftest 和测试台；其中 `rob_bcast_flush` 是 ROB 这一拍的决定（**未推迟**），`rob_bcast_fence`、`rob_bcast_fence_i` 是推迟一拍之后的值 |
 | 出 | `csr_status_{mstatus, sstatus, satp, privilege}` | CSR 状态 |
 | 出 | `lsu2dcache_*`、`peripheral_req_*`、`ptw_walk_req_*`、`ptw_walk_flush`、`ptw_walk_resp_consumed` | 发往访存子系统和 PTW |
 | 出 | `dis2rob_dis_fire`、`pmu_slot_valid` | PMU 第一层事件 |
@@ -139,8 +139,8 @@ depth: 142 层（back_top，单模块综合，2026-11-20，`SYNTH_ABC="strash;ba
 ### 5.5 其他胶水和装配层逻辑
 
 - `csr_status_mstatus_{mxr, sum, mprv, mpp}`：取自 `mstatus` 的第 19、18、17、12:11 位，送 DTLB；
-- `rob_commit_commit_entry_uop_amo_op[i] = func7[6:2]`，给 LSU 提交 store 时用；
-- `lsu_byp_valid[k] = lsu2exe_wb_req_valid[k] && lsu2exe_wb_req_uop_dest_en[k]`：LSU 的 load 写回请求作为 PRF 读口的旁路源（`LSU_LOAD_WB_WIDTH = 4` 路），总是开（原来的 `LP_L2` 位 0、位 3 条件已随 `LP_L2` 在 EXP-069 删除，行为固定为开）；
+- `rob_commit_uop_amo_op[i] = func7[6:2]`，给 LSU 提交 store 时用；
+- `lsu_byp_valid[k] = lsu2exe_wb_valid[k] && lsu2exe_wb_uop_dest_en[k]`：LSU 的 load 写回请求作为 PRF 读口的旁路源（`LSU_LOAD_WB_WIDTH = 4` 路），总是开（原来的 `LP_L2` 位 0、位 3 条件已随 `LP_L2` 在 EXP-069 删除，行为固定为开）；
 
 ### 5.6 `exu.sv` 与 FU 的合同
 
@@ -183,7 +183,7 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 
 - flush 决定那一拍分支误预测被丢弃，`out_rf_valid` 为 0；推迟的下一拍 `out_mispred` 为 1、`out_rf_valid` 为 0（模型 `pend_` 分支同）；
 
-只给测试台用的线：`lsu` 的 `lsu2dis_ldq_alloc_valid` 接到 `nc_lsu2dis_ldq_alloc_valid`（dispatch 只看 `ldq_free`，`core_tb` 的 LSU 跟踪打印它）。`ren_commit_dest_preg`、`rob_commit_commit_entry_uop_dest_fp` 在 RTL 里无人读，只给 `tb/core/core_tb.cpp`（经 `core_public.vlt`）用。
+只给测试台用的线：`lsu` 的 `lsu2dis_ldq_alloc_valid` 接到 `nc_lsu2dis_ldq_alloc_valid`（dispatch 只看 `ldq_free`，`core_tb` 的 LSU 跟踪打印它）。`ren_commit_dest_preg`、`rob_commit_uop_dest_fp` 在 RTL 里无人读，只给 `tb/core/core_tb.cpp`（经 `core_public.vlt`）用。
 
 未核对（继承自旧文档）：
 
@@ -204,6 +204,7 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 
 ## 10. 变更记录
 
+- 2026-11-29 清理 E：改名 `rob_commit_commit_entry_*` → `rob_commit_*`（如 `rob_commit_valid`、`rob_commit_uop_type`）；`ftq_{rob,prf}_pc_req_req_*` / `_resp_resp_*` → `ftq_{rob,prf}_pc_req_*` / `_resp_*`；`lsu2exe_{,sta_}wb_req_valid` / `_wb_req_uop_*` → `lsu2exe_{,sta_}wb_valid` / `_wb_uop_*`；`peripheral_req_mmio_fun3` → `peripheral_req_mmio_func3`（只改名字，周期不变）。
 - 2026-11-29 清理 D：去重——`exu.sv` 不再经 `alu/bru/agu/sdu/mul/div_bank` 包装层（各只是一个 generate 循环），直接在 `g_alu` / `g_bru` / `g_agu` / `g_sdu` / `g_mul` / `g_div` 循环里实例化 `alu` / `bru` / `agu` / `sdu` / `mul_unit` / `div_unit`，MUL / DIV 直接接 `exu2fu_mc_*[MC_MUL/MC_DIV[i]]` 与 `fu_mc_*`（删中间数组 `mul_*` / `div_*` 与 `sdu_amo_op`；连线不变）；`exu.sv` 的 uop 位宽改用 `dis_pkg::UOP_TYPE_W`；`iss_rr_reg` 改用 `ttg_util_pkg::ttg_rob_younger`（与原 `isu_rob_younger` 同体）（周期不变）。
 - 2026-11-28 清理：删本区域生产者的 `nc_*` 死线（`csr2exe_rdata_vld`、`csr2front_epc_vld`、`csr2front_trap_pc_vld`、`ftq_prf_pc_resp_resp_valid`、`ftq_rob_pc_resp_resp_valid`、`rob_bcast_trap_val_valid`）及随之无用的 `ftq_prf_pc_req_req_valid`、`ftq_rob_pc_req_req_valid`、`exe2csr_re` 线；dispatch 不再接 `lsu2dis_ldq_alloc_valid`（LSU 输出暂接 `nc_lsu2dis_ldq_alloc_valid`）；`back_top_glue` 删纯 lint 汇 `mstatus_other_bits`（改为端口豁免）；`exu.sv` 删 415 行的整段 `UNUSEDSIGNAL` 豁免（不抑制任何告警）、`FP_EN` 的 `g_no_fpu`、`exu2fu_mc_func7 / _op / _imm`、`div_wb_next` 线及 `alu/bru/agu/sdu_bank` 的 `clk / rst_n` 连接，文件头去掉已删的生成器 / `spec`；删不抑制任何告警的 lint 豁免（`exu.sv` 的 `csr2exe_frm` 豁免，以去掉豁免后整树 lint 普通 / `-DSYNTHESIS` 均无新告警为准）（周期不变）。
 - 2026-11-28（文档核对，无 RTL 变化）：接口按 fe-2ahead 端口重写（`front2ftq_*`、`fe2ftq_s0/s2/pd`、`ftq2fe`、`ftq2front_*`、`out_rf_blk`、Berti 跨页翻译 `pf_xq_* / pf_xans_*`）；实例改为 14 个（`ftq_ibuf`、`back_br_redirect`、`iss_rr_reg`）；`dec_bcast_*` 来自 `back_br_redirect`、无分支掩码；`exe2iss_div_wb_in2`；`lsu_byp_valid` 去掉已删除的 `LP_L2` 条件；拍序加入 ISS→RR 级；文件表补 `back_br_redirect.sv`、`iss_rr_reg.sv`；门禁参考改为 `scripts/ref_cycles.txt`（77 个程序）。

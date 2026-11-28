@@ -41,7 +41,7 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
   // to control / fetch / icache FDIP
   output logic                bpu_icache_read_valid,
   output logic [XLEN_BITS-1:0] bpu_fetch_address,
-  output logic                bpu_ptab_write_enable,
+  output logic                bpu_s2_wr_req,
   output logic [1:0]          bpu_override_squash_n,
   output logic [1:0]          bpu_hold_n,
   output logic                fdip_s2_en,
@@ -63,7 +63,7 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
 );
 
   // ---- BPU ----
-  logic [XLEN_BITS-1:0]   bpu_predict_next_fetch_address, bpu_ptab_base_pc;
+  logic [XLEN_BITS-1:0]   bpu_predict_next_fetch_address, bpu_s2_base_pc;
   logic                   bpu_override_valid;
   logic [FETCH_WIDTH-1:0] bpu_pred_dir, bpu_alt_pred;
   logic [front_pkg::PCPN_W-1:0] bpu_pcpn [FETCH_WIDTH];
@@ -83,7 +83,7 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
       fdip_s2_va_q    <= '0;
       fdip_s2_clear_q <= 1'b0;
     end else begin
-      fdip_s2_en_q    <= bpu_ptab_write_enable;
+      fdip_s2_en_q    <= bpu_s2_wr_req;
       fdip_s2_va_q    <= bpu_predict_next_fetch_address;
       fdip_s2_clear_q <= global_refetch || bpu_override_valid;
     end
@@ -107,8 +107,8 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
     .override_valid             (bpu_override_valid),
     .override_squash_n          (bpu_override_squash_n),
     .hold_n                     (bpu_hold_n),
-    .ptab_write_enable          (bpu_ptab_write_enable),
-    .ptab_base_pc               (bpu_ptab_base_pc),
+    .s2_wr_req                  (bpu_s2_wr_req),
+    .s2_base_pc                 (bpu_s2_base_pc),
     .predict_next_fetch_address (bpu_predict_next_fetch_address),
     .out_pred_dir               (bpu_pred_dir),
     .out_alt_pred               (bpu_alt_pred),
@@ -121,7 +121,7 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
   always_comb begin
     fe2ftq_s2          = '0;
     fe2ftq_s2.wr_en    = s2_wr_en;
-    fe2ftq_s2.base_pc  = bpu_ptab_base_pc;
+    fe2ftq_s2.base_pc  = bpu_s2_base_pc;
     fe2ftq_s2.pred_dir = bpu_pred_dir;
     fe2ftq_s2.next_pc  = bpu_predict_next_fetch_address;
     fe2ftq_s2.alt_pred = bpu_alt_pred;
@@ -136,14 +136,14 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
   logic [31:0]            hf_insts   [FETCH_WIDTH];
   logic [FETCH_WIDTH-1:0] hf_valid, hf_pf, hf_pf_hi, hf_rvc;
   logic [1:0]             hf_type    [FETCH_WIDTH];
-  logic [XLEN_BITS-1:0]   hf_target  [FETCH_WIDTH], hf_slot_pc [FETCH_WIDTH], hf_ptab_pc [FETCH_WIDTH];
+  logic [XLEN_BITS-1:0]   hf_target  [FETCH_WIDTH], hf_slot_pc [FETCH_WIDTH], hf_pd_pc [FETCH_WIDTH];
   logic                   hf_carry, hf_straddle;
   logic [XLEN_BITS-1:0]   hf_end, hf_seq_next;
   logic [15:0]            hf_low;
 
   front_head_fix u_head_fix (
     .inst_e       (inst_rd),
-    .ptab_base_pc (ftq_pd_base_pc),
+    .pd_base_pc   (ftq_pd_base_pc),
     .predict_dir  (ftq_pd_pred_dir),
     .lh_valid     (lh_valid_q),
     .lh_pc        (lh_pc_q),
@@ -156,7 +156,7 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
     .ptarget_o    (hf_target),
     .is_rvc_o     (hf_rvc),
     .slot_pc_o    (hf_slot_pc),
-    .ptab_pc_o    (hf_ptab_pc),
+    .pd_pc_o      (hf_pd_pc),
     .carry        (hf_carry),
     .straddle     (hf_straddle),
     .carry_low    (hf_low),
@@ -202,7 +202,7 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
     .slot_pc(hf_slot_pc), .is_rvc(hf_rvc), .insts(hf_insts), .inst_valid(hf_valid),
     .ptype(hf_type), .pre_target(hf_target),
     .dir_corrected(checker_dir_corrected), .predict_dir(ftq_pd_pred_dir),
-    .ptab_next(ftq_pd_next_pc),
+    .pd_next_pc(ftq_pd_next_pc),
     .pd_valid, .pd_flush, .pd_hn, .pd_hbits, .pd_ras_op, .pd_ras_val,
     .pd_nb_valid, .pd_nb_pc
   );
@@ -233,7 +233,7 @@ module front_pred_path import ttg_cfg_pkg::*; import front_pkg::*; import bpu_pk
     fe2ftq_pd.flush     = predecode_can_run && checker_flush_enable;
     fe2ftq_pd.empty_blk = !(|pd_cut_valid);
     fe2ftq_pd.carry     = hf_carry;
-    fe2ftq_pd.pc0       = hf_ptab_pc[0];
+    fe2ftq_pd.pc0       = hf_pd_pc[0];
     fe2ftq_pd.pred_dir  = pd_cut_valid & checker_dir_corrected;
     fe2ftq_pd.is_rvc    = hf_rvc;
     fe2ftq_pd.next_pc   = checker_next_corrected;

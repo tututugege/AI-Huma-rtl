@@ -1,14 +1,14 @@
-// Ref: front-end/front_top.cpp  InstPort::comb_read (line-straddle raw A/B merge, single expand+predecode, O(log N) prefix start scan, PTAB PC cut, rvc_head_fix)
+// Ref: front-end/front_top.cpp  InstPort::comb_read (line-straddle raw A/B merge, single expand+predecode, O(log N) prefix start scan, FTQ PD PC cut, rvc_head_fix)
 `default_nettype none
 
 // Instruction-queue head preparation before predecode_checker:
-//   1) Line-straddle raw A/B merge (fused A + next line B when inst_e.is_pair, else intact Block A);
+//   1) Line-straddle raw A/B merge (fused A + next line B when inst_e.is_straddle, else intact Block A);
 //   2) Single 16-lane RVC expand + predecode + 4-round O(log N) Kogge-Stone start_a/start_b prefix scan;
-//   3) Parallel PTAB PC agreement cut (4-round prefix-OR) + log-depth valid count (ttg_first_set);
+//   3) Parallel FTQ PD PC agreement cut (4-round prefix-OR) + log-depth valid count (ttg_first_set);
 //   4) RVC=1 C910-style carry assembly, cross-page 2nd-halfword page-fault offset (+2), and straddler handling.
 module front_head_fix import ttg_cfg_pkg::*; import front_pkg::*; (
   input  inst_fifo_entry_t        inst_e,
-  input  logic [XLEN_BITS-1:0]    ptab_base_pc,
+  input  logic [XLEN_BITS-1:0]    pd_base_pc,
   input  logic [FETCH_WIDTH-1:0]  predict_dir,
   input  logic                    lh_valid,
   input  logic [XLEN_BITS-1:0]    lh_pc,
@@ -21,7 +21,7 @@ module front_head_fix import ttg_cfg_pkg::*; import front_pkg::*; (
   output logic [XLEN_BITS-1:0]    ptarget_o    [FETCH_WIDTH],
   output logic [FETCH_WIDTH-1:0]  is_rvc_o,
   output logic [XLEN_BITS-1:0]    slot_pc_o    [FETCH_WIDTH],
-  output logic [XLEN_BITS-1:0]    ptab_pc_o    [FETCH_WIDTH],
+  output logic [XLEN_BITS-1:0]    pd_pc_o      [FETCH_WIDTH],
   output logic                    carry,
   output logic                    straddle,
   output logic [15:0]             carry_low,
@@ -33,18 +33,18 @@ module front_head_fix import ttg_cfg_pkg::*; import front_pkg::*; (
   localparam int          IC_OFF_W    = $clog2(ICACHE_LINE_SIZE);
 
   // ---- Step 1: Same-Page Line-Straddle 2-Fetch contiguous halfword assembly ----
-  logic                   use_pair;
+  logic                   use_straddle;
   logic [FETCH_WIDTH-1:0] s1_v, s1_pf;
-  logic [XLEN_BITS-1:0]   s1_pc   [FETCH_WIDTH], ptab_pc [FETCH_WIDTH];
+  logic [XLEN_BITS-1:0]   s1_pc   [FETCH_WIDTH], pd_pc [FETCH_WIDTH];
   logic [15:0]            s1_lo   [FETCH_WIDTH], s1_hi   [FETCH_WIDTH];
 
-  assign use_pair = inst_e.is_pair;
+  assign use_straddle = inst_e.is_straddle;
 
   always_comb begin
     for (int i = 0; i < FETCH_WIDTH; i++) begin
       logic [3:0] j;
       j = 4'(i) - inst_e.a_len;
-      if (use_pair && (4'(i) >= inst_e.a_len)) begin
+      if (use_straddle && (4'(i) >= inst_e.a_len)) begin
         s1_v[i]  = inst_e.b_ok && ({1'b0, j} < inst_e.b_actual_n);
         s1_pf[i] = 1'b0;
         s1_pc[i] = inst_e.base_a + XLEN_BITS'(SLOT_BYTES * i);
@@ -59,14 +59,14 @@ module front_head_fix import ttg_cfg_pkg::*; import front_pkg::*; (
         s1_lo[i] = inst_e.raw_a[i];
         if (inst_e.pf_a[i] || !inst_e.valid_a[i]) begin
           s1_hi[i] = 16'h0000;
-        end else if (use_pair && inst_e.b_ok && (inst_e.b_actual_n != 5'd0) && (4'(i) == inst_e.a_len - 4'd1)) begin
+        end else if (use_straddle && inst_e.b_ok && (inst_e.b_actual_n != 5'd0) && (4'(i) == inst_e.a_len - 4'd1)) begin
           // Stitch 32-bit instruction straddling the 64B cache-line boundary directly from Line L+1 slot 0!
           s1_hi[i] = inst_e.raw_b[0];
         end else begin
           s1_hi[i] = ((i + 1 < FETCH_WIDTH) && inst_e.valid_a[i + 1]) ? inst_e.raw_a[i + 1] : inst_e.up16_a;
         end
       end
-      ptab_pc[i] = ptab_base_pc + XLEN_BITS'(SLOT_BYTES * i);
+      pd_pc[i] = pd_base_pc + XLEN_BITS'(SLOT_BYTES * i);
     end
   end
 
@@ -83,9 +83,9 @@ module front_head_fix import ttg_cfg_pkg::*; import front_pkg::*; (
   ttg_onehot_mux #(.N(FETCH_WIDTH), .W(XLEN_BITS)) u_s1_lpc  (.sel(s1_last_oh), .data(s1_pc), .out(s1_last_pc));
   assign s1_up_ok   = s1_has_v && (!inst_e.single_word_a) &&
                       ((((s1_last_pc + XLEN_BITS'(SLOT_BYTES)) & XLEN_BITS'(ICACHE_LINE_SIZE - 1)) != '0) ||
-                       (!use_pair && inst_e.b_ok));
+                       (!use_straddle && inst_e.b_ok));
   assign s1_seq_raw = s1_has_v ? (s1_last_pc + XLEN_BITS'(SLOT_BYTES)) : inst_e.base_a;
-  assign s1_seq     = (!use_pair && (s1_seq_raw[XLEN_BITS-1:IC_OFF_W] != inst_e.base_a[XLEN_BITS-1:IC_OFF_W]))
+  assign s1_seq     = (!use_straddle && (s1_seq_raw[XLEN_BITS-1:IC_OFF_W] != inst_e.base_a[XLEN_BITS-1:IC_OFF_W]))
                       ? {s1_seq_raw[XLEN_BITS-1:IC_OFF_W], {IC_OFF_W{1'b0}}}
                       : s1_seq_raw;
 
@@ -172,7 +172,7 @@ module front_head_fix import ttg_cfg_pkg::*; import front_pkg::*; (
   assign s1_sa = (RVC_ENABLE != 0) ? scan_starts(ga_gen, s1_v_pre) : '0;
   assign s1_sb = (RVC_ENABLE != 0) ? scan_starts(gb_gen, s1_v_pre) : '0;
 
-  // ---- Step 3: Parallel PTAB PC agreement cut ----
+  // ---- Step 3: Parallel FTQ PD PC agreement cut ----
   logic [FETCH_WIDTH-1:0] mm_raw, cut_mask, s2_v;
   logic [1:0]             s2_ty  [FETCH_WIDTH];
   logic [XLEN_BITS-1:0]   s2_tgt [FETCH_WIDTH];
@@ -187,7 +187,7 @@ module front_head_fix import ttg_cfg_pkg::*; import front_pkg::*; (
 
   always_comb begin
     for (int i = 0; i < FETCH_WIDTH; i++)
-      mm_raw[i] = s1_v[i] && (s1_pc[i] != ptab_pc[i]);
+      mm_raw[i] = s1_v[i] && (s1_pc[i] != pd_pc[i]);
     cut_mask = mm_raw;
     cut_mask = cut_mask | (cut_mask << 1);
     cut_mask = cut_mask | (cut_mask << 2);
@@ -247,7 +247,7 @@ module front_head_fix import ttg_cfg_pkg::*; import front_pkg::*; (
       keep[i]            = (RVC_ENABLE != 0) ? (s2_v[i] && (chain[i] || (carry && (i == 0)))) : s2_v[i];
       valid_o[i]         = keep[i] && !straddle_oh[i];
       slot_pc_o[i]       = (i == 0 && carry) ? asm_pc : s1_pc[i];
-      ptab_pc_o[i]       = (i == 0 && carry) ? asm_pc : ptab_pc[i];
+      pd_pc_o[i]         = (i == 0 && carry) ? asm_pc : pd_pc[i];
     end
   end
 

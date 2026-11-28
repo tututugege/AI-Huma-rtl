@@ -126,7 +126,7 @@ module lp_core
   // ------------------------------------------------------------------ queue state / views
   lp_ldq_t         ldq_q [LQ];
   lp_stq_t         sq [SQ];
-  logic [LQ-1:0]   empty_w, l2_ok, rs_ok, wbp_m, pipe_r, wb3_r, wbp_r, dead_r, rdy9;
+  logic [LQ-1:0]   empty_w, l2_ok, rs_ok, wbp_m, pipe_st, wb3_st, wbp_st, kill_cur, rdy9;
   logic [XLEN_BITS-1:0]     res_v [LQ];
   logic [NLD-1:0]  ag_acc;
   logic            mi_v;
@@ -201,12 +201,12 @@ module lp_core
     for (int p = 0; p < NLD; p++) pl2b_idx[p] = pl2b_q[p].ldq;
   end
   lp_l3 u_l3 (.clk(clk), .rst_n(rst_n), .wbd_v(wbd_v), .wbd_idx(wbd_idx), .wbd_hasdata(wbd_hasdata),
-              .wbd_data(wbd_data), .wb3_r(wb3_r), .wbw_v(wbw_v), .wbw_idx(wbw_idx), .wbw_hd(wbw_hd),
+              .wbd_data(wbd_data), .wb3_st(wb3_st), .wbw_v(wbw_v), .wbw_idx(wbw_idx), .wbw_hd(wbw_hd),
               .wbw_data(wbw_data));
   lp_wake u_wake (.clk(clk), .rst_n(rst_n), .flush(rb_flush), .mispred(dec_mispred),
                   .dec_rob_idx(dec_rob_idx), .dec_rob_flag(dec_rob_flag),
                   .l1(l1), .ld_retry_busy(ld_retry_busy),
-                  .pl12(pl12_q), .pl2b_idx(pl2b_idx), .l2_ok(l2_ok), .pipe_r(pipe_r), .ldq_q(ldq_q),
+                  .pl12(pl12_q), .pl2b_idx(pl2b_idx), .l2_ok(l2_ok), .pipe_st(pipe_st), .ldq_q(ldq_q),
                   .wbd_v(wbd_v), .wbd_idx(wbd_idx), .wbd_l2b_ep(wbd_l2b_ep),
                   .wbw_v(wbw_v), .wbw_idx(wbw_idx), .wp_acc(wb_wp_acc), .wp_oh(wb_wp_oh),
                   .l1_spec_w(l1_spec_w), .wk_valid(o_wk_valid), .wk_preg(o_wk_preg),
@@ -221,8 +221,8 @@ module lp_core
   logic            lr1_rob_flag, lr2_rob_flag;
 
   logic [LQ-1:0]   wbp_sel, pipe8_sel;
-  assign pipe8_sel = ~dead_r;
-  assign wbp_sel   = wbp_r | wbp_m;
+  assign pipe8_sel = ~kill_cur;
+  assign wbp_sel   = wbp_st | wbp_m;
   lp_wb u_wb (
     .clk(clk), .rst_n(rst_n), .flush(rb_flush), .mispred(dec_mispred),
     .wbd_v(wbw_v), .wbd_idx(wbw_idx), .wbd_hasdata(wbw_hd), .wbd_data(wbw_data),
@@ -259,7 +259,7 @@ module lp_core
       ag_pc8[i]    = ldq_q[agl[i].ldq].pc[8:1];
     end
     for (int r = 0; r < NRP; r++) begin
-      rp_pipe[r] = pipe_r[rp_ldq_q[r]];
+      rp_pipe[r] = pipe_st[rp_ldq_q[r]];
     end
     srp_ok = alive_w[srp_stq_q] && sq[srp_stq_q].va_v && !sq[srp_stq_q].pa_v && !sq[srp_stq_q].pf;
   end
@@ -446,8 +446,8 @@ module lp_core
     .sta_info(sta_info_w), .sdw(sdw_w), .fill_v(fill_en), .fill_line(fill_line),
     .rp_pick(rp_pick),
     .q_o(ldq_q), .empty_w(empty_w), .l2_ok(l2_ok), .rs_ok(rs_ok), .res_v(res_v),
-    .pipe_r(pipe_r), .wb3_r(wb3_r), .wbp_r(wbp_r), .wbp_m(wbp_m),
-    .ag_acc(ag_acc), .dead_r(dead_r), .rdy9(rdy9),
+    .pipe_st(pipe_st), .wb3_st(wb3_st), .wbp_st(wbp_st), .wbp_m(wbp_m),
+    .ag_acc(ag_acc), .kill_cur(kill_cur), .rdy9(rdy9),
     .mi_v(mi_v), .mi_idx(mi_idx), .mi_addr(mi_addr), .mi_func3(mi_func3));
 
   // ------------------------------------------------------------------ store drain (P13), uncached unit, reservation
@@ -475,7 +475,7 @@ module lp_core
     .idx_q(unc_idx_q), .addr_q(unc_addr_q), .wdata_q(unc_wdata_q), .func3_q(unc_func3_q),
     .valid_post_resp(unc_valid_post_resp),
     .ld_set(mi_v && !unc_valid_post_resp), .ld_addr(mi_addr), .ld_func3(mi_func3), .ld_idx(mi_idx),
-    .flush(rb_flush), .mispred(dec_mispred), .ld_empty(dead_r),
+    .flush(rb_flush), .mispred(dec_mispred), .ld_empty(kill_cur),
     .st_mmw(st_mmw), .alive_flushed(alive_flushed),
     .alive_final(alive_fl), .st_set(st_set), .st_addr(st_addr), .st_wdata(st_wdata), .st_func3(st_func3),
     .st_idx(st_idx), .valid_pre_st(unc_valid_pre_st));
@@ -506,7 +506,7 @@ module lp_core
                  .rsv_valid_q(rsv_valid_q), .rsv_addr_q(rsv_addr_q));
 
   lp_rp u_rp (.clk(clk), .rst_n(rst_n), .rdy9(rdy9),
-              .empty8(dead_r), .rp_cons(rp_cons), .srp_cons(srp_cons),
+              .empty8(kill_cur), .rp_cons(rp_cons), .srp_cons(srp_cons),
               .trp_v(trp_v), .alive_post(alive_post), .alive_fl(alive_fl), .ldq_q(ldq_q), .rp_v_q(rp_v_q),
               .rp_ldq_q(rp_ldq_q), .rp_f_q(rp_f_q), .rp_pick(rp_pick), .srp_v_q(srp_v_q), .srp_stq_q(srp_stq_q), .srp_take(srp_take));
 

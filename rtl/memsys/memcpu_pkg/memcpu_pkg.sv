@@ -30,9 +30,9 @@ package memcpu_pkg;
   localparam logic [1:0] REPLAY_MSHR_FULL = 2'd3;
   // (the single owner of this encoding: the DCache, the route block and the LSU all import it from here)
 
-  // LSU replay countdown after a DCache response: MSHR hit / full wait LSU_PEPLAY_WAIT_CYCLES, the others retry at once
+  // LSU replay countdown after a DCache response: MSHR hit / full wait LSU_REPLAY_WAIT_CYCLES, the others retry at once
   function automatic logic [LSU_REPLAY_WAIT_CYCLES_WIDTH-1:0] replay_wait(input logic [1:0] rt);
-    return (rt == REPLAY_MSHR_HIT || rt == REPLAY_MSHR_FULL) ? LSU_REPLAY_WAIT_CYCLES_WIDTH'(LSU_PEPLAY_WAIT_CYCLES)
+    return (rt == REPLAY_MSHR_HIT || rt == REPLAY_MSHR_FULL) ? LSU_REPLAY_WAIT_CYCLES_WIDTH'(LSU_REPLAY_WAIT_CYCLES)
                                                              : LSU_REPLAY_WAIT_CYCLES_WIDTH'(0);
   endfunction
 
@@ -60,12 +60,12 @@ package memcpu_pkg;
 
   // walker FSM (Ref: MemPtwBlock WalkState)
   typedef enum logic [2:0] {
-    PW_IDLE    = 3'd0,
-    PW_L1_REQ  = 3'd1,   // level-1 PTE read to be issued
-    PW_L1_WAIT = 3'd2,   // level-1 read granted, waiting for the PTE
-    PW_L2_REQ  = 3'd3,   // level-0 PTE read to be issued
-    PW_L2_WAIT = 3'd4,
-    PW_STLB_LK = 3'd5    // L2 TLB + SP CAM + PWC lookup stage
+    PW_IDLE       = 3'd0,
+    PW_FIRST_REQ  = 3'd1,   // first PTE read (top level) to be issued
+    PW_FIRST_WAIT = 3'd2,   // first read granted, waiting for the PTE
+    PW_NEXT_REQ   = 3'd3,   // next PTE read (level in level_q) to be issued
+    PW_NEXT_WAIT  = 3'd4,
+    PW_STLB_LK    = 3'd5    // L2 TLB + SP CAM + PWC lookup stage
   } ptw_state_e;
 
   // ---- peripheral ----

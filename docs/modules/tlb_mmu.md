@@ -12,7 +12,7 @@ depth: TSMC 28nm HPC+ DC `tlb_mmu_bb` WNS `−0.03 ns`（`1.89 GHz`）/ `25` 级
 > **EXP-070 后端子系统时序优化（0 周期变化）**：
 > - 在 `tlb_mmu_pkg` / `tlb_mmu_lane` / `tlb_mmu_core` / `tlb_mmu` 中随翻译结果并行输出 29-bit `resp_paddr_p1` / `resp_paddr_m1`（兼容 Sv39 4K/2M/1G 大页与直通模式），将原 LSU L1 侧 `paddr[31:3] ± 1` 29-bit 加法器移出 EXU/LSU ↔ DTLB 跨模块关键路径。
 >
-> **EXP-051 里程碑 B 升级**：`tlb_mmu_core` 新增参数 `NPEEK`（DTLB 保持 `NPEEK = 0` 零改动；ITLB 当时设 `NPEEK = 2`，fe-2ahead 单组 2-Ahead 前端起 `icache_itlb.sv` 设 `NPEEK = 1`），提供纯只读组合翻译口（复用 `entry_valid/entry` 与同拍 `refill_end`，先查 `refill_end` 再查表，含直通 / 规范地址 / 权限检查，精确对齐 `TlbMmu::peek_translate`，零额外 PTW walker、不改替换状态）。
+> **EXP-051 里程碑 B 升级**：`tlb_mmu_core` 新增参数 `NPEEK`（DTLB 保持 `NPEEK = 0` 零改动；ITLB 当时设 `NPEEK = 2`，fe-2ahead 单组 3-block ahead 前端起 `icache_itlb.sv` 设 `NPEEK = 1`），提供纯只读组合翻译口（复用 `entry_valid/entry` 与同拍 `refill_end`，先查 `refill_end` 再查表，含直通 / 规范地址 / 权限检查，精确对齐 `TlbMmu::peek_translate`，零额外 PTW walker、不改替换状态）。
 
 ## 1. 职责
 

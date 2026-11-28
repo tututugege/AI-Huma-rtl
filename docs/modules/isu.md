@@ -95,7 +95,7 @@ depth: **61 层 / 1,033,276 cells**（Yosys `strash;balance;map`）；**TSMC 28n
 | `isu_wake_src.sv`、`isu_wake_mul.sv`、`isu_wake_iter.sv`、`isu_wake_compact.sv`、`isu_wake_bus.sv` | 220、98、91、36、30 | 唤醒网络 |
 | `isu_wb_gate.sv`、`isu_fp_gate.sv` | 85、169 | 完成周期预留、FP 写口限制 |
 
-状态：各队列 `valid_q / uop_q / wait*_q`；MUL 唤醒管线；DIV/FP 倒计时；内存队列年龄矩阵；`isu_wb_gate` 移位忙表；`isu_fp_gate` 计数环；以及 `isu.sv` 内的迭代单元占用寄存器：`div_busy_q`（+ `rob_idx/flag`，+ `spec_mask`，由口 1 授予 DIV 置 1，`exe2iss_div_wb_in2`、flush、误预测杀死或 L1 推测取消时清 0）与 `fdiv_cnt_q`（5 位，+ `rob_idx/flag`，由 `grant[18]` 载入操作延迟、每拍减 1）。
+状态：各队列 `valid_q / core_q`、uop 各字段寄存器（拼成组合的 `uop`）、`wait*_q`；MUL 唤醒管线；DIV/FP 倒计时；内存队列年龄矩阵；`isu_wb_gate` 移位忙表；`isu_fp_gate` 计数环；以及 `isu.sv` 内的迭代单元占用寄存器：`div_busy_q`（+ `rob_idx/flag`，+ `spec_mask`，由口 1 授予 DIV 置 1，`exe2iss_div_wb_in2`、flush、误预测杀死或 L1 推测取消时清 0）与 `fdiv_cnt_q`（5 位，+ `rob_idx/flag`，由 `grant[18]` 载入操作延迟、每拍减 1）。
 
 ## 5. 一拍内的数据流
 
@@ -133,7 +133,7 @@ depth: **61 层 / 1,033,276 cells**（Yosys `strash;balance;map`）；**TSMC 28n
 
 | 层 | 内容 |
 | --- | --- |
-| 0 – 9 | INT1 队列某槽的 `uop_q` → 候选 `candidate`（能力匹配、就绪、被前面口选走） |
+| 0 – 9 | INT1 队列某槽的 `uop`（由 `core_q` 等寄存字段拼成）→ 候选 `candidate`（能力匹配、就绪、被前面口选走） |
 | 9 – 58 | 选择（`first_set` 前缀）→ 读出被选 uop → FU 就绪 / 闸 → `grant_valid` / `iss2prf_valid` |
 | 58 – 72 | 授予 → 唤醒通道（快速唤醒、延迟唤醒请求）→ `woken` 位图 |
 | 72 – 88 | `woken[src_preg]` 查表 → 内存队列槽 63 的 `wait3_d` |
@@ -189,6 +189,7 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 
 ## 10. 变更记录
 
+- 2026-11-29 清理 E：改名 `isu_iq_store` 的组合线 `uop_q`（由寄存字段拼成）→ `uop`（只改名字，周期不变）。
 - 2026-11-29 清理 D：去重——`isu_pkg` 删 `isu_rob_younger`（`isu` / `isu_iq_store` / `isu_wake_iter` / `isu_wake_mul` / `isu_wake_src` 改用同体的 `ttg_util_pkg::ttg_rob_younger`）；口能力表移到 `dis_pkg::issue_port_cap`（与 `exu_ctrl_pkg` 共用，掩码逐口相同），`port_cap` 只转调它；删 uop 编码副本 `OP_W`、`OP_NUM`、`UOP_MUL..I2F`（`op_t` / `op_set_t` 由 `dis_pkg::UOP_TYPE_W` / `uop_set_t` 定义，比较改用 `dis_pkg::UOP_*`，数值相同）；`isu_fp_gate` 的取消计数 `cn_d` 改用 `ttg_popcount #(.N(NC), .CW(CNT_W))`（同为模 2^`CNT_W` 的置位计数，`SYNTHESIS` 路径已穷举核对）（周期不变）。
 - 2026-11-28 清理：删 `FP_EN`（F/D 总是有：`isu_pkg` 各 `FP_EN ?` 分支、`isu.sv` 的 `g_no_fp_wake_bus` / `g_no_gate` / `g_no_fdiv_occ`、`isu_iq` / `isu_iq_store` / `isu_wake_src` 的 `FP_EN` 条件）；删永不读的 FP free2 链（`isu_iq` 的 `fp_free2_cls` 输入、`sf2`、`slot_fpc_bits` 最高位、`grant_fp_f2`，`isu.sv` 的 `grant_fp_f2_all` / `c_f2`，`isu_fp_gate` 的 `cand_f2` 输入；`fp_free2_cls` 改为 `isu_fp_gate` 内部的 8..10 类）；`isu_fp_gate` 删参数 `P` 及 `P != 2` 的 `g_gen_p` / `g_upd_gen` 分支和 `same_slot`；`isu_wb_gate` 删输出 `port_ok`（`isu.sv` 的 `wb_port_ok` 不读）；`isu_wake_iter` 只剩单请求（删 `NREQ`、`req_lane`、`wake_lane`、每槽 `lane_q`）；`isu_pkg` 删未用的 `wb_offset`、`FP_SLOTS`；`isu_wake_src` 头注释改为 21 个唤醒通道；删不抑制任何告警的 lint 豁免（`isu.sv` 3 处、`isu_fp_gate` / `isu_iq` / `isu_iq_select` 各 1 处，以去掉豁免后整树 lint 普通 / `-DSYNTHESIS` 均无新告警为准）（周期不变）。
 - 2026-11-28（文档核对，无 RTL 变化）：`WAKE_NUM = 21`、`TAG_NUM = 352`、慢速唤醒 `SLOW_FP_N = 43`（DIV 1 路、FP 25 路）与 256 位位图、快速唤醒 8 位比较；`exe2iss_div_wb_in2` 替换 `div_wb_next`；按 ROB 号的误预测冲刷代替分支掩码；模型已删的 `CFG_ISSUE_OLDEST_*`；文件表补行数；第 8 节加 `tests/isu_iq_select`、`tests/fp_gate`；`ttg_cfg_pkg` 为生成文件；门禁参考改为 `scripts/ref_cycles.txt`（77 个程序）。

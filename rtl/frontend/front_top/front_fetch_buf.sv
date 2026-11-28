@@ -8,9 +8,9 @@ module front_fetch_buf import ttg_cfg_pkg::*; import front_pkg::*; (
   input  logic                   global_refetch,
   // Unified FTQ-64 registered view + S0/IFU handshake
   input  logic [XLEN_BITS-1:0]   ftq_ifu_addr,
-  input  logic                   fa_rd_en,
-  output logic                   fa_rd_valid,
-  output logic [XLEN_BITS-1:0]   fa_rd_address,
+  input  logic                   ifu_rd_en,
+  output logic                   ifu_rd_valid,
+  output logic [XLEN_BITS-1:0]   ifu_rd_address,
   output logic                   inst_fifo_room,
   // icache F1 response (Block A + pre-read Lo/Hi Block B)
   input  logic [1:0]             ic_inflight,
@@ -20,7 +20,7 @@ module front_fetch_buf import ttg_cfg_pkg::*; import front_pkg::*; (
   input  logic [FETCH_WIDTH-1:0] ic_page_fault_inst,
   input  logic [31:0]            ic_fetch_group [FETCH_WIDTH],
   input  logic                   ic_fetch_single_word,
-  input  logic                   ic_b_is_pair,
+  input  logic                   ic_b_is_straddle,
   input  logic                   ic_b_is_tail,
   input  logic [3:0]             ic_b_a_len,
   input  logic                   b_hit,
@@ -35,13 +35,13 @@ module front_fetch_buf import ttg_cfg_pkg::*; import front_pkg::*; (
   logic [$clog2(INST_FIFO_DEPTH + 1)-1:0] inst_size;
   logic                                   inst_full;
 
-  assign fa_rd_valid    = fa_rd_en;
-  assign fa_rd_address  = ftq_ifu_addr;
+  assign ifu_rd_valid   = ifu_rd_en;
+  assign ifu_rd_address = ftq_ifu_addr;
   assign inst_fifo_room = (inst_size + {3'd0, ic_inflight}) < 5'(INST_FIFO_DEPTH);
 
-  logic want_pair, want_tail;
+  logic want_straddle, want_tail;
   always_comb begin
-    want_pair = ic_read_complete && !global_refetch && !inst_full && ic_b_is_pair &&
+    want_straddle = ic_read_complete && !global_refetch && !inst_full && ic_b_is_straddle &&
                 !ic_page_fault_inst[0] && !ic_fetch_single_word;
     want_tail = ic_read_complete && !global_refetch && !inst_full && ic_b_is_tail &&
                 !ic_page_fault_inst[0] && !ic_fetch_single_word;
@@ -72,15 +72,15 @@ module front_fetch_buf import ttg_cfg_pkg::*; import front_pkg::*; (
 
   always_comb begin
     inst_wr_entry               = '0;
-    inst_wr_entry.is_pair       = want_pair;
-    inst_wr_entry.a_len         = want_pair ? ic_b_a_len : 4'd0;
+    inst_wr_entry.is_straddle   = want_straddle;
+    inst_wr_entry.a_len         = want_straddle ? ic_b_a_len : 4'd0;
     inst_wr_entry.base_a        = ic_fetch_pc;
     inst_wr_entry.valid_a       = ic_inst_valid;
     inst_wr_entry.pf_a          = ic_page_fault_inst;
     inst_wr_entry.single_word_a = ic_fetch_single_word;
     inst_wr_entry.up16_a        = (want_tail && b_hit && (b_actual_n != 5'd0)) ? b_fetch_group[0][15:0] : a_up16;
-    inst_wr_entry.b_ok          = (want_pair || want_tail) && b_hit && (b_actual_n != 5'd0);
-    inst_wr_entry.b_actual_n    = (want_pair && b_hit) ? b_actual_n : 5'd0;
+    inst_wr_entry.b_ok          = (want_straddle || want_tail) && b_hit && (b_actual_n != 5'd0);
+    inst_wr_entry.b_actual_n    = (want_straddle && b_hit) ? b_actual_n : 5'd0;
     inst_wr_entry.up16_b        = b_up16;
     for (int i = 0; i < FETCH_WIDTH; i++) begin
       inst_wr_entry.raw_a[i] = ic_fetch_group[i][15:0];

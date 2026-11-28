@@ -71,9 +71,9 @@ depth: 44 层（ptw_walk，单模块综合 5446 cells / 21 $mem_v2，2026-11-22�
 | `ptw_walk_l2tlb.sv` | 317 | 统一 L2 TLB（4 路 256×76b 1RW SRAM + 3-bit PLRU（`ttg_util_pkg::ttg_plru4_touch / ttg_plru4_victim`）+ 8 项大页 CAM）+ 16 项 PWC |
 | `ptw_walk_pte.sv` | 57 | PTE 判断（纯组合） |
 
-状态：每个客户的 `pending_q`、`inflight_q`、`resp_valid_q`、`vpn_q`（27 位）、`root_q`（20 位）、响应的 `fault_q`/`leaf_ppn_q`/`perm_q`/`level_q`；引擎的 `state_q`（6 个状态）、`owner_q`、`rr_q`（下次优先的客户）、`l1_ppn_q`（上一级指针项的页号 = 下一级页表的基址，20 位）、`req_id_q`（已授权读请求的 id）、`level_q`（后续读的级别）；`ptw_walk_l2tlb` 内的 4 路 256×76b 1RW STLB SRAM（`mem_q`）、`stlb_rd_q`、`stlb_valid_q`、`stlb_plru_q`、8 项大页 CAM + `sp_rr_q`、16 项 PWC + `pwc_rr_q`。
+状态：每个客户的 `pending_q`、`inflight_q`、`resp_valid_q`、`vpn_q`（27 位）、`root_q`（20 位）、响应的 `fault_q`/`leaf_ppn_q`/`perm_q`/`level_q`；引擎的 `state_q`（6 个状态）、`owner_q`、`rr_q`（下次优先的客户）、`next_ppn_q`（上一级指针项的页号 = 下一级页表的基址，20 位）、`req_id_q`（已授权读请求的 id）、`level_q`（后续读的级别）；`ptw_walk_l2tlb` 内的 4 路 256×76b 1RW STLB SRAM（`mem_q`）、`stlb_rd_q`、`stlb_valid_q`、`stlb_plru_q`、8 项大页 CAM + `sp_rr_q`、16 项 PWC + `pwc_rr_q`。
 
-引擎的六个状态（`ptw_state_e`）：`PW_IDLE`、`PW_STLB_LK`（1 拍 L2 TLB / 大页 CAM / PWC 查表）、`PW_L1_REQ`（要发第一次读，级别 2）、`PW_L1_WAIT`（第一次读已授权，等 PTE）、`PW_L2_REQ`（要发 PWC 跳转或下一级读）、`PW_L2_WAIT`。注意"L1 / L2"在这里**不是页表的级别**：`L1_*` 是顶层读（Sv39 级别 2），`L2_*` 是之后所有的读（级别 1 或级别 0，真正的级别在 `level_q`）。模型 `WalkState` 的命名也是这样。
+引擎的六个状态（`ptw_state_e`）：`PW_IDLE`、`PW_STLB_LK`（1 拍 L2 TLB / 大页 CAM / PWC 查表）、`PW_FIRST_REQ`（要发第一次读，级别 2）、`PW_FIRST_WAIT`（第一次读已授权，等 PTE）、`PW_NEXT_REQ`（要发 PWC 跳转或下一级读）、`PW_NEXT_WAIT`。`FIRST_*` 是顶层读（Sv39 级别 2），`NEXT_*` 是之后所有的读（级别 1 或级别 0，真正的级别在 `level_q`）；本文件里 `l2_` 前缀只指 L2 TLB。模型 `WalkState` 仍沿用旧名 `L1_*` / `L2_*`（同一含义）。
 
 ## 5. 一拍内的数据流
 
@@ -84,20 +84,20 @@ depth: 44 层（ptw_walk，单模块综合 5446 cells / 21 $mem_v2，2026-11-22�
 3. **L2 TLB / SP CAM / PWC 查表**（`PW_STLB_LK`，第 T+1 拍）：用已寄存的 `stlb_rd_q` + `stlb_valid_q`、大页 CAM 和 PWC 匹配 `(cur_vpn, cur_root)`：
    - 命中 4KB STLB → 更新该组 3-bit 树 PLRU，发布叶子（总延迟 2 拍），回 `PW_IDLE`；
    - 命中大页 CAM（2MB/1GB）→ 发布叶子，回 `PW_IDLE`；
-   - 命中 PWC（L1 优先于 L2）→ `l1_ppn_q <= pwc_ppn`、`level_q <= 0(L1) 或 1(L2)`、转 `PW_L2_REQ`；
-   - 全缺失 → `level_q <= 2`、转 `PW_L1_REQ`。
-4. **读请求**（仅当 `state_q == PW_L1_REQ / PW_L2_REQ`，与 `select_any` 完全解耦）：`PW_L1_REQ` 时地址 = `{cur_root(20), VPN[2](9), 3'b0}`；`PW_L2_REQ` 时地址 = `{l1_ppn_q, VPN[level_q], 3'b0}`。
+   - 命中 PWC（L1 优先于 L2）→ `next_ppn_q <= pwc_ppn`、`level_q <= 0(L1) 或 1(L2)`、转 `PW_NEXT_REQ`；
+   - 全缺失 → `level_q <= 2`、转 `PW_FIRST_REQ`。
+4. **读请求**（仅当 `state_q == PW_FIRST_REQ / PW_NEXT_REQ`，与 `select_any` 完全解耦）：`PW_FIRST_REQ` 时地址 = `{cur_root(20), VPN[2](9), 3'b0}`；`PW_NEXT_REQ` 时地址 = `{next_ppn_q, VPN[level_q], 3'b0}`。
 5. **授权**：`grant_valid` 则 `*_REQ → *_WAIT`，记下 `req_id`。
 6. **PTE 事件**：只有在 `*_WAIT` 状态且 `event_req_id` 等于已授权的 id 才处理。`ptw_walk_pte` 判断：
    - 缺页 → 给该客户发布"缺页"，回 `PW_IDLE`（不写 L2 TLB / PWC）；
    - 叶子 → 回填 STLB（`level == 0`，1RW 写第一无效路或 3-bit PLRU 淘汰路并更新 PLRU）或大页 CAM（`level > 0`，覆盖同项/第一无效/轮转 `sp_rr_q`），发布叶子，回 `PW_IDLE`；
-   - 指针 → 回填 PWC（覆盖同项/第一无效/轮转 `pwc_rr_q`），`l1_ppn_q <= pte[29:10]`、`level_q <= 本级 - 1`、转 `PW_L2_REQ`。
+   - 指针 → 回填 PWC（覆盖同项/第一无效/轮转 `pwc_rr_q`），`next_ppn_q <= pte[29:10]`、`level_q <= 本级 - 1`、转 `PW_NEXT_REQ`。
 7. **唤醒**：`wakeup_walk` 且处于 `*_WAIT`，退回对应的 `*_REQ` 重发同一个读。
 8. **冲刷**：`client_flush[owner_b]` 使遍历回 `PW_IDLE` 并清客户状态（不影响 L2 TLB / PWC）；`sfence_flush`（`rob_bcast_fence`）在时钟沿清空 STLB `valid/plru`、SP CAM `valid/rr` 与 PWC `valid/rr`。
 
 ## 6. 关键路径与深度
 
-单模块综合深度 **44 层**，面积 **5,446 cells**（含 `21 $mem_v2`、206 FFs；`ptw_walk`；2026-11-22；`scripts/synth_depth.sh l2tlb2 ptw_walk`，`SYNTH_ABC="strash;balance;map" SYNTH_NO_MEMPRIO=1`）。综合报告最长路径：`\g_client[0].u_client.inflight_q` → `vpn_a` → `u_l2tlb.pwc_l1_hit` → `stlb_pwc_go` → `u_engine.state_q`（44 层，较加入 L2 TLB 前的 47 层更浅，因 `PW_L1_REQ/PW_L2_REQ` 的 grant 与 PTE 判别已从 `select_any -> state_b` 路径解耦）。
+单模块综合深度 **44 层**，面积 **5,446 cells**（含 `21 $mem_v2`、206 FFs；`ptw_walk`；2026-11-22；`scripts/synth_depth.sh l2tlb2 ptw_walk`，`SYNTH_ABC="strash;balance;map" SYNTH_NO_MEMPRIO=1`）。综合报告最长路径：`\g_client[0].u_client.inflight_q` → `vpn_a` → `u_l2tlb.pwc_l1_hit` → `stlb_pwc_go` → `u_engine.state_q`（44 层，较加入 L2 TLB 前的 47 层更浅，因 `PW_FIRST_REQ/PW_NEXT_REQ` 的 grant 与 PTE 判别已从 `select_any -> state_b` 路径解耦）。
 
 - 4 路 256×76b STLB 是 4 个 `ttg_sram_1rw`（`TAG = "L2TLB_STLB"`，`DEPTH = PT_STLB_SETS = 256`，`WIDTH = STLB_ENTRY_W`）；内容由 `rst_n` 期间的 SRAM 清扫写 `INIT_VAL`（common.md 4.1），有效位 `stlb_valid_q` 和 PLRU 仍在触发器里、同步复位；写操作与读操作按 FSM 状态严格互斥（`PW_IDLE` 读、`*_WAIT` 写），无读写转发冲突；
 - L1 ITLB / DTLB 关键路径完全不受 L2 TLB 影响。
@@ -112,7 +112,7 @@ depth: 44 层（ptw_walk，单模块综合 5446 cells / 21 $mem_v2，2026-11-22�
 - 模型的 `WalkState`、`Client` 枚举、轮转指针 `walk_rr_next` 与 RTL 的 `ptw_state_e`、客户号、`rr_q` 一一对应；
 - 模型的"冲刷在输出之后生效"（TLB 的冲刷从下一拍才能在输出上看到）：RTL 里冲刷在时钟沿清寄存器，输出是寄存器，效果相同。
 
-代码里看起来不一致的地方（未改，仅记录）：`ptw_walk_engine.sv` 里的信号名 `go_level0`、`l1_ppn_q` 暗示"第 0 级 / 第 1 级"，实际含义是"遇到指针、去读下一级"和"最近一个指针项的页号"（见第 4 节）；`memcpu_pkg::ptw_state_e` 的注释写 "level-0 PTE read" 也是同一问题。
+代码里看起来不一致的地方：无（2026-11-29 清理 E 已把 `go_level0` / `l1_ppn_q` / `PW_L1_*` / `PW_L2_*` 改为 `go_next` / `next_ppn_q` / `PW_FIRST_*` / `PW_NEXT_*`）。
 
 未核对（继承自旧文档）：无，旧文档内容未带入。
 
@@ -129,6 +129,7 @@ depth: 44 层（ptw_walk，单模块综合 5446 cells / 21 $mem_v2，2026-11-22�
 
 ## 10. 变更记录
 
+- 2026-11-29 清理 E：改名 `ptw_state_e` 的 `PW_L1_REQ/WAIT` → `PW_FIRST_REQ/WAIT`、`PW_L2_REQ/WAIT` → `PW_NEXT_REQ/WAIT`，`ptw_walk_engine` 的 `l1_ppn_q` → `next_ppn_q`、`go_level0` → `go_next`、`in_l1_wait/in_l2_wait` → `in_first_wait/in_next_wait`（`l2_` 只指 L2 TLB）（只改名字，周期不变）。
 - 2026-11-29 清理 D：去重（周期不变）。`ptw_walk_l2tlb` 删除本地 `plru_update / plru_victim`（与 `ttg_util_pkg::ttg_plru4_touch / ttg_plru4_victim` 逐字相同），改为按名导入后者。
 - 2026-11-28 清理：`ptw_walk.sv` 文件头去掉已删除的 `spec/ptw_walk.io` 引用；删 `ptw_walk_pte.sv` 一处无效 waiver（周期不变）。
 - 2026-11-28（rtl 73761fa，SRAM 复位清扫）：`ptw_walk_l2tlb` 的 4 个 STLB `ttg_sram_1rw` 实例接上 `rst_n`；复位期间 SRAM 外壳逐地址写 `INIT_VAL`，`ttg_rst_sweep` 把复位拉长 `SRAM_SWEEP_CYCLES = 4100` 拍，不再依赖上电值（common.md 4.1）；0 周期变化，`fm_gate` 77/77。

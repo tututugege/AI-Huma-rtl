@@ -72,11 +72,11 @@ module lp_ldq_ent
   // P12 launch
   input  logic [NLD-1:0]      l1_tgt,
   input  logic [NLD-1:0]      l1_launch,
-  output logic                pipe_r,              // registered state == PIPE
-  output logic                wb3_r,               // registered state == WB3 (L3 register of the port holds it)
-  output logic                wbp_r,               // registered state == WBP
+  output logic                pipe_st,             // registered state == PIPE
+  output logic                wb3_st,              // registered state == WB3 (L3 register of the port holds it)
+  output logic                wbp_st,              // registered state == WBP
   output logic                wbp_m,               // MMIO response of this cycle: MMR -> WBP
-  output logic                dead_r,              // killed by this cycle's flush / mispredict (registered fields only)
+  output logic                kill_cur,            // killed by this cycle's flush / mispredict (registered fields only)
   // P13 wake-up
   input  logic [SQ-1:0]       ev_sta,
   input  logic [SQ-1:0]       ev_data,
@@ -205,9 +205,9 @@ module lp_ldq_ent
     tl_s = '0;
     for (int k = 0; k < NLD; k++) if (tl_tgt[k]) tl_s = tl[k];
     st5 = (|ag_acc) ? LS_PIPE : st4v;
-    pipe_r = st_q == LS_PIPE;
-    wb3_r = st_q == LS_WB3;
-    wbp_r = st_q == LS_WBP;
+    pipe_st = st_q == LS_PIPE;
+    wb3_st  = st_q == LS_WB3;
+    wbp_st  = st_q == LS_WBP;
     vaddr6 = (|ag_acc) ? ag_s.vaddr : f_q.vaddr;
     tl_hit = tl_s.hit;
     tl_pf = tl_s.pf;
@@ -232,12 +232,12 @@ module lp_ldq_ent
     rflg7 = al ? al_d.rob_flag : f_q.rob_flag;
     kill  = flush || (mispred && st7 != LS_EMPTY && ttg_rob_younger(ridx7, rflg7, dec_rob_idx, dec_rob_flag));
     st8   = kill ? LS_EMPTY : st7;
-    dead_r = flush || (mispred && st_q != LS_EMPTY &&
+    kill_cur = flush || (mispred && st_q != LS_EMPTY &&
                        ttg_rob_younger(f_q.rob_idx, f_q.rob_flag, dec_rob_idx, dec_rob_flag));
-    epoch_nx = (al || (!dead_r && (|(l1_tgt & l1_launch)))) ? epoch_p1 : f_q.epoch;
+    epoch_nx = (al || (!kill_cur && (|(l1_tgt & l1_launch)))) ? epoch_p1 : f_q.epoch;
   end
 `ifndef SYNTHESIS
-  assert property (@(posedge clk) disable iff (!rst_n) !(al && !dead_r && (|(l1_tgt & l1_launch))));
+  assert property (@(posedge clk) disable iff (!rst_n) !(al && !kill_cur && (|(l1_tgt & l1_launch))));
 `endif
 
   // ---- P13 wake-up ----
@@ -257,11 +257,11 @@ module lp_ldq_ent
   logic rpw_a;
   logic no_l1_spec_p3, no_l1_spec_p13;
   always_comb begin
-    rpw_a = (st3 == LS_RPW) && !dead_r;
+    rpw_a = (st3 == LS_RPW) && !kill_cur;
     ew = w_port ? l2w : wk_e;
     fill_hit = fill_v && rt3 == REPLAY_MSHR_HIT && fill_line == f_q.paddr[31 -: LINEW];
     wake_dc = fill_hit || (fill_v && rt3 == REPLAY_MSHR_FULL && full_ok);
-    full_cand = (st_q == LS_RPW) && !dead_r && (f_q.rcause == 3'(RC_DC)) && fill_v && (f_q.rtype == REPLAY_MSHR_FULL);
+    full_cand = (st_q == LS_RPW) && !kill_cur && (f_q.rcause == 3'(RC_DC)) && fill_v && (f_q.rtype == REPLAY_MSHR_FULL);
     no_l1_spec_p3 = (l2_ok && (l2_dec.act == L2_PARK) && (l2_dec.cause == RC_TLB)) ? 1'b1 :
                     ((rs_ok && !rs_hit && (rs_rep != REPLAY_CONFLICT)) ? 1'b1 : f_q.no_l1_spec);
     no_l1_spec_p13 = (rpw_a && (rc3 == 3'(RC_DC)) && fill_hit) ? 1'b0 : no_l1_spec_p3;
@@ -289,7 +289,7 @@ module lp_ldq_ent
         default: st9 = st8;
       endcase
     end
-    rdy9 = (st_q == LS_RDY) && !dead_r;
+    rdy9 = (st_q == LS_RDY) && !kill_cur;
   end
 
   // ---- registers ----

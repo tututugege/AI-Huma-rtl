@@ -26,18 +26,18 @@ module soc_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*;
   output logic rob_bcast_mret,
   output logic [XLEN_BITS-1:0] rob_bcast_pc,
   output logic rob_bcast_sret,
-  output logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_br_taken,
-  output logic [5:0] rob_commit_commit_entry_uop_dest_areg [COMMIT_WIDTH],
-  output logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_dest_en,
-  output logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_page_fault_inst,
-  output logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_page_fault_load,
-  output logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_page_fault_store,
-  output logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_rob_flag,
-  output logic [ROB_IDX_WIDTH-1:0] rob_commit_commit_entry_uop_rob_idx [COMMIT_WIDTH],
-  output logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_stq_flag,
-  output logic [5:0] rob_commit_commit_entry_uop_stq_idx [COMMIT_WIDTH],
-  output logic [4:0] rob_commit_commit_entry_uop_type [COMMIT_WIDTH],
-  output logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_valid,
+  output logic [COMMIT_WIDTH-1:0] rob_commit_uop_br_taken,
+  output logic [5:0] rob_commit_uop_dest_areg [COMMIT_WIDTH],
+  output logic [COMMIT_WIDTH-1:0] rob_commit_uop_dest_en,
+  output logic [COMMIT_WIDTH-1:0] rob_commit_uop_page_fault_inst,
+  output logic [COMMIT_WIDTH-1:0] rob_commit_uop_page_fault_load,
+  output logic [COMMIT_WIDTH-1:0] rob_commit_uop_page_fault_store,
+  output logic [COMMIT_WIDTH-1:0] rob_commit_uop_rob_flag,
+  output logic [ROB_IDX_WIDTH-1:0] rob_commit_uop_rob_idx [COMMIT_WIDTH],
+  output logic [COMMIT_WIDTH-1:0] rob_commit_uop_stq_flag,
+  output logic [5:0] rob_commit_uop_stq_idx [COMMIT_WIDTH],
+  output logic [4:0] rob_commit_uop_type [COMMIT_WIDTH],
+  output logic [COMMIT_WIDTH-1:0] rob_commit_valid,
   output logic phase0,
   input  logic env_modeled,
   input logic [XLEN_BITS-1:0] env_rdata,
@@ -142,7 +142,7 @@ module soc_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*;
  logic lsu2dcache_store_ports_valid [LSU_STA_COUNT];
  logic peripheral_req_is_mmio ;
  logic [31:0] peripheral_req_mmio_addr ;
- logic [2:0] peripheral_req_mmio_fun3 ;
+ logic [2:0] peripheral_req_mmio_func3 ;
  logic [XLEN_BITS-1:0] peripheral_req_mmio_wdata ;
  logic peripheral_req_wen ;
 

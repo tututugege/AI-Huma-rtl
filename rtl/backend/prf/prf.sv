@@ -25,12 +25,12 @@ module prf
   input  logic [PRF_IDX_WIDTH-1:0]      lsu_byp_dest_preg [LSU_LOAD_WB_WIDTH],
   input  logic [XLEN_BITS-1:0]          lsu_byp_result    [LSU_LOAD_WB_WIDTH],
   input  logic [LSU_LOAD_WB_WIDTH-1:0]  lsu_byp_is_w,
-  input  logic [XLEN_BITS-1:0]          ftq_prf_pc_resp_resp_pc [FTQ_PRF_PC_PORT_NUM],
-  input  logic [FTQ_PRF_PC_PORT_NUM-1:0] ftq_prf_pc_resp_resp_pred_taken,
-  input  logic [FTQ_PRF_PC_PORT_NUM-1:0] ftq_prf_pc_resp_resp_is_rvc,
-  input  logic [XLEN_BITS-1:0]          ftq_prf_pc_resp_resp_next_pc [FTQ_PRF_PC_PORT_NUM],
-  output logic [FTQ_IDX_WIDTH-1:0]      ftq_prf_pc_req_req_ftq_idx [FTQ_PRF_PC_PORT_NUM],
-  output logic [FTQ_OFFSET_WIDTH-1:0]   ftq_prf_pc_req_req_ftq_offset [FTQ_PRF_PC_PORT_NUM],
+  input  logic [XLEN_BITS-1:0]          ftq_prf_pc_resp_pc [FTQ_PRF_PC_PORT_NUM],
+  input  logic [FTQ_PRF_PC_PORT_NUM-1:0] ftq_prf_pc_resp_pred_taken,
+  input  logic [FTQ_PRF_PC_PORT_NUM-1:0] ftq_prf_pc_resp_is_rvc,
+  input  logic [XLEN_BITS-1:0]          ftq_prf_pc_resp_next_pc [FTQ_PRF_PC_PORT_NUM],
+  output logic [FTQ_IDX_WIDTH-1:0]      ftq_prf_pc_req_ftq_idx [FTQ_PRF_PC_PORT_NUM],
+  output logic [FTQ_OFFSET_WIDTH-1:0]   ftq_prf_pc_req_ftq_offset [FTQ_PRF_PC_PORT_NUM],
   output logic [LSU_LOAD_WB_WIDTH-1:0]  prf_awake_wake_valid,
   output logic [PRF_IDX_WIDTH-1:0]      prf_awake_wake_preg [LSU_LOAD_WB_WIDTH],
   output logic [ISSUE_WIDTH-1:0]        prf2exe_valid,
@@ -343,12 +343,12 @@ module prf
     localparam int LANE = (p == 0) ? IQ_ALU_PORT_BASE
                         : (p == 1) ? (IQ_ALU_PORT_BASE + 2)
                                    : (IQ_BR_PORT_BASE + (p - NPC_ALU));
-    assign ftq_prf_pc_req_req_ftq_idx[p]    = iss2prf_uop[LANE].ftq_idx;
-    assign ftq_prf_pc_req_req_ftq_offset[p] = iss2prf_uop[LANE].ftq_offset;
-    assign lane_pc[LANE]                    = ftq_prf_pc_resp_resp_pc[p];
-    assign lane_pred_taken[LANE]            = ftq_prf_pc_resp_resp_pred_taken[p];
-    assign lane_is_rvc[LANE]                = ftq_prf_pc_resp_resp_is_rvc[p];
-    assign lane_next_pc[LANE]               = ftq_prf_pc_resp_resp_next_pc[p];
+    assign ftq_prf_pc_req_ftq_idx[p]    = iss2prf_uop[LANE].ftq_idx;
+    assign ftq_prf_pc_req_ftq_offset[p] = iss2prf_uop[LANE].ftq_offset;
+    assign lane_pc[LANE]                    = ftq_prf_pc_resp_pc[p];
+    assign lane_pred_taken[LANE]            = ftq_prf_pc_resp_pred_taken[p];
+    assign lane_is_rvc[LANE]                = ftq_prf_pc_resp_is_rvc[p];
+    assign lane_next_pc[LANE]               = ftq_prf_pc_resp_next_pc[p];
   end
   for (genvar i = 0; i < NIP; i++) begin : g_nopc
     if (!((i == IQ_ALU_PORT_BASE) || (i == IQ_ALU_PORT_BASE + 2) ||

@@ -29,7 +29,7 @@
 | [front_ctrl](modules/front_ctrl.md) | 1/53 | 5 层 |
 | [front_fifos](modules/front_fifos.md) | 1/76 | 13 层 |
 | [front_top](modules/front_top.md) | 3/564 | Tier 1 |
-| [icache](modules/icache.md) | 13/1696 | Tier 1 TSMC 28nm (Yosys+PrimeTime STA, clk=0.65ns, eda-07): icache 77 层 / Total 490,495.9 / WNS -1.24ns (Fmax_T1 0.529 GHz, pt_timing_reg2reg -1.18ns / 0.546 GHz)；front_top 64 层 / Total 2,682,267.5 / WNS -1.82ns (Fmax_T1 0.405 GHz，瓶颈已移出 u_icache) |
+| [icache](modules/icache.md) | 13/1694 | Tier 1 TSMC 28nm (Yosys+PrimeTime STA, clk=0.65ns, eda-07): icache 77 层 / Total 490,495.9 / WNS -1.24ns (Fmax_T1 0.529 GHz, pt_timing_reg2reg -1.18ns / 0.546 GHz)；front_top 64 层 / Total 2,682,267.5 / WNS -1.82ns (Fmax_T1 0.405 GHz，瓶颈已移出 u_icache) |
 | [predecode](modules/predecode.md) | 1/302 | 27 层 |
 
 ## 访存子系统
@@ -64,4 +64,4 @@
 | [soc_axi](modules/soc_axi.md) | 12/2881 | 75 层 |
 | [soc_periph](modules/soc_periph.md) | 8/1367 | bootrom 27 / sram 23 / clint 26 / plic 72 / uart 20 / sysctrl 11 层 |
 
-合计（各文档的目录有重叠时会重复计数）：325 个文件，49442 行。
+合计（各文档的目录有重叠时会重复计数）：325 个文件，49440 行。

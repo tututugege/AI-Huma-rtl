@@ -92,6 +92,7 @@ depth 待测（由协调者补）。本模块只有连线，没有逻辑；整�
 
 ## 10. 变更记录
 
+- 2026-11-29 清理 E：改名 `rob_commit_commit_entry_*` → `rob_commit_*`（如 `rob_commit_valid`、`rob_commit_uop_type`）；`peripheral_req_mmio_fun3` → `peripheral_req_mmio_func3`（只改名字，周期不变）。
 - 2026-11-28 清理：删参数 `PF_EN`（默认 1、没人覆盖；注释写的 h1 实为 Berti），`mem_top` 实例不再传它（周期不变）。
 - 2026-11-28（文档核对）：结构一节补 `u_rst_sweep`、行数 193；测试平台路径改为 `tb/core/core_tb.cpp`、`tb/core/pmu_public.vlt`。
 - 2026-11-28（`rtl/fe-2ahead`）：新增 `ttg_rst_sweep`，`core_top` / `mem_top` 的复位改用展宽后的 `core_rst_n`（SRAM 在复位里清零，`common.md` 4.1 节），新增输出 `init_done`；`core_tb` 跑到 `init_done` 才开始计周期，周期与模型不变（`fm_gate.sh` 77/77、0 周期差）。

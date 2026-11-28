@@ -1,5 +1,5 @@
 // Central SVA bind declarations (compiled only when SOC_SVA=1; zero impact on synthesis or fast builds)
-bind rob_core_cpt sva_rob u_sva_rob (
+bind rob_core sva_rob u_sva_rob (
   .clk             (clk),
   .rst_n           (rst_n),
   .count_q         (count_q),

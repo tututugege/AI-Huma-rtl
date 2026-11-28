@@ -46,7 +46,7 @@ AMO 暂存寄存器：IDU 把"丢弃结果的读改写 AMO"的目的寄存器号
 | 入 | `dec_bcast_mispred`、`dec_bcast_redirect_rob_idx` | 分支误预测和被预测错的分支的 ROB 号（恢复时查检查点 / 前向 Walk 的终点） |
 | 入 | `dis2ren_ready` | 分派接受这一组 |
 | 入 | `rob_bcast_flush`、`rob_bcast_interrupt` | 全局冲刷（`FLUSH_REG` 后晚一拍，docs/FLUSH_REG.md）；带中断退休的指令不提交映射 |
-| 入 | `rob_commit_commit_entry_*[8]` | 退休的指令：`dest_en`、`dest_areg`、`dest_preg`、`old_dest_preg`、`me_elim`、`dest_fp`、异常标志、类型 |
+| 入 | `rob_commit_*[8]` | 退休的指令：`dest_en`、`dest_areg`、`dest_preg`、`old_dest_preg`、`me_elim`、`dest_fp`、异常标志、类型 |
 | 出 | `ren2dec_ready` | 这一组被接收（空）或还有 lane 没发出 |
 | 出 | `ren2dis_valid[8]`、`ren2dis_uop_*[8]` | 重命名后的指令（`dest_preg`、`src1/2/3_preg`、`old_dest_preg`、`me_elim`…）；`src1_areg` 要继续带，ROB 经退休端口交给前端 BPU |
 
@@ -168,6 +168,7 @@ RTL 与模型的实现差别（行为等价）：
 
 ## 10. 变更记录
 
+- 2026-11-29 清理 E：改名 `ren_log` 的组合线 `bb_oh_q` → `bb_oh`；`rob_commit_commit_entry_*` → `rob_commit_*`（如 `rob_commit_valid`、`rob_commit_uop_type`）（只改名字，周期不变）。
 - 2026-11-29 清理 D：去重——`ren_free_list` 与 `ren_fp_free_list` 合并为一个参数化模块（`NUM`：环大小，2 的幂时自然回绕，否则模 `NUM`；`RESV`：复位时被架构 RAT 占用的个数；`TAG_BASE`：库里存本域局部号、读出加回；`PORT_W`：环位置端口宽度），`ren_fp` 以 `#(.NUM(FPN), .RESV(FP_ARF_NUM), .TAG_BASE(FP_TAG_BASE), .PORT_W(FP_PTR_W))` 实例化并把 `free_total` 同时接 `reclaim_total` / `alloc_commit_total`，`ren_fp_free_list.sv` 不再被引用；新增 `tests/ren_free_list/run.sh`：合并模块两种参数与改前两个模块的副本逐拍对拍（随机输入，100 万拍 PASS，删掉浮点域行回绕的变异第 22 拍即报错）；`ren_pkg` 删 `INST_TYPE_WIDTH`、`ITYPE_*` 副本，改用 `dis_pkg::INST_TYPE_W` / `INST_*`（数值相同；`ren` / `ren_core` / `ren_commit_filter` / `ren_inst_pipe` 同步）；`tests/ren_elim_sel/run.sh` 加 `dis_pkg.sv`（周期不变）。
 - 2026-11-28 清理：移动消除写死开（`ren_core` 删 `g_no_elim` / `g_no_cnt`，不再读 `ttg_cfg_pkg::MOVE_ELIM`）；F/D 写死（删 `g_no_fp`，`ren_pkg::FPN = FPRF_NUM`）；`ren_ckpt_ctl` 删未用输出 `rd_base`（只用 `rd_base_next`）；`ren_pkg` 删未用的 `rat_identity`、`fp_rat_identity`、`free_list_init`、`fp_free_list_init`；删不抑制任何告警的 lint 豁免（`ren_elim_sel` / `ren_free_list` / `ren_log` 各 1 处、`ren_rat` 2 处；`unused_*` 汇本身 Verilator 不报，以去掉豁免后整树 lint 普通 / `-DSYNTHESIS` 均无新告警为准）（周期不变）。
 - 2026-11-28（文档核对，无 RTL 变化）：移动消除不再有 `MOVE_ELIM_MAX_REFS` 上限（`CNT_W = 6`，EXP-065）；稀疏检查点 `REN_CKPT_NUM = 4`、`ren_log`、`ren_ckpt_ctl` 写进结构与文件表；`PRF_NUM = 256` 下的位宽；接口去掉 `br_id / br_mask / clear_mask`；第 8 节加 `tests/ren_elim_sel`；`ttg_cfg_pkg` 为生成文件；门禁参考改为 `scripts/ref_cycles.txt`（77 个程序）。

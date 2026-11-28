@@ -56,7 +56,7 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
   input  logic lsu2dcache_store_ports_valid [LSU_STA_COUNT],
   input  logic peripheral_req_is_mmio,
   input  logic [31:0] peripheral_req_mmio_addr,
-  input  logic [2:0] peripheral_req_mmio_fun3,
+  input  logic [2:0] peripheral_req_mmio_func3,
   input  logic [XLEN_BITS-1:0] peripheral_req_mmio_wdata,
   input  logic peripheral_req_wen,
   // ---- memory -> core ----
@@ -358,7 +358,7 @@ module mem_top import ttg_cfg_pkg::*; import memcpu_pkg::*; import tlb_mmu_pkg::
     .clk, .rst_n, .phase0,
     .req_is_mmio(peripheral_req_is_mmio), .req_wen(peripheral_req_wen),
     .req_addr(peripheral_req_mmio_addr), .req_wdata(peripheral_req_mmio_wdata),
-    .req_func3(peripheral_req_mmio_fun3),
+    .req_func3(peripheral_req_mmio_func3),
     .env_modeled, .env_rdata,
     .ax_pa_rd_acc, .ax_pa_rd_rv, .ax_pa_rd_data, .ax_pa_wr_acc, .ax_pa_wr_rv,
     .pa_rd_valid, .pa_rd_addr, .pa_rd_size, .pa_rd_resp_ready,

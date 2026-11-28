@@ -23,7 +23,7 @@ module lp_wake
   input  lp_pl12_t            pl12 [NLD],
   input  logic [LQW-1:0]      pl2b_idx [NLD],
   input  logic [LQ-1:0]       l2_ok,
-  input  logic [LQ-1:0]       pipe_r,
+  input  logic [LQ-1:0]       pipe_st,
   input  lp_ldq_t             ldq_q [LQ],
   input  logic [NLD-1:0]      wbd_v,                 // direct completions decided at L2 (L2a PF or L2b STLF or DC HIT)
   input  logic [LQW-1:0]      wbd_idx [NLD],
@@ -142,7 +142,7 @@ module lp_wake
 
       // Train L1D hit confidence predictor (+1 on direct hit, -1 on non-direct)
       train_en[p] = pl12[p].v && !pl12[p].replay && !pl12[p].dcblk &&
-                    pipe_r[l2a_ldq] && (ldq_q[l2a_ldq].epoch == pl12[p].epoch) &&
+                    pipe_st[l2a_ldq] && (ldq_q[l2a_ldq].epoch == pl12[p].epoch) &&
                     !ldq_q[l2a_ldq].second && (ldq_q[l2a_ldq].dest_preg != '0) && !flush &&
                     !(mispred && ttg_rob_younger(ldq_q[l2a_ldq].rob_idx, ldq_q[l2a_ldq].rob_flag,
                                                 dec_rob_idx, dec_rob_flag));

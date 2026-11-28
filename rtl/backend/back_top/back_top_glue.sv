@@ -26,16 +26,16 @@ module back_top_glue
   input  logic br_redirect_is_rvc,
   input  logic        dec_bcast_mispred,
   input  logic        ftq2front_ready,
-  input  logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_valid,
-  input  logic [4:0]  rob_commit_commit_entry_uop_type [COMMIT_WIDTH],
-  input  logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_br_taken,
+  input  logic [COMMIT_WIDTH-1:0] rob_commit_valid,
+  input  logic [4:0]  rob_commit_uop_type [COMMIT_WIDTH],
+  input  logic [COMMIT_WIDTH-1:0] rob_commit_uop_br_taken,
   input  logic [XLEN_BITS-1:0] ftq_commit_pc [COMMIT_WIDTH],
   input  logic [XLEN_BITS-1:0] ftq_commit_next_pc [COMMIT_WIDTH],
   input  logic        ftq_commit_is_rvc [COMMIT_WIDTH],
   /* verilator lint_off UNUSEDSIGNAL */   // waiver: only MXR / SUM / MPRV / MPP are read here
   input  logic [XLEN_BITS-1:0] csr_status_mstatus,
   /* verilator lint_on UNUSEDSIGNAL */
-  input  logic [6:0]  rob_commit_commit_entry_uop_func7 [COMMIT_WIDTH],
+  input  logic [6:0]  rob_commit_uop_func7 [COMMIT_WIDTH],
   output logic        out_mispred,
   output logic        out_no_mispred,  // qualifies out_stall in the boundary spec (stall is stale on redirect cycles)
   output logic        out_stall,
@@ -48,7 +48,7 @@ module back_top_glue
   output logic        csr_status_mstatus_sum,
   output logic        csr_status_mstatus_mprv,
   output logic [1:0]  csr_status_mstatus_mpp,
-  output logic [4:0]  rob_commit_commit_entry_uop_amo_op [COMMIT_WIDTH]
+  output logic [4:0]  rob_commit_uop_amo_op [COMMIT_WIDTH]
 );
 
   // Ref: BackTop::comb, "Normal case" / flush branch. Valid when out_mispred (SimCpu reads it only then).
@@ -78,23 +78,23 @@ module back_top_glue
   // carries the mispredict-corrected target; not-taken -> sequential pc + 2/4), removing 64b diag_val from ROB.
   for (genvar i = 0; i < COMMIT_WIDTH; i++) begin : g_commit
     logic is_taken_ctl;
-    assign is_taken_ctl = (rob_commit_commit_entry_uop_type[i] == INST_JAL) ||
-                          (rob_commit_commit_entry_uop_type[i] == INST_JALR) ||
-                          ((rob_commit_commit_entry_uop_type[i] == INST_BR) && rob_commit_commit_entry_uop_br_taken[i]);
+    assign is_taken_ctl = (rob_commit_uop_type[i] == INST_JAL) ||
+                          (rob_commit_uop_type[i] == INST_JALR) ||
+                          ((rob_commit_uop_type[i] == INST_BR) && rob_commit_uop_br_taken[i]);
     assign out_commit_entry_uop_diag_val[i] = is_taken_ctl
                                               ? ftq_commit_next_pc[i]
                                               : (ftq_commit_pc[i] + (ftq_commit_is_rvc[i] ? XLEN_BITS'(2) : XLEN_BITS'(4)));
   end
   logic commit_valid_unused;  // lint: kept as a port so the glue's interface documents the qualification
-  assign commit_valid_unused = |rob_commit_commit_entry_valid;
+  assign commit_valid_unused = |rob_commit_valid;
 
   // LSU reads the AMO sub-opcode of committed stores (RealLsu::comb_stq_commit): amo_op = func7[6:2]
   for (genvar i = 0; i < COMMIT_WIDTH; i++) begin : g_amo
-    assign rob_commit_commit_entry_uop_amo_op[i] = rob_commit_commit_entry_uop_func7[i][6:2];
+    assign rob_commit_uop_amo_op[i] = rob_commit_uop_func7[i][6:2];
   end
   logic [1:0] func7_low_unused [COMMIT_WIDTH];  // lint: func7[1:0] is not read
   for (genvar i = 0; i < COMMIT_WIDTH; i++) begin : g_f7
-    assign func7_low_unused[i] = rob_commit_commit_entry_uop_func7[i][1:0];
+    assign func7_low_unused[i] = rob_commit_uop_func7[i][1:0];
   end
 
   // mstatus bits: MXR=19, SUM=18, MPRV=17, MPP=12:11 (TlbMmu.cpp / lsu2mmu_io.csr_status.mstatus)

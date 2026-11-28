@@ -30,14 +30,14 @@ module ftq_ibuf import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; import front_pkg:
   input  logic [FTQ_OFFSET_WIDTH-1:0] br_redirect_ftq_offset,
   input  logic [XLEN_BITS-1:0] br_redirect_pc,
   input  logic rob_bcast_flush,
-  input  logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_valid,
-  input  logic [FTQ_IDX_WIDTH-1:0] rob_commit_commit_entry_uop_ftq_idx [COMMIT_WIDTH],
-  input  logic [FTQ_OFFSET_WIDTH-1:0] rob_commit_commit_entry_uop_ftq_offset [COMMIT_WIDTH],
-  input  logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_ftq_is_last,
-  input  logic [FTQ_IDX_WIDTH-1:0] ftq_prf_pc_req_req_ftq_idx [FTQ_PRF_PC_PORT_NUM],
-  input  logic [FTQ_OFFSET_WIDTH-1:0] ftq_prf_pc_req_req_ftq_offset [FTQ_PRF_PC_PORT_NUM],
-  input  logic [FTQ_IDX_WIDTH-1:0] ftq_rob_pc_req_req_ftq_idx [FTQ_ROB_PC_PORT_NUM],
-  input  logic [FTQ_OFFSET_WIDTH-1:0] ftq_rob_pc_req_req_ftq_offset [FTQ_ROB_PC_PORT_NUM],
+  input  logic [COMMIT_WIDTH-1:0] rob_commit_valid,
+  input  logic [FTQ_IDX_WIDTH-1:0] rob_commit_uop_ftq_idx [COMMIT_WIDTH],
+  input  logic [FTQ_OFFSET_WIDTH-1:0] rob_commit_uop_ftq_offset [COMMIT_WIDTH],
+  input  logic [COMMIT_WIDTH-1:0] rob_commit_uop_ftq_is_last,
+  input  logic [FTQ_IDX_WIDTH-1:0] ftq_prf_pc_req_ftq_idx [FTQ_PRF_PC_PORT_NUM],
+  input  logic [FTQ_OFFSET_WIDTH-1:0] ftq_prf_pc_req_ftq_offset [FTQ_PRF_PC_PORT_NUM],
+  input  logic [FTQ_IDX_WIDTH-1:0] ftq_rob_pc_req_ftq_idx [FTQ_ROB_PC_PORT_NUM],
+  input  logic [FTQ_OFFSET_WIDTH-1:0] ftq_rob_pc_req_ftq_offset [FTQ_ROB_PC_PORT_NUM],
   input  logic [FTQ_IDX_WIDTH-1:0] ftq_dis_req_ftq_idx [DECODE_WIDTH],
   input  logic [FTQ_OFFSET_WIDTH-1:0] ftq_dis_req_ftq_offset [DECODE_WIDTH],
   output logic [LSU_MDP_BITS-1:0] ftq_dis_resp_mdp [DECODE_WIDTH],
@@ -50,12 +50,12 @@ module ftq_ibuf import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; import front_pkg:
   output logic [BACKEND_FETCH_WIDTH-1:0] ftq2front_fire,
   output logic [DECODE_WIDTH-1:0] ibuf2idu_valid,
   output ib_entry_t ibuf2idu_entry [DECODE_WIDTH],
-  output logic [XLEN_BITS-1:0] ftq_prf_pc_resp_resp_pc [FTQ_PRF_PC_PORT_NUM],
-  output logic [FTQ_PRF_PC_PORT_NUM-1:0] ftq_prf_pc_resp_resp_pred_taken,
-  output logic [FTQ_PRF_PC_PORT_NUM-1:0] ftq_prf_pc_resp_resp_is_rvc,
-  output logic [XLEN_BITS-1:0] ftq_prf_pc_resp_resp_next_pc [FTQ_PRF_PC_PORT_NUM],
-  output logic [XLEN_BITS-1:0] ftq_rob_pc_resp_resp_pc [FTQ_ROB_PC_PORT_NUM],
-  output logic [FTQ_ROB_PC_PORT_NUM-1:0] ftq_rob_pc_resp_resp_is_rvc,
+  output logic [XLEN_BITS-1:0] ftq_prf_pc_resp_pc [FTQ_PRF_PC_PORT_NUM],
+  output logic [FTQ_PRF_PC_PORT_NUM-1:0] ftq_prf_pc_resp_pred_taken,
+  output logic [FTQ_PRF_PC_PORT_NUM-1:0] ftq_prf_pc_resp_is_rvc,
+  output logic [XLEN_BITS-1:0] ftq_prf_pc_resp_next_pc [FTQ_PRF_PC_PORT_NUM],
+  output logic [XLEN_BITS-1:0] ftq_rob_pc_resp_pc [FTQ_ROB_PC_PORT_NUM],
+  output logic [FTQ_ROB_PC_PORT_NUM-1:0] ftq_rob_pc_resp_is_rvc,
   output logic [COMMIT_WIDTH-1:0] ftq_commit_info_resp_valid,
   output logic [XLEN_BITS-1:0] ftq_commit_info_resp_pc [COMMIT_WIDTH],
   output logic [XLEN_BITS-1:0] ftq_commit_info_resp_next_pc [COMMIT_WIDTH],
@@ -98,10 +98,10 @@ module ftq_ibuf import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; import front_pkg:
 
   // Unified FTQ-64 pointers & frontend feedback
   logic [FTQ_IDX_WIDTH-1:0]       comm_ptr, next_comm_ptr, pd_ptr, s2_ptr, ifu_ptr, bpu_ptr_unused, s0_wr_idx;
-  logic                           ftq_full, fa_empty, s2_empty;
-  logic [1:0]                     fa_cnt_sat;
+  logic                           ftq_full, ifu_empty, s2_empty;
+  logic [1:0]                     ifu_cnt_sat;
   logic [XLEN_BITS-1:0]           ifu_addr, pd_base_pc, pd_out_next_pc;
-  logic [5:0]                     ifu_next_fa_idx;
+  logic [5:0]                     ifu_next_set_idx;
   logic [BACKEND_FETCH_WIDTH-1:0] pd_out_pred_dir;
 
   // Gate frontend writes against backend flush/mispred (matches PreIduQueue::seq early return)
@@ -126,8 +126,8 @@ module ftq_ibuf import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; import front_pkg:
     end
     for (int i = 0; i < DECODE_WIDTH; i++) idu_fire[i] = idu_consume_fire[i];
     for (int i = 0; i < COMMIT_WIDTH; i++) begin
-      commit_valid[i]   = rob_commit_commit_entry_valid[i];
-      commit_is_last[i] = rob_commit_commit_entry_uop_ftq_is_last[i];
+      commit_valid[i]   = rob_commit_valid[i];
+      commit_is_last[i] = rob_commit_uop_ftq_is_last[i];
     end
   end
 
@@ -172,11 +172,11 @@ module ftq_ibuf import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; import front_pkg:
     .pd_flush       (fe2ftq_pd.flush),
     .pd_empty_blk   (fe2ftq_pd.empty_blk),
     .commit_valid, .commit_is_last,
-    .commit_ftq_idx (rob_commit_commit_entry_uop_ftq_idx),
+    .commit_ftq_idx (rob_commit_uop_ftq_idx),
     .comm_ptr, .next_comm_ptr, .pd_ptr, .s2_ptr, .ifu_ptr,
     .bpu_ptr        (bpu_ptr_unused),
     .s0_wr_idx,
-    .ftq_full, .fa_empty, .fa_cnt_sat, .s2_empty
+    .ftq_full, .ifu_empty, .ifu_cnt_sat, .s2_empty
   );
 
   ftq_pc u_pc (
@@ -198,14 +198,14 @@ module ftq_ibuf import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; import front_pkg:
     .mispred_en     (br_redirect_mispred && !rob_bcast_flush),
     .mispred_idx    (br_redirect_ftq_idx),
     .mispred_target (br_redirect_pc),
-    .ifu_ptr, .ifu_addr, .ifu_next_fa_idx,
+    .ifu_ptr, .ifu_addr, .ifu_next_set_idx,
     .pd_base_pc, .pd_out_pred_dir, .pd_out_next_pc,
     .ftq_head       (comm_ptr),
-    .prf_idx(ftq_prf_pc_req_req_ftq_idx), .prf_off(ftq_prf_pc_req_req_ftq_offset),
+    .prf_idx(ftq_prf_pc_req_ftq_idx), .prf_off(ftq_prf_pc_req_ftq_offset),
     .prf_pc(prf_rd_pc), .prf_pred_taken(prf_rd_pred_taken), .prf_is_rvc(prf_rd_is_rvc), .prf_next_pc(prf_rd_next_pc),
-    .rob_idx(ftq_rob_pc_req_req_ftq_idx[0]), .rob_off(ftq_rob_pc_req_req_ftq_offset[0]),
+    .rob_idx(ftq_rob_pc_req_ftq_idx[0]), .rob_off(ftq_rob_pc_req_ftq_offset[0]),
     .rob_pc(rob_rd_pc), .rob_is_rvc(rob_rd_is_rvc),
-    .cm_idx(rob_commit_commit_entry_uop_ftq_idx), .cm_off(rob_commit_commit_entry_uop_ftq_offset),
+    .cm_idx(rob_commit_uop_ftq_idx), .cm_off(rob_commit_uop_ftq_offset),
     .cm_pc(cm_rd_pc), .cm_pred_taken(cm_rd_pred_taken), .cm_is_rvc(cm_rd_is_rvc), .cm_next_pc(cm_rd_next_pc),
     .dis_idx(ftq_dis_req_ftq_idx), .dis_off(ftq_dis_req_ftq_offset),
     .dis_pc(dis_pc), .dis_is_rvc(dis_is_rvc)
@@ -218,8 +218,8 @@ module ftq_ibuf import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; import front_pkg:
     .wr_blk_id     (fe2ftq_s2.blk_id),
     .wr_meta       (s2_meta),
     .next_comm_ptr (next_comm_ptr),
-    .rd_idx        (rob_commit_commit_entry_uop_ftq_idx),
-    .rd_offset     (rob_commit_commit_entry_uop_ftq_offset),
+    .rd_idx        (rob_commit_uop_ftq_idx),
+    .rd_offset     (rob_commit_uop_ftq_offset),
     .rd_meta, .rd_blk_id
   );
 
@@ -240,11 +240,11 @@ module ftq_ibuf import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; import front_pkg:
   // ---- registered frontend feedback bundle ----
   always_comb begin
     ftq2fe.ftq_full        = ftq_full;
-    ftq2fe.fa_empty        = fa_empty;
-    ftq2fe.fa_cnt_sat      = fa_cnt_sat;
+    ftq2fe.ifu_empty       = ifu_empty;
+    ftq2fe.ifu_cnt_sat     = ifu_cnt_sat;
     ftq2fe.s2_empty        = s2_empty;
     ftq2fe.ifu_addr        = ifu_addr;
-    ftq2fe.ifu_next_fa_idx = ifu_next_fa_idx;
+    ftq2fe.ifu_next_set_idx = ifu_next_set_idx;
     ftq2fe.pd_idx          = pd_ptr;
     ftq2fe.pd_base_pc      = pd_base_pc;
     ftq2fe.pd_pred_dir     = pd_out_pred_dir;
@@ -261,14 +261,14 @@ module ftq_ibuf import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; import front_pkg:
       ibuf2idu_entry[i] = issue_entry[i];
     end
     for (int p = 0; p < FTQ_PRF_PC_PORT_NUM; p++) begin
-      ftq_prf_pc_resp_resp_pc[p]         = prf_rd_pc[p];
-      ftq_prf_pc_resp_resp_pred_taken[p] = prf_rd_pred_taken[p];
-      ftq_prf_pc_resp_resp_is_rvc[p]     = prf_rd_is_rvc[p];
-      ftq_prf_pc_resp_resp_next_pc[p]    = prf_rd_next_pc[p];
+      ftq_prf_pc_resp_pc[p]         = prf_rd_pc[p];
+      ftq_prf_pc_resp_pred_taken[p] = prf_rd_pred_taken[p];
+      ftq_prf_pc_resp_is_rvc[p]     = prf_rd_is_rvc[p];
+      ftq_prf_pc_resp_next_pc[p]    = prf_rd_next_pc[p];
     end
     for (int p = 0; p < FTQ_ROB_PC_PORT_NUM; p++) begin
-      ftq_rob_pc_resp_resp_pc[p]     = rob_rd_pc;
-      ftq_rob_pc_resp_resp_is_rvc[p] = rob_rd_is_rvc;
+      ftq_rob_pc_resp_pc[p]     = rob_rd_pc;
+      ftq_rob_pc_resp_is_rvc[p] = rob_rd_is_rvc;
     end
     for (int i = 0; i < COMMIT_WIDTH; i++) begin
       ftq_commit_info_resp_valid[i]      = commit_valid[i];

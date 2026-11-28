@@ -33,7 +33,7 @@ module ftq_pc import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; (
   // Frontend registered read pointers & outputs (pure reads of bank_q)
   input  logic [FTQ_IDX_WIDTH-1:0]     ifu_ptr,
   output logic [XLEN_BITS-1:0]         ifu_addr,
-  output logic [5:0]                   ifu_next_fa_idx,
+  output logic [5:0]                   ifu_next_set_idx,
   output logic [XLEN_BITS-1:0]         pd_base_pc,
   output logic [BACKEND_FETCH_WIDTH-1:0] pd_out_pred_dir,
   output logic [XLEN_BITS-1:0]         pd_out_next_pc,
@@ -104,7 +104,7 @@ module ftq_pc import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; (
     ie1             = bank_q[ifu_p1[BW-1:0]][ifu_p1[FTQ_IDX_WIDTH-1:BW]];
     pe              = bank_q[pd_idx[BW-1:0]][pd_idx[FTQ_IDX_WIDTH-1:BW]];
     ifu_addr        = ie0.pc0;
-    ifu_next_fa_idx = ie1.pc0[11:6];
+    ifu_next_set_idx = ie1.pc0[11:6];
     pd_base_pc      = pe.pc0;
     pd_out_pred_dir = pe.pred_taken;
     pd_out_next_pc  = pe.next_pc;

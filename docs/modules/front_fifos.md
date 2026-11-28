@@ -26,7 +26,7 @@ depth: 13 层（2026-11-18，测的是已删除的 fetch_addr_fifo；inst_fifo �
 | 条目 `inst_fifo_entry_t` | 按字段相加 652 位（没有用 `$bits` 在综合里核对） | `front_pkg` |
 | 清空来源 | 全局 refetch（`global_refetch`，含预译码冲刷） | `front_fetch_buf.sv` |
 
-条目字段（`front_pkg::inst_fifo_entry_t`）：`is_pair` 1、`a_len` 4、`base_a` 64、`valid_a` 16、`pf_a` 16、`single_word_a` 1、`raw_a` 16×16、`up16_a` 16、`b_ok` 1、`b_actual_n` 5、`raw_b` 16×16、`up16_b` 16。A 块是本次取指的 16 个半字；B 块是同页下一行（跨行 2-Fetch，`is_pair`）预读出的半字，地址恒为 A 的下一行，所以不存 B 的基址；`up16_a` 是 A 块最后一个有效槽窗口的高半字（跨行时取 B 块槽 0 的低半）。
+条目字段（`front_pkg::inst_fifo_entry_t`）：`is_straddle` 1、`a_len` 4、`base_a` 64、`valid_a` 16、`pf_a` 16、`single_word_a` 1、`raw_a` 16×16、`up16_a` 16、`b_ok` 1、`b_actual_n` 5、`raw_b` 16×16、`up16_b` 16。A 块是本次取指的 16 个半字；B 块是同页下一行（跨行 2-Fetch，`is_straddle`）预读出的半字，地址恒为 A 的下一行，所以不存 B 的基址；`up16_a` 是 A 块最后一个有效槽窗口的高半字（跨行时取 B 块槽 0 的低半）。
 
 ## 3. 接口
 
@@ -82,6 +82,7 @@ depth: 13 层（2026-11-18，测的是已删除的 fetch_addr_fifo；inst_fifo �
 
 ## 10. 变更记录
 
+- 2026-11-29 清理 E：改名 `inst_fifo_entry_t.is_pair` → `is_straddle`（同页跨行 B 块，不是旧的 2-taken 双块）（只改名字，周期不变）。
 - 2026-11-29 清理 C：删 EXP-051 2-taken 双块残留（EXP-070 起不再产生）：`inst_fifo_entry_t.base_b`（64 位）删除，唯一读者 `front_head_fix` 的 `pair_discontinuity` 恒为 0（跨行 B 块恒为 A 的下一行），条目 716 → 652 位（周期不变）。
 - 2026-11-28 清理：删 `front_fifo` 的死功能（`drop_tail` 恒 0、`BYPASS` 恒 0、`FULL_AT` 恒等于深度、`next_rdata` / `head_fresh`（`fresh_v_q` / `fresh_slot_q`）无读者），把剩下的队列并入 `inst_fifo.sv`；删 `inst_fifo` 无读者的 `rd_valid` 输出与 `front_pkg::INST_FIFO_FULL_AT`（周期不变）。
 - 2026-11-28（`rtl/fe-2ahead`）：文档按现行 RTL 重写（第 1–9 节；旧正文描述的是 EXP-070 之前 / 删除分支标签之前的结构）。

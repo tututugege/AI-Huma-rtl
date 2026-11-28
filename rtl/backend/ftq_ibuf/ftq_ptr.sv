@@ -29,8 +29,8 @@ module ftq_ptr import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; (
   output logic [FTQ_IDX_WIDTH-1:0]     s0_wr_idx,
   // Registered frontend flow-control flags
   output logic                         ftq_full,
-  output logic                         fa_empty,
-  output logic [1:0]                   fa_cnt_sat,
+  output logic                         ifu_empty,
+  output logic [1:0]                   ifu_cnt_sat,
   output logic                         s2_empty
 );
 
@@ -43,12 +43,12 @@ module ftq_ptr import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; (
   logic [W-1:0] bpu_ptr_q,  bpu_ptr_d;
   logic [FTQ_SIZE-1:0] empty_blk_q, empty_blk_d;
 
-  logic [W-1:0] total_cnt, fa_cnt;
+  logic [W-1:0] total_cnt, ifu_cnt;
   assign total_cnt  = bpu_ptr_q - comm_ptr_q;
-  assign fa_cnt     = bpu_ptr_q - ifu_ptr_q;
-  assign ftq_full   = (total_cnt >= W'(FTQ_SIZE - 1)) || (fa_cnt >= W'(15));
-  assign fa_empty   = (ifu_ptr_q == bpu_ptr_q);
-  assign fa_cnt_sat = (fa_cnt >= W'(3)) ? 2'd3 : fa_cnt[1:0];
+  assign ifu_cnt     = bpu_ptr_q - ifu_ptr_q;
+  assign ftq_full    = (total_cnt >= W'(FTQ_SIZE - 1)) || (ifu_cnt >= W'(15));
+  assign ifu_empty   = (ifu_ptr_q == bpu_ptr_q);
+  assign ifu_cnt_sat = (ifu_cnt >= W'(3)) ? 2'd3 : ifu_cnt[1:0];
   assign s2_empty   = (pd_ptr_q == s2_ptr_q);
 
   assign comm_ptr      = comm_ptr_q;
@@ -60,7 +60,7 @@ module ftq_ptr import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; (
 
   logic [1:0]   drop_n_eff;
   logic [W-1:0] bpu_after_drop;
-  assign drop_n_eff     = (W'(s0_drop_tail_n) < fa_cnt) ? s0_drop_tail_n : fa_cnt[1:0];
+  assign drop_n_eff     = (W'(s0_drop_tail_n) < ifu_cnt) ? s0_drop_tail_n : ifu_cnt[1:0];
   assign bpu_after_drop = bpu_ptr_q - W'(drop_n_eff);
   assign s0_wr_idx      = bpu_after_drop;
 

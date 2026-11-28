@@ -73,7 +73,7 @@ module ren_log
   logic [LW-1:0] base_line, next_line;
   logic [BW-1:0] base_bank, base_bank_q;
   logic [NL-1:0] base_oh, next_oh;
-  logic [NB-1:0] bb_oh_q;
+  logic [NB-1:0] bb_oh;
   logic [EW-1:0] bank_rd [NB];
   logic [EW-1:0] bank_rd_q [NB];
   logic [EW-1:0] rd_slot_rot [NB];
@@ -107,14 +107,14 @@ module ren_log
   end
 
   for (genvar b = 0; b < NB; b++) begin : g_bank_dec
-    assign bb_oh_q[b] = (base_bank_q == BW'(b));
+    assign bb_oh[b] = (base_bank_q == BW'(b));
   end
 
   for (genvar k = 0; k < NB; k++) begin : g_rot
     logic [NB-1:0] slot_sel;
     packed_log_t   pe;
     for (genvar b = 0; b < NB; b++) begin : g_sel
-      assign slot_sel[b] = bb_oh_q[(b - k + NB) % NB];
+      assign slot_sel[b] = bb_oh[(b - k + NB) % NB];
     end
     ttg_onehot_mux #(.N(NB), .W(EW)) u_rot (.sel(slot_sel), .data(bank_rd_q), .out(rd_slot_rot[k]));
     assign pe = packed_log_t'(rd_slot_rot[k]);

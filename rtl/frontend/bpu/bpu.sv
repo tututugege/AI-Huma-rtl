@@ -40,8 +40,8 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
   output logic                    override_valid,
   output logic [1:0]              override_squash_n,
   output logic [1:0]              hold_n,
-  output logic                    ptab_write_enable,
-  output logic [XLEN_BITS-1:0]    ptab_base_pc,
+  output logic                    s2_wr_req,
+  output logic [XLEN_BITS-1:0]    s2_base_pc,
   output logic [XLEN_BITS-1:0]    predict_next_fetch_address,
   output logic [NLANE-1:0]        out_pred_dir,
   output logic [NLANE-1:0]        out_alt_pred,
@@ -309,8 +309,8 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
   assign override_valid             = ovr;
   assign override_squash_n          = squash_n;
   assign hold_n                     = ctl_hold_n;
-  assign ptab_write_enable          = d_valid;
-  assign ptab_base_pc               = r1_q.base;
+  assign s2_wr_req                  = d_valid;
+  assign s2_base_pc                 = r1_q.base;
   assign predict_next_fetch_address = fin.next;
 
   logic unused_ok;

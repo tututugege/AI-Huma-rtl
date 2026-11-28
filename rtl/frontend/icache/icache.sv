@@ -46,7 +46,7 @@ module icache import ttg_cfg_pkg::*; import icache_pkg::*; import tlb_mmu_pkg::*
   output logic [FETCH_WIDTH-1:0] fetch_upper_ok,
   output logic        fetch_single_word,
   output logic        b_hit,
-  output logic        b_is_pair,
+  output logic        b_is_straddle,
   output logic        b_is_tail,
   output logic [3:0]  b_a_len,
   output logic [4:0]  b_actual_n,
@@ -87,7 +87,7 @@ module icache import ttg_cfg_pkg::*; import icache_pkg::*; import tlb_mmu_pkg::*
   logic [7:0] ctl_mem_req_total_size;
   logic [3:0] ctl_mem_req_id, fdip_req_id;
   logic fdip_acc, fdip_rsp, fdip_rsp_raw, fdip_busy_req, fdip_probe_busy, fdip_fb_busy;
-  logic fdip_dc_req_valid, fdip_req_valid, fdip_fill_we, arr_fdip_peek_hit, peek_fdip_ok, pair_miss_en;
+  logic fdip_dc_req_valid, fdip_req_valid, fdip_fill_we, arr_fdip_peek_hit, peek_fdip_ok, b_miss_en;
   logic [IC_IDX_W-1:0] fdip_peek_index, fdip_fill_index;
   logic [IC_TAG_W-1:0] fdip_peek_tag, fdip_fill_tag;
 
@@ -146,7 +146,7 @@ module icache import ttg_cfg_pkg::*; import icache_pkg::*; import tlb_mmu_pkg::*
     f0_b_addr    = {f0_pc[XLEN_BITS-1:6] + (XLEN_BITS-6)'(1), 6'd0};
     f0_b_pa_ok   = f0_ppn[IC_TAG_W-1];
     f0_b_en      = f0_from_sram && f0_b_need && f0_b_pa_ok;
-    pair_miss_en = f0_b_en && !arr_b_hit;
+    b_miss_en = f0_b_en && !arr_b_hit;
 
     f1_d             = '0;
     f1_d.valid       = !invalidate && f0_resp_valid;
@@ -156,7 +156,7 @@ module icache import ttg_cfg_pkg::*; import icache_pkg::*; import tlb_mmu_pkg::*
     f1_d.pc          = f0_pc;
     f1_d.use_hi_only = f0_pc[5];
     f1_d.b_hit       = f0_b_en && arr_b_hit;
-    f1_d.b_is_pair   = f0_b_en && f0_straddle;
+    f1_d.b_is_straddle = f0_b_en && f0_straddle;
     f1_d.b_is_tail   = f0_b_en && f0_tail;
     f1_d.a_len       = f0_a_len;
     f1_d.b_nwords    = f0_b_nwords;
@@ -179,7 +179,7 @@ module icache import ttg_cfg_pkg::*; import icache_pkg::*; import tlb_mmu_pkg::*
     .fdip_probe_busy, .fdip_fb_busy, .fdip_dc_req_valid, .fdip_dc_req_addr,
     .peek_vaddr(peek_fdip_vaddr), .peek_ok(peek_fdip_ok), .peek_paddr(peek_fdip_paddr),
     .arr_peek_index(fdip_peek_index), .arr_peek_tag(fdip_peek_tag), .arr_peek_hit(arr_fdip_peek_hit),
-    .pair_miss_en, .pair_miss_va(f0_b_addr),
+    .b_miss_en, .b_miss_va(f0_b_addr),
     .s2_en(fdip_s2_en), .s2_va(fdip_s2_va), .s2_clear(fdip_s2_clear),
     .fdip_acc, .fdip_rsp, .fdip_rsp_raw, .fdip_busy_req,
     .fdip_req_valid, .fdip_req_addr, .fdip_req_id,
@@ -245,7 +245,7 @@ module icache import ttg_cfg_pkg::*; import icache_pkg::*; import tlb_mmu_pkg::*
 
   assign b_actual_n        = {1'b0, f1_q.b_nwords};
   assign b_hit             = f1_v && f1_q.b_hit && (f1_q.b_nwords != 4'd0);
-  assign b_is_pair         = f1_v && f1_q.b_is_pair;
+  assign b_is_straddle     = f1_v && f1_q.b_is_straddle;
   assign b_is_tail         = f1_v && f1_q.b_is_tail;
   assign b_a_len           = f1_q.a_len;
   assign read_complete     = f1_v;

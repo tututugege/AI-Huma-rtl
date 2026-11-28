@@ -30,8 +30,8 @@ module icache_fdip import ttg_cfg_pkg::*; import icache_pkg::*; (
   output logic [IC_IDX_W-1:0]     arr_peek_index,
   output logic [IC_TAG_W-1:0]     arr_peek_tag,
   input  logic                    arr_peek_hit,
-  input  logic                    pair_miss_en,
-  input  logic [XLEN_BITS-1:0]    pair_miss_va,
+  input  logic                    b_miss_en,
+  input  logic [XLEN_BITS-1:0]    b_miss_va,
   input  logic                    s2_en,
   input  logic [XLEN_BITS-1:0]    s2_va,
   input  logic                    s2_clear,
@@ -210,30 +210,30 @@ module icache_fdip import ttg_cfg_pkg::*; import icache_pkg::*; (
     end
   end
 
-  // Stage 2: AXI req outputs & clock-edge queue enqueues (pair Block B miss -> S2 clear & S2 next PC)
+  // Stage 2: AXI req outputs & clock-edge queue enqueues (straddle Block B miss -> S2 clear & S2 next PC)
   always_comb begin
     logic [LINE_W-1:0]    q_tmp [FDIP_Q];
     logic [FDIP_QP_W-1:0] qh_tmp, idx_tmp;
     logic [FDIP_QN_W-1:0] qn_tmp;
     logic                 dup_tmp;
-    logic [LINE_W-1:0]    lva_pm, lva_s2;
+    logic [LINE_W-1:0]    lva_bm, lva_s2;
 
     fdip_req_valid = sending_v_d;
     fdip_req_addr  = slots_d[sending_id_d].paddr;
     fdip_req_id    = FDIP_TX_BASE + IC_TXID_W'(sending_id_d);
     for (int k = 0; k < FDIP_Q; k++) q_tmp[k] = q_mid[k];
     qh_tmp = qh_mid; qn_tmp = qn_mid;
-    lva_pm = pair_miss_va[XLEN_BITS-1:IC_OFF_W];
+    lva_bm = b_miss_va[XLEN_BITS-1:IC_OFF_W];
     lva_s2 = s2_va[XLEN_BITS-1:IC_OFF_W];
     dup_tmp = 1'b0; idx_tmp = '0;
-    if (pair_miss_en) begin
+    if (b_miss_en) begin
       for (int k = 0; k < FDIP_Q; k++) begin
         idx_tmp = qh_tmp + FDIP_QP_W'(k);
-        if ((FDIP_QN_W'(k) < qn_tmp) && (q_tmp[idx_tmp] == lva_pm)) dup_tmp = 1'b1;
+        if ((FDIP_QN_W'(k) < qn_tmp) && (q_tmp[idx_tmp] == lva_bm)) dup_tmp = 1'b1;
       end
       if (!dup_tmp) begin
         if (qn_tmp >= FDIP_QN_W'(FDIP_Q)) begin qh_tmp = qh_tmp + FDIP_QP_W'(1); qn_tmp = qn_tmp - FDIP_QN_W'(1); end
-        q_tmp[qh_tmp + FDIP_QP_W'(qn_tmp[FDIP_QP_W-1:0])] = lva_pm;
+        q_tmp[qh_tmp + FDIP_QP_W'(qn_tmp[FDIP_QP_W-1:0])] = lva_bm;
         qn_tmp = qn_tmp + FDIP_QN_W'(1);
       end
     end
@@ -275,7 +275,7 @@ module icache_fdip import ttg_cfg_pkg::*; import icache_pkg::*; (
   end
 
   logic unused_fdip;
-  assign unused_fdip = ^{peek_paddr[IC_OFF_W-1:0], peek_arr_pa[11:0], pair_miss_va[IC_OFF_W-1:0],
+  assign unused_fdip = ^{peek_paddr[IC_OFF_W-1:0], peek_arr_pa[11:0], b_miss_va[IC_OFF_W-1:0],
                          s2_va[IC_OFF_W-1:0], probe_pa_q[IC_OFF_W-1:0]};
 
 endmodule

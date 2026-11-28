@@ -21,14 +21,14 @@ RTL 拆成三个文件，装配在 `front_ctrl.sv`：
 | `front_refetch_ctrl.sv` | 49 | 全局 refetch 和重取指地址；前端控制里**唯一的状态**（晚一拍的预译码 refetch） |
 | `front_ctrl_enables.sv` | 46 | 纯组合：FTQ 的 S0 写 / IFU 读 / S2 写使能、`inst_fifo` 读使能（`predecode_can_run`）、BPU 门控、预译码冲刷 |
 
-前端已经没有独立的取指地址队列、PTAB 和 front2back 队列（EXP-070 并入统一 FTQ）。代码里 `fa_*`（取指地址）、`s2_*` 这些名字指的是统一 FTQ 的指针：`fa_empty` = `ifu_ptr == bpu_ptr`，`s2_empty` = `pd_ptr == s2_ptr`（`ftq_ptr.sv`）。端口名 `bpu_ptab_write_enable` 是旧名，含义是"BPU 的 S2 块要写 FTQ"。
+前端已经没有独立的取指地址队列、PTAB 和 front2back 队列（EXP-070 并入统一 FTQ）。代码里 `ifu_*`、`s0_*`、`s2_*` 这些名字指的是统一 FTQ 的指针：`ifu_empty` = `ifu_ptr == bpu_ptr`，`s2_empty` = `pd_ptr == s2_ptr`（`ftq_ptr.sv`）；`s0_wr_en` 是 BPU S0 块写 FTQ（`bpu_ptr`），`bpu_s2_wr_req` 是 BPU 的 S2 块要写 FTQ（`s2_ptr`）。
 
 ## 2. 配置
 
 | 项 | 值 | 来源 |
 | --- | --- | --- |
 | FTQ 满 `ftq_full` | `bpu_ptr - comm_ptr >= FTQ_SIZE - 1`（63）或 `bpu_ptr - ifu_ptr >= 15` | `ftq_ptr.sv`（`FTQ_SIZE = 64`；15 是 `ftq_ptr.sv` 里的字面量，没有具名常量） |
-| `fa_cnt_sat` | `min(bpu_ptr - ifu_ptr, 3)`，2 位 | `ftq_ptr.sv` |
+| `ifu_cnt_sat` | `min(bpu_ptr - ifu_ptr, 3)`，2 位 | `ftq_ptr.sv` |
 | 指令队列有空位 `inst_fifo_room` | `inst_fifo` 占用 + I-Cache 在途取指数 `ic_inflight` < `INST_FIFO_DEPTH`（= `INSTRUCTION_FIFO_SIZE` = 16） | `front_fetch_buf.sv`、`front_pkg` |
 | 重取指地址 | 64 位 | `XLEN_BITS` |
 
@@ -40,18 +40,18 @@ RTL 拆成三个文件，装配在 `front_ctrl.sv`：
 | 入 | `be_refetch`、`be_refetch_address` | 后端重定向（寄存后的 back2front） |
 | 入 | `be_fifo_read_enable` | 后端本拍收取指组（`core_front` 的 `can_read`） |
 | 入 | `icache_ready` | I-Cache 能接一个取指请求 |
-| 入 | `ftq_full`、`fa_empty`、`fa_cnt_sat`、`s2_empty` | 统一 FTQ 的寄存视图（`ftq2fe`） |
+| 入 | `ftq_full`、`ifu_empty`、`ifu_cnt_sat`、`s2_empty` | 统一 FTQ 的寄存视图（`ftq2fe`） |
 | 入 | `bpu_hold_n` | BPU：S1 里还可能被 S2 覆盖丢掉的块数（0 或 1，`bpu_ctl`：`r0.valid && r0.sq`） |
 | 入 | `inst_empty`、`inst_fifo_room` | 指令队列空、有空位 |
 | 入 | `bpu_icache_read_valid` | BPU 的 S0 块要写 FTQ（分配 `bpu_ptr`） |
-| 入 | `bpu_ptab_write_enable` | BPU 的 S2 块要写 FTQ（`s2_ptr`） |
+| 入 | `bpu_s2_wr_req` | BPU 的 S2 块要写 FTQ（`s2_ptr`） |
 | 入 | `bpu_override_squash_n` | S2 覆盖要丢掉的最年轻块数（0..2） |
 | 入 | `checker_flush_enable`、`checker_flush_address` | 预译码检查器要冲刷及修正后的地址 |
 | 出 | `global_refetch`、`refetch_address` | 全局重取指及地址（后端优先） |
-| 出 | `fa_rd_en` | IFU 读 FTQ 队首（`ifu_ptr`）并向 I-Cache 发请求 |
+| 出 | `ifu_rd_en` | IFU 读 FTQ 队首（`ifu_ptr`）并向 I-Cache 发请求 |
 | 出 | `predecode_can_run` | 读指令队列队首并做预译码检查 |
 | 出 | `bpu_icache_read_ready` | BPU 门控 |
-| 出 | `fa_wr_en`、`fa_drop_tail_n`、`s2_wr_en` | FTQ 的 S0 写、丢尾块数、S2 写 |
+| 出 | `s0_wr_en`、`s0_drop_tail_n`、`s2_wr_en` | FTQ 的 S0 写、丢尾块数、S2 写 |
 | 出 | `do_predecode_flush` | 预译码冲刷（检查器要求且本拍确实检查了） |
 
 ## 4. 结构
@@ -73,19 +73,19 @@ RTL 拆成三个文件，装配在 `front_ctrl.sv`：
 
 | 信号 | 表达式 |
 | --- | --- |
-| `fa_rd_en` | `icache_ready & !fa_empty & !global_refetch & (fa_cnt_sat > bpu_hold_n) & inst_fifo_room` |
+| `ifu_rd_en` | `icache_ready & !ifu_empty & !global_refetch & (ifu_cnt_sat > bpu_hold_n) & inst_fifo_room` |
 | `predecode_can_run` | `be_fifo_read_enable & !inst_empty & !s2_empty & !global_refetch` |
 | `bpu_stall` | `ftq_full` |
 | `bpu_can_run`（内部信号） | `!bpu_stall | global_refetch` |
 | `bpu_icache_read_ready` | `!bpu_stall` |
-| `fa_wr_en` | `bpu_icache_read_valid & bpu_can_run` |
-| `s2_wr_en` | `bpu_ptab_write_enable & !global_refetch` |
-| `fa_drop_tail_n` | `global_refetch ? 0 : bpu_override_squash_n` |
+| `s0_wr_en` | `bpu_icache_read_valid & bpu_can_run` |
+| `s2_wr_en` | `bpu_s2_wr_req & !global_refetch` |
+| `s0_drop_tail_n` | `global_refetch ? 0 : bpu_override_squash_n` |
 | `do_predecode_flush` | `predecode_can_run & checker_flush_enable` |
 
 几点说明：
 
-- `fa_cnt_sat > bpu_hold_n`：S1 里的块（还可能被 S2 覆盖丢掉）对应的 FTQ 项不让 IFU 取走。这替代了原来取指地址队列的 `head_fresh`，S2 覆盖不再组合地决定本拍能不能弹出；
+- `ifu_cnt_sat > bpu_hold_n`：S1 里的块（还可能被 S2 覆盖丢掉）对应的 FTQ 项不让 IFU 取走。这替代了原来取指地址队列的 `head_fresh`，S2 覆盖不再组合地决定本拍能不能弹出；
 - `predecode_can_run` 含 `be_fifo_read_enable`：取指组检查完直接送后端（`core_front2back`），后端不收就不检查；也要求 S2 已经写过该 FTQ 项（`!s2_empty`），否则检查器没有预测可比；
 - 预译码冲刷后 FTQ 的回滚（`pd_ptr` 之后的项作废）在 `ftq_ptr` 里做（`pd_flush`），见 [ftq_ibuf.md](ftq_ibuf.md)。
 
@@ -114,6 +114,7 @@ RTL 拆成三个文件，装配在 `front_ctrl.sv`：
 
 ## 10. 变更记录
 
+- 2026-11-29 清理 E：改名（取指地址队列和 PTAB 已不存在）：`fa_rd_en` → `ifu_rd_en`、`fa_wr_en` → `s0_wr_en`、`fa_drop_tail_n` → `s0_drop_tail_n`、`fa_empty` → `ifu_empty`、`fa_cnt_sat` → `ifu_cnt_sat`、`bpu_ptab_write_enable` → `bpu_s2_wr_req`（只改名字，周期不变）。
 - 2026-11-28 清理：删 `front_ctrl` / `front_ctrl_enables` 无读者的输出 `bpu_can_run`（改为 `front_ctrl_enables` 内部信号）（周期不变）。
 - 2026-11-28（`rtl/fe-2ahead`）：文档按现行 RTL 重写（第 1–9 节；旧正文描述的是 EXP-070 之前 / 删除分支标签之前的结构）。
 - 2026-11-18（exp/agu-share）：`fa_rd_en` 加 `!fa_head_fresh`，去掉对同拍 BPU 覆盖的依赖 `4eb8f0e`。

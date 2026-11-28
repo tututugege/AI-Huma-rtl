@@ -1180,14 +1180,14 @@ struct PeripheralReqIO {
   wire<1> wen;
   wire<32> mmio_addr;
   wire<32> mmio_wdata;
-  wire<3> mmio_fun3;
+  wire<3> mmio_func3;
 
   PeripheralReqIO() {
     is_mmio = {};
     wen = {};
     mmio_addr = {};
     mmio_wdata = {};
-    mmio_fun3 = {};
+    mmio_func3 = {};
   }
 };
 struct PeripheralRespIO {

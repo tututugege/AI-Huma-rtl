@@ -1,4 +1,4 @@
-// Ref: back-end/Rob.cpp  class Rob  (top level: adapts packed dis2rob / exu2rob structs to rob_core_cpt)
+// Ref: back-end/Rob.cpp  class Rob  (top level: adapts packed dis2rob / exu2rob structs to rob_core)
 `default_nettype none
 
 module rob
@@ -19,7 +19,7 @@ module rob
   input  logic [3:0]                bpu_upd_free,
   input  logic [3:0]                bpu_tq_free,
   input  logic [FTQ_IDX_WIDTH-1:0]  ftq_head,
-  input  logic [XLEN_BITS-1:0]      ftq_rob_pc_resp_resp_pc [1],
+  input  logic [XLEN_BITS-1:0]      ftq_rob_pc_resp_pc [1],
   input  logic [DECODE_WIDTH-1:0]   dis2rob_dis_fire,
   input  dis_rob_uop_t              dis2rob_uop [DECODE_WIDTH],
   input  xc_rob_wb_t                exu2rob     [ROB_WB_WIDTH],
@@ -34,24 +34,24 @@ module rob
   output logic [4:0]                rob2csr_fflags,
   output logic                      rob2csr_fs_dirty,
   output logic                      rob2csr_interrupt_resp,
-  output logic [COMMIT_WIDTH-1:0]   rob_commit_commit_entry_valid,
-  output logic [5:0]                rob_commit_commit_entry_uop_dest_areg [COMMIT_WIDTH],
-  output logic [COMMIT_WIDTH-1:0]   rob_commit_commit_entry_uop_dest_fp,
-  output logic [5:0]                rob_commit_commit_entry_uop_ftq_idx [COMMIT_WIDTH],
-  output logic [FTQ_OFFSET_WIDTH-1:0] rob_commit_commit_entry_uop_ftq_offset [COMMIT_WIDTH],
-  output logic [COMMIT_WIDTH-1:0]   rob_commit_commit_entry_uop_ftq_is_last,
-  output logic [COMMIT_WIDTH-1:0]   rob_commit_commit_entry_uop_br_taken,
-  output logic [COMMIT_WIDTH-1:0]   rob_commit_commit_entry_uop_dest_en,
-  output logic [6:0]                rob_commit_commit_entry_uop_func7 [COMMIT_WIDTH],
-  output logic [ROB_IDX_WIDTH-1:0]  rob_commit_commit_entry_uop_rob_idx [COMMIT_WIDTH],
-  output logic [COMMIT_WIDTH-1:0]   rob_commit_commit_entry_uop_rob_flag,
-  output logic [5:0]                rob_commit_commit_entry_uop_stq_idx [COMMIT_WIDTH],
-  output logic [COMMIT_WIDTH-1:0]   rob_commit_commit_entry_uop_stq_flag,
-  output logic [COMMIT_WIDTH-1:0]   rob_commit_commit_entry_uop_page_fault_inst,
-  output logic [COMMIT_WIDTH-1:0]   rob_commit_commit_entry_uop_page_fault_load,
-  output logic [COMMIT_WIDTH-1:0]   rob_commit_commit_entry_uop_page_fault_store,
-  output logic [COMMIT_WIDTH-1:0]   rob_commit_commit_entry_uop_illegal_inst,
-  output logic [4:0]                rob_commit_commit_entry_uop_type [COMMIT_WIDTH],
+  output logic [COMMIT_WIDTH-1:0]   rob_commit_valid,
+  output logic [5:0]                rob_commit_uop_dest_areg [COMMIT_WIDTH],
+  output logic [COMMIT_WIDTH-1:0]   rob_commit_uop_dest_fp,
+  output logic [5:0]                rob_commit_uop_ftq_idx [COMMIT_WIDTH],
+  output logic [FTQ_OFFSET_WIDTH-1:0] rob_commit_uop_ftq_offset [COMMIT_WIDTH],
+  output logic [COMMIT_WIDTH-1:0]   rob_commit_uop_ftq_is_last,
+  output logic [COMMIT_WIDTH-1:0]   rob_commit_uop_br_taken,
+  output logic [COMMIT_WIDTH-1:0]   rob_commit_uop_dest_en,
+  output logic [6:0]                rob_commit_uop_func7 [COMMIT_WIDTH],
+  output logic [ROB_IDX_WIDTH-1:0]  rob_commit_uop_rob_idx [COMMIT_WIDTH],
+  output logic [COMMIT_WIDTH-1:0]   rob_commit_uop_rob_flag,
+  output logic [5:0]                rob_commit_uop_stq_idx [COMMIT_WIDTH],
+  output logic [COMMIT_WIDTH-1:0]   rob_commit_uop_stq_flag,
+  output logic [COMMIT_WIDTH-1:0]   rob_commit_uop_page_fault_inst,
+  output logic [COMMIT_WIDTH-1:0]   rob_commit_uop_page_fault_load,
+  output logic [COMMIT_WIDTH-1:0]   rob_commit_uop_page_fault_store,
+  output logic [COMMIT_WIDTH-1:0]   rob_commit_uop_illegal_inst,
+  output logic [4:0]                rob_commit_uop_type [COMMIT_WIDTH],
   output logic [COMMIT_WIDTH-1:0]   commit_extra_is_ret,
   output logic                      rob_bcast_flush,
   output logic                      rob_bcast_mret,
@@ -72,8 +72,8 @@ module rob
   output logic                      rob_bcast_head_valid,
   output logic [ROB_IDX_WIDTH-1:0]  rob_bcast_head_incomplete_rob_idx,
   output logic                      rob_bcast_head_incomplete_valid,
-  output logic [5:0]                ftq_rob_pc_req_req_ftq_idx [1],
-  output logic [FTQ_OFFSET_WIDTH-1:0] ftq_rob_pc_req_req_ftq_offset [1]
+  output logic [5:0]                ftq_rob_pc_req_ftq_idx [1],
+  output logic [FTQ_OFFSET_WIDTH-1:0] ftq_rob_pc_req_ftq_offset [1]
 );
 
   rob_entry_t               dis_uop      [ROB_BANK_NUM];
@@ -136,13 +136,13 @@ module rob
   logic dec_mispred_eff;
   assign dec_mispred_eff = dec_bcast_mispred && !flush_pend;
 
-  rob_core_cpt u_core (
+  rob_core u_core (
     .clk(clk), .rst_n(rst_n),
     .dec_mispred(dec_mispred_eff), .ren_walking(ren2rob_walking), .dec_redirect_rob_idx(dec_bcast_redirect_rob_idx),
     .interrupt_req(csr2rob_interrupt_req), .committed_store_pending(lsu2rob_committed_store_pending),
     .front_stall(front_stall), .bpu_upd_free(bpu_upd_free), .bpu_tq_free(bpu_tq_free),
     .ftq_head(ftq_head),
-    .ftq_resp_pc(ftq_rob_pc_resp_resp_pc[0]),
+    .ftq_resp_pc(ftq_rob_pc_resp_pc[0]),
     .dis_fire(dis2rob_dis_fire), .dis_rob_idx(dis_rob_idx), .dis_trap_val(dis_trap_val),
     .dis_uop(dis_uop), .wb(wb),
     .rob2dis_stall(rob2dis_stall), .rob2dis_empty(rob2dis_empty), .rob2dis_ready(rob2dis_ready),
@@ -159,8 +159,8 @@ module rob
     .bcast_head_rob_idx(rob_bcast_head_rob_idx), .bcast_head_valid(rob_bcast_head_valid),
     .bcast_head_incomplete_rob_idx(rob_bcast_head_incomplete_rob_idx),
     .bcast_head_incomplete_valid(rob_bcast_head_incomplete_valid),
-    .ftq_req_ftq_idx(ftq_rob_pc_req_req_ftq_idx[0]),
-    .ftq_req_ftq_offset(ftq_rob_pc_req_req_ftq_offset[0])
+    .ftq_req_ftq_idx(ftq_rob_pc_req_ftq_idx[0]),
+    .ftq_req_ftq_offset(ftq_rob_pc_req_ftq_offset[0])
   );
 
   always_comb begin
@@ -175,24 +175,24 @@ module rob
   end
 
   for (genvar b = 0; b < ROB_BANK_NUM; b++) begin : g_commit
-    assign rob_commit_commit_entry_valid[b]                = commit_valid[b];
-    assign rob_commit_commit_entry_uop_dest_areg[b]        = commit_uop[b].dest_areg;
-    assign rob_commit_commit_entry_uop_dest_fp[b]          = commit_uop[b].dest_fp;
-    assign rob_commit_commit_entry_uop_ftq_idx[b]          = commit_uop[b].ftq_idx;
-    assign rob_commit_commit_entry_uop_ftq_offset[b]       = commit_uop[b].ftq_offset;
-    assign rob_commit_commit_entry_uop_ftq_is_last[b]      = commit_uop[b].ftq_is_last;
-    assign rob_commit_commit_entry_uop_br_taken[b]         = commit_uop[b].br_taken;
-    assign rob_commit_commit_entry_uop_dest_en[b]          = commit_uop[b].dest_en;
-    assign rob_commit_commit_entry_uop_func7[b]            = {commit_uop[b].is_amo_lr ? 5'b00010 : 5'b00000, 2'b00};
-    assign rob_commit_commit_entry_uop_rob_idx[b]          = commit_rob_idx[b];
-    assign rob_commit_commit_entry_uop_rob_flag[b]         = commit_uop[b].rob_flag;
-    assign rob_commit_commit_entry_uop_stq_idx[b]          = commit_uop[b].stq_idx;
-    assign rob_commit_commit_entry_uop_stq_flag[b]         = commit_uop[b].stq_flag;
-    assign rob_commit_commit_entry_uop_page_fault_inst[b]  = commit_uop[b].pf_inst;
-    assign rob_commit_commit_entry_uop_page_fault_load[b]  = commit_uop[b].pf_load;
-    assign rob_commit_commit_entry_uop_page_fault_store[b] = commit_uop[b].pf_store;
-    assign rob_commit_commit_entry_uop_illegal_inst[b]     = commit_uop[b].illegal_inst;
-    assign rob_commit_commit_entry_uop_type[b]             = commit_uop[b].itype;
+    assign rob_commit_valid[b]                = commit_valid[b];
+    assign rob_commit_uop_dest_areg[b]        = commit_uop[b].dest_areg;
+    assign rob_commit_uop_dest_fp[b]          = commit_uop[b].dest_fp;
+    assign rob_commit_uop_ftq_idx[b]          = commit_uop[b].ftq_idx;
+    assign rob_commit_uop_ftq_offset[b]       = commit_uop[b].ftq_offset;
+    assign rob_commit_uop_ftq_is_last[b]      = commit_uop[b].ftq_is_last;
+    assign rob_commit_uop_br_taken[b]         = commit_uop[b].br_taken;
+    assign rob_commit_uop_dest_en[b]          = commit_uop[b].dest_en;
+    assign rob_commit_uop_func7[b]            = {commit_uop[b].is_amo_lr ? 5'b00010 : 5'b00000, 2'b00};
+    assign rob_commit_uop_rob_idx[b]          = commit_rob_idx[b];
+    assign rob_commit_uop_rob_flag[b]         = commit_uop[b].rob_flag;
+    assign rob_commit_uop_stq_idx[b]          = commit_uop[b].stq_idx;
+    assign rob_commit_uop_stq_flag[b]         = commit_uop[b].stq_flag;
+    assign rob_commit_uop_page_fault_inst[b]  = commit_uop[b].pf_inst;
+    assign rob_commit_uop_page_fault_load[b]  = commit_uop[b].pf_load;
+    assign rob_commit_uop_page_fault_store[b] = commit_uop[b].pf_store;
+    assign rob_commit_uop_illegal_inst[b]     = commit_uop[b].illegal_inst;
+    assign rob_commit_uop_type[b]             = commit_uop[b].itype;
     assign commit_extra_is_ret[b]                          = commit_uop[b].is_ret;
   end
 

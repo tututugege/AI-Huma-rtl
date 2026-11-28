@@ -20,13 +20,13 @@ module predecode_checker import ttg_cfg_pkg::*; import front_pkg::*; (
   always_comb begin
     for (int i = 0; i < FETCH_WIDTH; i++) begin
       case (predecode_type[i])
-        PREDECODE_DIRECT_JUMP_NO_JAL: taken[i] = predict_dir[i];
+        PREDECODE_BRANCH: taken[i] = predict_dir[i];
         PREDECODE_JALR:               taken[i] = 1'b1;
         PREDECODE_JAL:                taken[i] = 1'b1;
         default:                      taken[i] = 1'b0;
       endcase
       predict_dir_corrected[i] = taken[i];
-      lane_uses_target[i]      = (predecode_type[i] == PREDECODE_DIRECT_JUMP_NO_JAL) ||
+      lane_uses_target[i]      = (predecode_type[i] == PREDECODE_BRANCH) ||
                                  (predecode_type[i] == PREDECODE_JAL);
     end
   end

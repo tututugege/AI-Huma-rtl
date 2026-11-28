@@ -53,7 +53,7 @@ depth: TSMC 28nm HPC+ DC (`ssg0p81v125c`, `0.50ns`)：单模块 `lsu` WNS `−0.
 | `NINS`（`lp_wbuf`） | 4 | 写缓冲每拍最多插入的已提交 store 数（模型 `CFG_LSU_PIPE_WBINS` 4） |
 | `NRET` | 4 | STQ 每拍最多从队首退休的 store 数 |
 | `EPW` / `RWW` | 4 / 3 | 每个 LDQ 项的请求代号位宽、重放倒计时位宽（`RWW = LSU_REPLAY_WAIT_CYCLES_WIDTH`） |
-| `LSU_PEPLAY_WAIT_CYCLES`（`memcpu_pkg::replay_wait`） | 4 | MSHR_HIT / MSHR_FULL 类重放的等待拍数 |
+| `LSU_REPLAY_WAIT_CYCLES`（`memcpu_pkg::replay_wait`） | 4 | MSHR_HIT / MSHR_FULL 类重放的等待拍数 |
 | 访存相关性推测 | 固定开 | 原 `LSU_MEMSPEC` / `lp_pkg::MS`，2026-11-28 删除开关 |
 | `LSU_MDP_BITS` / `LSU_MDP_CLR` | 6 / 2000 | 等待表索引位宽（64 项 × 1 位）/ 清零周期 |
 | （原 `LP_CUT` / `LP_L2`） | 已删除 | 原来的关键路径切点掩码 `LP_CUT = 262143`（18 位全 1）和功能位 `LP_L2 = 1915` 在 EXP-069（9eb22e8，2026-11-26）删除，对应行为固定写死在代码里，见第 9 节 |
@@ -90,7 +90,7 @@ depth: TSMC 28nm HPC+ DC (`ssg0p81v125c`, `0.50ns`)：单模块 `lsu` WNS `−0.
 | 入 | `dis2lsu_ldq_alloc_req / _ldq_idx / _rob_idx / _rob_flag / _mdp / _pc [DECODE_WIDTH]` | load 分配（LDQ 项号由分派从 `lsu2dis_ldq_alloc_*` 里取）；`_mdp` 是 load PC 的等待表索引（在 `ftq_ibuf` 里算好，经 `ftq_dis_resp_mdp` 给分派：`pc[S +: B] ^ pc[S+B +: B]`，`S = SLOT_SHIFT`、`B = LSU_MDP_BITS`，与模型 `MemDepPred::idx` 同） |
 | 入 | `exe2lsu_agu [LSU_AGU_COUNT]`（`xc_agu_req_t`） | 5 个物理 AGU 的地址请求（`valid`、`raw`、`op`、`result`、`dest_preg`、`func3`、`is_atomic`、`amo_op`、`rob_idx`、`rob_flag`、`stq_idx`、`stq_flag`、`ldq_idx`）；其中 `raw` 是执行槽占位，重放口与 DTLB 口分配看它 |
 | 入 | `exe2lsu_sdu_req_valid / _uop_* [LSU_SDU_COUNT]` | STD（store 数据），带 STQ 项号和 ROB 号 |
-| 入 | `rob_commit_commit_entry_valid / _uop_type / _uop_amo_op / _uop_stq_idx [COMMIT_WIDTH]` | ROB 提交口：type 6 是 store，18 是 AMO（`amo_op != LR` 的算 store） |
+| 入 | `rob_commit_valid / _uop_type / _uop_amo_op / _uop_stq_idx [COMMIT_WIDTH]` | ROB 提交口：type 6 是 store，18 是 AMO（`amo_op != LR` 的算 store） |
 | 入 | `rob_bcast_flush`、`rob_flush_now`、`dec_bcast_{mispred, redirect_rob_idx, redirect_rob_flag}` | 全局 flush（经 `FLUSH_REG` 已晚一拍，见 docs/FLUSH_REG.md；`rob_flush_now` 是本拍的决定）、误预测及被预测错的分支的 ROB 号 |
 | 入 | `rob_flush_now` | 本拍 ROB 刚做出的 flush 决定（不晚一拍）：只用来限定本拍提交的 store（带 flush 提交的 store 不能写出） |
 | 入 | `rob_bcast_head_valid / _rob_idx`、`rob_bcast_head_incomplete_valid / _rob_idx` | ROB 头 / 头部未完成指令，MMIO load 判断"自己是最老的未完成指令" |
@@ -109,7 +109,7 @@ depth: TSMC 28nm HPC+ DC (`ssg0p81v125c`, `0.50ns`)：单模块 `lsu` WNS `−0.
 | 出 | `lsu2dcache_load_ports_valid / _addr / _req_id [30:0] / _replay [LSU_LDU_COUNT]` | DCache load 请求；`req_id = {epoch[3:0], ldq[5:0]}`；`replay` = 该 LDQ 项上一次 DCache 响应不是 HIT（EXP-009 的过滤位，`lp_core` 的 `g_rpl`） |
 | 出 | `lsu2dcache_store_ports_valid / _addr / _data / _strb / _l2 / _req_id [LSU_STA_COUNT]` | DCache store 请求；`_l2` 是同一行的第二个 store（`{strb, 字下标, 数据}`，strb 为 0 表示没有）；`req_id` 6 位 = 领头 store 的 STQ 项号 |
 | 出 | `lsu2mmu_req_valid / _vaddr / _entry_idx / _is_store [LSU_AGU_COUNT]` | DTLB 请求，每个物理口一个，访问类型随请求走 |
-| 出 | `peripheral_req_is_mmio / _wen / _mmio_addr / _mmio_wdata / _mmio_fun3` | MMIO 请求 |
+| 出 | `peripheral_req_is_mmio / _wen / _mmio_addr / _mmio_wdata / _mmio_func3` | MMIO 请求 |
 
 模型里 `lsu2rob.tma.miss_mask`（TMA 统计用）RTL 没有对应端口。
 
@@ -192,7 +192,7 @@ depth: TSMC 28nm HPC+ DC (`ssg0p81v125c`, `0.50ns`)：单模块 `lsu` WNS `−0.
 ### 5.3 load 流水线：L2 与 L3
 
 1. **L2 决定**（`lp_l2`，每口一个，要求 LDQ 项仍是 `LS_PIPE` 且 epoch 相同，否则这个结果被丢弃）：缺页 → `L2_WBD`（直接完成，带缺页）；`TLB_MISS` → 停车 `RC_TLB`；`mmio` → `LS_MMW`；无候选 且 `dcblk` → 停车 `RC_DC`（等待 0）；无候选 → `LS_DCW`（等本拍或之后的 DCache 响应）；有候选 → 读候选 store 的**寄存器项**做 STLF 确认（用全物理地址）：store 已没了 / 被取消 / 地址不重叠 → `LS_RDY`（重放，此时完整比较会排除它）；还没有地址（无 va，或有 va 没有 pa 且页内偏移无法证明不重叠） → 停车 `RC_ADDR(blk = cand)`；部分重叠、或未决的 SC → `RC_HOLD`；盖住但数据没到 → `RC_DATA`；盖住且数据在 → `L2_WBD`，转发数据 = `extract_data(store 数据, 偏移, func3)`。
-2. **DCache 响应**（`dcl_valid && !req_id[31]`，按 `req_id` 的低 6 位找 LDQ 项，要求项处在 `LS_DCW` 且 epoch 相同）：HIT → 直接完成（数据按 LDQ 项的 paddr 偏移和 func3 从响应里取）；该口本拍已被 L2 的直接完成占用时改为 `LS_WBP`；CONFLICT / MSHR_HIT / MSHR_FULL → 停车 `RC_DC`，等待拍数 `memcpu_pkg::replay_wait`（MSHR_HIT 和 MSHR_FULL 为 `LSU_PEPLAY_WAIT_CYCLES = 4`，CONFLICT 为 0）。
+2. **DCache 响应**（`dcl_valid && !req_id[31]`，按 `req_id` 的低 6 位找 LDQ 项，要求项处在 `LS_DCW` 且 epoch 相同）：HIT → 直接完成（数据按 LDQ 项的 paddr 偏移和 func3 从响应里取）；该口本拍已被 L2 的直接完成占用时改为 `LS_WBP`；CONFLICT / MSHR_HIT / MSHR_FULL → 停车 `RC_DC`，等待拍数 `memcpu_pkg::replay_wait`（MSHR_HIT 和 MSHR_FULL 为 `LSU_REPLAY_WAIT_CYCLES = 4`，CONFLICT 为 0）。
 3. **L3 寄存器**（`lp_l3`，原 `LP_L2[0]`，固定开）：直接完成不在 L2 同拍写回，进 L3 寄存器（项状态 `LS_WB3`），下一拍由 `lp_wb` 分配写回口、释放 LDQ 项、更新 LR 预约；被杀的 load 因为项不再是 `LS_WB3` 而丢掉。
 4. **写回口分配与解耦的 WBP / SC**（`lp_wb`，`NWBP = 2`）：load 口 `p` 上 L3 直发（`wbd_v[p]`）始终拥有本口最高优先级；空白端口数 `nfree_l3 = popcount(~wbd_v)` 仅依赖寄存态。`lp_wb` 将 SC 请求预寄存 1 拍（`sc_req_v_q` / `sc_req_idx_q`，由 `alive_w`、`flush`、`mispred` 资格门控）并放到**最低优先级**（占 `wp_cnt` 之后的第 1 个空口 `fr_oh[wp_cnt]`），使 WBP 挑选完全脱离 `head_q -> rotr64 -> u_sc -> u_fr -> u_f2` 串行链。WBP 侧用 `lp_pickn #(.N(LQ), .K(NWBP))` 从 `wbp_vec` 直接挑出至多 `NWBP = 2` 个最低下标 load，输出 `wp_acc[NWBP]` 与 `wp_oh[NWBP][LQ]`；`wb_go` 直接由 `wb_go_d | (wp_oh 中已接收位)` OR 生成，消除了 `64→idx→译码` 回环。写回内容仍来自 LDQ / STQ 项；LR 写回时把物理地址写进预约。
 5. **对消费者的唤醒**（`lp_wake`，`NWK = 3*NLD + NWBP = 14` 路）：`[0..NLD-1]` 为 L1 推测唤醒（由 256×2b PC 预测器门控，命中即在 L1 发唤醒）；`[NLD..2*NLD-1]` 为 L3 直发写回唤醒；`[2*NLD..3*NLD-1]` 为 L2b 已确认 STLF / L2a fallback 唤醒；`[3*NLD..NWK-1]` 为 `NWBP=2` 路 WBP 并行直醒——对 64 个 LDQ 项预先并行判断资格打包 `ent_pack = {ok, dest_preg}`，再用 `ttg_onehot_mux` 直接由 `wp_oh[m]` 选通并经 `wp_acc[m]` 门控，直驱 `lsu2iss_wake_valid/preg[12..13]`。未在 L2 直接完成时于下拍驱动 `lsu2iss_cancel`。
@@ -317,7 +317,7 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 
 ## 9. 参数与开关速查
 
-`LSU_MDP_BITS`、`LSU_MDP_CLR`、`LSU_AGU_SHARED`、`LSU_AGU_COUNT`、`LSU_PEPLAY_WAIT_CYCLES`、`LDQ_SIZE`、`STQ_SIZE`（`ttg_cfg_pkg`）；`NRP`、`NDR`、`NRET`、`NWB`（`lp_pkg`）；`NINS`（`lp_wbuf`）。
+`LSU_MDP_BITS`、`LSU_MDP_CLR`、`LSU_AGU_SHARED`、`LSU_AGU_COUNT`、`LSU_REPLAY_WAIT_CYCLES`、`LDQ_SIZE`、`STQ_SIZE`（`ttg_cfg_pkg`）；`NRP`、`NDR`、`NRET`、`NWB`（`lp_pkg`）；`NINS`（`lp_wbuf`）。
 
 **写死的行为（原 `LP_CUT` / `LP_L2`）**：这两个常量在 EXP-069（9eb22e8，2026-11-26）删除，删除时取值 `LP_CUT = 262143`（0 到 17 位全 1）、`LP_L2 = 1915`，对应的行为全部固定写进代码，没有开关。下面两张表按原来的位号列出这些固定行为，便于对照旧提交和模型。
 
@@ -332,16 +332,16 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 | 4 | G | 排空看不到本拍 MSHR_FULL 唤醒（`lp_stq_ent` 的 `rw5g`） |
 | 5 | E1 | 重放寄存器的项状态检查用寄存值（`lp_core` 的 `rp_pipe`） |
 | 6 | A | 提交接受的并行形式（`lp_ptr`） |
-| 7 | E2 | 重放寄存器清除用 `dead_r`（`lp_rp` 的 `empty8` 入参） |
+| 7 | E2 | 重放寄存器清除用 `kill_cur`（`lp_rp` 的 `empty8` 入参） |
 | 8 | C1 | 误预测不截已提交 store（`lp_ptr`） |
 | 9 | C2 | 本拍提交的 store 没有重放等待（`lp_stq_ent`、`lp_ptr` 的 `win4`） |
 | 10 | E3 | MMIO 发射用 `st3`（`lp_ldq_ent` 的 `mmw_ok`，被原 `LP_L2[5]` 的行为覆盖） |
-| 11 | E4 | 唤醒作用于 `st3 && !dead_r`（`lp_ldq_ent` 的 `rpw_a`） |
+| 11 | E4 | 唤醒作用于 `st3 && !kill_cur`（`lp_ldq_ent` 的 `rpw_a`） |
 | 12 | E5 | `alive_post` 不过计数链（`lp_ptr`） |
 | 13 | H | 排空只看拍首已提交的 store（`lp_ptr` 的 `win13`、`lp_stq_ent`） |
-| 14 | E6 | 未缓存单元的 load 空判断用 `dead_r`（`lp_core`） |
+| 14 | E6 | 未缓存单元的 load 空判断用 `kill_cur`（`lp_core`） |
 | 15 | E7 | `alive_fl` 不过计数链（`lp_ptr`） |
-| 16 | E8 | epoch 和 `pipe8` 用 `~dead_r`（`lp_ldq_ent`、`lp_core`） |
+| 16 | E8 | epoch 和 `pipe8` 用 `~kill_cur`（`lp_ldq_ent`、`lp_core`） |
 | 17 | FM | 本拍 MMIO 响应的 load 本拍可写回（`lp_core` 的 `wbp_sel`） |
 
 原 `LP_L2`（1915 = 位 0、1、3、4、5、6、8、9、10 为 1）：为 1 的位是现在写死的行为；位 11（R）为 0，删除时连同它的 `rel12s / rel32s` 一起删掉了。
@@ -361,6 +361,7 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 
 ## 10. 变更记录
 
+- 2026-11-29 清理 E：改名 `lsu.sv` 的 `ldrb_w` / `strb_w` → `ld_rbusy_w` / `st_rbusy_w`（retry busy，不是字节使能）；`lp_ldq_ent` / `lp_ldq` / `lp_core` / `lp_l3` / `lp_wake` 的状态译码线 `pipe_r` / `wb3_r` / `wbp_r` → `pipe_st` / `wb3_st` / `wbp_st`，`dead_r` → `kill_cur`（本拍 flush / 误预测杀掉该项，接 `lp_unc.ld_empty` 与 `lp_rp.empty8`）；`peripheral_req_mmio_fun3` → `peripheral_req_mmio_func3`；`LSU_PEPLAY_WAIT_CYCLES` → `LSU_REPLAY_WAIT_CYCLES`（模型 `config.h` 与 `ttg_cfg_pkg` 同步）；`rob_commit_commit_entry_*` → `rob_commit_*`（如 `rob_commit_valid`、`rob_commit_uop_type`）；`lsu2exe_{,sta_}wb_req_valid` / `_wb_req_uop_*` → `lsu2exe_{,sta_}wb_valid` / `_wb_uop_*`（只改名字，周期不变）。
 - 2026-11-29 清理 D：去重（周期不变）。`lp_rob_younger` 删除，`lp_ptr`、`lsu_lrsc`、`lp_ldq_ent`、`lp_wake` 改用 `ttg_util_pkg::ttg_rob_younger`（同一函数，`ROBW == ROB_IDX_WIDTH`）；`lp_ffs` 的 6 处实例（`lp_ptr`、`lp_ms`、`lp_rp` ×2、`lp_mdp`、`lp_ldq`）改用 `ttg_first_set`，`lp_ffs.sv` 无引用；`rel12`、`rel32_pre_s / _l` 的公共尾部抽成 `rel_tail`（覆盖）+ `rel_ovl`（重叠），`lp_ovl` 用 `rel_ovl`（去掉自己的 `ld_w()` 和多余的 `!eq0`：`eq0` 与 `s_is_l1 / l_is_s1` 互斥），新旧随机对比 0 差异；`lp_pkg` 删除 `RT_*`（改用 `memcpu_pkg::REPLAY_*`）、`MMU_*`（改用 `tlb_mmu_pkg::RES_*`）、`AMO_LR / AMO_SC`（改用 `dis_pkg`）、`RWAIT` 与 `replay_wait`（移到 `memcpu_pkg`），`RWW = LSU_REPLAY_WAIT_CYCLES_WIDTH`，PL12 的 `TLB_HIT / MISS / PF` 改名 `PL12_TLB_*`（编码与 DTLB 响应码不同，见第 4 节）。
 - 2026-11-28 清理：删 `lsu_pkg.sv`（用到的 `OW`、`SW`、`extract_data`、`store_strb`、`align_store_data`、`is_mmio_addr` 移入 `lp_pkg`，`lsu_lrsc` 改用 `lp_rob_younger`）、`lsu_pipe.sv`（并入 `lsu.sv`，端口不变，唤醒口宽改用 `NWK`）、`lp_wbstep.sv` 与 `lp_pkg::wbb_t`、`lp_pkg` 的 `stlf_confirm` / `rel32`、`MS` 开关（访存推测固定开：删 `lp_ent_ms` 的 `g_off`、`lp_ms` 的 `g_nomdp` 和各处 `MS &&`）、死端口 `lp_stq / lp_stq_ent` 的 `cv_va / cv_voff / cv_f3`、`lp_ldq / lp_ldq_ent` 的 `epoch_nx`、`lp_unc` 的 `*_o`（改内部 `*_d`）、`lp_cam` 的 `cand_oh`，无效 waiver 与过时注释（`LP_L2` / `LP_CUT` / `clear_mask` / `lp_wbstep`）；包内 UNUSEDPARAM / UNUSEDSIGNAL waiver 收窄到常量段和 `ld_width13`（周期不变）。
 - 2026-11-28（文档核对，无 RTL 变化）：`LP_CUT` / `LP_L2` 已在 EXP-069 删除，改写成"写死的行为（原位号）"；接口去掉分支掩码、加 `rob_flush_now` 与 `dec_bcast_redirect_rob_*`、`dis2lsu_ldq_pc`；`mdp` 来自 `ftq_ibuf`；文件表行数；front-matter `depth:` 去掉开头的粗体以便模块追踪表解析；门禁参考改为 `scripts/ref_cycles.txt`（77 个程序）。

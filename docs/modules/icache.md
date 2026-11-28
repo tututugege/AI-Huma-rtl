@@ -45,7 +45,7 @@ depth: Tier 1 TSMC 28nm (Yosys+PrimeTime STA, clk=0.65ns, eda-07): icache 77 层
 4. 响应重取指（`refetch`）、FENCE.I（作废全部有效位）、SFENCE.VMA（`itlb_flush`）、预译码冲刷（`invalidate`，同拍的第二步）：取消在途请求和在途缺失；
 5. 请求在途时记账 AXI 事务号：被取消的缺失的迟到响应要丢掉。
 
-现行结构（2026-11-28，`rtl/fe-2ahead`）是两级流水：**F0** 用寄存的取指地址查 ITLB 和按 `idx[0]` 分奇偶两组的触发器标签 / 有效位，选出命中路后启动数据 SRAM 读；**F1** 拿到 Lo / Hi 两半的数据，由 `icache_resp`（A 块）和第二个 `icache_resp`（`u_resp_b`，B 块）切出取指组。B 块是同页下一行（取指块跨 64 字节行但不跨 4 KiB 页时，`b_is_pair` / `b_is_tail`）。另有 `icache_fdip`：接 BPU S2 确认的下一取指地址（`fdip_s2_*`，前端已打一拍），8 项去重队列（`FDIP_Q = 8`）、2 个 AXI 预取事务（`FDIP_N = 2`，事务号从 `FDIP_TX_BASE = 8` 起）和 1 项回填缓冲 `fb_v_q`（只在需求侧不写阵列时写入，保证阵列单口）。
+现行结构（2026-11-28，`rtl/fe-2ahead`）是两级流水：**F0** 用寄存的取指地址查 ITLB 和按 `idx[0]` 分奇偶两组的触发器标签 / 有效位，选出命中路后启动数据 SRAM 读；**F1** 拿到 Lo / Hi 两半的数据，由 `icache_resp`（A 块）和第二个 `icache_resp`（`u_resp_b`，B 块）切出取指组。B 块是同页下一行（取指块跨 64 字节行但不跨 4 KiB 页时，`b_is_straddle` / `b_is_tail`）。另有 `icache_fdip`：接 BPU S2 确认的下一取指地址（`fdip_s2_*`，前端已打一拍），8 项去重队列（`FDIP_Q = 8`）、2 个 AXI 预取事务（`FDIP_N = 2`，事务号从 `FDIP_TX_BASE = 8` 起）和 1 项回填缓冲 `fb_v_q`（只在需求侧不写阵列时写入，保证阵列单口）。
 
 模型里是一个调度单元 `front.core.icache`（`ICacheTop`）：`comb_fetch` 做取指步 N，`comb_invalidate` 做预译码冲刷的第二步 K；时序更新在 `seq`。RTL 的模块边界是为综合划的，模型里没有对应的类（`icache_module.cpp` 的 `ICache` 是它的状态机）。
 
@@ -72,7 +72,7 @@ depth: Tier 1 TSMC 28nm (Yosys+PrimeTime STA, clk=0.65ns, eda-07): icache 77 层
 | 方向 | 信号组 | 含义 |
 | --- | --- | --- |
 | 入 | `clk`、`rst_n` | |
-| 入 | `req_valid`、`fetch_address` | 统一 FTQ 的 IFU 队首（`fa_rd_valid / fa_rd_address`，见 [front_top.md](front_top.md)） |
+| 入 | `req_valid`、`fetch_address` | 统一 FTQ 的 IFU 队首（`ifu_rd_valid / ifu_rd_address`，见 [front_top.md](front_top.md)） |
 | 入 | `fdip_s2_en`、`fdip_s2_va`、`fdip_s2_clear` | BPU S2 确认的下一取指地址送 FDIP（`front_pred_path` 已打一拍）；`clear` = 全局 refetch 或 S2 覆盖 |
 | 入 | `refetch`、`itlb_flush`、`fence_i`、`invalidate` | 全局重取指、SFENCE.VMA、FENCE.I、预译码冲刷（`do_predecode_flush`） |
 | 入 | `csr_status_satp / privilege / mxr / sum / mprv / mpp` | ITLB 的翻译条件 |
@@ -82,7 +82,7 @@ depth: Tier 1 TSMC 28nm (Yosys+PrimeTime STA, clk=0.65ns, eda-07): icache 77 层
 | 出 | `icache_ready` | 能接新请求：`!(itlb_flush | fence_i) & ifu_ready_q & !req_valid_q & !miss_txv & 状态为 IDLE` |
 | 出 | `ic_inflight` | 在途取指数（0..2：F1 有效 + 登记槽有效），给 `inst_fifo_room` |
 | 出 | `read_complete`、`fetch_pc`、`inst_valid[16]`、`page_fault_inst[16]`、`fetch_group[16]`、`fetch_upper_ok[16]`、`fetch_single_word` | A 块取指组；`fetch_upper_ok[i]` = 第 i 个窗口有真实的高半字；`fetch_single_word` = 不缓存的单字取指 |
-| 出 | `b_hit`、`b_is_pair`、`b_is_tail`、`b_a_len`、`b_actual_n`、`b_fetch_group[16]` | B 块（同页下一行）：是否命中、是跨行续接还是只取尾半字、A 块槽数、有效槽数、取指组（B 的地址恒为 A 的下一行，不再输出） |
+| 出 | `b_hit`、`b_is_straddle`、`b_is_tail`、`b_a_len`、`b_actual_n`、`b_fetch_group[16]` | B 块（同页下一行）：是否命中、是跨行续接还是只取尾半字、A 块槽数、有效槽数、取指组（B 的地址恒为 A 的下一行，不再输出） |
 | 出 | `mem_req_valid / addr / total_size / bypass / id`、`mem_resp_ready` | AXI 读请求（地址 32 位） |
 | 出 | `dc_req_valid`、`dc_req_addr` | DCache 探针请求（一拍脉冲，没有 ready） |
 | 出 | `ptw_walk_req_valid / vpn / root_ppn`、`ptw_walk_resp_consumed`、`ptw_walk_flush` | ITLB 向页表遍历器的请求 |
@@ -208,7 +208,7 @@ RTL 与模型保持一致的细节（容易误判为 bug）：
 
 ## 8. 验证
 
-- **64 KiB 2 级 VIPT + 2-Ahead 前端（`rtl/fe-2ahead`，本轮最新实测）**：
+- **64 KiB 2 级 VIPT + 3-block ahead 前端（`rtl/fe-2ahead`，本轮最新实测）**：
   - **77/77 全功能与逐拍周期门禁**：`JOBS=12 bash scripts/fm_gate.sh $PWD/build/core_fm/obj/core_tb $PWD/build/gate_ic64` → `PASS 77 FAIL 0 SKIP 0`，周期对 `scripts/ref_cycles.txt` 0 处不同，`SVA clean (0 assertion failures)`（与 `trace-model-fe-2ahead` 77 条定向/基准参考表逐程序逐拍严格相等）。
   - **Lint 检查**：
     - `python3 harness/tools/svlint.py rtl/frontend/icache/*.sv rtl/frontend/front_top/*.sv rtl/frontend/bpu/*.sv` → 0 errors；
@@ -226,6 +226,7 @@ RTL 与模型保持一致的细节（容易误判为 bug）：
 
 ## 10. 变更记录
 
+- 2026-11-29 清理 E：改名，“pair”只剩同页跨行 B 块一种含义，统一叫 straddle / B：`b_is_pair` → `b_is_straddle`（`icache`、`icache_pkg` 的 F1 寄存器字段）、`icache_fdip` 入口 `pair_miss_en / pair_miss_va` → `b_miss_en / b_miss_va`（内部 `lva_pm` → `lva_bm`）；IFU 请求连线 `fa_rd_valid / fa_rd_address` → `ifu_rd_valid / ifu_rd_address`；`icache_resp.sv` 头注释断行修正（只改名字，周期不变）。
 - 2026-11-29 清理 C：删 EXP-051 2-taken 双块残留（EXP-070 起不再产生）：删 `b_addr` 输出（唯一读者 `inst_fifo_entry_t.base_b` 只供恒 0 的 `pair_disc`）；`f1_q.b_addr` 仍驱动 B 口响应 `u_resp_b`；跨行 B 块读取本身（`b_is_pair` / `b_a_len` 等）是现行功能，不动（周期不变）。
 - 2026-11-28 清理：删 `icache.sv` / `icache_fdip.sv` / `icache_kill.sv` 里不起作用的 `UNUSEDSIGNAL` 豁免（`unused_*` 汇点本就不报）；第 0 节提到的 `front_fifo.next_rdata` 已随 `front_fifo` 删除（周期不变）。
 - 2026-11-28（`rtl/fe-2ahead`，文档核对）：补 `icache_fdip.sv` 与 B 块 / FDIP 端口、文件行数、`ic_regs_t` 136 位、`repl_q` 256 × 8、组索引 `[13:6]`、SRAM 复位清零；删掉已不存在的 `FE_RFAST` 位 2、`FE_PAIR` / `ICacheCompactKernel.h` 的说法；门禁改为对 `scripts/ref_cycles.txt`。

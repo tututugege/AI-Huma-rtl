@@ -9,12 +9,12 @@ module lsu
 (
   input  logic clk,
   input  logic rst_n,
-  input  logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_valid,
-  input  logic [4:0] rob_commit_commit_entry_uop_type [COMMIT_WIDTH],
-  input  logic [4:0] rob_commit_commit_entry_uop_amo_op [COMMIT_WIDTH],
-  input  logic [5:0] rob_commit_commit_entry_uop_stq_idx [COMMIT_WIDTH],
-  input  logic [ROB_IDX_WIDTH-1:0] rob_commit_commit_entry_uop_rob_idx [COMMIT_WIDTH],
-  input  logic [COMMIT_WIDTH-1:0] rob_commit_commit_entry_uop_rob_flag,
+  input  logic [COMMIT_WIDTH-1:0] rob_commit_valid,
+  input  logic [4:0] rob_commit_uop_type [COMMIT_WIDTH],
+  input  logic [4:0] rob_commit_uop_amo_op [COMMIT_WIDTH],
+  input  logic [5:0] rob_commit_uop_stq_idx [COMMIT_WIDTH],
+  input  logic [ROB_IDX_WIDTH-1:0] rob_commit_uop_rob_idx [COMMIT_WIDTH],
+  input  logic [COMMIT_WIDTH-1:0] rob_commit_uop_rob_flag,
   input  logic rob_bcast_flush,
   input  logic rob_flush_now,   // the flush decided in this cycle (rob_bcast_flush is delayed by FLUSH_REG): it qualifies this cycle's store commits
   input  logic rob_bcast_head_valid,
@@ -72,29 +72,29 @@ module lsu
   output logic [PRF_IDX_WIDTH-1:0] lsu2iss_wake_preg [NWK],
   output logic [LSU_LDU_COUNT-1:0] lsu2iss_cancel_valid,
   output logic [PRF_IDX_WIDTH-1:0] lsu2iss_cancel_preg [LSU_LDU_COUNT],
-  output logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_valid,
-  output logic [XLEN_BITS-1:0] lsu2exe_wb_req_uop_diag_val [LSU_LOAD_WB_WIDTH],
-  output logic [XLEN_BITS-1:0] lsu2exe_wb_req_uop_result [LSU_LOAD_WB_WIDTH],
-  output logic [PRF_IDX_WIDTH-1:0] lsu2exe_wb_req_uop_dest_preg [LSU_LOAD_WB_WIDTH],
-  output logic [ROB_IDX_WIDTH-1:0] lsu2exe_wb_req_uop_rob_idx [LSU_LOAD_WB_WIDTH],
-  output logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_rob_flag,
-  output logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_dest_en,
-  output logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_page_fault_load,
-  output logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_page_fault_store,
-  output logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_rob_defer,    // memory speculation: ROB completion deferred
-  output logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_flush_pipe,   // memory speculation: write-back of a violator
-  output logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_req_uop_is_w,         // word load: flw data is NaN-boxed
-  output logic [LSU_STA_COUNT-1:0] lsu2exe_sta_wb_req_valid,
-  output logic [XLEN_BITS-1:0] lsu2exe_sta_wb_req_uop_diag_val [LSU_STA_COUNT],
-  output logic [XLEN_BITS-1:0] lsu2exe_sta_wb_req_uop_result [LSU_STA_COUNT],
-  output logic [ROB_IDX_WIDTH-1:0] lsu2exe_sta_wb_req_uop_rob_idx [LSU_STA_COUNT],
-  output logic [LSU_STA_COUNT-1:0] lsu2exe_sta_wb_req_uop_rob_flag,
-  output logic [LSU_STA_COUNT-1:0] lsu2exe_sta_wb_req_uop_page_fault_store,
+  output logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_valid,
+  output logic [XLEN_BITS-1:0] lsu2exe_wb_uop_diag_val [LSU_LOAD_WB_WIDTH],
+  output logic [XLEN_BITS-1:0] lsu2exe_wb_uop_result [LSU_LOAD_WB_WIDTH],
+  output logic [PRF_IDX_WIDTH-1:0] lsu2exe_wb_uop_dest_preg [LSU_LOAD_WB_WIDTH],
+  output logic [ROB_IDX_WIDTH-1:0] lsu2exe_wb_uop_rob_idx [LSU_LOAD_WB_WIDTH],
+  output logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_uop_rob_flag,
+  output logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_uop_dest_en,
+  output logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_uop_page_fault_load,
+  output logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_uop_page_fault_store,
+  output logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_uop_rob_defer,    // memory speculation: ROB completion deferred
+  output logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_uop_flush_pipe,   // memory speculation: write-back of a violator
+  output logic [LSU_LOAD_WB_WIDTH-1:0] lsu2exe_wb_uop_is_w,         // word load: flw data is NaN-boxed
+  output logic [LSU_STA_COUNT-1:0] lsu2exe_sta_wb_valid,
+  output logic [XLEN_BITS-1:0] lsu2exe_sta_wb_uop_diag_val [LSU_STA_COUNT],
+  output logic [XLEN_BITS-1:0] lsu2exe_sta_wb_uop_result [LSU_STA_COUNT],
+  output logic [ROB_IDX_WIDTH-1:0] lsu2exe_sta_wb_uop_rob_idx [LSU_STA_COUNT],
+  output logic [LSU_STA_COUNT-1:0] lsu2exe_sta_wb_uop_rob_flag,
+  output logic [LSU_STA_COUNT-1:0] lsu2exe_sta_wb_uop_page_fault_store,
   output logic peripheral_req_is_mmio,
   output logic peripheral_req_wen,
   output logic [31:0] peripheral_req_mmio_addr,
   output logic [XLEN_BITS-1:0] peripheral_req_mmio_wdata,
-  output logic [2:0] peripheral_req_mmio_fun3,
+  output logic [2:0] peripheral_req_mmio_func3,
   output logic lsu2dcache_load_ports_valid [LSU_LDU_COUNT],
   output logic [31:0] lsu2dcache_load_ports_addr [LSU_LDU_COUNT],
   output logic [30:0] lsu2dcache_load_ports_req_id [LSU_LDU_COUNT],
@@ -131,8 +131,8 @@ module lsu
   lp_agu_ld_t   agl [NLD];
   lp_agu_st_t   ags [NST];
   logic [NCM-1:0] cm_valid_w;
-  logic [NLD-1:0] dcl_valid_w, ldrb_w;
-  logic [NST-1:0] dcs_valid_w, strb_w;
+  logic [NLD-1:0] dcl_valid_w, ld_rbusy_w;
+  logic [NST-1:0] dcs_valid_w, st_rbusy_w;
 
   always_comb begin
     for (int i = 0; i < NDIS; i++) begin
@@ -170,7 +170,7 @@ module lsu
       agl[i].snap_flag = exe2lsu_agu[i].stq_flag;
       agl[i].lr       = exe2lsu_agu[i].is_atomic && (exe2lsu_agu[i].amo_op == AMO_LR);
       dcl_valid_w[i]  = dcache2lsu_load_resps_valid[i];
-      ldrb_w[i]       = dcache2lsu_load_retry_busy[i];
+      ld_rbusy_w[i]   = dcache2lsu_load_retry_busy[i];
     end
     for (int k = 0; k < NST; k++) begin
       logic [2:0] p;
@@ -187,9 +187,9 @@ module lsu
       ags[k].func3    = exe2lsu_agu[p].func3;
       ags[k].sc       = exe2lsu_agu[p].is_atomic && (exe2lsu_agu[p].amo_op == AMO_SC);
       dcs_valid_w[k]  = dcache2lsu_store_resps_valid[k];
-      strb_w[k]       = dcache2lsu_store_retry_busy[k];
+      st_rbusy_w[k]   = dcache2lsu_store_retry_busy[k];
     end
-    cm_valid_w = rob_commit_commit_entry_valid;
+    cm_valid_w = rob_commit_valid;
   end
 
   logic [XLEN_BITS-1:0] sta_vaddr_w [NST];
@@ -198,9 +198,9 @@ module lsu
 
   lp_core u_core (
     .clk(clk), .rst_n(rst_n),
-    .cm_valid(cm_valid_w), .cm_type(rob_commit_commit_entry_uop_type), .cm_amo_op(rob_commit_commit_entry_uop_amo_op),
-    .cm_stq_idx(rob_commit_commit_entry_uop_stq_idx),
-    .cm_rob_idx(rob_commit_commit_entry_uop_rob_idx), .cm_rob_flag(rob_commit_commit_entry_uop_rob_flag),
+    .cm_valid(cm_valid_w), .cm_type(rob_commit_uop_type), .cm_amo_op(rob_commit_uop_amo_op),
+    .cm_stq_idx(rob_commit_uop_stq_idx),
+    .cm_rob_idx(rob_commit_uop_rob_idx), .cm_rob_flag(rob_commit_uop_rob_flag),
     .rb_flush(rob_bcast_flush), .rb_flush_now(rob_flush_now), .rb_head_valid(rob_bcast_head_valid),
     .rb_head_rob_idx(rob_bcast_head_rob_idx), .rb_hi_valid(rob_bcast_head_incomplete_valid),
     .rb_hi_rob_idx(rob_bcast_head_incomplete_rob_idx), .dec_mispred(dec_bcast_mispred),
@@ -211,7 +211,7 @@ module lsu
     .dcl_valid(dcl_valid_w), .dcl_req_id(dcache2lsu_load_resps_req_id), .dcl_data(dcache2lsu_load_resps_data),
     .dcl_replay(dcache2lsu_load_resps_replay), .dcs_valid(dcs_valid_w), .dcs_req_id(dcache2lsu_store_resps_req_id),
     .dcs_replay(dcache2lsu_store_resps_replay), .fill_valid(dcache2lsu_mshr_fill),
-    .fill_line(dcache2lsu_mshr_fill_line), .ld_retry_busy(ldrb_w), .st_retry_busy(strb_w),
+    .fill_line(dcache2lsu_mshr_fill_line), .ld_retry_busy(ld_rbusy_w), .st_retry_busy(st_rbusy_w),
     .mmu_valid(mmu2lsu_resp_valid), .mmu_paddr(mmu2lsu_resp_paddr),
     .mmu_paddr_p1(mmu2lsu_resp_paddr_p1), .mmu_paddr_m1(mmu2lsu_resp_paddr_m1),
     .mmu_result(mmu2lsu_resp_result), .mmu_entry(mmu2lsu_resp_entry_idx),
@@ -220,18 +220,18 @@ module lsu
     .o_committed_store_pending(lsu2rob_committed_store_pending),
     .o_wk_valid(lsu2iss_wake_valid), .o_wk_preg(lsu2iss_wake_preg), .o_cn_valid(lsu2iss_cancel_valid),
     .o_cn_preg(lsu2iss_cancel_preg),
-    .wb_valid(lsu2exe_wb_req_valid), .wb_diag(lsu2exe_wb_req_uop_diag_val), .wb_result(lsu2exe_wb_req_uop_result),
-    .wb_dest(lsu2exe_wb_req_uop_dest_preg), .wb_rob(lsu2exe_wb_req_uop_rob_idx),
-    .wb_rob_flag(lsu2exe_wb_req_uop_rob_flag),
-    .wb_dest_en(lsu2exe_wb_req_uop_dest_en), .wb_pf_load(lsu2exe_wb_req_uop_page_fault_load),
-    .wb_pf_store(lsu2exe_wb_req_uop_page_fault_store),
-    .wb_defer(lsu2exe_wb_req_uop_rob_defer), .wb_flushp(lsu2exe_wb_req_uop_flush_pipe),
-    .wb_isw(lsu2exe_wb_req_uop_is_w),
-    .sta_valid(lsu2exe_sta_wb_req_valid), .sta_vaddr(sta_vaddr_w),
-    .sta_rob(lsu2exe_sta_wb_req_uop_rob_idx), .sta_rob_flag(lsu2exe_sta_wb_req_uop_rob_flag),
-    .sta_pf(lsu2exe_sta_wb_req_uop_page_fault_store),
+    .wb_valid(lsu2exe_wb_valid), .wb_diag(lsu2exe_wb_uop_diag_val), .wb_result(lsu2exe_wb_uop_result),
+    .wb_dest(lsu2exe_wb_uop_dest_preg), .wb_rob(lsu2exe_wb_uop_rob_idx),
+    .wb_rob_flag(lsu2exe_wb_uop_rob_flag),
+    .wb_dest_en(lsu2exe_wb_uop_dest_en), .wb_pf_load(lsu2exe_wb_uop_page_fault_load),
+    .wb_pf_store(lsu2exe_wb_uop_page_fault_store),
+    .wb_defer(lsu2exe_wb_uop_rob_defer), .wb_flushp(lsu2exe_wb_uop_flush_pipe),
+    .wb_isw(lsu2exe_wb_uop_is_w),
+    .sta_valid(lsu2exe_sta_wb_valid), .sta_vaddr(sta_vaddr_w),
+    .sta_rob(lsu2exe_sta_wb_uop_rob_idx), .sta_rob_flag(lsu2exe_sta_wb_uop_rob_flag),
+    .sta_pf(lsu2exe_sta_wb_uop_page_fault_store),
     .per_is_mmio(peripheral_req_is_mmio), .per_wen(peripheral_req_wen), .per_addr(peripheral_req_mmio_addr),
-    .per_wdata(peripheral_req_mmio_wdata), .per_func3(peripheral_req_mmio_fun3),
+    .per_wdata(peripheral_req_mmio_wdata), .per_func3(peripheral_req_mmio_func3),
     .dcl_req_valid(dcl_req_valid_w), .dcl_req_replay(dcl_req_replay_w), .dcl_req_addr(lsu2dcache_load_ports_addr),
     .dcl_req_pc(lsu2dcache_load_ports_pc), .dcl_req_va(lsu2dcache_load_ports_va),
     .dcl_req_id_o(lsu2dcache_load_ports_req_id),
@@ -249,8 +249,8 @@ module lsu
   end
   for (genvar i = 0; i < NST; i++) begin : g_dcs
     assign lsu2dcache_store_ports_valid[i] = dcs_req_valid_w[i];
-    assign lsu2exe_sta_wb_req_uop_diag_val[i] = sta_vaddr_w[i];
-    assign lsu2exe_sta_wb_req_uop_result[i] = sta_vaddr_w[i];
+    assign lsu2exe_sta_wb_uop_diag_val[i] = sta_vaddr_w[i];
+    assign lsu2exe_sta_wb_uop_result[i] = sta_vaddr_w[i];
   end
 
 endmodule

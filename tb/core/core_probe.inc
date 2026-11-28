@@ -76,7 +76,7 @@ static const ProbeField kProbe[] = {
   {"lsu2dcache_store_ports_valid", 1, 1, 4, 1, 108, -1},
   {"peripheral_req_is_mmio", 1, 1, 1, 1, 112, -1},
   {"peripheral_req_mmio_addr", 1, 32, 1, 4, 113, 68},
-  {"peripheral_req_mmio_fun3", 1, 3, 1, 1, 117, 68},
+  {"peripheral_req_mmio_func3", 1, 3, 1, 1, 117, 68},
   {"peripheral_req_mmio_wdata", 1, 32, 1, 4, 118, 72},
   {"peripheral_req_wen", 1, 1, 1, 1, 122, -1},
   {"rob_bcast_exception", 1, 1, 1, 1, 123, -1},
@@ -86,18 +86,18 @@ static const ProbeField kProbe[] = {
   {"rob_bcast_mret", 1, 1, 1, 1, 127, -1},
   {"rob_bcast_pc", 1, 32, 1, 4, 128, 76},
   {"rob_bcast_sret", 1, 1, 1, 1, 132, -1},
-  {"rob_commit_commit_entry_uop_br_taken", 1, 1, 8, 1, 133, 91},
-  {"rob_commit_commit_entry_uop_dest_areg", 1, 6, 8, 1, 141, 91},
-  {"rob_commit_commit_entry_uop_dest_en", 1, 1, 8, 1, 149, 91},
-  {"rob_commit_commit_entry_uop_page_fault_inst", 1, 1, 8, 1, 157, 91},
-  {"rob_commit_commit_entry_uop_page_fault_load", 1, 1, 8, 1, 165, 91},
-  {"rob_commit_commit_entry_uop_page_fault_store", 1, 1, 8, 1, 173, 91},
-  {"rob_commit_commit_entry_uop_rob_flag", 1, 1, 8, 1, 181, 91},
-  {"rob_commit_commit_entry_uop_rob_idx", 1, 7, 8, 1, 189, 91},
-  {"rob_commit_commit_entry_uop_stq_flag", 1, 1, 8, 1, 197, 91},
-  {"rob_commit_commit_entry_uop_stq_idx", 1, 6, 8, 1, 205, 91},
-  {"rob_commit_commit_entry_uop_type", 1, 5, 8, 1, 213, 91},
-  {"rob_commit_commit_entry_valid", 1, 1, 8, 1, 221, -1},
+  {"rob_commit_uop_br_taken", 1, 1, 8, 1, 133, 91},
+  {"rob_commit_uop_dest_areg", 1, 6, 8, 1, 141, 91},
+  {"rob_commit_uop_dest_en", 1, 1, 8, 1, 149, 91},
+  {"rob_commit_uop_page_fault_inst", 1, 1, 8, 1, 157, 91},
+  {"rob_commit_uop_page_fault_load", 1, 1, 8, 1, 165, 91},
+  {"rob_commit_uop_page_fault_store", 1, 1, 8, 1, 173, 91},
+  {"rob_commit_uop_rob_flag", 1, 1, 8, 1, 181, 91},
+  {"rob_commit_uop_rob_idx", 1, 7, 8, 1, 189, 91},
+  {"rob_commit_uop_stq_flag", 1, 1, 8, 1, 197, 91},
+  {"rob_commit_uop_stq_idx", 1, 6, 8, 1, 205, 91},
+  {"rob_commit_uop_type", 1, 5, 8, 1, 213, 91},
+  {"rob_commit_valid", 1, 1, 8, 1, 221, -1},
   {"out_commit_entry_uop_diag_val", 1, 32, 8, 4, 229, 91},
   {"out_mispred", 1, 1, 1, 1, 261, -1},
   {"out_redirect_pc", 1, 32, 1, 4, 262, 93},
@@ -175,7 +175,7 @@ static void soc_probe(Vsoc_top *top, uint8_t *in, uint8_t *out) {
   for (int i0 = 0; i0 < 4; ++i0) ttg::put_elem(out + 108 + (i0 * 1) * 1, 1, (uint64_t)R->soc_top__DOT__lsu2dcache_store_ports_valid[i0]);
   ttg::put_elem(out + 112, 1, (uint64_t)R->soc_top__DOT__peripheral_req_is_mmio);
   ttg::put_elem(out + 113, 4, (uint64_t)R->soc_top__DOT__peripheral_req_mmio_addr);
-  ttg::put_elem(out + 117, 1, (uint64_t)R->soc_top__DOT__peripheral_req_mmio_fun3);
+  ttg::put_elem(out + 117, 1, (uint64_t)R->soc_top__DOT__peripheral_req_mmio_func3);
   ttg::put_elem(out + 118, 4, (uint64_t)R->soc_top__DOT__peripheral_req_mmio_wdata);
   ttg::put_elem(out + 122, 1, (uint64_t)R->soc_top__DOT__peripheral_req_wen);
   ttg::put_elem(out + 123, 1, (uint64_t)top->rob_bcast_exception);
@@ -185,18 +185,18 @@ static void soc_probe(Vsoc_top *top, uint8_t *in, uint8_t *out) {
   ttg::put_elem(out + 127, 1, (uint64_t)top->rob_bcast_mret);
   ttg::put_elem(out + 128, 4, (uint64_t)top->rob_bcast_pc);
   ttg::put_elem(out + 132, 1, (uint64_t)top->rob_bcast_sret);
-  for (int i0 = 0; i0 < 8; ++i0) ttg::put_elem(out + 133 + (i0 * 1) * 1, 1, ttg_getbit(top->rob_commit_commit_entry_uop_br_taken, i0 * 1));
-  for (int i0 = 0; i0 < 8; ++i0) ttg::put_elem(out + 141 + (i0 * 1) * 1, 1, (uint64_t)top->rob_commit_commit_entry_uop_dest_areg[i0]);
-  for (int i0 = 0; i0 < 8; ++i0) ttg::put_elem(out + 149 + (i0 * 1) * 1, 1, ttg_getbit(top->rob_commit_commit_entry_uop_dest_en, i0 * 1));
-  for (int i0 = 0; i0 < 8; ++i0) ttg::put_elem(out + 157 + (i0 * 1) * 1, 1, ttg_getbit(top->rob_commit_commit_entry_uop_page_fault_inst, i0 * 1));
-  for (int i0 = 0; i0 < 8; ++i0) ttg::put_elem(out + 165 + (i0 * 1) * 1, 1, ttg_getbit(top->rob_commit_commit_entry_uop_page_fault_load, i0 * 1));
-  for (int i0 = 0; i0 < 8; ++i0) ttg::put_elem(out + 173 + (i0 * 1) * 1, 1, ttg_getbit(top->rob_commit_commit_entry_uop_page_fault_store, i0 * 1));
-  for (int i0 = 0; i0 < 8; ++i0) ttg::put_elem(out + 181 + (i0 * 1) * 1, 1, ttg_getbit(top->rob_commit_commit_entry_uop_rob_flag, i0 * 1));
-  for (int i0 = 0; i0 < 8; ++i0) ttg::put_elem(out + 189 + (i0 * 1) * 1, 1, (uint64_t)top->rob_commit_commit_entry_uop_rob_idx[i0]);
-  for (int i0 = 0; i0 < 8; ++i0) ttg::put_elem(out + 197 + (i0 * 1) * 1, 1, ttg_getbit(top->rob_commit_commit_entry_uop_stq_flag, i0 * 1));
-  for (int i0 = 0; i0 < 8; ++i0) ttg::put_elem(out + 205 + (i0 * 1) * 1, 1, (uint64_t)top->rob_commit_commit_entry_uop_stq_idx[i0]);
-  for (int i0 = 0; i0 < 8; ++i0) ttg::put_elem(out + 213 + (i0 * 1) * 1, 1, (uint64_t)top->rob_commit_commit_entry_uop_type[i0]);
-  for (int i0 = 0; i0 < 8; ++i0) ttg::put_elem(out + 221 + (i0 * 1) * 1, 1, ttg_getbit(top->rob_commit_commit_entry_valid, i0 * 1));
+  for (int i0 = 0; i0 < 8; ++i0) ttg::put_elem(out + 133 + (i0 * 1) * 1, 1, ttg_getbit(top->rob_commit_uop_br_taken, i0 * 1));
+  for (int i0 = 0; i0 < 8; ++i0) ttg::put_elem(out + 141 + (i0 * 1) * 1, 1, (uint64_t)top->rob_commit_uop_dest_areg[i0]);
+  for (int i0 = 0; i0 < 8; ++i0) ttg::put_elem(out + 149 + (i0 * 1) * 1, 1, ttg_getbit(top->rob_commit_uop_dest_en, i0 * 1));
+  for (int i0 = 0; i0 < 8; ++i0) ttg::put_elem(out + 157 + (i0 * 1) * 1, 1, ttg_getbit(top->rob_commit_uop_page_fault_inst, i0 * 1));
+  for (int i0 = 0; i0 < 8; ++i0) ttg::put_elem(out + 165 + (i0 * 1) * 1, 1, ttg_getbit(top->rob_commit_uop_page_fault_load, i0 * 1));
+  for (int i0 = 0; i0 < 8; ++i0) ttg::put_elem(out + 173 + (i0 * 1) * 1, 1, ttg_getbit(top->rob_commit_uop_page_fault_store, i0 * 1));
+  for (int i0 = 0; i0 < 8; ++i0) ttg::put_elem(out + 181 + (i0 * 1) * 1, 1, ttg_getbit(top->rob_commit_uop_rob_flag, i0 * 1));
+  for (int i0 = 0; i0 < 8; ++i0) ttg::put_elem(out + 189 + (i0 * 1) * 1, 1, (uint64_t)top->rob_commit_uop_rob_idx[i0]);
+  for (int i0 = 0; i0 < 8; ++i0) ttg::put_elem(out + 197 + (i0 * 1) * 1, 1, ttg_getbit(top->rob_commit_uop_stq_flag, i0 * 1));
+  for (int i0 = 0; i0 < 8; ++i0) ttg::put_elem(out + 205 + (i0 * 1) * 1, 1, (uint64_t)top->rob_commit_uop_stq_idx[i0]);
+  for (int i0 = 0; i0 < 8; ++i0) ttg::put_elem(out + 213 + (i0 * 1) * 1, 1, (uint64_t)top->rob_commit_uop_type[i0]);
+  for (int i0 = 0; i0 < 8; ++i0) ttg::put_elem(out + 221 + (i0 * 1) * 1, 1, ttg_getbit(top->rob_commit_valid, i0 * 1));
   for (int i0 = 0; i0 < 8; ++i0) ttg::put_elem(out + 229 + (i0 * 1) * 4, 4, (uint64_t)top->out_commit_entry_uop_diag_val[i0]);
   ttg::put_elem(out + 261, 1, (uint64_t)top->out_mispred);
   ttg::put_elem(out + 262, 4, (uint64_t)top->out_redirect_pc);

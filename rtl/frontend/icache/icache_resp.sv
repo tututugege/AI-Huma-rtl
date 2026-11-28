@@ -2,10 +2,8 @@
 `default_nettype none
 
 // Cuts the fetch group out of the 64-byte line answered by the I-cache: lane i takes word (pc[5:2] + i); lanes
-// past the end of
-// the line are invalid.  A page fault marks every lane valid + faulting with a NOP instruction.  An uncached
-// answer is a
-// single word in lane 0.
+// past the end of the line are invalid.  A page fault marks every lane valid + faulting with a NOP instruction.
+// An uncached answer is a single word in lane 0.
 module icache_resp import icache_pkg::*; import ttg_cfg_pkg::*; (
   input  logic                 resp_valid,
   input  logic [XLEN_BITS-1:0]          resp_pc,

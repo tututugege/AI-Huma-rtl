@@ -327,7 +327,7 @@ auto tick = [&](int phase) {
     {   // peripheral environment: region decode + same-cycle read data (combinational inputs of peripheral_axi)
       auto *Rt = top->rootp;
       const uint32_t pa = Rt->soc_top__DOT__peripheral_req_mmio_addr;
-      const uint8_t pf3 = Rt->soc_top__DOT__peripheral_req_mmio_fun3;
+      const uint8_t pf3 = Rt->soc_top__DOT__peripheral_req_mmio_func3;
       top->env_modeled = PeripheralModel::is_modeled_mmio(pa) ? 1 : 0;
       if (top->env_modeled != env_modeled_prev) EVAL();   // env_rd_en depends on env_modeled: let it settle before reading it (a stale rd_en returned 0 for a read whose address and request arrived in the same cycle)
       top->env_rdata = top->env_rd_en ? read_mmio(periph, top->env_rd_addr, top->env_rd_func3) : 0;
@@ -394,13 +394,13 @@ auto tick = [&](int phase) {
       auto *R = top->rootp;
 #define LSUP(n) R->soc_top__DOT__u_core__DOT__u_back__DOT__u_lsu__DOT__##n
       std::fprintf(stderr, "E t=%llu wb:", (unsigned long long)cycles + 1);
-      for (int p = 0; p < LSU_LDU_COUNT; ++p) if (LSUP(lsu2exe_wb_req_valid) >> p & 1) std::fprintf(stderr, " %d=r%d/p%d/e%d/f%d", p, (int)LSUP(lsu2exe_wb_req_uop_rob_idx)[p], (int)LSUP(lsu2exe_wb_req_uop_dest_preg)[p], (int)(LSUP(lsu2exe_wb_req_uop_dest_en) >> p & 1), (int)(LSUP(lsu2exe_wb_req_uop_rob_flag) >> p & 1)),
-        std::fprintf(stderr, "/v%x/d%x/f%d%d", (unsigned)LSUP(lsu2exe_wb_req_uop_result)[p], (unsigned)LSUP(lsu2exe_wb_req_uop_diag_val)[p],
-                     (int)(LSUP(lsu2exe_wb_req_uop_page_fault_load) >> p & 1), (int)(LSUP(lsu2exe_wb_req_uop_page_fault_store) >> p & 1));
+      for (int p = 0; p < LSU_LDU_COUNT; ++p) if (LSUP(lsu2exe_wb_valid) >> p & 1) std::fprintf(stderr, " %d=r%d/p%d/e%d/f%d", p, (int)LSUP(lsu2exe_wb_uop_rob_idx)[p], (int)LSUP(lsu2exe_wb_uop_dest_preg)[p], (int)(LSUP(lsu2exe_wb_uop_dest_en) >> p & 1), (int)(LSUP(lsu2exe_wb_uop_rob_flag) >> p & 1)),
+        std::fprintf(stderr, "/v%x/d%x/f%d%d", (unsigned)LSUP(lsu2exe_wb_uop_result)[p], (unsigned)LSUP(lsu2exe_wb_uop_diag_val)[p],
+                     (int)(LSUP(lsu2exe_wb_uop_page_fault_load) >> p & 1), (int)(LSUP(lsu2exe_wb_uop_page_fault_store) >> p & 1));
       std::fprintf(stderr, " sta:");
-      for (int p = 0; p < LSU_STA_COUNT; ++p) if (LSUP(lsu2exe_sta_wb_req_valid) >> p & 1) std::fprintf(stderr, " %d=r%d/f%d", p, (int)LSUP(lsu2exe_sta_wb_req_uop_rob_idx)[p], (int)(LSUP(lsu2exe_sta_wb_req_uop_rob_flag) >> p & 1)),
-        std::fprintf(stderr, "/v%x/d%x/f%d", (unsigned)LSUP(lsu2exe_sta_wb_req_uop_result)[p], (unsigned)LSUP(lsu2exe_sta_wb_req_uop_diag_val)[p],
-                     (int)(LSUP(lsu2exe_sta_wb_req_uop_page_fault_store) >> p & 1));
+      for (int p = 0; p < LSU_STA_COUNT; ++p) if (LSUP(lsu2exe_sta_wb_valid) >> p & 1) std::fprintf(stderr, " %d=r%d/f%d", p, (int)LSUP(lsu2exe_sta_wb_uop_rob_idx)[p], (int)(LSUP(lsu2exe_sta_wb_uop_rob_flag) >> p & 1)),
+        std::fprintf(stderr, "/v%x/d%x/f%d", (unsigned)LSUP(lsu2exe_sta_wb_uop_result)[p], (unsigned)LSUP(lsu2exe_sta_wb_uop_diag_val)[p],
+                     (int)(LSUP(lsu2exe_sta_wb_uop_page_fault_store) >> p & 1));
       std::fprintf(stderr, " dl:");
       for (int p = 0; p < LSU_LDU_COUNT; ++p) if (LSUP(lsu2dcache_load_ports_valid)[p]) std::fprintf(stderr, " %d=%x/%x", p, (unsigned)LSUP(lsu2dcache_load_ports_addr)[p], (unsigned)LSUP(lsu2dcache_load_ports_req_id)[p]);
       std::fprintf(stderr, " ds:");
@@ -413,7 +413,7 @@ auto tick = [&](int phase) {
         unsigned dsa = 0, dla = 0;
         for (int i = 0; i < 8; i++) { dsa |= (unsigned)(LSUP(dis2lsu_alloc_req) >> i & 1) << i; dla |= (unsigned)(LSUP(dis2lsu_ldq_alloc_req) >> i & 1) << i; }
         std::fprintf(stderr, " b: mp=%d fl=%d cl=%llx dsa=%x dla=%x cm=%x", (int)LSUP(dec_bcast_mispred), (int)LSUP(rob_bcast_flush),
-                     (unsigned long long)LSUP(dec_bcast_clear_mask), dsa, dla, (unsigned)LSUP(rob_commit_commit_entry_valid));
+                     (unsigned long long)LSUP(dec_bcast_clear_mask), dsa, dla, (unsigned)LSUP(rob_commit_valid));
       }
       std::fprintf(stderr, " in:");
       for (int p = 0; p < LSU_AGU_COUNT; ++p) if (LSUP(mmu2lsu_resp_valid) >> p & 1) std::fprintf(stderr, " m%d=%d/%x", p, (int)LSUP(mmu2lsu_resp_result)[p], (unsigned)LSUP(mmu2lsu_resp_paddr)[p]);
@@ -443,11 +443,11 @@ auto tick = [&](int phase) {
           std::fprintf(stderr, "[PTW cyc %llu] issue=%d addr=%x event_hit=%d data=%llx fault=%d state=%d\n", (unsigned long long)cycles + 1, (int)R.soc_top__DOT__u_mem__DOT__u_ptw__DOT__u_engine__DOT__issue_walk_read, (unsigned)R.soc_top__DOT__u_mem__DOT__u_ptw__DOT__u_engine__DOT__walk_read_addr, (int)R.soc_top__DOT__u_mem__DOT__u_ptw__DOT__u_engine__DOT__event_hit, (unsigned long long)R.soc_top__DOT__u_mem__DOT__u_ptw__DOT__u_engine__DOT__event_data, (int)R.soc_top__DOT__u_mem__DOT__u_ptw__DOT__u_engine__DOT__pub_fault, (int)R.soc_top__DOT__u_mem__DOT__u_ptw__DOT__u_engine__DOT__state_q); } }
       if (fm_on && !fm_pend.empty()) fm_flush(cycles);   // commits of the previous cycle: their register values are visible now
 #endif
-      if (fpr::on()) {   // alignment fingerprints: PTAB writes and predictor-table updates of this cycle (the cycle number is the PMU cycle counter)
+      if (fpr::on()) {   // alignment fingerprints: S2 FTQ writes and predictor-table updates of this cycle (the cycle number is the PMU cycle counter)
         auto *R = top->rootp;
         fpr::set_raw_cycle(pmu_total[0]);
         if (R->soc_top__DOT__u_core__DOT__u_front__DOT__u_front__DOT__u_pred_path__DOT__s2_wr_en)   // the S2 write into the FTQ (by name, not by struct bit position)
-          fpr::pt(R->soc_top__DOT__u_core__DOT__u_front__DOT__u_front__DOT__u_pred_path__DOT__bpu_ptab_base_pc,
+          fpr::pt(R->soc_top__DOT__u_core__DOT__u_front__DOT__u_front__DOT__u_pred_path__DOT__bpu_s2_base_pc,
                   R->soc_top__DOT__u_core__DOT__u_front__DOT__u_front__DOT__u_pred_path__DOT__bpu_predict_next_fetch_address,
                   R->soc_top__DOT__u_core__DOT__u_front__DOT__u_front__DOT__u_pred_path__DOT__bpu_pred_dir);
         if (R->soc_top__DOT__u_core__DOT__u_front__DOT__u_front__DOT__u_pred_path__DOT__u_bpu__DOT__u_brq__DOT__upd_en) {
@@ -477,12 +477,12 @@ auto tick = [&](int phase) {
         }
       }
       for (int i = 0; i < 8; ++i)
-        if (ttg_getbit(top->rob_commit_commit_entry_valid, i)) {
+        if (ttg_getbit(top->rob_commit_valid, i)) {
           if (!top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__rob_bcast_interrupt) {
             ++committed;   // reference: commit_num skips interrupt slots
             if (roi_target && !done) {
               if (roi_front_door) {
-                if (top->rob_commit_commit_entry_uop_type[i] == kUopMret) {
+                if (top->rob_commit_uop_type[i] == kUopMret) {
                   roi_front_door = false; roi_insts = 0; roi_cyc_base = cycles;
                   if (roi_warmup == 0) roi_started = true;
                 }
@@ -499,28 +499,28 @@ auto tick = [&](int phase) {
           }
 #ifdef SOC_TB_FM
           if (fm_on && !done && top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__rob_bcast_interrupt) fm_pend.push_back({0, 0, 0, true});
-          else if (fm_on && !done && (top->rob_commit_commit_entry_uop_type[i] != kUopEbreak ||
+          else if (fm_on && !done && (top->rob_commit_uop_type[i] != kUopEbreak ||
                                       (semihost && pmem_read(uint32_t(top->ftq_commit_info_resp_pc[i]) - 4) == 0x01f01013u && pmem_read(uint32_t(top->ftq_commit_info_resp_pc[i]) + 4) == 0x40705013u))) {   // the semihosting marker ebreak is a breakpoint exception: the function model executes it too
-            const bool de = ttg_getbit(top->rob_commit_commit_entry_uop_dest_en, i);
-            fm_pend.push_back({top->ftq_commit_info_resp_pc[i], (de && top->rob_commit_commit_entry_uop_dest_areg[i] < 32) ? top->rob_commit_commit_entry_uop_dest_areg[i] : 0u,   // areg 32 = AMO with rd == x0 (pseudo destination)
+            const bool de = ttg_getbit(top->rob_commit_uop_dest_en, i);
+            fm_pend.push_back({top->ftq_commit_info_resp_pc[i], (de && top->rob_commit_uop_dest_areg[i] < 32) ? top->rob_commit_uop_dest_areg[i] : 0u,   // areg 32 = AMO with rd == x0 (pseudo destination)
                                
                                top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__u_ren__DOT__ren_commit_dest_preg[i], false});
             {   // a page fault the RTL takes (its TLB / walker may still see a stale PTE until sfence.vma): the model takes the same one
-              const bool pfs = ttg_getbit(top->rob_commit_commit_entry_uop_page_fault_store, i), pfl = ttg_getbit(top->rob_commit_commit_entry_uop_page_fault_load, i);
+              const bool pfs = ttg_getbit(top->rob_commit_uop_page_fault_store, i), pfl = ttg_getbit(top->rob_commit_uop_page_fault_load, i);
               if (pfs || pfl) fm_pend.back().pf = pfs ? 2 : 1;
             }
 #ifdef SOC_FP
-            if (de && ((top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__u_rob__DOT__rob_commit_commit_entry_uop_dest_fp >> i) & 1)) {
+            if (de && ((top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__u_rob__DOT__rob_commit_uop_dest_fp >> i) & 1)) {
               auto &p = fm_pend.back();
-              p.fp = true; p.rd = 0; p.frd = top->rob_commit_commit_entry_uop_dest_areg[i] & 31; p.fpreg = p.preg;
+              p.fp = true; p.rd = 0; p.frd = top->rob_commit_uop_dest_areg[i] & 31; p.fpreg = p.preg;
             }
 #endif
           }
 #endif
           last_commit_pc = tb_xlen_t(top->ftq_commit_info_resp_pc[i]);
           if (std::getenv("SOC_TB_COMMIT")) std::fprintf(stderr, "[cyc %llu] commit[%d] type=%d pc=%llx\n", (unsigned long long)cycles + 1, i,
-                                                         top->rob_commit_commit_entry_uop_type[i], (unsigned long long)top->ftq_commit_info_resp_pc[i]);
-          if (top->rob_commit_commit_entry_uop_type[i] == kUopEbreak) {
+                                                         top->rob_commit_uop_type[i], (unsigned long long)top->ftq_commit_info_resp_pc[i]);
+          if (top->rob_commit_uop_type[i] == kUopEbreak) {
             // SOC_TB_SEMIHOST: the ebreak of the semihosting marker sequence (slli x0,x0,0x1f; ebreak; srai x0,x0,7) is a breakpoint
             // exception for the core (the RTL always traps on EBREAK), not the end of the program; same rule as the function model.
             const uint32_t epc = uint32_t(top->ftq_commit_info_resp_pc[i]);
@@ -528,10 +528,10 @@ auto tick = [&](int phase) {
             if (!marker) done = true;
           }
           // SimCpu::commit_sync: a committing store applies its device effect (PeripheralModel::on_commit_store) from the STQ entry
-          if (top->rob_commit_commit_entry_uop_type[i] == kInstStore && !ttg_getbit(top->rob_commit_commit_entry_uop_page_fault_store, i)) {
+          if (top->rob_commit_uop_type[i] == kInstStore && !ttg_getbit(top->rob_commit_uop_page_fault_store, i)) {
             // lp_pkg::lp_stq_t (packed, first field = MSB): va_v pa_v data_v pf mmio lrsc sc_pass suppress trp wbp wbd cmt iss mmw done
             // vaddr paddr data func3 dest_preg rob_idx rob_flag rtype[2] rwait[3]
-            const auto &fld = top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__u_lsu__DOT__u_core__DOT__sq[top->rob_commit_commit_entry_uop_stq_idx[i]];
+            const auto &fld = top->rootp->soc_top__DOT__u_core__DOT__u_back__DOT__u_lsu__DOT__u_core__DOT__sq[top->rob_commit_uop_stq_idx[i]];
             auto bits = [&](int lo, int w) { uint64_t v = 0; for (int b = 0; b < w; ++b) { int k = lo + b; v |= uint64_t((fld[k / 32] >> (k % 32)) & 1u) << b; } return v; };
             constexpr int kRtype = 3, kRobFlag = kRtype + 2, kRobIdx = kRobFlag + 1, kDest = kRobIdx + kCfg_ROB_IDX_WIDTH,
                           kFunc3 = kDest + kCfg_PRF_IDX_WIDTH, kData = kFunc3 + 3, kPaddr = kData + kXlen, kVaddr = kPaddr + 32, kDone = kVaddr + kXlen;
