@@ -561,14 +561,17 @@ module isu_iq_store
     assign cn_port_mask = cancel_valid[LSU_LDU_COUNT-1:0];
     ttg_onehot_mux #(.N(DW), .W(LSU_LDU_COUNT)) u_et1 (.sel(hit), .data(enq_spec_t1), .out(enq_spec_t1_sel));
 
+    // RR-stage speculative state: registers and cancels only. Kept out of the always_comb below, which also reads
+    // issue_clear (this cycle's grant): slot_ready (from rr_active) feeds the select that produces the grant.
+    assign rr_active    = |spec_rr_q;
+    assign rr_cancelled = |(spec_rr_q & cn_port_mask);
+    assign rr_retired   = rr_active && !rr_cancelled;
+
     // Ref: IssueQueue::enqueue / comb_wakeup / commit_issue / flush_br / clear_br / flush_all
     // Evaluate branch kill in parallel with u_alloc / u_new (enq_killed per lane, old_killed from core_q)
     always_comb begin
       enq_killed_hit = |(hit & enq_killed);
       old_killed     = flush_br && isu_rob_younger(core_q.rob_idx, core_q.rob_flag, flush_rob_idx, flush_rob_flag);
-      rr_active      = |spec_rr_q;
-      rr_cancelled   = |(spec_rr_q & cn_port_mask);
-      rr_retired     = rr_active && !rr_cancelled;
       park_spec      = issue_clear[i] && (|spec_t1_q);
       valid_d        = ((|(hit & ~enq_killed)) ||
                         (valid_q && !old_killed && !(issue_clear[i] && !(|spec_t1_q)) && !rr_retired)) && !flush_all;

@@ -75,7 +75,7 @@ for s in axi-interconnect-kit/sim_ddr/SimDDR.cpp back-end/PhysMemory.cpp; do
 done
 wait
 JOBS=${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 6)}
-verilator --cc --exe --build -j "$JOBS" --output-split 5000 --output-split-cfuncs 5000 -Wno-fatal -Wno-lint -Wno-style -Wno-UNOPTFLAT ${DEBUG:+--public-flat-rw} $VOPT "${VERIF_VOPT[@]}" \
+verilator --cc --exe --build -j "$JOBS" --output-split 5000 --output-split-cfuncs 5000 -Wno-fatal -Wno-lint -Wno-style ${DEBUG:+--public-flat-rw} $VOPT "${VERIF_VOPT[@]}" \
   --top-module soc_top -Mdir obj -CFLAGS "$COPT $DS3FLAGS $XLENFLAG ${FMOPT[*]:-} ${DEBUG:+-DSOC_TB_DEBUG} $VERIF_CFLAGS -std=c++2a -w $INC $FPINC -I$ROOT/harness/include -I$ROOT/tb/core" \
   -LDFLAGS "$OUT/SimDDR.o $OUT/PhysMemory.o $FMLD $DS3LD $FPLD ${CORE_LDFLAGS:-${SOC_LDFLAGS:-}}" \
   "$ROOT/tb/core/core_public.vlt" "$ROOT/tb/core/pmu_public.vlt" "$ROOT/tb/core/core_tb.cpp" ${FPDPI[@]+"${FPDPI[@]}"} "${FILES[@]}" ${SVA_FILES[@]+"${SVA_FILES[@]}"} -o core_tb > build.log 2>&1 || { grep -E "error:|%Error" build.log | grep -v "Command Failed" | head -12 | cut -c1-200; echo "BUILD FAILED, see $OUT/build.log"; exit 1; }

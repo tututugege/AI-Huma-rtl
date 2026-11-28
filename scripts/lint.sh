@@ -27,17 +27,14 @@ for d in "${DIRS[@]}"; do
   files=(); while IFS= read -r f; do files+=("$f"); done < <(find "$d" -name '*.sv' ! -name '*_pkg.sv' | sort)
   allf=(); while IFS= read -r f; do allf+=("$f"); done < <(find "$d" -name '*.sv' | sort)
   [ ${#allf[@]} -gt 0 ] || continue
-  # axi_subsys: assembly top with a Verilator UNOPTFLAT on axi_llc.in_w (open item in the top-level docs/TODO.md); style-checked only
-  if [ "$(basename "$d")" = axi_subsys ]; then python3 "$TOOLS/../harness/tools/svlint.py" "${allf[@]}"; n=$((n + ${#allf[@]})); continue; fi
   python3 "$TOOLS/../harness/tools/svlint.py" "${allf[@]}"
   n=$((n + ${#allf[@]}))
   [ ${#files[@]} -gt 0 ] || continue   # packages only: linted through the modules that use them
   base=$(basename "$d")
-  if [ "$base" = back_top ] || [ "$base" = core_top ] || [ "$base" = soc_top ] || [ "$base" = mem_top ] || [ "$base" = chip_top ]; then
+  if [ "$base" = back_top ] || [ "$base" = core_top ] || [ "$base" = soc_top ] || [ "$base" = mem_top ] || [ "$base" = chip_top ] ||
+     [ "$base" = axi_subsys ]; then
     # assembly of several modules from other directories: compile against all RTL, top = back_top
     ALL=(); while IFS= read -r f; do ALL+=("$f"); done < <(bash "$TOOLS/rtl_files.sh" . | grep -v '_pkg\.sv$' | grep -v -e '^rtl/common/')
-    # soc_top/mem_top/chip_top: the interconnect<->LLC handshake is one struct-granularity UNOPTFLAT (no real loop, simulates fine)
-    case "$base" in soc_top|mem_top|chip_top) export VLINT_EXTRA=-Wno-UNOPTFLAT;; *) unset VLINT_EXTRA;; esac
     vlint "$base" "${ALL[@]}" || exit 1
   elif [ "$base" = front_top ]; then
     FT=(); while IFS= read -r f; do FT+=("$f"); done < <(find rtl/frontend rtl/backend/tlb_mmu -name '*.sv' ! -name '*_pkg.sv' | sort)

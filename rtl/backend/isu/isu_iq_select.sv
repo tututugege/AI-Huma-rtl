@@ -107,27 +107,32 @@ module isu_iq_select
   end else begin : g_serial
     // Port p takes the lowest ready slot it can serve that no earlier port took. A slot taken by a port whose capabilities do not
     // overlap port p's could not be p's candidate anyway, so the chain only runs over ports with overlapping capabilities.
-    logic [SIZE-1:0] taken [NP];                  // slots chosen by earlier ports that port p could also serve
-
+    // Each port has its own taken / oh signals (g_port[p]) and reads only earlier ports' oh: no signal-level loop
+    // (a [NP] array taken / sel_onehot would be one signal read and written across ports, a false UNOPTFLAT loop).
     for (genvar p = 0; p < NP; p++) begin : g_port
       localparam op_set_t CAP = port_cap(iq_port(QID, p));
-      logic [SIZE-1:0] candidate;
-      always_comb begin
-        taken[p] = '0;
-        for (int q = 0; q < p; q++)
-          if ((port_cap(iq_port(QID, q)) & CAP) != '0) taken[p] = taken[p] | sel_onehot[q];
+      logic [SIZE-1:0] candidate, oh;
+      logic [SIZE-1:0] taken_c [p + 1];             // taken_c[q]: slots taken by the overlapping ports 0..q-1
+      assign taken_c[0] = '0;
+      for (genvar q = 0; q < p; q++) begin : g_tk
+        if ((port_cap(iq_port(QID, q)) & CAP) != '0) begin : g_ov
+          assign taken_c[q + 1] = taken_c[q] | g_port[q].oh;
+        end else begin : g_no
+          assign taken_c[q + 1] = taken_c[q];
+        end
       end
-      assign candidate = ready & port_ok[p] & ~taken[p];
+      assign candidate = ready & port_ok[p] & ~taken_c[p];
+      assign sel_onehot[p] = oh;
       // first port of its capability: no earlier port could take any slot this port can
       localparam bit FIRST = first_of_cap(QID, p);
       if (AGE_EN && FIRST) begin : g_age
         // the oldest candidate: a candidate with no older candidate
         for (genvar i = 0; i < SIZE; i++) begin : g_old
-          assign sel_onehot[p][i] = candidate[i] && !(|(older[i] & candidate));
+          assign oh[i] = candidate[i] && !(|(older[i] & candidate));
         end
         assign sel_valid[p] = |candidate;
       end else begin : g_slot_prio
-        ttg_first_set #(.N(SIZE)) u_pick (.req(candidate), .onehot(sel_onehot[p]), .any(sel_valid[p]));
+        ttg_first_set #(.N(SIZE)) u_pick (.req(candidate), .onehot(oh), .any(sel_valid[p]));
       end
     end
   end

@@ -187,6 +187,8 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 
 ## 10. 变更记录
 
+- 2026-11-28（`rtl/fe-2ahead`，0 周期变化）：消除整核 Verilator `UNOPTFLAT`：`isu_iq_store` 每槽的 `rr_active / rr_cancelled / rr_retired` 从读 `issue_clear`（本拍授权）的 `always_comb` 里拆成独立 `assign`（`slot_ready` 经选择 → 授权 → `issue_clear` 的假环）；`isu_iq_select` 串行选择的 `taken` / `sel_onehot` 改成每端口生成块信号（`g_port[p].oh`、`taken_c`），后端口只读前端口。新增 `tests/isu_iq_select/run.sh`：与改前版本（`isu_iq_select_ref.sv`）按 6 个队列的实际参数逐拍对拍，20 万组 PASS，断开 taken 链的变异第一批即报错。
+
 - 2026-11-28（`rtl/exu-clean`，EXP-072）：去除 `exe2iss_fu_ready_mask` 输入，在 `isu.sv` 内增加确定性 `div_busy_q`（port 1，`exe2iss_div_wb_next` 前 1 拍让路 ALU 写回）与 `fdiv_cnt_q` 占槽；`isu_iq_select.sv` 将逻辑 7 槽合并负载在选口侧直接复用至 `NP = LSU_AGU_COUNT = 5` 物理 AGU 口（`ISSUE_WIDTH = 19`）。Tier 1（`Yosys+PT`，`0.50 ns`）实测：**总面积 `526,654.30 → 512,886.19 µm²`（−2.61%）**、**`Seq 29,106 → 28,331`（−775 FF）**、`WNS_r2r −0.38 → −0.39 ns`（`TNS_r2r −5,794.05 → −5,647.62` 改善）、总 `WNS −0.48 ns`（`in->out` `lsu2iss_cancel_preg[18] -> iss2prf_uop[1312]`）。
 
 - 2026-11-25（`isu_pkg`/`isu_fp_gate` FDIV/FSQRT 写口预留晚 1 拍修复）：迭代式 FP 单元（类 4..7 `FDIV`/`FSQRT`）实际写回周期为 `wb_cls_off(c) = lat + 1`，但 `fp_cls_lat(4..7)`（及模型 `Isu.cpp` `fp_wb_busy_.try_reserve(lat)`）此前误用 `lat`（早 1 拍），导致 `fdiv.d` 与 2 条流水线 FP 指令在真实写回拍冲突并触发 `[FPWB] 3 FP-unit register writes in one cycle` 丢弃 `fdiv.d` 结果（由 SPEC06 RTL `403.gcc/sp27` 检出）。同步修复 `isu_pkg.sv` `fp_cls_lat` 返回 `wb_cls_off(c)`、`isu_fp_gate.sv` `DEPTH = FP_FSQRT_D_LAT + 1` 以及模型 `Isu.cpp` 改传 `off`。

@@ -23,13 +23,17 @@ module ren_elim_sel
   assign cand = inst_valid & move_shape;
 
   // Stage 0..ST pointer-jumping state for each lane:
-  //   st_const=1 -> elim[i] = st_cval
-  //   st_const=0 -> elim[i] = elim[st_ptr] ^ st_inv
-  // Every chain terminates at a lane with st_const=1 (either !cand or !any_bypass -> cval=1).
-  logic [N-1:0]  st_const [ST+1];
-  logic [N-1:0]  st_cval  [ST+1];
-  logic [N-1:0]  st_inv   [ST+1];
-  logic [NW-1:0] st_ptr   [ST+1][N];
+  //   c=1 -> elim[i] = v
+  //   c=0 -> elim[i] = elim[ptr] ^ inv
+  // Every chain terminates at a lane with c=1 (either !cand or !any_bypass -> v=1).
+  // Each stage has its own signals (g_st[s]) so stage s+1 only reads stage s: no signal-level combinational loop
+  // (the former [ST+1]-indexed arrays were one signal each, a false UNOPTFLAT loop through the dynamic index).
+  for (genvar s = 0; s <= ST; s++) begin : g_st
+    logic [N-1:0]  c, v, inv;
+    if (s < ST) begin : g_p          // the last stage needs no pointer
+      logic [NW-1:0] ptr [N];
+    end
+  end
 
   for (genvar i = 0; i < N; i++) begin : g_slot
     logic [N-1:0]  bypass_hit, bypass_rev, pick_rev, pick;
@@ -49,42 +53,37 @@ module ren_elim_sel
     ttg_first_set     #(.N(N)) u_byp_pick (.req(bypass_rev), .onehot(pick_rev), .any(any_bypass));
     ttg_onehot_to_idx #(.N(N)) u_byp_idx  (.onehot(pick),    .idx(prod_idx));
 
-    always_comb begin
-      if (!cand[i]) begin
-        st_const[0][i] = 1'b1;
-        st_cval[0][i]  = 1'b0;
-        st_inv[0][i]   = 1'b0;
-        st_ptr[0][i]   = NW'(i);
-      end else if (!any_bypass) begin
-        st_const[0][i] = 1'b1;
-        st_cval[0][i]  = 1'b1;
-        st_inv[0][i]   = 1'b0;
-        st_ptr[0][i]   = NW'(i);
-      end else begin
-        st_const[0][i] = 1'b0;
-        st_cval[0][i]  = 1'b0;
-        st_inv[0][i]   = 1'b1;
-        st_ptr[0][i]   = prod_idx;
-      end
-    end
+    assign g_st[0].c[i]   = !cand[i] || !any_bypass;
+    assign g_st[0].v[i]   = cand[i] && !any_bypass;
+    assign g_st[0].inv[i] = cand[i] && any_bypass;
+    assign g_st[0].g_p.ptr[i] = (cand[i] && any_bypass) ? prod_idx : NW'(i);
   end
 
   // Pointer-jumping doubling: ST = log2(N) parallel stages resolve all intra-group chains
   for (genvar s = 0; s < ST; s++) begin : g_jump
     for (genvar i = 0; i < N; i++) begin : g_lane
       logic [NW-1:0] p;
-      assign p               = st_ptr[s][i];
-      assign st_const[s+1][i] = st_const[s][i] ? 1'b1 : st_const[s][p];
-      assign st_cval[s+1][i]  = st_const[s][i] ? st_cval[s][i]
-                              : (st_const[s][p] ? (st_cval[s][p] ^ st_inv[s][i]) : 1'b0);
-      assign st_inv[s+1][i]   = (st_const[s][i] | st_const[s][p]) ? 1'b0 : (st_inv[s][i] ^ st_inv[s][p]);
-      assign st_ptr[s+1][i]   = (st_const[s][i] | st_const[s][p]) ? p : st_ptr[s][p];
+      logic          cp, vp, ip;
+      assign p  = g_st[s].g_p.ptr[i];
+      assign cp = g_st[s].c[p];
+      assign vp = g_st[s].v[p];
+      assign ip = g_st[s].inv[p];
+      assign g_st[s+1].c[i]   = g_st[s].c[i] | cp;
+      assign g_st[s+1].v[i]   = g_st[s].c[i] ? g_st[s].v[i] : (cp ? (vp ^ g_st[s].inv[i]) : 1'b0);
+      assign g_st[s+1].inv[i] = (g_st[s].c[i] | cp) ? 1'b0 : (g_st[s].inv[i] ^ ip);
+      if (s + 1 < ST) begin : g_np
+        assign g_st[s+1].g_p.ptr[i] = (g_st[s].c[i] | cp) ? p : g_st[s].g_p.ptr[p];
+      end
     end
   end
 
-  for (genvar i = 0; i < N; i++) begin : g_out
-    assign elim[i] = st_cval[ST][i];
-  end
+  assign elim = g_st[ST].v;
+
+  // only v of the last stage is used
+  /* verilator lint_off UNUSEDSIGNAL */
+  logic unused_last;
+  assign unused_last = ^{g_st[ST].c, g_st[ST].inv};
+  /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule
 
