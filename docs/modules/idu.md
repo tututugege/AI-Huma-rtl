@@ -14,7 +14,7 @@ depth: **19 层 / 6,595 cells**（Yosys `strash;balance;map`，2026-11-25，较 
 译码单元（IDU）：把指令缓冲（`ftq_ibuf` 的 `ibuf`）发来的最老 8 条指令译成 uop 字段，交给重命名。它是纯组合的 8 路译码器，没有时钟和状态：
 
 1. 译码：每个 lane 把一个 32 位指令字译成类型、源 / 目的寄存器号、立即数、功能码、是否非法等（`dec2ren_uop`）；取指缺页的指令变成一条带缺页标志的 NOP（`diag_val` 里放指令字）；
-2. FTQ 窗口限制：一组里第 i 条（i ≥ 1）的 `ftq_idx` 与第 0 条的差必须小于 8（`diff[FTQ_IDX_WIDTH-1:3] == 0`），否则从这条起截断——后面分派读 FTQ 用的是以 `ftq_idx[0]` 为起点的 8 bank 窗口（[ftq_ibuf.md](ftq_ibuf.md) 5.3）；
+2. FTQ 窗口限制：一组里第 i 条（i ≥ 1）的 `ftq_idx` 与第 0 条的差必须小于 8（`ftq_ibuf_pkg::ftq_in_window`），否则从这条起截断——后面分派读 FTQ 用的是以 `ftq_idx[0]` 为起点的 8 bank 窗口（[ftq_ibuf.md](ftq_ibuf.md) 5.3）；
 3. 握手：`idu_consume_fire[i] = lane_valid[i] & ren2dec_ready & !rob_bcast_flush & !dec_bcast_mispred`，指令缓冲据此弹出。
 
 分支结果的寄存和广播不在 IDU：误预测由 `back_top` 的 `back_br_redirect` 寄存，只把 1 位 `dec_bcast_mispred` 送进来做握手门控。后端用 9 位 `rob_ptr` 循环年龄冲刷，IDU 不分配分支标签、不维护分支掩码。
@@ -27,7 +27,7 @@ depth: **19 层 / 6,595 cells**（Yosys `strash;balance;map`，2026-11-25，较 
 | --- | --- | --- |
 | lane 数 | 8 | `DECODE_WIDTH` |
 | 指令字宽度 | 32（压缩指令在前端 `front_head_fix` 里已展开） | `ib_entry_t.inst` |
-| FTQ 窗口 | 一组内 `ftq_idx` 差 < 8 | `idu.sv`（8 = `ftq_pc` 的 bank 数，代码里是位切片 `[FTQ_IDX_WIDTH-1:3]`） |
+| FTQ 窗口 | 一组内 `ftq_idx` 差 < 8 | `ftq_ibuf_pkg::FTQ_PC_BANKS = 8`（`ftq_pc` 的 bank 数），判定函数 `ftq_in_window`（与 `rob_core_cpt` 共用） |
 | 译码类别 | 40 类（含"非法"） | `idu_ctrl_decode` 的 `NCLS = 40` |
 | 常量表 ROM 行宽 | 21 位 | `ROMW` |
 | F/D | 总是开 | 无开关 |
@@ -55,9 +55,9 @@ depth: **19 层 / 6,595 cells**（Yosys `strash;balance;map`，2026-11-25，较 
 
 | 文件 | 行数 | 职责 |
 | --- | --- | --- |
-| `idu.sv` | 88 | 顶层：FTQ 窗口截断、8 路译码器、`consume_fire` |
+| `idu.sv` | 84 | 顶层：FTQ 窗口截断、8 路译码器、`consume_fire` |
 | `idu_decoder.sv` | 112 | 一个 lane：包装控制字和立即数，取指缺页时变 NOP，`c.mv` 规范化 |
-| `idu_ctrl_decode.sv` | 283 | 控制字：40 个互斥类别（一热）+ 常量表 ROM（`ROMW = 22` 位一行） |
+| `idu_ctrl_decode.sv` | 286 | 控制字：40 个互斥类别（一热）+ 常量表 ROM（`ROMW = 22` 位一行） |
 | `idu_imm_gen.sv` | 35 | 各种格式的立即数一热选择 |
 
 状态：无。
@@ -110,6 +110,7 @@ depth: **19 层 / 6,595 cells**（Yosys `strash;balance;map`，2026-11-25，较 
 
 ## 10. 变更记录
 
+- 2026-11-29 清理 D：去重——FTQ 窗口检查改用 `ftq_ibuf_pkg::ftq_in_window`（与 `rob_core_cpt` 共用，同一判定）；`idu_ctrl_decode` 的 `T_*` 指令类型编号改为 `dis_pkg::INST_*` 的别名（数值相同），`FPC_*` 改为从 `dis_pkg` 导入，`uop_type` 宽度用 `dis_pkg::INST_TYPE_W`；`idu_decoder` 的 `c.mv` 规范化比较 `5'd3` 改为 `dis_pkg::INST_ADD`；`tests/fp_decode/run.sh` 加 `dis_pkg.sv`（周期不变）。
 - 2026-11-28 清理：删 ROM 的 `is_branch` 列（`ROMW` 22 → 21）、`idu_ctrl_decode` / `idu_decoder` 的 `is_branch` 输出和 `idu_decoder` 的 `entry_valid` 输入、`idu.sv` 的 `lane_is_branch`；F/D 写死（删 `HAS_FP`，`NUM_KNOWN_CSR = 24`）；`idu_decoder` 头注释去掉 `br_id / br_mask`（周期不变）。
 - 2026-11-28（`rtl/fe-2ahead`）：文档按现行 RTL 重写（第 1–9 节；旧正文描述的是 EXP-070 之前 / 删除分支标签之前的结构）。
 - 2026-11-25（`idu_br_latch` 迁出至 `back_top`）：将 `idu_br_latch.sv` 移至 `rtl/backend/back_top/` 并删除透传模块 `idu_bcast.sv`，`idu.sv` 去掉 `clk`/`rst_n` 与全部 `exu2id_*`/`dec_bcast_*`/`br_latch_*` 端口（仅保留 1-bit 输入 `dec_bcast_mispred`），成为纯组合 8 路译码器（零周期变化）。

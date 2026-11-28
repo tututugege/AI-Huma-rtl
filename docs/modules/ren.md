@@ -80,12 +80,12 @@ AMO 暂存寄存器：IDU 把"丢弃结果的读改写 AMO"的目的寄存器号
 | `ren_arch_cnt.sv` | 73 | 每个整数物理寄存器的"被架构 RAT 引用次数" |
 | `ren_commit_filter.sv` | 38 | 哪些退休项算"退休一个目的寄存器" |
 | `ren_rank.sv` | 27 | 选中的退休槽的序号和总数（空闲表写偏移） |
-| `ren_free_list.sv` | 157 | 整数空闲表（8 bank 1R1W 环，3 个指针） |
+| `ren_free_list.sv` | 177 | 空闲表（8 bank 1R1W 环，3 个指针），按参数 `NUM / RESV / TAG_BASE / PORT_W` 一份给整数域（默认）、一份给浮点域（`ren_fp`） |
 | `ren_ckpt.sv` | 50 | 稀疏检查点存储（`REN_CKPT_NUM = 4` 项） |
 | `ren_ckpt_ctl.sv` | 282 | 检查点 FIFO 控制（分支间距 ≥ `REN_CKPT_INTERVAL = 32` 才分配）、误预测恢复与 8 宽前向 Walk 状态机 |
 | `ren_log.sv` | 140 | 本地按 ROB 号索引的重命名日志（`ROB_NUM = 256` 项，8 bank × `ROB_LINE_NUM = 32` 行，1R1W），存 `dest_preg` / `old_dest_preg` / 是否被消除，供 Walk 与退休回收 |
 | `ren_last_write.sv` | 31 | "同一拍多个写者，编号大的赢"的优先选择，多处复用 |
-| `ren_fp.sv`、`ren_fp_dep.sv`、`ren_fp_free_list.sv` | 184、42、143 | 浮点域 |
+| `ren_fp.sv`、`ren_fp_dep.sv` | 187、42 | 浮点域 |
 
 状态（整数域）：输入寄存器（8 lane）；推测 RAT 和架构 RAT（各 `RAT_NUM` 项 × `$clog2(PRF_NUM) = 8` 位，只存整数域号）；空闲表 `bank_q[8][PRF_NUM/8]` 和三个指针 `head`（推测分配）、`head_commit`（最老未提交的分配）、`tail`（还回来的旧寄存器追加处）；`arch_cnt` `PRF_NUM = 256` 个 6 位计数器（复位时前 33 个为 1）；检查点表 `entry_q[REN_CKPT_NUM]`（4 项），每项一份 RAT 快照加一个空闲表头；重命名日志 `ren_log`（256 项）。浮点域同样一套（RAT 32 项，环 `FPRF_NUM` 个，不是 2 的幂，指针按 `fp_ptr_add` 显式回绕；没有移动消除，没有计数器）。
 
@@ -112,7 +112,7 @@ AMO 暂存寄存器：IDU 把"丢弃结果的读改写 AMO"的目的寄存器号
 
 - `ren_commit_filter`：一个退休槽"退休一个目的寄存器"，当且仅当：有效、`dest_en`、没有异常（缺页、非法指令、ecall）、本拍没有中断（`rob_interrupt`）。这样的槽才更新架构 RAT 和还旧寄存器。出了异常或被中断带走的指令就像没提交过。
 - 整数域：`arch_cnt[dest_preg]++`，`arch_cnt[old_dest_preg]--`；某个槽的 `old_dest_preg` 在"这个槽及前面所有槽处理完"之后计数为 0，就把它还回空闲表（`ren_arch_cnt`：每个槽并行数前面的增减，不串行）。还回的位置是 `tail + 本槽在"要还的槽"里的序号`（`ren_rank`）。`head_commit` 前进"退休且真的分配过寄存器的槽数"（被消除的 move 没分配，不算）。
-- 浮点域：没有移动消除，每个退休的浮点目的寄存器直接还旧寄存器，`ren_fp_free_list` 同理。
+- 浮点域：没有移动消除，每个退休的浮点目的寄存器直接还旧寄存器，浮点域的 `ren_free_list` 实例同理（`head_commit` 按 `reclaim_total` 前进）。
 
 ### 5.4 恢复
 
@@ -151,7 +151,6 @@ RTL 与模型的实现差别（行为等价）：
 已发现、未改动的点：
 
 - `ren.sv`、`ren_pkg.sv` 文件头注释里的"reference model commit 2f31e8d"已过时；
-- `ren_pkg` 的 `ITYPE_ADD` 等常量和 `ren_is_move_shape` 里的指令类型编号手写了一份（与 `dis_pkg`、`rob_pkg`、`idu_ctrl_decode` 各有一份 `InstType` 编码），没有共用；
 
 **未核对（继承自旧文档）**：无（旧文档的内容全部没有采用）。
 
@@ -169,6 +168,7 @@ RTL 与模型的实现差别（行为等价）：
 
 ## 10. 变更记录
 
+- 2026-11-29 清理 D：去重——`ren_free_list` 与 `ren_fp_free_list` 合并为一个参数化模块（`NUM`：环大小，2 的幂时自然回绕，否则模 `NUM`；`RESV`：复位时被架构 RAT 占用的个数；`TAG_BASE`：库里存本域局部号、读出加回；`PORT_W`：环位置端口宽度），`ren_fp` 以 `#(.NUM(FPN), .RESV(FP_ARF_NUM), .TAG_BASE(FP_TAG_BASE), .PORT_W(FP_PTR_W))` 实例化并把 `free_total` 同时接 `reclaim_total` / `alloc_commit_total`，`ren_fp_free_list.sv` 不再被引用；新增 `tests/ren_free_list/run.sh`：合并模块两种参数与改前两个模块的副本逐拍对拍（随机输入，100 万拍 PASS，删掉浮点域行回绕的变异第 22 拍即报错）；`ren_pkg` 删 `INST_TYPE_WIDTH`、`ITYPE_*` 副本，改用 `dis_pkg::INST_TYPE_W` / `INST_*`（数值相同；`ren` / `ren_core` / `ren_commit_filter` / `ren_inst_pipe` 同步）；`tests/ren_elim_sel/run.sh` 加 `dis_pkg.sv`（周期不变）。
 - 2026-11-28 清理：移动消除写死开（`ren_core` 删 `g_no_elim` / `g_no_cnt`，不再读 `ttg_cfg_pkg::MOVE_ELIM`）；F/D 写死（删 `g_no_fp`，`ren_pkg::FPN = FPRF_NUM`）；`ren_ckpt_ctl` 删未用输出 `rd_base`（只用 `rd_base_next`）；`ren_pkg` 删未用的 `rat_identity`、`fp_rat_identity`、`free_list_init`、`fp_free_list_init`；删不抑制任何告警的 lint 豁免（`ren_elim_sel` / `ren_free_list` / `ren_log` 各 1 处、`ren_rat` 2 处；`unused_*` 汇本身 Verilator 不报，以去掉豁免后整树 lint 普通 / `-DSYNTHESIS` 均无新告警为准）（周期不变）。
 - 2026-11-28（文档核对，无 RTL 变化）：移动消除不再有 `MOVE_ELIM_MAX_REFS` 上限（`CNT_W = 6`，EXP-065）；稀疏检查点 `REN_CKPT_NUM = 4`、`ren_log`、`ren_ckpt_ctl` 写进结构与文件表；`PRF_NUM = 256` 下的位宽；接口去掉 `br_id / br_mask / clear_mask`；第 8 节加 `tests/ren_elim_sel`；`ttg_cfg_pkg` 为生成文件；门禁参考改为 `scripts/ref_cycles.txt`（77 个程序）。
 - 2026-11-28（`rtl/fe-2ahead`，0 周期变化）：`ren_elim_sel` 的指针跳跃各级改成各自的生成块信号（`g_st[s].c / v / inv / g_p.ptr`），第 `s+1` 级只读第 `s` 级，消除整核 Verilator `UNOPTFLAT`（原来 `[ST+1]` 下标的数组是一个信号，经动态下标形成假环）；最后一级不再算指针。`tests/ren_elim_sel/run.sh` 改写为按定义的 C++ 参考模型 200 万次随机对拍（原测试用的是旧端口，已编不过）：新、旧实现都 PASS，`^` 改成 `~^` 的变异第 0 组即报错。

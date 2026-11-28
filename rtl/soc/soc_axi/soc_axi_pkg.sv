@@ -57,6 +57,33 @@ package soc_axi_pkg;
     else                                                     return AXI4_RESP_OKAY;
   endfunction
 
+  // ---- 64-bit register write with byte strobes (CLINT / SYSCTRL) ----
+  function automatic logic [63:0] axi4_apply_strb(
+    input logic [63:0] old_v, input logic [63:0] new_v, input logic [7:0] strb
+  );
+    logic [63:0] res;
+    for (int b = 0; b < 8; b++) res[8*b +: 8] = strb[b] ? new_v[8*b +: 8] : old_v[8*b +: 8];
+    return res;
+  endfunction
+
+  // ---- Width downsizer burst split (soc_axi_downsizer write side, soc_axi_downsizer_rd) ----
+  // m_off_w = log2(master bytes per beat). A slave beat of size sz > m_off_w becomes 2^(sz - m_off_w) master beats.
+  // sub-beat counter max (callers cut to their SUB_W)
+  function automatic logic [31:0] axi4_ds_sub_max(input logic [2:0] sz, input int m_off_w);
+    if (int'(sz) <= m_off_w) return '0;
+    else                     return (32'd1 << (int'(sz) - m_off_w)) - 32'd1;
+  endfunction
+
+  function automatic logic [7:0] axi4_ds_m_len(input logic [7:0] slen, input logic [2:0] sz, input int m_off_w);
+    if (int'(sz) <= m_off_w) return slen;
+    else                     return 8'(((32'(slen) + 32'd1) << (int'(sz) - m_off_w)) - 32'd1);
+  endfunction
+
+  function automatic logic [2:0] axi4_ds_m_size(input logic [2:0] sz, input int m_off_w);
+    if (int'(sz) <= m_off_w) return sz;
+    else                     return 3'(m_off_w);
+  endfunction
+
 endpackage
 /* verilator lint_on UNUSEDPARAM */
 `default_nettype wire

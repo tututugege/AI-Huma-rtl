@@ -76,7 +76,7 @@ depth: TSMC 28nm HPC+ DC `tlb_mmu_bb` WNS `−0.03 ns`（`1.89 GHz`）/ `25` 级
 
 | 文件 | 行数 | 职责 |
 | --- | --- | --- |
-| `tlb_mmu_pkg.sv` | 196 | 常量、类型（`tlb_mmu_tag_t / _xlat_t / _entry_t / _walk_t / _ptw_resp_t`）、权限检查 `perm_ok`、标签匹配 `tag_match`、物理地址合成 `compose_paddr`、`satp_on / satp_asid`、规范地址检查 `va_canonical`、有效特权级 `effective_priv` |
+| `tlb_mmu_pkg.sv` | 196 | 常量（响应码 `RES_MISS / RES_HIT / RES_FAULT` 是唯一定义，LSU 的 `lp_l1` 按名导入）、类型（`tlb_mmu_tag_t / _xlat_t / _entry_t / _walk_t / _ptw_resp_t`）、权限检查 `perm_ok`、标签匹配 `tag_match`、物理地址合成 `compose_paddr`、`satp_on / satp_asid`、规范地址检查 `va_canonical`、有效特权级 `effective_priv` |
 | `tlb_mmu.sv` | 101 | 顶层：端口适配，实例化 `tlb_mmu_core`（`FETCH = 0`、`ENTRIES = DTLB_ENTRIES`），`cancel = flush \|\| mispred` |
 | `tlb_mmu_core.sv` | 258 | N 口翻译核心（DTLB 和 ITLB 共用）：模式选择、提前退休、A / B 两次选择、walk 寄存器、回填和 PTW 端口输出 |
 | `tlb_mmu_lane.sv` | 146 | 一个口自己能算的部分：直通 / 非规范 / 命中 / 缺失、权限、两种回填视图下的结果；最后按核心的选择出结果 |
@@ -163,6 +163,7 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 
 ## 10. 变更记录
 
+- 2026-11-29 清理 D：去重（周期不变，本目录 RTL 不变）。`lp_pkg::MMU_MISS / MMU_HIT / MMU_PF`（与 `RES_MISS / RES_HIT / RES_FAULT` 同值）删除，`lp_l1` 改为导入 `tlb_mmu_pkg::RES_*`。LSU 寄存器 PL12 里的 DTLB 结果另有编码（命中 = 0），改名 `lp_pkg::PL12_TLB_*` 以区分，二者不互相赋值。
 - 2026-11-28 清理：删 `tlb_mmu_lane` 只被异或吸收的输入 `ptw_resp_level / ptw_resp_ppn` 及 `tlb_mmu_core` 对它们的驱动、`tlb_mmu_core` 一处无效 waiver；`tlb_mmu_pkg` 的 UNUSEDPARAM waiver 收窄到常量段（周期不变）。另删没有消费者的输出 `resp_hit`。
 - 2026-11-28（文档核对，无 RTL 变化）：ITLB 现在 `NPEEK = 1`；`tests/tlb_par` 已在 64d5dbb 删除；接口补 `resp_paddr_p1/m1`、`pf_page_*`、`walk_next_*`；文件表行数；门禁参考改为 `scripts/ref_cycles.txt`（77 个程序）。
 - 2026-11-28（`rtl/exu-clean`，EXP-072）：`tlb_mmu.sv` DTLB 口数随 `LSU_AGU_COUNT = 5`（真 5 物理口）统一口径并微调端口注释/参数映射，零逻辑行为变化；通过 `lint` 0、strict+SVA `fm_gate` 77/77、`soc_gate --linux` 12/12 与 Linux 26/26 窗对齐。

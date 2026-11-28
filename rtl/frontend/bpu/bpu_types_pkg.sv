@@ -145,23 +145,59 @@ package bpu_types_pkg;
     return (a == b);
   endfunction
 
+  // ---- 2-Ahead ExTAGE / ITT index & tag hash: one core, per-table shift (ExTAGE 11, ITT 10) ----
+  // idx = wk ^ (wk >> sh) ^ key_fh;  tag = wc ^ (wc >> sh) ^ wk ^ fh1 ^ (fh2 << 1) ^ salt
+  // wk = key block, wc = current block; salt = MORSL prev_base term, or the self0 constant.
+  function automatic logic [31:0] ah_blk_w(input logic [XLEN_BITS-1:0] base);
+    return 32'(base >> SLOT_SHIFT);
+  endfunction
+
+  function automatic logic [31:0] ah_idx_hash(input logic [31:0] wk, input int unsigned sh, input logic [31:0] fh);
+    return wk ^ (wk >> sh) ^ fh;
+  endfunction
+
+  function automatic logic [31:0] ah_tag_hash(input logic [31:0] wk, input logic [31:0] wc, input int unsigned sh,
+                                              input logic [31:0] fh1, input logic [31:0] fh2, input logic [31:0] salt);
+    return wc ^ (wc >> sh) ^ wk ^ fh1 ^ (fh2 << 1) ^ salt;
+  endfunction
+
+  function automatic logic [31:0] ah_tag_salt(input logic [XLEN_BITS-1:0] prev_base, input logic is_self0,
+                                              input logic [31:0] self_c);
+    logic [31:0] sec;
+    sec = (!is_self0 && (prev_base != '0)) ? (32'(prev_base >> 1) ^ 32'(prev_base >> 7)) : 32'd0;
+    return sec ^ (is_self0 ? self_c : 32'd0);
+  endfunction
+
+  // Index only (array read launch: needs neither the current block nor the tag)
+  function automatic logic [EX_TN-1:0][EX_TAGE_IDX_W-1:0] ah_ex_tage_idx(input logic [XLEN_BITS-1:0] key_base,
+                                                                        input ex_fh0_t key_ex_fh);
+    logic [EX_TN-1:0][EX_TAGE_IDX_W-1:0] r;
+    for (int t = 0; t < EX_TN; t++) r[t] = EX_TAGE_IDX_W'(ah_idx_hash(ah_blk_w(key_base), 11, 32'(key_ex_fh[t])));
+    return r;
+  endfunction
+
+  function automatic logic [NITT-1:0][FTB_ITT_IDX_W-1:0] ah_itt_idx(input logic [XLEN_BITS-1:0] key_base,
+                                                                   input ex_fh0_t key_ex_fh);
+    logic [NITT-1:0][FTB_ITT_IDX_W-1:0] r;
+    for (int k = 0; k < NITT; k++)
+      r[k] = FTB_ITT_IDX_W'(ah_idx_hash(ah_blk_w(key_base), 10, 32'(key_ex_fh[ITT_EX_MAP[k]])));
+    return r;
+  endfunction
+
   /* verilator lint_off UNUSEDSIGNAL */
   function automatic ex_tage_ix_t make_ah_ex_tage_index(input logic [XLEN_BITS-1:0] key_base,
                                                         input logic [XLEN_BITS-1:0] cur_base,
                                                         input ex_fh0_t key_ex_fh, input ex_fh_t tag_ex_fh,
                                                         input logic [XLEN_BITS-1:0] prev_base, input logic is_self0);
     ex_tage_ix_t ix;
-    logic [31:0] wk, wc, sec, self_xor;
-    wk       = 32'(key_base >> SLOT_SHIFT);
-    wc       = 32'(cur_base >> SLOT_SHIFT);
-    sec      = (!is_self0 && (prev_base != '0)) ? (32'(prev_base >> 1) ^ 32'(prev_base >> 7)) : 32'd0;
-    self_xor = is_self0 ? 32'h555 : 32'd0;
-    ix.w     = (wc != 32'd0) ? wc : wk;
-    for (int t = 0; t < EX_TN; t++) begin
-      ix.idx[t] = EX_TAGE_IDX_W'(wk ^ (wk >> 11) ^ 32'(key_ex_fh[t]));
-      ix.tag[t] = EX_TAGE_TAG_W'(wc ^ (wc >> 11) ^ wk ^ 32'(tag_ex_fh[1][t]) ^
-                                 (32'(tag_ex_fh[2][t]) << 1) ^ sec ^ self_xor);
-    end
+    logic [31:0] wk, wc, salt;
+    wk     = ah_blk_w(key_base);
+    wc     = ah_blk_w(cur_base);
+    salt   = ah_tag_salt(prev_base, is_self0, 32'h555);
+    ix.w   = (wc != 32'd0) ? wc : wk;
+    ix.idx = ah_ex_tage_idx(key_base, key_ex_fh);
+    for (int t = 0; t < EX_TN; t++)
+      ix.tag[t] = EX_TAGE_TAG_W'(ah_tag_hash(wk, wc, 11, 32'(tag_ex_fh[1][t]), 32'(tag_ex_fh[2][t]), salt));
     return ix;
   endfunction
 
@@ -170,18 +206,14 @@ package bpu_types_pkg;
                                                 input ex_fh0_t key_ex_fh, input ex_fh_t tag_ex_fh,
                                                 input logic [XLEN_BITS-1:0] prev_base, input logic is_self0);
     itt_ix_t     ix;
-    logic [31:0] wk, wc, sec, self_xor;
-    wk       = 32'(key_base >> SLOT_SHIFT);
-    wc       = 32'(cur_base >> SLOT_SHIFT);
-    sec      = (!is_self0 && (prev_base != '0)) ? (32'(prev_base >> 1) ^ 32'(prev_base >> 7)) : 32'd0;
-    self_xor = is_self0 ? 32'h2aa : 32'd0;
-    for (int k = 0; k < NITT; k++) begin
-      int e;
-      e         = ITT_EX_MAP[k];
-      ix.idx[k] = FTB_ITT_IDX_W'(wk ^ (wk >> 10) ^ 32'(key_ex_fh[e]));
-      ix.tag[k] = FTB_TAG_W'(wc ^ (wc >> 10) ^ wk ^ 32'(tag_ex_fh[1][e]) ^
-                             (32'(tag_ex_fh[2][e]) << 1) ^ sec ^ self_xor);
-    end
+    logic [31:0] wk, wc, salt;
+    wk     = ah_blk_w(key_base);
+    wc     = ah_blk_w(cur_base);
+    salt   = ah_tag_salt(prev_base, is_self0, 32'h2aa);
+    ix.idx = ah_itt_idx(key_base, key_ex_fh);
+    for (int k = 0; k < NITT; k++)
+      ix.tag[k] = FTB_TAG_W'(ah_tag_hash(wk, wc, 10, 32'(tag_ex_fh[1][ITT_EX_MAP[k]]),
+                                         32'(tag_ex_fh[2][ITT_EX_MAP[k]]), salt));
     return ix;
   endfunction
 

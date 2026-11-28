@@ -8,9 +8,7 @@ module prf
   import isu_pkg::isu_uop_t;
   import exu_ctrl_pkg::xc_inst_t;
   import exu_ctrl_pkg::xc_prf_wb_t;
-#(
-  parameter int UOP_TYPE_WIDTH = 5
-) (
+(
   input  logic                          clk,
   input  logic                          rst_n,
   input  logic                          dec_bcast_mispred,
@@ -42,7 +40,6 @@ module prf
 
   localparam int NIP = ISSUE_WIDTH;
   localparam int WL  = WB_LANES;
-  localparam logic [UOP_TYPE_WIDTH-1:0] UOP_LOAD = UOP_TYPE_WIDTH'(3);
 
   logic [WL-1:0]             exe_valid_vec, exe_dest_en_vec, exe_is_load_vec, exe_rob_flag_vec;
   logic [PRF_IDX_WIDTH-1:0]  exe_dest_preg [WL];
@@ -105,7 +102,7 @@ module prf
   for (genvar l = 0; l < WL; l++) begin : g_wl
     assign exe_valid_vec[l]    = exe2prf[l].valid;
     assign exe_dest_en_vec[l]  = exe2prf[l].dest_en;
-    assign exe_is_load_vec[l]  = exe2prf[l].op == UOP_LOAD;
+    assign exe_is_load_vec[l]  = exe2prf[l].op == dis_pkg::UOP_LOAD;
     assign exe_dest_preg[l]    = exe2prf[l].dest_preg;
     assign exe_result[l]       = exe2prf[l].result;
     assign exe_rob_idx[l]      = exe2prf[l].rob_idx;

@@ -94,8 +94,9 @@ LLC 的"上游"端口（`up_*`）连互连的 `li_*` / `lo_*`，"内存"端口�
 | `axi_llc_memwr.sv` | 48 | 内存写请求：受害行写回优先，否则 bypass 写 |
 | `axi_llc_waypick.sv`、`axi_llc_rrpick.sv` | 41、38 | 缺失选路（无效路，否则 RRPV 最大的未占用路）；旋转优先级仲裁（读 / 写主口选择） |
 | `axi_llc_linecam.sv`、`axi_llc_merge.sv` | 19、27 | N 项行地址比较；按字节合并 |
-| `axi_llc_bop.sv` | 254 | Best-Offset 预取器及双优先级（BOP > Bingo）预取查表发射仲裁 |
-| `axi_llc_bingo.sv`、`axi_llc_bingo_agt.sv`、`axi_llc_bingo_pht.sv` | 179、268、299 | EXP-058 Bingo 4KB 空间预取器（FT/AGT/提交队列 + 1RW SRAM PHT_L/PHT_S + 节流器/1 候选每拍发射器/16 项队列；`eda-05` Yosys 综合 `41,232` 单元 / **48 层**） |
+| `axi_llc_bop.sv` | 227 | Best-Offset 预取器及双优先级（BOP > Bingo）预取查表发射仲裁；候选队列是 `axi_llc_pfq`（`N = BOP_Q`，3 个候选并行查重） |
+| `axi_llc_pfq.sv` | 76 | 预取候选队列（BOP 与 Bingo 共用）：N 项去重 FIFO（最老在 0 号），满时丢最老项；NCAND 个候选并行对出队后的队列查重，`cand_sel` 选一个入队；`pop` 只在非空时给（两个使用者都由构造保证） |
+| `axi_llc_bingo.sv`、`axi_llc_bingo_agt.sv`、`axi_llc_bingo_pht.sv` | 160、268、289 | EXP-058 Bingo 4KB 空间预取器（FT/AGT/提交队列 + 1RW SRAM PHT_L/PHT_S（4 路树形 PLRU 用 `ttg_util_pkg::ttg_plru4_*`）+ 节流器/1 候选每拍发射器/16 项队列（`axi_llc_pfq`，行寄存器不复位）；`eda-05` Yosys 综合 `41,232` 单元 / **48 层**） |
 
 状态：行表是同步 1R1W SRAM（`axi_llc_tables.sv`，`ttg_sram_1r1w`，`WRITE_FIRST = 1`）：每路一个数据 SRAM（`LLC_DATA`，`SETS = 4096` 深 × 512 位）和一个标签 SRAM（`LLC_TAG`，`TAGW = 14` 位），每组一个 valid / dirty / pf SRAM（`LLC_VALID` / `LLC_DIRTY` / `LLC_PF`，各 `WAYS = 16` 位，按路写掩码）和替换状态 SRAM（`LLC_REPL`，`RB = 32` 位）；MSHR `NMSHR = 16` 项（每项含 512 位重填数据和 512 位受害行快照）；受害行写回槽和队列（`VQD = 32` 项 × 512 位）；每写主口的请求队列（`WQD = 2` 项）和写上下文；每读主口的响应队列（`RQD = 16` 项 + 1 个响应寄存器）；轮询指针；查表引擎的 valid / issued 等。Bingo 的两张 PHT（`LLC_BINGO_PHTL` / `LLC_BINGO_PHTS`）是 `ttg_sram_1rw`。所有 SRAM 在 `rst_n` 期间由外壳逐地址写 `INIT_VAL` 清零，复位由 `ttg_rst_sweep` 拉长 `SRAM_SWEEP_CYCLES = 4100` 拍（大于最深的 LLC 表 4096 组），不再依赖上电值（common.md 4.1）。
 
@@ -185,6 +186,7 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 
 ## 10. 变更记录
 
+- 2026-11-29 清理 D：去重（周期不变）。`axi_llc_bop`（`BOP_Q = 8`，3 个候选）与 `axi_llc_bingo`（`BINGO_Q = 16`，1 个候选）各自的去重丢最老 FIFO 抽成 `axi_llc_pfq`：Bingo 原来出队时多判一次 `cnt != 0`，但它的 `pop_head` 就是 `axi_llc_bop` 的 `bingo_pop`，后者要求 `has_bingo = !bingo_q_empty`，所以从不对空队列出队，去掉该判断等价；BOP 的行寄存器照旧复位、Bingo 的照旧不复位（`RST_LINES`）。新旧两组（BOP + Bingo 按 `axi_llc_core` 连接）随机输入 100 万拍逐拍对比输出和队列内部状态 0 差异。`axi_llc_bingo_pht` 删除本地 `plru4_update / plru4_victim`，改用同一函数 `ttg_util_pkg::ttg_plru4_touch / ttg_plru4_victim`。
 - 2026-11-28 清理：`axi_llc.sv` 注释里的 "spec ports" 改为 "flat ports"（周期不变）。
 - 2026-11-28（rtl 73761fa，SRAM 复位清扫）：`axi_llc_tables` 的数据 / 标签 / valid / dirty / pf / 替换状态 SRAM 与 `axi_llc_bingo_pht` 的 PHT SRAM 接上 `rst_n`；复位期间 SRAM 外壳逐地址写 `INIT_VAL`，`ttg_rst_sweep` 把复位拉长 `SRAM_SWEEP_CYCLES = 4100` 拍。原来 valid / dirty / pf / 替换表依赖上电值（硅片上是随机值，会假命中、写回垃圾）；0 周期变化，`fm_gate` 77/77（common.md 4.1）。同日文档核对：第 4 节状态改按 SRAM 描述，MSHR 16 项、受害行队列 32 项。
 - **2026-11-22（EXP-058）**：新增硬件忠实版 **LLC Bingo 4KB 空间预取器**（`axi_llc_bingo.sv`、`axi_llc_bingo_agt.sv`、`axi_llc_bingo_pht.sv`），与 `axi_llc_bop` 组成双优先级预取（BOP > Bingo，`BOP_INF` `4 → 8`）；12-bit 负载 `pc_hash` 经 `dcache_mshr → mem_axi → axi_subsys → axi_interconnect → axi_llc_lookup` 透传；PHT_L（256×4）与 PHT_S（128×4）均采用 4 个独立 1D 1RW SRAM bank（干净 `$mem_v2`）与桶形移位掩码旋转，`eda-05` Yosys 综合 `axi_llc_bingo` 仅 **`41,232` 单元 / 48 层**；`lint_chip.sh` 0 警告，`fm_gate.sh` **69/69 PASS（0 FM 差、0 周期差）**，SPEC06 INT 386/386 SimPoint 加权 **`+1.26%`（`14.69 → 14.88 /GHz`）**。

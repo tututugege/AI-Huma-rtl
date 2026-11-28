@@ -3,7 +3,7 @@
 
 module isu_wake_mul
   import ttg_cfg_pkg::*;
-  import isu_pkg::*;
+  import isu_pkg::*, ttg_util_pkg::ttg_rob_younger;
 #(
   parameter int SLOTS = 2,
   parameter int DEPTH = MUL_DEPTH,
@@ -66,7 +66,7 @@ module isu_wake_mul
       end
 
       always_comb begin
-        killed  = flush_br && isu_rob_younger(enter_bits[ROB_IDX_WIDTH-1:0], enter_bits[ROB_IDX_WIDTH],
+        killed  = flush_br && ttg_rob_younger(enter_bits[ROB_IDX_WIDTH-1:0], enter_bits[ROB_IDX_WIDTH],
                                               flush_rob_idx, flush_rob_flag);
         valid_d = enter_valid && !flush_all && !killed;
       end

@@ -7,7 +7,7 @@ module alu
   import exu_fu_pkg::*;
   import ttg_cfg_pkg::*;
 (
-  input  logic [OP_W-1:0]     op,
+  input  logic [dis_pkg::UOP_TYPE_W-1:0] op,
   input  logic [2:0]          func3,
   input  logic [6:0]          func7,
   input  logic                src1_is_pc,

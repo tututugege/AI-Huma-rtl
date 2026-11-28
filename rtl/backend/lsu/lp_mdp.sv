@@ -42,7 +42,7 @@ module lp_mdp
   logic [LQW-1:0] tr_ix;
   logic           tr_v;
   assign trn_live = trn_q & ~empty_w;
-  lp_ffs #(.N(LQ)) u_tr (.req(trn_live), .onehot(tr_oh), .any(tr_v));
+  ttg_first_set #(.N(LQ)) u_tr (.req(trn_live), .onehot(tr_oh), .any(tr_v));
   ttg_onehot_to_idx #(.N(LQ)) u_trx (.onehot(tr_oh), .idx(tr_ix));
   always_comb begin
     tr_mask = '0;

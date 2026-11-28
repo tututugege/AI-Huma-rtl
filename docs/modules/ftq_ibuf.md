@@ -77,7 +77,7 @@ depth: TSMC 28nm DC（EXP-069 `ftq_ibuf_bb` 243,191 µm² / reg2reg 1.72 GHz）�
 | --- | --- | --- |
 | `ftq_ibuf.sv` | 287 | 顶层：端口适配、写请求门控（冲刷 / 误预测那拍不写）、`mdp` 哈希、`ftq2fe` 组装 |
 | `ftq_ibuf_ctrl.sv` | 65 | 握手、块内序号（`lane_rank`）、块尾、IDU 消耗前缀、`flush_prev_q` |
-| `ftq_ibuf_pkg.sv` | 44 | 位宽常量、`ftq_meta_t`、`ftq_meta_entry_t`、`ib_entry_t` |
+| `ftq_ibuf_pkg.sv` | 56 | 位宽常量、`FTQ_PC_BANKS = 8` 与窗口判定 `ftq_in_window`（`idu` / `rob_core_cpt` 共用）、`ftq_meta_t`、`ftq_meta_entry_t`、`ib_entry_t` |
 | `ibuf.sv` | 116 | 指令环形缓冲、旁路 |
 | `ftq_ptr.sv` | 188 | 五个指针、空块标记 `empty_blk_q`、满 / 空标志、断言 |
 | `ftq_pc.sv` | 218 | pc / 预测存储（8 bank × 8 行）、四个写者、各读口 |
@@ -144,6 +144,7 @@ EXP-070 统一 FTQ 之后没有单模块重测。从代码读出、未综合验�
 
 ## 10. 变更记录
 
+- 2026-11-29 清理 D：去重——`ftq_ibuf_pkg` 新增 `FTQ_PC_BANKS = 8`（`ftq_pc` 的 `NB` 改为引用它）和 `ftq_in_window(idx, base)`（`idu` 与 `rob_core_cpt` 各写了一份的 8 项窗口检查，原为字面量位切片 `[FTQ_IDX_WIDTH-1:3]`）（周期不变）。
 - 2026-11-29 清理 C：删 EXP-051 2-taken 双块残留（EXP-070 起不再产生，S0 / S2 写入的 `is_pair` 恒 0）：`ftq_pc` 删 `base_b / fa_pair_v / b_len / is_pair / a_len` 字段、`s0_pair` / `s2_is_pair` 入口与 `ifu_pair / ifu_next_b_idx / pd_is_pair / pd_base_b / pd_a_len` 出口、`ent_pc` / 分派 pc 的 B 块分支、`ent_next_pc`（只在双块不连续时才不返回 `next_pc`）；由此只剩它读的 `nslots` 字段、`pd_nslots` 入口和 `mispred_off` 入口一并删除（`ftq_pc_ent_t` 240 → 161 位）；`ftq_meta` / `ftq_meta_entry_t` 删 `is_pair / a_len`（SRAM 79 → 74 位），`ftq_bpu` 删 `is_pair / a_len`（`id_q` 只存块号），两处 `blk_id + 1` 的 B 块选择随之删除；`ftq_ibuf.sv` 删相应连线和 `ftq2fe` 字段（周期不变）。
 - 2026-11-28 清理：删 `ftq_prf_pc_req_req_valid` / `ftq_rob_pc_req_req_valid` 输入与 `ftq_prf_pc_resp_resp_valid` / `ftq_rob_pc_resp_resp_valid` 输出（响应 valid 只是请求 valid 的回传，`back_top` 无人读）；`mdp` 不再读 `LSU_MEMSPEC`（写死开，删 `g_off`）；`ftq_ibuf_pkg` 删未用的 `FTQ_COUNT_W`、`COMMIT_CNT_W`；删不抑制任何告警的 lint 豁免（`ftq_ibuf.sv` 2 处、`ftq_meta.sv` 1 处、`ftq_pc.sv` 2 处，以去掉豁免后整树 lint 普通 / `-DSYNTHESIS` 均无新告警为准）（周期不变）。
 - 2026-11-28（`rtl/fe-2ahead`）：文档按现行 RTL 重写（第 1–9 节；旧正文描述的是 EXP-070 之前 / 删除分支标签之前的结构）。

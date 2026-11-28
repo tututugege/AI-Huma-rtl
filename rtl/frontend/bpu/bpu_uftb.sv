@@ -26,19 +26,6 @@ module bpu_uftb import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
 
   typedef uftb_ent_t [WAYS-1:0] uset_t;
 
-  function automatic logic [SET_W-1:0] set_idx(input logic [XLEN_BITS-1:0] pc);
-    logic [31:0] w;
-    w = 32'(pc >> SLOT_SHIFT);
-    return SET_W'(w ^ (w >> SET_W));
-  endfunction
-
-  function automatic logic [FTB_S0_TAG_W-1:0] norm_tag(input logic [XLEN_BITS-1:0] pc);
-    logic [31:0] w, mask;
-    w    = 32'(pc >> SLOT_SHIFT);
-    mask = (32'd1 << FTB_S0_TAG_W) - 32'd1;
-    return FTB_S0_TAG_W'((w >> SET_W) & mask);
-  endfunction
-
   uset_t ff_mem_q [SETS];
   logic [SET_W-1:0]        rd_s, wr_s, clr_s;
   logic [FTB_S0_TAG_W-1:0] rd_tg, wr_tg, clr_tg;
@@ -47,12 +34,12 @@ module bpu_uftb import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
   uftb_ent_t               cand_ent;
   uset_t                   wr_set_next, clr_set_next;
 
-  assign rd_s   = set_idx(rd_base);
-  assign wr_s   = set_idx(wr_base);
-  assign clr_s  = set_idx(clr_base);
-  assign rd_tg  = norm_tag(rd_base);
-  assign wr_tg  = norm_tag(wr_base);
-  assign clr_tg = norm_tag(clr_base);
+  assign rd_s   = SET_W'(ftb_set_hash(rd_base, SET_W));
+  assign wr_s   = SET_W'(ftb_set_hash(wr_base, SET_W));
+  assign clr_s  = SET_W'(ftb_set_hash(clr_base, SET_W));
+  assign rd_tg  = FTB_S0_TAG_W'(ftb_tag_hash(rd_base, SET_W, FTB_S0_TAG_W));
+  assign wr_tg  = FTB_S0_TAG_W'(ftb_tag_hash(wr_base, SET_W, FTB_S0_TAG_W));
+  assign clr_tg = FTB_S0_TAG_W'(ftb_tag_hash(clr_base, SET_W, FTB_S0_TAG_W));
 
   bpu_plru #(.SETS(SETS), .WAYS(WAYS)) u_plru (
     .clk, .rst_n,
@@ -121,21 +108,19 @@ module bpu_uftb import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
 
   // Ref: BpuFtb::clear_false_branch_ftb0 (applied after commit/FastFill write on set match)
   always_comb begin
-    logic clr_car, clr_vok, c_hit, s_any;
-    logic [3:0] clr_off;
+    logic         c_hit, s_any;
+    ftb_clr_pos_t cp;
     clr_set_next = (do_wr && (clr_s == wr_s)) ? wr_set_next : ff_mem_q[clr_s];
-    clr_car      = (clr_pc + XLEN_BITS'(SLOT_BYTES) == clr_base);
-    clr_vok      = clr_car || (clr_pc >= clr_base);
-    clr_off      = clr_car ? 4'd0 : 4'((clr_pc - clr_base) >> SLOT_SHIFT);
+    cp           = ftb_clr_pos(clr_pc, clr_base);
     c_hit        = 1'b0;
     s_any        = 1'b0;
-    if (clr_en && clr_vok) begin
+    if (clr_en && cp.vok) begin
       for (int w = 0; w < WAYS; w++) begin
         if (!c_hit && clr_set_next[w].valid && (clr_set_next[w].tag == clr_tg)) begin
           c_hit = 1'b1;
           s_any = 1'b0;
           for (int k = 0; k < FTB_SLOTS; k++) begin
-            if (clr_set_next[w].s[k].valid && (clr_set_next[w].s[k].offset == clr_off))
+            if (clr_set_next[w].s[k].valid && (clr_set_next[w].s[k].offset == cp.off))
               clr_set_next[w].s[k] = '0;
             else if (clr_set_next[w].s[k].valid)
               s_any = 1'b1;

@@ -7,6 +7,9 @@
 module lp_ldq_ent
   import ttg_cfg_pkg::*;
   import lp_pkg::*;
+  import ttg_util_pkg::ttg_rob_younger;
+  import memcpu_pkg::REPLAY_MSHR_HIT, memcpu_pkg::REPLAY_MSHR_FULL, memcpu_pkg::REPLAY_CONFLICT;
+  import memcpu_pkg::replay_wait;
 #(
   parameter int IDX = 0
 ) (
@@ -227,9 +230,10 @@ module lp_ldq_ent
     st7   = al ? LS_ALLOC : st6;
     ridx7 = al ? al_d.rob_idx : f_q.rob_idx;
     rflg7 = al ? al_d.rob_flag : f_q.rob_flag;
-    kill  = flush || (mispred && st7 != LS_EMPTY && lp_rob_younger(ridx7, rflg7, dec_rob_idx, dec_rob_flag));
+    kill  = flush || (mispred && st7 != LS_EMPTY && ttg_rob_younger(ridx7, rflg7, dec_rob_idx, dec_rob_flag));
     st8   = kill ? LS_EMPTY : st7;
-    dead_r = flush || (mispred && st_q != LS_EMPTY && lp_rob_younger(f_q.rob_idx, f_q.rob_flag, dec_rob_idx, dec_rob_flag));
+    dead_r = flush || (mispred && st_q != LS_EMPTY &&
+                       ttg_rob_younger(f_q.rob_idx, f_q.rob_flag, dec_rob_idx, dec_rob_flag));
     epoch_nx = (al || (!dead_r && (|(l1_tgt & l1_launch)))) ? epoch_p1 : f_q.epoch;
   end
 `ifndef SYNTHESIS
@@ -255,11 +259,11 @@ module lp_ldq_ent
   always_comb begin
     rpw_a = (st3 == LS_RPW) && !dead_r;
     ew = w_port ? l2w : wk_e;
-    fill_hit = fill_v && rt3 == RT_MSHR_HIT && fill_line == f_q.paddr[31 -: LINEW];
-    wake_dc = fill_hit || (fill_v && rt3 == RT_MSHR_FULL && full_ok);
-    full_cand = (st_q == LS_RPW) && !dead_r && (f_q.rcause == 3'(RC_DC)) && fill_v && (f_q.rtype == RT_MSHR_FULL);
+    fill_hit = fill_v && rt3 == REPLAY_MSHR_HIT && fill_line == f_q.paddr[31 -: LINEW];
+    wake_dc = fill_hit || (fill_v && rt3 == REPLAY_MSHR_FULL && full_ok);
+    full_cand = (st_q == LS_RPW) && !dead_r && (f_q.rcause == 3'(RC_DC)) && fill_v && (f_q.rtype == REPLAY_MSHR_FULL);
     no_l1_spec_p3 = (l2_ok && (l2_dec.act == L2_PARK) && (l2_dec.cause == RC_TLB)) ? 1'b1 :
-                    ((rs_ok && !rs_hit && (rs_rep != RT_CONFLICT)) ? 1'b1 : f_q.no_l1_spec);
+                    ((rs_ok && !rs_hit && (rs_rep != REPLAY_CONFLICT)) ? 1'b1 : f_q.no_l1_spec);
     no_l1_spec_p13 = (rpw_a && (rc3 == 3'(RC_DC)) && fill_hit) ? 1'b0 : no_l1_spec_p3;
   end
 

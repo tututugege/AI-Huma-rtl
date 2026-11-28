@@ -7,6 +7,7 @@
 module lp_l1
   import ttg_cfg_pkg::*;
   import lp_pkg::*;
+  import tlb_mmu_pkg::RES_MISS, tlb_mmu_pkg::RES_HIT, tlb_mmu_pkg::RES_FAULT;
 (
   // new arrivals
   input  lp_agu_ld_t          ag [NLD],
@@ -239,8 +240,8 @@ module lp_l1
       mmu_l_result[k]   = mmu_result[mmu_l_req_port[k]];
       mmu_l_entry[k]    = LQW'(mmu_entry[mmu_l_req_port[k]]);
       resp_ok = mmu_l_valid[k] && mmu_l_entry[k] == l1[k].ldq;
-      r_hit = resp_ok && mmu_l_result[k] == MMU_HIT;
-      r_pf = resp_ok && mmu_l_result[k] == MMU_PF;
+      r_hit = resp_ok && mmu_l_result[k] == RES_HIT;
+      r_pf = resp_ok && mmu_l_result[k] == RES_FAULT;
       tl_l[k] = '0;
       tl_l[k].hit = l1[k].v && l1[k].need_tlb && r_hit;
       tl_l[k].pf = l1[k].v && l1[k].need_tlb && r_pf;
@@ -248,14 +249,14 @@ module lp_l1
       tl_l[k].mmio = is_mmio_addr(mmu_l_paddr[k]);
       if (l1[k].need_tlb) begin
         l_hit[k]      = r_hit;
-        l_tlb[k]      = r_hit ? TLB_HIT : (r_pf ? TLB_PF : TLB_MISS);
+        l_tlb[k]      = r_hit ? PL12_TLB_HIT : (r_pf ? PL12_TLB_PF : PL12_TLB_MISS);
         l_paddr[k]    = mmu_l_paddr[k];
         l_paddr_p1[k] = mmu_l_paddr_p1[k];
         l_paddr_m1[k] = mmu_l_paddr_m1[k];
         l_mmio[k]     = r_hit && tl_l[k].mmio;
       end else begin
         l_hit[k]      = 1'b1;
-        l_tlb[k]      = TLB_HIT;
+        l_tlb[k]      = PL12_TLB_HIT;
         l_paddr[k]    = l1[k].paddr_reg;
         l_paddr_p1[k] = l1[k].paddr_reg[31:3] + 29'd1;
         l_paddr_m1[k] = l1[k].paddr_reg[31:3] - 29'd1;
@@ -385,10 +386,10 @@ module lp_l1
     dtlb_pf_page_set = 1'b0;
     dtlb_pf_page_vpn = '0;
     for (int q = 0; q < NLD; q++) begin
-      pf_xans_v[q]    = pf_p_en[q] && mmu_valid[q] && (mmu_result[q] == MMU_HIT);
+      pf_xans_v[q]    = pf_p_en[q] && mmu_valid[q] && (mmu_result[q] == RES_HIT);
       pf_xans_line[q] = mmu_paddr[q][31:6];
       pf_xans_llc[q]  = pf_p_llc[q];
-      if (pf_p_en[q] && mmu_valid[q] && (mmu_result[q] == MMU_MISS) &&
+      if (pf_p_en[q] && mmu_valid[q] && (mmu_result[q] == RES_MISS) &&
           dtlb_walk_next_v && (dtlb_walk_next_vpn == pf_p_va[q][38:12])) begin
         dtlb_pf_page_set = 1'b1;
         dtlb_pf_page_vpn = pf_p_va[q][38:12];
@@ -407,8 +408,8 @@ module lp_l1
       mmu_s_entry[k]    = SQW'(mmu_entry[mmu_s_req_port[k]]);
       resp_ok = mmu_s_valid[k] && mmu_s_entry[k] == s1_stq[k];
       tl_s[k] = '0;
-      tl_s[k].hit   = s1_v[k] && resp_ok && mmu_s_result[k] == MMU_HIT;
-      tl_s[k].pf    = s1_v[k] && resp_ok && mmu_s_result[k] == MMU_PF;
+      tl_s[k].hit   = s1_v[k] && resp_ok && mmu_s_result[k] == RES_HIT;
+      tl_s[k].pf    = s1_v[k] && resp_ok && mmu_s_result[k] == RES_FAULT;
       tl_s[k].paddr = mmu_s_paddr[k];
       tl_s[k].mmio  = is_mmio_addr(mmu_s_paddr[k]);
       tl_s_p1[k]    = mmu_s_paddr_p1[k];

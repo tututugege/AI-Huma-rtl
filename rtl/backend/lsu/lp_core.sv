@@ -4,6 +4,7 @@
 module lp_core
   import ttg_cfg_pkg::*;
   import lp_pkg::*;
+  import memcpu_pkg::REPLAY_HIT;
 (
   input  logic                clk,
   input  logic                rst_n,
@@ -175,7 +176,7 @@ module lp_core
       wbd_l2[p]  = wbd_l2b_ep[p] || wbd_l2a[p];
       rs_dir[p]  = dcl_valid[p] && !dcl_req_id[p][31] && rs_ok[rs_idx[p]] &&
                    (dcl_req_id[p][LQW +: EPW] == ldq_q[rs_idx[p]].epoch) &&
-                   dcl_replay[p] == RT_HIT && !wbd_l2[p];
+                   dcl_replay[p] == REPLAY_HIT && !wbd_l2[p];
       wbd_v[p]   = wbd_l2[p] || rs_dir[p];
       wbd_idx[p] = wbd_l2b_ep[p]
                    ? pl2b_q[p].ldq : (wbd_l2a[p] ? pl12_q[p].ldq : rs_idx[p]);
@@ -318,7 +319,7 @@ module lp_core
                 .dcl_req_id_o(dcl_req_id_o), .pl12_q(pl12_q));
 
   for (genvar k = 0; k < NLD; k++) begin : g_rpl  // EXP-009/048: replay flag, load PC, and Sv39 VA for Berti
-    assign dcl_req_replay[k] = dcl_req_valid[k] && (ldq_q[l1[k].ldq].rtype != RT_HIT);
+    assign dcl_req_replay[k] = dcl_req_valid[k] && (ldq_q[l1[k].ldq].rtype != REPLAY_HIT);
     assign dcl_req_pc[k]     = ldq_q[l1[k].ldq].pc;
     assign dcl_req_va[k]     = l1[k].vaddr[38:0]; end
 

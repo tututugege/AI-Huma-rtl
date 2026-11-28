@@ -5,15 +5,10 @@
 package ren_pkg;
   import ttg_cfg_pkg::*;
 
-  // back-end/include/types.h: INST_TYPE_COUNT = 20 -> bit_width_for_count = 5
-  localparam int INST_TYPE_WIDTH = 5;
+  // InstType encodings and width: dis_pkg (inst_type_e, INST_TYPE_W), the one definition of types.h InstType
+  import dis_pkg::INST_TYPE_W, dis_pkg::INST_ADD;
   // architectural registers 0..ARF_NUM-1 plus one extra RAT entry (index ARF_NUM)
   localparam int RAT_NUM = ARF_NUM + 1;
-  // InstType enum values used by Ren (types.h)
-  localparam logic [INST_TYPE_WIDTH-1:0] ITYPE_JALR = INST_TYPE_WIDTH'(2);
-  localparam logic [INST_TYPE_WIDTH-1:0] ITYPE_ADD = INST_TYPE_WIDTH'(3);
-  localparam logic [INST_TYPE_WIDTH-1:0] ITYPE_BR = INST_TYPE_WIDTH'(4);
-  localparam logic [INST_TYPE_WIDTH-1:0] ITYPE_ECALL = INST_TYPE_WIDTH'(9);
 
   typedef logic [PRF_IDX_WIDTH-1:0] preg_t;
   typedef logic [AREG_IDX_WIDTH-1:0] areg_t;
@@ -42,7 +37,7 @@ package ren_pkg;
     logic [FTQ_IDX_WIDTH-1:0] ftq_idx;
     logic [FTQ_OFFSET_WIDTH-1:0] ftq_offset;
     logic ftq_is_last;
-    logic [INST_TYPE_WIDTH-1:0] inst_type;
+    logic [INST_TYPE_W-1:0] inst_type;
     logic dest_en;
     logic src1_en;
     logic src2_en;
@@ -76,7 +71,7 @@ package ren_pkg;
     logic [FTQ_IDX_WIDTH-1:0] ftq_idx;
     logic [FTQ_OFFSET_WIDTH-1:0] ftq_offset;
     logic ftq_is_last;
-    logic [INST_TYPE_WIDTH-1:0] inst_type;
+    logic [INST_TYPE_W-1:0] inst_type;
     logic dest_en;
     logic src1_en;
     logic src2_en;
@@ -110,16 +105,16 @@ package ren_pkg;
     logic page_fault_load;
     logic page_fault_store;
     logic illegal_inst;
-    logic [INST_TYPE_WIDTH-1:0] inst_type;
+    logic [INST_TYPE_W-1:0] inst_type;
   } ren_commit_t;
 
   // `addi rd, rs, 0` with rd and rs real registers (back-end/include/util.h is_move_shape)
-  function automatic logic ren_is_move_shape(input logic [INST_TYPE_WIDTH-1:0] t, input logic src2_is_imm,
+  function automatic logic ren_is_move_shape(input logic [INST_TYPE_W-1:0] t, input logic src2_is_imm,
                                              input logic is_word, input logic [2:0] func3,
                                              input logic [31:0] imm, input logic src1_en,
                                              input logic src1_is_pc, input areg_t src1_areg, input logic dest_en,
                                              input areg_t dest_areg);
-    return (t == ITYPE_ADD) && src2_is_imm && !is_word && (func3 == 3'd0) && (imm == 32'd0) && src1_en &&
+    return (t == INST_ADD) && src2_is_imm && !is_word && (func3 == 3'd0) && (imm == 32'd0) && src1_en &&
            !src1_is_pc &&
            (src1_areg != areg_t'(0)) && dest_en && (dest_areg != areg_t'(0));
   endfunction

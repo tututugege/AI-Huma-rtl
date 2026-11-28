@@ -5,6 +5,7 @@
 // -> I (page fault of a load or store clears) -> L (mispredict clears if speculative and younger than redirect ROB ptr).
 module lsu_lrsc
   import lp_pkg::*;
+  import ttg_util_pkg::ttg_rob_younger;
 (
   input  logic             clk,
   input  logic             rst_n,
@@ -25,7 +26,7 @@ module lsu_lrsc
 );
   logic alive;
   assign alive = valid_i && !pf_clear &&
-                 !(mispred && spec_i && lp_rob_younger(rob_idx_i, rob_flag_i, dec_rob_idx, dec_rob_flag));
+                 !(mispred && spec_i && ttg_rob_younger(rob_idx_i, rob_flag_i, dec_rob_idx, dec_rob_flag));
 
   always_ff @(posedge clk) begin
     if (!rst_n) begin

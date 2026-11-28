@@ -6,6 +6,6 @@ R=$(cd "$(dirname "$0")/../.." && pwd); W=${1:?work dir}; mkdir -p "$W"
 cp "$R/rtl/common/ttg_cfg_pkg.sv" "$W/ttg_cfg_pkg.committed.sv"
 . "$R/scripts/env.sh"
 python3 "$R/harness/tools/gen_cfg_pkg.py" "${SIM_SRC:-$AI_HUMA_ROOT/trace-model}" "$W/ttg_cfg_pkg.sv" -DFP=1 >/dev/null
-cd "$W" && verilator --cc --exe --build -Wno-fatal -Wno-lint --top-module idu_ctrl_decode ttg_cfg_pkg.sv \
+cd "$W" && verilator --cc --exe --build -Wno-fatal -Wno-lint --top-module idu_ctrl_decode ttg_cfg_pkg.sv "$R/rtl/backend/dispatch/dis_pkg.sv" \
   "$R/rtl/common/ttg_onehot_mux.sv" "$R/rtl/backend/idu/idu_ctrl_decode.sv" "$R/tests/fp_decode/main.cpp" -o dec >/dev/null
 python3 "$R/tests/fp_decode/check.py" "$W/obj_dir/dec"

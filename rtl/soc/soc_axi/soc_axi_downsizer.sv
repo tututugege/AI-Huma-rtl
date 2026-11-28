@@ -133,21 +133,6 @@ module soc_axi_downsizer import soc_axi_pkg::*; #(
       .m_rvalid, .m_rready, .m_rid, .m_rdata, .m_rresp, .m_rlast
     );
 
-    function automatic logic [SUB_W-1:0] calc_sub_max(input logic [2:0] sz);
-      if (int'(sz) <= M_OFF_W) return '0;
-      else                     return SUB_W'((32'd1 << (int'(sz) - M_OFF_W)) - 32'd1);
-    endfunction
-
-    function automatic logic [7:0] calc_m_len(input logic [7:0] slen, input logic [2:0] sz);
-      if (int'(sz) <= M_OFF_W) return slen;
-      else                     return 8'(((32'(slen) + 32'd1) << (int'(sz) - M_OFF_W)) - 32'd1);
-    endfunction
-
-    function automatic logic [2:0] calc_m_size(input logic [2:0] sz);
-      if (int'(sz) <= M_OFF_W) return sz;
-      else                     return 3'(M_OFF_W);
-    endfunction
-
     typedef struct packed {
       logic [SUB_W-1:0]  sub_max;
       logic [ADDR_W-1:0] addr;
@@ -165,8 +150,8 @@ module soc_axi_downsizer import soc_axi_pkg::*; #(
     logic [2:0]        aw_msize;
     logic [AX_W-1:0]   maw_pay;
 
-    assign aw_mlen     = calc_m_len(s_awlen, s_awsize);
-    assign aw_msize    = calc_m_size(s_awsize);
+    assign aw_mlen     = axi4_ds_m_len(s_awlen, s_awsize, M_OFF_W);
+    assign aw_msize    = axi4_ds_m_size(s_awsize, M_OFF_W);
     assign aw_can_push = (wr_cnt_q < WCNT_W'(MAX_WR_OUT)) && maw_r;
     assign s_awready   = aw_can_push;
     assign aw_fire     = s_awvalid && aw_can_push;
@@ -224,7 +209,7 @@ module soc_axi_downsizer import soc_axi_pkg::*; #(
       wr_cnt_d = wcnt_mid;
       if (aw_fire) begin
         wr_d[wcnt_mid[WIDX_W-1:0]] = '{
-          sub_max: calc_sub_max(s_awsize), addr: s_awaddr,
+          sub_max: SUB_W'(axi4_ds_sub_max(s_awsize, M_OFF_W)), addr: s_awaddr,
           msize: aw_msize, burst: s_awburst, mlen: aw_mlen
         };
         wr_cnt_d = wcnt_mid + WCNT_W'(1);

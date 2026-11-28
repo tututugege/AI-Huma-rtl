@@ -4,7 +4,7 @@
 // Idu top: pure combinational 8-wide decoder (with 8-bank FTQ dispatch window guard; back_br_redirect lives in back_top).
 module idu
   import ttg_cfg_pkg::*;
-  import ftq_ibuf_pkg::ib_entry_t;
+  import ftq_ibuf_pkg::ib_entry_t, ftq_ibuf_pkg::ftq_in_window;
   import ren_pkg::ren_inst_t;
 (
   // ftq_ibuf issue group
@@ -21,17 +21,13 @@ module idu
   output logic [DECODE_WIDTH-1:0] idu_consume_fire
 );
 
-  // 8-bank FTQ dispatch window guard (Idu.cpp): stop prefix if (ftq_idx - first_ftq) mod 64 >= DECODE_WIDTH
+  // 8-bank FTQ dispatch window guard (Idu.cpp): stop the prefix at the first lane whose ftq_idx is outside the
+  // FTQ_PC_BANKS-entry window that starts at lane 0 (ftq_in_window)
   logic [DECODE_WIDTH-1:0] raw_ok, lane_valid;
   always_comb begin
     raw_ok[0] = 1'b1;
-    for (int i = 1; i < DECODE_WIDTH; i++) begin
-      /* verilator lint_off UNUSEDSIGNAL */
-      logic [FTQ_IDX_WIDTH-1:0] diff;
-      /* verilator lint_on UNUSEDSIGNAL */
-      diff      = ibuf2idu_entry[i].ftq_idx - ibuf2idu_entry[0].ftq_idx;
-      raw_ok[i] = !ibuf2idu_valid[i] || (diff[FTQ_IDX_WIDTH-1:3] == '0);
-    end
+    for (int i = 1; i < DECODE_WIDTH; i++)
+      raw_ok[i] = !ibuf2idu_valid[i] || ftq_in_window(ibuf2idu_entry[i].ftq_idx, ibuf2idu_entry[0].ftq_idx);
     for (int i = 0; i < DECODE_WIDTH; i++) begin
       logic p;
       p = 1'b1;

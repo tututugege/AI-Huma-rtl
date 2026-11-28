@@ -7,7 +7,7 @@
 // the cycle after (once the result has moved to the WB stage), eliminating all EXU-stage tag comparators in PRF.
 module isu_iq_store
   import ttg_cfg_pkg::*;
-  import isu_pkg::*;
+  import isu_pkg::*, ttg_util_pkg::ttg_rob_younger;
 #(
   parameter int SIZE       = 64,
   parameter int DW         = IQ_DISPATCH_WIDTH,
@@ -122,7 +122,7 @@ module isu_iq_store
       rob_flag:  enq_uop[w].rob_flag,
       op:        enq_uop[w].op
     };
-    assign enq_killed[w] = flush_br && isu_rob_younger(enq_uop[w].rob_idx, enq_uop[w].rob_flag, flush_rob_idx, flush_rob_flag);
+    assign enq_killed[w] = flush_br && ttg_rob_younger(enq_uop[w].rob_idx, enq_uop[w].rob_flag, flush_rob_idx, flush_rob_flag);
   end
 
   for (genvar i = 0; i < SIZE; i++) begin : g_slot
@@ -570,7 +570,7 @@ module isu_iq_store
     // Evaluate branch kill in parallel with u_alloc / u_new (enq_killed per lane, old_killed from core_q)
     always_comb begin
       enq_killed_hit = |(hit & enq_killed);
-      old_killed     = flush_br && isu_rob_younger(core_q.rob_idx, core_q.rob_flag, flush_rob_idx, flush_rob_flag);
+      old_killed     = flush_br && ttg_rob_younger(core_q.rob_idx, core_q.rob_flag, flush_rob_idx, flush_rob_flag);
       park_spec      = issue_clear[i] && (|spec_t1_q);
       valid_d        = ((|(hit & ~enq_killed)) ||
                         (valid_q && !old_killed && !(issue_clear[i] && !(|spec_t1_q)) && !rr_retired)) && !flush_all;

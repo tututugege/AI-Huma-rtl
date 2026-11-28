@@ -36,8 +36,10 @@ package dis_pkg;
   // LSU drives 14 wake channels: [0..3] L1 spec, [4..7] L3, [8..11] L2b STLF / L2a fallback, [12..13] WBP.
   localparam int NUM_LSU_WAKE  = 3 * LSU_LDU_COUNT + 2;
   localparam int NUM_WAKE      = MAX_WAKEUP_PORTS + NUM_LSU_WAKE;
+  // the one definition of the InstType / UopType encodings and widths (rob_pkg, ren_pkg, isu_pkg, exu_ctrl_pkg,
+  // exu_fu_pkg and prf refer to these; values are those of types.h / base_types.h)
   localparam int INST_TYPE_W = 5;                           // bit_width_for_count(20 InstType values)
-  localparam int UOP_TYPE_W = 5;                            // bit_width_for_count(18 UopType values)
+  localparam int UOP_TYPE_W = 5;                            // bit_width_for_count(21 UopType values)
   localparam int CPLT_MASK_W = 3;                           // ROB_CPLT_MASK_WIDTH
 
   localparam logic [CPLT_MASK_W-1:0] CPLT_G0 = 3'b001;      // INT / LD completions
@@ -59,9 +61,34 @@ package dis_pkg;
     UOP_EBREAK, UOP_SFENCE_VMA, UOP_FENCE_I, UOP_MRET, UOP_SRET, UOP_MUL, UOP_DIV, UOP_WFI,
     UOP_FMA, UOP_FMISC, UOP_FDIV, UOP_I2F
   } uop_op_e;
+  localparam int UOP_TYPE_NUM = int'(UOP_I2F) + 1;          // MAX_UOP_TYPE = 21 (F/D is always built)
+  typedef logic [UOP_TYPE_NUM-1:0] uop_set_t;                // one bit per UopType (capability / ready masks)
+
+  // capability mask of physical issue port p (config.h GLOBAL_ISSUE_PORT_CONFIG; ports 0..5 are the INT cluster, CSR
+  // is hard-bound to port 0). The one copy of this table: isu_pkg::port_cap and exu_ctrl_pkg read it.
+  function automatic uop_set_t issue_port_cap(int p);
+    case (p)
+      0: return uop_set_t'(OP_MASK_ALU | OP_MASK_MUL | OP_MASK_CSR);
+      1: return uop_set_t'(OP_MASK_ALU | OP_MASK_DIV);
+      2: return uop_set_t'(OP_MASK_ALU | OP_MASK_MUL | OP_MASK_I2F);
+      3: return uop_set_t'(OP_MASK_ALU | OP_MASK_I2F);
+      4, 5: return uop_set_t'(OP_MASK_ALU);
+      default: begin
+        // F/D ports (last): two FMA + MISC pipes, then a divide / square-root unit that also takes MISC
+        if (p >= IQ_FP_PORT_BASE)
+          return (p == ISSUE_WIDTH - 1) ? uop_set_t'(OP_MASK_FDIV | OP_MASK_FMISC)
+                                        : uop_set_t'(OP_MASK_FMA | OP_MASK_FMISC);
+        else if (p >= IQ_BR_PORT_BASE) return uop_set_t'(OP_MASK_BR);
+        else if (p >= IQ_STD_PORT_BASE) return uop_set_t'(OP_MASK_STD);
+        else if (p >= IQ_AGU_PORT_BASE + LSU_LDU_COUNT) return uop_set_t'(OP_MASK_STA);
+        else if (p >= IQ_AGU_PORT_BASE + LSU_LDU_COUNT - LSU_AGU_SHARED) return uop_set_t'(OP_MASK_LD | OP_MASK_STA);
+        else return uop_set_t'(OP_MASK_LD);
+      end
+    endcase
+  endfunction
 
   // FpCls (Ref: base_types.h): which unit class an OP-FP / fused instruction needs
-  localparam logic [2:0] FPC_FDIV = 3'd2, FPC_MISC = 3'd3, FPC_I2F = 3'd4;
+  localparam logic [2:0] FPC_NONE = 3'd0, FPC_FMA = 3'd1, FPC_FDIV = 3'd2, FPC_MISC = 3'd3, FPC_I2F = 3'd4;
 
   // One renamed instruction as held in the dispatch register stage (RenDisIO::RenDisInst minus
   // perf/debug sidebands and the dead expect/cplt masks and src2_areg).

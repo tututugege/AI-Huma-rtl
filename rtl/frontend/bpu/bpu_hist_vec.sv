@@ -18,28 +18,6 @@ module bpu_hist_vec import bpu_pkg::*; import bpu_stage_pkg::*; #(
   localparam int NW = 3 * MAX_SYM;
 
 `ifdef SYNTHESIS
-  function automatic logic [EX_FH_W-1:0] rotl_const_ex(input logic [EX_FH_W-1:0] x, input int unsigned a,
-                                                       input int unsigned len);
-    logic [EX_FH_W-1:0] msk;
-    msk = EX_FH_W'((32'd1 << len) - 32'd1);
-    return (a == 0) ? x : (((x << a) | (x >> (len - a))) & msk);
-  endfunction
-
-  function automatic logic [EX_FH_W-1:0] rotl_sym_ex(input logic [EX_FH_W-1:0] x, input logic [3:0] sn,
-                                                     input int unsigned len);
-    case (sn)
-      4'd1:    return rotl_const_ex(x,  3 % len, len);
-      4'd2:    return rotl_const_ex(x,  6 % len, len);
-      4'd3:    return rotl_const_ex(x,  9 % len, len);
-      4'd4:    return rotl_const_ex(x, 12 % len, len);
-      4'd5:    return rotl_const_ex(x, 15 % len, len);
-      4'd6:    return rotl_const_ex(x, 18 % len, len);
-      4'd7:    return rotl_const_ex(x, 21 % len, len);
-      4'd8:    return rotl_const_ex(x, 24 % len, len);
-      default: return x;
-    endcase
-  endfunction
-
   logic [5:0]          n_bits;
   logic [HR_PTR_W-1:0] head_new;
   logic [NW-1:0]       keep, din, din_of;

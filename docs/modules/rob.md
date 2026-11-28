@@ -82,11 +82,11 @@ depth: 65 层 / 881,101 单元（rob，单模块综合，2026-11-23，`SYNTH_ABC
 | 文件 | 行数 | 职责 |
 | --- | --- | --- |
 | `rob.sv` | 201 | 顶层：平铺端口 <-> 结构体，实例化 `rob_core_cpt`；F/D 的 fflags / fs_dirty 累加 |
-| `rob_core_cpt.sv` | 468 | 紧凑 ROB 的核心：窗口读出、退休判决、入队、误预测恢复、指针次态；8 个 bank 的指令字 SRAM（`ROB_INST_WORD`，给非法指令的 `mtval`） |
+| `rob_core_cpt.sv` | 454 | 紧凑 ROB 的核心：窗口读出、退休判决、入队、误预测恢复、指针次态；8 个 bank 的指令字 SRAM（`ROB_INST_WORD`，给非法指令的 `mtval`） |
 | `rob_entry.sv` | 62 | 一个槽（valid + `rob_entry_t`）的次态：写回、标记最后一条、入队、清除 |
 | `rob_wb_decode.sv` | 20 | 每个写回口翻成事件 `rob_event_t`（写哪个字段、置哪个完成位） |
-| `rob_trap_ctrl.sv` | 88 | 队头单独退休时的冲刷、异常原因（12 个候选里取最先的）、`trap_val`、`pc` |
-| `pkg/rob_pkg.sv` | 212 | 槽结构 `rob_entry_t`、写回结构、指令分类函数、完成组、事件应用函数 |
+| `rob_trap_ctrl.sv` | 90 | 队头单独退休时的冲刷、异常原因（12 个候选里取最先的）、`trap_val`、`pc` |
+| `pkg/rob_pkg.sv` | 177 | 槽结构 `rob_entry_t`、写回结构、指令分类函数、完成组、事件应用函数 |
 
 紧凑核的几点：
 
@@ -136,7 +136,7 @@ depth: 65 层 / 881,101 单元（rob，单模块综合，2026-11-23，`SYNTH_ABC
 | 退休之后 | `commit_valid` → ① `bank_clr` → 各槽 `valid_d`；② 一热 n → `head_d` / `count_d` → 下一拍的三个一热视图；③ `ctl_c / blk_c` → `prev_ctl_q` |
 | 冲刷 | 窗口槽 0 的分类 → `single_commit` → `rob_trap_ctrl` 的优先级选择 → `flush_w` → 清所有槽的 `valid`、`head`、`count`，同时出 `rob_bcast_flush`（docs/FLUSH_REG.md 记录过这条是整核最长路径之一，约 29 层，该数是 FLUSH_REG 时的整核测量，不是本模块的） |
 | 写回 | 21 个口的 `rob_idx` 与槽号比较 → 按口序应用（`rob_apply_event` 逐口覆盖）→ `uop_d`；每个槽都有一份 |
-| 最老未完成项 | 窗口 8 槽上一条 `found` 优先链 → `head_q + k` |
+| 最老未完成项 | 窗口 8 槽 `ttg_first_set` → `ttg_onehot_to_idx` → `head_q + k` |
 
 已经做过的降深度改动：退休信用的"比我老的几条"并行计数（不串行）；`commit_valid` 热码 → 退休条数一热选择；队头的三个一热视图寄存；`FLUSH_REG` 让其他模块晚一拍看到冲刷（见变更记录）。
 
@@ -181,6 +181,7 @@ RTL 里有、模型里没有的（模型从 trace / 函数模型取得这些，R
 
 ## 10. 变更记录
 
+- 2026-11-29 清理 D：去重——`rob_pkg` 删 `INST_TYPE_COUNT/W`、`UOP_TYPE_COUNT/W`、`ITYPE_*`、`UOP_JUMP/BR` 副本，改为从 `dis_pkg` 导入（`rob` / `rob_core_cpt` / `rob_trap_ctrl` 同步，数值相同）；`rob_core_cpt` 的行内计数循环（`ctl_before` / `blk_before` / `ctl_c` / `blk_c` / `m_fire`）改用 `ttg_popcount`（同一置位计数，宽度 `CW = 4` 不溢出），最老未完成项的 `found` 链改为 `ttg_first_set` + `ttg_onehot_to_idx`（同为最低位优先，无命中时仍输出 0），FTQ 8 项窗口检查改用 `ftq_ibuf_pkg::ftq_in_window`（与 `idu` 共用，原字面量 3 = log2(`FTQ_PC_BANKS`)）（周期不变）。
 - 2026-11-28 清理：断点异常写死开（删 `rob_pkg` 的 `TTG_NO_EBREAK_TRAP` / `EBREAK_TRAP`，`rob_trap_ctrl` 改注释）；删输出 `rob_bcast_trap_val_valid`（`rob_trap_ctrl.trap_val_valid`、`rob_core_cpt.bcast_trap_val_valid`）与 `ftq_rob_pc_req_req_valid`（`rob_core_cpt.ftq_req_valid`），二者都无人读；`rob_core_cpt` 删只被异或吸收的输入 `csr_fs_off`；`rob_pkg` 删未用的 `FUNC7_W`、`rob_line_inc`、`rob_line_dist`，`UOP_TYPE_COUNT` 改 21（宽度仍 5）、去掉 `LSU_MEMSPEC:` 注释前缀、`FPRF_NUM != 0` 条件；删不抑制任何告警的 lint 豁免（`rob_core_cpt` 1 处（`unused_ok` 汇本身 Verilator 不报），以去掉豁免后整树 lint 普通 / `-DSYNTHESIS` 均无新告警为准）（周期不变）。
 - 2026-11-28（rtl 73761fa，SRAM 复位清扫）：`rob_core_cpt` 的 8 个 `ROB_INST_WORD` 指令字 SRAM 实例接上 `rst_n`；复位期间 `ttg_sram_1r1w` 逐地址写 `INIT_VAL`，`ttg_rst_sweep` 把复位拉长 `SRAM_SWEEP_CYCLES = 4100` 拍，不再依赖上电值（common.md 4.1）；0 周期变化，`fm_gate` 77/77。同日文档核对：`ROB_NUM = 256` 下的指针 / 计数位宽、文件行数、门禁参考改为 `scripts/ref_cycles.txt`。
 - 2026-11-28（`rtl/exu-clean`，EXP-072）：同步真 5 物理 AGU / 5 写回通道映射（`rob_pkg`、`rob.sv`、`rob_core_cpt.sv`、`rob_entry.sv`、`rob_wb_decode.sv`）；TSMC 28nm HPC+ DC `rob_bb`（`0.50 ns`）：`WNS −0.16 ns`（vs 旧 `−0.15`）、逻辑级数 **`42 → 34`（−19.0%）**、**`TNS −452 → −239.47`（−47.0%）**、面积 `121,413.43 → 123,159.29 µm²`（`+1.44%`）；通过 `lint` 0、strict+SVA `fm_gate` 77/77、`riscv-tests` 152/152、`soc_gate --linux` 12/12 与 Linux 26/26 窗对齐。

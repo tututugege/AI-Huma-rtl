@@ -6,7 +6,8 @@
 // Cycle T+1 (PW_STLB_LK, lk_en=1): compares stlb_rd_q + stlb_valid_q, SP CAM, and PWC against (lk_vpn, lk_root).
 // On memory walk completion (wr_leaf / wr_pwc, mutually exclusive with lk_rd_en & lk_en): refills STLB/SP/PWC.
 // On sfence_flush: invalidates all valid bits and resets PLRU / RR state at posedge.
-module ptw_walk_l2tlb import memcpu_pkg::*; import ttg_cfg_pkg::*; (
+module ptw_walk_l2tlb import memcpu_pkg::*; import ttg_cfg_pkg::*;
+  import ttg_util_pkg::ttg_plru4_touch, ttg_util_pkg::ttg_plru4_victim; (
   input  logic                      clk,
   input  logic                      rst_n,
   input  logic                      cpu_en,
@@ -42,19 +43,6 @@ module ptw_walk_l2tlb import memcpu_pkg::*; import ttg_cfg_pkg::*; (
   localparam int B_VPN_LO  = B_PPN_LO + PT_PPN_W;
   localparam int B_ROOT_LO = B_VPN_LO + PT_VPN_W;
   localparam int B_GLOB    = B_ROOT_LO + PT_PPN_W;
-
-  function automatic logic [2:0] plru_update(input logic [2:0] p, input logic [1:0] way);
-    logic [2:0] n;
-    n    = p;
-    n[0] = ~way[1];
-    if (!way[1]) n[1] = ~way[0];
-    else         n[2] = ~way[0];
-    return n;
-  endfunction
-
-  function automatic logic [1:0] plru_victim(input logic [2:0] p);
-    return {p[0], p[0] ? p[2] : p[1]};
-  endfunction
 
   // ---- STLB storage: 4 banks of 256 x 76b 1RW SRAM (declared per-way inside generate) + valid/PLRU FFs ----
   logic [STLB_ENTRY_W-1:0] stlb_rd_q   [PT_STLB_WAYS];
@@ -185,7 +173,7 @@ module ptw_walk_l2tlb import memcpu_pkg::*; import ttg_cfg_pkg::*; (
         stlb_inv_way = PT_STLB_WAY_W'(w);
       end
     end
-    wr_stlb_way = stlb_has_inv ? stlb_inv_way : plru_victim(stlb_plru_q[wr_stlb_idx]);
+    wr_stlb_way = stlb_has_inv ? stlb_inv_way : ttg_plru4_victim(stlb_plru_q[wr_stlb_idx]);
   end
 
   // SP CAM write slot: matching entry, else first invalid, else sp_rr_q
@@ -294,11 +282,11 @@ module ptw_walk_l2tlb import memcpu_pkg::*; import ttg_cfg_pkg::*; (
         pwc_rr_q <= '0;
       end else begin
         if (stlb_hit) begin
-          stlb_plru_q[lk_idx] <= plru_update(stlb_plru_q[lk_idx], stlb_hit_way);
+          stlb_plru_q[lk_idx] <= ttg_plru4_touch(stlb_plru_q[lk_idx], stlb_hit_way);
         end
         if (wr_stlb) begin
           stlb_valid_q[wr_stlb_idx][wr_stlb_way] <= 1'b1;
-          stlb_plru_q[wr_stlb_idx]               <= plru_update(stlb_plru_q[wr_stlb_idx], wr_stlb_way);
+          stlb_plru_q[wr_stlb_idx]               <= ttg_plru4_touch(stlb_plru_q[wr_stlb_idx], wr_stlb_way);
         end
         if (wr_sp) begin
           sp_valid_q[wr_sp_slot]  <= 1'b1;

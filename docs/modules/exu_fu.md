@@ -11,7 +11,7 @@ depth: 98 层（exu（含 exu_ctrl、优化后乘除法与全部自研可综合 
 
 > **2026-11-28 `rtl/iss-rr`（Wall #2 + Wall #3）**：
 > - **Wall #3**：将 `fp_fma_core` 原 Stage 1（`53×53` 乘 + `163b` 对齐 + `163b` 比较/加减/判零）拆为 **S1a（乘法 + C 对齐 → `s1b_*_q`）** 与 **S1b（加减 + 符号 + exact_zero → `s2_*_q`）**，总延迟从 3 拍增至 **4 拍**（`FP_FMA_LAT = 4`，由 `trace-model` `CFG_FP_FMA_LAT = 5` 同步至 `ttg_cfg_pkg.sv`）；
-> - **Wall #2**：`exu_iter_ctl` 将 `wb_next = live && (cnt_q == 1)` 对齐到 `live`，并新增提前 2 拍组合信号 `wb_in2 = (accept && (lat_m1 == 1)) || (live && (cnt_q == 2))`（经 `div_unit` / `div_bank` 输出 `div_wb_in2`，兼容 early-out `L=2`）。
+> - **Wall #2**：`exu_iter_ctl` 将 `wb_next = live && (cnt_q == 1)` 对齐到 `live`，并新增提前 2 拍组合信号 `wb_in2 = (accept && (lat_m1 == 1)) || (live && (cnt_q == 2))`（经 `div_unit` 输出 `div_wb_in2`，兼容 early-out `L=2`）。
 
 旧文档名 `exu_int`，现与目录名一致改为 `exu_fu`；旧内容描述的是 rv32 时期的 spec / trace 回放体系，没有沿用。
 
@@ -33,14 +33,14 @@ CSR 单元（模型 `FuKind::CSR`）没有运算也没有 FU 侧状态：CSR 指
 
 `back_top/exu.sv` 实例化的 FU 共 27 个（加上没有硬件的 CSR 单元，对应 `exu_ctrl` 的 28 个 FU 实例）：
 
-| FU | 实例数（常量） | bank 模块 → 叶子 | 模式和延迟 | 所在口 |
+| FU | 实例数（常量） | `exu.sv` 里的实例 → 叶子 | 模式和延迟 | 所在口 |
 | --- | --- | --- | --- | --- |
-| ALU | 6（`ALU_NUM`） | `alu_bank` → `alu` | 单周期 | 0..5 |
-| BRU | 2（`BRU_NUM`） | `bru_bank` → `bru` | 单周期 | 14、15 |
-| AGU | 5（`LSU_AGU_COUNT`；2 仅 load、2 共享、1 仅 STA） | `agu_bank` → `agu` | 单周期 | 6..10 |
-| SDU | 3（`LSU_SDU_COUNT`） | `sdu_bank` → `sdu` | 单周期 | 11..13 |
-| MUL | 2（`exu_fu_pkg::MUL_NUM`） | `mul_bank` → `mul_unit`（`mul_core` + `mul_pipe`） | 流水线，3 拍 | 0、2 |
-| DIV | 1（`exu_fu_pkg::DIV_NUM`） | `div_bank` → `div_unit`（`exu_iter_ctl` + `div_core`） | 迭代，变延迟 2..17 拍（Radix-16 Early-out） | 1 |
+| ALU | 6（`ALU_NUM`） | `g_alu[i].u_alu` → `alu` | 单周期 | 0..5 |
+| BRU | 2（`BRU_NUM`） | `g_bru[i].u_bru` → `bru` | 单周期 | 14、15 |
+| AGU | 5（`LSU_AGU_COUNT`；2 仅 load、2 共享、1 仅 STA） | `g_agu[i].u_agu` → `agu` | 单周期 | 6..10 |
+| SDU | 3（`LSU_SDU_COUNT`） | `g_sdu[i].u_sdu` → `sdu` | 单周期 | 11..13 |
+| MUL | 2（`exu_fu_pkg::MUL_NUM`） | `g_mul[i].u_mul` → `mul_unit`（`mul_core` + `mul_pipe`） | 流水线，3 拍 | 0、2 |
+| DIV | 1（`exu_fu_pkg::DIV_NUM`） | `g_div[i].u_div` → `div_unit`（`exu_iter_ctl` + `div_core`） | 迭代，变延迟 2..17 拍（Radix-16 Early-out） | 1 |
 | FMA、FMISC、I2F | 2、3、2 | `fp_pipe_unit`（`mul_pipe` + `fp_core`） | 流水线，3、2、2 拍 | 16、17；16、17、18；2、3 |
 | FDIV | 1 | `fp_div_unit`（`exu_iter_ctl` + `fp_core`） | 迭代，按操作 11 / 13 / 19 / 23 拍 | 18 |
 
@@ -50,7 +50,7 @@ CSR 单元（模型 `FuKind::CSR`）没有运算也没有 FU 侧状态：CSR 指
 
 ## 3. 接口
 
-每个 bank 的端口是"每个实例一份"的平铺数组（`result [N]` 等）；所有 FU 均已删除 `ready` 和 `consume` 握手，单周期 FU 同时删除 `en`、`complete` 与 `clk`/`rst_n`。信号含义：
+`exu.sv` 在 generate 循环里直接实例化每个 FU（没有 bank 包装层），第 i 个实例接 `exu_ctrl` 平铺数组的第 i 项（`exu2fu_alu_op[i]`、`fu_alu_result[i]` 等；MUL / DIV 接 `exu2fu_mc_*[MC_MUL[i]]` / `[MC_DIV[i]]`）；所有 FU 均已删除 `ready` 和 `consume` 握手，单周期 FU 同时删除 `en`、`complete` 与 `clk`/`rst_n`。信号含义：
 
 | FU | 入 | 出 |
 | --- | --- | --- |
@@ -66,25 +66,25 @@ CSR 单元（模型 `FuKind::CSR`）没有运算也没有 FU 侧状态：CSR 指
 ## 4. 结构
 
 ```
- exu_ctrl ─ exu2fu_* ─► alu_bank / bru_bank / agu_bank / sdu_bank          （纯组合，无握手，各 N 个叶子）
-                    ─► mul_bank → mul_unit = mul_core（乘法，3 拍展开）+ mul_pipe（STAGES=DEPTH-1 移位链）
-                    ─► div_bank → div_unit = exu_iter_ctl（无反压忙/倒计时）+ div_core（恢复除法）+ 载荷寄存
+ exu_ctrl ─ exu2fu_* ─► g_alu / g_bru / g_agu / g_sdu 各 N 个叶子（exu.sv generate；纯组合，无握手）
+                    ─► g_mul → mul_unit = mul_core（乘法，3 拍展开）+ mul_pipe（STAGES=DEPTH-1 移位链）
+                    ─► g_div → div_unit = exu_iter_ctl（无反压忙/倒计时）+ div_core（恢复除法）+ 载荷寄存
                     ─► fp_pipe_unit = fp_core（运算）+ mul_pipe（FP 载荷）     fp_div_unit = fp_core + exu_iter_ctl + 载荷寄存
 ```
 
 | 文件 | 行数 | 职责 |
 | --- | --- | --- |
-| `exu_fu_pkg.sv` | — | uop 类型常量、AMO 编码、`MUL_NUM`、`DIV_NUM`、`alu_ctl_t`、`fu_uop_t` / `fp_uop_t` |
-| `alu.sv`、`alu_bank.sv` | — | 整数 ALU（RV64I、*W、Zba / Zbb / Zbs / Zbc 子集） |
+| `exu_fu_pkg.sv` | — | AMO 编码、`MUL_NUM`、`DIV_NUM`、`alu_ctl_t`、`fu_uop_t` / `fp_uop_t`（uop 类型与宽度用 `dis_pkg::uop_op_e` / `UOP_TYPE_W`） |
+| `alu.sv` | — | 整数 ALU（RV64I、*W、Zba / Zbb / Zbs / Zbc 子集） |
 | `alu_decode.sv` | — | 把 `op / func3 / func7 / imm[4:0]` 译成 `alu_ctl_t` 的互斥选择位 |
 | `alu_shift.sv`、`alu_clmul.sv`、`alu_bitcnt.sv` | — | 漏斗移位器、无进位乘法、clz / ctz / cpop / sext / rev8 / orc.b |
-| `bru.sv`、`bru_bank.sv` | — | 分支：条件、目标、误预测判定 |
-| `agu.sv`、`agu_bank.sv` | — | 地址加法（5 个实例） |
-| `sdu.sv`、`sdu_bank.sv` | — | 存储数据 / AMO |
-| `mul_unit.sv`、`mul_bank.sv` | — | 乘法 FU：乘法器 + 移位寄存器 |
+| `bru.sv` | — | 分支：条件、目标、误预测判定 |
+| `agu.sv` | — | 地址加法（5 个实例） |
+| `sdu.sv` | — | 存储数据 / AMO |
+| `mul_unit.sv` | — | 乘法 FU：乘法器 + 移位寄存器 |
 | `mul_core.sv` | — | 乘法器，跨 3 拍 |
 | `mul_pipe.sv` | — | 固定延迟无反压的 `STAGES = DEPTH - 1` 拍移位寄存器（MUL 和浮点流水 FU 共用） |
-| `div_unit.sv`、`div_bank.sv`、`div_core.sv`、`div_step.sv` | — | 除法 FU、恢复除法 |
+| `div_unit.sv`、`div_core.sv`、`div_step.sv` | — | 除法 FU、恢复除法 |
 | `exu_iter_ctl.sv` | — | 无反压迭代 FU 的控制骨架（DIV 和 FDIV 共用，仿真断言 `!(en && live)`） |
 | `fp_pipe_unit.sv`、`fp_div_unit.sv`、`fp_core.sv` | — | 浮点 FU 封装与双路径选择：默认仿真走 `fp_core`（DPI SoftFloat），`SYNTHESIS` 或 `-DFPU_REAL` 走自研可综合核心 |
 | `fp_arith_pkg.sv`、`fp_misc_core.sv`、`fp_i2f_core.sv`、`fp_fcvt_core.sv`、`fp_fma_core.sv`、`fp_div_core.sv` | — | 自研可综合 RV64FD 算术核心 |
@@ -112,7 +112,7 @@ t：操作数进 `mul_core`、载荷进 `mul_pipe[0]`；t+2（或 `t + DEPTH - 1
 
 ### 5.4 杀死和清分支位
 
-flush 由 `exu_ctrl` 送来：`exu2fu_flush_all = rob_bcast_flush`；`exu2fu_flush_br` 加 `exu2fu_flush_rob_idx / _rob_flag` 表示误预测，在飞指令比这个 ROB 号更年轻（`fu_rob_younger`，9 位 `{rob_flag, rob_idx}` 循环年龄比较）即杀。没有分支掩码。
+flush 由 `exu_ctrl` 送来：`exu2fu_flush_all = rob_bcast_flush`；`exu2fu_flush_br` 加 `exu2fu_flush_rob_idx / _rob_flag` 表示误预测，在飞指令比这个 ROB 号更年轻（`ttg_util_pkg::ttg_rob_younger`，9 位 `{rob_flag, rob_idx}` 循环年龄比较）即杀。没有分支掩码。
 
 ## 6. 关键路径与深度
 
@@ -149,7 +149,7 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 配置相关的有意取舍：
 
 - **`fp_core` 综合时是占位**：仿真时通过 DPI 调 Berkeley softfloat（`tb/fp_dpi/fp_dpi.cpp`），与函数模型逐位一致（`tests/fp_dpi`）；综合时（`SYNTHESIS`）结果恒为 0、`fflags` 恒为 0、`illegal` 恒为 0，等可综合的浮点数据通路（代码里称 S7，未做）。所以任何含浮点 FU 的综合深度和面积都不含真正的浮点运算；
-- **AGU 5 个物理实例各服务对应端口**（共享口 4 在 `isu_iq_select` 选口并由 `exu_ctrl_lsu_req` 复用 `agu_bank[4]`）；
+- **AGU 5 个物理实例各服务对应端口**（共享口 4 在 `isu_iq_select` 选口并由 `exu_ctrl_lsu_req` 复用 `exu.sv` 的 `g_agu[4]`）；
 - `exu_fu_pkg.sv` 的注释里引用的 `config.h:371-398` 行号和 `alu_decode.sv` 头注释里的 `docs/modules/exu_int.md` 都是过时引用；`alu_decode.sv` 说"ALU 口见不到 UOP_JUMP，所以模型里 JUMP 时 `operand2 = 4` 的分支不翻译"，该模型分支现在已不存在（Fu.h 里没有运算）。
 
 未核对（继承自旧文档）：
@@ -172,6 +172,7 @@ RTL 与模型保持一致的细节（读模型时容易误判为 bug）：
 
 ## 10. 变更记录
 
+- 2026-11-29 清理 D：去重——FU bank 包装层（`alu_bank` / `bru_bank` / `agu_bank` / `sdu_bank` / `mul_bank` / `div_bank`，各只有一个 generate 循环）不再使用，`exu.sv` 直接在 `g_alu` / `g_bru` / `g_agu` / `g_sdu` / `g_mul` / `g_div` 循环里实例化叶子（纯连线，同一组信号，层次名从 `u_exu.u_alu.g_alu[i].u_alu` 变为 `u_exu.g_alu[i].u_alu`，tb / sva / 脚本无引用）；`exu_fu_pkg` 删 uop 类型副本 `OP_W` / `UOP_JUMP/ADD/BR/WFI`（`alu` / `alu_decode` / `bru` 改用 `dis_pkg::UOP_TYPE_W` / `dis_pkg::UOP_*`，数值相同）与 `fu_rob_younger`（`exu_iter_ctl` / `mul_pipe` 改用同体的 `ttg_util_pkg::ttg_rob_younger`）（周期不变）。
 - 2026-11-28 清理：删 `alu_bank` / `bru_bank` / `agu_bank` / `sdu_bank` 未用的 `clk` / `rst_n` 端口与其豁免；`div_bank` / `div_unit` 的 `wb_next` 输出口（`div_unit` 内部保留）；`div_unit` / `div_core` 未用的参数 `LAT`；bank 头注释里已删的 `spec/*.io`（周期不变）。
 - 2026-11-28（文档核对，无 RTL 变化）：flush 按 ROB 号（`exu2fu_flush_br` + `flush_rob_idx/flag`），无分支掩码；DIV 的 `wb_in2` 提前 2 拍预告；门禁参考改为 `scripts/ref_cycles.txt`（77 个程序）。
 - 2026-11-28（`rtl/exu-clean`，EXP-072）：非阻塞 EXU 与真 5 物理 AGU 重构——删除 `exu_fu_sc_ctl.sv` 及全部单周期/流水线 FU 单元与 bank 上的 `ready_o`/`consume_i`/`busy_o` 握手端口；`mul_pipe` 精简为无条件固定 3 拍推进；`exu_iter_ctl` 删除 `busy_o` 保留 `div_wb_next`；`agu_bank` 按真 5 物理口（`LSU_AGU_COUNT=5`）直连。TSMC 28nm HPC+ `exu` 实测：`WNS = −0.41 ns`（与基线相同，仍为 `u_fma` 路径），**`TNS −1,230.70 → −1,008.16`（−18.1%）**、**`Seq 8,704 → 6,755`（−1,949 FF / −22.4%）**、**总面积 `217,730.69 → 207,202.80 µm²`（−4.84%）**。

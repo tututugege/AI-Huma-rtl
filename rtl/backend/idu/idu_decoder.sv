@@ -69,8 +69,8 @@ module idu_decoder import ttg_cfg_pkg::*; (
 
   // Ref: Idu::comb_decode (page_fault -> NOP with diag_val = inst ; else decode())
   // Canonicalize `add rd, x0, rs2` (including every expanded `c.mv rd, rs2`) into `addi rd, rs2, 0`
-  // so move elimination sees RVC moves without extra decoding in ren. (ITYPE_ADD == 5'd3)
-  assign c_mv_canon = (raw_type == 5'd3) & ~raw_src2_is_imm & ~raw_is_word & (raw_func3 == 3'd0) &
+  // so move elimination sees RVC moves without extra decoding in ren.
+  assign c_mv_canon = (raw_type == dis_pkg::INST_ADD) & ~raw_src2_is_imm & ~raw_is_word & (raw_func3 == 3'd0) &
                       (entry_inst[31:25] == 7'd0) & raw_src1_en & raw_src2_en &
                       (raw_src1_areg == 6'd0) & (raw_src2_areg != 6'd0) &
                       raw_dest_en & (raw_dest_areg != 6'd0);

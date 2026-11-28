@@ -7,7 +7,7 @@
 //   3. complete  : surviving stage STAGES-1 completes after DEPTH-1 register hops
 module mul_pipe
   import ttg_cfg_pkg::*;
-  import exu_fu_pkg::*;
+  import exu_fu_pkg::*, ttg_util_pkg::ttg_rob_younger;
 #(
   parameter int DEPTH = MUL_MAX_LATENCY,
   parameter type UOP_T = fu_uop_t          // payload of an entry (rob_idx / rob_flag + result fields); the FP units use fp_uop_t
@@ -40,7 +40,8 @@ module mul_pipe
   always_comb begin
     for (int s = 0; s < STAGES; s++) begin
       surv[s] = valid_q[s] &&
-                !(flush_all || (flush_br && fu_rob_younger(uop_q[s].rob_idx, uop_q[s].rob_flag, flush_rob_idx, flush_rob_flag)));
+                !(flush_all || (flush_br && ttg_rob_younger(uop_q[s].rob_idx, uop_q[s].rob_flag,
+                                                            flush_rob_idx, flush_rob_flag)));
     end
     complete = surv[STAGES-1];
     done_uop = uop_q[STAGES-1];

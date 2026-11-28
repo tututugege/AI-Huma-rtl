@@ -26,9 +26,9 @@ depth: 17 层（rtl/be-wake-byp-opt，20,037 单元，已删除 31 路 `exe2prf_
 
 ## 2. 配置（`ttg_cfg_pkg` / `exu_ctrl_pkg`，现行默认）
 
-口号与 isu.md 一致：`ISSUE_WIDTH = 19`，口基址 `IQ_ALU_PORT_BASE = 0`、`IQ_AGU_PORT_BASE = 6`、`IQ_STD_PORT_BASE = 11`、`IQ_BR_PORT_BASE = 14`、`IQ_FP_PORT_BASE = 16`。ROB 写回通道数 `ROB_WB_WIDTH = 21`（将 4 load 与 3 STA 拆开：`ROB_WB_ALU_BASE = 0`、`ROB_WB_LD_BASE = 6`、`ROB_WB_STA_BASE = 10`、`ROB_WB_STD_BASE = 13`、`ROB_WB_BR_BASE = 16`、`ROB_WB_FP_BASE = 18`）。每个口上的 FU 实例由 `exu_ctrl_pkg::xc_port_cap()` 给出的能力掩码推出，实例号（`fu_idx`）按"口号从小到大，口内按优先级顺序"排，`TOTAL_FU_COUNT = 28`：
+口号与 isu.md 一致：`ISSUE_WIDTH = 19`，口基址 `IQ_ALU_PORT_BASE = 0`、`IQ_AGU_PORT_BASE = 6`、`IQ_STD_PORT_BASE = 11`、`IQ_BR_PORT_BASE = 14`、`IQ_FP_PORT_BASE = 16`。ROB 写回通道数 `ROB_WB_WIDTH = 21`（将 4 load 与 3 STA 拆开：`ROB_WB_ALU_BASE = 0`、`ROB_WB_LD_BASE = 6`、`ROB_WB_STA_BASE = 10`、`ROB_WB_STD_BASE = 13`、`ROB_WB_BR_BASE = 16`、`ROB_WB_FP_BASE = 18`）。每个口上的 FU 实例由口能力表 `dis_pkg::issue_port_cap()`（与 ISU 共用的唯一一份）给出的能力掩码推出，实例号（`fu_idx`）按"口号从小到大，口内按优先级顺序"排，`TOTAL_FU_COUNT = 28`：
 
-| 口 | 能力（`xc_port_cap`） | FU 实例（口内优先级从高到低）和 `fu_idx` |
+| 口 | 能力（`dis_pkg::issue_port_cap`） | FU 实例（口内优先级从高到低）和 `fu_idx` |
 | --- | --- | --- |
 | 0 | ALU、MUL、CSR | MUL 0、ALU 1、CSR 2（`CSR_FU = 2`，`CSR_PORT = 0`） |
 | 1 | ALU、DIV | DIV 3、ALU 4 |
@@ -45,7 +45,7 @@ depth: 17 层（rtl/be-wake-byp-opt，20,037 单元，已删除 31 路 `exe2prf_
 
 优先级顺序就是 `exu_ctrl_pkg` 里 `XC_K_*` 的编号顺序（MUL、DIV、AGU、SDU、BR、I2F、ALU、CSR、FMA、FDIV、FMISC，共 `XC_KINDS = 11` 类），和模型 `Exu::init` 里 `kSpecs` 的顺序一致。
 
-FU 分组数组（按 `fu_idx` 序排）：多周期 FU（MUL、DIV）`N_MC = 3`（MUL 0、DIV 3、MUL 5）；浮点 FU `N_FPU = 8`（I2F 6、I2F 8、FMA 22、FMISC 23、FMA 24、FMISC 25、FDIV 26、FMISC 27）；AGU `N_AGU = LSU_AGU_COUNT = 5`（前 2 个仅 load，中间 2 个共用，最后 1 个仅 STA）；`N_SDU = 3`。`XC_OP_W = 5`、`XC_OP_NUM = 21`（有 F/D 时，`FPRF_NUM != 0`）。
+FU 分组数组（按 `fu_idx` 序排）：多周期 FU（MUL、DIV）`N_MC = 3`（MUL 0、DIV 3、MUL 5）；浮点 FU `N_FPU = 8`（I2F 6、I2F 8、FMA 22、FMISC 23、FMA 24、FMISC 25、FDIV 26、FMISC 27）；AGU `N_AGU = LSU_AGU_COUNT = 5`（前 2 个仅 load，中间 2 个共用，最后 1 个仅 STA）；`N_SDU = 3`。uop 类型、宽度和集合类型用 `dis_pkg::uop_op_e` / `UOP_TYPE_W = 5` / `uop_set_t`（`UOP_TYPE_NUM = 21`）（`lsu.sv` 也直接用 `dis_pkg::UOP_LOAD / UOP_STA`）。
 
 `ttg_cfg_pkg.sv` 由 `make cfg` 生成；`exu_ctrl.sv` 开头的 `g_cfg_check` 检查各类 FU 个数及 `xc_fu_total() == TOTAL_FU_COUNT`。
 
@@ -82,7 +82,7 @@ FU 分组数组（按 `fu_idx` 序排）：多周期 FU（MUL、DIV）`N_MC = 3`
 
 | 文件 | 行数 | 职责 |
 | --- | --- | --- |
-| `exu_ctrl_pkg.sv` | 397 | 口能力表、FU 编号表、`XC_K_AGU` 统一类型、`xc_agu_req_t`、`xc_inst_t`、`xc_fu_res_t`、`xc_done_t`、`xc_lsu_wb_t` |
+| `exu_ctrl_pkg.sv` | 370 | FU 种类掩码、FU 编号表（由 `dis_pkg::issue_port_cap` 推出）、`XC_K_AGU` 统一类型、`xc_agu_req_t`、`xc_inst_t`、`xc_fu_res_t`、`xc_done_t`、`xc_lsu_wb_t` |
 | `exu_ctrl.sv` | 265 | 顶层：端口与内部结构体互转，实例化各子模块并检查 `$onehot0(complete_vec)` |
 | `exu_ctrl_slot.sv` | 75 | 每发射口 1 槽寄存器（无停顿/无重放）、comb 译码生成 `fu_en`、`agu_occ`、`agu_is_sta`；独立寄存口 0 `csr_idx_q` |
 | `exu_ctrl_fu_in.sv` | 76 | 把分组数组按 `fu_idx` 收成每个 FU 一条 `xc_fu_res_t` |
@@ -123,7 +123,7 @@ BRU（口 14..15）误预测由 `exu_ctrl_br_arb` 比较最老者重定向；CSR
 
 ## 6. 关键路径与深度
 
-删除了 `exu_ctrl_ready`、`exu_ctrl_port_arb` 优先编码链与 `exu_ctrl_slot` 重放保持路径；`exu_ctrl` 不再有去 ISU 的输出；口 1 DIV 的写回预告 `exe2iss_div_wb_in2` 由 `exu.sv` 直接从 `div_bank` 引出。
+删除了 `exu_ctrl_ready`、`exu_ctrl_port_arb` 优先编码链与 `exu_ctrl_slot` 重放保持路径；`exu_ctrl` 不再有去 ISU 的输出；口 1 DIV 的写回预告 `exe2iss_div_wb_in2` 由 `exu.sv` 直接从 `g_div[0].u_div` 引出。
 
 ## 7. 与模型的差异和取舍
 
@@ -153,10 +153,11 @@ RTL 与模型保持一致的细节：
 
 ## 9. 参数与开关速查
 
-`ISSUE_WIDTH`、`TOTAL_FU_COUNT`、`ALU_NUM`、`BRU_NUM`、`LSU_LDU_COUNT`、`LSU_STA_COUNT`、`LSU_SDU_COUNT`、`LSU_AGU_COUNT`、`LSU_LOAD_WB_WIDTH`、`IQ_*_PORT_BASE`、`FPRF_NUM`（F/D 总是有，`ttg_cfg_pkg`）；`N_MC`、`N_FPU`、`XC_OP_NUM`、`CSR_FU`、`CSR_PORT`、`xc_port_cap()`（`exu_ctrl_pkg`，手写）。没有运行时开关。
+`ISSUE_WIDTH`、`TOTAL_FU_COUNT`、`ALU_NUM`、`BRU_NUM`、`LSU_LDU_COUNT`、`LSU_STA_COUNT`、`LSU_SDU_COUNT`、`LSU_AGU_COUNT`、`LSU_LOAD_WB_WIDTH`、`IQ_*_PORT_BASE`、`FPRF_NUM`（F/D 总是有，`ttg_cfg_pkg`）；`N_MC`、`N_FPU`、`CSR_FU`、`CSR_PORT`（`exu_ctrl_pkg`）；口能力表 `issue_port_cap()`（`dis_pkg`，手写）。没有运行时开关。
 
 ## 10. 变更记录
 
+- 2026-11-29 清理 D：去重——删 `xc_port_cap`（与 `isu_pkg::port_cap` 同一张表，现只留 `dis_pkg::issue_port_cap`，`xc_port_has` 直接读它）；删 uop 编码副本 `XC_OP_NUM`、`XC_UOP_MUL/DIV/FMA/FMISC/FDIV/I2F`，`xc_mc_op` / `xc_fp_op` 改用 `dis_pkg::UOP_*`，`xc_opset_t` / `xc_op_t` 由 `dis_pkg::uop_set_t` / `UOP_TYPE_W` 定义；`exu_ctrl` / `exu_ctrl_fu_out` / `exu_ctrl_wb_prf` / `exu_ctrl_wb_rob` 改用 `dis_pkg::UOP_TYPE_W` / `UOP_LOAD` / `UOP_STA`；`XC_OP_W` / `XC_UOP_LOAD` / `XC_UOP_STA` 仅为 `lsu.sv` 留作别名（数值不变）（周期不变）。
 - 2026-11-28 清理：删 `FP_EN`（`XC_OP_NUM = 21`、`N_FPU = 8`、`exu_ctrl_fu_out` 的 `g_no_fp`、端口能力里的 I2F 条件）、输出 `exu2fu_mc_func7 / _op / _imm`（`exu.sv` 不读）与 `exe2csr_re`（`csr` 不读，改为内部线 `csr_re`）、`exu_ctrl_pkg` 两处 `LSU_MEMSPEC:` 注释前缀；删不抑制任何告警的 lint 豁免（`exu_ctrl_fu_out` / `exu_ctrl_lsu_req` / `exu_ctrl_wb_prf` / `exu_ctrl_wb_rob` 各 1 处，以去掉豁免后整树 lint 普通 / `-DSYNTHESIS` 均无新告警为准）（周期不变）。
 - 2026-11-28（文档核对，无 RTL 变化）：`exe2iss_div_wb_in2` 在 `exu.sv` 而不在 `exu_ctrl`，删去错误的 `exe2iss_div_wb_next` 输出；写回 / 旁路总线为 `exe2prf`；`exu2id_*` 列全；文件表补行数；门禁参考改为 `scripts/ref_cycles.txt`（77 个程序）。
 - 2026-11-28（`rtl/exu-clean`，EXP-072）：非阻塞 EXU 控制面重构与真 5 物理 AGU 收敛——删除 `exu_ctrl_ready.sv`、`exu_ctrl_lsu_out.sv` 及全部逐 FU `ready/consume` 协议，改为发射即占用；AGU 槽由逻辑 7 槽+映射直接收敛为真 5 物理端口（复用口 4 由 ISU 直选），仅传 `div_wb_next` 通知 ISU 错开 PORT 1 写回；TSMC 28nm HPC+ DC（`0.50 ns`）实测 **`WNS = 0.00 ns`（`CPL 0.37 ns`, `11 lvl`）**、触发器 `4,765`、面积 **`19,432.06 µm²`（较旧 `31,760.90 µm²` 降 −38.8%）**；通过 `lint_chip`/`lint_soc` 0、strict+SVA `fm_gate` 77/77、`riscv-tests` 152/152、`soc_gate --linux` 12/12 与 Linux 26/26 窗对齐。

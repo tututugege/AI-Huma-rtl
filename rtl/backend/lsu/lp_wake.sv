@@ -10,6 +10,7 @@
 module lp_wake
   import ttg_cfg_pkg::*;
   import lp_pkg::*;
+  import ttg_util_pkg::ttg_rob_younger;
 (
   input  logic                clk,
   input  logic                rst_n,
@@ -66,7 +67,7 @@ module lp_wake
     for (int e = 0; e < LQ; e++) begin
       wbp_meta_v[e].elig = !ldq_q[e].second && !ldq_q[e].pf &&
                            (ldq_q[e].dest_preg != '0) && !flush &&
-                           !(mispred && lp_rob_younger(ldq_q[e].rob_idx, ldq_q[e].rob_flag,
+                           !(mispred && ttg_rob_younger(ldq_q[e].rob_idx, ldq_q[e].rob_flag,
                                                        dec_rob_idx, dec_rob_flag));
       wbp_meta_v[e].dest_preg = ldq_q[e].dest_preg;
     end
@@ -98,7 +99,7 @@ module lp_wake
       l1_pred_ok = l1[p].replay || l1_hit_pred_q[l1[p].pc8][1];
       l1_sw_w[p] = l1[p].v && !l1[p].no_l1_spec && !ld_retry_busy[p] && l1_pred_ok &&
                    !l1[p].second && (l1[p].dest != '0) && !flush &&
-                   !(mispred && lp_rob_younger(l1[p].rob_idx, l1[p].rob_flag, dec_rob_idx, dec_rob_flag));
+                   !(mispred && ttg_rob_younger(l1[p].rob_idx, l1[p].rob_flag, dec_rob_idx, dec_rob_flag));
       wk_valid[p] = l1_sw_w[p];
       wk_preg[p]  = l1[p].dest;
 
@@ -107,7 +108,7 @@ module lp_wake
       wk_valid[NLD + p] = wbw_v[p] && !l3_sw_q[p] &&
                           !ldq_q[l3_ldq].second && !ldq_q[l3_ldq].pf &&
                           (ldq_q[l3_ldq].dest_preg != '0) && !flush &&
-                          !(mispred && lp_rob_younger(ldq_q[l3_ldq].rob_idx, ldq_q[l3_ldq].rob_flag,
+                          !(mispred && ttg_rob_younger(ldq_q[l3_ldq].rob_idx, ldq_q[l3_ldq].rob_flag,
                                                       dec_rob_idx, dec_rob_flag));
       wk_preg[NLD + p]  = ldq_q[l3_ldq].dest_preg;
 
@@ -117,33 +118,33 @@ module lp_wake
       l2a_alive_p = pl12[p].v && l2_ok[l2a_ldq] && (pl12[p].epoch == ldq_q[l2a_ldq].epoch);
 
       l1_eff_w[p] = pl12[p].v && pl12[p].spec_w && !flush &&
-                    !(mispred && lp_rob_younger(ldq_q[l2a_ldq].rob_idx, ldq_q[l2a_ldq].rob_flag,
+                    !(mispred && ttg_rob_younger(ldq_q[l2a_ldq].rob_idx, ldq_q[l2a_ldq].rob_flag,
                                                 dec_rob_idx, dec_rob_flag));
 
       l2b_w[p]    = wbd_l2b_ep[p] && !ldq_q[l2b_ldq].second &&
                     (ldq_q[l2b_ldq].dest_preg != '0) && !flush &&
-                    !(mispred && lp_rob_younger(ldq_q[l2b_ldq].rob_idx, ldq_q[l2b_ldq].rob_flag,
+                    !(mispred && ttg_rob_younger(ldq_q[l2b_ldq].rob_idx, ldq_q[l2b_ldq].rob_flag,
                                                 dec_rob_idx, dec_rob_flag));
 
       l2_sw_w[p]  = !pl12[p].spec_w && !l2b_w[p] && l2a_alive_p &&
-                    (pl12[p].tlb == TLB_HIT) && !pl12[p].mmio && !pl12[p].dcblk && !pl12[p].bloom &&
+                    (pl12[p].tlb == PL12_TLB_HIT) && !pl12[p].mmio && !pl12[p].dcblk && !pl12[p].bloom &&
                     !ldq_q[l2a_ldq].second && (ldq_q[l2a_ldq].dest_preg != '0) && !flush &&
-                    !(mispred && lp_rob_younger(ldq_q[l2a_ldq].rob_idx, ldq_q[l2a_ldq].rob_flag,
+                    !(mispred && ttg_rob_younger(ldq_q[l2a_ldq].rob_idx, ldq_q[l2a_ldq].rob_flag,
                                                 dec_rob_idx, dec_rob_flag));
 
       wk_valid[2*NLD + p] = l2b_w[p] || l2_sw_w[p];
       wk_preg[2*NLD + p]  = l2b_w[p] ? ldq_q[l2b_ldq].dest_preg : ldq_q[l2a_ldq].dest_preg;
 
-      // Cancel / L3 sw tracking for L1 or L2a speculative wakeups (require TLB_HIT for direct hit!)
+      // Cancel / L3 sw tracking for L1 or L2a speculative wakeups (require PL12_TLB_HIT for direct hit!)
       spec_trk[p]      = l1_eff_w[p] || l2_sw_w[p];
       spec_preg_trk[p] = l1_eff_w[p] ? pl12[p].spec_preg : ldq_q[l2a_ldq].dest_preg;
-      hit_direct[p]    = wbd_v[p] && (wbd_idx[p] == l2a_ldq) && (pl12[p].tlb == TLB_HIT);
+      hit_direct[p]    = wbd_v[p] && (wbd_idx[p] == l2a_ldq) && (pl12[p].tlb == PL12_TLB_HIT);
 
       // Train L1D hit confidence predictor (+1 on direct hit, -1 on non-direct)
       train_en[p] = pl12[p].v && !pl12[p].replay && !pl12[p].dcblk &&
                     pipe_r[l2a_ldq] && (ldq_q[l2a_ldq].epoch == pl12[p].epoch) &&
                     !ldq_q[l2a_ldq].second && (ldq_q[l2a_ldq].dest_preg != '0) && !flush &&
-                    !(mispred && lp_rob_younger(ldq_q[l2a_ldq].rob_idx, ldq_q[l2a_ldq].rob_flag,
+                    !(mispred && ttg_rob_younger(ldq_q[l2a_ldq].rob_idx, ldq_q[l2a_ldq].rob_flag,
                                                 dec_rob_idx, dec_rob_flag));
     end
 

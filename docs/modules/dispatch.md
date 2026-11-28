@@ -89,7 +89,7 @@ uop 种类到队列的映射（`dispatch_core.sv` 里的 `has_iq`；模型 `rout
 
 | 文件 | 行数 | 职责 |
 | --- | --- | --- |
-| `dis_pkg.sv` | 206 | 队列号、uop 种类、指令 / uop 结构体、指令分类函数 `dis_classify` |
+| `dis_pkg.sv` | 233 | 队列号、uop 种类；`InstType` / `UopType` 编码与位宽（`inst_type_e` / `uop_op_e`、`INST_TYPE_W` / `UOP_TYPE_W` / `UOP_TYPE_NUM`、`uop_set_t`，后端各包的唯一定义）、口能力表 `issue_port_cap`（ISU 与 EXU 共用）、`FPC_*`；指令 / uop 结构体、指令分类函数 `dis_classify` |
 | `dispatch.sv` | 177 | 顶层：端口适配；合并 `NUM_WAKE = 35` 路唤醒；由 4 路 L1 推测取消与 6 路 ALU 孙代取消生成取消向量 `cancel_v`；`fs_need`（F/D） |
 | `dispatch_core.sv` | 253 | 把下面的子块连起来；`rob_idx` 编号；uop 到队列的映射（`has_iq`） |
 | `dispatch_inst_stage.sv` | 60 | 输入寄存器，见下 |
@@ -185,6 +185,7 @@ RTL 与模型保持一致的细节（读模型时容易误判）：
 
 ## 10. 变更记录
 
+- 2026-11-29 清理 D：去重——`dis_pkg` 成为 `InstType` / `UopType` 编码与位宽的唯一定义（加 `UOP_TYPE_NUM = 21`、`uop_set_t`，改正注释里的 UopType 个数 18 → 21），`rob_pkg` / `ren_pkg` / `isu_pkg` / `exu_ctrl_pkg` / `exu_fu_pkg` / `prf` / `idu` 的数值副本改为引用它；口能力表从 `isu_pkg` / `exu_ctrl_pkg` 两份合为 `dis_pkg::issue_port_cap`（逐口掩码相同）；`FPC_NONE` / `FPC_FMA` 从 `idu_ctrl_decode` 移入（周期不变）。
 - 2026-11-28 清理：删 `FP_EN`（F/D 总是有：`dispatch_decompose` 的 `g_has_fp` / `g_fp` 生成块、`dispatch_core` / `dispatch.sv` 的 `FP_EN` 条件）、输入链 `lsu2dis_ldq_alloc_valid` → `dispatch_core` → `dispatch_lsu_alloc.ldq_alloc_valid`（未读）、`dis_pkg` 未用的 `SLOT_IDX_W`、`IQ_PORT_W`、`FPC_FMA`；死文件 `dispatch_wake_match.sv`（0 个实例）的文件表行；删不抑制任何告警的 lint 豁免（`dispatch.sv` 2 处、`dispatch_decompose.sv` 1 处，以去掉豁免后整树 lint 普通 / `-DSYNTHESIS` 均无新告警为准）（周期不变）。
 - 2026-11-28（文档核对，无 RTL 变化）：忙表 `TAG_NUM = 352` / `FP_TAG_BASE = 256`；`NUM_WAKE = 35`，与模型 `WAKE_CH_ALL` 一致；去掉分支掩码相关描述；`is_rvc / mdp / pc` 来自 `ftq_ibuf`；文件表行数并补 `dispatch_wake_match.sv`（未实例化）；`ttg_cfg_pkg` 为生成文件；门禁参考改为 `scripts/ref_cycles.txt`（77 个程序）。
 `git log --oneline 261bd67..HEAD -- rtl/backend/dispatch`：

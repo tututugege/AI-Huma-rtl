@@ -9,6 +9,7 @@
 // snapshots.
 module dcache_resp
   import dcache_pkg::*;
+  import memcpu_pkg::REPLAY_HIT, memcpu_pkg::REPLAY_MSHR_FULL;
 (
   input  logic                 clk,
   input  logic                 rst_n,
@@ -137,7 +138,7 @@ module dcache_resp
       if (ldv_a[i] && fr_valid && ldrp_a[i][1] && ldaddr_a[i][29:OFF_W-2] == fr_line) begin
         // loads see the fill before this tick's store merges
         lddata_f[i] = line_word(fr_data, ldaddr_a[i][SB_OFF-2 +: WORD_W]);
-        ldrp_f[i]   = RP_HIT;
+        ldrp_f[i]   = REPLAY_HIT;
       end
     end
     for (int i = 0; i < NST; i++) begin
@@ -145,7 +146,7 @@ module dcache_resp
       fen[i] = stv_a[i] && fr_valid && strp_a[i][1] && staddr_a[i][29:OFF_W-2] == fr_line;
       fw1[i] = staddr_a[i][SB_OFF-2 +: WORD_W];  fd1[i] = stdata_a[i];  fs1[i] = ststrb_a[i];
       fw2[i] = stl2_a[i].word;  fd2[i] = stl2_a[i].data;  fs2[i] = stl2_a[i].strb;
-      if (fen[i]) strp_f[i] = RP_HIT;
+      if (fen[i]) strp_f[i] = REPLAY_HIT;
     end
     frd_f = line_merge_n(frd_f, fen, fw1, fd1, fs1, fw2, fd2, fs2);
     if (|fen) frdirty_f = 1'b1;
@@ -158,12 +159,12 @@ module dcache_resp
     for (int i = 0; i < NLD; i++)
       if (ldv_a[i] && fr_valid && ldrp_a[i][1] && ldaddr_a[i][29:OFF_W-2] == fr_line) begin
         fwd_ld = 1'b1;
-        if (ldrp_a[i] == RP_MSHR_FULL) fwd_ld_full = 1'b1;
+        if (ldrp_a[i] == REPLAY_MSHR_FULL) fwd_ld_full = 1'b1;
       end
     for (int i = 0; i < NST; i++)
       if (stv_a[i] && fr_valid && strp_a[i][1] && staddr_a[i][29:OFF_W-2] == fr_line) begin
         fwd_st = 1'b1;
-        if (strp_a[i] == RP_MSHR_FULL) fwd_st_full = 1'b1;
+        if (strp_a[i] == REPLAY_MSHR_FULL) fwd_st_full = 1'b1;
       end
   end
   cover property (@(posedge clk) disable iff (!rst_n) fwd_ld);

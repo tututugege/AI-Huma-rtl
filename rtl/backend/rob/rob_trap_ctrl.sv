@@ -4,6 +4,8 @@
 module rob_trap_ctrl
   import ttg_cfg_pkg::*;
   import rob_pkg::*;
+  import dis_pkg::INST_CSR, dis_pkg::INST_EBREAK, dis_pkg::INST_ECALL, dis_pkg::INST_FENCE_I, dis_pkg::INST_MRET,
+         dis_pkg::INST_SFENCE_VMA, dis_pkg::INST_SRET;
 (
   input  logic              single_commit,
   input  logic              interrupt_fire,
@@ -43,19 +45,19 @@ module rob_trap_ctrl
   // semihosting probe needs it), wfi only flushes or nothing)
   always_comb begin
     u_flush   = rob_is_flush_inst(single_uop);
-    sel_bp_cond = single_uop.itype == ITYPE_EBREAK;
+    sel_bp_cond = single_uop.itype == INST_EBREAK;
     flush_act = single_commit && (u_flush || interrupt_fire);
     cand[SEL_INT]      = interrupt_fire;
-    cand[SEL_ECALL]    = single_uop.itype == ITYPE_ECALL;
-    cand[SEL_MRET]     = single_uop.itype == ITYPE_MRET;
-    cand[SEL_SRET]     = single_uop.itype == ITYPE_SRET;
+    cand[SEL_ECALL]    = single_uop.itype == INST_ECALL;
+    cand[SEL_MRET]     = single_uop.itype == INST_MRET;
+    cand[SEL_SRET]     = single_uop.itype == INST_SRET;
     cand[SEL_PF_STORE] = single_uop.pf_store;
     cand[SEL_PF_LOAD]  = single_uop.pf_load;
     cand[SEL_PF_INST]  = single_uop.pf_inst;
     cand[SEL_ILLEGAL]  = single_uop.illegal_inst;
-    cand[SEL_CSR]      = single_uop.itype == ITYPE_CSR;
-    cand[SEL_SFENCE]   = single_uop.itype == ITYPE_SFENCE_VMA;
-    cand[SEL_FENCE_I]  = single_uop.itype == ITYPE_FENCE_I;
+    cand[SEL_CSR]      = single_uop.itype == INST_CSR;
+    cand[SEL_SFENCE]   = single_uop.itype == INST_SFENCE_VMA;
+    cand[SEL_FENCE_I]  = single_uop.itype == INST_FENCE_I;
     cand[SEL_BP]       = sel_bp_cond;
   end
 

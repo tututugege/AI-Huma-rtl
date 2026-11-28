@@ -4,6 +4,7 @@
 // section 5 the lock-step runs reach).  Simulation only (counted by `verilator --coverage-user`); no state.
 module dcache_cover
   import dcache_pkg::*;
+  import memcpu_pkg::REPLAY_CONFLICT, memcpu_pkg::REPLAY_MSHR_HIT, memcpu_pkg::REPLAY_MSHR_FULL;
 (
   input  logic                 clk,
   input  logic                 rst_n,
@@ -53,13 +54,13 @@ module dcache_cover
         if (slot_valid[j] && slot_replayed[j] && slot_valid[i] && !slot_replayed[i] &&
             slot_addr[i][OFF_W +: BANK_W] == slot_addr[j][OFF_W +: BANK_W]) req_bank_conflict = 1'b1;
     for (int i = 0; i < NLD; i++) begin
-      if (s2ld_valid[i] && s2ld_replay[i] == RP_MSHR_FULL) ld_full = 1'b1;
-      if (s2ld_valid[i] && s2ld_replay[i] == RP_MSHR_HIT && !ld_mreq[i]) ld_mhit = 1'b1;
+      if (s2ld_valid[i] && s2ld_replay[i] == REPLAY_MSHR_FULL) ld_full = 1'b1;
+      if (s2ld_valid[i] && s2ld_replay[i] == REPLAY_MSHR_HIT && !ld_mreq[i]) ld_mhit = 1'b1;
     end
     for (int i = 0; i < NST; i++) begin
-      if (s2st_valid[i] && s2st_replay[i] == RP_MSHR_FULL) st_full = 1'b1;
+      if (s2st_valid[i] && s2st_replay[i] == REPLAY_MSHR_FULL) st_full = 1'b1;
       if (st_mreq[i] && mshr_find_hit[NLD+i]) st_find = 1'b1;
-      if (s2st_valid[i] && s2st_replay[i] == RP_CONFLICT) st_conf = 1'b1;
+      if (s2st_valid[i] && s2st_replay[i] == REPLAY_CONFLICT) st_conf = 1'b1;
     end
   end
 

@@ -69,13 +69,13 @@ depth: 25 层 / 639,644 单元（EXP-060 开启 `HAS_LSU_BYP` 4 路整数 `lsu_b
 
 | 文件 | 行数 | 职责 |
 | --- | --- | --- |
-| `prf.sv` | 382 | 顶层：端口适配、按口需求生成 27 个整数读口及其旁路实例、浮点读口编号、浮点写回暂存与压缩（EXP-046）、pc 口接线 |
-| `prf_wb_pipe.sv` | 66 | `WB_LANES = 13` 通道写回级寄存器 |
+| `prf.sv` | 379 | 顶层：端口适配、按口需求生成 27 个整数读口及其旁路实例、浮点读口编号、浮点写回暂存与压缩（EXP-046）、pc 口接线 |
+| `prf_wb_pipe.sv` | 61 | `WB_LANES = 13` 通道写回级寄存器 |
 | `prf_write_arb.sv` | 29 | 每个整数寄存器的写使能和写数据 |
 | `prf_regfile.sv` | 38 | 整数寄存器堆存储和异步读口 |
 | `prf_bypass.sv` | 55 | 一个读口的旁路选择：EXU 级 6 路按独热直选（无比较），写回级 13 路和 LSU 4 路按编号比较 |
 | `prf_fp.sv` | 75 | 浮点寄存器堆：写口（调用方给的写回级通道）、读口加旁路（同一个编号空间里编号 ≥ `FP_TAG_BASE` 的才是浮点寄存器） |
-| `prf_awake.sv` | 49 | load 唤醒 |
+| `prf_awake.sv` | 44 | load 唤醒 |
 
 状态：整数寄存器堆 `reg_file_q[PRF_NUM]`（256 项，复位全 0）；浮点寄存器堆 `reg_file_q[FPRF_NUM]`（96 项）；写回级每通道 `wb_wen_q`、`wb_is_load_q`、`wb_dest_preg_q`（`PRF_IDX_WIDTH = 9` 位）、`wb_result_q`（64 位）、`wb_rob_idx_q / wb_rob_flag_q` 和浮点的 `wb_fres_q`（64 位）。
 
@@ -128,7 +128,7 @@ RTL 与模型保持一致的细节：
 
 - 旧文档的"放宽（`when valid`）与消费者核对"清单、变异检查（10/10）和 trace 回放结果：随 `spec/` 退役；旧文档提到的"rv64 的 PRF 位数翻倍，面积 / 综合数字是 rv32 的"：本文没有综合，不重复。
 
-代码里的小问题（没有改）：`prf.sv` 参数 `UOP_TYPE_WIDTH` 的注释写"MAX_UOP_TYPE=18"，现在是 21（有 F/D 时），宽度 5 位仍够；`prf.sv` 顶部注释"commit 2f31e8d"指一个已不存在的模型文件；`prf_write_arb.sv` 注释里的"see notes"指旧文档。
+代码里的小问题（没有改）：`prf.sv` 顶部注释"commit 2f31e8d"指一个已不存在的模型文件；`prf_write_arb.sv` 注释里的"see notes"指旧文档。
 
 ## 8. 验证
 
@@ -145,6 +145,7 @@ RTL 与模型保持一致的细节：
 
 ## 10. 变更记录
 
+- 2026-11-29 清理 D：去重——`prf.sv` 删参数 `UOP_TYPE_WIDTH` 与本地 `UOP_LOAD`，改用 `dis_pkg::UOP_LOAD`（数值 3 不变；`back_top` 从未覆盖该参数）；`prf_awake` / `prf_wb_pipe` 删本地 `rob_younger`，改用同体的 `ttg_util_pkg::ttg_rob_younger`（周期不变）。
 - 2026-11-28 清理：删 `FP_EN`（`prf.sv` 的 `g_fp` 生成块展开、`g_no_fp` 删除；`FW = FLEN`）、`HAS_LSU_BYP`（`prf_bypass` 参数及 `g_no_lsu_byp`，旁路写死开）、`FP_WB_PORTS == 0` 分支；删输出 `ftq_prf_pc_req_req_valid`（FTQ 不读，其响应 valid 也已删）及 `prf_pc_port` 实例，`prf_pc_port.sv` 成死文件；删不抑制任何告警的 lint 豁免（`prf.sv` 3 处，以去掉豁免后整树 lint 普通 / `-DSYNTHESIS` 均无新告警为准）（周期不变）。
 - 2026-11-28（文档核对，无 RTL 变化）：`FTQ_PRF_PC_PORT_NUM = 4`（口 0、2、14、15）；`PRF_NUM = 256` 下的寄存器堆与位宽；接口改为 `iss2prf_* / exe2prf / prf2exe_*` 结构体端口，误预测按 ROB 号；旁路改为 EXU 独热 + 写回级 / LSU 编号比较，`lsu_byp` 总是开；删掉已不存在的 AGU 读口借用；文件表行数；门禁参考改为 `scripts/ref_cycles.txt`（77 个程序）。
 - 2026-11-28（`rtl/exu-clean`，EXP-072）：随真 5 物理 AGU 与 `ISSUE_WIDTH = 21 → 19` 收敛，`prf` 删除原逻辑 AGU 共用口读借用分支，口数与旁路按 `ISSUE_WIDTH = 19` 直接映射；TSMC 28nm HPC+ DC（`0.50 ns`）新旧同条件对比：基线 vs 新版 **`WNS` 均 `0.00 ns`（MET ≥2.00 GHz）**、`CPL 0.45 ns`、`TNS −0.00`、`Seq 24,196` 持平、面积 `580,853.60 → 587,386.28 µm²`（`+1.12%`）。

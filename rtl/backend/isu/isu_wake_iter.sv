@@ -4,7 +4,7 @@
 // Countdown wake-up slots of one FP-capable issue port: at most one request per cycle goes into the first free slot.
 module isu_wake_iter
   import ttg_cfg_pkg::*;
-  import isu_pkg::*;
+  import isu_pkg::*, ttg_util_pkg::ttg_rob_younger;
 #(
   parameter int SLOTS = 2,
   parameter int CW    = COUNT_W,
@@ -33,7 +33,7 @@ module isu_wake_iter
   logic [SLOTS-1:0] alloc_slot;
   logic             req_killed;
 
-  assign req_killed = flush_br && isu_rob_younger(req_rob_idx, req_rob_flag, flush_rob_idx, flush_rob_flag);
+  assign req_killed = flush_br && ttg_rob_younger(req_rob_idx, req_rob_flag, flush_rob_idx, flush_rob_flag);
 
   logic [SLOTS-1:0] first_free;
   /* verilator lint_off UNUSEDSIGNAL */   // waiver: the slots cannot overflow (isu_wake_src sizes them)
@@ -53,7 +53,7 @@ module isu_wake_iter
 
     assign counting       = valid_q && (count_q != '0);
     assign slot_free[j]   = !counting;
-    assign old_killed     = flush_br && isu_rob_younger(rptr_q[ROB_IDX_WIDTH-1:0], rptr_q[ROB_IDX_WIDTH],
+    assign old_killed     = flush_br && ttg_rob_younger(rptr_q[ROB_IDX_WIDTH-1:0], rptr_q[ROB_IDX_WIDTH],
                                                         flush_rob_idx, flush_rob_flag);
     assign spec_cancelled = |(spec_mask_q & cn_port_mask);
 

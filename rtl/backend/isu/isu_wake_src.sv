@@ -8,7 +8,7 @@
 // MUL / FP uops granted this cycle are put into their delayed wake-up structure (visible from the next cycle).
 module isu_wake_src
   import ttg_cfg_pkg::*;
-  import isu_pkg::*;
+  import isu_pkg::*, ttg_util_pkg::ttg_rob_younger;
 (
   input  logic                     clk,
   input  logic                     rst_n,
@@ -63,7 +63,7 @@ module isu_wake_src
     for (int a = 0; a < ALU_NUM; a++) begin
       fast_cancel_raw[a]   = fast_spec_v_q[a] && (|(fast_spec_mask_q[a] & cn_port_mask));
       fast_cancel_valid[a] = fast_cancel_raw[a] && !flush_all &&
-                             !(flush_br && isu_rob_younger(fast_spec_ridx_q[a], fast_spec_rflag_q[a],
+                             !(flush_br && ttg_rob_younger(fast_spec_ridx_q[a], fast_spec_rflag_q[a],
                                                            flush_rob_idx, flush_rob_flag));
       fast_cancel_preg[a]  = fast_spec_preg_q[a];
     end
@@ -74,7 +74,7 @@ module isu_wake_src
     if (port_has(MASK_MUL, p)) begin : g_mul
       localparam int R = port_rank(MASK_MUL, p);
       assign mul_req_valid[R]     = (MUL_DELAYED != 0) && grant_valid[p] && grant_uop[p].dest_en &&
-                                    (grant_uop[p].op == op_t'(UOP_MUL));
+                                    (grant_uop[p].op == op_t'(dis_pkg::UOP_MUL));
       assign mul_req_preg[R]      = grant_uop[p].dest_preg;
       assign mul_req_rob_idx[R]   = grant_uop[p].rob_idx;
       assign mul_req_rob_flag[R]  = grant_uop[p].rob_flag;
@@ -84,9 +84,9 @@ module isu_wake_src
     if (port_has(MASK_ALU, p)) begin : g_fast
       localparam int R = port_rank(MASK_ALU, p);
       logic delayed_op;
-      assign delayed_op = ((MUL_DELAYED != 0) && grant_uop[p].op == op_t'(UOP_MUL)) ||
-                          (DIV_MAX_LATENCY > 1 && grant_uop[p].op == op_t'(UOP_DIV)) ||
-                          (grant_uop[p].op == op_t'(UOP_I2F));   // integer -> FP: multi-cycle
+      assign delayed_op = ((MUL_DELAYED != 0) && grant_uop[p].op == op_t'(dis_pkg::UOP_MUL)) ||
+                          (DIV_MAX_LATENCY > 1 && grant_uop[p].op == op_t'(dis_pkg::UOP_DIV)) ||
+                          (grant_uop[p].op == op_t'(dis_pkg::UOP_I2F));   // integer -> FP: multi-cycle
       assign wake_valid[FAST_WAKE_BASE + R] = cand_valid[p] && grant_uop[p].dest_en && !delayed_op;
       assign wake_preg[FAST_WAKE_BASE + R]  = grant_uop[p].dest_preg;
       assign fast_spec_v_d[R]     = !flush_all && grant_valid[p] && grant_uop[p].dest_en &&
@@ -131,8 +131,10 @@ module isu_wake_src
       logic [FP_COUNT_W:0] lat;
       logic is_fp_op;
       assign lat       = fp_latency(grant_uop[p].op, grant_uop[p].func7);
-      assign is_fp_op  = (grant_uop[p].op == op_t'(UOP_FMA)) || (grant_uop[p].op == op_t'(UOP_FMISC)) ||
-                         (grant_uop[p].op == op_t'(UOP_FDIV)) || (grant_uop[p].op == op_t'(UOP_I2F));
+      assign is_fp_op  = (grant_uop[p].op == op_t'(dis_pkg::UOP_FMA)) ||
+                         (grant_uop[p].op == op_t'(dis_pkg::UOP_FMISC)) ||
+                         (grant_uop[p].op == op_t'(dis_pkg::UOP_FDIV)) ||
+                         (grant_uop[p].op == op_t'(dis_pkg::UOP_I2F));
       assign fp_req_valid[R]     = grant_valid[p] && grant_uop[p].dest_en && is_fp_op;
       assign fp_req_preg[R]      = grant_uop[p].dest_preg;
       assign fp_req_rob_idx[R]   = grant_uop[p].rob_idx;

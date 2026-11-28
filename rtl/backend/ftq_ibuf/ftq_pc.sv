@@ -67,7 +67,7 @@ module ftq_pc import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; (
   output logic                         dis_is_rvc [DECODE_WIDTH]
 );
 
-  localparam int NB = 8;
+  localparam int NB = FTQ_PC_BANKS;
   localparam int NL = FTQ_SIZE / NB;
   localparam int BW = $clog2(NB);
   localparam int LW = $clog2(NL);

@@ -92,7 +92,7 @@ module rob
       ftq_offset:   dis2rob_uop[b].ftq_offset,
       ftq_is_last:  dis2rob_uop[b].ftq_is_last,
       br_taken:     1'b0,
-      is_ret:       (dis2rob_uop[b].itype == ITYPE_JALR) && (dis2rob_uop[b].src1_areg == 6'd1) &&
+      is_ret:       (dis2rob_uop[b].itype == dis_pkg::INST_JALR) && (dis2rob_uop[b].src1_areg == 6'd1) &&
                     (dis2rob_uop[b].dest_areg == 6'd0) && (dis2rob_uop[b].imm == 32'd0),
       is_amo_lr:    dis2rob_uop[b].is_amo_lr,
       rob_flag:     dis2rob_uop[b].rob_flag,

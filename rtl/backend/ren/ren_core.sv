@@ -84,7 +84,7 @@ module ren_core
   logic [CW-1:0] free_total;
   logic [C-1:0] c_elim;
   logic [C-1:0] c_valid, c_dest_en, c_pf_inst, c_pf_load, c_pf_store, c_illegal;
-  logic [INST_TYPE_WIDTH-1:0] c_type [C];
+  logic [dis_pkg::INST_TYPE_W-1:0] c_type [C];
   areg_t        c_dest_areg [C];
   preg_t        c_dest_preg [C];
   preg_t        c_old_dest_preg [C];

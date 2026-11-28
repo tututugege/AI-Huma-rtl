@@ -1,7 +1,7 @@
 // Ref: back-end/Prf.cpp  Prf::comb_awake
 `default_nettype none
 
-module prf_awake import ttg_cfg_pkg::*; #(
+module prf_awake import ttg_cfg_pkg::*; import ttg_util_pkg::ttg_rob_younger; #(
   parameter int LANES = WB_LANES,
   parameter int WAKE_NUM = LSU_LOAD_WB_WIDTH
 ) (
@@ -19,17 +19,12 @@ module prf_awake import ttg_cfg_pkg::*; #(
 
   localparam int RANKW = $clog2(LANES + 1);
 
-  function automatic logic rob_younger(input logic [ROB_IDX_WIDTH-1:0] a_idx, input logic a_flag,
-                                       input logic [ROB_IDX_WIDTH-1:0] b_idx, input logic b_flag);
-    return (a_flag == b_flag) ? (a_idx > b_idx) : (a_idx < b_idx);
-  endfunction
-
   logic [LANES-1:0] lane_wakes;
 
   always_comb begin
     for (int i = 0; i < LANES; i++) begin
       lane_wakes[i] = wb_wen[i] && wb_is_load[i] &&
-                      !(bcast_mispred && rob_younger(wb_rob_idx[i], wb_rob_flag[i], bcast_rob_idx, bcast_rob_flag));
+                      !(bcast_mispred && ttg_rob_younger(wb_rob_idx[i], wb_rob_flag[i], bcast_rob_idx, bcast_rob_flag));
     end
   end
 

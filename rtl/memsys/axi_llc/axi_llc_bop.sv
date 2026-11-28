@@ -50,17 +50,17 @@ module axi_llc_bop
   logic [5:0] best_q;
   logic on_q;
 
-  // 8-entry candidate FIFO (oldest at index 0)
-  logic [25:0] q_line_q [BOP_Q];
-  logic [3:0] q_cnt_q;
+  // BOP_Q-entry candidate FIFO (axi_llc_pfq, oldest at index 0)
+  logic        q_empty;
+  logic [25:0] q_head;
 
   // ---------------- launch (combinational, BOP > Bingo) ----------------
   logic has_bop, has_bingo, pop_head, head_in_mshr;
   logic [25:0] launch_line;
   always_comb begin
-    has_bop     = (q_cnt_q != 4'd0);
+    has_bop     = !q_empty;
     has_bingo   = !bingo_q_empty;
-    launch_line = has_bop ? q_line_q[0] : bingo_q_head;
+    launch_line = has_bop ? q_head : bingo_q_head;
   end
   axi_llc_linecam #(.N(NMSHR)) u_hd_ms (
     .vld(ml_vld_d), .addr(ml_line_d), .line({launch_line, 6'b0}), .hit(head_in_mshr)
@@ -158,66 +158,43 @@ module axi_llc_bop
     end
   end
 
-  // ---------------- candidate generation + FIFO next state ----------------
-  // Precompute all 3 possible candidate lines & dup flags in parallel with rr_tag_q lookup:
+  // ---------------- candidate generation (the FIFO is axi_llc_pfq) ----------------
+  // All 3 possible candidate lines are computed in parallel with the rr_tag_q lookup (the queue checks each of them
+  // for a duplicate in parallel too):
   //   0: best_q (normal cycles / end_phase with on_d==0)
   //   1: OFF_ROM[base_best_idx] (end_phase, !test_wins)
   //   2: cur_off = OFF_ROM[test_q] (end_phase, test_wins)
   logic [5:0]  cand_off [3];
   logic [25:0] cand_ln  [3];
-  logic [2:0]  cand_pg_ok, cand_dup_v;
-  logic [25:0] cand_line;
-  logic        cand_ok, cand_dup, q_push;
-  logic [25:0] q_p [BOP_Q];
-  logic [25:0] q_d [BOP_Q];
-  logic [3:0]  cnt_p, cnt_d;
+  logic [2:0]  cand_pg_ok;
+  logic [1:0]  cand_sel;
+  logic        cand_ok;
 
   always_comb begin
-    for (int i = 0; i < BOP_Q; i++) begin
-      q_p[i] = (pop_head && (i + 1 < BOP_Q)) ? q_line_q[i + 1] : q_line_q[i];
-    end
-    cnt_p = pop_head ? (q_cnt_q - 4'd1) : q_cnt_q;
-
     cand_off[0] = best_q;
     cand_off[1] = OFF_ROM[base_best_idx];
     cand_off[2] = cur_off;
 
     for (int c = 0; c < 3; c++) begin
       logic [31:0] s;
-      logic        d;
       s             = {6'b0, trig_line} + {26'b0, cand_off[c]};
       cand_ln[c]    = s[25:0];
       cand_pg_ok[c] = (s[31:6] == {6'b0, trig_line[25:6]});
-      d             = 1'b0;
-      for (int i = 0; i < BOP_Q; i++) begin
-        if ((4'(i) < cnt_p) && (q_p[i] == cand_ln[c])) d = 1'b1;
-      end
-      cand_dup_v[c] = d;
     end
 
     if (do_end_phase && on_d) begin
-      cand_line = test_wins ? cand_ln[2]    : cand_ln[1];
-      cand_ok   = trig_v && (test_wins ? cand_pg_ok[2] : cand_pg_ok[1]);
-      cand_dup  = test_wins ? cand_dup_v[2] : cand_dup_v[1];
+      cand_sel = test_wins ? 2'd2 : 2'd1;
+      cand_ok  = trig_v && (test_wins ? cand_pg_ok[2] : cand_pg_ok[1]);
     end else begin
-      cand_line = cand_ln[0];
-      cand_ok   = trig_v && on_d && cand_pg_ok[0];
-      cand_dup  = cand_dup_v[0];
-    end
-    q_push = cand_ok && !cand_dup;
-
-    for (int i = 0; i < BOP_Q; i++) q_d[i] = q_p[i];
-    cnt_d = cnt_p;
-    if (q_push) begin
-      if (cnt_p == 4'(BOP_Q)) begin
-        for (int i = 0; i < BOP_Q - 1; i++) q_d[i] = q_p[i + 1];
-        q_d[BOP_Q - 1] = cand_line;
-      end else begin
-        q_d[cnt_p[2:0]] = cand_line;
-        cnt_d = cnt_p + 4'd1;
-      end
+      cand_sel = 2'd0;
+      cand_ok  = trig_v && on_d && cand_pg_ok[0];
     end
   end
+
+  axi_llc_pfq #(.N(BOP_Q), .NCAND(3), .W(26), .RST_LINES(1'b1)) u_q (
+    .clk, .rst_n, .pop(pop_head), .push_v(cand_ok), .cand_line(cand_ln), .cand_sel,
+    .empty(q_empty), .head(q_head)
+  );
 
   // ---------------- registers ----------------
   always_ff @(posedge clk) begin
@@ -232,8 +209,6 @@ module axi_llc_bop
       round_q <= '0;
       best_q <= 6'd1;
       on_q <= 1'b1;
-      q_cnt_q <= '0;
-      for (int i = 0; i < BOP_Q; i++) q_line_q[i] <= '0;
     end else begin
       if (rr_we) rr_v_q[rr_widx] <= 1'b1;
       if (do_end_phase) begin
@@ -245,8 +220,6 @@ module axi_llc_bop
       round_q <= round_d;
       best_q <= best_d;
       on_q <= on_d;
-      q_cnt_q <= cnt_d;
-      for (int i = 0; i < BOP_Q; i++) q_line_q[i] <= q_d[i];
     end
   end
 endmodule

@@ -4,7 +4,8 @@
 module lsu
   import ttg_cfg_pkg::*;
   import lp_pkg::*;
-  import exu_ctrl_pkg::xc_agu_req_t, exu_ctrl_pkg::XC_OP_W, exu_ctrl_pkg::XC_UOP_LOAD, exu_ctrl_pkg::XC_UOP_STA;
+  import dis_pkg::AMO_LR, dis_pkg::AMO_SC;
+  import exu_ctrl_pkg::xc_agu_req_t, dis_pkg::UOP_LOAD, dis_pkg::UOP_STA;
 (
   input  logic clk,
   input  logic rst_n,
@@ -156,7 +157,7 @@ module lsu
     end
     for (int i = 0; i < NLD; i++) begin
       logic is_ld;
-      is_ld           = (exe2lsu_agu[i].op == XC_OP_W'(XC_UOP_LOAD));
+      is_ld           = (exe2lsu_agu[i].op == UOP_LOAD);
       agl[i].v        = exe2lsu_agu[i].valid && is_ld;
       agl[i].occ      = exe2lsu_agu[i].raw   && is_ld;
       agl[i].ldq      = exe2lsu_agu[i].ldq_idx;
@@ -175,7 +176,7 @@ module lsu
       logic [2:0] p;
       logic is_sta;
       p               = (k < (NST - LSU_AGU_SHARED)) ? 3'(NLD + k) : 3'(NLD - 1 - (k - (NST - LSU_AGU_SHARED)));
-      is_sta          = (exe2lsu_agu[p].op == XC_OP_W'(XC_UOP_STA));
+      is_sta          = (exe2lsu_agu[p].op == UOP_STA);
       ags[k].v        = exe2lsu_agu[p].valid && is_sta;
       ags[k].occ      = exe2lsu_agu[p].raw   && is_sta;
       ags[k].stq      = exe2lsu_agu[p].stq_idx;

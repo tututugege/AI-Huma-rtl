@@ -136,9 +136,12 @@ module ren_fp
   );
   assign head_next = walk_active ? fp_ptr_add(head, fp_ptr_t'(walk_fp_cnt)) : (any_fire ? head_last : head);
 
-  ren_fp_free_list u_fl (
+  // FP domain of the free list: a ring of FPRF_NUM (96) slots holding local tags; head_commit advances by
+  // reclaim_total (no move elimination in the FP domain)
+  ren_free_list #(.NUM(FPN), .RESV(FP_ARF_NUM), .TAG_BASE(FP_TAG_BASE), .PORT_W(FP_PTR_W)) u_fl (
     .clk(clk), .rst_n(rst_n), .head_next(head_next), .reclaim(reclaim), .reclaim_rank(free_rank),
-    .reclaim_total(free_total), .reclaim_preg(c_old_dest_preg), .flush(rob_flush), .mispred(dec_mispred),
+    .reclaim_total(free_total), .alloc_commit_total(free_total), .reclaim_preg(c_old_dest_preg),
+    .flush(rob_flush), .mispred(dec_mispred),
     .ckpt_hit(ckpt_rd_hit), .ckpt_head(ckpt_head), .window(window), .free_count(free_count), .head(head)
   );
 

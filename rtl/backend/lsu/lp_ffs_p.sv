@@ -1,4 +1,4 @@
-// Ref: lp_ffs (same function) + its prefix-OR
+// Ref: rtl/common/ttg_first_set.sv (same function) + its prefix-OR exported (lp_cam uses it)
 `default_nettype none
 
 // Find-first-set with the prefix-OR exported: pre[i] = |req[i:0] (Kogge-Stone), onehot = req & ~(pre << 1).

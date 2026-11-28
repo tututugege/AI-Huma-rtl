@@ -1,5 +1,5 @@
 // Ref: back-end/Exu/Exu.cpp  Exu::init (port_mappings); back-end/Exu/include/ExuTypes.h  struct ExuInst
-// (port capabilities: config.h GLOBAL_ISSUE_PORT_CONFIG)
+// (port capabilities: config.h GLOBAL_ISSUE_PORT_CONFIG, table in dis_pkg::issue_port_cap)
 `default_nettype none
 /* verilator lint_off UNUSEDPARAM */  // constants package: not every constant is used by every module
 package exu_ctrl_pkg;
@@ -7,19 +7,9 @@ package exu_ctrl_pkg;
 
   import fp_pkg::*;
 
-  // ---- micro-op classes (base_types.h UopType) -------------------------------------------------------------------
-  localparam int XC_OP_W = 5;        // UOP_TYPE_WIDTH
-  localparam int XC_OP_NUM = 21;     // MAX_UOP_TYPE
-  localparam int XC_UOP_LOAD = 3;
-  localparam int XC_UOP_STA = 4;
-  localparam int XC_UOP_MUL = 14;
-  localparam int XC_UOP_DIV = 15;
-  localparam int XC_UOP_FMA = 17;
-  localparam int XC_UOP_FMISC = 18;
-  localparam int XC_UOP_FDIV = 19;
-  localparam int XC_UOP_I2F = 20;
-  typedef logic [XC_OP_NUM-1:0] xc_opset_t;   // one bit per UopType
-  typedef logic [XC_OP_W-1:0]   xc_op_t;
+  // ---- micro-op classes: UopType encoding, width and set type are dis_pkg's (uop_op_e, UOP_TYPE_W, uop_set_t)
+  typedef dis_pkg::uop_set_t xc_opset_t;      // one bit per UopType
+  typedef logic [dis_pkg::UOP_TYPE_W-1:0] xc_op_t;
 
   // ---- FU kinds, in the order Exu::init creates them inside one issue port (= write-back priority) ----------
   localparam int XC_K_MUL   = 0;
@@ -51,30 +41,9 @@ package exu_ctrl_pkg;
     endcase
   endfunction
 
-  // capability mask of issue port p (config.h GLOBAL_ISSUE_PORT_CONFIG; CSR is hard-bound to port 0)
-  function automatic xc_opset_t xc_port_cap(int p);
-    case (p)
-      0: return xc_opset_t'(OP_MASK_ALU | OP_MASK_MUL | OP_MASK_CSR);
-      1: return xc_opset_t'(OP_MASK_ALU | OP_MASK_DIV);
-      2: return xc_opset_t'(OP_MASK_ALU | OP_MASK_MUL | OP_MASK_I2F);
-      3: return xc_opset_t'(OP_MASK_ALU | OP_MASK_I2F);
-      4, 5: return xc_opset_t'(OP_MASK_ALU);
-      default: begin
-        // F/D ports (last): two FMA + MISC pipes, then a divide / square-root unit that also takes MISC
-        if (p >= IQ_FP_PORT_BASE)
-          return (p == ISSUE_WIDTH - 1) ? xc_opset_t'(OP_MASK_FDIV | OP_MASK_FMISC)
-                                        : xc_opset_t'(OP_MASK_FMA | OP_MASK_FMISC);
-        else if (p >= IQ_BR_PORT_BASE) return xc_opset_t'(OP_MASK_BR);
-        else if (p >= IQ_STD_PORT_BASE) return xc_opset_t'(OP_MASK_STD);
-        else if (p >= IQ_AGU_PORT_BASE + LSU_LDU_COUNT) return xc_opset_t'(OP_MASK_STA);
-        else if (p >= IQ_AGU_PORT_BASE + LSU_LDU_COUNT - LSU_AGU_SHARED) return xc_opset_t'(OP_MASK_LD | OP_MASK_STA);
-        else return xc_opset_t'(OP_MASK_LD);
-      end
-    endcase
-  endfunction
-
+  // capability of issue port p (the table is dis_pkg::issue_port_cap) for FU kind k
   function automatic bit xc_port_has(int p, int k);
-    return (xc_port_cap(p) & xc_kind_mask(k)) != '0;
+    return (dis_pkg::issue_port_cap(p) & xc_kind_mask(k)) != '0;
   endfunction
 
   // ---- FU numbering: fu_idx counts FUs port by port, kind by kind (Exu::units order), from the port masks ----
@@ -196,7 +165,7 @@ package exu_ctrl_pkg;
 
   // fixed micro-op of a multi-cycle FU kind (their op set has a single member)
   function automatic int xc_mc_op(int k);
-    return (k == XC_K_MUL) ? XC_UOP_MUL : XC_UOP_DIV;
+    return (k == XC_K_MUL) ? int'(dis_pkg::UOP_MUL) : int'(dis_pkg::UOP_DIV);
   endfunction
 
   // F/D units: indexed in fu_idx order like the multi-cycle ones (they have their own flat port group)
@@ -225,10 +194,10 @@ package exu_ctrl_pkg;
   // fixed micro-op of an F/D unit kind
   function automatic int xc_fp_op(int k);
     case (k)
-      XC_K_FMA: return XC_UOP_FMA;
-      XC_K_FDIV: return XC_UOP_FDIV;
-      XC_K_FMISC: return XC_UOP_FMISC;
-      default: return XC_UOP_I2F;
+      XC_K_FMA: return int'(dis_pkg::UOP_FMA);
+      XC_K_FDIV: return int'(dis_pkg::UOP_FDIV);
+      XC_K_FMISC: return int'(dis_pkg::UOP_FMISC);
+      default: return int'(dis_pkg::UOP_I2F);
     endcase
   endfunction
 

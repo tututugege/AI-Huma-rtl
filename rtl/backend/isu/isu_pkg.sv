@@ -4,21 +4,13 @@
 package isu_pkg;
   import ttg_cfg_pkg::*;
 
-  // ---- operation classes (base_types.h UopType) ------------------------------------------------
-  localparam int OP_W = 5;                                  // UOP_TYPE_WIDTH
-  localparam int OP_NUM = 21;                               // MAX_UOP_TYPE (F/D is always built)
-  localparam int UOP_MUL = 14;
-  localparam int UOP_DIV = 15;
-  localparam int UOP_FMA = 17;
-  localparam int UOP_FMISC = 18;
-  localparam int UOP_FDIV = 19;
-  localparam int UOP_I2F = 20;
+  // ---- operation classes: UopType encoding, width and set type are dis_pkg's (uop_op_e, UOP_TYPE_W, uop_set_t)
   // The FP write-port limit of the reference model (EXP-032, FP_WB_PORTS default): FP-unit writes per cycle
   localparam int FP_WB_PORTS = 2;
   localparam int FP_COUNT_MAX = FP_FSQRT_D_LAT;              // longest FP latency (the countdown starts at latency - 1)
   localparam int FP_COUNT_W = $clog2(FP_COUNT_MAX);
-  typedef logic [OP_NUM-1:0] op_set_t;                      // one bit per UopType (capability / ready masks)
-  typedef logic [OP_W-1:0]   op_t;
+  typedef dis_pkg::uop_set_t op_set_t;                      // one bit per UopType (capability / ready masks)
+  typedef logic [dis_pkg::UOP_TYPE_W-1:0] op_t;
 
   localparam op_set_t MASK_ALU = op_set_t'(OP_MASK_ALU);
   localparam op_set_t MASK_MUL = op_set_t'(OP_MASK_MUL);
@@ -39,10 +31,6 @@ package isu_pkg;
   localparam int IQ_INT1 = 5;                               // second integer queue (ports 2, 3, 5)
   localparam int IQ_DISPATCH_WIDTH = DECODE_WIDTH;          // enqueue lanes per IQ
 
-  function automatic logic isu_rob_younger(input logic [ROB_IDX_WIDTH-1:0] a_idx, input logic a_flag,
-                                           input logic [ROB_IDX_WIDTH-1:0] b_idx, input logic b_flag);
-    return (a_flag == b_flag) ? (a_idx > b_idx) : (a_idx < b_idx);
-  endfunction
   localparam int WAKE_NUM = MAX_WAKEUP_PORTS;               // iss_awake channels
   localparam int READY_NUM_W = IQ_READY_NUM_WIDTH;          // iss2dis.ready_num width
 
@@ -97,25 +85,9 @@ package isu_pkg;
     return iq_port_base(q) + p;
   endfunction
 
-  // capability mask of physical issue port p (config.h GLOBAL_ISSUE_PORT_CONFIG, ports 0..5 are the INT cluster)
+  // capability mask of physical issue port p (the table is dis_pkg::issue_port_cap)
   function automatic op_set_t port_cap(int p);
-    case (p)
-      0: return op_set_t'(OP_MASK_ALU | OP_MASK_MUL | OP_MASK_CSR);
-      1: return op_set_t'(OP_MASK_ALU | OP_MASK_DIV);
-      2: return op_set_t'(OP_MASK_ALU | OP_MASK_MUL) | MASK_I2F;
-      3: return op_set_t'(OP_MASK_ALU) | MASK_I2F;
-      4, 5: return op_set_t'(OP_MASK_ALU);
-      default: begin
-        // F/D ports (last): two FMA + MISC pipes, then a divide / square-root unit that also takes MISC
-        if (p >= IQ_FP_PORT_BASE)
-          return (p == ISSUE_WIDTH - 1) ? (MASK_FDIV | MASK_FMISC) : (MASK_FMA | MASK_FMISC);
-        else if (p >= IQ_BR_PORT_BASE) return op_set_t'(OP_MASK_BR);
-        else if (p >= IQ_STD_PORT_BASE) return op_set_t'(OP_MASK_STD);
-        else if (p >= IQ_AGU_PORT_BASE + LSU_LDU_COUNT) return op_set_t'(OP_MASK_STA);
-        else if (p >= IQ_AGU_PORT_BASE + LSU_LDU_COUNT - LSU_AGU_SHARED) return op_set_t'(OP_MASK_LD | OP_MASK_STA);
-        else return op_set_t'(OP_MASK_LD);
-      end
-    endcase
+    return dis_pkg::issue_port_cap(p);
   endfunction
 
   // number of issue ports whose capability intersects `mask` / how many such ports come before port p
@@ -141,9 +113,9 @@ package isu_pkg;
     logic d, sq;
     d  = func7[0];                         // funct7[1:0] = fmt (1 = D)
     sq = (func7[6:2] == 5'h0b);            // fsqrt
-    if (op == op_t'(UOP_FMA))        return (FP_COUNT_W+1)'(FP_FMA_LAT);
-    else if (op == op_t'(UOP_FMISC)) return (FP_COUNT_W+1)'(FP_MISC_LAT);
-    else if (op == op_t'(UOP_I2F))   return (FP_COUNT_W+1)'(FP_I2F_LAT);
+    if (op == op_t'(dis_pkg::UOP_FMA))        return (FP_COUNT_W+1)'(FP_FMA_LAT);
+    else if (op == op_t'(dis_pkg::UOP_FMISC)) return (FP_COUNT_W+1)'(FP_MISC_LAT);
+    else if (op == op_t'(dis_pkg::UOP_I2F))   return (FP_COUNT_W+1)'(FP_I2F_LAT);
     else if (sq)                     return d ? (FP_COUNT_W+1)'(FP_FSQRT_D_LAT) : (FP_COUNT_W+1)'(FP_FSQRT_S_LAT);
     else                             return d ? (FP_COUNT_W+1)'(FP_FDIV_D_LAT) : (FP_COUNT_W+1)'(FP_FDIV_S_LAT);
   endfunction
@@ -156,12 +128,12 @@ package isu_pkg;
   // 0: one cycle, 1: MUL, 2 / 3: DIV word / double, 4 .. 7: FDIV S / D, FSQRT S / D, 8: FMA, 9: FMISC, 10: I2F
   /* verilator lint_off UNUSEDSIGNAL */   // waiver: only func7[6:2] / func7[0] of the FDIV class are read
   function automatic logic [WB_CLS_W-1:0] wb_class(input op_t op, input logic [6:0] func7, input logic is_word);
-    if (op == op_t'(UOP_MUL)) return WB_CLS_W'(1);
-    else if (op == op_t'(UOP_DIV)) return is_word ? WB_CLS_W'(2) : WB_CLS_W'(3);
-    else if (op == op_t'(UOP_FDIV)) return WB_CLS_W'(4) + WB_CLS_W'({(func7[6:2] == 5'h0b), func7[0]});
-    else if (op == op_t'(UOP_FMA)) return WB_CLS_W'(8);
-    else if (op == op_t'(UOP_FMISC)) return WB_CLS_W'(9);
-    else if (op == op_t'(UOP_I2F)) return WB_CLS_W'(10);
+    if (op == op_t'(dis_pkg::UOP_MUL)) return WB_CLS_W'(1);
+    else if (op == op_t'(dis_pkg::UOP_DIV)) return is_word ? WB_CLS_W'(2) : WB_CLS_W'(3);
+    else if (op == op_t'(dis_pkg::UOP_FDIV)) return WB_CLS_W'(4) + WB_CLS_W'({(func7[6:2] == 5'h0b), func7[0]});
+    else if (op == op_t'(dis_pkg::UOP_FMA)) return WB_CLS_W'(8);
+    else if (op == op_t'(dis_pkg::UOP_FMISC)) return WB_CLS_W'(9);
+    else if (op == op_t'(dis_pkg::UOP_I2F)) return WB_CLS_W'(10);
     else return '0;
   endfunction
   /* verilator lint_on UNUSEDSIGNAL */
@@ -281,7 +253,7 @@ package isu_pkg;
 
   function automatic op_set_t op_onehot(op_t op);
     op_set_t r = '0;
-    for (int i = 0; i < OP_NUM; i++) r[i] = (op == op_t'(i));
+    for (int i = 0; i < dis_pkg::UOP_TYPE_NUM; i++) r[i] = (op == op_t'(i));
     return r;
   endfunction
 

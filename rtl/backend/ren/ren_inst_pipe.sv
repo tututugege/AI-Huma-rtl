@@ -66,7 +66,7 @@ module ren_inst_pipe
                                            s1_inst_q[i].is_word, s1_inst_q[i].func3, s1_inst_q[i].imm,
                                            s1_inst_q[i].src1_en, s1_inst_q[i].src1_is_pc, s1_inst_q[i].src1_areg,
                                            s1_inst_q[i].dest_en, s1_inst_q[i].dest_areg);
-      s1_is_branch[i]  = (s1_inst_q[i].inst_type == ITYPE_BR) | (s1_inst_q[i].inst_type == ITYPE_JALR);
+      s1_is_branch[i]  = (s1_inst_q[i].inst_type == dis_pkg::INST_BR) | (s1_inst_q[i].inst_type == dis_pkg::INST_JALR);
       s1_hit_dest[i]   = '0;
       s1_hit_src1[i]   = '0;
       s1_hit_src2[i]   = '0;

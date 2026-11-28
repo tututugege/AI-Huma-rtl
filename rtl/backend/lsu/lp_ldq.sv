@@ -7,6 +7,7 @@
 module lp_ldq
   import ttg_cfg_pkg::*;
   import lp_pkg::*;
+  import memcpu_pkg::REPLAY_HIT;
 (
   input  logic                clk,
   input  logic                rst_n,
@@ -99,7 +100,7 @@ module lp_ldq
   logic [NLD-1:0] full_pv;
   /* verilator lint_on UNUSEDSIGNAL */
 
-  lp_ffs #(.N(LQ)) u_mi (.req(mmw_ok), .onehot(mi_oh), .any(mi_v));
+  ttg_first_set #(.N(LQ)) u_mi (.req(mmw_ok), .onehot(mi_oh), .any(mi_v));
   ttg_onehot_to_idx #(.N(LQ)) u_mix (.onehot(mi_oh), .idx(mi_idx));
   assign mi_addr = q_o[mi_idx].paddr;
   assign mi_func3 = q_o[mi_idx].func3;
@@ -175,7 +176,7 @@ module lp_ldq
             dcl_req_id[p][LQW +: EPW] == q_o[e].epoch) begin
           rs_v = 1'b1;
           rs_ep = dcl_req_id[p][LQW +: EPW];
-          rs_hit_e = dcl_replay[p] == RT_HIT;
+          rs_hit_e = dcl_replay[p] == REPLAY_HIT;
           rs_rep_e = dcl_replay[p];
           rs_raw_e = dcl_data[p];
           rs_busy_e = rs_busy[p];

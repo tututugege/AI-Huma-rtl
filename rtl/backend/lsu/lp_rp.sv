@@ -152,8 +152,8 @@ module lp_rp
     srp_take_any = !srp_v_c && trp_any;
     srp_ptr_d = srp_take_any ? (srp_new + SQW'(1)) : srp_ptr_q;
   end
-  lp_ffs #(.N(SQ)) u_trp_hi (.req(trp_hi),  .onehot(trp_oh_hi), .any(trp_any_hi));
-  lp_ffs #(.N(SQ)) u_trp_lo (.req(trp_vec), .onehot(trp_oh_lo), .any(trp_any_lo));
+  ttg_first_set #(.N(SQ)) u_trp_hi (.req(trp_hi),  .onehot(trp_oh_hi), .any(trp_any_hi));
+  ttg_first_set #(.N(SQ)) u_trp_lo (.req(trp_vec), .onehot(trp_oh_lo), .any(trp_any_lo));
   ttg_onehot_to_idx #(.N(SQ)) u_trpi (.onehot(trp_oh), .idx(trp_ix));
   assign srp_take = srp_take_any ? trp_oh : '0;
 

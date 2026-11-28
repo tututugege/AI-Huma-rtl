@@ -68,22 +68,16 @@ module axi_llc_bingo
     end
   end
 
-  // 1-candidate/cycle burst emitter + 16-entry deduplicated FIFO
+  // 1-candidate/cycle burst emitter -> BQ_N-entry deduplicated FIFO (axi_llc_pfq)
   logic        emit_v_q, emit_v_d;
   logic [19:0] emit_reg_q, emit_reg_d;
   logic [5:0]  emit_off_q, emit_off_d;
   logic [63:0] emit_mask_q, emit_mask_d;
   logic [4:0]  emit_left_q, emit_left_d;
 
-  logic [25:0] q_line_q [BQ_N], q_p [BQ_N], q_line_d [BQ_N];
-  logic [4:0]  q_cnt_q, cnt_p, q_cnt_d;
-
-  assign q_empty     = (q_cnt_q == 5'd0);
-  assign q_head_line = q_line_q[0];
-
   logic [5:0]  rot_sh, emit_pick_d, emit_pick_idx;
   logic [63:0] emit_rot, emit_pick_oh;
-  logic        emit_pick_any, push_cand, cand_dup;
+  logic        emit_pick_any, push_cand;
   logic [25:0] cand_line;
 
   always_comb begin
@@ -132,23 +126,13 @@ module axi_llc_bingo
     end
   end
 
-  always_comb begin
-    for (int i = 0; i < BQ_N; i++) q_p[i] = (pop_head && (i + 1 < BQ_N)) ? q_line_q[i + 1] : q_line_q[i];
-    cnt_p = (pop_head && (q_cnt_q != 5'd0)) ? (q_cnt_q - 5'd1) : q_cnt_q;
-    cand_dup = 1'b0;
-    for (int i = 0; i < BQ_N; i++) if ((5'(i) < cnt_p) && (q_p[i] == cand_line)) cand_dup = 1'b1;
-    for (int i = 0; i < BQ_N; i++) q_line_d[i] = q_p[i];
-    q_cnt_d = cnt_p;
-    if (push_cand && !cand_dup) begin
-      if (cnt_p == 5'(BQ_N)) begin
-        for (int i = 0; i < BQ_N - 1; i++) q_line_d[i] = q_p[i + 1];
-        q_line_d[BQ_N - 1] = cand_line;
-      end else begin
-        q_line_d[cnt_p[3:0]] = cand_line;
-        q_cnt_d = cnt_p + 5'd1;
-      end
-    end
-  end
+  // bingo_q: pop_head comes from axi_llc_bop (bingo_pop), which requires !q_empty, so the queue is never popped empty
+  logic [25:0] cand_lines [1];
+  assign cand_lines[0] = cand_line;
+  axi_llc_pfq #(.N(BQ_N), .NCAND(1), .W(26), .RST_LINES(1'b0)) u_q (
+    .clk, .rst_n, .pop(pop_head), .push_v(push_cand), .cand_line(cand_lines), .cand_sel(1'b0),
+    .empty(q_empty), .head(q_head_line)
+  );
 
   always_ff @(posedge clk) begin
     if (!rst_n) begin
@@ -157,14 +141,12 @@ module axi_llc_bingo
       throttled_q  <= 1'b0;
       probe_cnt_q  <= 3'd0;
       emit_v_q     <= 1'b0;
-      q_cnt_q      <= 5'd0;
     end else begin
       win_sent_q   <= win_sent_d;
       win_useful_q <= win_useful_d;
       throttled_q  <= throttled_d;
       probe_cnt_q  <= probe_cnt_d;
       emit_v_q     <= emit_v_d;
-      q_cnt_q      <= q_cnt_d;
     end
   end
 
@@ -173,7 +155,6 @@ module axi_llc_bingo
     emit_off_q  <= emit_off_d;
     emit_mask_q <= emit_mask_d;
     emit_left_q <= emit_left_d;
-    for (int i = 0; i < BQ_N; i++) q_line_q[i] <= q_line_d[i];
   end
 endmodule
 `default_nettype wire

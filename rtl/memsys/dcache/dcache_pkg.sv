@@ -1,5 +1,5 @@
 `default_nettype none
-// Ref: MemSubSystem/DcacheConfig.cpp  plru_touch_way/choose_plru_tree_victim; RealDcache.h  decode() / ReplayType
+// Ref: RealDcache.h  decode() (tree PLRU: ttg_util_pkg::ttg_plru4_*, ReplayType: memcpu_pkg::REPLAY_*)
 // Shared constants and small functions of the DCache domain (docs/modules/dcache.md).
 package dcache_pkg;
   import ttg_cfg_pkg::*;
@@ -40,14 +40,6 @@ package dcache_pkg;
     logic [DW-1:0]     data;
   } st2_t;
 
-  // ReplayType
-  /* verilator lint_off UNUSEDPARAM */
-  localparam logic [1:0] RP_HIT       = 2'd0;
-  localparam logic [1:0] RP_CONFLICT  = 2'd1;
-  localparam logic [1:0] RP_MSHR_HIT  = 2'd2;
-  localparam logic [1:0] RP_MSHR_FULL = 2'd3;
-  /* verilator lint_on UNUSEDPARAM */
-
   // address fields (C++ decode()): line = addr[31:6], set = addr[13:6], bank = addr[9:6], word = addr[5:3]
 
   function automatic logic [DW-1:0] line_word(input logic [LINE_BITS-1:0] l, input logic [WORD_W-1:0] w);
@@ -70,20 +62,6 @@ package dcache_pkg;
       end
     end
     return r;
-  endfunction
-
-  // tree-PLRU (4 ways): bit0 root (1 = victim on the right), bit1 = left pair, bit2 = right pair
-  function automatic logic [2:0] plru_touch(input logic [2:0] bits, input logic [1:0] way);
-    logic [2:0] n;
-    n = bits;
-    n[0] = ~way[1];
-    if (way[1]) n[2] = ~way[0];
-    else        n[1] = ~way[0];
-    return n;
-  endfunction
-
-  function automatic logic [1:0] plru_victim(input logic [2:0] bits);
-    return {bits[0], bits[0] ? bits[2] : bits[1]};
   endfunction
 endpackage
 `default_nettype wire

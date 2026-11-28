@@ -12,6 +12,7 @@
 module lp_wbuf
   import ttg_cfg_pkg::*;
   import lp_pkg::*;
+  import memcpu_pkg::REPLAY_HIT;
 (
   input  logic                clk,
   input  logic                rst_n,
@@ -149,8 +150,8 @@ module lp_wbuf
     for (int e = 0; e < NWB; e++)
       for (int k = 0; k < NST; k++)
         if (v_w[e] && st_w[e] && dcs_valid[k] && dcs_req_id[k] == 32'(ent_q[e].m0)) begin
-          r_hit[e] = r_hit[e] | (dcs_replay[k] == RT_HIT);
-          r_rep[e] = r_rep[e] | (dcs_replay[k] != RT_HIT);
+          r_hit[e] = r_hit[e] | (dcs_replay[k] == REPLAY_HIT);
+          r_rep[e] = r_rep[e] | (dcs_replay[k] != REPLAY_HIT);
         end
   end
 

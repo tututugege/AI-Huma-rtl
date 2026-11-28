@@ -54,11 +54,11 @@ depth: 75 层（100,853 cells，eda-05 Yosys `SYNTH_ABC="strash;balance;map"`，
 
 | 文件 | 行数 | 职责 |
 | --- | ---: | --- |
-| `rtl/soc/soc_axi/soc_axi_pkg.sv` | 62 | AXI4 常量（FIXED/INCR/WRAP、OKAY/SLVERR/DECERR、`NORM_NC_BUF` CACHE、PROT）、`axi4_next_addr` 地址生成、`axi4_merge_resp` |
+| `rtl/soc/soc_axi/soc_axi_pkg.sv` | 89 | AXI4 常量（FIXED/INCR/WRAP、OKAY/SLVERR/DECERR、`NORM_NC_BUF` CACHE、PROT）、`axi4_next_addr` 地址生成、`axi4_merge_resp`、64 位寄存器按字节写 `axi4_apply_strb`（CLINT / SYSCTRL 共用）、位宽转换拆拍 `axi4_ds_sub_max` / `axi4_ds_m_len` / `axi4_ds_m_size`（两个 downsizer 共用，`m_off_w` 作参数） |
 | `rtl/soc/soc_axi/soc_axi_skid.sv` | 82 | 全吞吐 2 项 skid buffer，同时打断前向 `VALID/DATA` 与后向 `READY` 组合路径 |
 | `rtl/soc/soc_axi/soc_axi_reg_slice.sv` | 143 | 完整 5 通道（AR/R/AW/W/B）AXI4 寄存器切片，用于 Core LLC 出口与芯片外部 DDR 引脚边界 |
-| `rtl/soc/soc_axi/soc_axi_downsizer_rd.sv` | 223 | 多在途（默认 16 项）读位宽转换器，支持跨 ID 乱序/交织 R 拍拼装、同 ID 严格 FIFO、窄访问与 `RLAST` 生成 |
-| `rtl/soc/soc_axi/soc_axi_downsizer.sv` | 255 | 完整读写位宽转换器（`S_DATA_W -> M_DATA_W`：256→64 / 256→128 / 256→256 零开销直通）；写侧独立 AW-to-W FIFO 与 B skid |
+| `rtl/soc/soc_axi/soc_axi_downsizer_rd.sv` | 208 | 多在途（默认 16 项）读位宽转换器，支持跨 ID 乱序/交织 R 拍拼装、同 ID 严格 FIFO、窄访问与 `RLAST` 生成 |
+| `rtl/soc/soc_axi/soc_axi_downsizer.sv` | 240 | 完整读写位宽转换器（`S_DATA_W -> M_DATA_W`：256→64 / 256→128 / 256→256 零开销直通）；写侧独立 AW-to-W FIFO 与 B skid |
 | `rtl/soc/soc_axi/soc_axi_xbar_rd.sv` | 304 | 参数化 `NM x NS` Full-AXI4 读交叉开关 + 内置多拍 `DECERR` 从口；同从口多在途 + 跨从口 §A5.3 保序栅栏 + 授权锁定保稳 |
 | `rtl/soc/soc_axi/soc_axi_xbar_wr.sv` | 396 | 参数化 `NM x NS` Full-AXI4 写交叉开关 + 内置多拍 `DECERR` 从口；独立 AW/W skid + 主/从 W 序 FIFO（支持 AW 先、W 先、同时到达，零死锁、零 W 交织） |
 | `rtl/soc/soc_axi/soc_axi_xbar.sv` | 133 | 读写通道完全独立的 Full-AXI4 Crossbar 顶层 |
@@ -91,6 +91,7 @@ depth: 75 层（100,853 cells，eda-05 Yosys `SYNTH_ABC="strash;balance;map"`，
 
 ## 10. 变更记录
 
+- 2026-11-29 清理 D：去重：`soc_axi_downsizer`（写侧）与 `soc_axi_downsizer_rd` 各有一份的 `calc_sub_max` / `calc_m_len` / `calc_m_size` 移入 `soc_axi_pkg`，改名 `axi4_ds_sub_max` / `axi4_ds_m_len` / `axi4_ds_m_size`，`M_OFF_W` 改为参数、`sub_max` 由调用处截到 `SUB_W`；`soc_clint` / `soc_sysctrl` 的 `apply_strb` 合为 `soc_axi_pkg::axi4_apply_strb`。函数体不变，新旧副本对拍（拆拍函数 4 组位宽全遍历、`apply_strb` 随机 100 万组）0 差（周期不变）。
 - 2026-11-28 清理：删 `soc_axi_skid` / `soc_axi_reg_slice` 只取过 0 的 `BYPASS` 参数与 `g_bypass` 分支（skid 主体不再包在 `g_skid` 里）、`soc_axi_pkg` 无引用的 `AXI4_RESP_EXOKAY` / `AXI4_CACHE_DEV_NGNRNE` 与不起作用的 `UNUSEDSIGNAL` 豁免，以及 `soc_axi_*` / `soc_xbar*` 里 `unused_*` 汇点外不起作用的豁免（周期不变）。
 - 2026-11-28（文档核对）：按 TEMPLATE 十节重排，文件表加行数，`soc_top` 门禁改为 77/77。
 - 2026-11-26（`5fa54e2`）：新增 `soc_axi` / `soc_xbar`。同一轮对核边界的两处改动：

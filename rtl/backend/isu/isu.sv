@@ -5,7 +5,7 @@
 // Top level adapts packed dis2iss / iss2prf structs to isu_iq, isu_wake_src and isu_wake_bus.
 module isu
   import ttg_cfg_pkg::*;
-  import isu_pkg::*;
+  import isu_pkg::*, ttg_util_pkg::ttg_rob_younger;
   import dis_pkg::dis_iss_uop_t;
 (
   input  logic                      clk,
@@ -217,9 +217,9 @@ module isu
   logic                     div_iss, div_keep;
   always_comb begin
     div_busy_eff    = div_busy_q && !(|(div_spec_mask_q & lsu2iss_cancel_valid));
-    div_iss         = grant_valid[1] && (grant_uop[1].op == op_t'(UOP_DIV));
+    div_iss         = grant_valid[1] && (grant_uop[1].op == op_t'(dis_pkg::UOP_DIV));
     div_keep        = div_busy_eff && !exe2iss_div_wb_in2 &&
-                      !(flush_br && isu_rob_younger(div_rob_idx_q, div_rob_flag_q,
+                      !(flush_br && ttg_rob_younger(div_rob_idx_q, div_rob_flag_q,
                                                     dec_bcast_redirect_rob_idx, dec_bcast_redirect_rob_flag));
     div_busy_d      = rob_bcast_flush ? 1'b0 : (div_iss || div_keep);
     div_spec_mask_d = rob_bcast_flush ? '0   : (div_iss ? grant_spec_mask_all[1] : '0);
@@ -250,10 +250,10 @@ module isu
   assign fdiv_cnt = fdiv_cnt_eff;
   always_comb begin
     fdiv_cnt_eff     = (|(fdiv_spec_mask_q & lsu2iss_cancel_valid)) ? '0 : fdiv_cnt_q;
-    fdiv_iss         = grant_valid[FP_LAST] && (grant_uop[FP_LAST].op == op_t'(UOP_FDIV));
-    fdiv_lat         = fp_latency(op_t'(UOP_FDIV), grant_uop[FP_LAST].func7);
+    fdiv_iss         = grant_valid[FP_LAST] && (grant_uop[FP_LAST].op == op_t'(dis_pkg::UOP_FDIV));
+    fdiv_lat         = fp_latency(op_t'(dis_pkg::UOP_FDIV), grant_uop[FP_LAST].func7);
     fdiv_keep        = (fdiv_cnt_eff > (FP_COUNT_W+1)'(1)) &&
-                       !(flush_br && isu_rob_younger(fdiv_rob_idx_q, fdiv_rob_flag_q,
+                       !(flush_br && ttg_rob_younger(fdiv_rob_idx_q, fdiv_rob_flag_q,
                                                      dec_bcast_redirect_rob_idx, dec_bcast_redirect_rob_flag));
     fdiv_cnt_d       = rob_bcast_flush ? '0
                      : fdiv_iss        ? fdiv_lat

@@ -43,14 +43,6 @@ module soc_clint import soc_axi_pkg::*; (
   logic [63:0] w_data_q, w_data_d;
   logic [7:0]  w_strb_q, w_strb_d;
 
-  function automatic logic [63:0] apply_strb(
-    input logic [63:0] old_v, input logic [63:0] new_v, input logic [7:0] strb
-  );
-    logic [63:0] res;
-    for (int b = 0; b < 8; b++) res[8*b +: 8] = strb[b] ? new_v[8*b +: 8] : old_v[8*b +: 8];
-    return res;
-  endfunction
-
   // Decode register target: 0=none, 1=mtime, 2=mtimecmp, 3=msip, 4=rtc_cfg
   function automatic logic [2:0] dec_reg(input logic [31:3] addr);
     if (addr[31:12] == 20'h1FD0E) begin
@@ -129,8 +121,8 @@ module soc_clint import soc_axi_pkg::*; (
       w_v_d    = 1'b0;
       bvalid_d = 1'b1;
       case (dec_reg(wr_addr))
-        3'd1: mtime_d     = apply_strb(mtime_q, wr_data, wr_strb);
-        3'd2: mtimecmp_d  = apply_strb(mtimecmp_q, wr_data, wr_strb);
+        3'd1: mtime_d     = axi4_apply_strb(mtime_q, wr_data, wr_strb);
+        3'd2: mtimecmp_d  = axi4_apply_strb(mtimecmp_q, wr_data, wr_strb);
         3'd3: if (wr_strb[0]) msip_d      = wr_data[0];
         3'd4: if (wr_strb[0]) fast_tick_d = wr_data[0];
         default: ;

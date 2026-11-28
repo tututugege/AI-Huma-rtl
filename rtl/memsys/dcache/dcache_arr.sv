@@ -7,6 +7,7 @@
 // distinct banks too, so no write ordering exists.
 module dcache_arr
   import dcache_pkg::*;
+  import ttg_util_pkg::ttg_plru4_touch;
 (
   input  logic                 clk,
   input  logic                 rst_n,
@@ -111,11 +112,11 @@ module dcache_arr
       for (int k = 0; k < NSLOT; k++) begin
         pl_en_b[k]   = lu_en[k] && req_set[k][BANK_W-1:0] == BANK_W'(b);
         pl_row_b[k]  = req_set[k][SET_W-1:BANK_W];
-        pl_bits_b[k] = plru_touch(b_plru[b], lu_way[k]);
+        pl_bits_b[k] = ttg_plru4_touch(b_plru[b], lu_way[k]);
       end
       pl_en_b[NSLOT]   = fw_en_b;
       pl_row_b[NSLOT]  = fw_set[SET_W-1:BANK_W];
-      pl_bits_b[NSLOT] = plru_touch(b_plru[b], fw_way);
+      pl_bits_b[NSLOT] = ttg_plru4_touch(b_plru[b], fw_way);
     end
 
     dcache_bank u_bank (

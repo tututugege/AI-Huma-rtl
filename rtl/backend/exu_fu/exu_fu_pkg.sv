@@ -6,12 +6,7 @@ package exu_fu_pkg;
 
   import ttg_cfg_pkg::*;
 
-  // ---- uop types (back-end/include/base_types.h enum UopType); UOP_TYPE_WIDTH = 5 ----
-  localparam int OP_W = 5;
-  localparam logic [OP_W-1:0] UOP_JUMP = OP_W'(0);
-  localparam logic [OP_W-1:0] UOP_ADD  = OP_W'(1);
-  localparam logic [OP_W-1:0] UOP_BR   = OP_W'(2);
-  localparam logic [OP_W-1:0] UOP_WFI  = OP_W'(16);
+  // (uop types: dis_pkg::uop_op_e / UOP_TYPE_W, the one definition of base_types.h enum UopType)
 
   // ---- AMO operations = funct7[6:2] (back-end/include/types.h namespace AmoOp) ----
   localparam int AMO_W = 5;
@@ -72,11 +67,6 @@ package exu_fu_pkg;
 
   // ---- payload of a multi-cycle FU entry: the ExuInst fields the Exu consumers read for a MUL/DIV uop
   //      (to_exe_prf_wb_uop / to_exu_rob_uop; every other ExuInst field of a MUL/DIV is constant 0 or unread) ----
-  function automatic logic fu_rob_younger(input logic [ROB_IDX_WIDTH-1:0] a_idx, input logic a_flag,
-                                          input logic [ROB_IDX_WIDTH-1:0] b_idx, input logic b_flag);
-    return (a_flag == b_flag) ? (a_idx > b_idx) : (a_idx < b_idx);
-  endfunction
-
   typedef struct packed {
     logic [XLEN_BITS-1:0]     result;
     logic [ROB_IDX_WIDTH-1:0] rob_idx;

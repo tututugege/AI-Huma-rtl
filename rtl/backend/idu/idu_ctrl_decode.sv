@@ -4,9 +4,11 @@
 // Instruction -> control word. The opcode/funct fields are first classified into ONE mutually exclusive class
 // (one-hot, NCLS bits); every control bit is then a lookup in a constant table indexed by that class (AND-OR mux).
 // The C++ `switch (opcode)` + nested if/else chains become: class one-hot (below) + ROM (further below).
-module idu_ctrl_decode import ttg_cfg_pkg::*; (
+module idu_ctrl_decode import ttg_cfg_pkg::*;
+  import dis_pkg::FPC_NONE, dis_pkg::FPC_FMA, dis_pkg::FPC_FDIV, dis_pkg::FPC_MISC, dis_pkg::FPC_I2F;  // FpCls
+(
   input  logic [31:0] inst,
-  output logic [4:0]  uop_type,
+  output logic [dis_pkg::INST_TYPE_W-1:0] uop_type,
   output logic        dest_en,
   output logic        src1_en,
   output logic        src2_en,
@@ -29,13 +31,14 @@ module idu_ctrl_decode import ttg_cfg_pkg::*; (
   output logic [2:0]  fp_cls             // unit class: FPC_*
 );
 
-  // ---- InstType encoding (Ref: back-end/include/types.h enum InstType) ----
-  localparam logic [4:0] T_NOP = 5'd0, T_JAL = 5'd1, T_JALR = 5'd2, T_ADD = 5'd3, T_BR = 5'd4, T_LOAD = 5'd5,
-                         T_STORE = 5'd6, T_CSR = 5'd7, T_FENCE = 5'd8, T_ECALL = 5'd9, T_EBREAK = 5'd10,
-                         T_WFI = 5'd11, T_SFENCE_VMA = 5'd12, T_FENCE_I = 5'd13, T_MRET = 5'd14,
-                         T_SRET = 5'd15, T_MUL = 5'd16, T_DIV = 5'd17, T_AMO = 5'd18, T_FPOP = 5'd19;
-  // FpCls (Ref: base_types.h)
-  localparam logic [2:0] FPC_NONE = 3'd0, FPC_FMA = 3'd1, FPC_FDIV = 3'd2, FPC_MISC = 3'd3, FPC_I2F = 3'd4;
+  // ---- InstType encoding: short names for dis_pkg::inst_type_e (types.h enum InstType) ----
+  localparam logic [4:0] T_NOP = dis_pkg::INST_NOP, T_JAL = dis_pkg::INST_JAL, T_JALR = dis_pkg::INST_JALR,
+                         T_ADD = dis_pkg::INST_ADD, T_BR = dis_pkg::INST_BR, T_LOAD = dis_pkg::INST_LOAD,
+                         T_STORE = dis_pkg::INST_STORE, T_CSR = dis_pkg::INST_CSR, T_FENCE = dis_pkg::INST_FENCE,
+                         T_ECALL = dis_pkg::INST_ECALL, T_EBREAK = dis_pkg::INST_EBREAK, T_WFI = dis_pkg::INST_WFI,
+                         T_SFENCE_VMA = dis_pkg::INST_SFENCE_VMA, T_FENCE_I = dis_pkg::INST_FENCE_I,
+                         T_MRET = dis_pkg::INST_MRET, T_SRET = dis_pkg::INST_SRET, T_MUL = dis_pkg::INST_MUL,
+                         T_DIV = dis_pkg::INST_DIV, T_AMO = dis_pkg::INST_AMO, T_FPOP = dis_pkg::INST_FPOP;
 
   // ---- major opcodes (Ref: include/RISCV.h enum_number_opcode) ----
   localparam logic [6:0] OPC_LUI = 7'b0110111, OPC_AUIPC = 7'b0010111, OPC_JAL = 7'b1101111,

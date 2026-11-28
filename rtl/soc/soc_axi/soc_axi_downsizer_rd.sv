@@ -56,21 +56,6 @@ module soc_axi_downsizer_rd import soc_axi_pkg::*; #(
   localparam int RCNT_W  = $clog2(MAX_RD_OUT + 1);
   localparam int AX_W    = ID_W + ADDR_W + 8 + 3 + 2 + 1 + 4 + 3 + 4 + 4;
 
-  function automatic logic [SUB_W-1:0] calc_sub_max(input logic [2:0] sz);
-    if (int'(sz) <= M_OFF_W) return '0;
-    else                     return SUB_W'((32'd1 << (int'(sz) - M_OFF_W)) - 32'd1);
-  endfunction
-
-  function automatic logic [7:0] calc_m_len(input logic [7:0] slen, input logic [2:0] sz);
-    if (int'(sz) <= M_OFF_W) return slen;
-    else                     return 8'(((32'(slen) + 32'd1) << (int'(sz) - M_OFF_W)) - 32'd1);
-  endfunction
-
-  function automatic logic [2:0] calc_m_size(input logic [2:0] sz);
-    if (int'(sz) <= M_OFF_W) return sz;
-    else                     return 3'(M_OFF_W);
-  endfunction
-
   typedef struct packed {
     logic [ID_W-1:0]     id;
     logic [SUB_W-1:0]    sub_max;
@@ -98,8 +83,8 @@ module soc_axi_downsizer_rd import soc_axi_pkg::*; #(
   logic [2:0]        ar_msize;
   logic [AX_W-1:0]   mar_pay;
 
-  assign ar_mlen     = calc_m_len(s_arlen, s_arsize);
-  assign ar_msize    = calc_m_size(s_arsize);
+  assign ar_mlen     = axi4_ds_m_len(s_arlen, s_arsize, M_OFF_W);
+  assign ar_msize    = axi4_ds_m_size(s_arsize, M_OFF_W);
   assign ar_can_push = (rd_cnt_q < RCNT_W'(MAX_RD_OUT)) && mar_r;
   assign s_arready   = ar_can_push;
   assign ar_fire     = s_arvalid && ar_can_push;
@@ -193,7 +178,7 @@ module soc_axi_downsizer_rd import soc_axi_pkg::*; #(
     rd_cnt_d = rd_cnt_mid;
     if (ar_fire) begin
       rd_d[rd_cnt_mid[RIDX_W-1:0]] = '{
-        id: s_arid, sub_max: calc_sub_max(s_arsize), sub_cnt: '0,
+        id: s_arid, sub_max: SUB_W'(axi4_ds_sub_max(s_arsize, M_OFF_W)), sub_cnt: '0,
         addr: s_araddr, msize: ar_msize, burst: s_arburst, mlen: ar_mlen,
         wide_rem: s_arlen, resp: AXI4_RESP_OKAY, buf_data: '0
       };

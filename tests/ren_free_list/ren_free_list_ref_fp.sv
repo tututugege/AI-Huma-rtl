@@ -1,9 +1,9 @@
-// Ref: back-end/Ren.cpp  class Ren  (fp_free_list, fp_free_head, fp_free_head_commit, fp_free_tail; F/D)
+// Test reference copy (tests/ren_free_list): the module before the 2026-11-29 merge. Ref: back-end/Ren.cpp  class Ren  (fp_free_list, fp_free_head, fp_free_head_commit, fp_free_tail; F/D)
 `default_nettype none
 
 // 8-bank 1R1W circular free list of FP physical registers (FPRF_NUM = 96 = 8 banks x 12 rows x 7-bit local tag).
 // Stores 7-bit FP local tag (preg - FP_TAG_BASE) and adds FP_TAG_BASE on read.
-module ren_fp_free_list
+module ren_free_list_ref_fp
   import ttg_cfg_pkg::*;
   import ren_pkg::*;
 #(

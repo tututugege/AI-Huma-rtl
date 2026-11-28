@@ -68,7 +68,7 @@ depth: 44 层（ptw_walk，单模块综合 5446 cells / 21 $mem_v2，2026-11-22�
 | `ptw_walk.sv` | 82 | 顶层：连线（含 `sfence_flush`） |
 | `ptw_walk_client.sv` | 108 | 客户侧 |
 | `ptw_walk_engine.sv` | 208 | 状态机（含 `PW_STLB_LK` 查表拍与回填） |
-| `ptw_walk_l2tlb.sv` | 329 | 统一 L2 TLB（4 路 256×76b 1RW SRAM + 3-bit PLRU + 8 项大页 CAM）+ 16 项 PWC |
+| `ptw_walk_l2tlb.sv` | 317 | 统一 L2 TLB（4 路 256×76b 1RW SRAM + 3-bit PLRU（`ttg_util_pkg::ttg_plru4_touch / ttg_plru4_victim`）+ 8 项大页 CAM）+ 16 项 PWC |
 | `ptw_walk_pte.sv` | 57 | PTE 判断（纯组合） |
 
 状态：每个客户的 `pending_q`、`inflight_q`、`resp_valid_q`、`vpn_q`（27 位）、`root_q`（20 位）、响应的 `fault_q`/`leaf_ppn_q`/`perm_q`/`level_q`；引擎的 `state_q`（6 个状态）、`owner_q`、`rr_q`（下次优先的客户）、`l1_ppn_q`（上一级指针项的页号 = 下一级页表的基址，20 位）、`req_id_q`（已授权读请求的 id）、`level_q`（后续读的级别）；`ptw_walk_l2tlb` 内的 4 路 256×76b 1RW STLB SRAM（`mem_q`）、`stlb_rd_q`、`stlb_valid_q`、`stlb_plru_q`、8 项大页 CAM + `sp_rr_q`、16 项 PWC + `pwc_rr_q`。
@@ -129,6 +129,7 @@ depth: 44 层（ptw_walk，单模块综合 5446 cells / 21 $mem_v2，2026-11-22�
 
 ## 10. 变更记录
 
+- 2026-11-29 清理 D：去重（周期不变）。`ptw_walk_l2tlb` 删除本地 `plru_update / plru_victim`（与 `ttg_util_pkg::ttg_plru4_touch / ttg_plru4_victim` 逐字相同），改为按名导入后者。
 - 2026-11-28 清理：`ptw_walk.sv` 文件头去掉已删除的 `spec/ptw_walk.io` 引用；删 `ptw_walk_pte.sv` 一处无效 waiver（周期不变）。
 - 2026-11-28（rtl 73761fa，SRAM 复位清扫）：`ptw_walk_l2tlb` 的 4 个 STLB `ttg_sram_1rw` 实例接上 `rst_n`；复位期间 SRAM 外壳逐地址写 `INIT_VAL`，`ttg_rst_sweep` 把复位拉长 `SRAM_SWEEP_CYCLES = 4100` 拍，不再依赖上电值（common.md 4.1）；0 周期变化，`fm_gate` 77/77。
 - **2026-11-22 (`rtl/l2tlb`)**：新增 `ptw_walk_l2tlb.sv`（1024 项 4 路 1RW SRAM STLB + 3-bit PLRU、8 项大页 CAM、16 项 Sv39 PWC）与 `PW_STLB_LK` 查表拍，经 `mem_top.rob_bcast_fence` 接入 `sfence_flush`；解耦 `PW_L1_REQ/PW_L2_REQ` 与 `select_any` 路径（综合 `5446 cells / depth=44`）。

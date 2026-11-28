@@ -152,17 +152,20 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
   // ---- A0 2-Ahead SRAM read launch mux ----
   logic                 ah_rd_en_eff;
   logic [XLEN_BITS-1:0] ah_rd_base_eff;
-  ex_fh_t               ah_rd_ex_fh_eff;
+  ex_fh0_t              ah_rd_key_fh;
   ex_tage_ix_t          ah_rd_ex_ix;
   itt_ix_t              ah_rd_itt_ix;
 
   always_comb begin
     // an S2 override relaunches the read for its own block (fast override, no registered ovr_pend bubble)
-    ah_rd_en_eff    = !refetch && (ovr || icache_read_ready);
-    ah_rd_base_eff  = ovr ? r1_q.base       : s0_base;
-    ah_rd_ex_fh_eff = ovr ? r1_q.ck.h.ex_fh : spec_ex_fh;
-    ah_rd_ex_ix  = make_ah_ex_tage_index(ah_rd_base_eff, '0, ah_rd_ex_fh_eff[0], ah_rd_ex_fh_eff, '0, 1'b0);
-    ah_rd_itt_ix = make_ah_itt_index(ah_rd_base_eff, '0, ah_rd_ex_fh_eff[0], ah_rd_ex_fh_eff, '0, 1'b0);
+    ah_rd_en_eff     = !refetch && (ovr || icache_read_ready);
+    ah_rd_base_eff   = ovr ? r1_q.base          : s0_base;
+    ah_rd_key_fh     = ovr ? r1_q.ck.h.ex_fh[0] : spec_ex_fh[0];
+    // the read launch needs only the index: w / tag of the read index are not consumed
+    ah_rd_ex_ix      = '0;
+    ah_rd_itt_ix     = '0;
+    ah_rd_ex_ix.idx  = ah_ex_tage_idx(ah_rd_base_eff, ah_rd_key_fh);
+    ah_rd_itt_ix.idx = ah_itt_idx(ah_rd_base_eff, ah_rd_key_fh);
   end
 
   // ---- Single-Set Predictor Arrays ----

@@ -1,7 +1,7 @@
 // Ref: back-end/Prf.cpp  class Prf  inst_r[] / comb_pipeline / seq
 `default_nettype none
 
-module prf_wb_pipe import ttg_cfg_pkg::*; #(
+module prf_wb_pipe import ttg_cfg_pkg::*; import ttg_util_pkg::ttg_rob_younger; #(
   parameter int LANES = WB_LANES
 ) (
   input  logic                     clk,
@@ -25,17 +25,12 @@ module prf_wb_pipe import ttg_cfg_pkg::*; #(
   output logic [LANES-1:0]         wb_rob_flag_q
 );
 
-  function automatic logic rob_younger(input logic [ROB_IDX_WIDTH-1:0] a_idx, input logic a_flag,
-                                       input logic [ROB_IDX_WIDTH-1:0] b_idx, input logic b_flag);
-    return (a_flag == b_flag) ? (a_idx > b_idx) : (a_idx < b_idx);
-  endfunction
-
   logic [LANES-1:0] wb_wen_d;
 
   always_comb begin
     for (int i = 0; i < LANES; i++) begin
       wb_wen_d[i] = !flush && exe_valid[i] && exe_dest_en[i] &&
-                    !(bcast_mispred && rob_younger(exe_rob_idx[i], exe_rob_flag[i], bcast_rob_idx, bcast_rob_flag));
+                    !(bcast_mispred && ttg_rob_younger(exe_rob_idx[i], exe_rob_flag[i], bcast_rob_idx, bcast_rob_flag));
     end
   end
 

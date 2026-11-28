@@ -30,7 +30,7 @@ module exu_ctrl_wb_prf
         rob_idx:   ld_wb[K].rob_idx,
         rob_flag:  ld_wb[K].rob_flag,
         dest_en:   ld_wb[K].dest_en,
-        op:        XC_OP_W'(XC_UOP_LOAD)
+        op:        dis_pkg::UOP_LOAD
       };
     end else begin : g_win
       assign wb[l] = '{

@@ -16,7 +16,7 @@ module ren_commit_filter
   input  logic [C-1:0]                 commit_page_fault_load,
   input  logic [C-1:0]                 commit_page_fault_store,
   input  logic [C-1:0]                 commit_illegal_inst,
-  input  logic [INST_TYPE_WIDTH-1:0]   commit_inst_type [C],
+  input  logic [dis_pkg::INST_TYPE_W-1:0]   commit_inst_type [C],
   input  logic [C-1:0]                 commit_elim,   // eliminated move: allocated no register
   input  logic                         rob_interrupt,
   output logic [C-1:0]                 reclaim,       // commit slot retires a dest and is not an exception/interrupt
@@ -27,7 +27,7 @@ module ren_commit_filter
 
   for (genvar k = 0; k < C; k++) begin : g_slot
     assign is_exception[k] = commit_page_fault_inst[k] | commit_page_fault_load[k] | commit_page_fault_store[k] |
-                             commit_illegal_inst[k] | (commit_inst_type[k] == ITYPE_ECALL);
+                             commit_illegal_inst[k] | (commit_inst_type[k] == dis_pkg::INST_ECALL);
     assign reclaim[k] = commit_valid[k] & commit_dest_en[k] & ~is_exception[k] & ~rob_interrupt;
   end
 

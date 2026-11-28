@@ -15,6 +15,8 @@
 module rob_core_cpt
   import ttg_cfg_pkg::*;
   import rob_pkg::*;
+  import dis_pkg::INST_BR, dis_pkg::INST_JAL, dis_pkg::INST_JALR;
+  import ftq_ibuf_pkg::ftq_in_window;
 (
   input  logic                       clk,
   input  logic                       rst_n,
@@ -164,16 +166,24 @@ module rob_core_cpt
     assign w_flush[k]    = rob_is_flush_inst(w_uop[k]);
     assign w_fence[k]    = rob_is_fence_inst(w_uop[k]);
     assign w_wfi[k]      = rob_is_wfi(w_uop[k]);
-    assign w_ctl[k]      = (w_uop[k].itype == ITYPE_BR) | (w_uop[k].itype == ITYPE_JAL) |
-                           (w_uop[k].itype == ITYPE_JALR);
+    assign w_ctl[k]      = (w_uop[k].itype == INST_BR) | (w_uop[k].itype == INST_JAL) |
+                           (w_uop[k].itype == INST_JALR);
     assign w_last[k]         = w_uop[k].ftq_is_last;
     assign commit_rob_idx[k] = head_q + IW'(k);
     assign commit_uop[k]     = w_uop[k];
   end
 
   // ---- commit (Rob::comb_commit_compact) ----
+  // every slot counts the older control-flow instructions / block ends on its own (parallel, no running sum)
+  logic [CW-1:0] ctl_before [NB], blk_before [NB];
+  for (genvar k = 0; k < NB; k++) begin : g_before
+    ttg_popcount #(.N(NB), .CW(CW)) u_ctl (.bits(w_ctl & NB'((1 << k) - 1)), .count(ctl_before[k]));
+    ttg_popcount #(.N(NB), .CW(CW)) u_blk (.bits(w_last & NB'((1 << k) - 1)), .count(blk_before[k]));
+  end
+  ttg_popcount #(.N(NB), .CW(CW)) u_ctl_c (.bits(commit_valid & w_ctl), .count(ctl_c));
+  ttg_popcount #(.N(NB), .CW(CW)) u_blk_c (.bits(commit_valid & w_last), .count(blk_c));
+
   always_comb begin
-    logic [CW-1:0] ctl_before, blk_before;
     upd_free = $signed({2'b0, bpu_upd_free}) - $signed({2'b0, prev_ctl_q});
     tq_free  = $signed({2'b0, bpu_tq_free}) - $signed({2'b0, prev_blk_q});
     h_alone = w_flush[0] | w_fence[0] | w_wfi[0];
@@ -182,53 +192,31 @@ module rob_core_cpt
                      (!mispred_any && !ren_walking && nonempty && !interrupt_req && h_alone && w_complete[0] &&
                       !(w_fence[0] && committed_store_pending));
     group_go = !mispred_any && !ren_walking && nonempty && !interrupt_req && !h_alone;
-    // every slot counts the older control-flow instructions / block ends on its own (parallel, no running sum)
     for (int k = 0; k < NB; k++) begin
-      ctl_before = '0;
-      blk_before = '0;
-      for (int j = 0; j < k; j++) begin
-        ctl_before = ctl_before + CW'(w_ctl[j]);
-        blk_before = blk_before + CW'(w_last[j]);
-      end
       ok[k] = w_in[k] && w_complete[k] && !w_flush[k] && !w_fence[k] && !w_wfi[k] && !(front_stall && k > 0);
       if (k > 0) begin
-        /* verilator lint_off UNUSEDSIGNAL */
-        logic [FTQ_IDX_WIDTH-1:0] ftq_diff;
-        /* verilator lint_on UNUSEDSIGNAL */
-        ftq_diff = w_uop[k].ftq_idx - ftq_head;
-        if (|ftq_diff[FTQ_IDX_WIDTH-1:3]) ok[k] = 1'b0;
-        if (w_ctl[k] && $signed({2'b0, ctl_before}) >= upd_free) ok[k] = 1'b0;
-        if (w_last[k] && $signed({2'b0, blk_before}) >= tq_free) ok[k] = 1'b0;
+        if (!ftq_in_window(w_uop[k].ftq_idx, ftq_head)) ok[k] = 1'b0;
+        if (w_ctl[k] && $signed({2'b0, ctl_before[k]}) >= upd_free) ok[k] = 1'b0;
+        if (w_last[k] && $signed({2'b0, blk_before[k]}) >= tq_free) ok[k] = 1'b0;
       end
     end
     for (int k = 0; k < NB; k++) prefix[k] = &(ok | ~(NB'((1 << (k + 1)) - 1)));
     commit_valid = single_commit ? NB'(1) : (group_go ? prefix : '0);
-    ctl_c = '0;
-    blk_c = '0;
-    for (int k = 0; k < NB; k++) begin
-      ctl_c = ctl_c + CW'(commit_valid[k] & w_ctl[k]);
-      blk_c = blk_c + CW'(commit_valid[k] & w_last[k]);
-    end
   end
 
   // ---- head information (Rob::comb_ready / comb_ftq_pc_req / comb_commit_compact) ----
+  // the first window slot that holds an incomplete entry
+  logic [NB-1:0] incpl_oh;
+  logic [BW-1:0] incpl_k;
+  ttg_first_set #(.N(NB)) u_incpl (.req(w_in & ~w_complete), .onehot(incpl_oh), .any(bcast_head_incomplete_valid));
+  ttg_onehot_to_idx #(.N(NB), .IDXW(BW)) u_incpl_k (.onehot(incpl_oh), .idx(incpl_k));
+  assign bcast_head_incomplete_rob_idx = bcast_head_incomplete_valid ? head_q + IW'(incpl_k) : '0;
   always_comb begin
-    logic found;
     rob2dis_stall = |(w_in & w_flush);
     ftq_req_ftq_idx = w_uop[0].ftq_idx;
     ftq_req_ftq_offset = w_uop[0].ftq_offset;
     bcast_head_valid = nonempty;
     bcast_head_rob_idx = nonempty ? head_q : '0;
-    bcast_head_incomplete_valid = 1'b0;
-    bcast_head_incomplete_rob_idx = '0;
-    found = 1'b0;
-    for (int k = 0; k < NB; k++) begin
-      if (!found && w_in[k] && !w_complete[k]) begin
-        found = 1'b1;
-        bcast_head_incomplete_valid = 1'b1;
-        bcast_head_incomplete_rob_idx = head_q + IW'(k);
-      end
-    end
   end
 
   // ---- dispatch side (Rob::comb_commit_compact tail, comb_ready) ----
@@ -246,9 +234,8 @@ module rob_core_cpt
   logic [31:0] bank_inst_rd   [NB];
   logic [31:0] head_inst_word;
 
+  ttg_popcount #(.N(NB), .CW(CW)) u_m_fire (.bits(dis_fire & {NB{rob2dis_ready}}), .count(m_fire));
   always_comb begin
-    m_fire = '0;
-    for (int i = 0; i < NB; i++) m_fire = m_fire + CW'(dis_fire[i] & rob2dis_ready);
     for (int b = 0; b < NB; b++) begin
       bank_we[b]        = 1'b0;
       bank_uop[b]       = '0;

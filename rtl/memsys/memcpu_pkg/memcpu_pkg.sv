@@ -28,6 +28,13 @@ package memcpu_pkg;
   localparam logic [1:0] REPLAY_CONFLICT = 2'd1;
   localparam logic [1:0] REPLAY_MSHR_HIT = 2'd2;
   localparam logic [1:0] REPLAY_MSHR_FULL = 2'd3;
+  // (the single owner of this encoding: the DCache, the route block and the LSU all import it from here)
+
+  // LSU replay countdown after a DCache response: MSHR hit / full wait LSU_PEPLAY_WAIT_CYCLES, the others retry at once
+  function automatic logic [LSU_REPLAY_WAIT_CYCLES_WIDTH-1:0] replay_wait(input logic [1:0] rt);
+    return (rt == REPLAY_MSHR_HIT || rt == REPLAY_MSHR_FULL) ? LSU_REPLAY_WAIT_CYCLES_WIDTH'(LSU_PEPLAY_WAIT_CYCLES)
+                                                             : LSU_REPLAY_WAIT_CYCLES_WIDTH'(0);
+  endfunction
 
   // ---- PTW (Sv39: 3 levels, 8-byte PTEs) ----
   localparam int PT_LEVELS    = 3;

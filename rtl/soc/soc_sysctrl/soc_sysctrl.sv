@@ -52,14 +52,6 @@ module soc_sysctrl import soc_axi_pkg::*; (
   logic [63:0] w_data_q, w_data_d;
   logic [7:0]  w_strb_q, w_strb_d;
 
-  function automatic logic [63:0] apply_strb(
-    input logic [63:0] old_v, input logic [63:0] new_v, input logic [7:0] strb
-  );
-    logic [63:0] res;
-    for (int b = 0; b < 8; b++) res[8*b +: 8] = strb[b] ? new_v[8*b +: 8] : old_v[8*b +: 8];
-    return res;
-  endfunction
-
   assign s_arready    = !rvalid_q;
   assign s_rvalid     = rvalid_q;
   assign s_rdata      = rdata_q;
@@ -125,9 +117,9 @@ module soc_sysctrl import soc_axi_pkg::*; (
       bvalid_d = 1'b1;
       case (wr_reg)
         5'h02: if (wr_strb[3:0] == 4'hF && wr_data[31:0] == RST_MAGIC) rst_cnt_d = 3'd4;
-        5'h03: core_ctl_d = apply_strb(core_ctl_q, wr_data, wr_strb);
-        5'h04: scratch0_d = apply_strb(scratch0_q, wr_data, wr_strb);
-        5'h05: scratch1_d = apply_strb(scratch1_q, wr_data, wr_strb);
+        5'h03: core_ctl_d = axi4_apply_strb(core_ctl_q, wr_data, wr_strb);
+        5'h04: scratch0_d = axi4_apply_strb(scratch0_q, wr_data, wr_strb);
+        5'h05: scratch1_d = axi4_apply_strb(scratch1_q, wr_data, wr_strb);
         default: ;
       endcase
     end

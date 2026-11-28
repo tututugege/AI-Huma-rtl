@@ -8,7 +8,7 @@ module bru
   import exu_fu_pkg::*;
   import ttg_cfg_pkg::*;
 (
-  input  logic [OP_W-1:0] op,
+  input  logic [dis_pkg::UOP_TYPE_W-1:0] op,
   input  logic [2:0]      func3,
   input  logic            src1_en,
   input  logic [XLEN_BITS-1:0]     src1_rdata,
@@ -30,8 +30,8 @@ module bru
 
   // Ref: BruUnit::impl_compute  (condition of a conditional branch)
   always_comb begin
-    is_br     = (op == UOP_BR);
-    is_jump   = (op == UOP_JUMP);
+    is_br     = (op == dis_pkg::UOP_BR);
+    is_jump   = (op == dis_pkg::UOP_JUMP);
     cond_eq   = (src1_rdata == src2_rdata);
     cond_lt_s = $signed(src1_rdata) < $signed(src2_rdata);  // BLT/BGE compare as signed
     cond_lt_u = src1_rdata < src2_rdata;

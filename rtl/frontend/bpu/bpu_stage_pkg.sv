@@ -63,6 +63,59 @@ package bpu_stage_pkg;
     endcase
   endfunction
 
+  // Folded-history rotate left within len bits (bpu_hist_vec SYNTHESIS path and bpu_spec architectural push)
+  function automatic logic [EX_FH_W-1:0] rotl_const_ex(input logic [EX_FH_W-1:0] x, input int unsigned a,
+                                                       input int unsigned len);
+    logic [EX_FH_W-1:0] msk;
+    msk = EX_FH_W'((32'd1 << len) - 32'd1);
+    return (a == 0) ? x : (((x << a) | (x >> (len - a))) & msk);
+  endfunction
+
+  // rotate by 3 * sn bits (sn symbols of 3 bits), sn = 0..8
+  function automatic logic [EX_FH_W-1:0] rotl_sym_ex(input logic [EX_FH_W-1:0] x, input logic [3:0] sn,
+                                                     input int unsigned len);
+    case (sn)
+      4'd1:    return rotl_const_ex(x,  3 % len, len);
+      4'd2:    return rotl_const_ex(x,  6 % len, len);
+      4'd3:    return rotl_const_ex(x,  9 % len, len);
+      4'd4:    return rotl_const_ex(x, 12 % len, len);
+      4'd5:    return rotl_const_ex(x, 15 % len, len);
+      4'd6:    return rotl_const_ex(x, 18 % len, len);
+      4'd7:    return rotl_const_ex(x, 21 % len, len);
+      4'd8:    return rotl_const_ex(x, 24 % len, len);
+      default: return x;
+    endcase
+  endfunction
+
+  // ---- FTB set index / tag hash (shared by uFTB and FTB1; callers cut to their SET_W / tag width) ----
+  function automatic logic [31:0] ftb_set_hash(input logic [XLEN_BITS-1:0] pc, input int unsigned set_w);
+    logic [31:0] w;
+    w = 32'(pc >> SLOT_SHIFT);
+    return w ^ (w >> set_w);
+  endfunction
+
+  function automatic logic [31:0] ftb_tag_hash(input logic [XLEN_BITS-1:0] pc, input int unsigned set_w,
+                                               input int unsigned tag_w);
+    logic [31:0] w, mask;
+    w    = 32'(pc >> SLOT_SHIFT);
+    mask = (32'd1 << tag_w) - 32'd1;
+    return (w >> set_w) & mask;
+  endfunction
+
+  // ---- Predecode false-branch clear: slot offset of clr_pc in the entry at clr_base ----
+  // vok: clr_pc lies in the block (or is the carried slot just before it); off: slot offset to clear.
+  typedef struct packed { logic vok; logic [3:0] off; } ftb_clr_pos_t;
+
+  function automatic ftb_clr_pos_t ftb_clr_pos(input logic [XLEN_BITS-1:0] clr_pc,
+                                               input logic [XLEN_BITS-1:0] clr_base);
+    ftb_clr_pos_t r;
+    logic         car;
+    car   = (clr_pc + XLEN_BITS'(SLOT_BYTES) == clr_base);
+    r.vok = car || (clr_pc >= clr_base);
+    r.off = car ? 4'd0 : 4'((clr_pc - clr_base) >> SLOT_SHIFT);
+    return r;
+  endfunction
+
   // ---- Unified history ring + folded histories, RAS ----
   typedef logic [EX_FH_K-1:0][EX_TN-1:0][EX_FH_W-1:0] ex_fh_t;
   // k = 0 slice of ex_fh_t (the index fold): all a 2-Ahead key needs (make_ah_*_index reads only key_ex_fh[0])

@@ -7,34 +7,17 @@
 /* verilator lint_off UNUSEDSIGNAL */
 package rob_pkg;
   import ttg_cfg_pkg::*;
+  import dis_pkg::INST_CSR, dis_pkg::INST_EBREAK, dis_pkg::INST_ECALL, dis_pkg::INST_FENCE, dis_pkg::INST_FENCE_I,
+         dis_pkg::INST_MRET, dis_pkg::INST_SFENCE_VMA, dis_pkg::INST_SRET, dis_pkg::INST_TYPE_W, dis_pkg::INST_WFI,
+         dis_pkg::UOP_BR, dis_pkg::UOP_JUMP, dis_pkg::UOP_TYPE_W;
 
   // ---- widths that the reference model derives in C++ but ttg_cfg_pkg does not export ----
   localparam int ROB_LINE_IDX_W = $clog2(ROB_LINE_NUM);
   localparam int ROB_BANK_IDX_W = $clog2(ROB_BANK_NUM);
-  localparam int INST_TYPE_COUNT = 20;  // enum InstType (types.h): NOP .. FP
-  localparam int INST_TYPE_W = $clog2(INST_TYPE_COUNT);
-  localparam int UOP_TYPE_COUNT = 21;  // enum UopType (base_types.h): UOP_JUMP .. UOP_I2F (F/D: UOP_FMA .. UOP_I2F)
-  localparam int UOP_TYPE_W = $clog2(UOP_TYPE_COUNT);
   localparam int CPLT_W = 3;  // ROB_CPLT_MASK_WIDTH: one completion bit per uop group G0/G1/G2
   localparam int ROB_XLEN = XLEN_BITS;
 
-  // ---- InstType encodings (types.h) ----
-  localparam logic [INST_TYPE_W-1:0] ITYPE_JAL = INST_TYPE_W'(1);
-  localparam logic [INST_TYPE_W-1:0] ITYPE_JALR = INST_TYPE_W'(2);
-  localparam logic [INST_TYPE_W-1:0] ITYPE_BR = INST_TYPE_W'(4);
-  localparam logic [INST_TYPE_W-1:0] ITYPE_CSR = INST_TYPE_W'(7);
-  localparam logic [INST_TYPE_W-1:0] ITYPE_FENCE = INST_TYPE_W'(8);
-  localparam logic [INST_TYPE_W-1:0] ITYPE_ECALL = INST_TYPE_W'(9);
-  localparam logic [INST_TYPE_W-1:0] ITYPE_EBREAK = INST_TYPE_W'(10);
-  localparam logic [INST_TYPE_W-1:0] ITYPE_WFI = INST_TYPE_W'(11);
-  localparam logic [INST_TYPE_W-1:0] ITYPE_SFENCE_VMA = INST_TYPE_W'(12);
-  localparam logic [INST_TYPE_W-1:0] ITYPE_FENCE_I = INST_TYPE_W'(13);
-  localparam logic [INST_TYPE_W-1:0] ITYPE_MRET = INST_TYPE_W'(14);
-  localparam logic [INST_TYPE_W-1:0] ITYPE_SRET = INST_TYPE_W'(15);
-
-  // ---- UopType encodings used for branch detection (base_types.h) ----
-  localparam logic [UOP_TYPE_W-1:0] UOP_JUMP = UOP_TYPE_W'(0);
-  localparam logic [UOP_TYPE_W-1:0] UOP_BR = UOP_TYPE_W'(2);
+  // (InstType / UopType encodings and widths: dis_pkg inst_type_e / uop_op_e, INST_TYPE_W / UOP_TYPE_W)
 
   // ---- completion groups (ROB_CPLT_G0/1/2) ----
   localparam logic [CPLT_W-1:0] CPLT_G0 = CPLT_W'(1);
@@ -110,21 +93,21 @@ package rob_pkg;
   endfunction
 
   function automatic logic rob_is_exception(input rob_entry_t e);
-    return rob_is_page_fault(e) | e.illegal_inst | (e.itype == ITYPE_ECALL);
+    return rob_is_page_fault(e) | e.illegal_inst | (e.itype == INST_ECALL);
   endfunction
 
   function automatic logic rob_is_flush_inst(input rob_entry_t e);
-    return (e.itype == ITYPE_CSR) | (e.itype == ITYPE_ECALL) | (e.itype == ITYPE_MRET) | (e.itype == ITYPE_SRET) |
-           (e.itype == ITYPE_SFENCE_VMA) | (e.itype == ITYPE_FENCE_I) | (e.itype == ITYPE_EBREAK) |
+    return (e.itype == INST_CSR) | (e.itype == INST_ECALL) | (e.itype == INST_MRET) | (e.itype == INST_SRET) |
+           (e.itype == INST_SFENCE_VMA) | (e.itype == INST_FENCE_I) | (e.itype == INST_EBREAK) |
            rob_is_exception(e) | e.flush_pipe;
   endfunction
 
   function automatic logic rob_is_fence_inst(input rob_entry_t e);
-    return (e.itype == ITYPE_FENCE) | (e.itype == ITYPE_FENCE_I) | (e.itype == ITYPE_SFENCE_VMA);
+    return (e.itype == INST_FENCE) | (e.itype == INST_FENCE_I) | (e.itype == INST_SFENCE_VMA);
   endfunction
 
   function automatic logic rob_is_wfi(input rob_entry_t e);
-    return e.itype == ITYPE_WFI;
+    return e.itype == INST_WFI;
   endfunction
 
   function automatic logic rob_is_complete(input rob_entry_t e);

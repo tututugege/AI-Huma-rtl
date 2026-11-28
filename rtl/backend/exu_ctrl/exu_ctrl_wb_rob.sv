@@ -35,7 +35,7 @@ module exu_ctrl_wb_rob
       assign wb[c] = '{
         valid:            (IS_LD ? ld_wb[I].valid : sta_wb[I].valid) && !dropped,
         rob_idx:          IS_LD ? ld_wb[I].rob_idx : sta_wb[I].rob_idx,
-        op:               IS_LD ? XC_OP_W'(XC_UOP_LOAD) : XC_OP_W'(XC_UOP_STA),
+        op:               IS_LD ? dis_pkg::UOP_LOAD : dis_pkg::UOP_STA,
         result:           IS_LD ? ld_wb[I].result : sta_wb[I].result,
         br_taken:         1'b0,
         page_fault_load:  IS_LD && ld_wb[I].page_fault_load,

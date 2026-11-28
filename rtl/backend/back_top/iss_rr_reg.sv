@@ -4,7 +4,7 @@
 module iss_rr_reg
   import ttg_cfg_pkg::*;
   import isu_pkg::isu_uop_t;
-  import isu_pkg::isu_rob_younger;
+  import ttg_util_pkg::ttg_rob_younger;
 (
   input  logic                        clk,
   input  logic                        rst_n,
@@ -33,10 +33,10 @@ module iss_rr_reg
   always_comb begin
     for (int p = 0; p < ISSUE_WIDTH; p++) begin
       valid_d[p] = !flush && iss_valid[p] &&
-                   !(mispred && isu_rob_younger(iss_uop[p].rob_idx, iss_uop[p].rob_flag,
+                   !(mispred && ttg_rob_younger(iss_uop[p].rob_idx, iss_uop[p].rob_flag,
                                                 dec_rob_idx, dec_rob_flag));
       rr_live[p] = !flush && valid_q[p] &&
-                   !(mispred && isu_rob_younger(uop_q[p].rob_idx, uop_q[p].rob_flag,
+                   !(mispred && ttg_rob_younger(uop_q[p].rob_idx, uop_q[p].rob_flag,
                                                 dec_rob_idx, dec_rob_flag));
       rr_valid[p]    = rr_live[p] && !(|(spec_mask_q[p] & cancel_valid));
       rr_uop[p]      = uop_q[p];

@@ -11,7 +11,7 @@ module alu_decode
   import exu_fu_pkg::*;
   import ttg_cfg_pkg::*;
 (
-  input  logic [OP_W-1:0] op,
+  input  logic [dis_pkg::UOP_TYPE_W-1:0] op,
   input  logic [2:0]      func3,
   input  logic [6:0]      func7_in,
   input  logic            src2_is_imm,
@@ -40,8 +40,8 @@ module alu_decode
   logic f7_base, f7_bclr, f7_bset, f7_binv, f7_rot;
   logic alt_r, shadd_r, mm_r, pack_r;  // register-form (non-immediate) Zb* encodings
   always_comb begin
-    op_is_add = (op == UOP_ADD);
-    op_is_wfi = (op == UOP_WFI);
+    op_is_add = (op == dis_pkg::UOP_ADD);
+    op_is_wfi = (op == dis_pkg::UOP_WFI);
     imm_form  = src2_is_imm;
     reg_form  = !src2_is_imm;
     f3_sub    = (func3 == 3'd0);

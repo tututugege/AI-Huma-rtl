@@ -253,7 +253,7 @@ module isu_iq
       logic [0:0] slot_mul_arr [SIZE];
       logic [0:0] sel_mul_v;
       for (genvar i = 0; i < SIZE; i++) begin : g_sm
-        assign slot_mul_arr[i] = (slot_uop[i].op == op_t'(UOP_MUL));
+        assign slot_mul_arr[i] = (slot_uop[i].op == op_t'(dis_pkg::UOP_MUL));
       end
       ttg_onehot_mux #(.N(SIZE), .W(1)) u_read_mul (.sel(sel_onehot[p]), .data(slot_mul_arr), .out(sel_mul_v));
       assign mul_cls_hit = sel_mul_v[0];

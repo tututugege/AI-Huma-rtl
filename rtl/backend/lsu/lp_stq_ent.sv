@@ -7,6 +7,7 @@
 module lp_stq_ent
   import ttg_cfg_pkg::*;
   import lp_pkg::*;
+  import memcpu_pkg::REPLAY_HIT, memcpu_pkg::REPLAY_MSHR_HIT, memcpu_pkg::REPLAY_MSHR_FULL, memcpu_pkg::replay_wait;
 #(
   parameter int IDX = 0
 ) (
@@ -76,13 +77,13 @@ module lp_stq_ent
     rsp_ok = rsp_v && ent_q.iss;
     iss4 = ent_q.iss & !rsp_ok;
     rt4 = rsp_ok ? rsp_rep : ent_q.rtype;
-    done4 = done2 | (rsp_ok && rsp_rep == RT_HIT);
-    done4n = ent_q.done | (mm_done & ent_q.mmw) | (rsp_ok && rsp_rep == RT_HIT);   // without this cycle's commit
-    rw4 = rsp_ok ? ((rsp_rep == RT_HIT) ? RWW'(0) : replay_wait(rsp_rep)) : ent_q.rwait;
+    done4 = done2 | (rsp_ok && rsp_rep == REPLAY_HIT);
+    done4n = ent_q.done | (mm_done & ent_q.mmw) | (rsp_ok && rsp_rep == REPLAY_HIT);   // without this cycle's commit
+    rw4 = rsp_ok ? ((rsp_rep == REPLAY_HIT) ? RWW'(0) : replay_wait(rsp_rep)) : ent_q.rwait;
     // A store committed in this cycle has no replay wait yet
     fl_cand = fill_v && win4 && !iss4 && rw4 != '0 && ent_q.cmt && !done4n;
-    full_cand = fl_cand && rt4 == RT_MSHR_FULL;
-    hit_wake = fl_cand && rt4 == RT_MSHR_HIT && fill_line == ent_q.paddr[31 -: LINEW];
+    full_cand = fl_cand && rt4 == REPLAY_MSHR_FULL;
+    hit_wake = fl_cand && rt4 == REPLAY_MSHR_HIT && fill_line == ent_q.paddr[31 -: LINEW];
     rw5 = (hit_wake || (full_cand && full_ok)) ? RWW'(0) : rw4;
     rw5g = hit_wake ? '0 : rw4[RWW-1:1];   // drain does not see the MSHR-full wake of this cycle
     wbp5 = ent_q.wbp & !wb_go;

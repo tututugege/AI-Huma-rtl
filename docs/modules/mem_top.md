@@ -73,7 +73,7 @@ depth: 待测（由协调者补）
 | `mem_axi.sv` | 237 | AXI 一侧：四个主口的输入整形、实例化 `axi_subsys` 和 `axi_cpu_port_adapter`、把响应拆回各主口 |
 | `mem_periph_wrap.sv` | 180 | 外设路径二选一：`EXT_MMIO_EN = 0` 走仿真 `peripheral_axi`，1 走 `mem_mmio_axi`，保持寄存的响应边界 |
 | `mem_mmio_axi.sv` | 235 | 64-bit 完整 AXI4 MMIO 主口：LSU 的非缓存请求直接变成单拍 AXI4 读写（Device-nGnRnE，精确 `ARSIZE/AWSIZE` 与字节地址），绕开 LLC |
-| `../memcpu_pkg/memcpu_pkg.sv`（`rtl/memsys/memcpu_pkg/`） | 71 | 共用常量：端口数（`NLD`、`NST`、`P3`）、id 宽度（`LD_ID_W`、`ST_ID_W`、`RT_ID_W`、`FILL_LINE_W`）、路由主人枚举、ReplayType、Sv39 页表常量、遍历器状态枚举、外设和 AXI 适配器常量 |
+| `../memcpu_pkg/memcpu_pkg.sv`（`rtl/memsys/memcpu_pkg/`） | 78 | 共用常量：端口数（`NLD`、`NST`、`P3`）、id 宽度（`LD_ID_W`、`ST_ID_W`、`RT_ID_W`、`FILL_LINE_W`）、路由主人枚举、ReplayType `REPLAY_*`（唯一定义，DCache / 路由块 / LSU 都从这里导入）与 LSU 重放等待 `replay_wait`、Sv39 页表常量、遍历器状态枚举、外设和 AXI 适配器常量 |
 
 状态：`phase_q`（4 位）；ICache 探测响应寄存器（valid / retry / miss / 32 位数据）；外设响应保持寄存器（ready / is_mmio / 64 位数据）。其余状态都在各子模块里。
 
@@ -132,6 +132,7 @@ depth: 待测（由协调者补）。`mem_top` 自己没有逻辑，深度完全
 
 ## 10. 变更记录
 
+- 2026-11-29 清理 D：去重（周期不变）。`memcpu_pkg` 成为 ReplayType 编码的唯一定义：`dcache_pkg::RP_*` 与 `lp_pkg::RT_*`（同值）删除，使用者按名导入 `memcpu_pkg::REPLAY_*`；`lp_pkg::replay_wait`（含 `RWAIT`）移入 `memcpu_pkg`，位宽改用 `LSU_REPLAY_WAIT_CYCLES_WIDTH`。
 - 2026-11-28 清理：删参数 `PF_EN`（默认 1、没人覆盖，L1D 预取器固定开）；`mem_top.sv` 外设注释 AXI4-Lite 改为 AXI4；`memcpu_pkg.sv` `NST` 注释改正（STA 数，3）；删 `mem_mmio_axi.sv`、`mem_periph_wrap.sv` 包住 `unused_*` 的多余 waiver（周期不变）。
 - 2026-11-28（文档核对，无 RTL 变化）：文件表补 `mem_periph_wrap.sv`、`mem_mmio_axi.sv`，`memcpu_pkg.sv` 路径；外部 MMIO 口是完整 AXI4（单拍）不是 AXI4-Lite；rtl 5e5d40f 起没有 `-Wno-UNOPTFLAT`；门禁参考改为 `scripts/ref_cycles.txt`（77 个程序）。
 - 2026-11-26（`rtl/soc-env`）：新增 `EXT_MMIO_EN` 参数及 `mem_periph_wrap.sv`、`mem_mmio_axi.sv`，为 `chip_top` 提供绕开 LLC 的独立 **64-bit Full-AXI4** MMIO 主口（带真实 `ARSIZE/AWSIZE`、`Device-nGnRnE` 属性、1/2/4/8 字节读写及精确字节偏移副作用识别）；`axi_ic_aw.sv` 解耦 `o_bready` 对 `d_bid` 的组合依赖；默认 `EXT_MMIO_EN=0` 保持 `soc_top` 与 `fm_gate` 行为零变化。

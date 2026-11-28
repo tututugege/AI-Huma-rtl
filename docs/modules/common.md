@@ -16,7 +16,8 @@ depth: 待测（第 6 节只有从代码读出的估计）
 1. `ttg_cfg_pkg`：核的全部尺寸 / 宽度常量（`localparam`），`rtl/` 下 221 个文件引用它（2026-11-28 `grep` 统计）；
 2. `fp_pkg`：F / D 扩展共用的小常量和函数（FP 数据宽度、`flw` 的 NaN 装箱、`fdiv / fsqrt` 的延迟查表），11 个文件引用；
 3. 五个组合逻辑原语：`ttg_first_set`（找最低位的 1）、`ttg_onehot_mux`（独热选择的 AND-OR 多路选择）、`ttg_onehot_to_idx`（独热转下标）、`ttg_popcount`（数 1 的个数）、`ttg_pick_k`（并行找最低的 K 个 1），分别被 39 / 46 / 26 / 21 / 9 个其他文件使用（2026-11-28 `grep -w` 统计，不含自身）；
-4. SRAM 包装 `ttg_sram_1rw` / `ttg_sram_1r1w` 和复位展宽 `ttg_rst_sweep`（4.1 节）。
+4. SRAM 包装 `ttg_sram_1rw` / `ttg_sram_1r1w` 和复位展宽 `ttg_rst_sweep`（4.1 节）；
+5. `ttg_util_pkg`：几个模块原来各写一份的小函数，现在只此一份：`ttg_rob_younger`（按 ROB 下标 + 回绕位判断 a 是否比 b 年轻）、`ttg_plru4_touch` / `ttg_plru4_victim`（4 路树形伪 LRU，位 0 是根）。
 
 ## 2. 配置：`ttg_cfg_pkg` 与模型 `config.h` 的关系
 
@@ -61,6 +62,7 @@ depth: 待测（第 6 节只有从代码读出的估计）
 | --- | --- | --- |
 | `ttg_cfg_pkg.sv` | 194 | 配置常量包 |
 | `fp_pkg.sv` | 31 | F / D 共用常量与函数 |
+| `ttg_util_pkg.sv` | 28 | 共用小函数：ROB 年龄比较、4 路树形 PLRU |
 | `ttg_first_set.sv` | 35 | 找最低位的 1（综合走 Kogge-Stone 前缀 OR，仿真走快速写法） |
 | `ttg_onehot_mux.sv` | 43 | 独热 AND-OR 多路选择（综合 / 仿真两种写法） |
 | `ttg_onehot_to_idx.sv` | 20 | 独热转下标 |
@@ -122,6 +124,7 @@ depth 待测。从代码读出的、未综合验证的情形：
 生成器参数：`gen_cfg.sh` 的 `-DXLEN=64 -DRVC=1 -DFP=1` 以及追加的 `-D<macro>=<val>`；`SIM_SRC`（模型目录）；`lint_chip.sh` 的 `CFG`。模型侧 `config.h` 的 `CFG_*` 宏（`CFG_AGU_SHARED`、`CFG_INT_CLUSTERS`、`CFG_INT_IQ_SIZE`、`CFG_INT_IQ_ENQ_WIDTH`、`CFG_MEM_IQ_SIZE`、`CFG_MEM_IQ_ENQ_WIDTH`、`CFG_FPRF_NUM`、`CFG_FP_IQ_SIZE`、`CFG_PRF_NUM`、`CFG_ROB_NUM` 等）。
 
 ## 10. 变更记录
+- 2026-11-29 清理 D：新增 `ttg_util_pkg`（`ttg_rob_younger`、`ttg_plru4_touch` / `ttg_plru4_victim`），替换 ISU、EXU、PRF、LSU、DCache、PTW、LLC Bingo 里各自的副本；`scripts/rtl_files.sh` 改为先列 `rtl/common` 下的包，别的包可以 import 它（周期不变）。
 
 - 2026-11-28 清理：`ttg_sram_1r1w` 删 `WRITE_FIRST = 0`（读优先）分支，全仓 12 个例化都传 1，参数随后删除（周期不变）；`ttg_sram_pkg::SRAM_SWEEP_CYCLES` 加窄豁免（只被 SRAM 包装和 `soc_top` 读，按目录 lint 时报 UNUSEDPARAM，此前 `lint.sh rtl/common` 和多个 `rtl/soc/*` 目录因此失败）。
 - 2026-11-28（`rtl/fe-2ahead`，文档核对）：补 `ttg_pick_k` 和 `sram/` 的文件行、各原语的综合 / 仿真两种写法与 `tests/common_prims`；配置包一节去掉已删除的前端 FIFO 深度和 `FE_RFAST`；门禁改为 77/77 对 `scripts/ref_cycles.txt`。

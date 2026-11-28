@@ -3,6 +3,7 @@
 // 1RW SRAM PHT_L (256x4x138b) + PHT_S (128x4x133b) with 3b tree-PLRU & 3-state FSM (ST_IDLE/ST_PRED/ST_CMT).
 module axi_llc_bingo_pht
   import axi_llc_pkg::*;
+  import ttg_util_pkg::ttg_plru4_touch, ttg_util_pkg::ttg_plru4_victim;
 (
   input  logic        clk,
   input  logic        rst_n,
@@ -36,17 +37,6 @@ module axi_llc_bingo_pht
   endfunction
   function automatic logic [6:0] phts_idx(input logic [10:0] p11);
     return p11[6:0] ^ {3'b0, p11[10:7]};
-  endfunction
-  function automatic logic [2:0] plru4_update(input logic [2:0] p, input logic [1:0] w);
-    logic [2:0] n;
-    n = p;
-    n[0] = ~w[1];
-    if (!w[1]) n[1] = ~w[0];
-    else       n[2] = ~w[0];
-    return n;
-  endfunction
-  function automatic logic [1:0] plru4_victim(input logic [2:0] p);
-    return {p[0], p[0] ? p[2] : p[1]};
   endfunction
 
   fsm_t        fsm_q, fsm_d;
@@ -182,12 +172,12 @@ module axi_llc_bingo_pht
     cmt_l_hit = |cmt_l_eq;
     if (cmt_l_hit)            cmt_l_way = cmt_l_eq[0] ? 2'd0 : cmt_l_eq[1] ? 2'd1 : cmt_l_eq[2] ? 2'd2 : 2'd3;
     else if (~(&rd_phtl_v_q)) cmt_l_way = !rd_phtl_v_q[0] ? 2'd0 : !rd_phtl_v_q[1] ? 2'd1 : !rd_phtl_v_q[2] ? 2'd2 : 2'd3;
-    else                      cmt_l_way = plru4_victim(phtl_plru_q[cmt_idx_l]);
+    else                      cmt_l_way = ttg_plru4_victim(phtl_plru_q[cmt_idx_l]);
 
     cmt_s_hit = |cmt_s_eq;
     if (cmt_s_hit)            cmt_s_way = cmt_s_eq[0] ? 2'd0 : cmt_s_eq[1] ? 2'd1 : cmt_s_eq[2] ? 2'd2 : 2'd3;
     else if (~(&rd_phts_v_q)) cmt_s_way = !rd_phts_v_q[0] ? 2'd0 : !rd_phts_v_q[1] ? 2'd1 : !rd_phts_v_q[2] ? 2'd2 : 2'd3;
-    else                      cmt_s_way = plru4_victim(phts_plru_q[cmt_idx_s]);
+    else                      cmt_s_way = ttg_plru4_victim(phts_plru_q[cmt_idx_s]);
 
     cmt_rel_mask = (cmt_cur_off_q == 6'd0) ? cmt_cur_mask_q
                  : ((cmt_cur_mask_q >> cmt_cur_off_q) | (cmt_cur_mask_q << (7'd64 - {1'b0, cmt_cur_off_q})));
@@ -233,19 +223,19 @@ module axi_llc_bingo_pht
     if (fsm_q == ST_PRED) begin
       if (pred_l_hit) begin
         phtl_plru_we = 1'b1; phtl_plru_idx = pred_idx_l;
-        phtl_plru_wval = plru4_update(phtl_plru_q[pred_idx_l], pred_l_way);
+        phtl_plru_wval = ttg_plru4_touch(phtl_plru_q[pred_idx_l], pred_l_way);
       end else if (pred_s_hit) begin
         phts_plru_we = 1'b1; phts_plru_idx = pred_idx_s;
-        phts_plru_wval = plru4_update(phts_plru_q[pred_idx_s], pred_s_way);
+        phts_plru_wval = ttg_plru4_touch(phts_plru_q[pred_idx_s], pred_s_way);
       end
       fsm_d = ST_IDLE;
     end else if (fsm_q == ST_CMT) begin
       phtl_wr_en[cmt_l_way] = 1'b1;
       phtl_plru_we = 1'b1; phtl_plru_idx = cmt_idx_l;
-      phtl_plru_wval = plru4_update(phtl_plru_q[cmt_idx_l], cmt_l_way);
+      phtl_plru_wval = ttg_plru4_touch(phtl_plru_q[cmt_idx_l], cmt_l_way);
       phts_wr_en[cmt_s_way] = 1'b1;
       phts_plru_we = 1'b1; phts_plru_idx = cmt_idx_s;
-      phts_plru_wval = plru4_update(phts_plru_q[cmt_idx_s], cmt_s_way);
+      phts_plru_wval = ttg_plru4_touch(phts_plru_q[cmt_idx_s], cmt_s_way);
       fsm_d = ST_IDLE;
     end else if (pred_pend_v) begin
       phtl_rd_en = 1'b1; phts_rd_en = 1'b1;

@@ -9,6 +9,7 @@
 module lp_l2
   import ttg_cfg_pkg::*;
   import lp_pkg::*;
+  import memcpu_pkg::REPLAY_CONFLICT, memcpu_pkg::replay_wait;
 (
   input  logic                clk,
   input  logic                rst_n,
@@ -88,7 +89,7 @@ module lp_l2
     logic           en, cv, cu, cand_v;
     logic [SQW-1:0] ci;
 
-    assign en = pl12[p].v && (pl12[p].tlb == TLB_HIT) && !pl12[p].mmio;
+    assign en = pl12[p].v && (pl12[p].tlb == PL12_TLB_HIT) && !pl12[p].mmio;
     lp_cam u_cam (
       .voff(pl12[p].voff), .func3(pl12[p].func3), .paddr(pl12[p].paddr),
       .paddr_p1(pl12[p].paddr_p1), .paddr_m1(pl12[p].paddr_m1),
@@ -105,9 +106,9 @@ module lp_l2
       dec_a[p].act = L2_NONE;
       pl2b_d[p]    = '0;
       if (pl12[p].v) begin
-        if (pl12[p].tlb == TLB_PF) begin
+        if (pl12[p].tlb == PL12_TLB_PF) begin
           dec_a[p].act = wbd_l2b[p] ? L2_WBP : L2_WBD;
-        end else if (pl12[p].tlb == TLB_MISS) begin
+        end else if (pl12[p].tlb == PL12_TLB_MISS) begin
           dec_a[p].act   = L2_PARK;
           dec_a[p].cause = RC_TLB;
         end else if (pl12[p].mmio) begin
@@ -116,7 +117,7 @@ module lp_l2
           if (pl12[p].dcblk) begin
             dec_a[p].act    = L2_PARK;
             dec_a[p].cause  = RC_DC;
-            dec_a[p].wait_c = replay_wait(RT_CONFLICT);
+            dec_a[p].wait_c = replay_wait(REPLAY_CONFLICT);
           end else if (pl12[p].bloom) begin
             dec_a[p].act = L2_RDY;
           end else begin

@@ -16,7 +16,7 @@ module ren
   input  logic                        rob_bcast_flush,
   input  logic                        rob_bcast_interrupt,
   input  logic [COMMIT_WIDTH-1:0]     rob_commit_commit_entry_valid,
-  input  logic [INST_TYPE_WIDTH-1:0]  rob_commit_commit_entry_uop_type [COMMIT_WIDTH],
+  input  logic [dis_pkg::INST_TYPE_W-1:0]  rob_commit_commit_entry_uop_type [COMMIT_WIDTH],
   input  logic [COMMIT_WIDTH-1:0]     rob_commit_commit_entry_uop_page_fault_inst,
   input  logic [COMMIT_WIDTH-1:0]     rob_commit_commit_entry_uop_page_fault_load,
   input  logic [COMMIT_WIDTH-1:0]     rob_commit_commit_entry_uop_page_fault_store,

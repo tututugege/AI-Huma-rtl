@@ -91,7 +91,7 @@ module exu
   logic exu2fu_flush_br;
   logic [ROB_IDX_WIDTH-1:0] exu2fu_flush_rob_idx;
   logic exu2fu_flush_rob_flag;
-  logic [XC_OP_W-1:0] exu2fu_alu_op [ALU_NUM];
+  logic [dis_pkg::UOP_TYPE_W-1:0] exu2fu_alu_op [ALU_NUM];
   logic [2:0] exu2fu_alu_func3 [ALU_NUM];
   logic [6:0] exu2fu_alu_func7 [ALU_NUM];
   logic exu2fu_alu_src1_is_pc [ALU_NUM];
@@ -101,7 +101,7 @@ module exu
   logic [31:0] exu2fu_alu_imm [ALU_NUM];
   logic [XLEN_BITS-1:0] exu2fu_alu_src1_rdata [ALU_NUM];
   logic [XLEN_BITS-1:0] exu2fu_alu_src2_rdata [ALU_NUM];
-  logic [XC_OP_W-1:0] exu2fu_bru_op [BRU_NUM];
+  logic [dis_pkg::UOP_TYPE_W-1:0] exu2fu_bru_op [BRU_NUM];
   logic [2:0] exu2fu_bru_func3 [BRU_NUM];
   logic exu2fu_bru_src1_en [BRU_NUM];
   logic [XLEN_BITS-1:0] exu2fu_bru_src1_rdata [BRU_NUM];
@@ -264,39 +264,41 @@ module exu
     .exu2fu_fp_rob_flag(exu2fu_fp_rob_flag)
   );
 
-  // ---- single-cycle FUs (combinational, no ready/consume) ----
-  alu_bank u_alu (
-    .op(exu2fu_alu_op), .func3(exu2fu_alu_func3),
-    .func7(exu2fu_alu_func7), .src1_is_pc(exu2fu_alu_src1_is_pc), .src2_is_imm(exu2fu_alu_src2_is_imm),
-    .is_word(exu2fu_alu_is_word),
-    .pc(exu2fu_alu_pc), .imm(exu2fu_alu_imm), .src1_rdata(exu2fu_alu_src1_rdata), .src2_rdata(exu2fu_alu_src2_rdata),
-    .result(fu_alu_result)
-  );
-
-  bru_bank u_bru (
-    .op(exu2fu_bru_op), .func3(exu2fu_bru_func3),
-    .src1_en(exu2fu_bru_src1_en), .src1_rdata(exu2fu_bru_src1_rdata), .src2_rdata(exu2fu_bru_src2_rdata),
-    .pc(exu2fu_bru_pc), .imm(exu2fu_bru_imm), .ftq_pred_taken(exu2fu_bru_ftq_pred_taken),
-    .ftq_is_rvc(exu2fu_bru_ftq_is_rvc),
-    .ftq_next_pc(exu2fu_bru_ftq_next_pc), .br_taken(fu_bru_br_taken),
-    .mispred(fu_bru_mispred), .diag_val(fu_bru_diag_val)
-  );
-
-  agu_bank u_agu (
-    .src1_rdata(exu2fu_agu_src1_rdata), .imm(exu2fu_agu_imm),
-    .result(fu_agu_result)
-  );
-
-  logic [4:0] sdu_amo_op [LSU_SDU_COUNT];
-  for (genvar i = 0; i < LSU_SDU_COUNT; i++) begin : g_sdu_amo
-    assign sdu_amo_op[i] = exu2fu_sdu_func7[i][6:2];  // Fu.h SduUnit reads func7 >> 2
+  // ---- single-cycle FUs (combinational, no ready/consume), one instance per unit ----
+  for (genvar i = 0; i < ALU_NUM; i++) begin : g_alu
+    alu u_alu (
+      .op(exu2fu_alu_op[i]), .func3(exu2fu_alu_func3[i]), .func7(exu2fu_alu_func7[i]),
+      .src1_is_pc(exu2fu_alu_src1_is_pc[i]), .src2_is_imm(exu2fu_alu_src2_is_imm[i]),
+      .is_word(exu2fu_alu_is_word[i]), .pc(exu2fu_alu_pc[i]), .imm(exu2fu_alu_imm[i]),
+      .src1_rdata(exu2fu_alu_src1_rdata[i]), .src2_rdata(exu2fu_alu_src2_rdata[i]),
+      .result(fu_alu_result[i])
+    );
   end
-  sdu_bank u_sdu (
-    .is_atomic(exu2fu_sdu_is_atomic),
-    .amo_op(sdu_amo_op), .amo_w(exu2fu_sdu_amo_w),
-    .src1_rdata(exu2fu_sdu_src1_rdata), .src2_rdata(exu2fu_sdu_src2_rdata),
-    .result(fu_sdu_result)
-  );
+
+  for (genvar i = 0; i < BRU_NUM; i++) begin : g_bru
+    bru u_bru (
+      .op(exu2fu_bru_op[i]), .func3(exu2fu_bru_func3[i]), .src1_en(exu2fu_bru_src1_en[i]),
+      .src1_rdata(exu2fu_bru_src1_rdata[i]), .src2_rdata(exu2fu_bru_src2_rdata[i]),
+      .pc(exu2fu_bru_pc[i]), .imm(exu2fu_bru_imm[i]), .ftq_pred_taken(exu2fu_bru_ftq_pred_taken[i]),
+      .ftq_is_rvc(exu2fu_bru_ftq_is_rvc[i]), .ftq_next_pc(exu2fu_bru_ftq_next_pc[i]),
+      .br_taken(fu_bru_br_taken[i]), .mispred(fu_bru_mispred[i]), .diag_val(fu_bru_diag_val[i])
+    );
+  end
+
+  // address-generation units: load AGUs first, then store-address AGUs
+  for (genvar i = 0; i < LSU_AGU_COUNT; i++) begin : g_agu
+    agu u_agu (.src1_rdata(exu2fu_agu_src1_rdata[i]), .imm(exu2fu_agu_imm[i]), .result(fu_agu_result[i]));
+  end
+
+  for (genvar i = 0; i < LSU_SDU_COUNT; i++) begin : g_sdu
+    sdu u_sdu (
+      .is_atomic(exu2fu_sdu_is_atomic[i]),
+      .amo_op(exu2fu_sdu_func7[i][6:2]),   // Fu.h SduUnit reads func7 >> 2
+      .amo_w(exu2fu_sdu_amo_w[i]),
+      .src1_rdata(exu2fu_sdu_src1_rdata[i]), .src2_rdata(exu2fu_sdu_src2_rdata[i]),
+      .result(fu_sdu_result[i])
+    );
+  end
 
   // The CSR FU (fu_idx 2) has no data path (impl_compute is empty, result 0, read data is muxed in by exu_ctrl)
   // and is handled directly by exu_ctrl: csr_fu is therefore not instantiated.
@@ -306,112 +308,40 @@ module exu
   localparam int MC_DIV [DIV_NUM] = '{1};
 
   // MUL: result/dest/rob come back from the FU's own pipeline (it keeps the instruction in flight).
-  logic mul_flush_all [MUL_NUM];
-  logic mul_flush_br [MUL_NUM];
-  logic [ROB_IDX_WIDTH-1:0] mul_flush_rob_idx [MUL_NUM];
-  logic mul_flush_rob_flag [MUL_NUM];
-  logic [1:0] mul_func3 [MUL_NUM];
-  logic mul_is_word [MUL_NUM];
-  logic mul_complete [MUL_NUM];
-  logic [XLEN_BITS-1:0] mul_result [MUL_NUM];
-  logic [ROB_IDX_WIDTH-1:0] mul_done_rob_idx [MUL_NUM];
-  logic mul_done_rob_flag [MUL_NUM];
-  logic [PRF_IDX_WIDTH-1:0] mul_done_dest_preg [MUL_NUM];
-  logic mul_done_dest_en [MUL_NUM];
-  logic mul_en [MUL_NUM];
-  logic [XLEN_BITS-1:0] mul_src1_rdata [MUL_NUM];
-  logic [XLEN_BITS-1:0] mul_src2_rdata [MUL_NUM];
-  logic [ROB_IDX_WIDTH-1:0] mul_rob_idx [MUL_NUM];
-  logic mul_rob_flag [MUL_NUM];
-  logic [PRF_IDX_WIDTH-1:0] mul_dest_preg [MUL_NUM];
-  logic mul_dest_en [MUL_NUM];
   for (genvar i = 0; i < MUL_NUM; i++) begin : g_mul
-    assign mul_en[i] = exu2fu_mc_en[MC_MUL[i]];
-    assign mul_flush_all[i] = exu2fu_flush_all;
-    assign mul_flush_br[i] = exu2fu_flush_br;
-    assign mul_flush_rob_idx[i] = exu2fu_flush_rob_idx;
-    assign mul_flush_rob_flag[i] = exu2fu_flush_rob_flag;
-    assign mul_func3[i] = exu2fu_mc_func3[MC_MUL[i]][1:0];
-    assign mul_is_word[i] = exu2fu_mc_is_word[MC_MUL[i]];
-    assign mul_src1_rdata[i] = exu2fu_mc_src1_rdata[MC_MUL[i]];
-    assign mul_src2_rdata[i] = exu2fu_mc_src2_rdata[MC_MUL[i]];
-    assign mul_rob_idx[i] = exu2fu_mc_rob_idx[MC_MUL[i]];
-    assign mul_rob_flag[i] = exu2fu_mc_rob_flag[MC_MUL[i]];
-    assign mul_dest_preg[i] = exu2fu_mc_dest_preg[MC_MUL[i]];
-    assign mul_dest_en[i] = exu2fu_mc_dest_en[MC_MUL[i]];
-    assign fu_mc_complete[MC_MUL[i]] = mul_complete[i];
-    assign fu_mc_result[MC_MUL[i]] = mul_result[i];
-    assign fu_mc_dest_preg[MC_MUL[i]] = mul_done_dest_preg[i];
-    assign fu_mc_dest_en[MC_MUL[i]] = mul_done_dest_en[i];
-    assign fu_mc_rob_idx[MC_MUL[i]] = mul_done_rob_idx[i];
-    assign fu_mc_rob_flag[MC_MUL[i]] = mul_done_rob_flag[i];
+    localparam int M = MC_MUL[i];
+    mul_unit u_mul (
+      .clk(clk), .rst_n(rst_n), .en(exu2fu_mc_en[M]),
+      .flush_all(exu2fu_flush_all), .flush_br(exu2fu_flush_br),
+      .flush_rob_idx(exu2fu_flush_rob_idx), .flush_rob_flag(exu2fu_flush_rob_flag),
+      .func3(exu2fu_mc_func3[M][1:0]), .is_word(exu2fu_mc_is_word[M]),
+      .src1_rdata(exu2fu_mc_src1_rdata[M]), .src2_rdata(exu2fu_mc_src2_rdata[M]),
+      .rob_idx(exu2fu_mc_rob_idx[M]), .rob_flag(exu2fu_mc_rob_flag[M]),
+      .dest_preg(exu2fu_mc_dest_preg[M]), .dest_en(exu2fu_mc_dest_en[M]),
+      .complete(fu_mc_complete[M]), .result(fu_mc_result[M]),
+      .done_rob_idx(fu_mc_rob_idx[M]), .done_rob_flag(fu_mc_rob_flag[M]),
+      .done_dest_preg(fu_mc_dest_preg[M]), .done_dest_en(fu_mc_dest_en[M])
+    );
   end
-  mul_bank u_mul (
-    .clk(clk), .rst_n(rst_n), .en(mul_en),
-    .flush_all(mul_flush_all), .flush_br(mul_flush_br),
-    .flush_rob_idx(mul_flush_rob_idx), .flush_rob_flag(mul_flush_rob_flag),
-    .func3(mul_func3), .is_word(mul_is_word),
-    .src1_rdata(mul_src1_rdata), .src2_rdata(mul_src2_rdata),
-    .rob_idx(mul_rob_idx), .rob_flag(mul_rob_flag), .dest_preg(mul_dest_preg), .dest_en(mul_dest_en),
-    .complete(mul_complete), .result(mul_result),
-    .done_rob_idx(mul_done_rob_idx), .done_rob_flag(mul_done_rob_flag),
-    .done_dest_preg(mul_done_dest_preg), .done_dest_en(mul_done_dest_en)
-  );
 
-  logic div_flush_all [DIV_NUM];
-  logic div_flush_br [DIV_NUM];
-  logic [ROB_IDX_WIDTH-1:0] div_flush_rob_idx [DIV_NUM];
-  logic div_flush_rob_flag [DIV_NUM];
-  logic [1:0] div_func3 [DIV_NUM];
-  logic div_is_word [DIV_NUM];
-  logic div_complete [DIV_NUM];
   logic div_wake_valid [DIV_NUM];
   logic [PRF_IDX_WIDTH-1:0] div_wake_preg [DIV_NUM];
-  logic [XLEN_BITS-1:0] div_result [DIV_NUM];
-  logic [ROB_IDX_WIDTH-1:0] div_done_rob_idx [DIV_NUM];
-  logic div_done_rob_flag [DIV_NUM];
-  logic [PRF_IDX_WIDTH-1:0] div_done_dest_preg [DIV_NUM];
-  logic div_done_dest_en [DIV_NUM];
-  logic div_en [DIV_NUM];
-  logic [XLEN_BITS-1:0] div_src1_rdata [DIV_NUM];
-  logic [XLEN_BITS-1:0] div_src2_rdata [DIV_NUM];
-  logic [ROB_IDX_WIDTH-1:0] div_rob_idx [DIV_NUM];
-  logic div_rob_flag [DIV_NUM];
-  logic [PRF_IDX_WIDTH-1:0] div_dest_preg [DIV_NUM];
-  logic div_dest_en [DIV_NUM];
   for (genvar i = 0; i < DIV_NUM; i++) begin : g_div
-    assign div_en[i] = exu2fu_mc_en[MC_DIV[i]];
-    assign div_flush_all[i] = exu2fu_flush_all;
-    assign div_flush_br[i] = exu2fu_flush_br;
-    assign div_flush_rob_idx[i] = exu2fu_flush_rob_idx;
-    assign div_flush_rob_flag[i] = exu2fu_flush_rob_flag;
-    assign div_func3[i] = exu2fu_mc_func3[MC_DIV[i]][1:0];
-    assign div_is_word[i] = exu2fu_mc_is_word[MC_DIV[i]];
-    assign div_src1_rdata[i] = exu2fu_mc_src1_rdata[MC_DIV[i]];
-    assign div_src2_rdata[i] = exu2fu_mc_src2_rdata[MC_DIV[i]];
-    assign div_rob_idx[i] = exu2fu_mc_rob_idx[MC_DIV[i]];
-    assign div_rob_flag[i] = exu2fu_mc_rob_flag[MC_DIV[i]];
-    assign div_dest_preg[i] = exu2fu_mc_dest_preg[MC_DIV[i]];
-    assign div_dest_en[i] = exu2fu_mc_dest_en[MC_DIV[i]];
-    assign fu_mc_complete[MC_DIV[i]] = div_complete[i];
-    assign fu_mc_result[MC_DIV[i]] = div_result[i];
-    assign fu_mc_dest_preg[MC_DIV[i]] = div_done_dest_preg[i];
-    assign fu_mc_dest_en[MC_DIV[i]] = div_done_dest_en[i];
-    assign fu_mc_rob_idx[MC_DIV[i]] = div_done_rob_idx[i];
-    assign fu_mc_rob_flag[MC_DIV[i]] = div_done_rob_flag[i];
+    localparam int M = MC_DIV[i];
+    div_unit u_div (
+      .clk(clk), .rst_n(rst_n), .en(exu2fu_mc_en[M]),
+      .flush_all(exu2fu_flush_all), .flush_br(exu2fu_flush_br),
+      .flush_rob_idx(exu2fu_flush_rob_idx), .flush_rob_flag(exu2fu_flush_rob_flag),
+      .func3(exu2fu_mc_func3[M][1:0]), .is_word(exu2fu_mc_is_word[M]),
+      .src1_rdata(exu2fu_mc_src1_rdata[M]), .src2_rdata(exu2fu_mc_src2_rdata[M]),
+      .rob_idx(exu2fu_mc_rob_idx[M]), .rob_flag(exu2fu_mc_rob_flag[M]),
+      .dest_preg(exu2fu_mc_dest_preg[M]), .dest_en(exu2fu_mc_dest_en[M]),
+      .complete(fu_mc_complete[M]),
+      .wb_in2(div_wb_in2[i]), .wake_valid(div_wake_valid[i]), .wake_preg(div_wake_preg[i]),
+      .result(fu_mc_result[M]), .done_rob_idx(fu_mc_rob_idx[M]), .done_rob_flag(fu_mc_rob_flag[M]),
+      .done_dest_preg(fu_mc_dest_preg[M]), .done_dest_en(fu_mc_dest_en[M])
+    );
   end
-  div_bank u_div (
-    .clk(clk), .rst_n(rst_n), .en(div_en),
-    .flush_all(div_flush_all), .flush_br(div_flush_br),
-    .flush_rob_idx(div_flush_rob_idx), .flush_rob_flag(div_flush_rob_flag),
-    .func3(div_func3), .is_word(div_is_word),
-    .src1_rdata(div_src1_rdata), .src2_rdata(div_src2_rdata),
-    .rob_idx(div_rob_idx), .rob_flag(div_rob_flag), .dest_preg(div_dest_preg), .dest_en(div_dest_en),
-    .complete(div_complete),
-    .wb_in2(div_wb_in2), .wake_valid(div_wake_valid), .wake_preg(div_wake_preg),
-    .result(div_result), .done_rob_idx(div_done_rob_idx), .done_rob_flag(div_done_rob_flag),
-    .done_dest_preg(div_done_dest_preg), .done_dest_en(div_done_dest_en)
-  );
   assign exe2iss_div_wb_in2     = !rob_bcast_flush && div_wb_in2[0];
   assign exe2iss_div_wake_valid = !rob_bcast_flush && div_wake_valid[0];
   assign exe2iss_div_wake_preg  = div_wake_preg[0];

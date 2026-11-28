@@ -10,7 +10,7 @@ module exu_ctrl_fu_out
 (
   input  logic [N_FU-1:0] fu_en,
   input  xc_inst_t        fu_inst [N_FU],
-  output logic [XC_OP_W-1:0] exu2fu_alu_op [ALU_NUM],
+  output logic [dis_pkg::UOP_TYPE_W-1:0] exu2fu_alu_op [ALU_NUM],
   output logic [2:0] exu2fu_alu_func3 [ALU_NUM],
   output logic [6:0] exu2fu_alu_func7 [ALU_NUM],
   output logic exu2fu_alu_src1_is_pc [ALU_NUM],
@@ -20,7 +20,7 @@ module exu_ctrl_fu_out
   output logic [31:0] exu2fu_alu_imm [ALU_NUM],
   output logic [XLEN_BITS-1:0] exu2fu_alu_src1_rdata [ALU_NUM],
   output logic [XLEN_BITS-1:0] exu2fu_alu_src2_rdata [ALU_NUM],
-  output logic [XC_OP_W-1:0] exu2fu_bru_op [BRU_NUM],
+  output logic [dis_pkg::UOP_TYPE_W-1:0] exu2fu_bru_op [BRU_NUM],
   output logic [2:0] exu2fu_bru_func3 [BRU_NUM],
   output logic exu2fu_bru_src1_en [BRU_NUM],
   output logic [XLEN_BITS-1:0] exu2fu_bru_src1_rdata [BRU_NUM],

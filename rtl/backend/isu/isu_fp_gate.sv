@@ -38,16 +38,16 @@ module isu_fp_gate
 
   always_comb begin
     for (int k = 0; k < NC; k++) cancel_k[k] = spec_v_q[k] && (|(spec_mask_q[k] & cancel_valid));
-    for (int d = 0; d < DEPTH; d++) begin
-      logic [NC-1:0]    hit_d;
-      logic [CNT_W-1:0] cn_d;
-      cn_d = '0;
-      for (int k = 0; k < NC; k++) begin
-        hit_d[k] = cancel_k[k] && spec_lat_q[k][d];
-        cn_d     = cn_d + CNT_W'(hit_d[k]);
-      end
-      eff_busy[d] = busy_q[d] - cn_d;
+  end
+  // eff_busy[d] = busy_q[d] minus the cancelled speculative reservations of cycle d (counted mod 2^CNT_W)
+  for (genvar d = 0; d < DEPTH; d++) begin : g_eff
+    logic [NC-1:0]    hit_d;
+    logic [CNT_W-1:0] cn_d;
+    for (genvar k = 0; k < NC; k++) begin : g_hit
+      assign hit_d[k] = cancel_k[k] && spec_lat_q[k][d];
     end
+    ttg_popcount #(.N(NC), .CW(CNT_W)) u_cn (.bits(hit_d), .count(cn_d));
+    assign eff_busy[d] = busy_q[d] - cn_d;
   end
 
   assign req = cand_valid & cand_fpw;

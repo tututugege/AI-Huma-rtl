@@ -10,6 +10,7 @@
 // Replayed slots: CONFLICT (no retry field for stores), or no response when dcache_s1 issues the hidden retry.
 module dcache_s2_st
   import dcache_pkg::*;
+  import memcpu_pkg::REPLAY_HIT, memcpu_pkg::REPLAY_CONFLICT, memcpu_pkg::REPLAY_MSHR_FULL;
 (
   input  logic [NST-1:0]       slot_valid,
   input  logic [NST-1:0]       slot_replayed,
@@ -71,20 +72,20 @@ module dcache_s2_st
 
     always_comb begin
       resp_valid[i]  = slot_valid[i] && !(slot_replayed[i] && retry_issue[i]);
-      resp_replay[i] = RP_CONFLICT;
+      resp_replay[i] = REPLAY_CONFLICT;
       if (normal) begin
         if (to_fill) begin
-          resp_replay[i] = RP_HIT;
+          resp_replay[i] = REPLAY_HIT;
         end else if (hit_any) begin
-          resp_replay[i] = RP_HIT;
+          resp_replay[i] = REPLAY_HIT;
         end else if (wb_mrg_ok[i]) begin
-          resp_replay[i] = RP_HIT;
+          resp_replay[i] = REPLAY_HIT;
         end else if (wb_mrg_busy[i]) begin
-          resp_replay[i] = RP_CONFLICT;
+          resp_replay[i] = REPLAY_CONFLICT;
         end else if (find_hit[i] || alloc_ok[i]) begin
-          resp_replay[i] = RP_HIT;
+          resp_replay[i] = REPLAY_HIT;
         end else begin
-          resp_replay[i] = RP_MSHR_FULL;
+          resp_replay[i] = REPLAY_MSHR_FULL;
         end
       end
     end

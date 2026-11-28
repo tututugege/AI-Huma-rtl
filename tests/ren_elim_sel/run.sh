@@ -8,6 +8,7 @@ JOBS=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
 verilator --cc --exe --build -j "$JOBS" -Wall -Wno-DECLFILENAME \
   --top-module ren_elim_sel -Mdir "$OUT/obj" \
   "$ROOT/rtl/common/ttg_cfg_pkg.sv" \
+  "$ROOT/rtl/backend/dispatch/dis_pkg.sv" \
   "$ROOT/rtl/backend/ren/ren_pkg.sv" \
   "$ROOT/rtl/common/ttg_first_set.sv" \
   "$ROOT/rtl/common/ttg_onehot_to_idx.sv" \

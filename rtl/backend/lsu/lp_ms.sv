@@ -47,7 +47,7 @@ module lp_ms
       dis_ldw[i].wait_b = mdp_wait[i];
     end
   end
-  lp_ffs #(.N(SQ)) u_unk (.req(unk_rot), .onehot(unk_oh), .any(unk_any));
+  ttg_first_set #(.N(SQ)) u_unk (.req(unk_rot), .onehot(unk_oh), .any(unk_any));
   ttg_onehot_to_idx #(.N(SQ)) u_unkx (.onehot(unk_oh), .idx(unk_rank));
 
   lp_mdp u_mdp (.clk(clk), .rst_n(rst_n), .dis(dis_ld), .vio_new(vio_new), .empty_w(empty_w), .ldq_q(ldq_q),

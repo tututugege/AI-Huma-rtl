@@ -33,7 +33,7 @@ L1 数据缓存，加上它旁边的两个小结构：缺失状态寄存器 MSHR
 | 地址划分（32 位物理地址） | 行内偏移 `[5:0]`，组号 `[13:6]`（8 位），tag `[31:14]`（18 位） | `DCACHE_OFFSET_BITS`、`DCACHE_SET_BITS`、`DCACHE_TAG_BITS` |
 | bank | 16 个，bank 号 = 组号低 4 位 = 地址 `[9:6]`；每个 bank 16 行（`ROW_W = SET_W - BANK_W = 4`） | `DCACHE_BANK_NUM`、`DCACHE_BANK_BITS`、`dcache_pkg` |
 | 数据字 | 与 LSU 交换的字宽 `DW = XLEN_BITS = 64`；行内按 `DWORDS = 512/64 = 8` 个 64 位字；AXI 一侧仍是 16 个 32 位字（`WORDS = DCACHE_WORD_NUM = 16`） | `dcache_pkg` |
-| 替换 | 每组 3 位树形 PLRU（4 路），牺牲路 = 第一个无效路，否则按 PLRU | `plru_touch`、`plru_victim`、`dcache_s2_fill.sv` |
+| 替换 | 每组 3 位树形 PLRU（4 路），牺牲路 = 第一个无效路，否则按 PLRU | `ttg_util_pkg::ttg_plru4_touch`（`dcache_arr`）、`ttg_plru4_victim`（`dcache_s2_fill.sv`） |
 | MSHR | 16 项，id 4 位（`DCACHE_MSHR_ENTRIES`、`DCACHE_MSHR_BITS`），空闲计数 5 位（`CNT_W`，0..16） | EXP-048 |
 | WB | 8 项，环形队列（`DCACHE_WB_ENTRIES`） | |
 | 端口 | 4 个 load 口（`NLD`）、3 个 store 口（`NST`），7 个请求槽（`NSLOT`）；最后一个 load 口（`P3 = NLD - 1`）被 ICache 探测和页表遍历共用 | `LSU_LDU_COUNT`、`LSU_STA_COUNT`、`memcpu_pkg` |
@@ -84,19 +84,19 @@ L1 数据缓存，加上它旁边的两个小结构：缺失状态寄存器 MSHR
 | 文件 | 行数 | 职责 |
 | --- | --- | --- |
 | `dcache.sv` | 361 | 顶层：只做端口适配和连线 |
-| `dcache_pkg.sv` | 89 | 常量（端口数、地址域、replay 编码）、`line_word`、字节使能合并函数 `line_merge_n`、PLRU 函数 |
+| `dcache_pkg.sv` | 67 | 常量（端口数、地址域）、`line_word`、字节使能合并函数 `line_merge_n`（replay 编码用 `memcpu_pkg::REPLAY_*`，4 路树形 PLRU 用 `ttg_util_pkg::ttg_plru4_*`） |
 | `dcache_s1.sv` | 344 | 第一级：请求选择、bank 授权、预取探测放行、第一级到第二级寄存器、填充快照、隐藏重试寄存器 |
-| `dcache_arr.sv` | 174 | 把请求者映射到 16 个 bank，汇总读结果，仿真时检查"每拍每 bank 只有一个请求者"的断言 |
+| `dcache_arr.sv` | 175 | 把请求者映射到 16 个 bank，汇总读结果，仿真时检查"每拍每 bank 只有一个请求者"的断言 |
 | `dcache_bank.sv` | 159 | 一个 bank：16 行 × 4 路的 valid/dirty/pf（触发器）、tag/数据（`ttg_sram_1r1w`），16 个 PLRU 字 |
-| `dcache_s2_ld.sv` | 125 | load 口第二级决策（纯组合） |
-| `dcache_s2_st.sv` | 94 | store 口第二级决策（纯组合） |
-| `dcache_s2_fill.sv` | 85 | 填充侧：选牺牲路、判断 WB 是否有空间、出驱逐行 |
+| `dcache_s2_ld.sv` | 126 | load 口第二级决策（纯组合） |
+| `dcache_s2_st.sv` | 95 | store 口第二级决策（纯组合） |
+| `dcache_s2_fill.sv` | 86 | 填充侧：选牺牲路、判断 WB 是否有空间、出驱逐行 |
 | `dcache_mshr.sv` | 262 | MSHR |
 | `dcache_mshr_alloc.sv` | 66 | MSHR 分配 / 合并：第 k 个要分配的请求拿第 k 个空闲项 |
 | `dcache_wb.sv` | 146 | 写回缓冲 |
 | `dcache_wb_find.sv` | 33 | 在 WB 环里找某一行的最年轻项 |
-| `dcache_resp.sv` | 231 | 响应暂存、用到达的填充行转发、发布 |
-| `dcache_cover.sv` | 149 | 仅仿真：29 条 `cover property`，统计各条路径有没有走到；没有硬件 |
+| `dcache_resp.sv` | 232 | 响应暂存、用到达的填充行转发、发布 |
+| `dcache_cover.sv` | 150 | 仅仿真：29 条 `cover property`，统计各条路径有没有走到；没有硬件 |
 
 （`dcache_pf.sv` 214 行，见 dcache_pf.md。）
 
@@ -185,6 +185,7 @@ depth: 123 层（子模块拆测最深 `dcache_mshr` 123 层，其余 `s1`/`s2_*
 
 ## 10. 变更记录
 
+- 2026-11-29 清理 D：去重（周期不变）。`dcache_pkg` 删除 `RP_HIT / RP_CONFLICT / RP_MSHR_HIT / RP_MSHR_FULL`（与 `memcpu_pkg::REPLAY_*` 同值，`dcache_s2_ld`、`dcache_s2_st`、`dcache_resp`、`dcache_cover` 改为按名导入 `memcpu_pkg::REPLAY_*`）和 `plru_touch / plru_victim`（与 `ttg_util_pkg::ttg_plru4_touch / ttg_plru4_victim` 同一函数，`if / else` 分支顺序相反，逐输入穷举对比 0 差异；`dcache_arr`、`dcache_s2_fill` 改用后者）。
 - 2026-11-28 清理：删参数 `PF_EN`（`soc_top` / `chip_top` / `mem_top` / `dcache`，默认 1、没有脚本覆盖）及 `dcache` 的 `g_nopf` 分支，预取器固定实例化；删 `dcache_pkg` 的死函数 `line_merge`、`line_strb_n`、`apply_strobe`，改正 `CNT_W`（0..16）与地址域（word = addr[5:3]）注释，UNUSEDPARAM waiver 收窄到常量段；删 `dcache.sv`、`dcache_pf_berti_tab.sv` 无效 waiver（周期不变）。
 - 2026-11-28（rtl 73761fa，SRAM 复位清扫）：`dcache_bank` 的 `DCACHE_TAG` / `DCACHE_DATA` `ttg_sram_1r1w` 实例接上 `rst_n`；复位期间 SRAM 外壳逐地址写 `INIT_VAL`，`ttg_rst_sweep` 把复位拉长 `SRAM_SWEEP_CYCLES = 4100` 拍，不再依赖上电值（common.md 4.1）；0 周期变化，`fm_gate` 77/77。同日文档核对：第 5 节阵列描述改为 SRAM、文件行数、门禁参考改为 `scripts/ref_cycles.txt`。
 - 2026-11-24（`rtl/timing-opt3`，EXP-064 第三轮 28nm DC 时序优化，0 周期变化）：① `dcache_pf_berti_gen.sv` 在 16→1 锦标赛树 `gen_cand_t` 内随路携带 `d` (7b) 与 `st` (2b)，与锦标赛树并行预计算 `gen_vline_q[31:6] ± 1` 及 `xq_va_q` 27b 页标签比较，以 7b 有符号低位加法 + 6b 去重比较替代 32b 加法器；TSMC 28nm DC `dcache_pf` **1.18 → 1.35 GHz (+14.4%)**（WNS `−0.35 → −0.24 ns`，纯组合 `0.70 ns / 1.43 GHz`，53→43 级，面积 `151.7k um²`）；② `dcache_mshr.sv` 与 `dcache_mshr_alloc` 并行一次性预展开 3 路 store 512b 行数据与 64b 字节选通（替代 16× `line_merge_n`），并将 `ax_req_*` 选择拆分为并行 demand/all `ttg_first_set` + `ttg_onehot_mux`；TSMC 28nm DC `dcache_mshr` **1.15 → 1.28 GHz (+11.3%)**（WNS `−0.37 → −0.28 ns`，reg2reg `−0.27 ns / 1.30 GHz`，纯组合 `0.65 ns / 1.54 GHz`，54→41 级，面积 `99.5k → 85.7k um²` **−13.9%**）。通过 `lint_chip` 0 与 `fm_gate` 69/69（0 周期差）。

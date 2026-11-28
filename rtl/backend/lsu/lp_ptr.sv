@@ -9,6 +9,8 @@
 module lp_ptr
   import ttg_cfg_pkg::*;
   import lp_pkg::*;
+  import ttg_util_pkg::ttg_rob_younger;
+  import dis_pkg::AMO_LR;
 (
   input  logic                clk,
   input  logic                rst_n,
@@ -114,13 +116,13 @@ module lp_ptr
   assign count_flushed = flush ? keep_committed : count_al;
   assign count_fm = flush ? keep_committed : count_q;
   for (genvar s = 0; s < SQ; s++) begin : g_hit
-    assign hit_slot[s] = lp_rob_younger(sq_rob_idx[s], sq_rob_flag[s], dec_rob_idx, dec_rob_flag);
+    assign hit_slot[s] = ttg_rob_younger(sq_rob_idx[s], sq_rob_flag[s], dec_rob_idx, dec_rob_flag);
   end
   assign hit_rot = rotr64(64'(hit_slot), head_q);
   for (genvar j = 0; j < SQ; j++) begin : g_pos
     assign hit_pos[j] = hit_rot[j] && (CNTW'(j) >= ccount_cm);
   end
-  lp_ffs #(.N(SQ)) u_first (.req(hit_pos), .onehot(hit_first), .any(any_hit));
+  ttg_first_set #(.N(SQ)) u_first (.req(hit_pos), .onehot(hit_first), .any(any_hit));
   logic [SQW-1:0] first_ix;
   ttg_onehot_to_idx #(.N(SQ)) u_fix (.onehot(hit_first), .idx(first_ix));
   always_comb begin

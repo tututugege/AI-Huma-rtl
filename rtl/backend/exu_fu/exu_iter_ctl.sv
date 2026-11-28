@@ -3,7 +3,7 @@
 
 module exu_iter_ctl
   import ttg_cfg_pkg::*;
-  import exu_fu_pkg::*;
+  import exu_fu_pkg::*, ttg_util_pkg::ttg_rob_younger;
 #(
   parameter int CW = 4
 ) (
@@ -33,7 +33,8 @@ module exu_iter_ctl
   logic kill, live, finished;
 
   always_comb begin
-    kill          = busy_q && (flush_all || (flush_br && fu_rob_younger(rob_idx_q, rob_flag_q, flush_rob_idx, flush_rob_flag)));
+    kill          = busy_q && (flush_all ||
+                               (flush_br && ttg_rob_younger(rob_idx_q, rob_flag_q, flush_rob_idx, flush_rob_flag)));
     live          = busy_q && !kill;
     finished      = (cnt_q == '0);
     complete      = live && finished;

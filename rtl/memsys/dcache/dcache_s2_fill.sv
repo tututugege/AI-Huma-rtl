@@ -7,6 +7,7 @@
 // denied), hence the fill data is exactly the snapshot.
 module dcache_s2_fill
   import dcache_pkg::*;
+  import ttg_util_pkg::ttg_plru4_victim;
 (
   input  logic                 s2f_valid,
   input  logic [MSHR_IDW-1:0]  s2f_id,
@@ -46,7 +47,7 @@ module dcache_s2_fill
   logic [1:0]      victim;
   ttg_first_set #(.N(WAYS)) u_inv (.req(~fs_valid), .onehot(inv_oh), .any(any_invalid));
   always_comb begin
-    victim = plru_victim(fs_plru);
+    victim = ttg_plru4_victim(fs_plru);
     if (any_invalid) begin
       victim = '0;
       for (int w = 0; w < WAYS; w++) if (inv_oh[w]) victim = 2'(w);

@@ -67,19 +67,6 @@ module bpu_ftb_tab import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
     return s;
   endfunction
 
-  function automatic logic [SET_W-1:0] set_idx(input logic [XLEN_BITS-1:0] pc);
-    logic [31:0] w;
-    w = 32'(pc >> SLOT_SHIFT);
-    return SET_W'(w ^ (w >> SET_W));
-  endfunction
-
-  function automatic logic [FTB_MAX_TAG_W-1:0] norm_tag(input logic [XLEN_BITS-1:0] pc);
-    logic [31:0] w, mask;
-    w    = 32'(pc >> SLOT_SHIFT);
-    mask = (32'd1 << TAG_W) - 32'd1;
-    return FTB_MAX_TAG_W'((w >> SET_W) & mask);
-  endfunction
-
   logic [SET_W-1:0]         rd_set0, upd_s;
   logic [FTB_MAX_TAG_W-1:0] upd_tg;
   logic [WAY_W-1:0]         plru_vic, sel_way;
@@ -87,9 +74,9 @@ module bpu_ftb_tab import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
   logic [WRB_DATA_W-1:0]    wrb_rd_data, wrb_wr_data;
   logic [WRB_KEY_W-1:0]     wrb_rd_key, wrb_wr_key;
 
-  assign rd_set0 = set_idx(rd_base);
-  assign upd_s   = set_idx(upd_base);
-  assign upd_tg  = norm_tag(upd_base);
+  assign rd_set0 = SET_W'(ftb_set_hash(rd_base, SET_W));
+  assign upd_s   = SET_W'(ftb_set_hash(upd_base, SET_W));
+  assign upd_tg  = FTB_MAX_TAG_W'(ftb_tag_hash(upd_base, SET_W, TAG_W));
 
   bpu_plru #(.SETS(SETS), .WAYS(WAYS)) u_plru (
     .clk, .rst_n,
@@ -185,25 +172,23 @@ module bpu_ftb_tab import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
 
   always_comb begin
     set_t                     clr_set_eff;
-    logic                     s_any, clr_car, clr_vok;
-    logic [3:0]               clr_off;
+    logic                     s_any;
+    ftb_clr_pos_t             cp;
     logic [FTB_MAX_TAG_W-1:0] t1_tg;
     ftb_ent_t                 c_ent;
 
     clr_set_eff = clr_rd_fire_q ? unpack_set(raw_clr_rd) : clr_hold_set_q;
-    t1_tg       = norm_tag(clr_t1_base_q);
-    clr_wr_set  = set_idx(clr_t1_base_q);
+    t1_tg       = FTB_MAX_TAG_W'(ftb_tag_hash(clr_t1_base_q, SET_W, TAG_W));
+    clr_wr_set  = SET_W'(ftb_set_hash(clr_t1_base_q, SET_W));
     clr_t1_bk   = (NB > 1) ? clr_wr_set[BK_W-1:0] : BK_W'(0);
-    clr_car     = (clr_t1_pc_q + XLEN_BITS'(SLOT_BYTES) == clr_t1_base_q);
-    clr_vok     = clr_car || (clr_t1_pc_q >= clr_t1_base_q);
-    clr_off     = clr_car ? 4'd0 : 4'((clr_t1_pc_q - clr_t1_base_q) >> SLOT_SHIFT);
+    cp          = ftb_clr_pos(clr_t1_pc_q, clr_t1_base_q);
     clr_hit_c   = 1'b0; s_any = 1'b0; clr_wr_way = '0; clr_wr_ent = '0; c_ent = '0;
-    if (clr_t1_v_q && clr_vok) begin
+    if (clr_t1_v_q && cp.vok) begin
       for (int w = 0; w < WAYS; w++) begin
         if (!clr_hit_c && clr_set_eff[w].valid && (clr_set_eff[w].tag == t1_tg)) begin
           clr_hit_c  = 1'b1; clr_wr_way = WAY_W'(w); c_ent = clr_set_eff[w]; s_any = 1'b0;
           for (int k = 0; k < FTB_SLOTS; k++) begin
-            if (c_ent.s[k].valid && (c_ent.s[k].offset == clr_off)) c_ent.s[k] = '0;
+            if (c_ent.s[k].valid && (c_ent.s[k].offset == cp.off)) c_ent.s[k] = '0;
             else if (c_ent.s[k].valid) s_any = 1'b1;
           end
           if (!s_any) c_ent.valid = 1'b0;
@@ -226,7 +211,7 @@ module bpu_ftb_tab import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
     clr_rd_fire  = 1'b0;
     clr_consumed = 1'b0;
     cbase        = clr_pend_v_q ? clr_pend_base_q : clr_base;
-    cset         = set_idx(cbase);
+    cset         = SET_W'(ftb_set_hash(cbase, SET_W));
     cbk          = (NB > 1) ? cset[BK_W-1:0] : BK_W'(0);
     clr_rd_set   = cset;
     if (!clr_t1_v_d && (clr_pend_v_q || clr_en)) begin
@@ -273,7 +258,7 @@ module bpu_ftb_tab import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
     set_t                     rd_ways_c;
     logic [FTB_MAX_TAG_W-1:0] rd_tag_v;
     rd_ways_c = unpack_set(raw_rd0);
-    rd_tag_v  = norm_tag(rd_cmp_base);
+    rd_tag_v  = FTB_MAX_TAG_W'(ftb_tag_hash(rd_cmp_base, SET_W, TAG_W));
     rd_hit    = 1'b0; rd_way = '0; rd_ent = '0;
     for (int w = 0; w < WAYS; w++) begin
       if (!rd_hit && rd_ways_c[w].valid && (rd_ways_c[w].tag == rd_tag_v)) begin

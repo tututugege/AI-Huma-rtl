@@ -6,6 +6,7 @@
 // issued by dcache_s1 (no response).
 module dcache_s2_ld
   import dcache_pkg::*;
+  import memcpu_pkg::REPLAY_HIT, memcpu_pkg::REPLAY_CONFLICT, memcpu_pkg::REPLAY_MSHR_HIT, memcpu_pkg::REPLAY_MSHR_FULL;
 (
   input  logic [NLD-1:0]       slot_valid,
   input  logic [NLD-1:0]       slot_replayed,
@@ -97,22 +98,22 @@ module dcache_s2_ld
       resp_valid[i]  = slot_valid[i] && !slot_pf[i] && !(slot_replayed[i] && retry_issue[i]);
       resp_retry[i]  = slot_replayed[i];
       resp_data[i]   = '0;
-      resp_replay[i] = RP_CONFLICT;
+      resp_replay[i] = REPLAY_CONFLICT;
       if (normal) begin
         resp_retry[i] = 1'b0;
         if (byp_valid[i]) begin
           resp_data[i]   = byp_data[i];
-          resp_replay[i] = RP_HIT;
+          resp_replay[i] = REPLAY_HIT;
         end else if (hit_any) begin
           resp_data[i]   = hit_data;
-          resp_replay[i] = RP_HIT;
+          resp_replay[i] = REPLAY_HIT;
         end else if (probe) begin
           resp_retry[i]  = find_hit[i] || fill_same;
-          resp_replay[i] = RP_CONFLICT;
+          resp_replay[i] = REPLAY_CONFLICT;
         end else if (find_hit[i] || alloc_ok[i]) begin
-          resp_replay[i] = RP_MSHR_HIT;
+          resp_replay[i] = REPLAY_MSHR_HIT;
         end else begin
-          resp_replay[i] = RP_MSHR_FULL;
+          resp_replay[i] = REPLAY_MSHR_FULL;
         end
       end
     end
