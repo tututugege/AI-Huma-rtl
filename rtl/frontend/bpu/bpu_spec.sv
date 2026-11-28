@@ -1,4 +1,4 @@
-// Ref: front-end/BPU/BPU_pipe.h  State::spec / arch / sras / aras (Clean BPU v11: 256b ring, 200b arch_sr, unified ex_fh[3][6])
+// Ref: front-end/BPU/BPU_pipe.h  State::spec / arch / sras / aras (256b ring, 200b arch_sr, unified ex_fh[3][6])
 `default_nettype none
 
 module bpu_spec import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; (
@@ -176,8 +176,10 @@ module bpu_spec import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
     logic [RAS_CNT_W-1:0] hi;
   } ras_op_t;
 
-  function automatic logic [RAS_CNT_W-1:0] ras_clamp_add(input logic [RAS_CNT_W-1:0] x, input logic signed [4:0] d,
-                                                         input logic [RAS_CNT_W-1:0] lo, input logic [RAS_CNT_W-1:0] hi);
+  function automatic logic [RAS_CNT_W-1:0] ras_clamp_add(input logic [RAS_CNT_W-1:0] x,
+                                                         input logic signed [4:0] d,
+                                                         input logic [RAS_CNT_W-1:0] lo,
+                                                         input logic [RAS_CNT_W-1:0] hi);
     logic signed [RAS_CNT_W+1:0] s;
     s = $signed({2'b00, x}) + $signed({{(RAS_CNT_W-3){d[4]}}, d});
     if (s < $signed({2'b00, lo}))      return lo;
@@ -278,7 +280,7 @@ module bpu_spec import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
   end
 
   assign spec_d = refetch ? ((hr_mode == M_CK) ? spec_r1_ck : spec_r1_ar)
-                          : (ovr ? spec_q : (issue ? spec_q1 : spec_n1));
+                          : ((!BPU_FAST_OVR && ovr) ? spec_q : (issue ? spec_q1 : spec_n1));
 
   // ---- Speculative RAS: 64-entry queue + 3-slot write overlay ----
   function automatic logic [XLEN_BITS-1:0] arch_st(input logic [RAS_PTR_W-1:0] j);
@@ -346,7 +348,8 @@ module bpu_spec import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
   end
   always_comb s_d1 = do_op(do_op(start(rr_mode, rr_ck), rr_op, rr_val, 2'd0), rr_op2, rr_val2, 2'd1);
   always_comb s_q1 = do_op(start(2'd0, '0), g0_r_op, g0_r_val, 2'd2);
-  always_comb s_d  = refetch ? s_d1 : (ovr ? '{p: rp_q, o: '0} : (issue ? s_q1 : s_old));
+  always_comb s_d = refetch ? s_d1
+                            : ((!BPU_FAST_OVR && ovr) ? '{p: rp_q, o: '0} : (issue ? s_q1 : s_old));
 
   always_comb begin
     spec_ck.h.head    = spec_q.head;
@@ -380,7 +383,7 @@ module bpu_spec import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::
 
   /* verilator lint_off UNUSEDSIGNAL */
   logic unused_ok;
-  assign unused_ok = ^{r_ck.top, rr_ck.top};
+  assign unused_ok = ^{r_ck.top, rr_ck.top, ovr};
   /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

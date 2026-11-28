@@ -1,24 +1,19 @@
-// Ref: front-end/icache/icache_module.cpp  ICache::eval_state_machine  case IDLE (fast bypass + registered
-// request path)
+// Ref: front-end/icache/icache_module.cpp  ICache::eval_state_machine  case IDLE (F0 fast/registered hit check)
 `default_nettype none
 
-// IDLE step (no kill).  A fetch whose translation is available in the cycle it is presented is answered at once
-// (fast path: hit or page fault); otherwise the request is registered by icache_slot and answered from the register
-// next cycle(s) (registered path).  A registered miss allocates an AXI transaction id and enters SWAP_IN.
+// IDLE step (no kill). Decides F0 tag hit, page fault, or miss allocation; hit data is read in F1 from 1RW SRAM.
 module icache_idle import ttg_cfg_pkg::*; import icache_pkg::*; (
   input  ic_regs_t                r,
   input  logic                    req_valid_in,
-  input  logic [XLEN_BITS-1:0]             pc,
+  input  logic [XLEN_BITS-1:0]    pc,
   input  logic                    ppn_valid,
   input  logic                    page_fault,
   input  logic [IC_TAG_W-1:0]     ppn,
   input  logic                    hit,            // includes "translation valid and no fault"
-  input  logic [IC_LINE_W-1:0]    hit_line,
   output ic_regs_t                r_n,            // only state/ppn/miss/probe fields change here
   output logic                    resp_valid,
-  output logic [XLEN_BITS-1:0]             resp_pc,
+  output logic [XLEN_BITS-1:0]    resp_pc,
   output logic                    resp_page_fault,
-  output logic [IC_LINE_W-1:0]    resp_line,
   output logic                    req_ready,      // req_ready_w
   output logic                    fast_fire       // answered in the presentation cycle: slot stays empty
 );
@@ -42,7 +37,6 @@ module icache_idle import ttg_cfg_pkg::*; import icache_pkg::*; (
     resp_valid      = answer;
     resp_pc         = fast ? pc : r.req_pc;
     resp_page_fault = answer && page_fault;
-    resp_line       = (answer && !page_fault) ? hit_line : '0;
     req_ready       = !r.req_valid || (ppn_valid && (page_fault || hit));
     fast_fire       = fast && answer;
   end

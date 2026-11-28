@@ -1,8 +1,6 @@
-// Ref: front-end/icache/icache_top.cpp  ICacheTop (comb/seq, 4-bank fetch_second, 2-port ITLB peek, 2-slot FDIP)
+// Ref: front-end/icache/icache_top.cpp  ICacheTop (64KiB 2-stage F0->F1 Lo/Hi 1RW VIPT + FDIP fill buffer)
 `default_nettype none
 
-// Front-end instruction cache with 2-port read-only peek ITLB, 4-bank 1R1W arrays (parallel Block B read), and
-// S2-confirmed 2-slot real-AXI FDIP (txids 8..9 on MASTER_ICACHE).
 module icache import ttg_cfg_pkg::*; import icache_pkg::*; import tlb_mmu_pkg::*; (
   input  logic clk,
   input  logic rst_n,
@@ -12,14 +10,6 @@ module icache import ttg_cfg_pkg::*; import icache_pkg::*; import tlb_mmu_pkg::*
   input  logic invalidate,
   input  logic req_valid,
   input  logic [XLEN_BITS-1:0] fetch_address,
-  // Paired Block B parallel lookup (driven by front_fetch_buf from matching FetchPair on read_complete)
-  input  logic                 b_req_valid,
-  input  logic [XLEN_BITS-1:0] b_req_addr,
-  input  logic [3:0]           b_req_nwords,
-  // Next-cycle VIPT set indices for strict 1-cycle synchronous L1I Data SRAM pre-launch
-  input  logic [IC_IDX_W-1:0]  next_fa_idx,
-  input  logic [IC_IDX_W-1:0]  next_b_idx,
-  // S2-confirmed FDIP enqueue (driven by front_pred_path)
   input  logic                 fdip_s2_en,
   input  logic [XLEN_BITS-1:0] fdip_s2_va,
   input  logic                 fdip_s2_clear,
@@ -47,6 +37,7 @@ module icache import ttg_cfg_pkg::*; import icache_pkg::*; import tlb_mmu_pkg::*
   input  logic [PERM_W-1:0] ptw_walk_resp_leaf_perm,
   input  logic [LVL_W-1:0] ptw_walk_resp_leaf_level,
   output logic icache_ready,
+  output logic [1:0]  ic_inflight,
   output logic read_complete,
   output logic [XLEN_BITS-1:0] fetch_pc,
   output logic [FETCH_WIDTH-1:0] inst_valid,
@@ -54,8 +45,11 @@ module icache import ttg_cfg_pkg::*; import icache_pkg::*; import tlb_mmu_pkg::*
   output logic [31:0] fetch_group [FETCH_WIDTH],
   output logic [FETCH_WIDTH-1:0] fetch_upper_ok,
   output logic        fetch_single_word,
-  // Paired Block B response
   output logic        b_hit,
+  output logic        b_is_pair,
+  output logic        b_is_tail,
+  output logic [3:0]  b_a_len,
+  output logic [XLEN_BITS-1:0] b_addr,
   output logic [4:0]  b_actual_n,
   output logic [31:0] b_fetch_group [FETCH_WIDTH],
   output logic mem_req_valid,
@@ -73,46 +67,30 @@ module icache import ttg_cfg_pkg::*; import icache_pkg::*; import tlb_mmu_pkg::*
   output logic ptw_walk_flush
 );
 
-  // 16 words -> one packed line
   logic [IC_LINE_W-1:0] mem_resp_line;
   for (genvar w = 0; w < IC_WORDS; w++) begin : g_pack
     assign mem_resp_line[IC_WORD_W * w +: IC_WORD_W] = mem_resp_data[w];
   end
 
-  // ---- control FSM (demand side) ----
-  logic arr_rd_en, arr_next_req_valid, arr_cmp_valid, arr_hit, arr_has_invalid, tw_we, inv_all, mmu_req_valid;
-  logic [IC_IDX_W-1:0] arr_rd_index, arr_next_rd_index, tw_index;
+  logic arr_rd_en, arr_data_rd_en, arr_cmp_valid, arr_hit, arr_b_hit, arr_has_invalid, tw_we, inv_all, mmu_req_valid;
+  logic [IC_IDX_W-1:0] arr_rd_index, tw_index;
+  logic [XLEN_BITS-1:0] arr_rd_pc, f0_pc, peek_fdip_vaddr;
   logic [IC_WAY_W-1:0] arr_first_invalid, arr_repl_way, tw_way;
-  logic [IC_TAG_W-1:0] tw_tag, resp_ppn;
-  logic [IC_LINE_W-1:0] arr_hit_line, tw_line, resp_line;
+  logic [IC_TAG_W-1:0] tw_tag, f0_ppn, ppn;
+  logic [IC_LINE_W-1:0] tw_line, f0_byp_line, fdip_fill_line;
+  logic [IC_LINE_W/2-1:0] lo_rdata, hi_rdata;
   logic [XLEN_BITS-13:0] mmu_req_vtag;
-  logic ppn_valid, page_fault;
-  logic [IC_TAG_W-1:0] ppn;
-  logic resp_valid, resp_page_fault, resp_single_word;
-  logic [XLEN_BITS-1:0] resp_pc;
-  logic demand_mem_req_step0, demand_dc_busy, demand_miss_txv;
+  logic ppn_valid, page_fault, f0_resp_valid, f0_from_sram, f0_resp_pf, f0_resp_single;
+  logic r_req_valid_o, demand_idle_req, demand_mem_req_step0, demand_dc_busy, demand_miss_txv;
   logic [25:0] demand_miss_line;
   logic ctl_mem_req_valid, ctl_mem_req_bypass, ctl_mem_resp_ready, ctl_dc_req_valid;
-  logic [31:0] ctl_mem_req_addr, ctl_dc_req_addr;
-  logic [7:0]  ctl_mem_req_total_size;
-  logic [3:0]  ctl_mem_req_id;
-
-  // ---- FDIP signals ----
-  logic fdip_acc, fdip_rsp, fdip_rsp_raw, fdip_busy_req, fdip_probe_busy, fdip_dc_req_valid;
-  logic fdip_req_valid, fdip_fill_we, arr_fdip_peek_hit;
-  logic [31:0] fdip_req_addr, fdip_dc_req_addr;
-  logic [3:0]  fdip_req_id;
+  logic [31:0] ctl_mem_req_addr, ctl_dc_req_addr, fdip_req_addr, fdip_dc_req_addr, peek_fdip_paddr;
+  logic [7:0] ctl_mem_req_total_size;
+  logic [3:0] ctl_mem_req_id, fdip_req_id;
+  logic fdip_acc, fdip_rsp, fdip_rsp_raw, fdip_busy_req, fdip_probe_busy, fdip_fb_busy;
+  logic fdip_dc_req_valid, fdip_req_valid, fdip_fill_we, arr_fdip_peek_hit, peek_fdip_ok, pair_miss_en;
   logic [IC_IDX_W-1:0] fdip_peek_index, fdip_fill_index;
   logic [IC_TAG_W-1:0] fdip_peek_tag, fdip_fill_tag;
-  logic [IC_LINE_W-1:0] fdip_fill_line;
-  logic [XLEN_BITS-1:0] peek_fdip_vaddr;
-  logic peek_fdip_ok;
-  logic [31:0] peek_fdip_paddr;
-
-  // ---- Block B parallel next-line lookup (Same-Page Line-Straddle 2-Fetch: zero 2nd ITLB port!) ----
-  logic        b_pa_ok, arr_b_hit, pair_miss_en;
-  logic [31:0] b_paddr;
-  logic [IC_LINE_W-1:0] arr_b_hit_line;
 
   icache_ctl u_ctl (
     .clk, .rst_n, .refetch, .itlb_flush, .fence_i, .invalidate, .req_valid_in(req_valid), .pc(fetch_address),
@@ -121,14 +99,16 @@ module icache import ttg_cfg_pkg::*; import icache_pkg::*; import tlb_mmu_pkg::*
     .mem_req_accepted  (fdip_acc ? 1'b0 : mem_req_accepted),
     .mem_req_accepted_id,
     .mem_resp_valid    (fdip_rsp_raw ? 1'b0 : mem_resp_valid),
-    .mem_resp_id,
-    .mem_resp_data     (mem_resp_line),
+    .mem_resp_id, .mem_resp_data(mem_resp_line),
     .dc_resp_valid, .dc_resp_retry, .dc_resp_miss, .dc_resp_data, .dc_probe_busy(fdip_probe_busy),
-    .hit(arr_hit), .hit_line(arr_hit_line), .has_invalid(arr_has_invalid), .first_invalid(arr_first_invalid),
-    .repl_way(arr_repl_way),
-    .arr_rd_en, .arr_rd_index, .arr_next_req_valid, .arr_next_rd_index, .arr_cmp_valid, .tw_we, .tw_index, .tw_way, .tw_tag, .tw_line, .inv_all,
+    .fdip_fb_busy,
+    .hit(arr_hit), .has_invalid(arr_has_invalid), .first_invalid(arr_first_invalid), .repl_way(arr_repl_way),
+    .arr_rd_en, .arr_data_rd_en, .arr_rd_index, .arr_rd_pc, .arr_cmp_valid,
+    .tw_we, .tw_index, .tw_way, .tw_tag, .tw_line, .inv_all,
     .mmu_req_valid, .mmu_req_vtag,
-    .resp_valid, .resp_pc, .resp_ppn, .resp_page_fault, .resp_single_word, .resp_line, .icache_ready,
+    .resp_valid(f0_resp_valid), .f0_from_sram, .resp_pc(f0_pc), .resp_ppn(f0_ppn),
+    .resp_page_fault(f0_resp_pf), .resp_single_word(f0_resp_single), .resp_line(f0_byp_line),
+    .icache_ready, .r_req_valid_o, .demand_idle_req,
     .demand_mem_req_step0, .demand_dc_busy, .demand_miss_txv, .demand_miss_line,
     .mem_req_valid(ctl_mem_req_valid), .mem_req_addr(ctl_mem_req_addr),
     .mem_req_total_size(ctl_mem_req_total_size), .mem_req_bypass(ctl_mem_req_bypass),
@@ -136,59 +116,87 @@ module icache import ttg_cfg_pkg::*; import icache_pkg::*; import tlb_mmu_pkg::*
     .dc_req_valid(ctl_dc_req_valid), .dc_req_addr(ctl_dc_req_addr)
   );
 
-  // Block B address translation: always next 64B line within same 4KB page -> reuses resp_ppn (0 gates, 0 ITLB peek!)
-  always_comb begin
-    b_paddr      = {resp_ppn, b_req_addr[11:0]};
-    b_pa_ok      = b_paddr[31];
-    pair_miss_en = b_req_valid && b_pa_ok && !arr_b_hit;
-  end
+  logic arr_rd_b_need;
+  assign arr_rd_b_need = arr_rd_pc[5] && (arr_rd_pc[11:6] != 6'h3f);
 
   icache_arr u_arr (
-    .clk, .rst_n, .rd_en(arr_rd_en), .rd_index(arr_rd_index), .cmp_valid(arr_cmp_valid), .cmp_tag(ppn),
-    .next_rd_index(arr_next_req_valid ? arr_next_rd_index : next_fa_idx),
-    .next_b_rd_index(next_b_idx),
-    .hit(arr_hit), .hit_line(arr_hit_line), .has_invalid(arr_has_invalid), .first_invalid(arr_first_invalid),
-    .repl_way(arr_repl_way),
-    .b_rd_valid(b_req_valid && b_pa_ok),
-    .b_rd_index(b_paddr[IC_OFF_W +: IC_IDX_W]), .b_cmp_tag(b_paddr[31:12]),
-    .b_hit(arr_b_hit), .b_hit_line(arr_b_hit_line),
+    .clk, .rst_n, .rd_en(arr_rd_en), .data_rd_en(arr_data_rd_en), .rd_index(arr_rd_index),
+    .rd_pc_hi(arr_rd_pc[5]), .rd_b_need(arr_rd_b_need), .cmp_valid(arr_cmp_valid), .cmp_tag(ppn),
+    .hit(arr_hit), .b_hit(arr_b_hit), .has_invalid(arr_has_invalid),
+    .first_invalid(arr_first_invalid), .repl_way(arr_repl_way),
+    .lo_rdata, .hi_rdata,
     .fdip_peek_index, .fdip_peek_tag, .fdip_peek_hit(arr_fdip_peek_hit),
     .we(tw_we), .w_index(tw_index), .w_way(tw_way), .w_tag(tw_tag), .w_line(tw_line), .inv_all,
     .fdip_we(fdip_fill_we), .fdip_w_index(fdip_fill_index), .fdip_w_tag(fdip_fill_tag), .fdip_w_line(fdip_fill_line)
   );
 
+  // ---- F0 Block B decision & F0 -> F1 pipeline register ----
+  logic                 f0_same_pg, f0_straddle, f0_tail, f0_b_need, f0_b_pa_ok, f0_b_en;
+  logic [3:0]           f0_a_len, f0_b_nwords;
+  logic [XLEN_BITS-1:0] f0_b_addr;
+  ic_f1_t               f1_q, f1_d;
+  logic [IC_LINE_W-1:0] f1_byp_line_q;
+
+  always_comb begin
+    f0_same_pg   = (f0_pc[11:6] != 6'h3f);
+    f0_straddle  = (f0_pc[5:0] > 6'd32) && f0_same_pg;
+    f0_tail      = (f0_pc[5:0] == 6'd32) && f0_same_pg;
+    f0_b_need    = f0_straddle || f0_tail;
+    f0_a_len     = f0_straddle ? 4'((7'd64 - {1'b0, f0_pc[5:0]}) >> 1) : 4'd0;
+    f0_b_nwords  = f0_straddle ? (4'd0 - f0_a_len) : (f0_tail ? 4'd1 : 4'd0);
+    f0_b_addr    = {f0_pc[XLEN_BITS-1:6] + (XLEN_BITS-6)'(1), 6'd0};
+    f0_b_pa_ok   = f0_ppn[IC_TAG_W-1];
+    f0_b_en      = f0_from_sram && f0_b_need && f0_b_pa_ok;
+    pair_miss_en = f0_b_en && !arr_b_hit;
+
+    f1_d             = '0;
+    f1_d.valid       = !invalidate && f0_resp_valid;
+    f1_d.from_sram   = f0_from_sram;
+    f1_d.page_fault  = f0_resp_pf;
+    f1_d.single_word = f0_resp_single;
+    f1_d.pc          = f0_pc;
+    f1_d.use_hi_only = f0_pc[5];
+    f1_d.b_hit       = f0_b_en && arr_b_hit;
+    f1_d.b_is_pair   = f0_b_en && f0_straddle;
+    f1_d.b_is_tail   = f0_b_en && f0_tail;
+    f1_d.a_len       = f0_a_len;
+    f1_d.b_nwords    = f0_b_nwords;
+    f1_d.b_addr      = f0_b_addr;
+  end
+
+  always_ff @(posedge clk) begin
+    if (!rst_n || refetch) f1_q <= '0;
+    else                   f1_q <= f1_d;
+    if (!rst_n)                             f1_byp_line_q <= '0;
+    else if (f1_d.valid && !f1_d.from_sram) f1_byp_line_q <= f0_byp_line;
+  end
+
   icache_fdip u_fdip (
     .clk, .rst_n, .refetch, .fence_i,
     .demand_mem_req_step0, .demand_dc_busy, .demand_miss_txv, .demand_miss_line,
+    .demand_tw_we(tw_we), .demand_idle_req,
     .mem_req_accepted, .mem_req_accepted_id, .mem_resp_valid, .mem_resp_id, .mem_resp_line,
     .dc_resp_valid, .dc_resp_retry, .dc_resp_miss,
-    .fdip_probe_busy, .fdip_dc_req_valid, .fdip_dc_req_addr,
+    .fdip_probe_busy, .fdip_fb_busy, .fdip_dc_req_valid, .fdip_dc_req_addr,
     .peek_vaddr(peek_fdip_vaddr), .peek_ok(peek_fdip_ok), .peek_paddr(peek_fdip_paddr),
     .arr_peek_index(fdip_peek_index), .arr_peek_tag(fdip_peek_tag), .arr_peek_hit(arr_fdip_peek_hit),
-    .pair_miss_en, .pair_miss_va(b_req_addr),
+    .pair_miss_en, .pair_miss_va(f0_b_addr),
     .s2_en(fdip_s2_en), .s2_va(fdip_s2_va), .s2_clear(fdip_s2_clear),
     .fdip_acc, .fdip_rsp, .fdip_rsp_raw, .fdip_busy_req,
     .fdip_req_valid, .fdip_req_addr, .fdip_req_id,
     .fdip_fill_we, .fdip_fill_index, .fdip_fill_tag, .fdip_fill_line
   );
 
-  // AXI & DCache probe output muxes: FDIP drives only when sending / probing (demand was gated cleanly)
   always_comb begin
     mem_resp_ready = ctl_mem_resp_ready || fdip_rsp;
     dc_req_valid   = fdip_dc_req_valid ? 1'b1             : ctl_dc_req_valid;
     dc_req_addr    = fdip_dc_req_valid ? fdip_dc_req_addr : ctl_dc_req_addr;
     if (fdip_req_valid) begin
-      mem_req_valid      = 1'b1;
-      mem_req_addr       = fdip_req_addr;
-      mem_req_total_size = 8'(IC_LINE_W / 8 - 1);
-      mem_req_bypass     = 1'b0;
-      mem_req_id         = fdip_req_id;
+      mem_req_valid = 1'b1; mem_req_addr = fdip_req_addr;
+      mem_req_total_size = 8'(IC_LINE_W / 8 - 1); mem_req_bypass = 1'b0; mem_req_id = fdip_req_id;
     end else begin
-      mem_req_valid      = ctl_mem_req_valid;
-      mem_req_addr       = ctl_mem_req_addr;
-      mem_req_total_size = ctl_mem_req_total_size;
-      mem_req_bypass     = ctl_mem_req_bypass;
-      mem_req_id         = ctl_mem_req_id;
+      mem_req_valid = ctl_mem_req_valid; mem_req_addr = ctl_mem_req_addr;
+      mem_req_total_size = ctl_mem_req_total_size; mem_req_bypass = ctl_mem_req_bypass; mem_req_id = ctl_mem_req_id;
     end
   end
 
@@ -201,8 +209,7 @@ module icache import ttg_cfg_pkg::*; import icache_pkg::*; import tlb_mmu_pkg::*
     .ptw_resp_fault(ptw_walk_resp_fault), .ptw_resp_vpn(ptw_walk_resp_vpn),
     .ptw_resp_leaf_level(ptw_walk_resp_leaf_level),
     .ptw_resp_leaf_ppn(ptw_walk_resp_leaf_ppn), .ptw_resp_leaf_perm(ptw_walk_resp_leaf_perm),
-    .peek_fdip_vaddr,
-    .peek_fdip_ok, .peek_fdip_paddr,
+    .peek_fdip_vaddr, .peek_fdip_ok, .peek_fdip_paddr,
     .ppn_valid, .page_fault, .ppn,
     .ptw_req_valid(ptw_walk_req_valid), .ptw_req_vpn(ptw_walk_req_vpn), .ptw_req_root_ppn(ptw_walk_req_root_ppn),
     .ptw_resp_consumed(ptw_walk_resp_consumed), .ptw_flush(itlb_ptw_flush)
@@ -214,44 +221,44 @@ module icache import ttg_cfg_pkg::*; import icache_pkg::*; import tlb_mmu_pkg::*
   end
   assign ptw_walk_flush = itlb_ptw_flush || first_cycle_q;
 
-  icache_resp u_resp (
-    .resp_valid, .resp_pc, .resp_page_fault, .resp_single_word, .resp_line, .fetch_pc, .fetch_group,
-    .upper_ok(fetch_upper_ok),
-    .page_fault_inst, .inst_valid
-  );
-
-  // Block B halfword-window extraction (always next 64B line -> arr_b_hit_line)
+  // ---- F1 Data SRAM output / halfword slicing -> inst_fifo ----
+  logic                   f1_v;
+  logic [IC_LINE_W-1:0]   f1_line_a, f1_line_b;
   logic [FETCH_WIDTH-1:0] b_inst_v_unused, b_pf_unused, b_up_unused;
   logic [XLEN_BITS-1:0]   b_pc_unused;
-  logic [5:0]             b_avail_line;
 
+  assign f1_v      = !refetch && f1_q.valid;
+  assign f1_line_a = f1_q.from_sram ? (f1_q.use_hi_only ? {hi_rdata, 256'd0} : {hi_rdata, lo_rdata})
+                                    : f1_byp_line_q;
+  assign f1_line_b = {256'd0, lo_rdata};
+
+  icache_resp u_resp (
+    .resp_valid(f1_v), .resp_pc(f1_q.pc), .resp_page_fault(f1_q.page_fault),
+    .resp_single_word(f1_q.single_word), .resp_line(f1_line_a),
+    .fetch_pc, .fetch_group, .upper_ok(fetch_upper_ok), .page_fault_inst, .inst_valid
+  );
   icache_resp u_resp_b (
-    .resp_valid      (b_req_valid && b_pa_ok && arr_b_hit),
-    .resp_pc         (b_req_addr),
-    .resp_page_fault (1'b0),
-    .resp_single_word(1'b0),
-    .resp_line       (arr_b_hit_line),
-    .fetch_pc        (b_pc_unused),
-    .fetch_group     (b_fetch_group),
-    .upper_ok        (b_up_unused),
-    .page_fault_inst (b_pf_unused),
-    .inst_valid      (b_inst_v_unused)
+    .resp_valid(f1_v && f1_q.b_hit), .resp_pc(f1_q.b_addr), .resp_page_fault(1'b0),
+    .resp_single_word(1'b0), .resp_line(f1_line_b),
+    .fetch_pc(b_pc_unused), .fetch_group(b_fetch_group),
+    .upper_ok(b_up_unused), .page_fault_inst(b_pf_unused), .inst_valid(b_inst_v_unused)
   );
 
-  always_comb begin
-    b_avail_line = 6'd32 - {1'b0, b_req_addr[IC_OFF_W-1:1]};
-    b_actual_n   = ({2'b00, b_req_nwords} < b_avail_line) ? {1'b0, b_req_nwords} : b_avail_line[4:0];
-    b_hit        = b_req_valid && b_pa_ok && arr_b_hit && (b_actual_n != 5'd0);
-  end
-
-  assign read_complete     = resp_valid;
-  assign fetch_single_word = resp_single_word;
+  assign b_actual_n        = {1'b0, f1_q.b_nwords};
+  assign b_hit             = f1_v && f1_q.b_hit && (f1_q.b_nwords != 4'd0);
+  assign b_is_pair         = f1_v && f1_q.b_is_pair;
+  assign b_is_tail         = f1_v && f1_q.b_is_tail;
+  assign b_a_len           = f1_q.a_len;
+  assign b_addr            = f1_q.b_addr;
+  assign read_complete     = f1_v;
+  assign fetch_single_word = f1_q.single_word;
+  assign ic_inflight       = {1'b0, f1_q.valid} + {1'b0, r_req_valid_o};
 
   /* verilator lint_off UNUSEDSIGNAL */
   logic unused_ic;
-  assign unused_ic = ^{b_inst_v_unused, b_pf_unused, b_up_unused, b_pc_unused, b_paddr[IC_OFF_W-1:0]};
+  assign unused_ic = ^{b_inst_v_unused, b_pf_unused, b_up_unused, b_pc_unused, f0_ppn[IC_TAG_W-2:0],
+                       arr_rd_pc[XLEN_BITS-1:IC_OFF_W], arr_rd_pc[IC_OFF_W-2:0]};
   /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule
-
 `default_nettype wire

@@ -1,4 +1,4 @@
-// Ref: front-end/BPU/BPU_pipe.h & BpuSc.h  (Clean BPU v11: 1-Taken S0->S1->S2, unified ex_fh[3][6], HR_BITS=256)
+// Ref: front-end/BPU/BPU_pipe.h & BpuSc.h  (Single-Set 2-Ahead BPU: S0->S1->S2, ex_fh[3][6], HR_BITS=256)
 `default_nettype none
 /* verilator lint_off UNUSEDPARAM */
 package bpu_stage_pkg;
@@ -10,23 +10,23 @@ package bpu_stage_pkg;
   localparam int HR_BITS   = 256;
   localparam int HR_PTR_W  = 8;
   localparam int PQ_DEPTH  = 32;
-  localparam int NITT      = 3;
-  localparam int ITT_TBL [NITT] = '{1, 2, 3};
+  localparam int NITT      = 4;
+  localparam int ITT_EX_MAP [NITT] = '{1, 2, 3, 5};
   localparam int EPOCH_W   = 8;
   localparam int LANE_W    = $clog2(NLANE);
 
-  // ---- Unified 6-table geometric history engine (shared by S2 ExBlockTage, 1-Ahead TAGE & ITT) ----
-  localparam int EX_TN       = 6;
-  localparam int EX_FH_K     = 3;
-  localparam int EX_FH_W     = 12;
-  localparam int AH_EX_MAP [TN] = '{0, 1, 3, 5}; // lengths {5, 11, 44, 178}
+  // Compile-time switch: 1 = S2 fast override (0 extra ovr_pend bubble); 0 = 1-cycle registered ovr_pend_q decoupling
+  localparam bit BPU_FAST_OVR = 1'b1;
+
+  // ---- Unified 6-table geometric history engine (shared by 2-Way 2-Ahead ExBlockTage & 4-Table ITT) ----
+  localparam int EX_TN   = 6;
+  localparam int EX_FH_K = 3;
+  localparam int EX_FH_W = 12;
 
   // ---- Deep-Macro Multi-Bank 1RW geometry & 38-bit Sv39 VA target compression ----
-  localparam int BPU_FTB1_BANKS    = 2;  // 2-Bank 1RW (512-deep -> 24 x 512x72 macros)
-  localparam int BPU_S2_BASE_BANKS = 4;  // 4-Bank 1RW (1024x8b -> 8 x 512x8 macros)
-  localparam int BPU_S2_TAGE_BANKS = 8;  // 8-Bank 1RW (512x64b -> 48 x 512x72 macros)
-  localparam int BPU_ITT_BANKS     = 2;  // 2-Bank 1RW (128x52b -> 6 x 128x64 macros)
-  localparam int BPU_AH1_BANKS     = 2;  // 2-Bank 1RW (aftb 128x8w, atage 512x60b, aitt 128x52b)
+  localparam int BPU_FTB1_BANKS    = 2;  // 2-Bank 1RW (512-deep x 860b -> 24 x 512x72 macros)
+  localparam int BPU_AH_TAGE_BANKS = 4;  // 4-Bank 1RW (512-deep x 128b -> 48 x 512x72 macros across 6 tables)
+  localparam int BPU_ITT_BANKS     = 2;  // 2-Bank 1RW (256-deep x 52b  ->  8 x 256x64 macros across 4 tables)
   localparam int BPU_WRB_N         = 8;  // 8-entry FF WRBypass CAM+Mem
   localparam int FTB_VA_BITS       = 38; // stores pc[38:1]; sign-extended bit 38 to [63:39], bit 0 = 0
 
@@ -37,14 +37,6 @@ package bpu_stage_pkg;
 
   function automatic logic s2_bank_of_pc(input logic [XLEN_BITS-1:0] pc);
     return s2_bank_of_w(32'(pc >> SLOT_SHIFT));
-  endfunction
-
-  function automatic logic ah1_bank_of_w(input logic [31:0] w);
-    return 1'(w ^ (w >> 8));
-  endfunction
-
-  function automatic logic ah1_bank_of_pc(input logic [XLEN_BITS-1:0] pc);
-    return ah1_bank_of_w(32'(pc >> SLOT_SHIFT));
   endfunction
 
   function automatic logic [FTB_VA_BITS-1:0] sv39_pack(input logic [XLEN_BITS-1:0] pc);
@@ -107,7 +99,7 @@ package bpu_stage_pkg;
     ras_ck_t  r;
   } ck_t;
 
-  // ---- block prediction summary shared by S0 / S1 / S2 ----
+  // ---- Block prediction summary shared by S0 / S1 / S2 ----
   typedef struct packed {
     logic                 hit;
     logic                 taken;
@@ -121,20 +113,38 @@ package bpu_stage_pkg;
     logic [XLEN_BITS-1:0] ras_val;
   } pred_t;
 
-  // ---- block registers of S1 / S2 stages (single-block 1-Taken) ----
+  // ---- 2-Ahead resolved direction/ITT summary carried S0 -> S1 -> S2 ----
+  typedef struct packed {
+    logic [3:0] pcpn;
+    logic       prov_dir;
+    logic       alt_is_tagged;
+    logic       alt_dir;
+    logic       use_alt;
+  } ah_slot_tage_t;
+
+  typedef struct packed {
+    logic                   valid;
+    ah_slot_tage_t [3:0]    s;
+    logic                   itt_hit;
+    logic [FTB_VA_BITS-1:0] itt_tgt;
+  } ah_dir_itt_t;
+
+  // ---- Block registers of S1 / S2 stages (single-block 1-Taken) ----
   typedef struct packed {
     logic                 valid;
     logic                 sq;
     logic                 ah_v;
     logic                 ah_hit;
     logic [XLEN_BITS-1:0] ah_key_base;
+    logic [XLEN_BITS-1:0] prev_base;
     ex_fh_t               ah_key_ex_fh;
     logic [XLEN_BITS-1:0] base;
     pred_t                g;
     ck_t                  ck;
+    ah_dir_itt_t          ah_dir_itt;
   } blk_t;
 
-  // ---- helpers (Same-Page Line-Straddle 2-Fetch: full 32B block, truncates only at 4KB page boundary) ----
+  // ---- Helpers (Same-Page Line-Straddle 2-Fetch: full 32B block, truncates only at 4KB page boundary) ----
   function automatic logic [XLEN_BITS-1:0] block_bnd(input logic [XLEN_BITS-1:0] base);
     logic [XLEN_BITS-1:0] plus;
     plus = base + XLEN_BITS'(FETCH_WIDTH * SLOT_BYTES);
@@ -142,9 +152,9 @@ package bpu_stage_pkg;
   endfunction
 
   function automatic logic [HSYM_W-1:0] hsym_of(input logic [XLEN_BITS-1:0] pc, input logic [XLEN_BITS-1:0] tgt);
-    logic [31:0] v;
+    logic [31:0]          v;
     logic [XLEN_BITS-1:0] w;
-    logic [HSYM_W-1:0] r;
+    logic [HSYM_W-1:0]    r;
     w = pc >> SLOT_SHIFT;
     v = 32'(w ^ (tgt >> SLOT_SHIFT) ^ (w >> 7));
     r = '0;
@@ -159,7 +169,7 @@ package bpu_stage_pkg;
   endfunction
   /* verilator lint_on UNUSEDSIGNAL */
 
-  // ---- unified history ring ----
+  // ---- Unified history ring ----
   function automatic hist_t hist_push(input hist_t h, input logic dir);
     hist_t n;
     logic [EX_FH_W-1:0] ev, emsk;

@@ -73,6 +73,25 @@ module ttg_sram_1rw #(
       if (en && !we) sel_hi_q <= addr[9];
     end
     assign rdata = sel_hi_q ? q_hi[WIDTH-1:0] : q_lo[WIDTH-1:0];
+  end else if (DEPTH == 1024) begin : g_1024x32
+    localparam int NT = (WIDTH + 31) / 32;
+    for (genvar t = 0; t < NT; t++) begin : g_t
+      localparam int LO = t * 32;
+      localparam int SW = ((LO + 32) <= WIDTH) ? 32 : (WIDTH - LO);
+      logic [31:0] d_p, bweb_p, q_p;
+      always_comb begin
+        d_p    = '0;
+        bweb_p = '1;
+        d_p[SW-1:0]    = wdata[LO +: SW];
+        bweb_p[SW-1:0] = ~bit_wmask[LO +: SW];
+      end
+      TEM5N28HPCPLVTA1024X32M4SWSO u_macro (
+        .CLK (clk), .CEB (~en), .WEB (~we),
+        .A   (addr), .D (d_p), .BWEB (bweb_p), .Q (q_p),
+        .SLP (1'b0), .SD (1'b0)
+      );
+      assign rdata[LO +: SW] = q_p[SW-1:0];
+    end
   end else if ((DEPTH == 512) && (WIDTH <= 8)) begin : g_512x8
     logic [7:0] d_p, bweb_p, q_p;
     always_comb begin

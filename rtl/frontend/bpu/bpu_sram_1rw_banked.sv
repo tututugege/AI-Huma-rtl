@@ -146,16 +146,20 @@ module bpu_sram_1rw_banked #(
   assign clr_rd_data = HAS_CLR_RD ? bk_rdata[clr_bk_q] : '0;
 
 `ifndef SYNTHESIS
+  logic [2:0] dbg_nops_c [NB];
+  always_comb begin
+    for (int b = 0; b < NB; b++) begin
+      dbg_nops_c[b] = 3'(rd0_en && (rd0_bk == BK_W'(b))) +
+                      3'(HAS_CLR_RD && clr_rd_en && (clr_bk == BK_W'(b))) +
+                      3'(wr_en && (wr_bk == BK_W'(b))) +
+                      3'(HAS_RST && rst_wr_en && (rst_bk == BK_W'(b)));
+    end
+  end
   always_ff @(posedge clk) begin
     for (int b = 0; b < NB; b++) begin
-      int nops;
-      nops = int'(rd0_en && (rd0_bk == BK_W'(b))) +
-             int'(HAS_CLR_RD && clr_rd_en && (clr_bk == BK_W'(b))) +
-             int'(wr_en && (wr_bk == BK_W'(b))) +
-             int'(HAS_RST && rst_wr_en && (rst_bk == BK_W'(b)));
-      if (nops > 1)
+      if (dbg_nops_c[b] > 3'd1)
         $error("bpu_sram_1rw_banked(%s): bank %0d conflict (%0d ops: rd0=%0b clr=%0b wr=%0b rst=%0b)",
-               TAG, b, nops,
+               TAG, b, dbg_nops_c[b],
                rd0_en && (rd0_bk == BK_W'(b)),
                HAS_CLR_RD && clr_rd_en && (clr_bk == BK_W'(b)),
                wr_en && (wr_bk == BK_W'(b)),

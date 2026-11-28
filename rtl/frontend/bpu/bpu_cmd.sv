@@ -1,4 +1,4 @@
-// Ref: front-end/BPU/BPU_pipe.h  BpuPipe::comb (Clean BPU v11: 1-Taken 2A+2B history/RAS/PC command)
+// Ref: front-end/BPU/BPU_pipe.h  BpuPipe::comb (Single-Set 2-Ahead history/RAS/PC command)
 `default_nettype none
 
 module bpu_cmd import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; (
@@ -6,9 +6,10 @@ module bpu_cmd import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*
   input  logic                 pd_restore,
   input  logic                 rep_ok,
   input  logic                 ovr,
-  input  logic                 ovr_pend,           // 1-cycle registered S2 override recovery
-  input  ck_t                  ovr_ck,
   /* verilator lint_off UNUSEDSIGNAL */
+  input  logic                 ovr_pend,
+  input  ck_t                  ovr_ck,
+  input  ck_t                  r1_ck,
   input  pred_t                ovr_out,
   /* verilator lint_on UNUSEDSIGNAL */
   input  logic                 issue,
@@ -29,7 +30,7 @@ module bpu_cmd import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*
   input  logic [2:0]           rf_type,
   input  logic [XLEN_BITS-1:0] rf_pc,
   input  logic                 rf_is_rvc,
-  // !refetch && !issue restore command (registered ovr_pend ONLY)
+  // !refetch && !issue restore command (BPU_FAST_OVR=1: direct S2 ovr; =0: registered ovr_pend)
   output logic [1:0]           h_mode,
   output hist_ck_t             h_ck,
   output logic                 h_push_en,
@@ -39,7 +40,7 @@ module bpu_cmd import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*
   output logic [1:0]           r_op,
   output logic [XLEN_BITS-1:0] r_val,
   output logic [XLEN_BITS-1:0] pc_d,
-  // refetch-only restore command (ZERO dependence on S2 ovr!)
+  // refetch-only restore command
   output logic [1:0]           hr_mode,
   output hist_ck_t             hr_ck,
   output logic [1:0]           hr_push_n,
@@ -56,37 +57,42 @@ module bpu_cmd import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*
   localparam logic [1:0] M_CK   = 2'd2;
   localparam logic [1:0] M_ARCH = 2'd3;
 
-  logic                 rf_taken;
+  logic                 rf_taken, act_ovr_fire;
   logic [XLEN_BITS-1:0] rf_pc_next;
+  ck_t                  act_ovr_ck;
+  /* verilator lint_off UNUSEDSIGNAL */
+  pred_t                act_ovr_out;
+  /* verilator lint_on UNUSEDSIGNAL */
 
   always_comb begin
     rf_pc_next = rf_pc + (rf_is_rvc ? XLEN_BITS'(2) : XLEN_BITS'(4));
     rf_taken   = (rf_type == BR_DIRECT) ? (refetch_address != rf_pc_next) : 1'b1;
   end
 
-  // !refetch && !issue restore command: driven PURELY by registered ovr_pend / ovr_ck / ovr_out!
   always_comb begin
-    h_mode      = ovr_pend ? M_CK : M_HOLD;
-    h_ck        = ovr_ck.h;
-    h_push_en   = ovr_pend && ovr_out.taken;
-    h_push_bits = ovr_out.hbits;
+    act_ovr_fire = BPU_FAST_OVR ? ovr    : ovr_pend;
+    act_ovr_ck   = BPU_FAST_OVR ? r1_ck  : ovr_ck;
+    act_ovr_out  = BPU_FAST_OVR ? fin    : ovr_out;
 
-    r_mode      = ovr_pend ? M_CK : M_HOLD;
-    r_ck        = ovr_ck.r;
-    r_op        = ovr_pend ? ovr_out.ras_op : 2'd0;
-    r_val       = ovr_out.ras_val;
+    h_mode      = act_ovr_fire ? M_CK : M_HOLD;
+    h_ck        = act_ovr_ck.h;
+    h_push_en   = act_ovr_fire && act_ovr_out.taken;
+    h_push_bits = act_ovr_out.hbits;
+
+    r_mode      = act_ovr_fire ? M_CK : M_HOLD;
+    r_ck        = act_ovr_ck.r;
+    r_op        = act_ovr_fire ? act_ovr_out.ras_op : 2'd0;
+    r_val       = act_ovr_out.ras_val;
   end
 
-  // Next PC
   always_comb begin
-    if (refetch)       pc_d = refetch_address;
-    else if (ovr_pend) pc_d = pc;
-    else if (ovr)      pc_d = fin.next;
-    else if (issue)    pc_d = g0.next;
-    else               pc_d = pc;
+    if (refetch)                        pc_d = refetch_address;
+    else if (!BPU_FAST_OVR && ovr_pend) pc_d = pc;
+    else if (ovr)                       pc_d = fin.next;
+    else if (issue)                     pc_d = g0.next;
+    else                                pc_d = pc;
   end
 
-  // Refetch-only command (ZERO dependence on S2 ovr!)
   always_comb begin
     hr_mode = M_ARCH; hr_ck = pd_ck.h; hr_push_n = 2'd0; hr_push_bits = '0;
     rr_mode = M_ARCH; rr_ck = pd_ck.r; rr_op = 2'd0; rr_val = '0; rr_op2 = 2'd0; rr_val2 = '0;
@@ -104,5 +110,4 @@ module bpu_cmd import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*
   end
 
 endmodule
-
 `default_nettype wire

@@ -1,10 +1,10 @@
-// Ref: front-end/BPU/BPU_pipe.h  FTB_BRQ (Clean BPU v11: 16-entry native 1.00 br/cyc queue + single-bank 512-entry 1R1W ftb_rec)
+// Ref: front-end/BPU/BPU_pipe.h  FTB_BRQ (16-entry BRQ + single-bank u_rec + FE_TRAIN_LAT=1 T0->T1 pipeline)
 `default_nettype none
 
 module bpu_ftb_brq import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; import bpu_types_pkg::*; (
   input  logic                    clk,
   input  logic                    rst_n,
-  // S2 ftb_rec single write port (1-Taken writes at most 1 entry/cycle -> single-bank 1R1W SRAM!)
+  // S2 ftb_rec single write port
   input  logic                    rec_wr_en,
   input  logic [FTB_REC_W-1:0]    rec_wr_addr,
   input  ftb_rec_t                rec_wr_data,
@@ -19,18 +19,20 @@ module bpu_ftb_brq import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
   input  logic [NCOMMIT-1:0]      alt_pred,
   input  logic [PCPN_W-1:0]       pcpn       [NCOMMIT],
   input  logic [FTB_BLK_ID_W-1:0] blk_id     [NCOMMIT],
-  // Single-branch decoded head output (pops every cycle cnt_q != 0 -> native 1.00 br/cyc!)
+  // 2-cycle registered head output (FE_TRAIN_LAT=1: decoupled from u_rec read!)
   output logic                    upd_en,
   output logic [XLEN_BITS-1:0]    upd_start,
   output ex_fh_t                  upd_ex_fh,
   output logic                    upd_ah_v,
+  output logic                    upd_ah_self0,
   output logic [XLEN_BITS-1:0]    upd_ah_key_base,
+  output logic [XLEN_BITS-1:0]    upd_prev_base,
   output ex_fh_t                  upd_ah_key_ex_fh,
-  output s2_pred_meta_t           upd_s2_meta,
+  output ftb1_lookup_meta_t       upd_ftb1_meta,
   output ah_pred_meta_t           upd_ah_meta,
   output ftb_br_upd_t             upd_br,
   output logic [XLEN_BITS-1:0]    upd_pc,
-  // Commit credits to compact ROB (never backpressures ROB)
+  // Commit credits to compact ROB
   output logic [3:0]              commit_upd_free,
   output logic [3:0]              commit_tq_free
 );
@@ -51,13 +53,11 @@ module bpu_ftb_brq import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
     logic [XLEN_BITS-1:0]    target;
   } brq_ent_t;
 
-  // ---- 16-entry circular branch queue ----
   brq_ent_t         brq_q [FTB_BRQ_N];
   brq_ent_t         brq_d [FTB_BRQ_N];
   logic [PTR_W-1:0] head_q, head_d;
   logic [CNT_W-1:0] cnt_q, cnt_d;
 
-  // ---- Single-bank 512-entry strict sync 1R1W SRAM (pre-launched from brq_d[head_d]) ----
   logic [FTB_REC_W-1:0] next_rec_id;
   logic [REC_BITS-1:0]  rec_rd_raw;
 
@@ -80,38 +80,50 @@ module bpu_ftb_brq import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
     .wmask(1'b1)
   );
 
-  // ---- Head pop (always 1.00 br/cyc whenever non-empty) & ftb_rec decode ----
-  logic     do_pop, carried, in_blk;
-  brq_ent_t q_head;
-  ftb_rec_t rc;
+  // ---- Stage T0 decode -> Stage T1 pipeline registers (FE_TRAIN_LAT = 1) ----
+  logic                 do_pop, carried, in_blk, t1_v_d;
+  brq_ent_t             q_head;
+  ftb_rec_t             rc;
+  ftb_br_upd_t          t1_br_d;
+
+  logic                 train_t1_v_q;
+  /* verilator lint_off UNUSEDSIGNAL */
+  ftb_rec_t             train_t1_rc_q;
+  /* verilator lint_on UNUSEDSIGNAL */
+  ftb_br_upd_t          train_t1_br_q;
+  logic [XLEN_BITS-1:0] train_t1_pc_q;
 
   always_comb begin
     do_pop  = (cnt_q != '0);
     q_head  = brq_q[head_q];
     rc      = ftb_rec_t'(rec_rd_raw);
-
     carried = (q_head.pc + XLEN_BITS'(SLOT_BYTES) == rc.base);
     in_blk  = carried || ((q_head.pc >= rc.base) && (q_head.pc < block_bnd(rc.base)));
-    upd_en  = do_pop && rc.valid && (rc.id == q_head.blk_id) && in_blk;
+    t1_v_d  = do_pop && rc.valid && (rc.id == q_head.blk_id) && in_blk;
 
-    upd_start         = rc.base;
-    upd_ex_fh         = rc.ex_fh;
-    upd_ah_v          = rc.ah_v;
-    upd_ah_key_base   = rc.ah_key_base;
-    upd_ah_key_ex_fh  = rc.ah_key_ex_fh;
-    upd_s2_meta       = rc.s2_meta;
-    upd_ah_meta       = rc.ah_meta;
-    upd_pc            = q_head.pc;
-    upd_br.offset     = carried ? 4'd0 : 4'((q_head.pc - rc.base) >> SLOT_SHIFT);
-    upd_br.carried    = carried;
-    upd_br.is_rvc     = q_head.is_rvc;
-    upd_br.br_type    = q_head.br_type;
-    upd_br.actual_dir = q_head.actual_dir;
-    upd_br.pred_dir   = q_head.pred_dir;
-    upd_br.alt_pred   = q_head.alt_pred;
-    upd_br.pcpn       = q_head.pcpn;
-    upd_br.target     = q_head.target;
+    t1_br_d.offset     = carried ? 4'd0 : 4'((q_head.pc - rc.base) >> SLOT_SHIFT);
+    t1_br_d.carried    = carried;
+    t1_br_d.is_rvc     = q_head.is_rvc;
+    t1_br_d.br_type    = q_head.br_type;
+    t1_br_d.actual_dir = q_head.actual_dir;
+    t1_br_d.pred_dir   = q_head.pred_dir;
+    t1_br_d.alt_pred   = q_head.alt_pred;
+    t1_br_d.pcpn       = q_head.pcpn;
+    t1_br_d.target     = q_head.target;
   end
+
+  assign upd_en           = train_t1_v_q;
+  assign upd_start        = train_t1_rc_q.base;
+  assign upd_ex_fh        = train_t1_rc_q.ex_fh;
+  assign upd_ah_v         = train_t1_rc_q.ah_v;
+  assign upd_ah_self0     = train_t1_rc_q.ah_self0;
+  assign upd_ah_key_base  = train_t1_rc_q.ah_key_base;
+  assign upd_prev_base    = train_t1_rc_q.prev_base;
+  assign upd_ah_key_ex_fh = train_t1_rc_q.ah_key_ex_fh;
+  assign upd_ftb1_meta    = train_t1_rc_q.ftb1_meta;
+  assign upd_ah_meta      = train_t1_rc_q.ah_meta;
+  assign upd_br           = train_t1_br_q;
+  assign upd_pc           = train_t1_pc_q;
 
   // ---- 8-lane enqueue (after pop frees 1 slot) ----
   logic [PTR_W-1:0] wr_idx;
@@ -124,7 +136,6 @@ module bpu_ftb_brq import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
     cur_cnt = cnt_q - CNT_W'(do_pop);
     wr_idx  = '0;
     enq_e   = '0;
-
     for (int i = 0; i < NCOMMIT; i++) begin
       if (upd_valid[i] && (br_type[i] != BR_NONCTL) && (cur_cnt < CNT_W'(FTB_BRQ_N))) begin
         wr_idx           = head_d + PTR_W'(cur_cnt);
@@ -146,20 +157,30 @@ module bpu_ftb_brq import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
 
   always_ff @(posedge clk) begin
     if (!rst_n) begin
-      head_q <= '0;
-      cnt_q  <= '0;
+      head_q        <= '0;
+      cnt_q         <= '0;
+      train_t1_v_q  <= 1'b0;
+      train_t1_br_q <= '0;
+      train_t1_pc_q <= '0;
       for (int k = 0; k < FTB_BRQ_N; k++) brq_q[k] <= '0;
     end else begin
-      head_q <= head_d;
-      cnt_q  <= cnt_d;
+      head_q       <= head_d;
+      cnt_q        <= cnt_d;
+      train_t1_v_q <= t1_v_d;
       for (int k = 0; k < FTB_BRQ_N; k++) brq_q[k] <= brq_d[k];
+      if (t1_v_d) begin
+        train_t1_br_q <= t1_br_d;
+        train_t1_pc_q <= q_head.pc;
+      end
     end
+    if (!rst_n)      train_t1_rc_q <= '0;
+    else if (t1_v_d) train_t1_rc_q <= rc;
   end
 
 `ifndef SYNTHESIS
   logic [FTB_REC_W-1:0] dbg_rec_id_q;
   always_ff @(posedge clk) begin
-    if (!rst_n) dbg_rec_id_q <= '0;
+    if (!rst_n)           dbg_rec_id_q <= '0;
     else if (cnt_d != '0) dbg_rec_id_q <= next_rec_id;
   end
   always_ff @(posedge clk) begin
@@ -173,5 +194,4 @@ module bpu_ftb_brq import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
   assign commit_tq_free  = 4'd15;
 
 endmodule
-
 `default_nettype wire

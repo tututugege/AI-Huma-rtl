@@ -9,7 +9,7 @@
 module icache_probe import icache_pkg::*; (
   input  logic                    req_valid,        // a request is registered (req_valid_r)
   input  logic [IC_TAG_W-1:0]     ppn,
-  input  logic [IC_IDX_W-1:0]     req_index,        // set of the request (req_pc[11:6])
+  input  logic [5:0]              req_pg_idx,       // physical page line offset req_pc[11:6]
   input  logic                    probe_inflight,
   input  logic                    probe_done,
   input  logic                    probe_hit,
@@ -39,7 +39,7 @@ module icache_probe import icache_pkg::*; (
     got_hit    = take && !dc_resp_retry && !dc_resp_miss;
     last_word  = probe_word == IC_WORD_IDX_W'(IC_WORDS - 1);
     dc_req_valid = issue;
-    dc_req_addr  = ic_probe_addr(ppn, req_index, probe_word);
+    dc_req_addr  = ic_probe_addr(ppn, req_pg_idx, probe_word);
     word_we      = got_hit;
   end
 

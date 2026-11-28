@@ -65,10 +65,26 @@ package icache_pkg;
     return ic_is_uncache(ppn[IC_TAG_W-1 -: 2]) ? {ppn, pc_low} : {ppn, pc_low[11:IC_OFF_W], {IC_OFF_W{1'b0}}};
   endfunction
 
-  // DCache probe address of word `word` of the line being fetched
-  function automatic logic [31:0] ic_probe_addr(input logic [IC_TAG_W-1:0] ppn, input logic [IC_IDX_W-1:0] idx,
+  // F0 -> F1 2-stage pipeline descriptor (Serial Tag-then-Data Lo/Hi 1RW ICache)
+  typedef struct packed {
+    logic                 valid;
+    logic                 from_sram;
+    logic                 page_fault;
+    logic                 single_word;
+    logic [XLEN_BITS-1:0] pc;
+    logic                 use_hi_only;
+    logic                 b_hit;
+    logic                 b_is_pair;
+    logic                 b_is_tail;
+    logic [3:0]           a_len;
+    logic [3:0]           b_nwords;
+    logic [XLEN_BITS-1:0] b_addr;
+  } ic_f1_t;
+
+  // DCache probe address of word `word` of the line being fetched (uses 6-bit page-line offset [11:6])
+  function automatic logic [31:0] ic_probe_addr(input logic [IC_TAG_W-1:0] ppn, input logic [5:0] pg_idx,
                                                 input logic [IC_WORD_IDX_W-1:0] word);
-    return {ppn, idx, word, 2'b00};
+    return {ppn, pg_idx, word, 2'b00};
   endfunction
 
   function automatic logic [IC_TXID_N-1:0] ic_txid_onehot(input logic [IC_TXID_W-1:0] id);

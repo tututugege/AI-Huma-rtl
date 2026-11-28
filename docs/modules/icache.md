@@ -2,13 +2,21 @@
 module: icache
 area: frontend
 rtl: rtl/frontend/icache
-model: trace-model front-end/icache/icache_top.h、icache_top.cpp、icache_module.cpp、include/icache_module.h（调度单元 `front.core.icache`，类 `ICacheTop`，阶段 `comb_fetch`、`comb_invalidate`）；ITLB 是 back-end 的 `TlbMmu`（`Kind::ITLB`）
-status: 整核周期与模型逐个相等（EXP-053 前端清理：fm_gate 68/68 零偏差 + Linux 27 窗 PT/UP 全等，零环境变量）
-depth: 114 层 / 389,270 单元（icache，单模块综合，2026-11-21，`SYNTH_ABC="strash;balance;map" SYNTH_NO_MEMPRIO=1`，EXP-053 真 4-Bank 1R1W + 1 拍 DCache 探针 FDIP；较 EXP-051 916,659 单元 **−57.5%**）
+model: trace-model-fe-2ahead front-end/icache/icache_top.h、icache_top.cpp、icache_module.cpp、include/icache_module.h、front-end/front_top.cpp（`FE_ICACHE_PIPE=1`、64 KiB `256×4` Lo/Hi 2 级流水、1 项 FDIP fill buffer）；ITLB 是 back-end 的 `TlbMmu`（`Kind::ITLB`）
+status: 已实现并完成 77/77 fm_gate 与 Tier 0-elab / Tier 1 PPA 验证（64 KiB `256×4` Lo-32B/Hi-32B 2 级串联 Tag-then-Data VIPT，`rtl/fe-2ahead`）
+depth: Tier 1 TSMC 28nm (Yosys+PrimeTime STA, clk=0.65ns, eda-07): icache 77 层 / Total 490,495.9 / WNS -1.24ns (Fmax_T1 0.529 GHz, pt_timing_reg2reg -1.18ns / 0.546 GHz)；front_top 64 层 / Total 2,682,267.5 / WNS -1.82ns (Fmax_T1 0.405 GHz，瓶颈已移出 u_icache)
 ---
 
-# icache 设计文档（4-Bank 指令缓存 + 2-Port ITLB + 实 AXI FDIP + 存储侧口）
+# icache 设计文档（64 KiB 2 级 VIPT 指令缓存 + Lo/Hi 分体 + 单口 `1024×32` 宏）
 
+> **2026-11-28 64 KiB（`256×4`）Lo-32B/Hi-32B 2 级串联 Tag-then-Data 升级（`rtl/fe-2ahead`）**：
+> - **容量与宏重构（64 KiB，`16 × 1024×32` 1RW 宏）**：由 `8 ways × 64 sets`（`4-Bank 16×512b` 填满 `256 × 64×64`，`1,476.4k µm²`）改为 **`4 ways × 256 sets × 64B`**，按 **Lo-32B / Hi-32B** 垂直切分为两套独立单口 `ttg_sram_1rw #(DEPTH=1024, WIDTH=256)`（共 **`16 × TEM5N28HPCPLVTA1024X32M4SWSO`**，仅 `213.7k µm²`，`-85.5%` 宏面积且容量翻倍），彻底消灭 `4.00×` 深度 padding 与 8 路 512b Data Mux。
+> - **2 级串联流水（`F0 → F1`）彻底斩断 92 级组合环**：
+>   - **F0（ITLB + Even/Odd 2-Bank Tag + `hit_way` → 启动 1RW Data SRAM）**：仅用寄存 `ifu_addr` / `r_q.req_pc` 查 64 项 ITLB 与按 `idx[0]` 分奇偶 2-Bank FF 的 Tag/Valid（Block A 与同页下一行 Block B 奇偶永反、0 冲突，并行完成 4 路比对与 `arr_b_hit`），选定单路 `{hit_way, idx}`（和 `rd_pc[5]` 时 `Lo` 读 Block B）直接送入 `u_data_lo`/`u_data_hi`（取消 `fast_fire` 组合反推 `next_rd_index` 与 `ic_next_b_idx`）。
+>   - **F1（Data SRAM 读出 + 半字切片拼接 → `inst_fifo`）**：锁存 `ic_f1_t` 与旁路行，直接从 `lo_rdata` / `hi_rdata` 经 `u_resp` / `u_resp_b` 切出指令槽推入 `inst_fifo`。
+> - **严格单口 FDIP 1 项回填缓冲 + 零 SRRIP/hit 耦合**：`icache_fdip` 新增 1 项 `fb_v_q` 锁存 AXI 回填行，仅在 `!demand_tw_we && !demand_idle_req`（此时 `!fdip_fb_busy` 保证 `req_valid_in=0`）时写入 `u_arr`；`eff_fdip_we` 选路仅读寄存 `repl_q`/`valid_q`，彻底切断旧版 `hit_onehot -> SRRIP -> bank_we` 组合长路。
+> - **VIPT 别名安全**：`256 sets` 使用 8-bit 虚拟索引 `VA[13:6]`（跨出 4 KiB 页 2-bit）；Tag 强制保留完整 20-bit 物理 PPN `PA[31:12]`，`icache` 只读且 `FENCE.I` 全清 `valid_q`，天然免疫同物理页不同 VA 颜色别名。
+>
 > **2026-11-27 Clean BPU v11 + 同页跨行 2-Fetch 精简**：
 > - 随着 BPU 精简为单块 1-Taken 并引入同页跨 64B 缓存行 2-Fetch（`block_bnd` 仅在 4KB 页边界截断），ICache Port B 仅在 `base[5:0] > 32 && base[11:6] != 6'h3f` 时并行读取下一条同页相邻缓存行 `line + 1`（必然同物理页、必然不同 Bank）；
 > - 直接复用 Port A 的 `resp_ppn`，删除 ITLB 第 2 个只读 peek 口（`icache_itlb` 由 `NPEEK=2` 缩减为 **`NPEEK=1`**，仅保留 `peek_fdip_*`），并删除 `icache.sv` 中的 `b_same_page` / `b_same_line` 旁路；
@@ -43,16 +51,16 @@ depth: 114 层 / 389,270 单元（icache，单模块综合，2026-11-21，`SYNTH
 
 | 项 | 值 | 来源 |
 | --- | --- | --- |
-| 路数 × 组数 | 8 × 64，每行 64 字节（16 个 32 位字） | `ICACHE_WAY_NUM`、`ICACHE_SET_NUM`、`ICACHE_LINE_SIZE`、`ICACHE_WORD_NUM` |
-| 标签 | 20 位（= 物理页号，32 位物理地址的高 20 位；`mem_req_addr` 是 32 位） | `ICACHE_TAG_BITS` |
-| 组索引 / 行内偏移 | 6 位 / 6 位 | `ICACHE_INDEX_BITS`、`ICACHE_OFFSET_BITS` |
+| 路数 × 组数 | 4 × 256，每行 64 字节（Lo-32B / Hi-32B 分体，共 64 KiB） | `ICACHE_WAY_NUM`、`ICACHE_SET_NUM`、`ICACHE_LINE_SIZE`、`ICACHE_WORD_NUM` |
+| 标签 | 20 位（强制保留完整物理页号 `PA[31:12]` 以免 VIPT 别名歧义） | `ICACHE_TAG_BITS` |
+| 组索引 / 行内偏移 | 8 位虚拟索引（`VA[13:6]`）/ 6 位（`[5:0]`） | `ICACHE_INDEX_BITS`、`ICACHE_OFFSET_BITS` |
 | 取指组 | 16 个槽，每槽一个 32 位窗口（从该半字起的 4 个字节） | `FETCH_WIDTH = 16`、`RVC_ENABLE = 1` |
-| ITLB | 64 项（`tlb_mmu_core`，一个取指端口，`FETCH = 1`） | `ITLB_ENTRIES` |
-| AXI 事务号 | 16 个（4 位 id） | `IC_TXID_N`、`IC_TXID_W` |
+| ITLB | 64 项（`tlb_mmu_core`，一个取指端口，`FETCH = 1`，F0 查询） | `ITLB_ENTRIES` |
+| AXI 事务号 | 16 个（4 位 id，`0..7` 需求、`8..9` FDIP） | `IC_TXID_N`、`IC_TXID_W` |
 | 缓存行请求 | 总长 63（= 行字节数 - 1） | `mem_req_total_size`（`icache_ctl`） |
 | 不缓存的取指 | 物理页号高两位为 0，即物理地址 < 0x40000000，总长 3，旁路 | `ic_is_uncache`（`icache_pkg`） |
-| 替换 | SRRIP（EXP-045）：每组 8 路各 2 位 RRPV，共 16 位；先用第一个无效路，否则 RRPV 最大的路（同值取路号最小）；查表读无效时退回全局轮转指针 +1 | `icache_arr`：`repl_q`；`icache_swap`：`replace_next`；模型 `ICACHE_REPL` 默认 `srrip` |
-| 存储容量 | 数据 8×64×512 位，标签 8×64×20 位，有效位 512 位，替换状态 64×16 位 | `icache_arr` |
+| 替换 | SRRIP（4 路每组 `IC_WAYS×2 = 8` 位 RRPV；先用无效路，否则 RRPV 最大路，无效时退回全局指针 +1） | `icache_arr`：`repl_q`；`icache_swap`：`replace_next` |
+| 存储容量 | 数据 `Lo/Hi` 各 `1024×256b` 1RW（`16 × 1024×32` 宏）；标签 `2×4×128×20b`、有效位 `1024b`、SRRIP `256×8b`（Even/Odd FF） | `icache_arr` |
 
 ## 3. 接口
 
@@ -134,9 +142,32 @@ depth: 114 层 / 389,270 单元（icache，单模块综合，2026-11-21，`SYNTH
 
 ## 6. 关键路径与深度
 
-单模块综合深度 **70 层**（icache；2026-11-19，SRRIP 之后；之前 69；`scripts/synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`，生成门代理，不是时序）。综合报告给出的最长路径：从 `\u_ctl.r_q [136]` 到 `\u_ctl.r_q [44]`。从代码读出的，未综合验证：快速通路把几件事放在了同一拍里——取指地址（来自取指地址队列的寄存器，经 `fa_rd_en` 选通）→ ITLB 查找（64 项的全相联比较，`tlb_mmu_core`）→ `ppn` → 阵列 8 路标签比较（阵列读是异步的）→ 命中路选择（8 选 1，512 位）→ `icache_resp` 的 16 路按偏移切片 → 取指侧的展开 / 预译码 / 起点扫描 → 指令队列写数据（`front_fetch_buf`）。这是前端里"从地址到指令队列"的一整条链，I-Cache 的响应在同一拍就进了指令队列。`icache_ctl` 里 `invalidate`、`kill1` 只影响次态和存储侧输出，不在这条链上。
+### 6.1 `rtl/fe-2ahead` 64 KiB (`256×4`) Lo-32B/Hi-32B 2 级串联 VIPT + 1-entry FDIP fill buffer（当前实测，`eda-07`，`clk=0.65ns`）
 
-EXP-045 的 SRRIP 选路（4 个 RRPV 级各一个 `ttg_first_set`，再按级优先）只接在重填受害路的寄存器输入上，不在上面这条取指链上。综合报告的最长路径仍是上面这条（`u_ctl.r_q` → ITLB → `u_arr.u_hit` → 响应行 → 取指组），比之前多 1 层，原因没有细查（可能是 ABC 对同一条路径的映射差异）。
+相比早期的"单拍 ITLB → 8 路全读异步阵列 → 512-bit 选中 → 取指队列"单拍大环，本轮改造将阵列拆分为 **Lo-32B / Hi-32B 2 级串联 Tag-then-Data (`F0→F1`) VIPT**，采用 **16× `TEM5N28HPCPLVTA1024X32M4SWSO` 严格 `1RW` 宏**，并加入 **1 项 FDIP fill buffer (`fb_v`)**，彻底消除了组合反馈环（`OPT-150`）与窄深拼宏造成的 4× 面积膨胀，同时让 `u_icache` 彻底退出 `front_top` 第一关键路径。
+
+1. **Tier 0-elab 快速宏估算（`Fallback=0`）**：
+   - `icache`：`Time=0.46s`，`Macros=16`（`16× TEM5N28HPCPLVTA1024X32M4SWSO`），`MacroArea=213,657.9`，`SRAM_ns=0.356`。
+   - `front_top`：`Time=4.85s`，`Macros=117`（`16× 1024×32`、`8× 256×64`、`6× 256×72`、`87× 512×72`），`MacroArea=1,657,805.9`，`SRAM_ns=0.359`。
+2. **Tier 1 Yosys+PrimeTime STA 实测（`PT_LINK_STATUS=1`、`mem_v2=0`、`fb_bb=0`、`unmapped_std=0`）**：
+
+| 模块 / 配置 | Leaf | Seq | Macros | Macro 面积 | Logic+FF 面积 | Total 面积 | WNS_total / WNS_r2r (ns) | Levels | CPL (ns) | Fmax_T1 (GHz) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: | ---: |
+| `main (6c42731)` `icache` 32K (Tier 2a 历史参考) | — | — | — | — | — | 1,713,504.4 | — (WNS* -4.33) | — | — | — |
+| `fe-2ahead` `icache` 64K 2 级 (Tier 1) | 349,502 | 31,258 | 16 (`1024×32`) | 213,657.9 | 276,838.0 | **490,495.9** (-71.4% vs 32K Tier 2a) | `-1.24` / `-1.12` (`pt_timing_reg2reg=-1.18`, `arrival=1.76`) | 77 | 1.82 | **0.529** (r2r 0.546) |
+| `main (6c42731)` `front_top` 32K (Tier 1) | — | — | 436 | 3,495,845.0 | 876,338.6 | 4,372,183.6 | `-2.64` / `-2.13` (`pt_timing_reg2reg=-2.62`) | 92 | 3.13 | 0.304 |
+| `fe-2ahead` `front_top` 32K (Tier 1) | — | — | 356 | 2,905,323.2 | 1,050,453.6 | 3,955,776.8 (-9.5%) | `-2.59` / `-1.90` (`pt_timing_reg2reg=-2.54` at `u_icache.u_arr`) | — | — | 0.309 |
+| `fe-2ahead` `front_top` 64K 2 级 (Tier 1) | 1,231,646 | 111,888 | 116 (`16×1024×32`+BPU) | 1,642,622.9 | 1,039,644.6 | **2,682,267.5** (-38.7% vs main / -32.2% vs 32K) | `-1.82` / `-1.82` (`in->reg=-1.41`, `reg->out=-1.42`) | 64 | 2.30 | **0.405** (+33.2% vs main) |
+
+3. **关键路径拆解**：
+   - `icache` 独立综合（`t_yosys=133s`，`t_pt=21s`，`t_total=158s`，`TNS=-23,200.65`，`Violating=31,027`）：总最差路径 `pt_timing_max=-1.24ns` 为外部输入 `ptw_walk_resp_valid -> FF`（`in->reg=-1.24`, `reg->out=-0.00`, `in->out=-1.03`）；纯内部寄存器到寄存器路径 `pt_timing_reg2reg=-1.18ns`（`arrival=1.76ns`）位于 ITLB / `icache_ctl` 状态控制寄存器之间。
+   - `front_top` 整前端综合（`t_yosys=375s`，`t_pt=64s`，`t_total=454s`，`TNS=-103,936.91`，`Violating=99,607`）：`u_icache` 已经完全退出前级关键路径（`32K` 时最差 `pt_timing_reg2reg=-2.54ns, arrival=3.03` 卡在 `u_icache.u_arr`），当前第一关键路径转移至 BPU 的 `u_pred_path.u_bpu.u_arrays.u_ftb1.u_wrb.rd_key[8] -> bk_addr[9] -> u_pred_path.u_bpu.u_arrays.u_ftb1.u_mem.g_bk[0].u_sram.g_512x72.g_t[0].u_macro/A[0]`。
+
+### 6.2 历史基线参考（2026-11-19 SRRIP）
+
+单模块综合深度 **70 层**（icache；2026-11-19，SRRIP 之后；之前 69；`scripts/synth_depth.sh`，`SYNTH_ABC="strash;balance;map"`，生成门代理，不是时序）。综合报告给出的最长路径：从 `\u_ctl.r_q [136]` 到 `\u_ctl.r_q [44]`。快速通路把取指地址、ITLB 查找、8 路标签比较、512 位命中路选择、16 路切片与取指侧展开/预译码压在同一拍里完成。
+
+EXP-045 的 SRRIP 选路（4 个 RRPV 级各一个 `ttg_first_set`，再按级优先）只接在重填受害路的寄存器输入上，不在上述取指链上。
 
 ## 7. 与模型的差异和取舍
 
@@ -166,11 +197,17 @@ RTL 与模型保持一致的细节（容易误判为 bug）：
 
 ## 8. 验证
 
-- **门禁**：`scripts/fm_gate.sh` 67 个程序，每条提交对比 function-model，周期对 `scripts/ref_cycles_memiq6_nr_int2_ev5.txt`：67/67 通过，周期逐个相等。触及 I-Cache 的有：`fence-i-self-modify`（FENCE.I 与探针路径）、`coremark` / `dhrystone`（缺失与回填；旧文档用它们和 `fence-i-self-modify` 做过 I-Cache 的真实程序检验）。取指页故障和 ITLB 遍历在 67 个程序里有没有、有多少，没有统计。哪些程序真正走到了 `CANCEL_WAIT`、重试探针、迟到响应丢弃等分支，没有做覆盖统计。
-- **EXP-045（SRRIP，2026-11-19）**：`fm_gate.sh` 67/67，周期与模型（trace-model `exp/llc-plru` `429172d` 默认）逐个相等，对新的 `scripts/ref_cycles.txt`（相对旧表 3 个程序变化，旧表 `ref_cycles_repl_rr.txt`）；程序用 rv64 不带 C 的构建（`TTG_PROGS=trace-model-simplify/build`；`env.sh` 默认的 `trace-model/build` 里是旧的 rv32 程序）。Linux 检查点窗口 s00–s12（`linux_segments_cmp.sh`，各 400 万周期）13/13 PASS，逐条检查 0 不一致，PT / UP 指纹与模型相同。`lint_chip.sh` 0 告警。
-- **Linux**：`scripts/linux_gate.sh`、`scripts/linux_segments_cmp.sh`（Sv39 取指、页故障、FENCE.I、SFENCE.VMA 在内核里都会出现）。
-- **Lint**：`scripts/lint_chip.sh` 0 告警（整芯片）。目录级 `scripts/lint.sh rtl/frontend/icache` 需要 `tlb_mmu_core`，旧文档说不能直接用，本轮没有重跑。
-- **没有模块级的独立测试**：旧体系有随机 trace 生成器 + 33 个变异的回放测试（`tests/icache`，真实程序抓到约 25 个、其余 5 个只有随机能抓到：替换指针、写入路、探针重试、同拍接受的响应、`icache_ready` 与 `itlb_flush`），已随 `spec/` 退役，不在仓库里（旧表在本文件的 git 历史里：`git log -- docs/modules/icache.md`）。**待补**：给 `icache_ctl`（含冲刷合并）补一个"RTL 对状态机直译模型"的随机测试，尤其是那五类只有随机才能抓到的行为。
+- **64 KiB 2 级 VIPT + 2-Ahead 前端（`rtl/fe-2ahead`，本轮最新实测）**：
+  - **77/77 全功能与逐拍周期门禁**：`REF_CYCLES=/tmp/ref_fe2ah_ic64.txt JOBS=12 bash scripts/fm_gate.sh $PWD/build/core_fm/obj/core_tb $PWD/build/gate_ic64` → `PASS 77 FAIL 0 SKIP 0`，`cycles different from ref_cycles.txt: 0`，`SVA clean (0 assertion failures)`（与 `trace-model-fe-2ahead` 77 条定向/基准参考表逐程序逐拍严格相等）。
+  - **Lint 检查**：
+    - `python3 harness/tools/svlint.py rtl/frontend/icache/*.sv rtl/frontend/front_top/*.sv rtl/frontend/bpu/*.sv` → 0 errors；
+    - `bash scripts/lint.sh rtl/frontend/bpu` → `lint ok (19 files, 1 dirs)`；
+    - `bash scripts/lint.sh rtl/frontend/front_top` → `lint ok (3 files, 1 dirs)`；
+    - `bash scripts/lint_chip.sh` → `lint_chip: 0 warnings/errors (build/lint_chip.txt)`。
+  - **Tier 0-elab & Tier 1 Yosys+PrimeTime PPA 实测（`eda-07`，`clk=0.65ns`）**：详见 §6.1。
+- **历史基线门禁（`main` / `exp/llc-plru` / EXP-045）**：`scripts/fm_gate.sh` 67 个程序通过，周期对 `scripts/ref_cycles.txt` / `ref_cycles_memiq6_nr_int2_ev5.txt` 逐个相等；Linux 检查点窗口 s00–s12（各 400 万周期）13/13 PASS。
+- **Linux 大规模窗口**：64 KiB VIPT 分支的 `linux_gate.sh` / `linux_segments_cmp.sh` 与 SPEC06 待在后续合入前补跑。
+- **没有模块级的独立随机测试**：旧体系有随机 trace 生成器 + 33 个变异的回放测试（`tests/icache`，真实程序抓到约 25 个、其余 5 个只有随机能抓到：替换指针、写入路、探针重试、同拍接受的响应、`icache_ready` 与 `itlb_flush`），已随 `spec/` 退役，不在仓库里（旧表在本文件的 git 历史里：`git log -- docs/modules/icache.md`）。**待补**：给 `icache_ctl`（含冲刷合并）补一个"RTL 对状态机直译模型"的随机测试，尤其是那五类只有随机才能抓到的行为。
 
 ## 9. 参数与开关速查
 
@@ -178,6 +215,10 @@ RTL 与模型保持一致的细节（容易误判为 bug）：
 
 ## 10. 变更记录
 
+- 本轮（`rtl/fe-2ahead`）：升级为 **64 KiB（`256 sets × 4 ways × 64B`）Lo-32B / Hi-32B 2 级串联 Tag-then-Data (`F0→F1`) VIPT ICache**：
+  - 配置与生成：`trace-model-fe-2ahead/include/config.h` 改为 `ICACHE_WAY_NUM=4`、`ICACHE_INDEX_BITS=8`、`ICACHE_SET_NUM=256`、`ICACHE_TAG_BITS=20`、`FE_ICACHE_PIPE=1`；`gen_cfg.sh` 重生成 `ttg_cfg_pkg.sv`；`ttg_sram_1rw.sv` 新增 `DEPTH == 1024`（`TEM5N28HPCPLVTA1024X32M4SWSO`）硬宏映射。
+  - RTL 实现：`icache_pkg.sv`、`icache_probe.sv`、`icache_idle.sv`、`icache_ctl.sv`、`icache_fdip.sv`、`icache_arr.sv`、`icache.sv` 及 `front_fetch_buf.sv` / `front_top.sv` 改为 strict 1RW Lo/Hi 两级取指流水与 1 项 FDIP fill buffer（`fb_v`），消除组合环（`OPT-150`）与 `4×` 拼宏面积开销。
+  - 验证结果：`fm_gate` 77/77 PASS（0 diffs, SVA clean）；`lint_chip` 0 告警；`eda-07` Tier 1 `icache` 面积 `490,495.9`（`-71.4%` vs `main` 32K Tier 2a），`WNS -1.24ns`（`0.529 GHz`）；`front_top` 面积 `2,682,267.5`（`-38.7%` vs `main`），`WNS -1.82ns`（`0.405 GHz`，`+33.2%` vs `main`），关键路径已由 `u_icache` 退至 BPU `u_ftb1.u_wrb -> bk_addr[9]`。
 - 2026-11-21（`rtl/fe-2fetch-2taken`，EXP-051 里程碑 B）：`icache_arr` 升级 4-Bank 1R1W 支持同拍双块取指（`fetch_second`）；`icache_itlb` 启用 `tlb_mmu_core` `NPEEK=2` 只读 CAM 翻译口；新增 `icache_fdip.sv`（S2 确认 2-slot 实 AXI FDIP，txid `8..9`，8 项 VA 队列，1-pop/cycle，`issued` 保护 + `resp_popped_q` 抑制 1 拍回声 + 周期初 L1D/WB 脏行窥探）；修复 `IC_CANCEL_WAIT` 盲置 `mem_resp_ready`。Yosys 综合 `icache` 916,659 单元 / 106 层（路径起于 `u_ctl.r_q[136] -> mmu_req_vtag[4]`）；通过 `lint_chip` 0、`fm_gate` 68/68（含 `directed/fe_2taken_fdip.bin` 与 `fence-i-self-modify`）与 Linux 27 窗检查点对齐。
 - 2026-11-19（`exp/llc-plru`，EXP-045）：替换从"全局轮转指针"改为每组 SRRIP（`icache_arr` 加 `repl_q` 与命中 / 回填更新，`icache_swap` 按 RRPV 选路）。29 个 SPEC06 高权重点几何平均 +0.42%（gobmk +3.2%）。
 
