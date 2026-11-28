@@ -7,16 +7,16 @@
 
 | 模块 | RTL（文件/行） | 深度 |
 | --- | --- | --- |
-| [back_top](modules/back_top.md) | 4/1602 | 142 层 |
+| [back_top](modules/back_top.md) | 4/1447 | 142 层 |
 | [csr](modules/csr.md) | 10/750 | 29 层 |
 | [dispatch](modules/dispatch.md) | 13/1325 | 57 层 |
-| [exu_ctrl](modules/exu_ctrl.md) | 14/1534 | 17 层 |
-| [exu_fu](modules/exu_fu.md) | 32/3612 | 98 层 |
+| [exu_ctrl](modules/exu_ctrl.md) | 12/1367 | 17 层 |
+| [exu_fu](modules/exu_fu.md) | 31/3462 | 98 层 |
 | [ftq_ibuf](modules/ftq_ibuf.md) | 8/1152 | TSMC 28nm HPC+ DC |
 | [idu](modules/idu.md) | 4/529 | **19 层 / 6,595 cells** |
-| [isu](modules/isu.md) | 14/2499 | **61 层 / 1,033,276 cells** |
-| [lsu](modules/lsu.md) | 33/5314 | **TSMC 28nm HPC+ DC (`ssg0p81v125c`, `0.50ns`)：单模块 `lsu` WNS `−0.39 ns` |
-| [prf](modules/prf.md) | 8/790 | 25 层 |
+| [isu](modules/isu.md) | 14/2573 | **61 层 / 1,033,276 cells** |
+| [lsu](modules/lsu.md) | 33/5284 | **TSMC 28nm HPC+ DC (`ssg0p81v125c`, `0.50ns`)：单模块 `lsu` WNS `−0.39 ns` |
+| [prf](modules/prf.md) | 8/769 | 25 层 |
 | [ren](modules/ren.md) | 20/2334 | 91 层 |
 | [rob](modules/rob.md) | 6/1059 | 65 层 |
 | [tlb_mmu](modules/tlb_mmu.md) | 7/850 | TSMC 28nm HPC+ DC `tlb_mmu_bb` WNS `−0.03 ns` |
@@ -51,7 +51,7 @@
 
 | 模块 | RTL（文件/行） | 深度 |
 | --- | --- | --- |
-| [common](modules/common.md) | 9/871 | 待测 |
+| [common](modules/common.md) | 9/876 | 待测 |
 | [core_top](modules/core_top.md) | 4/857 | 待测 |
 | [pmu](modules/pmu.md) | 3/364 | 90 层 |
 | [soc_top](modules/soc_top.md) | 1/186 | 仅顶层连线 |
@@ -64,4 +64,4 @@
 | [soc_axi](modules/soc_axi.md) | 12/2914 | 75 层 |
 | [soc_periph](modules/soc_periph.md) | 8/1395 | bootrom 27 / sram 23 / clint 26 / plic 72 / uart 20 / sysctrl 11 层 |
 
-合计（各文档的目录有重叠时会重复计数）：337 个文件，51857 行。
+合计（各文档的目录有重叠时会重复计数）：334 个文件，51413 行。

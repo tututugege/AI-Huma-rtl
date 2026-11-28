@@ -145,7 +145,7 @@
 |---|---|---:|---|---|---:|---|
 | **`bpu` (`bpu_v11_065ns`)** | 真实 TSMC28 宏 / `0.65 ns` | `−0.58` | `813 MHz` | `58 lvl` / `−27,002` | `2,076,194`（`386.0k` / `1,690.2k` · **156 宏**） | Clean BPU v11（1RW 8-bank、去 SC 与旧 2-Ahead B），顶路径 `u_s2_tage → u_atage`（`arrival 1.11 ns`） |
 | **`bpu` (`bpu_v11_a1a2_065ns`)** | 真实 TSMC28 宏 / `0.65 ns` | **`−0.49`** | **`877 MHz`**（**+83%** vs `v10.1` `478 MHz`） | **`47 lvl` / `−21,929` (−18.8%)** | **`2,075,545`**（`254.5k` 组合 + `130.9k` 非组合 = **`385.4k` −59.1%** / `1,690.2k` · **156 宏**，`50,913` FFs） | 叠加 A1/A2 切断 `s2_tage → atage`，新顶路径 `u_ftb1` 真实宏 → `u_spec/st_q`（`arrival 1.09 ns`） |
-| **`front_top` (`front_top_v11_opt_065ns`)** | 真实 TSMC28 宏 / `0.65 ns` | `−0.87`（收尾中） | `~658 MHz`（vs 改前 `−1.57 ns`） | 持续收敛 | `~4,230,674`（含 BPU + ICache 全量真实 SRAM 宏） | 叠加 Unified FTQ 删 `ptab_bypass` + Clean BPU v11 + 同页双取 + A1/A2/B1，零黑盒全前端综合；待 `eda-06` `qor.rpt` 落盘后更新终值 |
+| **`front_top` (`front_top_v11_opt_065ns`)** | 真实 TSMC28 宏 / `0.65 ns` | **`−0.86`** | **`662 MHz`**（vs 改前 `−1.57 ns`，`CPL 1.33 ns`） | `74 lvl` / `−75,349`（0 DRC） | **`4,229,478`**（`733.6k` 逻辑+FF `17.3%` / `3,495.8k` `82.7%` · **436 真宏**，`97,958` FFs） | 零黑盒全前端综合完成；顶路径为 `ftq2fe[ifu_addr] → u_icache → inst_fifo`（`arr 1.45 ns`）与 reg2reg `u_rec` 真宏 → `u_atage/wrb_q`（`arr 1.44 ns`）；实测 `u_icache/u_arr` 单模块即占 `1,654.5k um²`（39.1%，因 `16×512b` 填充至 `64-depth` 宏放大 ~4×）；另检出 1 条 `u_icache/u_ctl/u_idle → u_fetch_buf → u_arr/u_hit` 组合伪环（`OPT-150`）待后续切断 |
 | **`back_top_bb`** | `SRAM_BLACKBOX` / `0.50 ns` | `−0.70` | `833 MHz`（`arrival 1.16 ns`） | `62 lvl` / `−71,543` | `2,572,725`（`2,154.2k` 组合 + `418.6k` 非组合，`159,559` FFs） | 彻底消除 EXU/LSU ↔ DTLB `1.24 ns (780 MHz)` 同拍往返链；新顶路径为 `u_lsu/u_ldq → u_isu/g_iq[5]`（`1.16 ns`） |
 | **`ftq_ibuf_bb`** | `SRAM_BLACKBOX` / `0.50 ns` | `−0.15` | `1.54 GHz`（reg2reg `1.56 GHz`） | `32 lvl` / `−749` | `239,315`（`23,025` FFs） | Unified FTQ-64（`PTAB+FA+FTQ` 合一 + 同步 1R1W `ftq_meta`），面积与 EXP-069 基本持平 |
 | **`tlb_mmu_bb`** | `SRAM_BLACKBOX` / `0.50 ns` | **`−0.03`** | **`1.89 GHz`（持平）** | `23 lvl` / `−110` | `94,793`（`7,490` FFs） | 回填预存 `ppn_p1/m1`（兼容 Sv39 大页与 bare），L1 TLB 时序零回退 |
@@ -199,3 +199,23 @@ bash scripts/fast_ppa.sh --tier 1 --mod front_top --host eda-05
 bash scripts/fast_ppa.sh --tier 2a --effort dc-ultra-relax --mod bpu --host eda-06 --out /nfs_global/S/houruyao/out/bpu_relax
 bash scripts/fast_ppa.sh --tier 2b --mod front_top --bpu-ddc ... --icache-ddc ... --host eda-06 --out /nfs_global/S/houruyao/out/ft_inc
 ```
+
+## 23. EXP-072 EXU 无阻塞重构 + 真 5 物理 AGU（2026-11-28）
+
+> **综合条件**：TSMC 28nm HPC+（`ssg0p81v125c`, 12T SVT+LVT, `compile_ultra`, `clk = 0.50 ns`, `DC W-2024.09-SP2`）；`isu` 与 `lsu` 采用 EXP-071 标定后的 **Tier 1（`Yosys + PrimeTime`）** 快速确认路径与 `EXP-071` 同配置基线对比（后台 Tier 3 `isu_new`、`lsu_new` 与 Tier 2a `back_top_bb_t2a_*` 仍在集群 `/nfs_global/S/houruyao/dc28_exu_clean/out/` 异步运行中）。全部已完成综合均达成 `DC_LINK_STATUS=1` / `PT_LINK_STATUS=1`、`0` 错误、`0` 未映射单元。
+
+### 23.1 Tier 3 Synopsys DC28 模块级签核对比
+
+| 模块 | 基线版本 / 配置 | 基线 WNS / 级数 / TNS / Seq / 面积 (`µm²`) | EXP-072 WNS / 级数 / TNS / Seq / 面积 (`µm²`) | 相对基线变化 |
+|---|---|---|---|---|
+| **`exu_ctrl`** (`none`) | R2 基线 (`0.50 ns`) | `0.00 ns` / `13 lvl` / `0.00` / — / `31,760.90` | **`0.00 ns` (`CPL 0.37`) / `11 lvl` / `0.00` / `4,765` / `19,432.06`** | 面积 **`−38.8%`**，级数 `−2` |
+| **`exu`** (`none`) | 同日 `exu_base` 对照 (`0.50 ns`) | `−0.41 ns` (`u_fma`) / `40 lvl` / `−1,230.70` / `8,704` / `217,730.69` | **`−0.41 ns` (`u_fma`) / `46 lvl` / `−1,008.16` / `6,755` / `207,202.80`** | TNS **`−18.1%`**，FF **`−22.4%` (`−1,949`)**，面积 **`−4.84%`** |
+| **`rob_bb`** (`sram_bb`) | EXP-068/069 基线 (`0.50 ns`) | `−0.15 ns` / `42 lvl` / `−452` / — / `121,413.43` | **`−0.16 ns` / `34 lvl` / `−239.47` / `13,200` / `123,159.29`** | TNS **`−47.0%`**，级数 `−8`，面积 `+1.44%` |
+| **`prf`** (`none`) | 同日 `prf_base` 对照 (`0.50 ns`) | `0.00 ns` (`CPL 0.45`) / `11 lvl` / `−0.00` (`4` paths) / `24,196` / `580,853.60` | **`0.00 ns` (`CPL 0.45`) / `17 lvl` / `−0.00` (`1` path) / `24,196` / `587,386.28`** | WNS 持平达标，面积 `+1.12%` |
+
+### 23.2 Tier 1（`Yosys + PrimeTime`，`0.50 ns`, `unc=0.03`, `io=0.05`）快速路径对比
+
+| 模块 | 基线版本 | 基线 Area / Seq / WNS / WNS_r2r / TNS_r2r | EXP-072 Area / Seq / WNS / WNS_r2r / TNS_r2r | 变化与关键路径说明 |
+|---|---|---|---|---|
+| **`isu`** (`none`) | EXP-071 `tier1/isu` | `526,654.30` / `29,106` / `−0.39` / `−0.38` / `−5,794.05` | **`512,886.19`** / **`28,331`** / `−0.48` / `−0.39` / **`−5,647.62`** | 面积 **`−2.61%` (`−775 FF`)**，`r2r` TNS 改善；`−0.48` 在 `in->out` `lsu2iss_cancel_preg[18] → iss2prf_uop[1312]`（含 `buf_high_fanout`） |
+| **`lsu`** (`none`) | EXP-071 `tier1/lsu` | `1,052,504.38` / `33,974` / `−0.87` / `−0.87` / `−16,694.36` | **`1,049,909.78`** / `33,974` / `−0.89` / `−0.88` / `−18,004.35` | 面积 **`−0.25%`**，时序基本持平 |

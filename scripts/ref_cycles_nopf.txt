@@ -22,11 +22,12 @@
 # 2026-11-26 regen_refs.sh: trace-model 782cc7f PF_ENABLE=0; strict sync 1R1W SRAM for L1I and BPU
 # 2026-11-26 regen_refs.sh: trace-model 782cc7f PF_ENABLE=0; strict sync 1R1W SRAM (L1I+BPU+ROB_INST) + irq BPU train gate
 # 2026-11-27 regen_refs.sh: trace-model 0f64f6e PF_ENABLE=0; Clean BPU v11 + Same-Page 2-Fetch + A1/A2/B1
-1950 add/add.bin
+# 2026-11-28 regen_refs.sh: trace-model 1d9e004 PF_ENABLE=0; EXP-072 EXU clean + 5 physical AGUs
+1944 add/add.bin
 1938 add-longlong/add-longlong.bin
 2759 atomic-boundary/atomic-boundary.bin
-267370 big/coremark.bin
-93928 big/dhrystone.bin
+267717 big/coremark.bin
+93749 big/dhrystone.bin
 1983 bit/bit.bin
 3259 bitmanip-boundary/bitmanip-boundary.bin
 5247 bubble-sort/bubble-sort.bin
@@ -69,7 +70,7 @@
 3581 matrix-mul/matrix-mul.bin
 2476 max/max.bin
 1987 memory-boundary/memory-boundary.bin
-310109 memory-stress-small/memory-stress-small.bin
+310212 memory-stress-small/memory-stress-small.bin
 2250 mersenne/mersenne.bin
 3207 min3/min3.bin
 1641 mov-c/mov-c.bin
@@ -77,7 +78,7 @@
 2285 mul-longlong/mul-longlong.bin
 2337 pascal/pascal.bin
 556257 pf-stress/pf-stress.bin
-5965 prime/prime.bin
+5962 prime/prime.bin
 5111 quick-sort/quick-sort.bin
 4120 recursion/recursion.bin
 5523 select-sort/select-sort.bin
@@ -97,5 +98,5 @@
 3075 trap-boundary/trap-boundary.bin
 2100 trap-precise-store/trap-precise-store.bin
 2006 unalign/unalign.bin
-3013 wanshu/wanshu.bin
+2992 wanshu/wanshu.bin
 1533 wfi-boundary/wfi-boundary.bin
