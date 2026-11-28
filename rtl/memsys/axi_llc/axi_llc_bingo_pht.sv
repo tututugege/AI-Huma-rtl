@@ -89,7 +89,7 @@ module axi_llc_bingo_pht
       .MASK_W(1),
       .TAG   ("LLC_BINGO_PHTL")
     ) u_sram (
-      .clk  (clk),
+      .clk  (clk), .rst_n(rst_n),
       .en   (phtl_wr_en[w] || phtl_rd_en),
       .we   (phtl_wr_en[w]),
       .addr (phtl_wr_en[w] ? phtl_wr_idx : phtl_rd_idx),
@@ -105,7 +105,7 @@ module axi_llc_bingo_pht
       .MASK_W(1),
       .TAG   ("LLC_BINGO_PHTS")
     ) u_sram (
-      .clk  (clk),
+      .clk  (clk), .rst_n(rst_n),
       .en   (phts_wr_en[w] || phts_rd_en),
       .we   (phts_wr_en[w]),
       .addr (phts_wr_en[w] ? phts_wr_idx : phts_rd_idx),

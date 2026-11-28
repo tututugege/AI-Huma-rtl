@@ -219,6 +219,7 @@ module bpu_ftb_ex_tage import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stag
       .TAG     ("BPU_AH_EX_TAGE")
     ) u_tbl (
       .clk         (clk),
+      .rst_n       (rst_n),
       .rd0_en      (rd_en && !rd_sup[t]),
       .rd0_addr    (rd_ix.idx[t]),
       .rd0_data    (tbl_rd0[t]),

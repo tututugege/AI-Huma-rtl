@@ -12,7 +12,7 @@ depth: soc_xbar 75 层（100,853 cells）；全部片上外设 ≤72 层（eda-0
 ## 1. 职责
 
 面向未来流片与 FPGA 原型的真实芯片顶层。将 `core_top` 与 `mem_top #(.EXT_MMIO_EN(1'b1))` 封装为核子系统，并在外层接入全套真实可综合片上基础设施：
-- **时钟/复位管理（`soc_crg`）**：2-FF 异步复位同步释放（`soc_rst_sync`），支持 `por_rst_n`、`ext_ndmreset`（为 v2 JTAG Debug Module 预留）、`sw_rst_req` 复位合并及 DFT `dft_test_mode`/`dft_scan_en` 旁路钩子；将慢速异步 `clk_rtc` 边沿经 3-FF CDC（`soc_cdc_pulse`）转为 `clk_core` 域单拍 `rtc_tick`。
+- **时钟/复位管理（`soc_crg`）**：2-FF 异步复位同步释放（`soc_rst_sync`），支持 `por_rst_n`、`ext_ndmreset`（为 v2 JTAG Debug Module 预留）、`sw_rst_req` 复位合并及 DFT `dft_test_mode`/`dft_scan_en` 旁路钩子；同步释放后再经 `ttg_rst_sweep` 保持 `SRAM_SWEEP_CYCLES`（4100）拍，让所有 SRAM 包装在复位里把阵列清成初值（`common.md` 4.1 节；软复位同样重新清零，`soc_sram` 不清；DFT 测试模式旁路展宽）；将慢速异步 `clk_rtc` 边沿经 3-FF CDC（`soc_cdc_pulse`）转为 `clk_core` 域单拍 `rtc_tick`。
 - **真实双层 Full-AXI4 互连（`soc_axi` + `soc_xbar`，详见 [soc_axi.md](soc_axi.md)）**：
   - **Tier-1（256-bit System AXI4 Crossbar）**：核 LLC 出口经 5 通道寄存器切片（`soc_axi_reg_slice`）隔离时序后进入 1M×2S 交叉开关（支持 16 读在途）。`S0`（DDR）经可参数化多在途位宽转换器（`soc_axi_downsizer`，256b → `DDR_DATA_W` = 64/128/256b）与输出 `soc_axi_reg_slice` 直出芯片引脚；`S1`（片上空间）经 256b→64b `soc_axi_downsizer` 进入 Tier-2（支持 LLC 对片上 SRAM/BootROM 的读写突发）。
   - **Tier-2（64-bit On-Chip AXI4 Crossbar）**：2M（M0 = 核独立 64b Full-AXI4 MMIO，彻底绕开 LLC；M1 = Tier-1 片上通路）× 3S（原生 Full-AXI4 突发 `soc_bootrom`、原生 Full-AXI4 突发 64 KiB `soc_sram`、`soc_axi_to_lite` 外设桥）+ 内置多拍突发 `DECERR` 从口。

@@ -1,7 +1,7 @@
 ---
 module: common
 area: core
-rtl: rtl/common（ttg_cfg_pkg.sv、fp_pkg.sv、ttg_first_set.sv、ttg_onehot_mux.sv、ttg_onehot_to_idx.sv、ttg_popcount.sv）
+rtl: rtl/common（ttg_cfg_pkg.sv、fp_pkg.sv、ttg_first_set.sv、ttg_onehot_mux.sv、ttg_onehot_to_idx.sv、ttg_popcount.sv；sram/ttg_sram_pkg.sv、ttg_sram_1rw.sv、ttg_sram_1r1w.sv、ttg_rst_sweep.sv）
 model: 配置包对应 trace-model include/config.h（经 harness/tools/gen_cfg_pkg.py 取值）；fp_pkg 的 FP 延迟取自同一份 config.h；四个小原语是 RTL 独有，模型里没有对应
 status: 原语有穷举测试（make prims）；配置包与 config.h 不是机器同步的（见第 2 节），整核周期与模型逐个相等（最近一次提交 60ed422 的提交信息记 fm_gate 67/67、周期等于 scripts/ref_cycles_memiq6_nr_int2_ev5.txt；本次写文档没有重跑）
 depth: 待测（由协调者补）
@@ -64,6 +64,19 @@ depth: 待测（由协调者补）
 | `ttg_onehot_to_idx.sv` | 20 | 独热转下标 |
 | `ttg_popcount.sv` | 19 | 数 1 的个数 |
 
+### 4.1 SRAM 原语与复位清零（`rtl/common/sram`，2026-11-28）
+
+`ttg_sram_1rw`（单口）/ `ttg_sram_1r1w`（伪双口，`WRITE_FIRST` 可选）是全芯片 SRAM 的唯一封装；阵列本身没有复位。以前阵列的初值来自 `` `ifndef SYNTHESIS `` 里的 `initial`：普通仿真是 `INIT_VAL`，`-DSYNTHESIS` 仿真由 Verilator 置 0（或 `--x-initial unique` 随机），真实芯片是随机上电值，三者不一致。设计依赖初值的地方（LLC 的 `valid / dirty / pf / repl`、BPU / ITT 表、DCache tag 等）在芯片上会出错，例如 LLC 随机上电产生假命中和把脏行乱写回 DDR。
+
+做法（端口加 `rst_n`，参数加 `INIT_SWEEP`，默认 1）：
+
+- `rst_n` 为低时，包装把 `INIT_VAL` 写到 `mem[sw_q]`，`sw_q` 每拍加 1、到 `DEPTH-1` 后回 0。`sw_q` **故意不复位**：上电时是任意值，只要复位持续 `DEPTH + 1` 拍，每个地址都至少被写一次（起点超出范围时第一拍回 0）。清零期间写口被占用，1R1W 的读使能被压住；包装外的逻辑都在复位里，不访问 SRAM。
+- 删除了 `initial`：仿真、综合和芯片从同一个状态开始。
+- `ttg_sram_pkg::SRAM_SWEEP_CYCLES = 4100`（最深的清零表是 LLC 的 4096 组）。每个 `INIT_SWEEP=1` 的包装在展开时检查 `DEPTH + 1 <= SRAM_SWEEP_CYCLES`，不满足就 `$error`。
+- `ttg_rst_sweep`：复位展宽，外部复位释放后再保持 `SRAM_SWEEP_CYCLES` 拍，输出 `rst_n_o` 和 `init_done`。`soc_top`（`core_tb` 的顶层）用它给 `core_top` / `mem_top` 产生复位，并导出 `init_done`；`chip_top` 的 `soc_crg` 用它展宽 `sys_rst_n`（DFT 测试模式下旁路）。
+- `soc_sram`（软件可见的 64 KiB 片上 RAM，测试台会预装内容）设 `INIT_SWEEP = 0`。
+- 测试台 `tb/core/core_tb.cpp`：外部复位 3 拍后一直跑到 `init_done`，这些拍不计入周期，DDR / 外设模型和各种监视从 `init_done` 之后的第一拍开始，所以和模型比的周期不变。`SOC_TB_RAND_INIT=<seed>`（需要 `SOC_XINIT_UNIQUE=1` 编的测试台）给所有没有复位的寄存器和存储随机上电值。
+
 `ttg_first_set` 的写法：`pre[0] = req`，`pre[s+1] = pre[s] | (pre[s] << 2^s)`，共 `⌈log2 N⌉` 级，`onehot = req & ~(pre[最后一级] << 1)`。头注释说明理由：`req & -req` 功能相同，但是一条 N 位的进位链，N 层门深。其他三个都是单个 `always_comb` 的循环。
 
 ## 5. 一拍内的数据流
@@ -91,6 +104,7 @@ depth 待测（由协调者补）。从代码读出的、未综合验证的情�
 
 - **原语的穷举测试**：`make prims`（`Makefile`：Verilator 编 `rtl/common/ttg_*.sv` + `tests/common/prims_tb.sv`，运行 `build/prims/Vprims_tb`，期望输出 `PRIMS PASS`）。它对 `N = 6` 的全部 2^6 种输入检查 `ttg_first_set`、`ttg_onehot_to_idx`、`ttg_popcount`（`CW = 4`）、`ttg_onehot_mux`（`W = 8`）与参考算法一致；`N` 只测了 6，其他 N（特别是大的 N，如 16、32、64）没有覆盖。本次没有运行它。
 - **整核门禁**：`scripts/fm_gate.sh` 67 个程序，周期对 `scripts/ref_cycles_memiq6_nr_int2_ev5.txt`；`scripts/lint_chip.sh`（原语和配置包都在整芯片 lint 范围内；`PR=$(find rtl/common -name 'ttg_*.sv' ...)` 单独列入）。
+- **SRAM 复位清零（4.1 节）**：`SOC_XINIT_UNIQUE=1 CORE_VOPT=-DSYNTHESIS` 编的 `core_tb`，`SOC_TB_RAND_INIT=7 / 11 / 12345` 下 `fm_gate.sh` 都是 77/77、周期与 `ref_cycles.txt` 0 处不同（2026-11-28，fe-2ahead）。改之前同样配置下 coremark 随种子变成 289,640 / 296,512 拍（全 0 初值 285,752）。
 - **配置包**：没有自动检查它与 `config.h` 的一致性。**待补**：一个脚本，用固定的 `-D` 列表跑生成器并与检入文件比较（见第 2 节的待办）。
 - `fp_pkg`：没有独立测试；`tests/fp_gate`、`tests/fp_decode`、`tests/fp_chain` 等 FP 测试经过 FP 单元间接使用它，本次没有核对它们各自测什么。
 
@@ -100,6 +114,7 @@ depth 待测（由协调者补）。从代码读出的、未综合验证的情�
 
 ## 10. 变更记录
 
+- 2026-11-28（`rtl/fe-2ahead`）：SRAM 复位清零（4.1 节）：包装加 `rst_n` / `INIT_SWEEP`，删除 `initial`；新增 `ttg_sram_pkg`、`ttg_rst_sweep`；`soc_top` / `soc_crg` 复位展宽 `SRAM_SWEEP_CYCLES` 拍。
 - `261bd67..HEAD` 里 `rtl/common` 的改动（均为配置包）：`b9ae0d5`（共享 AGU：`LSU_AGU_SHARED`、`LSU_AGU_PHYS`）、`237738c` / `120701a`（合并的内存发射队列、6 条入队 lane、`MEM_AGE`）、`0e82d3f`（`IQ_SAME_CYCLE_REUSE`）、`6d7ed85`（两个 INT 队列：`INT_CLUSTERS`、`IQ_INT_SIZE`、`IQ_INT_ENQ_WIDTH`）、`2e6acb6`（去掉 `MEM_MERGE`、`IQ_LD_*`、`IQ_STA_*`）；另有 `1db84c7` 及其回退 `ad24170`。
 - 更早：见 git 历史。
 - 2026-11-28（`rtl/iss-rr`，0 周期变化）：`ttg_popcount` 综合树改用逐层收窄位宽加法器（第 `d` 层仅取 `min(d+1, CW)` 比特做 `min(d+2, CW)` 比特加法，消除叶层全宽 `CW` 进位链；`tests/common_prims` 与仿真路径保持逐位等价）。

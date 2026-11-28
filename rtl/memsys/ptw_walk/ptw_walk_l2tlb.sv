@@ -245,7 +245,7 @@ module ptw_walk_l2tlb import memcpu_pkg::*; import ttg_cfg_pkg::*; (
       .MASK_W(1),
       .TAG   ("L2TLB_STLB")
     ) u_sram (
-      .clk  (clk),
+      .clk  (clk), .rst_n(rst_n),
       .en   (bank_we || bank_re),
       .we   (bank_we),
       .addr (bank_we ? wr_stlb_idx : lk_rd_idx),

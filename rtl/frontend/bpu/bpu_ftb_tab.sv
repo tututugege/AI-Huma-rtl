@@ -264,7 +264,7 @@ module bpu_ftb_tab import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
     .W(SET_BITS), .DEPTH(SETS), .NB(NB), .MASK_W(WAYS),
     .HAS_RST(1'b0), .HAS_CLR_RD(1'b1), .HOLD_RD0(1'b0), .TAG(TAG)
   ) u_mem (
-    .clk(clk),
+    .clk(clk), .rst_n(rst_n),
     .rd0_en(rd_en), .rd0_addr(rd_set0), .rd0_data(raw_rd0),
     .clr_rd_en(clr_rd_fire), .clr_rd_addr(clr_rd_set), .clr_rd_data(raw_clr_rd),
     .wr_en(sram_wr_en), .wr_addr(sram_wr_addr), .wr_data(sram_wr_data), .wr_wmask(sram_wr_wmask),

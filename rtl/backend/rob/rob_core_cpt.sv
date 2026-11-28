@@ -279,7 +279,7 @@ module rob_core_cpt
       .WRITE_FIRST(1'b1),
       .TAG        ("ROB_INST_WORD")
     ) u_inst_sram (
-      .clk  (clk),
+      .clk  (clk), .rst_n(rst_n),
       .re   (head_d[BW-1:0] == BW'(b)),
       .raddr(head_d[IW-1:BW]),
       .rdata(bank_inst_rd[b]),

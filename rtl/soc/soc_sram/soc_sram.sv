@@ -193,9 +193,9 @@ module soc_sram import soc_axi_pkg::*; #(
   end
 
   ttg_sram_1rw #(
-    .DEPTH(WORDS), .WIDTH(64), .MASK_W(8), .TAG("SOC_SRAM_64KB")
+    .DEPTH(WORDS), .WIDTH(64), .MASK_W(8), .INIT_SWEEP(1'b0), .TAG("SOC_SRAM_64KB")   // software RAM: not cleared
   ) u_sram_mem (
-    .clk(clk),
+    .clk(clk), .rst_n(rst_n),
     .en(sram_wr_en || sram_rd_en),
     .we(sram_wr_en),
     .addr(sram_wr_en ? sram_wr_idx : sram_rd_idx),

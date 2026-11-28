@@ -70,7 +70,7 @@ module bpu_ftb_brq import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
     .WRITE_FIRST(1'b1),
     .TAG        ("BPU_FTB_REC")
   ) u_rec (
-    .clk  (clk),
+    .clk  (clk), .rst_n(rst_n),
     .re   (cnt_d != '0),
     .raddr(next_rec_id),
     .rdata(rec_rd_raw),

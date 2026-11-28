@@ -127,7 +127,7 @@ module dcache_bank
       .WRITE_FIRST(1'b1),
       .TAG        ("DCACHE_TAG")
     ) u_tag_sram (
-      .clk  (clk),
+      .clk  (clk), .rst_n(rst_n),
       .re   (sram_re),
       .raddr(sram_rrow),
       .rdata(rd_tag[w]),
@@ -144,7 +144,7 @@ module dcache_bank
       .WRITE_FIRST(1'b1),
       .TAG        ("DCACHE_DATA")
     ) u_data_sram (
-      .clk  (clk),
+      .clk  (clk), .rst_n(rst_n),
       .re   (sram_re),
       .raddr(sram_rrow),
       .rdata(rd_line[w]),

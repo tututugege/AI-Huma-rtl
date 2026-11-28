@@ -122,6 +122,7 @@ module bpu_ftb_itt import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pk
       .TAG     (TAG)
     ) u_mem (
       .clk         (clk),
+      .rst_n       (rst_n),
       .rd0_en      (rd_en && !rd_sup[k]),
       .rd0_addr    (rd_ix.idx[k][IDX_W-1:0]),
       .rd0_data    (rd0_raw[k]),

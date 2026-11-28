@@ -5,6 +5,7 @@
 // Written once at BPU S2 (s2_ptr); pre-launched every cycle for the 8-bank commit window [next_comm_ptr .. next_comm_ptr+7].
 module ftq_meta import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; (
   input  logic                        clk,
+  input  logic                        rst_n,   // SRAM sweep (ttg_sram_1r1w INIT_SWEEP)
   input  logic                        wr_en,
   input  logic [FTQ_IDX_WIDTH-1:0]    wr_idx,
   input  logic [BLK_ID_W-1:0]         wr_blk_id,
@@ -57,7 +58,7 @@ module ftq_meta import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; (
       .WRITE_FIRST(1'b1),
       .TAG        ("FTQ_META")
     ) u_sram (
-      .clk  (clk),
+      .clk  (clk), .rst_n(rst_n),
       .re   (1'b1),
       .raddr(raddr),
       .rdata(bank_rd[b]),

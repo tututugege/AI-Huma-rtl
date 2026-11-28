@@ -185,11 +185,11 @@ module icache_arr import icache_pkg::*; (
   end
 
   ttg_sram_1rw #(.DEPTH(DATA_DEPTH), .WIDTH(HALF_W), .MASK_W(1), .TAG("ICACHE_DATA_LO")) u_data_lo (
-    .clk(clk), .en(lo_en), .we(eff_we), .addr(lo_addr),
+    .clk(clk), .rst_n(rst_n), .en(lo_en), .we(eff_we), .addr(lo_addr),
     .wdata(eff_w_line[HALF_W-1:0]), .wmask(1'b1), .rdata(lo_rdata)
   );
   ttg_sram_1rw #(.DEPTH(DATA_DEPTH), .WIDTH(HALF_W), .MASK_W(1), .TAG("ICACHE_DATA_HI")) u_data_hi (
-    .clk(clk), .en(hi_en), .we(eff_we), .addr(hi_addr),
+    .clk(clk), .rst_n(rst_n), .en(hi_en), .we(eff_we), .addr(hi_addr),
     .wdata(eff_w_line[IC_LINE_W-1:HALF_W]), .wmask(1'b1), .rdata(hi_rdata)
   );
 

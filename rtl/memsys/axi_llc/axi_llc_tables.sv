@@ -43,7 +43,7 @@ module axi_llc_tables
       .WRITE_FIRST(1'b1),
       .TAG        ("LLC_DATA")
     ) u_data_sram (
-      .clk  (clk),
+      .clk  (clk), .rst_n(rst_n),
       .re   (pv_q[1]),
       .raddr(p2_q),
       .rdata(lk_line[w]),
@@ -60,7 +60,7 @@ module axi_llc_tables
       .WRITE_FIRST(1'b1),
       .TAG        ("LLC_TAG")
     ) u_tag_sram (
-      .clk  (clk),
+      .clk  (clk), .rst_n(rst_n),
       .re   (pv_q[1]),
       .raddr(p2_q),
       .rdata(lk_t[w]),
@@ -79,7 +79,7 @@ module axi_llc_tables
     .WRITE_FIRST(1'b1),
     .TAG        ("LLC_VALID")
   ) u_valid_sram (
-    .clk  (clk),
+    .clk  (clk), .rst_n(rst_n),
     .re   (pv_q[1]),
     .raddr(p2_q),
     .rdata(lk_v),
@@ -96,7 +96,7 @@ module axi_llc_tables
     .WRITE_FIRST(1'b1),
     .TAG        ("LLC_DIRTY")
   ) u_dirty_sram (
-    .clk  (clk),
+    .clk  (clk), .rst_n(rst_n),
     .re   (pv_q[1]),
     .raddr(p2_q),
     .rdata(lk_d),
@@ -113,7 +113,7 @@ module axi_llc_tables
     .WRITE_FIRST(1'b1),
     .TAG        ("LLC_PF")
   ) u_pf_sram (
-    .clk  (clk),
+    .clk  (clk), .rst_n(rst_n),
     .re   (pv_q[1]),
     .raddr(p2_q),
     .rdata(lk_pf),
@@ -130,7 +130,7 @@ module axi_llc_tables
     .WRITE_FIRST(1'b1),
     .TAG        ("LLC_REPL")
   ) u_repl_sram (
-    .clk  (clk),
+    .clk  (clk), .rst_n(rst_n),
     .re   (pv_q[1]),
     .raddr(p2_q),
     .rdata(lk_repl),

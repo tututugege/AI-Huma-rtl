@@ -112,7 +112,7 @@ module bpu import ttg_cfg_pkg::*; import bpu_pkg::*; import bpu_stage_pkg::*; im
   ttg_sram_1r1w #(
     .DEPTH(FTB_RF_REC_N), .WIDTH(RF_BITS), .MASK_W(1), .WRITE_FIRST(1'b1), .TAG("BPU_RF_REC")
   ) u_rf_rec (
-    .clk, .re(1'b1), .raddr(next_rf_blk[FTB_RF_REC_W-1:0]), .rdata(rf_rd_raw),
+    .clk, .rst_n(rst_n), .re(1'b1), .raddr(next_rf_blk[FTB_RF_REC_W-1:0]), .rdata(rf_rd_raw),
     .we(d_valid), .waddr(blk_seq_q[FTB_RF_REC_W-1:0]), .wdata(RF_BITS'(rf_wd)), .wmask(1'b1)
   );
 

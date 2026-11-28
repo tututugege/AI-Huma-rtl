@@ -234,7 +234,7 @@ module ftq_ibuf import ttg_cfg_pkg::*; import ftq_ibuf_pkg::*; import front_pkg:
   );
 
   ftq_meta u_meta (
-    .clk,
+    .clk, .rst_n,
     .wr_en         (s2_wr_eff),
     .wr_idx        (s2_ptr),
     .wr_blk_id     (fe2ftq_s2.blk_id),

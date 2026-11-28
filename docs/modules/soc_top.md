@@ -38,6 +38,7 @@ depth: 仅顶层连线（见 core_top / mem_top）
 | 出 | `env_rd_en / env_rd_addr / env_rd_func3` | 对外设模型的读请求 |
 | 出 | `d_arvalid / id / addr / len`、`d_awvalid / id / addr / len`、`d_wvalid / data / strb / last`、`d_rready`、`d_bready` | DDR 主口 |
 | 出 | `phase0` | 访存域的"CPU 周期第 0 个 tick"（现行恒为 1） |
+| 出 | `init_done` | 复位展宽结束（`ttg_rst_sweep`）：外部 `rst_n` 释放后再过 `SRAM_SWEEP_CYCLES`（4100）拍为 1；测试台从这之后开始计周期（`common.md` 4.1 节） |
 | 出 | 退休流和重定向 | 见上；给测试平台逐条对比 |
 
 PMU 事件总线（`core_top` 里的 `pmu_ev_inc`）**没有**出现在 `soc_top` 的端口上，测试平台通过 `tb/soc/pmu_public.vlt` 声明的 public 变量按层次名读（`soc_top__DOT__u_core__DOT__pmu_ev_inc`，`tb/soc/soc_tb.cpp`）。
@@ -87,9 +88,11 @@ depth 待测（由协调者补）。本模块只有连线，没有逻辑；整�
 
 ## 9. 参数与开关速查
 
-`PF_EN`（`soc_top` 参数，默认 1）；测试平台环境变量 `SOC_TB_FM`、`SOC_TB_SEMIHOST`、`SOC_TB_PMU`、`SOC_TB_LOG` 等（见 `tb/core/core_tb.cpp`）；构建开关 `SOC_FM`、`SOC_XLEN`、`CORE_VOPT`/`SOC_VOPT`（`tb/core/build.sh`）。
+`PF_EN`（`soc_top` 参数，默认 1）；测试平台环境变量 `SOC_TB_RAND_INIT`（随机上电值的种子，需 `SOC_XINIT_UNIQUE=1` 构建）、`SOC_TB_FM`、`SOC_TB_SEMIHOST`、`SOC_TB_PMU`、`SOC_TB_LOG` 等（见 `tb/core/core_tb.cpp`）；构建开关 `SOC_FM`、`SOC_XLEN`、`CORE_VOPT`/`SOC_VOPT`（`tb/core/build.sh`）。
 
 ## 10. 变更记录
+
+- 2026-11-28（`rtl/fe-2ahead`）：新增 `ttg_rst_sweep`，`core_top` / `mem_top` 的复位改用展宽后的 `core_rst_n`（SRAM 在复位里清零，`common.md` 4.1 节），新增输出 `init_done`；`core_tb` 跑到 `init_done` 才开始计周期，周期与模型不变（`fm_gate.sh` 77/77、0 周期差）。
 
 - 2026-11-26：测试台目录由 `tb/soc/`（`soc_tb`）更名为 `tb/core/`（`core_tb`），将 `tb/soc/`（`soc_tb`）让给真实全片 SoC `chip_top`；`soc_top` 端口与行为 100% 不变（`EXT_MMIO_EN=0`、`software_irq=0`），`fm_gate.sh` 77/77 PASS（0 周期差）。
 - 旧版文档（第 1~5 节的"锁步 / mutants / 16 tick 规则"）按 16 倍频方案写成，已按现行配置重写。

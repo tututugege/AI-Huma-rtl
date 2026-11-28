@@ -6,6 +6,7 @@ OUT=${AXI_UNIT_OUT:-$ROOT/build/axi_unit}; mkdir -p "$OUT"
 DDR_DATA_W=${DDR_DATA_W:-64}
 
 PKGS=(
+  "$ROOT/rtl/common/sram/ttg_sram_pkg.sv"
   "$ROOT/rtl/soc/soc_axi/soc_axi_pkg.sv"
   "$ROOT/rtl/soc/soc_pkg/soc_pkg.sv"
 )

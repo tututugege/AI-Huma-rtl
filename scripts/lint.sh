@@ -52,6 +52,9 @@ for d in "${DIRS[@]}"; do
     vlint "$base" "${AX[@]}" || exit 1
   elif [ "$d" = rtl/common ]; then
     for f in "${files[@]}"; do NOPRIMS=1 vlint "$(basename "$f" .sv)" "$f" || exit 1; done
+  elif [ "${d#rtl/common/}" != "$d" ]; then
+    # a primitive family under rtl/common (e.g. sram): its files are already in PRIMS; each file is a top
+    for f in "${files[@]}"; do NOPRIMS=1 vlint "$(basename "$f" .sv)" "${files[@]}" || exit 1; done
   elif [ -f "$d/$base.sv" ] || find "$d" -name "$base.sv" | grep -q .; then
     # one top named like the directory: its sub-modules are linted through the hierarchy
     vlint "$base" "${files[@]}" || exit 1

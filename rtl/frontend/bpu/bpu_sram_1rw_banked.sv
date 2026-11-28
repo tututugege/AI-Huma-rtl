@@ -16,6 +16,7 @@ module bpu_sram_1rw_banked #(
   /* verilator lint_on UNUSEDPARAM */
 ) (
   input  logic                     clk,
+  input  logic                     rst_n,   // array sweep to INIT while low (ttg_sram_1rw INIT_SWEEP)
   // Predict read port 0
   input  logic                     rd0_en,
   input  logic [$clog2(DEPTH)-1:0] rd0_addr,
@@ -116,7 +117,7 @@ module bpu_sram_1rw_banked #(
       .INIT_VAL(INIT),
       .TAG     (TAG)
     ) u_sram (
-      .clk  (clk),
+      .clk  (clk), .rst_n(rst_n),
       .en   (bk_en[b]),
       .we   (bk_we[b]),
       .addr (bk_addr[b]),

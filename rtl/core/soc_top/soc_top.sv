@@ -10,6 +10,7 @@ module soc_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*;
   input  logic clk,
   input  logic clk_cpu,
   input  logic rst_n,
+  output logic init_done,   // stretched reset released (SRAM sweep done); the testbench counts cycles from here
   input logic interrupt_inject_external_irq_pending,
   input logic interrupt_inject_external_irq_pending_valid,
   input logic interrupt_inject_supervisor_external_irq_pending,
@@ -159,14 +160,20 @@ module soc_top import ttg_cfg_pkg::*; import tlb_mmu_pkg::*;
   logic [63:0] unused_mmio_wdata;
   /* verilator lint_on UNUSEDSIGNAL */
 
+  // Reset stretcher: every SRAM wrapper clears its array while reset is low (docs/modules/common.md 4.1)
+  logic core_rst_n;
+  ttg_rst_sweep u_rst_sweep (.clk, .rst_n_i(rst_n), .rst_n_o(core_rst_n), .init_done);
+
   core_top u_core (
     .clk(clk_cpu),
+    .rst_n(core_rst_n),
     .interrupt_inject_software_irq_pending(1'b0),
     .interrupt_inject_software_irq_pending_valid(1'b0),
     .*
   );
   mem_top #(.PF_EN(PF_EN), .EXT_MMIO_EN(1'b0)) u_mem (
     .clk,
+    .rst_n(core_rst_n),
     .mmio_arready(1'b0), .mmio_rvalid(1'b0), .mmio_rid(4'd0), .mmio_rdata(64'd0), .mmio_rresp(2'd0), .mmio_rlast(1'b0),
     .mmio_awready(1'b0), .mmio_wready(1'b0), .mmio_bvalid(1'b0), .mmio_bid(4'd0), .mmio_bresp(2'd0),
     .mmio_arvalid(unused_mmio_arvalid), .mmio_rready(unused_mmio_rready),

@@ -193,6 +193,12 @@ int main(int argc, char **argv) {
   if (trace_path && !trace.open(trace_path)) { std::fprintf(stderr, "cannot read trace %s\n", trace_path); return 2; }
   int compare_fail = 0;
   Verilated::commandArgs(argc, argv);
+  // SOC_TB_RAND_INIT=<seed>: random power-on values of every register / memory without a reset (needs a testbench built with
+  // SOC_XINIT_UNIQUE=1); the same as +verilator+rand+reset+2 +verilator+seed+<seed>. 0 = all zero (the default).
+  if (const char *ri = std::getenv("SOC_TB_RAND_INIT")) {
+    const int seed = std::atoi(ri);
+    if (seed != 0) { Verilated::randReset(2); Verilated::randSeed(seed); }
+  }
   if (!pmem_init()) { std::fprintf(stderr, "pmem_init failed\n"); return 2; }
   std::vector<uint32_t> stub_words;   // restore program, also handed to the function model (its boot window is not RAM)
   load_image(argv[1]);
@@ -302,7 +308,10 @@ long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
 #define EVAL() do { auto e0 = std::chrono::steady_clock::now(); top->eval(); eval_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - e0).count(); ev_ns[ev_k++ & 3] += std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - e0).count(); ++eval_n; TDUMP(); } while (0)
   uint32_t env_modeled_prev = 0; uint64_t env_rdata_prev = 0;
   bool skip_request = false;
-  auto tick = [&](int phase) {
+    // false during reset and the SRAM sweep that follows it (soc_top init_done): the testbench models (DDR, peripherals, monitors)
+  // start with the first cycle after init_done, like the trace-model's first cycle
+  bool running = false;
+auto tick = [&](int phase) {
     // DDR slave outputs -> RTL
     ddr.comb_outputs();
     top->d_arready = ddr.io.ar.arready;
@@ -346,7 +355,7 @@ long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
     ddr.io.w.wlast = top->d_wlast;
     ddr.io.b.bready = top->d_bready;
     ddr.comb_inputs();
-    if (phase == 0 && top->rst_n && std::getenv("SOC_TB_DBG")) {
+    if (phase == 0 && running && std::getenv("SOC_TB_DBG")) {
       auto *R = top->rootp;
       std::fprintf(stderr, "[cyc %llu] mem_req v=%d a=%08x acc=%d resp_v=%d | dc_req v=%d a=%08x resp v=%d r=%d m=%d | ld v=%d%d%d%d a3=%08x | ldresp v=%d%d%d%d | st v=%d%d%d%d\n",
                    (unsigned long long)cycles + 1, R->soc_top__DOT__mem_req_valid, R->soc_top__DOT__mem_req_addr, R->soc_top__DOT__mem_req_accepted, R->soc_top__DOT__mem_resp_valid,
@@ -356,7 +365,7 @@ long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
                    R->soc_top__DOT__dcache2lsu_load_resps_valid[0], R->soc_top__DOT__dcache2lsu_load_resps_valid[1], R->soc_top__DOT__dcache2lsu_load_resps_valid[2], R->soc_top__DOT__dcache2lsu_load_resps_valid[3],
                    R->soc_top__DOT__lsu2dcache_store_ports_valid[0], R->soc_top__DOT__lsu2dcache_store_ports_valid[1], R->soc_top__DOT__lsu2dcache_store_ports_valid[2], R->soc_top__DOT__lsu2dcache_store_ports_valid[3]);
     }
-    if (phase == 0 && top->rst_n && trace_path && !compare_fail) {
+    if (phase == 0 && running && trace_path && !compare_fail) {
       static std::vector<uint8_t> gi(kInBytesProbe), go(kOutBytesProbe);
       static bool skipped_reset = false;
       uint8_t flags;
@@ -381,7 +390,7 @@ long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
       }
     }
 #if defined(SOC_TB_DEBUG) && defined(SOC_LSU_PIPE)
-    if (phase == 0 && top->rst_n && std::getenv("SOC_TB_LSUEVT")) {   // per-cycle LSU boundary events (same format as the model's LSU_PIPE_EVT)
+    if (phase == 0 && running && std::getenv("SOC_TB_LSUEVT")) {   // per-cycle LSU boundary events (same format as the model's LSU_PIPE_EVT)
       auto *R = top->rootp;
 #define LSUP(n) R->soc_top__DOT__u_core__DOT__u_back__DOT__u_lsu__DOT__u_pipe__DOT__##n
       std::fprintf(stderr, "E t=%llu wb:", (unsigned long long)cycles + 1);
@@ -427,7 +436,7 @@ long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
       std::fprintf(stderr, "\n");
     }
 #endif
-    if (phase == 0 && top->rst_n) {   // the CPU acts in tick 0: look at the retirement stream before the edge
+    if (phase == 0 && running) {   // the CPU acts in tick 0: look at the retirement stream before the edge
 #ifdef SOC_TB_FM
       if (const char *pw = std::getenv("SOC_TB_PTW")) { static const uint64_t t0 = std::strtoull(pw, nullptr, 0); if (cycles + 1 >= t0 && cycles + 1 <= t0 + 200) { auto &R = *top->rootp; const char *E = "soc_top__DOT__u_mem__DOT__u_ptw__DOT__u_engine"; (void)E;
         if (R.soc_top__DOT__u_mem__DOT__u_ptw__DOT__u_engine__DOT__issue_walk_read || R.soc_top__DOT__u_mem__DOT__u_ptw__DOT__u_engine__DOT__event_hit)
@@ -556,7 +565,7 @@ long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
         R->soc_top__DOT__dc_resp_valid, R->soc_top__DOT__dc_resp_miss);
     }
 #endif
-    if (fast_skip && (phase == 2 || phase == 3) && top->rst_n) {
+    if (fast_skip && (phase == 2 || phase == 3) && running) {
       // pre-edge state (inputs applied, comb settled) of tick 2 vs tick 3: equal and DDR idle => the whole cycle is a fixed point
       if (phase == 2) {
         for (const auto &k : keep) std::memcpy(snap.data() + k.first, reinterpret_cast<const uint8_t *>(top->rootp) + k.first, k.second);
@@ -576,13 +585,13 @@ long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
         }
       }
     }
-    if (top->rst_n) ddr.seq();   // the DDR model (and DRAMsim3's clock) starts with the first cycle after reset, like the trace-model
+    if (running) ddr.seq();   // the DDR model (and DRAMsim3's clock) starts with the first cycle after reset, like the trace-model
     top->clk = 1;
     if (phase == 0) top->clk_cpu = 1;
     EVAL();
     top->clk = 0;
     top->clk_cpu = 0;
-    if (phase == 0 && top->rst_n) {   // MemSubsystem::seq -> peripheral_model_.tick(); interrupts for the next cycle
+    if (phase == 0 && running) {   // MemSubsystem::seq -> peripheral_model_.tick(); interrupts for the next cycle
       periph.tick();
       top->interrupt_inject_external_irq_pending = irq.external_irq_pending;
       top->interrupt_inject_external_irq_pending_valid = irq.external_irq_pending_valid;
@@ -613,6 +622,13 @@ long long eval_ns = 0, eval_n = 0, ev_ns[4] = {0}, ev_k = 0;
   for (int c = 0; c < 3; ++c)
     for (int p = 0; p < kTicks; ++p) tick(p);
   top->rst_n = 1;
+  // SRAM sweep (docs/modules/common.md 4.1): soc_top keeps the design in reset until init_done; these cycles are not counted
+  uint64_t sweep_cycles = 0;
+  while (!top->init_done) {
+    for (int p = 0; p < kTicks; ++p) tick(p);
+    if (++sweep_cycles > 100000) { std::fprintf(stderr, "init_done never came\n"); return 2; }
+  }
+  running = true;
   const bool trace_cyc = std::getenv("SOC_TB_CYC") != nullptr;
   // SOC_TB_LOG=<n>: every n cycles print the cycle, the committed instructions, the last committed pc, the speed and (with a cycle cap) the time left
   const uint64_t log_every = std::getenv("SOC_TB_LOG") ? std::strtoull(std::getenv("SOC_TB_LOG"), nullptr, 0) : 0;
